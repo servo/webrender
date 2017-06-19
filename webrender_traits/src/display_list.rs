@@ -7,15 +7,15 @@ use bincode;
 use serde::{Deserialize, Serialize, Serializer};
 use serde::ser::{SerializeSeq, SerializeMap};
 use time::precise_time_ns;
-use {BorderDetails, BorderDisplayItem, BorderWidths, BoxShadowClipMode, BoxShadowDisplayItem};
+use {ImageMask, BorderDetails, BorderDisplayItem, BorderWidths, BoxShadowClipMode, BoxShadowDisplayItem};
 use {ClipAndScrollInfo, ClipDisplayItem, ClipId, ClipRegion, ColorF, ComplexClipRegion};
 use {DisplayItem, ExtendMode, FilterOp, FontKey, GlyphInstance, GlyphOptions, Gradient};
-use {GradientDisplayItem, GradientStop, IframeDisplayItem, ImageDisplayItem, ImageKey, ImageMask};
-use {ImageRendering, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, MixBlendMode};
-use {PipelineId, PropertyBinding, PushStackingContextDisplayItem, RadialGradient};
+use {GradientDisplayItem, GradientStop, IframeDisplayItem, ImageDisplayItem, ImageKey};
+use {ImageRendering, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D};
+use {MixBlendMode, PipelineId, PropertyBinding, PushStackingContextDisplayItem, RadialGradient};
 use {RadialGradientDisplayItem, RectangleDisplayItem, ScrollPolicy, SpecificDisplayItem};
 use {StackingContext, TextDisplayItem, TransformStyle, WebGLContextId, WebGLDisplayItem};
-use {YuvColorSpace, YuvData, YuvImageDisplayItem, LayoutVector2D};
+use {YuvColorSpace, YuvData, YuvImageDisplayItem};
 use std::marker::PhantomData;
 
 #[repr(C)]
@@ -127,13 +127,17 @@ impl BuiltDisplayList {
 
 impl<'a> BuiltDisplayListIter<'a> {
     pub fn new(list: &'a BuiltDisplayList) -> Self {
+        Self::new_with_list_and_data(list, &list.data)
+    }
+
+    pub fn new_with_list_and_data(list: &'a BuiltDisplayList, data: &'a [u8]) -> Self {
         BuiltDisplayListIter {
             list: list,
-            data: &list.data,
-            // Dummy data, will be overwritten by `next`
-            cur_item: DisplayItem {
+            data: &data,
+            cur_item: DisplayItem { // Will be overwritten by `next`.
                 item: SpecificDisplayItem::PopStackingContext,
                 rect: LayoutRect::zero(),
+                clip_rect: LayoutRect::zero(),
                 clip_and_scroll: ClipAndScrollInfo::simple(ClipId::new(0, PipelineId(0, 0))),
             },
             cur_stops: ItemRange::default(),
@@ -175,27 +179,20 @@ impl<'a> BuiltDisplayListIter<'a> {
                                     .expect("MEH: malicious process?");
 
             match self.cur_item.item {
-                SetClipRegion(clip) => {
-                    self.cur_clip = clip;
-                    let (clip_range, clip_count) = self.skip_slice::<ComplexClipRegion>();
-                    self.cur_clip.complex_clip_count = clip_count;
-                    self.cur_clip.complex_clips = clip_range;
-
-                    // This is a dummy item, skip over it
-                    continue;
-                }
                 SetGradientStops => {
                     self.cur_stops = self.skip_slice::<GradientStop>().0;
 
                     // This is a dummy item, skip over it
                     continue;
                 }
-                Text(_) => {
-                    self.cur_glyphs = self.skip_slice::<GlyphInstance>().0;
+                Clip(clip) => {
+                    self.cur_clip = clip.clip_region;
+                    let (clip_range, clip_count) = self.skip_slice::<ComplexClipRegion>();
+                    self.cur_clip.complex_clip_count = clip_count;
+                    self.cur_clip.complex_clips = clip_range;
                 }
-                PushStackingContext(_) => {
-                    self.cur_filters = self.skip_slice::<FilterOp>().0;
-                }
+                Text(_) => self.cur_glyphs = self.skip_slice::<GlyphInstance>().0,
+                PushStackingContext(_) => self.cur_filters = self.skip_slice::<FilterOp>().0,
                 _ => { /* do nothing */ }
             }
 
@@ -279,6 +276,10 @@ impl<'a, 'b> DisplayItemRef<'a, 'b> {
         self.iter.cur_item.rect
     }
 
+    pub fn clip_rect(&self) -> &LayoutRect {
+        &self.iter.cur_item.clip_rect
+    }
+
     pub fn clip_and_scroll(&self) -> ClipAndScrollInfo {
         self.iter.cur_item.clip_and_scroll
     }
@@ -307,24 +308,9 @@ impl<'a, 'b> DisplayItemRef<'a, 'b> {
         self.iter.display_list()
     }
 
-    // Creates a new iterator where this element's iterator
-    // is, to hack around borrowck.
+    // Creates a new iterator where this element's iterator is, to hack around borrowck.
     pub fn sub_iter(&self) -> BuiltDisplayListIter<'a> {
-        BuiltDisplayListIter {
-            list: self.iter.list,
-            data: self.iter.data,
-            // Dummy data, will be overwritten by `next`
-            cur_item: DisplayItem {
-                item: SpecificDisplayItem::PopStackingContext,
-                rect: LayoutRect::zero(),
-                clip_and_scroll: ClipAndScrollInfo::simple(ClipId::new(0, PipelineId(0, 0))),
-            },
-            cur_stops: ItemRange::default(),
-            cur_glyphs: ItemRange::default(),
-            cur_filters: ItemRange::default(),
-            cur_clip: ClipRegion::empty(),
-            peeking: Peek::NotPeeking,
-        }
+        BuiltDisplayListIter::new_with_list_and_data(self.iter.list, self.iter.data)
     }
 }
 
@@ -465,10 +451,11 @@ impl DisplayListBuilder {
         self.data = temp.data;
     }
 
-    fn push_item(&mut self, item: SpecificDisplayItem, rect: LayoutRect) {
+    fn push_item(&mut self, item: SpecificDisplayItem, rect: LayoutRect, clip_rect: LayoutRect) {
         bincode::serialize_into(&mut self.data, &DisplayItem {
             item: item,
             rect: rect,
+            clip_rect: clip_rect,
             clip_and_scroll: *self.clip_stack.last().unwrap(),
         }, bincode::Infinite).unwrap();
     }
@@ -477,6 +464,7 @@ impl DisplayListBuilder {
         bincode::serialize_into(&mut self.data, &DisplayItem {
             item: item,
             rect: LayoutRect::zero(),
+            clip_rect: LayoutRect::zero(),
             clip_and_scroll: *self.clip_stack.last().unwrap(),
         }, bincode::Infinite).unwrap();
     }
@@ -499,20 +487,17 @@ impl DisplayListBuilder {
         debug_assert_eq!(len, count);
     }
 
-    pub fn push_rect(&mut self,
-                     rect: LayoutRect,
-                     _token: ClipRegionToken,
-                     color: ColorF) {
+    pub fn push_rect(&mut self, rect: LayoutRect, clip_rect: LayoutRect, color: ColorF) {
         let item = SpecificDisplayItem::Rectangle(RectangleDisplayItem {
             color: color,
         });
 
-        self.push_item(item, rect);
+        self.push_item(item, rect, clip_rect);
     }
 
     pub fn push_image(&mut self,
                       rect: LayoutRect,
-                      _token: ClipRegionToken,
+                      clip_rect: LayoutRect,
                       stretch_size: LayoutSize,
                       tile_spacing: LayoutSize,
                       image_rendering: ImageRendering,
@@ -524,13 +509,13 @@ impl DisplayListBuilder {
             image_rendering: image_rendering,
         });
 
-        self.push_item(item, rect);
+        self.push_item(item, rect, clip_rect);
     }
 
     /// Push a yuv image. All planar data in yuv image should use the same buffer type.
     pub fn push_yuv_image(&mut self,
                           rect: LayoutRect,
-                          _token: ClipRegionToken,
+                          clip_rect: LayoutRect,
                           yuv_data: YuvData,
                           color_space: YuvColorSpace,
                           image_rendering: ImageRendering) {
@@ -539,22 +524,22 @@ impl DisplayListBuilder {
             color_space: color_space,
             image_rendering: image_rendering,
         });
-        self.push_item(item, rect);
+        self.push_item(item, rect, clip_rect);
     }
 
     pub fn push_webgl_canvas(&mut self,
                              rect: LayoutRect,
-                             _token: ClipRegionToken,
+                             clip_rect: LayoutRect,
                              context_id: WebGLContextId) {
         let item = SpecificDisplayItem::WebGL(WebGLDisplayItem {
             context_id: context_id,
         });
-        self.push_item(item, rect);
+        self.push_item(item, rect, clip_rect);
     }
 
     pub fn push_text(&mut self,
                      rect: LayoutRect,
-                     _token: ClipRegionToken,
+                     clip_rect: LayoutRect,
                      glyphs: &[GlyphInstance],
                      font_key: FontKey,
                      color: ColorF,
@@ -576,7 +561,7 @@ impl DisplayListBuilder {
                 glyph_options: glyph_options,
             });
 
-            self.push_item(item, rect);
+            self.push_item(item, rect, clip_rect);
             self.push_iter(glyphs);
         }
     }
@@ -588,8 +573,7 @@ impl DisplayListBuilder {
     // of the gradient line to where stop[0] and the end of the gradient line
     // to stop[n-1]. this function adjusts the stops in place, and returns
     // the amount to adjust the gradient line start and stop
-    fn normalize_stops(stops: &mut Vec<GradientStop>,
-                       extend_mode: ExtendMode) -> (f32, f32) {
+    fn normalize_stops(stops: &mut Vec<GradientStop>, extend_mode: ExtendMode) -> (f32, f32) {
         assert!(stops.len() >= 2);
 
         let first = *stops.first().unwrap();
@@ -755,7 +739,7 @@ impl DisplayListBuilder {
 
     pub fn push_border(&mut self,
                        rect: LayoutRect,
-                       _token: ClipRegionToken,
+                       clip_rect: LayoutRect,
                        widths: BorderWidths,
                        details: BorderDetails) {
         let item = SpecificDisplayItem::Border(BorderDisplayItem {
@@ -763,12 +747,12 @@ impl DisplayListBuilder {
             widths: widths,
         });
 
-        self.push_item(item, rect);
+        self.push_item(item, rect, clip_rect);
     }
 
     pub fn push_box_shadow(&mut self,
                            rect: LayoutRect,
-                           _token: ClipRegionToken,
+                           clip_rect: LayoutRect,
                            box_bounds: LayoutRect,
                            offset: LayoutVector2D,
                            color: ColorF,
@@ -786,12 +770,12 @@ impl DisplayListBuilder {
             clip_mode: clip_mode,
         });
 
-        self.push_item(item, rect);
+        self.push_item(item, rect, clip_rect);
     }
 
     pub fn push_gradient(&mut self,
                          rect: LayoutRect,
-                         _token: ClipRegionToken,
+                         clip_rect: LayoutRect,
                          gradient: Gradient,
                          tile_size: LayoutSize,
                          tile_spacing: LayoutSize) {
@@ -801,12 +785,12 @@ impl DisplayListBuilder {
             tile_spacing: tile_spacing,
         });
 
-        self.push_item(item, rect);
+        self.push_item(item, rect, clip_rect);
     }
 
     pub fn push_radial_gradient(&mut self,
                                 rect: LayoutRect,
-                                _token: ClipRegionToken,
+                                clip_rect: LayoutRect,
                                 gradient: RadialGradient,
                                 tile_size: LayoutSize,
                                 tile_spacing: LayoutSize) {
@@ -816,7 +800,7 @@ impl DisplayListBuilder {
             tile_spacing: tile_spacing,
         });
 
-        self.push_item(item, rect);
+        self.push_item(item, rect, clip_rect);
     }
 
     pub fn push_stacking_context(&mut self,
@@ -837,7 +821,7 @@ impl DisplayListBuilder {
             }
         });
 
-        self.push_item(item, bounds);
+        self.push_item(item, bounds, bounds);
         self.push_iter(&filters);
     }
 
@@ -853,11 +837,15 @@ impl DisplayListBuilder {
         self.push_iter(stops);
     }
 
-    pub fn define_clip(&mut self,
-                       content_rect: LayoutRect,
-                       _token: ClipRegionToken,
-                       id: Option<ClipId>)
-                       -> ClipId {
+    pub fn define_clip<I>(&mut self,
+                          id: Option<ClipId>,
+                          content_rect: LayoutRect,
+                          clip_rect: LayoutRect,
+                          complex_clips: I,
+                          image_mask: Option<ImageMask>)
+                          -> ClipId
+                          where I: IntoIterator<Item = ComplexClipRegion>,
+                                I::IntoIter: ExactSizeIterator {
         let id = match id {
             Some(id) => id,
             None => {
@@ -869,17 +857,23 @@ impl DisplayListBuilder {
         let item = SpecificDisplayItem::Clip(ClipDisplayItem {
             id: id,
             parent_id: self.clip_stack.last().unwrap().scroll_node_id,
+            clip_region: ClipRegion::new(&clip_rect, image_mask),
         });
 
-        self.push_item(item, content_rect);
+        self.push_item(item, content_rect, clip_rect);
+        self.push_iter(complex_clips);
         id
     }
 
-    pub fn push_clip_node(&mut self,
-                          content_rect: LayoutRect,
-                          token: ClipRegionToken,
-                          id: Option<ClipId>){
-        let id = self.define_clip(content_rect, token, id);
+    pub fn push_clip_node<I>(&mut self,
+                             id: Option<ClipId>,
+                             content_rect: LayoutRect,
+                             clip_rect: LayoutRect,
+                             complex_clips: I,
+                             image_mask: Option<ImageMask>)
+                             where I: IntoIterator<Item = ComplexClipRegion>,
+                                   I::IntoIter: ExactSizeIterator {
+        let id = self.define_clip(id, content_rect, clip_rect, complex_clips, image_mask);
         self.clip_stack.push(ClipAndScrollInfo::simple(id));
     }
 
@@ -900,9 +894,9 @@ impl DisplayListBuilder {
         self.pop_clip_id();
     }
 
-    pub fn push_iframe(&mut self, rect: LayoutRect, _token: ClipRegionToken, pipeline_id: PipelineId) {
+    pub fn push_iframe(&mut self, rect: LayoutRect, pipeline_id: PipelineId) {
         let item = SpecificDisplayItem::Iframe(IframeDisplayItem { pipeline_id: pipeline_id });
-        self.push_item(item, rect);
+        self.push_item(item, rect, rect);
     }
 
     // Don't use this function. It will go away.
@@ -912,29 +906,9 @@ impl DisplayListBuilder {
     // will replace references to the root scroll frame id with the current scroll frame
     // id.
     pub fn push_nested_display_list(&mut self, built_display_list: &BuiltDisplayList) {
-        self.push_clip_region(&LayoutRect::zero(), vec![], None);
         self.push_new_empty_item(SpecificDisplayItem::PushNestedDisplayList);
-
         self.data.extend_from_slice(&built_display_list.data);
-
-        self.push_clip_region(&LayoutRect::zero(), vec![], None);
         self.push_new_empty_item(SpecificDisplayItem::PopNestedDisplayList);
-    }
-
-    pub fn push_clip_region<I>(&mut self,
-                            rect: &LayoutRect,
-                            complex: I,
-                            image_mask: Option<ImageMask>)
-                            -> ClipRegionToken
-    where I: IntoIterator<Item = ComplexClipRegion>,
-          I::IntoIter: ExactSizeIterator,
-    {
-        self.push_new_empty_item(SpecificDisplayItem::SetClipRegion(
-            ClipRegion::new(rect, image_mask),
-        ));
-        self.push_iter(complex);
-
-        ClipRegionToken { _unforgeable: () }
     }
 
     pub fn finalize(self) -> (PipelineId, LayoutSize, BuiltDisplayList) {
@@ -951,7 +925,3 @@ impl DisplayListBuilder {
          })
     }
 }
-
-/// Verification that push_clip_region was called before
-/// pushing an item that requires it.
-pub struct ClipRegionToken { _unforgeable: () }

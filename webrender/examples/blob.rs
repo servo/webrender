@@ -46,11 +46,10 @@ fn deserialize_blob(blob: &[u8]) -> Result<ImageRenderingCommands, ()> {
 
 // This is the function that applies the deserialized drawing commands and generates
 // actual image data.
-fn render_blob(
-    commands: Arc<ImageRenderingCommands>,
-    descriptor: &wt::BlobImageDescriptor,
-    tile: Option<wt::TileOffset>,
-) -> wt::BlobImageResult {
+fn render_blob(commands: Arc<ImageRenderingCommands>,
+               descriptor: &wt::BlobImageDescriptor,
+               tile: Option<wt::TileOffset>)
+                -> wt::BlobImageResult {
     let color = *commands;
 
     // Allocate storage for the result. Right now the resource cache expects the
@@ -154,7 +153,7 @@ impl wt::BlobImageRenderer for CheckerboardRenderer {
     }
 
     fn request(&mut self,
-               resources: &wt::BlobImageResources,
+               _resources: &wt::BlobImageResources,
                request: wt::BlobImageRequest,
                descriptor: &wt::BlobImageDescriptor,
                _dirty_rect: Option<wt::DeviceUintRect>) {
@@ -210,14 +209,13 @@ impl wt::BlobImageRenderer for CheckerboardRenderer {
         // If we break out of the loop above it means the channel closed unexpectedly.
         Err(wt::BlobImageError::Other("Channel closed".into()))
     }
-    fn delete_font(&mut self, font: wt::FontKey) {}
+    fn delete_font(&mut self, _font: wt::FontKey) { }
 }
 
 fn body(api: &wt::RenderApi,
         builder: &mut wt::DisplayListBuilder,
         _pipeline_id: &wt::PipelineId,
-        layout_size: &wt::LayoutSize)
-{
+        layout_size: &wt::LayoutSize) {
     let blob_img1 = api.generate_image_key();
     api.add_image(
         blob_img1,
@@ -243,20 +241,18 @@ fn body(api: &wt::RenderApi,
                                   wt::MixBlendMode::Normal,
                                   Vec::new());
 
-    let clip = builder.push_clip_region(&bounds, vec![], None);
     builder.push_image(
         (30, 30).by(500, 500),
-        clip,
+        bounds,
         wt::LayoutSize::new(500.0, 500.0),
         wt::LayoutSize::new(0.0, 0.0),
         wt::ImageRendering::Auto,
         blob_img1,
     );
 
-    let clip = builder.push_clip_region(&bounds, vec![], None);
     builder.push_image(
         (600, 600).by(200, 200),
-        clip,
+        bounds,
         wt::LayoutSize::new(200.0, 200.0),
         wt::LayoutSize::new(0.0, 0.0),
         wt::ImageRendering::Auto,
@@ -266,9 +262,7 @@ fn body(api: &wt::RenderApi,
     builder.pop_stacking_context();
 }
 
-fn event_handler(_event: &glutin::Event,
-                 _api: &wt::RenderApi)
-{
+fn event_handler(_event: &glutin::Event, _api: &wt::RenderApi) {
 }
 
 fn main() {

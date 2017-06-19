@@ -43,6 +43,7 @@ impl ClipAndScrollInfo {
 pub struct DisplayItem {
     pub item: SpecificDisplayItem,
     pub rect: LayoutRect,
+    pub clip_rect: LayoutRect,
     pub clip_and_scroll: ClipAndScrollInfo,
 }
 
@@ -62,7 +63,6 @@ pub enum SpecificDisplayItem {
     PushStackingContext(PushStackingContextDisplayItem),
     PopStackingContext,
     SetGradientStops,
-    SetClipRegion(ClipRegion),
     PushNestedDisplayList,
     PopNestedDisplayList,
 }
@@ -71,6 +71,7 @@ pub enum SpecificDisplayItem {
 pub struct ClipDisplayItem {
     pub id: ClipId,
     pub parent_id: ClipId,
+    pub clip_region: ClipRegion,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]

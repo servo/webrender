@@ -7,8 +7,8 @@ use mask_cache::{ClipSource, MaskCacheInfo};
 use prim_store::GpuBlock32;
 use renderer::VertexDataStore;
 use spring::{DAMPING, STIFFNESS, Spring};
-use tiling::PackedLayerIndex;
-use util::{MatrixHelpers, TransformedRectKind};
+use tiling::{DisplayListMap, PackedLayerIndex};
+use util::{ComplexClipRegionHelpers, MatrixHelpers, TransformedRectKind};
 use webrender_traits::{ClipId, ClipRegion, DeviceIntRect, LayerPixel, LayerPoint, LayerRect};
 use webrender_traits::{LayerSize, LayerToScrollTransform, LayerToWorldTransform, PipelineId};
 use webrender_traits::{ScrollClamping, ScrollEventPhase, ScrollLocation};
@@ -49,7 +49,6 @@ impl ClipInfo {
                packed_layer_index: PackedLayerIndex)
                -> ClipInfo {
         let clip_sources = vec![ClipSource::Region(clip_region.clone())];
-
         ClipInfo {
             mask_cache_info: MaskCacheInfo::new(&clip_sources, clip_store),
             clip_sources: clip_sources,
@@ -411,6 +410,38 @@ impl ClipScrollNode {
             }
             _ => false,
         }
+    }
+
+    pub fn find_unclipped_rectangle(&self,
+                                    display_lists: &DisplayListMap,
+                                    rect: &LayerRect)
+                                    -> Option<LayerRect> {
+        let clip_sources = match self.node_type {
+            NodeType::Clip(ref clip_info) => &clip_info.clip_sources,
+            _ => return None,
+        };
+
+        let clip_region = match clip_sources.last() {
+            Some(&ClipSource::Region(ref clip_region)) if clip_sources.len() == 1 => clip_region,
+            _ => return None,
+        };
+
+        if clip_region.image_mask.is_some() || clip_region.complex_clips.is_empty() {
+            return None;
+        }
+
+        let offset = &self.local_viewport_rect.origin.to_vector();
+        let display_list = display_lists.get(&self.pipeline_id).expect("No display list?");
+        let complex_clips = display_list.get(clip_region.complex_clips);
+
+        let base_rect = clip_region.main.translate(offset).intersection(rect);
+        complex_clips.fold(base_rect, |inner_combined, ccr| {
+            inner_combined.and_then(|combined| {
+                ccr.get_inner_rect_full().and_then(|ir| {
+                    ir.translate(offset).intersection(&combined)
+                })
+            })
+        })
     }
 }
 
