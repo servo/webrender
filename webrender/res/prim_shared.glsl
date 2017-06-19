@@ -89,16 +89,9 @@ vec2 clamp_rect(vec2 point, RectWithSize rect) {
     return clamp(point, rect.p0, rect.p0 + rect.size);
 }
 
-RectWithEndpoint intersect_rect(RectWithEndpoint a, RectWithEndpoint b) {
-    vec2 p0 = clamp(a.p0, b.p0, b.p1);
-    vec2 p1 = clamp(a.p1, b.p0, b.p1);
-    return RectWithEndpoint(p0, max(p0, p1));
-}
-
 RectWithSize intersect_rect(RectWithSize a, RectWithSize b) {
-    RectWithEndpoint r = intersect_rect(to_rect_with_endpoint(a),
-                                        to_rect_with_endpoint(b));
-    return to_rect_with_size(r);
+    vec4 p = clamp(vec4(a.p0, a.p0 + a.size), b.p0.xyxy, b.p0.xyxy + b.size.xyxy);
+    return RectWithSize(p.xy, max(vec2(0.0), p.zw - p.xy));
 }
 
 float distance_to_line(vec2 p0, vec2 perp_dir, vec2 p) {
