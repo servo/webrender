@@ -283,6 +283,13 @@ impl MaskCacheInfo {
                     inner: Some(LayerRect::zero().into()),
                 }
             } else {
+                // TODO(gw): local inner is only valid if there's a single clip (for now).
+                // This can be improved in the future, with some proper
+                // rectangle region handling.
+                if sources.len() > 1 {
+                    local_inner = None;
+                }
+
                 MaskBounds {
                     outer: Some(local_rect.unwrap_or(LayerRect::zero()).into()),
                     inner: Some(local_inner.unwrap_or(LayerRect::zero()).into()),

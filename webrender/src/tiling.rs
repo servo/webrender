@@ -1621,9 +1621,15 @@ impl PackedLayer {
         Default::default()
     }
 
-    pub fn set_transform(&mut self, transform: LayerToWorldTransform) {
+    pub fn set_transform(&mut self, transform: LayerToWorldTransform) -> bool {
         self.transform = transform;
-        self.inv_transform = self.transform.inverse().unwrap();
+        match self.transform.inverse() {
+            Some(inv) => {
+                self.inv_transform = inv;
+                true
+            }
+            None => false,
+        }
     }
 
     pub fn set_rect(&mut self,

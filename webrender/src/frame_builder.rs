@@ -1552,16 +1552,20 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             // the packed layer.
             let transform = node.world_viewport_transform
                 .pre_translate(node.local_viewport_rect.origin.to_vector().to_3d());
-            packed_layer.set_transform(transform);
 
-            // Meanwhile, the combined viewport rect is relative to the reference frame, so
-            // we move it into the local coordinate system of the node.
-            let local_viewport_rect = node.combined_local_viewport_rect
-                .translate(&-node.local_viewport_rect.origin.to_vector());
+            node_clip_info.screen_bounding_rect = if packed_layer.set_transform(transform) {
+                // Meanwhile, the combined viewport rect is relative to the reference frame, so
+                // we move it into the local coordinate system of the node.
+                let local_viewport_rect = node.combined_local_viewport_rect
+                    .translate(&-node.local_viewport_rect.origin.to_vector());
 
-            node_clip_info.screen_bounding_rect = packed_layer.set_rect(&local_viewport_rect,
-                                                                        self.screen_rect,
-                                                                        self.device_pixel_ratio);
+                packed_layer.set_rect(&local_viewport_rect,
+                                      self.screen_rect,
+                                      self.device_pixel_ratio)
+            } else {
+                None
+            };
+
             let inner_rect = match node_clip_info.screen_bounding_rect {
                 Some((_, rect)) => rect,
                 None => DeviceIntRect::zero(),
@@ -1605,9 +1609,8 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             // so we translate into the origin of the stacking context itself.
             let transform = scroll_node.world_content_transform
                 .pre_translate(stacking_context.reference_frame_offset.to_3d());
-            packed_layer.set_transform(transform);
 
-            if !stacking_context.can_contribute_to_scene() {
+            if !packed_layer.set_transform(transform) || !stacking_context.can_contribute_to_scene() {
                 return;
             }
 

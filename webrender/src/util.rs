@@ -354,3 +354,22 @@ pub fn recycle_vec<T>(mut old_vec: Vec<T>) -> Vec<T> {
 
     return old_vec;
 }
+
+
+#[cfg(test)]
+pub mod test {
+    use super::*;
+    use euclid::{Point2D, Radians, Transform3D};
+    use std::f32::consts::PI;
+
+    #[test]
+    fn inverse_project() {
+        let m0 = Transform3D::identity();
+        let p0 = Point2D::new(1.0, 2.0);
+        // an identical transform doesn't need any inverse projection
+        assert_eq!(m0.inverse_project(&p0), Some(p0));
+        let m1 = Transform3D::create_rotation(0.0, 1.0, 0.0, Radians::new(PI / 3.0));
+        // rotation by 60 degrees would imply scaling of X component by a factor of 2
+        assert_eq!(m1.inverse_project(&p0), Some(Point2D::new(2.0, 2.0)));
+    }
+}
