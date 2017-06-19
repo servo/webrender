@@ -20,8 +20,7 @@ use webrender_traits::*;
 fn body(_api: &RenderApi,
         builder: &mut DisplayListBuilder,
         pipeline_id: &PipelineId,
-        layout_size: &LayoutSize)
-{
+        layout_size: &LayoutSize) {
     let bounds = LayoutRect::new(LayoutPoint::zero(), *layout_size);
     builder.push_stacking_context(webrender_traits::ScrollPolicy::Scrollable,
                                   bounds,
@@ -32,19 +31,22 @@ fn body(_api: &RenderApi,
                                   Vec::new());
 
     let outer_scroll_frame_rect = (100, 100).to(600, 400);
-    let token = builder.push_clip_region(&outer_scroll_frame_rect, vec![], None);
     builder.push_rect(outer_scroll_frame_rect,
-                      token, ColorF::new(1.0, 1.0, 1.0, 1.0));
-    let token = builder.push_clip_region(&outer_scroll_frame_rect, vec![], None);
-    let nested_clip_id = builder.define_clip((100, 100).to(1000, 1000), token, None);
+                      outer_scroll_frame_rect,
+                      ColorF::new(1.0, 1.0, 1.0, 1.0));
+
+    let nested_clip_id = builder.define_clip(None,
+                                             (100, 100).to(1000, 1000),
+                                             outer_scroll_frame_rect,
+                                             vec![],
+                                             None);
     builder.push_clip_id(nested_clip_id);
 
     let mut builder2 = webrender_traits::DisplayListBuilder::new(*pipeline_id, *layout_size);
     let mut builder3 = webrender_traits::DisplayListBuilder::new(*pipeline_id, *layout_size);
 
     let rect = (110, 110).to(210, 210);
-    let token = builder3.push_clip_region(&rect, vec![], None);
-    builder3.push_rect(rect, token, ColorF::new(0.0, 1.0, 0.0, 1.0));
+    builder3.push_rect(rect, rect, ColorF::new(0.0, 1.0, 0.0, 1.0));
 
     // A fixed position rectangle should be fixed to the reference frame that starts
     // in the outer display list.
@@ -56,22 +58,24 @@ fn body(_api: &RenderApi,
                                   webrender_traits::MixBlendMode::Normal,
                                   Vec::new());
     let rect = (0, 0).to(100, 100);
-    let token = builder3.push_clip_region(&rect, vec![], None);
-    builder3.push_rect(rect, token, ColorF::new(0.0, 1.0, 0.0, 1.0));
+    builder3.push_rect(rect, rect, ColorF::new(0.0, 1.0, 0.0, 1.0));
     builder3.pop_stacking_context();
 
     // Now we push an inner scroll frame that should have the same id as the outer one,
     // but the WebRender nested display list replacement code should convert it into
     // a unique ClipId.
     let inner_scroll_frame_rect = (330, 110).to(530, 360);
-    let token = builder3.push_clip_region(&inner_scroll_frame_rect, vec![], None);
-    builder3.push_rect(inner_scroll_frame_rect, token, ColorF::new(1.0, 0.0, 1.0, 0.5));
-    let token = builder3.push_clip_region(&inner_scroll_frame_rect, vec![], None);
-    let inner_nested_clip_id = builder3.define_clip((330, 110).to(2000, 2000), token, None);
+    builder3.push_rect(inner_scroll_frame_rect,
+                       inner_scroll_frame_rect,
+                       ColorF::new(1.0, 0.0, 1.0, 0.5));
+    let inner_nested_clip_id = builder3.define_clip(None,
+                                                    (330, 110).to(2000, 2000),
+                                                    inner_scroll_frame_rect,
+                                                    vec![],
+                                                    None);
     builder3.push_clip_id(inner_nested_clip_id);
     let rect = (340, 120).to(440, 220);
-    let token = builder3.push_clip_region(&rect, vec![], None);
-    builder3.push_rect(rect, token, ColorF::new(0.0, 1.0, 0.0, 1.0));
+    builder3.push_rect(rect, rect, ColorF::new(0.0, 1.0, 0.0, 1.0));
     builder3.pop_clip_id();
 
     let (_, _, built_list) = builder3.finalize();

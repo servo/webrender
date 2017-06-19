@@ -4,12 +4,13 @@ root:
         - type: stacking-context
           bounds: [0, 0, 100, 100]
           items:
-            - type: box-shadow
-              bounds: [ 10, 10, 80, 80 ]
-              blur-radius: 25
-              clip-mode: inset
-              clip:
-                rect: [0, 0, 100, 100]
-                complex:
-                  - rect: [ 10, 10, 80, 80 ]
-                    radius: 10
+            - type: clip
+              bounds: [0, 0, 100, 100]
+              complex:
+                - rect: [ 10, 10, 80, 80 ]
+                  radius: 10
+              items:
+              - type: box-shadow
+                bounds: [ 10, 10, 80, 80 ]
+                blur-radius: 25
+                clip-mode: inset

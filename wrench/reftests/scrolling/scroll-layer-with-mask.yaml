@@ -10,12 +10,10 @@ root:
       items:
       - type: scroll-layer
         bounds: [0, 0, 100, 100]
-        clip:
+        image-mask:
+          image: "mask.png"
           rect: [0, 0, 100, 100]
-          image-mask:
-            image: "mask.png"
-            rect: [0, 0, 100, 100]
-            repeat: false
+          repeat: false
         items:
           - type: rect
             bounds: [0, 0, 100, 100]
@@ -30,12 +28,10 @@ root:
       - type: scroll-layer
         bounds: [10, 10, 100, 300]
         scroll-offset: [0, 100]
-        clip:
+        image-mask:
+          image: "mask.png"
           rect: [0, 0, 100, 100]
-          image-mask:
-            image: "mask.png"
-            rect: [0, 0, 100, 100]
-            repeat: false
+          repeat: false
         items:
         - type: rect
           bounds: [0, 0, 100, 200]
@@ -45,14 +41,13 @@ root:
     # not at the origin works as well.
     -
       type: scroll-layer
-      bounds: [210, 10, 100, 300]
+      bounds: [210, 10, 100, 100]
+      content-size: [100, 300]
       scroll-offset: [0, 100]
-      clip:
+      image-mask:
+        image: "mask.png"
         rect: [0, 0, 100, 100]
-        image-mask:
-          image: "mask.png"
-          rect: [0, 0, 100, 100]
-          repeat: false
+        repeat: false
       items:
       - type: rect
         bounds: [210, 10, 100, 200]
