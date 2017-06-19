@@ -109,11 +109,13 @@ pub struct RenderTargetIndex(pub usize);
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct RenderPassIndex(isize);
 
+#[derive(Debug)]
 struct DynamicTaskInfo {
     index: RenderTaskIndex,
     rect: DeviceIntRect,
 }
 
+#[derive(Debug)]
 pub struct RenderTaskCollection {
     pub render_task_data: Vec<RenderTaskData>,
     dynamic_tasks: HashMap<(RenderTaskKey, RenderPassIndex), DynamicTaskInfo, BuildHasherDefault<FnvHasher>>,
@@ -136,7 +138,7 @@ impl RenderTaskCollection {
             RenderTaskId::Dynamic(key) => {
                 let index = RenderTaskIndex(self.render_task_data.len());
                 let key = (key, pass);
-                debug_assert!(self.dynamic_tasks.contains_key(&key) == false);
+                debug_assert!(!self.dynamic_tasks.contains_key(&key));
                 self.dynamic_tasks.insert(key, DynamicTaskInfo {
                     index: index,
                     rect: match task.location {
@@ -700,7 +702,7 @@ impl ClipBatcher {
                 resource_address: 0,
             };
 
-            for clip_index in 0..info.effective_complex_clip_count as usize {
+            for clip_index in 0 .. info.complex_clip_range.get_count() {
                 let offset = info.complex_clip_range.start.0 + ((CLIP_DATA_GPU_SIZE * clip_index) as i32);
                 match geometry_kind {
                     MaskGeometryKind::Default => {
@@ -735,6 +737,15 @@ impl ClipBatcher {
                         ]);
                     }
                 }
+            }
+
+            for clip_index in 0 .. info.layer_clip_range.get_count() {
+                let offset = info.layer_clip_range.start.0 + ((CLIP_DATA_GPU_SIZE * clip_index) as i32);
+                self.rectangles.push(CacheClipInstance {
+                    address: GpuStoreAddress(offset),
+                    segment: MaskSegment::All as i32,
+                    ..instance
+                });
             }
 
             if let Some((ref mask, address)) = info.image {
@@ -1610,9 +1621,15 @@ impl PackedLayer {
         Default::default()
     }
 
-    pub fn set_transform(&mut self, transform: LayerToWorldTransform) {
+    pub fn set_transform(&mut self, transform: LayerToWorldTransform) -> bool {
         self.transform = transform;
-        self.inv_transform = self.transform.inverse().unwrap();
+        match self.transform.inverse() {
+            Some(inv) => {
+                self.inv_transform = inv;
+                true
+            }
+            None => false,
+        }
     }
 
     pub fn set_rect(&mut self,
@@ -1620,11 +1637,10 @@ impl PackedLayer {
                     screen_rect: &DeviceIntRect,
                     device_pixel_ratio: f32)
                     -> Option<(TransformedRectKind, DeviceIntRect)> {
-        let xf_rect = TransformedRect::new(&local_rect, &self.transform, device_pixel_ratio);
-        xf_rect.bounding_rect.intersection(screen_rect).map(|rect| {
-            self.local_clip_rect = *local_rect;
-            (xf_rect.kind, rect)
-        })
+        self.local_clip_rect = *local_rect;
+        let xf_rect = TransformedRect::new(local_rect, &self.transform, device_pixel_ratio);
+        xf_rect.bounding_rect.intersection(screen_rect)
+                             .map(|rect| (xf_rect.kind, rect))
     }
 }
 

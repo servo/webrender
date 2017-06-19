@@ -8,3 +8,4 @@
 == scroll-layer.yaml scroll-layer-ref.yaml
 == simple.yaml simple-ref.yaml
 == clip-and-scroll-property.yaml clip-and-scroll-property-ref.yaml
+== translate-nested.yaml translate-nested-ref.yaml

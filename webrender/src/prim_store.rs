@@ -12,8 +12,7 @@ use mask_cache::{ClipMode, ClipSource, MaskCacheInfo};
 use renderer::{VertexDataStore, MAX_VERTEX_TEXTURE_WIDTH};
 use render_task::{RenderTask, RenderTaskLocation};
 use resource_cache::{ImageProperties, ResourceCache};
-use std::mem;
-use std::usize;
+use std::{mem, usize};
 use util::{TransformedRect, recycle_vec};
 use webrender_traits::{BuiltDisplayList, ColorF, ImageKey, ImageRendering, YuvColorSpace};
 use webrender_traits::{YuvFormat, ClipRegion, ComplexClipRegion, ItemRange};
@@ -701,10 +700,8 @@ impl PrimitiveStore {
 
         let metadata = match container {
             PrimitiveContainer::Rectangle(rect) => {
-                let is_opaque = rect.color.a == 1.0;
-
                 let metadata = PrimitiveMetadata {
-                    is_opaque: is_opaque,
+                    is_opaque: rect.color.a == 1.0,
                     clips: clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::Rectangle,
@@ -904,21 +901,21 @@ impl PrimitiveStore {
                                screen_rect: &DeviceIntRect,
                                layer_transform: &LayerToWorldTransform,
                                layer_combined_local_clip_rect: &LayerRect,
-                               device_pixel_ratio: f32) -> bool {
+                               device_pixel_ratio: f32) -> Option<DeviceIntRect> {
         let metadata = &self.cpu_metadata[prim_index.0];
 
         let bounding_rect = metadata.local_rect
                                     .intersection(&metadata.local_clip_rect)
                                     .and_then(|rect| rect.intersection(layer_combined_local_clip_rect))
-                                    .and_then(|ref local_rect| {
-            let xf_rect = TransformedRect::new(local_rect,
+                                    .and_then(|local_rect| {
+            let xf_rect = TransformedRect::new(&local_rect,
                                                layer_transform,
                                                device_pixel_ratio);
             xf_rect.bounding_rect.intersection(screen_rect)
         });
 
         self.cpu_bounding_rects[prim_index.0] = bounding_rect;
-        bounding_rect.is_some()
+        bounding_rect
     }
 
     /// Returns true if the bounding box needs to be updated.
@@ -928,7 +925,8 @@ impl PrimitiveStore {
                                    gpu_cache: &mut GpuCache,
                                    layer_transform: &LayerToWorldTransform,
                                    device_pixel_ratio: f32,
-                                   display_list: &BuiltDisplayList) {
+                                   display_list: &BuiltDisplayList)
+                                   -> &mut PrimitiveMetadata {
 
         let metadata = &mut self.cpu_metadata[prim_index.0];
 
@@ -938,6 +936,10 @@ impl PrimitiveStore {
                              &mut self.gpu_data32,
                              device_pixel_ratio,
                              display_list);
+
+            //TODO-LCCR: we could tighten up the `local_clip_rect` here
+            // but that would require invalidating the whole GPU block
+
             for clip in &metadata.clips {
                 if let ClipSource::Region(ClipRegion{ image_mask: Some(ref mask), .. }, ..) = *clip {
                     resource_cache.request_image(mask.image, ImageRendering::Auto, None);
@@ -1091,6 +1093,8 @@ impl PrimitiveStore {
                 }
             }
         }
+
+        metadata
     }
 }
 

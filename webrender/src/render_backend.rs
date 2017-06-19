@@ -66,7 +66,14 @@ pub struct RenderBackend {
 
     next_webgl_id: usize,
 
-    vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>
+    vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>,
+
+    // A helper switch to prevent any frames rendering triggered by scrolling
+    // messages between `SetDisplayList` and `GenerateFrame`.
+    // If we allow them, then a reftest that scrolls a few layers before generating
+    // the first frame would produce inconsistent rendering results, because
+    // scroll events are not necessarily received in deterministic order.
+    render_on_scroll: bool,
 }
 
 impl RenderBackend {
@@ -114,6 +121,18 @@ impl RenderBackend {
             vr_compositor_handler: vr_compositor_handler,
             window_size: initial_window_size,
             inner_rect: DeviceUintRect::new(DeviceUintPoint::zero(), initial_window_size),
+            render_on_scroll: false,
+        }
+    }
+
+    fn scroll_frame(&mut self, frame_maybe: Option<RendererFrame>,
+                    profile_counters: &mut BackendProfileCounters) {
+        match frame_maybe {
+            Some(frame) => {
+                self.publish_frame(frame, profile_counters);
+                self.notify_compositor_of_new_scroll_frame(true)
+            }
+            None => self.notify_compositor_of_new_scroll_frame(false),
         }
     }
 
@@ -232,6 +251,8 @@ impl RenderBackend {
                                 self.build_scene();
                             });
 
+                            self.render_on_scroll = false; //wait for `GenerateFrame`
+
                             // Note: this isn't quite right as auxiliary values will be
                             // pulled out somewhere in the prim_store, but aux values are
                             // really simple and cheap to access, so it's not a big deal.
@@ -259,7 +280,7 @@ impl RenderBackend {
                                 let counters = &mut profile_counters.resources.texture_cache;
                                 let gpu_cache_counters = &mut profile_counters.resources.gpu_cache;
                                 profile_counters.total_time.profile(|| {
-                                    if self.frame.scroll(delta, cursor, move_phase) {
+                                    if self.frame.scroll(delta, cursor, move_phase) && self.render_on_scroll {
                                         Some(self.render(counters, gpu_cache_counters))
                                     } else {
                                         None
@@ -267,13 +288,7 @@ impl RenderBackend {
                                 })
                             };
 
-                            match frame {
-                                Some(frame) => {
-                                    self.publish_frame(frame, &mut profile_counters);
-                                    self.notify_compositor_of_new_scroll_frame(true)
-                                }
-                                None => self.notify_compositor_of_new_scroll_frame(false),
-                            }
+                            self.scroll_frame(frame, &mut profile_counters);
                         }
                         ApiMsg::ScrollNodeWithId(origin, id, clamp) => {
                             profile_scope!("ScrollNodeWithScrollId");
@@ -281,7 +296,7 @@ impl RenderBackend {
                                 let counters = &mut profile_counters.resources.texture_cache;
                                 let gpu_cache_counters = &mut profile_counters.resources.gpu_cache;
                                 profile_counters.total_time.profile(|| {
-                                    if self.frame.scroll_node(origin, id, clamp) {
+                                    if self.frame.scroll_node(origin, id, clamp) && self.render_on_scroll {
                                         Some(self.render(counters, gpu_cache_counters))
                                     } else {
                                         None
@@ -289,14 +304,7 @@ impl RenderBackend {
                                 })
                             };
 
-                            match frame {
-                                Some(frame) => {
-                                    self.publish_frame(frame, &mut profile_counters);
-                                    self.notify_compositor_of_new_scroll_frame(true)
-                                }
-                                None => self.notify_compositor_of_new_scroll_frame(false),
-                            }
-
+                            self.scroll_frame(frame, &mut profile_counters);
                         }
                         ApiMsg::TickScrollingBounce => {
                             profile_scope!("TickScrollingBounce");
@@ -305,11 +313,15 @@ impl RenderBackend {
                                 let gpu_cache_counters = &mut profile_counters.resources.gpu_cache;
                                 profile_counters.total_time.profile(|| {
                                     self.frame.tick_scrolling_bounce_animations();
-                                    self.render(counters, gpu_cache_counters)
+                                    if self.render_on_scroll {
+                                        Some(self.render(counters, gpu_cache_counters))
+                                    } else {
+                                        None
+                                    }
                                 })
                             };
 
-                            self.publish_frame_and_notify_compositor(frame, &mut profile_counters);
+                            self.scroll_frame(frame, &mut profile_counters);
                         }
                         ApiMsg::TranslatePointToLayerSpace(..) => {
                             panic!("unused api - remove from webrender_traits");
@@ -412,6 +424,8 @@ impl RenderBackend {
                                     self.build_scene();
                                 });
                             }
+
+                            self.render_on_scroll = true;
 
                             let frame = {
                                 let counters = &mut profile_counters.resources.texture_cache;

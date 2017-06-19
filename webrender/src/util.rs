@@ -4,7 +4,7 @@
 
 use std::f32::consts::{FRAC_1_SQRT_2};
 use euclid::{Point2D, Rect, Size2D};
-use euclid::{TypedRect, TypedPoint2D, TypedSize2D, TypedTransform3D};
+use euclid::{TypedRect, TypedPoint2D, TypedSize2D, TypedTransform2D, TypedTransform3D};
 use webrender_traits::{DeviceIntRect, DeviceIntPoint, DeviceIntSize};
 use webrender_traits::{LayerRect, WorldPoint3D, LayerToWorldTransform};
 use webrender_traits::{BorderRadius, ComplexClipRegion, LayoutRect};
@@ -18,6 +18,8 @@ pub trait MatrixHelpers<Src, Dst> {
     fn transform_rect(&self, rect: &TypedRect<f32, Src>) -> TypedRect<f32, Dst>;
     fn is_identity(&self) -> bool;
     fn preserves_2d_axis_alignment(&self) -> bool;
+    fn inverse_project(&self, target: &TypedPoint2D<f32, Dst>) -> Option<TypedPoint2D<f32, Src>>;
+    fn inverse_rect_footprint(&self, rect: &TypedRect<f32, Dst>) -> TypedRect<f32, Src>;
 }
 
 impl<Src, Dst> MatrixHelpers<Src, Dst> for TypedTransform3D<f32, Src, Dst> {
@@ -63,6 +65,31 @@ impl<Src, Dst> MatrixHelpers<Src, Dst> for TypedTransform3D<f32, Src, Dst> {
         }
 
         col0 < 2 && col1 < 2 && row0 < 2 && row1 < 2
+    }
+
+    fn inverse_project(&self, target: &TypedPoint2D<f32, Dst>) -> Option<TypedPoint2D<f32, Src>> {
+        let m: TypedTransform2D<f32, Src, Dst>;
+        m = TypedTransform2D::column_major(self.m11 - target.x * self.m14,
+                                           self.m21 - target.x * self.m24,
+                                           self.m41 - target.x * self.m44,
+                                           self.m12 - target.y * self.m14,
+                                           self.m22 - target.y * self.m24,
+                                           self.m42 - target.y * self.m44);
+        m.inverse()
+         .map(|inv| TypedPoint2D::new(inv.m31, inv.m32))
+    }
+
+    fn inverse_rect_footprint(&self, rect: &TypedRect<f32, Dst>) -> TypedRect<f32, Src> {
+        TypedRect::from_points(&[
+            self.inverse_project(&rect.origin)
+                .unwrap_or(TypedPoint2D::zero()),
+            self.inverse_project(&rect.top_right())
+                .unwrap_or(TypedPoint2D::zero()),
+            self.inverse_project(&rect.bottom_left())
+                .unwrap_or(TypedPoint2D::zero()),
+            self.inverse_project(&rect.bottom_right())
+                .unwrap_or(TypedPoint2D::zero()),
+        ])
     }
 }
 
@@ -326,4 +353,23 @@ pub fn recycle_vec<T>(mut old_vec: Vec<T>) -> Vec<T> {
     old_vec.clear();
 
     return old_vec;
+}
+
+
+#[cfg(test)]
+pub mod test {
+    use super::*;
+    use euclid::{Point2D, Radians, Transform3D};
+    use std::f32::consts::PI;
+
+    #[test]
+    fn inverse_project() {
+        let m0 = Transform3D::identity();
+        let p0 = Point2D::new(1.0, 2.0);
+        // an identical transform doesn't need any inverse projection
+        assert_eq!(m0.inverse_project(&p0), Some(p0));
+        let m1 = Transform3D::create_rotation(0.0, 1.0, 0.0, Radians::new(PI / 3.0));
+        // rotation by 60 degrees would imply scaling of X component by a factor of 2
+        assert_eq!(m1.inverse_project(&p0), Some(Point2D::new(2.0, 2.0)));
+    }
 }
