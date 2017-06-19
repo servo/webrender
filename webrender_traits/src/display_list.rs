@@ -430,13 +430,19 @@ pub struct DisplayListBuilder {
 
 impl DisplayListBuilder {
     pub fn new(pipeline_id: PipelineId, content_size: LayoutSize) -> DisplayListBuilder {
+        Self::with_capacity(pipeline_id, content_size, 0)
+    }
+
+    pub fn with_capacity(pipeline_id: PipelineId,
+                         content_size: LayoutSize,
+                         capacity: usize) -> DisplayListBuilder {
         let start_time = precise_time_ns();
 
         // We start at 1 here, because the root scroll id is always 0.
         const FIRST_CLIP_ID : u64 = 1;
 
         DisplayListBuilder {
-            data: Vec::with_capacity(1024 * 1024),
+            data: Vec::with_capacity(capacity),
             pipeline_id: pipeline_id,
             clip_stack: vec![ClipAndScrollInfo::simple(ClipId::root_scroll_node(pipeline_id))],
             next_clip_id: FIRST_CLIP_ID,
