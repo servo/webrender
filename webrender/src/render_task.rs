@@ -4,7 +4,7 @@
 
 use gpu_cache::GpuCacheHandle;
 use internal_types::{HardwareCompositeOp, LowLevelFilterOp};
-use mask_cache::{MaskCacheInfo, MaskBounds};
+use mask_cache::MaskCacheInfo;
 use prim_store::{PrimitiveCacheKey, PrimitiveIndex};
 use std::{cmp, f32, i32, mem, usize};
 use tiling::{ClipScrollGroupIndex, PackedLayerIndex, RenderPass, RenderTargetIndex};
@@ -188,12 +188,15 @@ impl RenderTask {
         let clips: Vec<_> = raw_clips.iter()
                                      .chain(extra_clip.iter())
                                      .filter(|&&(_, ref clip_info)| {
-            if let Some(MaskBounds{ inner: Some(ref inner), ..}) = clip_info.bounds {
-                inner_rect = inner_rect.and_then(|r| r.intersection(&inner.device_rect));
-                !inner.device_rect.contains_rect(&task_rect)
-            } else {
-                inner_rect = None;
-                true
+            match clip_info.bounds.inner {
+                Some(ref inner) if !inner.device_rect.is_empty() => {
+                    inner_rect = inner_rect.and_then(|r| r.intersection(&inner.device_rect));
+                    !inner.device_rect.contains_rect(&task_rect)
+                }
+                _ => {
+                    inner_rect = None;
+                    true
+                }
             }
         }).cloned().collect();
 

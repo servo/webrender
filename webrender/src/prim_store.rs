@@ -931,16 +931,14 @@ impl PrimitiveStore {
         let metadata = &mut self.cpu_metadata[prim_index.0];
 
         if let Some(ref mut clip_info) = metadata.clip_cache_info {
-            let bounds = clip_info.update(&metadata.clips,
-                                          layer_transform,
-                                          &mut self.gpu_data32,
-                                          device_pixel_ratio,
-                                          display_list);
+            clip_info.update(&metadata.clips,
+                             layer_transform,
+                             &mut self.gpu_data32,
+                             device_pixel_ratio,
+                             display_list);
 
-            if let Some(ref _outer) = bounds.outer {
-                //TODO-LCCR: we could tighten up the `local_clip_rect` here
-                // but that would require invalidating the whole GPU block
-            }
+            //TODO-LCCR: we could tighten up the `local_clip_rect` here
+            // but that would require invalidating the whole GPU block
 
             for clip in &metadata.clips {
                 if let ClipSource::Region(ClipRegion{ image_mask: Some(ref mask), .. }, ..) = *clip {

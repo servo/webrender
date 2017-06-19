@@ -89,7 +89,8 @@ pub struct ClipScrollNode {
     /// Viewport rectangle clipped against parent layer(s) viewport rectangles.
     /// This is in the coordinate system of the node origin.
     /// Precisely, it combines the local clipping rectangles of all the parent
-    /// nodes on the way to the root, including those of `ClipRegion`.
+    /// nodes on the way to the root, including those of `ClipRegion` rectangles.
+    /// The combined clip is lossy/concervative on `ReferenceFrame` nodes.
     pub combined_local_viewport_rect: LayerRect,
 
     /// World transform for the viewport rect itself. This is the parent

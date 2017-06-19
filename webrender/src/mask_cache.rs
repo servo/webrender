@@ -121,7 +121,7 @@ pub struct MaskCacheInfo {
     pub layer_clip_range: ClipAddressRange,
     pub image: Option<(ImageMask, GpuStoreAddress)>,
     pub border_corners: Vec<(BorderCornerClipSource, GpuStoreAddress)>,
-    pub bounds: Option<MaskBounds>,
+    pub bounds: MaskBounds,
 }
 
 impl MaskCacheInfo {
@@ -141,7 +141,7 @@ impl MaskCacheInfo {
             match *clip {
                 ClipSource::Complex(..) => {
                     complex_clip_count += 1;
-                },
+                }
                 ClipSource::Region(ref region) => {
                     if let Some(info) = region.image_mask {
                         debug_assert!(image.is_none());     // TODO(gw): Support >1 image mask!
@@ -178,7 +178,10 @@ impl MaskCacheInfo {
             },
             image: image,
             border_corners: border_corners,
-            bounds: None,
+            bounds: MaskBounds {
+                inner: None,
+                outer: None,
+            },
         }
     }
 
@@ -188,8 +191,8 @@ impl MaskCacheInfo {
                   clip_store: &mut VertexDataStore<GpuBlock32>,
                   device_pixel_ratio: f32,
                   display_list: &BuiltDisplayList) -> &MaskBounds {
-        //TODO: move to initialization stage
-        if self.bounds.is_none() {
+        //TODO: move to initialization stage?
+        if self.bounds.inner.is_none() {
             let mut local_rect = Some(LayerRect::new(LayerPoint::new(-MAX_CLIP, -MAX_CLIP),
                                                      LayerSize::new(2.0 * MAX_CLIP, 2.0 * MAX_CLIP)));
             let mut local_inner: Option<LayerRect> = None;
@@ -273,38 +276,26 @@ impl MaskCacheInfo {
 
             // Work out the type of mask geometry we have, based on the
             // list of clip sources above.
-            self.bounds = Some(if has_clip_out || has_border_clip {
+            self.bounds = if has_clip_out || has_border_clip {
                 // For clip-out, the mask rect is not known.
                 MaskBounds {
                     outer: None,
-                    inner: None,
+                    inner: Some(LayerRect::zero().into()),
                 }
             } else {
-                // TODO(gw): local inner is only valid if there's a single clip (for now).
-                // This can be improved in the future, with some proper
-                // rectangle region handling.
-                if sources.len() > 1 {
-                    local_inner = None;
-                }
-
                 MaskBounds {
                     outer: Some(local_rect.unwrap_or(LayerRect::zero()).into()),
-                    inner: local_inner.map(|rect| rect.into()),
+                    inner: Some(local_inner.unwrap_or(LayerRect::zero()).into()),
                 }
-            });
+            };
         }
 
-        match self.bounds {
-            Some(ref mut bounds) => {
-                // Update the device space bounding rects of the mask geometry.
-                bounds.update(transform, device_pixel_ratio);
-                bounds
-            },
-            None => unreachable!()
-        }
+        // Update the device space bounding rects of the mask geometry.
+        self.bounds.update(transform, device_pixel_ratio);
+        &self.bounds
     }
 
-    /// Check if this `MaskCacheInfo` actually carries any masks, excluding the layer rectangles.
+    /// Check if this `MaskCacheInfo` actually carries any masks.
     pub fn is_masking(&self) -> bool {
         self.image.is_some() ||
         self.complex_clip_range.item_count != 0 ||

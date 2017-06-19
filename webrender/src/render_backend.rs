@@ -68,8 +68,11 @@ pub struct RenderBackend {
 
     vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>,
 
-    // A helper gate to prevent any frames rendering triggered by scrolling
+    // A helper switch to prevent any frames rendering triggered by scrolling
     // messages between `SetDisplayList` and `GenerateFrame`.
+    // If we allow them, then a reftest that scrolls a few layers before generating
+    // the first frame would produce inconsistent rendering results, because
+    // scroll events are not necessarily received in deterministic order.
     render_on_scroll: bool,
 }
 

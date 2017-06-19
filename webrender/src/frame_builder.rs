@@ -7,7 +7,7 @@ use frame::FrameId;
 use gpu_cache::GpuCache;
 use gpu_store::GpuStoreAddress;
 use internal_types::HardwareCompositeOp;
-use mask_cache::{ClipMode, ClipSource, MaskBounds, MaskCacheInfo};
+use mask_cache::{ClipMode, ClipSource, MaskCacheInfo};
 use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveIndex};
@@ -1721,7 +1721,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             };
 
             // apply the outer device bounds of the clip stack
-            if let Some(MaskBounds{ outer: Some(ref outer), ..}) = clip_info.bounds {
+            if let Some(ref outer) = clip_info.bounds.outer {
                 bounding_rect = match bounding_rect.intersection(&outer.device_rect) {
                     Some(rect) => rect,
                     None => return None,
@@ -1803,8 +1803,8 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                     Some(ref info) => {
                         // Take into account the actual clip info of the primitive, and
                         // mutate the current bounds accordingly.
-                        let mask_rect = match info.bounds {
-                            Some(MaskBounds{ outer: Some(ref outer), .. }) => {
+                        let mask_rect = match info.bounds.outer {
+                            Some(ref outer) => {
                                 match prim_bounding_rect.intersection(&outer.device_rect) {
                                     Some(rect) => rect,
                                     None => continue,
