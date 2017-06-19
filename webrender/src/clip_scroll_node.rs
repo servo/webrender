@@ -8,7 +8,7 @@ use prim_store::GpuBlock32;
 use renderer::VertexDataStore;
 use spring::{DAMPING, STIFFNESS, Spring};
 use tiling::PackedLayerIndex;
-use util::TransformedRectKind;
+use util::{MatrixHelpers, TransformedRectKind};
 use webrender_traits::{ClipId, ClipRegion, DeviceIntRect, LayerPixel, LayerPoint, LayerRect};
 use webrender_traits::{LayerSize, LayerToScrollTransform, LayerToWorldTransform, PipelineId};
 use webrender_traits::{ScrollClamping, ScrollEventPhase, ScrollLocation};
@@ -252,21 +252,20 @@ impl ClipScrollNode {
 
         let (local_transform, combined_clip, reference_frame_scroll_offset) = match self.node_type {
             NodeType::ReferenceFrame(transform) => {
-                let combined_clip = transform.inverse().map(|inv_transform| {
-                    inv_transform.with_source::<LayerPixel>()
-                                 .transform_rect(&scrolled_parent_combined_clip)
-                });
+                let combined_clip = transform.with_destination::<LayerPixel>()
+                                             .inverse_rect_footprint(&scrolled_parent_combined_clip);
                 (transform, combined_clip, LayerVector2D::zero())
             }
             NodeType::Clip(_) | NodeType::ScrollFrame(_) => {
                 // Move the parent's viewport into the local space (of the node origin)
                 // and intersect with the local clip rectangle to get the local viewport.
-                let combined_clip = scrolled_parent_combined_clip.intersection(&self.local_clip_rect);
+                let combined_clip = scrolled_parent_combined_clip.intersection(&self.local_clip_rect)
+                                                                 .unwrap_or(LayerRect::zero());
                 (LayerToScrollTransform::identity(), combined_clip, parent_accumulated_scroll_offset)
             }
         };
 
-        self.combined_local_viewport_rect = combined_clip.unwrap_or(LayerRect::zero());
+        self.combined_local_viewport_rect = combined_clip;
         self.reference_frame_relative_scroll_offset = reference_frame_scroll_offset;
 
         // The transformation for this viewport in world coordinates is the transformation for
