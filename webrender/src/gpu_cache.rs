@@ -439,12 +439,19 @@ pub struct GpuDataRequest<'a> {
 }
 
 impl<'a> GpuDataRequest<'a> {
-    pub fn push(&mut self, block: GpuBlockData) {
-        self.texture.pending_blocks.push(block);
+    pub fn push<B>(&mut self, block: B)
+    where B: Into<GpuBlockData>
+    {
+        self.texture.pending_blocks.push(block.into());
     }
 
     pub fn extend_from_slice(&mut self, blocks: &[GpuBlockData]) {
         self.texture.pending_blocks.extend_from_slice(blocks);
+    }
+
+    /// Consume the request and return the number of blocks written
+    pub fn close(self) -> usize {
+        self.texture.pending_blocks.len() - self.start_index
     }
 }
 
