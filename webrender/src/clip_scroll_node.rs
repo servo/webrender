@@ -4,8 +4,6 @@
 
 use geometry::ray_intersects_rect;
 use mask_cache::{ClipSource, MaskCacheInfo};
-use prim_store::GpuBlock32;
-use renderer::VertexDataStore;
 use spring::{DAMPING, STIFFNESS, Spring};
 use tiling::PackedLayerIndex;
 use util::{MatrixHelpers, TransformedRectKind};
@@ -45,13 +43,12 @@ pub struct ClipInfo {
 
 impl ClipInfo {
     pub fn new(clip_region: &ClipRegion,
-               clip_store: &mut VertexDataStore<GpuBlock32>,
                packed_layer_index: PackedLayerIndex)
                -> ClipInfo {
         let clip_sources = vec![ClipSource::Region(clip_region.clone())];
 
         ClipInfo {
-            mask_cache_info: MaskCacheInfo::new(&clip_sources, clip_store),
+            mask_cache_info: MaskCacheInfo::new(&clip_sources),
             clip_sources: clip_sources,
             packed_layer_index: packed_layer_index,
             screen_bounding_rect: None,

@@ -635,15 +635,15 @@ impl ResourceCache {
         for texture_cache_item_id in self.requested_images.drain() {
             let item = self.texture_cache.get_mut(texture_cache_item_id);
             if let Some(mut request) = gpu_cache.request(&mut item.uv_rect_handle) {
-                request.push(item.uv_rect.into());
+                request.push(item.uv_rect);
             }
         }
 
         for texture_cache_item_id in self.requested_glyphs.drain() {
             let item = self.texture_cache.get_mut(texture_cache_item_id);
             if let Some(mut request) = gpu_cache.request(&mut item.uv_rect_handle) {
-                request.push(item.uv_rect.into());
-                request.push([item.user_data[0], item.user_data[1], 0.0, 0.0].into());
+                request.push(item.uv_rect);
+                request.push([item.user_data[0], item.user_data[1], 0.0, 0.0]);
             }
         }
     }

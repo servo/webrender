@@ -59,7 +59,6 @@ pub enum TextureSampler {
     Color2,
     CacheA8,
     CacheRGBA8,
-    Data32,
     ResourceCache,
     Layers,
     RenderTasks,

@@ -3,13 +3,11 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use border::{BorderCornerClipData, BorderCornerDashClipData, BorderCornerDotClipData};
 use border::BorderCornerInstance;
 use euclid::{Size2D};
 use gpu_cache::{GpuCacheAddress, GpuBlockData, GpuCache, GpuCacheHandle, GpuDataRequest, ToGpuBlocks};
-use gpu_store::GpuStoreAddress;
 use mask_cache::{ClipMode, ClipSource, MaskCacheInfo};
-use renderer::{VertexDataStore, MAX_VERTEX_TEXTURE_WIDTH};
+use renderer::MAX_VERTEX_TEXTURE_WIDTH;
 use render_task::{RenderTask, RenderTaskLocation};
 use resource_cache::{ImageProperties, ResourceCache};
 use std::{mem, usize};
@@ -18,13 +16,12 @@ use webrender_traits::{BuiltDisplayList, ColorF, ImageKey, ImageRendering, YuvCo
 use webrender_traits::{YuvFormat, ClipRegion, ComplexClipRegion, ItemRange};
 use webrender_traits::{FontKey, FontRenderMode, WebGLContextId};
 use webrender_traits::{device_length, DeviceIntRect, DeviceIntSize};
-use webrender_traits::{DeviceRect, DevicePoint};
-use webrender_traits::{LayerRect, LayerSize, LayerPoint};
+use webrender_traits::{DevicePoint, LayerRect, LayerSize, LayerPoint};
 use webrender_traits::{LayerToWorldTransform, GlyphInstance, GlyphOptions};
 use webrender_traits::{ExtendMode, GradientStop, TileOffset};
 
-pub const CLIP_DATA_GPU_SIZE: usize = 5;
-pub const MASK_DATA_GPU_SIZE: usize = 1;
+
+pub const CLIP_DATA_GPU_BLOCKS: usize = 10;
 
 #[derive(Debug, Copy, Clone)]
 pub struct PrimitiveOpacity {
@@ -180,7 +177,7 @@ pub struct RectanglePrimitive {
 
 impl ToGpuBlocks for RectanglePrimitive {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        request.push(self.color.into());
+        request.push(self.color);
     }
 }
 
@@ -257,15 +254,15 @@ pub struct BoxShadowPrimitiveCpu {
 
 impl ToGpuBlocks for BoxShadowPrimitiveCpu {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        request.push(self.src_rect.into());
-        request.push(self.bs_rect.into());
-        request.push(self.color.into());
+        request.push(self.src_rect);
+        request.push(self.bs_rect);
+        request.push(self.color);
         request.push([self.border_radius,
                       self.edge_size,
                       self.blur_radius,
-                      self.inverted].into());
+                      self.inverted]);
         for &rect in &self.rects {
-            request.push(rect.into());
+            request.push(rect);
         }
     }
 }
@@ -288,8 +285,8 @@ impl GradientPrimitiveCpu {
         let src_stops = display_list.get(self.stops_range);
 
         for src in src_stops {
-            request.push(src.color.premultiplied().into());
-            request.push([src.offset, 0.0, 0.0, 0.0].into());
+            request.push(src.color.premultiplied());
+            request.push([src.offset, 0.0, 0.0, 0.0]);
             opacity.accumulate(src.color.a);
         }
 
@@ -458,8 +455,8 @@ impl<'a> GradientGpuBlockBuilder<'a> {
         }
 
         for entry in entries.iter() {
-            request.push(entry.start_color.into());
-            request.push(entry.end_color.into());
+            request.push(entry.start_color);
+            request.push(entry.end_color);
         }
     }
 }
@@ -468,7 +465,6 @@ impl<'a> GradientGpuBlockBuilder<'a> {
 pub struct RadialGradientPrimitiveCpu {
     pub stops_range: ItemRange<GradientStop>,
     pub extend_mode: ExtendMode,
-    pub gpu_data_address: GpuStoreAddress,
     pub gpu_data_count: i32,
     pub gpu_blocks: [GpuBlockData; 3],
 }
@@ -501,7 +497,7 @@ pub struct TextRunPrimitiveCpu {
 
 impl ToGpuBlocks for TextRunPrimitiveCpu {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        request.push(self.color.into());
+        request.push(self.color);
 
         // Two glyphs are packed per GPU block.
         for glyph_chunk in self.glyph_instances.chunks(2) {
@@ -513,7 +509,7 @@ impl ToGpuBlocks for TextRunPrimitiveCpu {
             request.push([first_glyph.point.x,
                           first_glyph.point.y,
                           second_glyph.point.x,
-                          second_glyph.point.y].into());
+                          second_glyph.point.y]);
         }
     }
 }
@@ -530,7 +526,6 @@ struct GlyphPrimitive {
 struct ClipRect {
     rect: LayerRect,
     mode: f32,
-    padding: [f32; 3],
 }
 
 #[derive(Debug, Clone)]
@@ -543,7 +538,20 @@ struct ClipCorner {
     inner_radius_y: f32,
 }
 
+impl ToGpuBlocks for ClipCorner {
+    fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
+        self.write(&mut request)
+    }
+}
+
 impl ClipCorner {
+    fn write(&self, request: &mut GpuDataRequest) {
+        request.push(self.rect);
+        request.push([self.outer_radius_x, self.outer_radius_y,
+                      self.inner_radius_x, self.inner_radius_y,
+                     ]);
+    }
+
     fn uniform(rect: LayerRect, outer_radius: f32, inner_radius: f32) -> ClipCorner {
         ClipCorner {
             rect: rect,
@@ -559,7 +567,12 @@ impl ClipCorner {
 #[repr(C)]
 pub struct ImageMaskData {
     pub local_rect: LayerRect,
-    pub padding: DeviceRect,
+}
+
+impl ToGpuBlocks for ImageMaskData {
+    fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
+        request.push(self.local_rect);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -576,7 +589,6 @@ impl ClipData {
         ClipData {
             rect: ClipRect {
                 rect: clip.rect,
-                padding: [0.0; 3],
                 // TODO(gw): Support other clip modes for regions?
                 mode: ClipMode::Clip as u32 as f32,
             },
@@ -624,7 +636,6 @@ impl ClipData {
         ClipData {
             rect: ClipRect {
                 rect: rect,
-                padding: [0.0; 3],
                 mode: mode as u32 as f32,
             },
             top_left: ClipCorner::uniform(
@@ -647,6 +658,14 @@ impl ClipData {
                     LayerPoint::new(rect.origin.x + rect.size.width - radius, rect.origin.y + rect.size.height - radius),
                     LayerSize::new(radius, radius)),
                 radius, 0.0),
+        }
+    }
+
+    pub fn write(&self, request: &mut GpuDataRequest) {
+        request.push(self.rect.rect);
+        request.push([self.rect.mode, 0.0, 0.0, 0.0]);
+        for corner in &[&self.top_left, &self.top_right, &self.bottom_left, &self.bottom_right] {
+            corner.write(request);
         }
     }
 }
@@ -676,9 +695,6 @@ pub struct PrimitiveStore {
     pub cpu_metadata: Vec<PrimitiveMetadata>,
     pub cpu_borders: Vec<BorderPrimitiveCpu>,
     pub cpu_box_shadows: Vec<BoxShadowPrimitiveCpu>,
-
-    /// Gets uploaded directly to GPU via vertex texture.
-    pub gpu_data32: VertexDataStore<GpuBlock32>,
 }
 
 impl PrimitiveStore {
@@ -694,7 +710,6 @@ impl PrimitiveStore {
             cpu_radial_gradients: Vec::new(),
             cpu_borders: Vec::new(),
             cpu_box_shadows: Vec::new(),
-            gpu_data32: VertexDataStore::new(),
         }
     }
 
@@ -710,16 +725,7 @@ impl PrimitiveStore {
             cpu_radial_gradients: recycle_vec(self.cpu_radial_gradients),
             cpu_borders: recycle_vec(self.cpu_borders),
             cpu_box_shadows: recycle_vec(self.cpu_box_shadows),
-            gpu_data32: self.gpu_data32.recycle(),
         }
-    }
-
-    pub fn populate_clip_data(data: &mut [GpuBlock32], clip: ClipData) {
-        data[0] = GpuBlock32::from(clip.rect);
-        data[1] = GpuBlock32::from(clip.top_left);
-        data[2] = GpuBlock32::from(clip.top_right);
-        data[3] = GpuBlock32::from(clip.bottom_left);
-        data[4] = GpuBlock32::from(clip.bottom_right);
     }
 
     pub fn add_primitive(&mut self,
@@ -965,7 +971,7 @@ impl PrimitiveStore {
         if let Some(ref mut clip_info) = metadata.clip_cache_info {
             clip_info.update(&metadata.clips,
                              layer_transform,
-                             &mut self.gpu_data32,
+                             gpu_cache,
                              device_pixel_ratio,
                              display_list);
 
@@ -1077,8 +1083,8 @@ impl PrimitiveStore {
 
         // Mark this GPU resource as required for this frame.
         if let Some(mut request) = gpu_cache.request(&mut metadata.gpu_location) {
-            request.push(metadata.local_rect.into());
-            request.push(metadata.local_clip_rect.into());
+            request.push(metadata.local_rect);
+            request.push(metadata.local_clip_rect);
 
             match metadata.prim_kind {
                 PrimitiveKind::Rectangle => {
@@ -1127,37 +1133,6 @@ impl PrimitiveStore {
     }
 }
 
-
-macro_rules! define_gpu_block {
-    ($name:ident: $ty:ty = $($derive:ident),* ) => (
-        #[derive(Clone)]
-        #[repr(C)]
-        pub struct $name {
-            data: $ty,
-        }
-
-        impl Default for $name {
-            fn default() -> $name {
-                $name {
-                    data: unsafe { mem::uninitialized() }
-                }
-            }
-        }
-
-        $(
-            impl From<$derive> for $name {
-                fn from(data: $derive) -> $name {
-                    unsafe { mem::transmute(data) }
-                }
-            }
-        )*
-    )
-}
-
-define_gpu_block!(GpuBlock32: [f32; 8] =
-    ClipCorner, ClipRect, ImageMaskData,
-    BorderCornerClipData, BorderCornerDashClipData, BorderCornerDotClipData
-);
 
 //Test for one clip region contains another
 trait InsideTest<T> {

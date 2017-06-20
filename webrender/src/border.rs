@@ -3,9 +3,10 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use ellipse::Ellipse;
+use gpu_cache::GpuDataRequest;
 use frame_builder::FrameBuilder;
-use mask_cache::{ClipSource};
-use prim_store::{BorderPrimitiveCpu, GpuBlock32, PrimitiveContainer};
+use mask_cache::ClipSource;
+use prim_store::{BorderPrimitiveCpu, PrimitiveContainer};
 use tiling::PrimitiveFlags;
 use util::{lerp, pack_as_float};
 use webrender_traits::{BorderSide, BorderStyle, BorderWidths, ClipAndScrollInfo, ClipRegion};
@@ -544,9 +545,8 @@ impl BorderCornerClipSource {
         }
     }
 
-    pub fn populate_gpu_data(&mut self, slice: &mut [GpuBlock32]) {
-        let (header, clips) = slice.split_first_mut().unwrap();
-        *header = self.corner_data.into();
+    pub fn write(&mut self, mut request: GpuDataRequest) {
+        self.corner_data.write(&mut request);
 
         match self.kind {
             BorderCornerClipKind::Dash => {
@@ -554,7 +554,7 @@ impl BorderCornerClipSource {
                 self.actual_clip_count = self.max_clip_count;
                 let dash_arc_length = 0.5 * self.ellipse.total_arc_length / (self.actual_clip_count - 1) as f32;
                 let mut current_arc_length = -0.5 * dash_arc_length;
-                for dash_index in 0..self.actual_clip_count {
+                for _ in 0..self.actual_clip_count {
                     let arc_length0 = current_arc_length;
                     current_arc_length += dash_arc_length;
 
@@ -564,9 +564,10 @@ impl BorderCornerClipSource {
                     let dash_data = BorderCornerDashClipData::new(arc_length0,
                                                                   arc_length1,
                                                                   &self.ellipse);
-
-                    clips[dash_index] = dash_data.into();
+                    dash_data.write(&mut request);
                 }
+
+                assert_eq!(request.close(), 2 + 2 * self.actual_clip_count);
             }
             BorderCornerClipKind::Dot => {
                 let mut forward_dots = Vec::new();
@@ -623,17 +624,15 @@ impl BorderCornerClipSource {
                 // leftover space on the arc between them evenly. Once
                 // the final arc position is determined, generate the correct
                 // arc positions and angles that get passed to the clip shader.
-                self.actual_clip_count = 0;
-                let dot_count = forward_dots.len() + back_dots.len();
-                let extra_space_per_dot = leftover_arc_length / (dot_count - 1) as f32;
+                self.actual_clip_count = forward_dots.len() + back_dots.len();
+                let extra_space_per_dot = leftover_arc_length / (self.actual_clip_count - 1) as f32;
 
                 for (i, dot) in forward_dots.iter().enumerate() {
                     let extra_dist = i as f32 * extra_space_per_dot;
                     let dot = BorderCornerDotClipData::new(dot.arc_pos + extra_dist,
                                                            0.5 * dot.diameter,
                                                            &self.ellipse);
-                    clips[self.actual_clip_count] = dot.into();
-                    self.actual_clip_count += 1;
+                    dot.write(&mut request);
                 }
 
                 for (i, dot) in back_dots.iter().enumerate() {
@@ -641,9 +640,10 @@ impl BorderCornerClipSource {
                     let dot = BorderCornerDotClipData::new(dot.arc_pos - extra_dist,
                                                            0.5 * dot.diameter,
                                                            &self.ellipse);
-                    clips[self.actual_clip_count] = dot.into();
-                    self.actual_clip_count += 1;
+                    dot.write(&mut request);
                 }
+
+                assert_eq!(request.close(), 2 + self.actual_clip_count);
             }
         }
     }
@@ -664,6 +664,13 @@ pub struct BorderCornerClipData {
     /// right orientation.
     corner: f32,        // Of type BorderCorner enum
     kind: f32,          // Of type BorderCornerClipKind enum
+}
+
+impl BorderCornerClipData {
+    fn write(&self, request: &mut GpuDataRequest) {
+        request.push(self.corner_rect);
+        request.push([self.clip_center.x, self.clip_center.y, self.corner, self.kind]);
+    }
 }
 
 /// Represents the GPU data for drawing a single dash
@@ -697,6 +704,13 @@ impl BorderCornerDashClipData {
             tangent1: t1,
         }
     }
+
+    fn write(&self, request: &mut GpuDataRequest) {
+        request.push([self.point0.x, self.point0.y,
+                      self.tangent0.x, self.tangent0.y]);
+        request.push([self.point1.x, self.point1.y,
+                      self.tangent1.x, self.tangent1.y]);
+    }
 }
 
 /// Represents the GPU data for drawing a single dot
@@ -706,7 +720,6 @@ impl BorderCornerDashClipData {
 pub struct BorderCornerDotClipData {
     pub center: LayerPoint,
     pub radius: f32,
-    pub padding: [f32; 5],
 }
 
 impl BorderCornerDotClipData {
@@ -719,8 +732,11 @@ impl BorderCornerDotClipData {
         BorderCornerDotClipData {
             center: center,
             radius: radius,
-            padding: [0.0; 5],
         }
+    }
+
+    fn write(&self, request: &mut GpuDataRequest) {
+        request.push([self.center.x, self.center.y, self.radius, 0.0]);
     }
 }
 

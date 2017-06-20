@@ -5,7 +5,6 @@
 use app_units::Au;
 use frame::FrameId;
 use gpu_cache::GpuCache;
-use gpu_store::GpuStoreAddress;
 use internal_types::HardwareCompositeOp;
 use mask_cache::{ClipMode, ClipSource, MaskCacheInfo};
 use plane_split::{BspSplitter, Polygon, Splitter};
@@ -207,7 +206,7 @@ impl FrameBuilder {
         clip_sources.extend(extra_clips.iter().cloned());
 
         let clip_info = if !clip_sources.is_empty() {
-            Some(MaskCacheInfo::new(&clip_sources, &mut self.prim_store.gpu_data32))
+            Some(MaskCacheInfo::new(&clip_sources))
         } else {
             None
         };
@@ -376,7 +375,6 @@ impl FrameBuilder {
                                 clip_region: &ClipRegion,
                                 clip_scroll_tree: &mut ClipScrollTree) {
         let clip_info = ClipInfo::new(clip_region,
-                                      &mut self.prim_store.gpu_data32,
                                       PackedLayerIndex(self.packed_layers.len()));
         let node = ClipScrollNode::new(pipeline_id,
                                        parent_id,
@@ -717,7 +715,6 @@ impl FrameBuilder {
         let radial_gradient_cpu = RadialGradientPrimitiveCpu {
             stops_range: stops,
             extend_mode: extend_mode,
-            gpu_data_address: GpuStoreAddress(0),
             gpu_data_count: 0,
             gpu_blocks: [
                 [start_center.x, start_center.y, end_center.x, end_center.y].into(),
@@ -1457,7 +1454,6 @@ impl FrameBuilder {
             cache_size: cache_size,
             layer_texture_data: self.packed_layers.clone(),
             render_task_data: render_tasks.render_task_data,
-            gpu_data32: self.prim_store.gpu_data32.build(),
             deferred_resolves: deferred_resolves,
             gpu_cache_updates: Some(gpu_cache_updates),
         }
@@ -1577,7 +1573,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
 
             let bounds = node_clip_info.mask_cache_info.update(&node_clip_info.clip_sources,
                                                                &transform,
-                                                               &mut self.frame_builder.prim_store.gpu_data32,
+                                                               self.gpu_cache,
                                                                self.device_pixel_ratio,
                                                                display_list);
 

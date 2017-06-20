@@ -19,7 +19,6 @@ use fnv::FnvHasher;
 use frame_builder::FrameBuilderConfig;
 use gleam::gl;
 use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
-use gpu_store::{GpuStore, GpuStoreLayout};
 use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, SourceTexture};
@@ -319,6 +318,38 @@ impl CacheTexture {
     }
 }
 
+
+trait GpuStoreLayout {
+    fn image_format() -> ImageFormat;
+
+    fn texture_width<T>() -> usize;
+
+    fn texture_filter() -> TextureFilter;
+
+    fn texel_size() -> usize {
+        match Self::image_format() {
+            ImageFormat::BGRA8 => 4,
+            ImageFormat::RGBAF32 => 16,
+            _ => unreachable!(),
+        }
+    }
+
+    fn texels_per_item<T>() -> usize {
+        let item_size = mem::size_of::<T>();
+        let texel_size = Self::texel_size();
+        debug_assert!(item_size % texel_size == 0);
+        item_size / texel_size
+    }
+
+    fn items_per_row<T>() -> usize {
+        Self::texture_width::<T>() / Self::texels_per_item::<T>()
+    }
+
+    fn rows_per_item<T>() -> usize {
+        Self::texels_per_item::<T>() / Self::texture_width::<T>()
+    }
+}
+
 struct GpuDataTexture<L> {
     id: TextureId,
     layout: PhantomData<L>,
@@ -386,7 +417,6 @@ impl GpuStoreLayout for VertexDataTextureLayout {
 }
 
 type VertexDataTexture = GpuDataTexture<VertexDataTextureLayout>;
-pub type VertexDataStore<T> = GpuStore<T, VertexDataTextureLayout>;
 
 const TRANSFORM_FEATURE: &'static str = "TRANSFORM";
 const SUBPIXEL_AA_FEATURE: &'static str = "SUBPIXEL_AA";
@@ -553,7 +583,6 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program
 struct GpuDataTextures {
     layer_texture: VertexDataTexture,
     render_task_texture: VertexDataTexture,
-    data32_texture: VertexDataTexture,
 }
 
 impl GpuDataTextures {
@@ -561,18 +590,15 @@ impl GpuDataTextures {
         GpuDataTextures {
             layer_texture: VertexDataTexture::new(device),
             render_task_texture: VertexDataTexture::new(device),
-            data32_texture: VertexDataTexture::new(device),
         }
     }
 
     fn init_frame(&mut self, device: &mut Device, frame: &mut Frame) {
-        self.data32_texture.init(device, &mut frame.gpu_data32);
         self.layer_texture.init(device, &mut frame.layer_texture_data);
         self.render_task_texture.init(device, &mut frame.render_task_data);
 
         device.bind_texture(TextureSampler::Layers, self.layer_texture.id);
         device.bind_texture(TextureSampler::RenderTasks, self.render_task_texture.id);
-        device.bind_texture(TextureSampler::Data32, self.data32_texture.id);
     }
 }
 
