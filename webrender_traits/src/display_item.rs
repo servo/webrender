@@ -129,6 +129,9 @@ pub struct NinePatchDescriptor {
 pub struct ImageBorder {
     pub image_key: ImageKey,
     pub patch: NinePatchDescriptor,
+    /// Controls whether the center of the 9 patch image is
+    /// rendered or ignored.
+    pub fill: bool,
     pub outset: SideOffsets2D<f32>,
     pub repeat_horizontal: RepeatMode,
     pub repeat_vertical: RepeatMode,

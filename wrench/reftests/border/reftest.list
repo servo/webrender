@@ -9,4 +9,5 @@ fuzzy(255,24) == border-groove-simple.yaml border-groove-simple-ref.yaml
 fuzzy(255,24) == border-ridge-simple.yaml border-ridge-simple-ref.yaml
 == degenerate-curve.yaml degenerate-curve.png
 == border-image.yaml border-image-ref.png
+== border-image-fill.yaml border-image-fill-ref.png
 

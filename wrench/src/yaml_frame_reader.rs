@@ -332,6 +332,7 @@ impl YamlFrameReader {
                         wrench.add_or_get_image(&self.rsrc_path(&item["image-source"]), None);
                     let image_width = item["image-width"].as_i64().expect("border must have image-width");
                     let image_height = item["image-height"].as_i64().expect("border must have image-height");
+                    let fill = item["fill"].as_bool().unwrap_or(false);
                     let slice = item["slice"].as_vec_u32().expect("border must have slice");
                     let slice = broadcast(&slice, 4);
                     let outset = item["outset"].as_vec_f32().expect("border must have outset");
@@ -359,6 +360,7 @@ impl YamlFrameReader {
                             height: image_height as u32,
                             slice: SideOffsets2D::new(slice[0], slice[1], slice[2], slice[3]),
                         },
+                        fill: fill,
                         outset: SideOffsets2D::new(outset[0], outset[1], outset[2], outset[3]),
                         repeat_horizontal: repeat_horizontal,
                         repeat_vertical: repeat_vertical,
