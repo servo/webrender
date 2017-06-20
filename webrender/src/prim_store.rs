@@ -26,6 +26,35 @@ use webrender_traits::{ExtendMode, GradientStop, TileOffset};
 pub const CLIP_DATA_GPU_SIZE: usize = 5;
 pub const MASK_DATA_GPU_SIZE: usize = 1;
 
+#[derive(Debug, Copy, Clone)]
+pub struct PrimitiveOpacity {
+    pub is_opaque: bool,
+}
+
+impl PrimitiveOpacity {
+    pub fn opaque() -> PrimitiveOpacity {
+        PrimitiveOpacity {
+            is_opaque: true,
+        }
+    }
+
+    pub fn translucent() -> PrimitiveOpacity {
+        PrimitiveOpacity {
+            is_opaque: false,
+        }
+    }
+
+    pub fn from_alpha(alpha: f32) -> PrimitiveOpacity {
+        PrimitiveOpacity {
+            is_opaque: alpha == 1.0,
+        }
+    }
+
+    pub fn accumulate(&mut self, alpha: f32) {
+        self.is_opaque = self.is_opaque && alpha == 1.0;
+    }
+}
+
 /// Stores two coordinates in texel space. The coordinates
 /// are stored in texel coordinates because the texture atlas
 /// may grow. Storing them as texel coords and normalizing
@@ -113,7 +142,7 @@ impl GpuCacheHandle {
 // TODO(gw): Pack the fields here better!
 #[derive(Debug)]
 pub struct PrimitiveMetadata {
-    pub is_opaque: bool,
+    pub opacity: PrimitiveOpacity,
     pub clips: Vec<ClipSource>,
     pub clip_cache_info: Option<MaskCacheInfo>,
     pub prim_kind: PrimitiveKind,
@@ -253,14 +282,18 @@ pub struct GradientPrimitiveCpu {
 impl GradientPrimitiveCpu {
     fn build_gpu_blocks_for_aligned(&self,
                                     display_list: &BuiltDisplayList,
-                                    mut request: GpuDataRequest) {
+                                    mut request: GpuDataRequest) -> PrimitiveOpacity {
+        let mut opacity = PrimitiveOpacity::opaque();
         request.extend_from_slice(&self.gpu_blocks);
         let src_stops = display_list.get(self.stops_range);
 
         for src in src_stops {
             request.push(src.color.premultiplied().into());
             request.push([src.offset, 0.0, 0.0, 0.0].into());
+            opacity.accumulate(src.color.a);
         }
+
+        opacity
     }
 
     fn build_gpu_blocks_for_angle_radial(&self,
@@ -701,7 +734,7 @@ impl PrimitiveStore {
         let metadata = match container {
             PrimitiveContainer::Rectangle(rect) => {
                 let metadata = PrimitiveMetadata {
-                    is_opaque: rect.color.a == 1.0,
+                    opacity: PrimitiveOpacity::from_alpha(rect.color.a),
                     clips: clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::Rectangle,
@@ -719,7 +752,7 @@ impl PrimitiveStore {
             }
             PrimitiveContainer::TextRun(text_cpu) => {
                 let metadata = PrimitiveMetadata {
-                    is_opaque: false,
+                    opacity: PrimitiveOpacity::translucent(),
                     clips: clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::TextRun,
@@ -736,7 +769,7 @@ impl PrimitiveStore {
             }
             PrimitiveContainer::Image(image_cpu) => {
                 let metadata = PrimitiveMetadata {
-                    is_opaque: false,
+                    opacity: PrimitiveOpacity::translucent(),
                     clips: clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::Image,
@@ -753,7 +786,7 @@ impl PrimitiveStore {
             }
             PrimitiveContainer::YuvImage(image_cpu) => {
                 let metadata = PrimitiveMetadata {
-                    is_opaque: true,
+                    opacity: PrimitiveOpacity::opaque(),
                     clips: clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::YuvImage,
@@ -770,7 +803,7 @@ impl PrimitiveStore {
             }
             PrimitiveContainer::Border(border_cpu) => {
                 let metadata = PrimitiveMetadata {
-                    is_opaque: false,
+                    opacity: PrimitiveOpacity::translucent(),
                     clips: clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::Border,
@@ -787,8 +820,7 @@ impl PrimitiveStore {
             }
             PrimitiveContainer::AlignedGradient(gradient_cpu) => {
                 let metadata = PrimitiveMetadata {
-                    // TODO: calculate if the gradient is actually opaque
-                    is_opaque: false,
+                    opacity: PrimitiveOpacity::translucent(),
                     clips: clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::AlignedGradient,
@@ -806,7 +838,7 @@ impl PrimitiveStore {
             PrimitiveContainer::AngleGradient(gradient_cpu) => {
                 let metadata = PrimitiveMetadata {
                     // TODO: calculate if the gradient is actually opaque
-                    is_opaque: false,
+                    opacity: PrimitiveOpacity::translucent(),
                     clips: clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::AngleGradient,
@@ -824,7 +856,7 @@ impl PrimitiveStore {
             PrimitiveContainer::RadialGradient(radial_gradient_cpu) => {
                 let metadata = PrimitiveMetadata {
                     // TODO: calculate if the gradient is actually opaque
-                    is_opaque: false,
+                    opacity: PrimitiveOpacity::translucent(),
                     clips: clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::RadialGradient,
@@ -866,7 +898,7 @@ impl PrimitiveStore {
                                                              PrimitiveIndex(prim_index));
 
                 let metadata = PrimitiveMetadata {
-                    is_opaque: false,
+                    opacity: PrimitiveOpacity::translucent(),
                     clips: clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::BoxShadow,
@@ -1022,9 +1054,9 @@ impl PrimitiveStore {
                         // right now, but if we introduce a cache for images for some other
                         // reason then we might as well cache this with it.
                         let image_properties = resource_cache.get_image_properties(image_key);
-                        metadata.is_opaque = image_properties.descriptor.is_opaque &&
-                                             tile_spacing.width == 0.0 &&
-                                             tile_spacing.height == 0.0;
+                        metadata.opacity.is_opaque = image_properties.descriptor.is_opaque &&
+                                                     tile_spacing.width == 0.0 &&
+                                                     tile_spacing.height == 0.0;
                     }
                     ImagePrimitiveKind::WebGL(..) => {}
                 }
@@ -1037,9 +1069,6 @@ impl PrimitiveStore {
                 for channel in 0..channel_num {
                     resource_cache.request_image(image_cpu.yuv_key[channel], image_cpu.image_rendering, None);
                 }
-
-                // TODO(nical): Currently assuming no tile_spacing for yuv images.
-                metadata.is_opaque = true;
             }
             PrimitiveKind::AlignedGradient |
             PrimitiveKind::AngleGradient |
@@ -1074,8 +1103,8 @@ impl PrimitiveStore {
                 }
                 PrimitiveKind::AlignedGradient => {
                     let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];
-                    gradient.build_gpu_blocks_for_aligned(display_list,
-                                                          request);
+                    metadata.opacity = gradient.build_gpu_blocks_for_aligned(display_list,
+                                                                             request);
                 }
                 PrimitiveKind::AngleGradient => {
                     let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];

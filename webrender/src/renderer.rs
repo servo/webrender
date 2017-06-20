@@ -1857,7 +1857,13 @@ impl Renderer {
         self.device.enable_depth();
         self.device.enable_depth_write();
 
-        for batch in &target.alpha_batcher.batch_list.opaque_batches {
+        // Draw opaque batches front-to-back for maximum
+        // z-buffer efficiency!
+        for batch in target.alpha_batcher
+                           .batch_list
+                           .opaque_batches
+                           .iter()
+                           .rev() {
             self.submit_batch(batch,
                               &projection,
                               render_task_data,
