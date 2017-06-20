@@ -92,6 +92,17 @@ impl GLContextWrapper {
         }
     }
 
+    pub fn gl(&self) -> &gl::Gl {
+        match *self {
+            GLContextWrapper::Native(ref ctx) => {
+                ctx.gl()
+            }
+            GLContextWrapper::OSMesa(ref ctx) => {
+                ctx.gl()
+            }
+        }
+    }
+
     pub fn get_info(&self) -> (DeviceIntSize, u32, GLLimits) {
         match *self {
             GLContextWrapper::Native(ref ctx) => {

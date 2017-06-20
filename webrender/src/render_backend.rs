@@ -4,13 +4,14 @@
 
 use frame::Frame;
 use frame_builder::FrameBuilderConfig;
+use gleam::gl;
 use gpu_cache::GpuCache;
 use internal_types::{SourceTexture, ResultMsg, RendererFrame};
 use profiler::{BackendProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use record::ApiRecordingReceiver;
 use resource_cache::ResourceCache;
 use scene::Scene;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
@@ -23,7 +24,7 @@ use webrender_traits::channel::{PayloadSender, PayloadSenderHelperMethods};
 use webrender_traits::{ApiMsg, BlobImageRenderer, BuiltDisplayList, DeviceIntPoint};
 use webrender_traits::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, IdNamespace, ImageData};
 use webrender_traits::{LayerPoint, PipelineId, RenderDispatcher, RenderNotifier};
-use webrender_traits::{VRCompositorCommand, VRCompositorHandler, WebGLCommand, WebGLContextId};
+use webrender_traits::{VRCompositorCommand, VRCompositorHandler, WebGLContextId};
 use webrender_traits::{FontTemplate};
 
 #[cfg(feature = "webgl")]
@@ -60,6 +61,7 @@ pub struct RenderBackend {
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
     webrender_context_handle: Option<GLContextHandleWrapper>,
     webgl_contexts: HashMap<WebGLContextId, GLContextWrapper>,
+    dirty_webgl_contexts: HashSet<WebGLContextId>,
     current_bound_webgl_context_id: Option<WebGLContextId>,
     recorder: Option<Box<ApiRecordingReceiver>>,
     main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
@@ -114,6 +116,7 @@ impl RenderBackend {
             notifier: notifier,
             webrender_context_handle: webrender_context_handle,
             webgl_contexts: HashMap::new(),
+            dirty_webgl_contexts: HashSet::new(),
             current_bound_webgl_context_id: None,
             recorder: recorder,
             main_thread_dispatcher: main_thread_dispatcher,
@@ -357,6 +360,7 @@ impl RenderBackend {
                                         self.resource_cache
                                             .add_webgl_texture(id, SourceTexture::WebGL(texture_id),
                                                                real_size);
+                                        self.dirty_webgl_contexts.insert(id);
 
                                         tx.send(Ok((id, limits))).unwrap();
                                     },
@@ -381,6 +385,7 @@ impl RenderBackend {
                                     self.resource_cache
                                         .update_webgl_texture(context_id, SourceTexture::WebGL(texture_id),
                                                               real_size);
+                                    self.dirty_webgl_contexts.insert(context_id);
                                 },
                                 Err(msg) => {
                                     error!("Error resizing WebGLContext: {}", msg);
@@ -396,6 +401,7 @@ impl RenderBackend {
                                 self.current_bound_webgl_context_id = Some(context_id);
                             }
                             ctx.apply_command(command);
+                            self.dirty_webgl_contexts.insert(context_id);
                         },
 
                         ApiMsg::VRCompositorCommand(context_id, command) => {
@@ -404,6 +410,7 @@ impl RenderBackend {
                                 self.current_bound_webgl_context_id = Some(context_id);
                             }
                             self.handle_vr_compositor_command(context_id, command);
+                            self.dirty_webgl_contexts.insert(context_id);
                         }
                         ApiMsg::GenerateFrame(property_bindings) => {
                             profile_scope!("GenerateFrame");
@@ -490,10 +497,24 @@ impl RenderBackend {
         // implementations - a single flush for each webgl
         // context at the start of a render frame should
         // incur minimal cost.
-        for (_, webgl_context) in &self.webgl_contexts {
-            webgl_context.make_current();
-            webgl_context.apply_command(WebGLCommand::Flush);
-            webgl_context.unbind();
+        // glFlush is not enough in some GPUs.
+        // glFlush doesn't guarantee the completion of the GL commands when the shared texture is sampled.
+        // This leads to some graphic glitches on some demos or even nothing being rendered at all (GPU Mali-T880).
+        // glFinish guarantees the completion of the commands but it may hurt performance a lot.
+        // Sync objects are the recommended way to ensure that textures are ready in OpenGL 3.0+.
+        // They are more performant than glFinish and guarantee the completion of the GL commands.
+        for (id, webgl_context) in &self.webgl_contexts {
+            if self.dirty_webgl_contexts.contains(&id) {
+                webgl_context.make_current();
+                // Call FenceSync and ClientWaitSync to ensure that textures are ready.
+                let sync = webgl_context.gl().fence_sync(gl::SYNC_GPU_COMMANDS_COMPLETE, 0);
+                // SYNC_FLUSH_COMMANDS_BIT is used to automatically generate a glFlush before blocking on the sync object.
+                webgl_context.gl().client_wait_sync(sync, gl::SYNC_FLUSH_COMMANDS_BIT, gl::TIMEOUT_IGNORED);
+                // Release GLsync object
+                webgl_context.gl().delete_sync(sync);
+                webgl_context.unbind();
+                self.dirty_webgl_contexts.remove(&id);
+            }
         }
 
         let accumulated_scale_factor = self.accumulated_scale_factor();
