@@ -252,6 +252,18 @@ impl BatchList {
 
         batch
     }
+
+    fn finalize(&mut self) {
+        // Reverse the instance arrays in the opaque batches
+        // to get maximum z-buffer efficiency by drawing
+        // front-to-back.
+        // TODO(gw): Maybe we can change the batch code to
+        //           build these in reverse and avoid having
+        //           to reverse the instance array here.
+        for batch in &mut self.opaque_batches {
+            batch.instances.reverse();
+        }
+    }
 }
 
 /// Encapsulates the logic of building batches for items that are blended.
@@ -370,7 +382,7 @@ impl AlphaRenderItem {
                         OPAQUE_TASK_INDEX
                     }
                 };
-                let needs_blending = !prim_metadata.is_opaque ||
+                let needs_blending = !prim_metadata.opacity.is_opaque ||
                                      needs_clipping ||
                                      transform_kind == TransformedRectKind::Complex;
                 let blend_mode = ctx.prim_store.get_blend_mode(needs_blending, prim_metadata);
@@ -662,6 +674,8 @@ impl AlphaBatcher {
                                   deferred_resolves);
             }
         }
+
+        self.batch_list.finalize();
     }
 }
 
