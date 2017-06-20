@@ -544,6 +544,15 @@ impl FrameBuilder {
                                             RepeatMode::Stretch),
                 ];
 
+                // Center
+                if border.fill {
+                    segments.push(ImageBorderSegment::new(
+                        LayerRect::from_floats(tl_inner.x, tl_inner.y, tr_inner.x, bl_inner.y),
+                        TexelRect::new(px1, py1, px2, py2),
+                        border.repeat_horizontal,
+                        border.repeat_vertical))
+                }
+
                 // Add edge segments if valid size.
                 if px1 < px2 && py1 < py2 {
                     segments.extend_from_slice(&[
