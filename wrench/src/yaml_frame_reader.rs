@@ -647,14 +647,14 @@ impl YamlFrameReader {
         let transform_origin = LayoutPoint::new(bounds.origin.x + bounds.size.width * 0.5,
                                                 bounds.origin.y + bounds.size.height * 0.5);
 
-        let transform = yaml["transform"].as_matrix4d(&transform_origin).map(
+        let transform = yaml["transform"].as_transform(&transform_origin).map(
             |transform| transform.into());
 
         // TODO(gw): Support perspective-origin.
-        let perspective = match yaml["perspective"].as_force_f32() {
-            Some(perspective) if perspective == 0.0 => None,
-            Some(perspective) => Some(LayoutTransform::create_perspective(perspective)),
-            None => None,
+        let perspective = match yaml["perspective"].as_f32() {
+            Some(value) if value != 0.0 => Some(LayoutTransform::create_perspective(value as f32)),
+            Some(_) => None,
+            _ => yaml["perspective"].as_matrix4d(),
         };
 
         let transform_style = yaml["transform-style"].as_transform_style()

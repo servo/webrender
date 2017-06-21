@@ -11,6 +11,7 @@ use webrender_traits::*;
 use yaml_rust::Yaml;
 
 pub trait YamlHelper {
+    fn as_f32(&self) -> Option<f32>;
     fn as_force_f32(&self) -> Option<f32>;
     fn as_vec_f32(&self) -> Option<Vec<f32>>;
     fn as_vec_u32(&self) -> Option<Vec<u32>>;
@@ -19,7 +20,8 @@ pub trait YamlHelper {
     fn as_size(&self) -> Option<LayoutSize>;
     fn as_point(&self) -> Option<LayoutPoint>;
     fn as_vector(&self) -> Option<LayoutVector2D>;
-    fn as_matrix4d(&self, transform_origin: &LayoutPoint) -> Option<LayoutTransform>;
+    fn as_matrix4d(&self) -> Option<LayoutTransform>;
+    fn as_transform(&self, transform_origin: &LayoutPoint) -> Option<LayoutTransform>;
     fn as_colorf(&self) -> Option<ColorF>;
     fn as_vec_colorf(&self) -> Option<Vec<ColorF>>;
     fn as_px_to_au(&self) -> Option<Au>;
@@ -132,13 +134,18 @@ fn make_rotation(origin: &LayoutPoint, degrees: f32, axis_x: f32, axis_y: f32, a
 
 
 impl YamlHelper for Yaml {
+    fn as_f32(&self) -> Option<f32> {
+        match *self {
+            Yaml::Integer(iv) => Some(iv as f32),
+            Yaml::Real(ref sv) => f32::from_str(sv.as_str()).ok(),
+            _ => None
+        }
+    }
+
     fn as_force_f32(&self) -> Option<f32> {
         match *self {
             Yaml::Integer(iv) => Some(iv as f32),
-            Yaml::String(ref sv) | Yaml::Real(ref sv) => match f32::from_str(sv.as_str()) {
-                Ok(v) => Some(v),
-                Err(_) => None
-            },
+            Yaml::String(ref sv) | Yaml::Real(ref sv) => f32::from_str(sv.as_str()).ok(),
             _ => None
         }
     }
@@ -250,14 +257,23 @@ impl YamlHelper for Yaml {
         self.as_point().map(|p|{ p.to_vector() })
     }
 
-    fn as_matrix4d(&self, transform_origin: &LayoutPoint) -> Option<LayoutTransform> {
+    fn as_matrix4d(&self) -> Option<LayoutTransform> {
         if let Some(nums) = self.as_vec_f32() {
             assert_eq!(nums.len(), 16, "expected 16 floats, got '{:?}'", self);
-            return Some(LayoutTransform::row_major(nums[0], nums[1], nums[2], nums[3],
-                                                   nums[4], nums[5], nums[6], nums[7],
-                                                   nums[8], nums[9], nums[10], nums[11],
-                                                   nums[12], nums[13], nums[14], nums[15]))
+            Some(LayoutTransform::row_major(nums[0], nums[1], nums[2], nums[3],
+                                            nums[4], nums[5], nums[6], nums[7],
+                                            nums[8], nums[9], nums[10], nums[11],
+                                            nums[12], nums[13], nums[14], nums[15]))
+        } else {
+            None
         }
+    }
+
+    fn as_transform(&self, transform_origin: &LayoutPoint) -> Option<LayoutTransform> {
+        if let Some(transform) = self.as_matrix4d() {
+            return Some(transform);
+        }
+
         match *self {
             Yaml::String(ref string) => {
                 let mut slice = string.as_str();
@@ -292,7 +308,7 @@ impl YamlHelper for Yaml {
             },
             Yaml::Array(ref array) => {
                 let transform = array.iter().fold(LayoutTransform::identity(), |u, yaml| {
-                    match yaml.as_matrix4d(transform_origin) {
+                    match yaml.as_transform(transform_origin) {
                         Some(ref transform) => u.pre_mul(transform),
                         None => u,
                     }
