@@ -118,6 +118,7 @@ pub enum RepeatMode {
     Space,
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct NinePatchDescriptor {
     pub width: u32,
@@ -163,6 +164,7 @@ pub struct BorderDisplayItem {
     pub details: BorderDetails,
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BorderRadius {
     pub top_left: LayoutSize,
@@ -171,6 +173,7 @@ pub struct BorderRadius {
     pub bottom_right: LayoutSize,
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BorderWidths {
     pub left: f32,
@@ -435,6 +438,7 @@ impl YuvFormat {
     }
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ImageMask {
     pub image: ImageKey,
@@ -452,6 +456,7 @@ pub struct ClipRegion {
     pub complex_clip_count: usize,
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ComplexClipRegion {
     /// The boundaries of the rectangle.

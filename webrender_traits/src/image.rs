@@ -33,6 +33,7 @@ pub enum ExternalImageType {
     ExternalBuffer,
 }
 
+#[repr(C)]
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct ExternalImageData {
     pub id: ExternalImageId,
