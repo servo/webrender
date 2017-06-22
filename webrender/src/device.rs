@@ -52,11 +52,11 @@ const GL_FORMAT_BGRA_GL: gl::GLuint = gl::BGRA;
 
 const GL_FORMAT_BGRA_GLES: gl::GLuint = gl::BGRA_EXT;
 
-const SHADER_VERSION_GL: &'static str = "#version 150\n";
+const SHADER_VERSION_GL: &str = "#version 150\n";
 
-const SHADER_VERSION_GLES: &'static str = "#version 300 es\n";
+const SHADER_VERSION_GLES: &str = "#version 300 es\n";
 
-static SHADER_PREAMBLE: &'static str = "shared";
+static SHADER_PREAMBLE: &str = "shared";
 
 #[repr(u32)]
 pub enum DepthFunction {

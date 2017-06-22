@@ -14,10 +14,10 @@ use webrender_traits::*;
 use wrench::{Wrench, WrenchThing};
 use yaml_frame_reader::YamlFrameReader;
 
-const COLOR_DEFAULT: &'static str = "\x1b[0m";
-const COLOR_RED: &'static str = "\x1b[31m";
-const COLOR_GREEN: &'static str = "\x1b[32m";
-const COLOR_MAGENTA: &'static str = "\x1b[95m";
+const COLOR_DEFAULT: &str = "\x1b[0m";
+const COLOR_RED: &str = "\x1b[31m";
+const COLOR_GREEN: &str = "\x1b[32m";
+const COLOR_MAGENTA: &str = "\x1b[95m";
 
 pub struct Benchmark {
     pub test: PathBuf,

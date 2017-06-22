@@ -418,9 +418,9 @@ impl GpuStoreLayout for VertexDataTextureLayout {
 
 type VertexDataTexture = GpuDataTexture<VertexDataTextureLayout>;
 
-const TRANSFORM_FEATURE: &'static str = "TRANSFORM";
-const SUBPIXEL_AA_FEATURE: &'static str = "SUBPIXEL_AA";
-const CLIP_FEATURE: &'static str = "CLIP";
+const TRANSFORM_FEATURE: &str = "TRANSFORM";
+const SUBPIXEL_AA_FEATURE: &str = "SUBPIXEL_AA";
+const CLIP_FEATURE: &str = "CLIP";
 
 enum ShaderKind {
     Primitive,
