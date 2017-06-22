@@ -774,6 +774,10 @@ impl FrameBuilder {
                 render_mode = FontRenderMode::Alpha;
             }
 
+            if color.a != 1.0 {
+                render_mode = FontRenderMode::Alpha;
+            }
+
             // text on a stacking context that has filters
             // (e.g. opacity) can't use sub-pixel.
             // TODO(gw): It's possible we can relax this in
