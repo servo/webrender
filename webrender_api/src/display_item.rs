@@ -50,6 +50,7 @@ pub struct DisplayItem {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum SpecificDisplayItem {
     Clip(ClipDisplayItem),
+    ScrollFrame(ClipDisplayItem),
     Rectangle(RectangleDisplayItem),
     Text(TextDisplayItem),
     Image(ImageDisplayItem),
@@ -71,7 +72,8 @@ pub enum SpecificDisplayItem {
 pub struct ClipDisplayItem {
     pub id: ClipId,
     pub parent_id: ClipId,
-    pub clip_region: ClipRegion,
+    pub content_rect: LayoutRect,
+    pub image_mask: Option<ImageMask>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]

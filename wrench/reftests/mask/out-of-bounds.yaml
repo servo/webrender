@@ -1,7 +1,7 @@
 ---
 root:
   items:
-    - type: scroll-layer
+    - type: clip
       bounds: [0, 0, 10000, 10000]
       complex:
         - rect: [0, 0, 10000, 10000]

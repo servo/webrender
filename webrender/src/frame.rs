@@ -345,32 +345,46 @@ impl Frame {
                         item: &ClipDisplayItem,
                         content_rect: &LayerRect,
                         clip: &ClipRegion) {
-        let is_scroll_frame =
-            clip.main.origin != LayerPoint::zero() || clip.main.size != content_rect.size;
-
         let new_id = context.convert_new_id_to_neested(&item.id);
-        let new_clip_id = if is_scroll_frame {
-            self.clip_scroll_tree.generate_new_clip_id(pipeline_id)
-        } else {
-            new_id
-        };
-
         let clip_viewport = LayerRect::new(content_rect.origin, clip.main.size);
-        context.builder.add_clip_scroll_node(new_clip_id,
+
+        let mut clip = *clip;
+        clip.main.origin = LayerPoint::zero();
+
+        context.builder.add_clip_scroll_node(new_id,
                                              parent_id,
                                              pipeline_id,
                                              &clip_viewport,
-                                             clip,
+                                             &clip,
                                              &mut self.clip_scroll_tree);
-        if is_scroll_frame {
-            context.builder.add_scroll_frame(new_id,
-                                             new_clip_id,
-                                             pipeline_id,
-                                             &content_rect,
-                                             &clip_viewport,
-                                             &mut self.clip_scroll_tree);
-        }
+    }
 
+    fn flatten_scroll_frame<'a>(&mut self,
+                                context: &mut FlattenContext,
+                                pipeline_id: PipelineId,
+                                parent_id: ClipId,
+                                item: &ClipDisplayItem,
+                                content_rect: &LayerRect,
+                                clip: &ClipRegion) {
+        let clip_viewport = LayerRect::new(content_rect.origin, clip.main.size);
+        let clip_id = self.clip_scroll_tree.generate_new_clip_id(pipeline_id);
+
+        let mut clip = *clip;
+        clip.main.origin = LayerPoint::zero();
+        context.builder.add_clip_scroll_node(clip_id,
+                                             parent_id,
+                                             pipeline_id,
+                                             &clip_viewport,
+                                             &clip,
+                                             &mut self.clip_scroll_tree);
+
+        let new_id = context.convert_new_id_to_neested(&item.id);
+        context.builder.add_scroll_frame(new_id,
+                                         clip_id,
+                                         pipeline_id,
+                                         &content_rect,
+                                         &clip_viewport,
+                                         &mut self.clip_scroll_tree);
     }
 
     fn flatten_stacking_context<'a>(&mut self,
@@ -656,12 +670,33 @@ impl Frame {
             }
             SpecificDisplayItem::Clip(ref info) => {
                 let content_rect = &item.rect().translate(&reference_frame_relative_offset);
+
+                let mut clip_region = ClipRegion::new(item.clip_rect(), info.image_mask);
+                let &(complex_clips, complex_clip_count) = item.complex_clip();
+                clip_region.complex_clip_count = complex_clip_count;
+                clip_region.complex_clips = complex_clips;
+
                 self.flatten_clip(context,
                                   pipeline_id,
                                   clip_and_scroll.scroll_node_id,
                                   &info,
                                   &content_rect,
-                                  item.clip_region());
+                                  &clip_region);
+            }
+            SpecificDisplayItem::ScrollFrame(ref info) => {
+                let content_rect = &item.rect().translate(&reference_frame_relative_offset);
+
+                let mut clip_region = ClipRegion::new(item.clip_rect(), info.image_mask);
+                let &(complex_clips, complex_clip_count) = item.complex_clip();
+                clip_region.complex_clip_count = complex_clip_count;
+                clip_region.complex_clips = complex_clips;
+
+                self.flatten_scroll_frame(context,
+                                          pipeline_id,
+                                          clip_and_scroll.scroll_node_id,
+                                          &info,
+                                          &content_rect,
+                                          &clip_region);
             }
             SpecificDisplayItem::PushNestedDisplayList => {
                 // Using the clip and scroll already processed for nesting here

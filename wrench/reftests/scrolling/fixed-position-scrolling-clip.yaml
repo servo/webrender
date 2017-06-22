@@ -1,6 +1,6 @@
 root:
   items:
-    - type: scroll-layer
+    - type: scroll-frame
       bounds: [10, 10, 100, 300]
       content-size: [100, 700]
       id: 41

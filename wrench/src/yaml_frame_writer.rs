@@ -433,14 +433,15 @@ impl YamlFrameWriter {
     }
 
     fn make_clip_complex_node(&mut self,
-                              clip: &ClipRegion,
+                              complex_clip_count: usize,
+                              complex_clips: ItemRange<ComplexClipRegion>,
                               list: &BuiltDisplayList)
                               -> Option<Yaml> {
-        if clip.complex_clip_count == 0 {
+        if complex_clip_count == 0 {
             return None;
         }
 
-        let complex_items = list.get(clip.complex_clips).map(|ccx|
+        let complex_items = list.get(complex_clips).map(|ccx|
             if ccx.radii.is_zero() {
                 rect_yaml(&ccx.rect)
             } else {
@@ -453,10 +454,10 @@ impl YamlFrameWriter {
         Some(Yaml::Array(complex_items))
     }
 
-    fn make_clip_mask_image_node(&mut self, clip: &ClipRegion) -> Option<Yaml> {
-        let mask = match clip.image_mask {
-            Some(ref mask) => mask,
-            None => return None,
+    fn make_clip_mask_image_node(&mut self, image_mask: &Option<ImageMask>) -> Option<Yaml> {
+        let mask = match image_mask {
+            &Some(ref mask) => mask,
+            &None => return None,
         };
 
         let mut mask_table = new_table();
@@ -746,22 +747,35 @@ impl YamlFrameWriter {
                 Clip(item) => {
                     str_node(&mut v, "type", "clip");
                     usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
+                    size_node(&mut v, "content-size", &item.content_rect.size);
 
-                    let mut bounds = base.rect();
-                    let content_size = bounds.size;
-                    let clip_region = base.clip_region();
-                    bounds.size = clip_region.main.size;
-
-                    rect_node(&mut v, "bounds", &bounds);
-                    size_node(&mut v, "content-size", &content_size);
-
-                    if let Some(complex) = self.make_clip_complex_node(clip_region, display_list) {
+                    let &(complex_clips, complex_clip_count) = base.complex_clip();
+                    if let Some(complex) = self.make_clip_complex_node(complex_clip_count,
+                                                                       complex_clips,
+                                                                       display_list) {
                         yaml_node(&mut v, "complex", complex);
                     }
 
-                    if let Some(mask_yaml) = self.make_clip_mask_image_node(clip_region) {
+                    if let Some(mask_yaml) = self.make_clip_mask_image_node(&item.image_mask) {
                         yaml_node(&mut v, "image-mask", mask_yaml);
                     }
+                }
+                ScrollFrame(item) => {
+                    str_node(&mut v, "type", "scroll-frame");
+                    usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
+                    size_node(&mut v, "content-size", &item.content_rect.size);
+
+                    let &(complex_clips, complex_clip_count) = base.complex_clip();
+                    if let Some(complex) = self.make_clip_complex_node(complex_clip_count,
+                                                                       complex_clips,
+                                                                       display_list) {
+                        yaml_node(&mut v, "complex", complex);
+                    }
+
+                    if let Some(mask_yaml) = self.make_clip_mask_image_node(&item.image_mask) {
+                        yaml_node(&mut v, "image-mask", mask_yaml);
+                    }
+
                 }
                 PushNestedDisplayList =>
                     clip_id_mapper.push_nested_display_list_ids(clip_and_scroll_info),

@@ -34,11 +34,11 @@ fn body(_api: &RenderApi,
                       outer_scroll_frame_rect,
                       ColorF::new(1.0, 1.0, 1.0, 1.0));
 
-    let nested_clip_id = builder.define_clip(None,
-                                             (100, 100).to(1000, 1000),
-                                             outer_scroll_frame_rect,
-                                             vec![],
-                                             None);
+    let nested_clip_id = builder.define_scroll_frame(None,
+                                                     (100, 100).to(1000, 1000),
+                                                     outer_scroll_frame_rect,
+                                                     vec![],
+                                                     None);
     builder.push_clip_id(nested_clip_id);
 
     let mut builder2 = DisplayListBuilder::new(*pipeline_id, *layout_size);
@@ -67,11 +67,11 @@ fn body(_api: &RenderApi,
     builder3.push_rect(inner_scroll_frame_rect,
                        inner_scroll_frame_rect,
                        ColorF::new(1.0, 0.0, 1.0, 0.5));
-    let inner_nested_clip_id = builder3.define_clip(None,
-                                                    (330, 110).to(2000, 2000),
-                                                    inner_scroll_frame_rect,
-                                                    vec![],
-                                                    None);
+    let inner_nested_clip_id = builder3.define_scroll_frame(None,
+                                                            (330, 110).to(2000, 2000),
+                                                            inner_scroll_frame_rect,
+                                                            vec![],
+                                                            None);
     builder3.push_clip_id(inner_nested_clip_id);
     let rect = (340, 120).to(440, 220);
     builder3.push_rect(rect, rect, ColorF::new(0.0, 1.0, 0.0, 1.0));

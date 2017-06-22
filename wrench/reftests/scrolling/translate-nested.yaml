@@ -8,7 +8,7 @@ root:
       items: 
         - 
           bounds: [0, 0, 200, 200]
-          type: scroll-layer
+          type: clip
           id: 1
           items:
           -

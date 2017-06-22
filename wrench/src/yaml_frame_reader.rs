@@ -554,7 +554,7 @@ impl YamlFrameReader {
                 "rect" => self.handle_rect(item, clip_rect),
                 "image" => self.handle_image(wrench, item, clip_rect),
                 "text" | "glyphs" => self.handle_text(wrench, item, clip_rect),
-                "scroll-layer" => self.handle_scroll_layer(wrench, item),
+                "scroll-frame" => self.handle_scroll_frame(wrench, item),
                 "clip" => self.handle_clip(wrench, item),
                 "border" => self.handle_border(wrench, item, clip_rect),
                 "gradient" => self.handle_gradient(item, clip_rect),
@@ -571,11 +571,7 @@ impl YamlFrameReader {
         }
     }
 
-    pub fn handle_scroll_layer(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
-        self.handle_clip(wrench, yaml);
-    }
-
-    pub fn handle_clip(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
+    pub fn handle_scroll_frame(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
         let bounds = yaml["bounds"].as_rect().expect("clip must have a bounds");
         let content_size = yaml["content-size"].as_size().unwrap_or(bounds.size);
         let content_rect = LayerRect::new(bounds.origin, content_size);
@@ -585,7 +581,30 @@ impl YamlFrameReader {
         let complex_clips = self.to_complex_clip_regions(&yaml["complex"]);
         let image_mask = self.to_image_mask(&yaml["image-mask"], wrench);
 
-        let id = self.builder().define_clip(id, content_rect, clip_rect, complex_clips, image_mask);
+        let id = self.builder().define_scroll_frame(id,
+                                                    content_rect,
+                                                    clip_rect,
+                                                    complex_clips,
+                                                    image_mask);
+
+        if let Some(size) = yaml["scroll-offset"].as_point() {
+            self.scroll_offsets.insert(id, LayerPoint::new(size.x, size.y));
+        }
+
+        self.builder().push_clip_id(id);
+        if !yaml["items"].is_badvalue() {
+            self.add_display_list_items_from_yaml(wrench, &yaml["items"]);
+        }
+        self.builder().pop_clip_id();
+    }
+
+    pub fn handle_clip(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
+        let clip_rect = yaml["bounds"].as_rect().expect("clip must have a bounds");
+        let id = yaml["id"].as_i64().map(|id| ClipId::new(id as u64, self.builder().pipeline_id));
+        let complex_clips = self.to_complex_clip_regions(&yaml["complex"]);
+        let image_mask = self.to_image_mask(&yaml["image-mask"], wrench);
+
+        let id = self.builder().define_clip(id, clip_rect, complex_clips, image_mask);
 
         if let Some(size) = yaml["scroll-offset"].as_point() {
             self.scroll_offsets.insert(id, LayerPoint::new(size.x, size.y));

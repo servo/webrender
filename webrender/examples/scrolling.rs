@@ -41,7 +41,11 @@ fn body(_api: &RenderApi,
                                       MixBlendMode::Normal,
                                       Vec::new());
         // set the scrolling clip
-        let clip_id = builder.define_clip(None, (0, 0).by(1000, 1000), scrollbox, vec![], None);
+        let clip_id = builder.define_scroll_frame(None,
+                                                  (0, 0).by(1000, 1000),
+                                                  scrollbox,
+                                                  vec![],
+                                                  None);
         builder.push_clip_id(clip_id);
 
         // now put some content into it.
@@ -62,11 +66,11 @@ fn body(_api: &RenderApi,
         // Below the above rectangles, set up a nested scrollbox. It's still in
         // the same stacking context, so note that the rects passed in need to
         // be relative to the stacking context.
-        let nested_clip_id = builder.define_clip(None,
-                                                 (0, 100).to(300, 400),
-                                                 (0, 100).to(200, 300),
-                                                 vec![],
-                                                 None);
+        let nested_clip_id = builder.define_scroll_frame(None,
+                                                         (0, 100).to(300, 400),
+                                                         (0, 100).to(200, 300),
+                                                         vec![],
+                                                         None);
         builder.push_clip_id(nested_clip_id);
 
         // give it a giant gray background just to distinguish it and to easily

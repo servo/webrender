@@ -197,7 +197,8 @@ fn body(api: &RenderApi,
         repeat: false,
     };
     let complex = ComplexClipRegion::new((50, 50).to(150, 150), BorderRadius::uniform(20.0));
-    builder.push_clip_node(None, bounds, bounds, vec![complex], Some(mask));
+    let id = builder.define_clip(None, bounds, vec![complex], Some(mask));
+    builder.push_clip_id(id);
 
     let bounds = (100, 100).to(200, 200);
     builder.push_rect(bounds, bounds, ColorF::new(0.0, 1.0, 0.0, 1.0));
@@ -319,7 +320,7 @@ fn body(api: &RenderApi,
                                 box_shadow_type);
     }
 
-    builder.pop_clip_node();
+    builder.pop_clip_id();
     builder.pop_stacking_context();
 }
 
