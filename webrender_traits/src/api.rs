@@ -507,7 +507,6 @@ impl PropertyBindingId {
 
 /// A unique key that is used for connecting animated property
 /// values to bindings in the display list.
-#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct PropertyBindingKey<T> {
     pub id: PropertyBindingId,
