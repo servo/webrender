@@ -23,8 +23,8 @@ impl Ellipse {
                                                   radius.height);
 
         Ellipse {
-            radius: radius,
-            total_arc_length: total_arc_length,
+            radius,
+            total_arc_length,
         }
     }
 

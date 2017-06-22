@@ -55,7 +55,7 @@ impl BinaryFrameReader {
         }
 
         BinaryFrameReader {
-            file: file,
+            file,
             eof: false,
             frame_offsets: vec![],
 

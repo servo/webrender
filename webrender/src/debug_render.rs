@@ -48,14 +48,14 @@ impl DebugRenderer {
             font_vertices: Vec::new(),
             font_indices: Vec::new(),
             line_vertices: Vec::new(),
-            tri_vao: tri_vao,
+            tri_vao,
             tri_vertices: Vec::new(),
             tri_indices: Vec::new(),
-            font_program_id: font_program_id,
-            color_program_id: color_program_id,
-            font_vao: font_vao,
-            line_vao: line_vao,
-            font_texture_id: font_texture_id,
+            font_program_id,
+            color_program_id,
+            font_vao,
+            line_vao,
+            font_texture_id,
         }
     }
 

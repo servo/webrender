@@ -1,7 +1,7 @@
 dist: trusty
 language: rust
 rust:
-  - 1.15.1
+  - 1.17.0
   - nightly
 os:
   - linux
@@ -14,7 +14,7 @@ addons:
       - sourceline: 'deb http://apt.llvm.org/trusty/ llvm-toolchain-trusty-3.8 main'
         keyurl: 'http://apt.llvm.org/llvm-snapshot.gpg.key'
     packages:
-      - libgles2-mesa-dev
+      - libgl1-mesa-dev
       - llvm-3.8-dev
       - libedit-dev
 env:

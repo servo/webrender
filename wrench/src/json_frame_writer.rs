@@ -58,8 +58,8 @@ impl JsonFrameWriter {
 
         JsonFrameWriter {
             frame_base: path.to_owned(),
-            rsrc_base: rsrc_base,
-            rsrc_prefix: rsrc_prefix,
+            rsrc_base,
+            rsrc_prefix,
             next_rsrc_num: 1,
             images: HashMap::new(),
             fonts: HashMap::new(),
@@ -214,7 +214,7 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
                 self.images.insert(*key, CachedImage {
                     width: descriptor.width,
                     height: descriptor.height,
-                    stride: stride,
+                    stride,
                     format: descriptor.format,
                     bytes: Some(bytes),
                     path: None,

@@ -320,11 +320,11 @@ impl YamlFrameReader {
                     let bottom = BorderSide { color: colors[2], style: styles[2] };
                     let right = BorderSide { color: colors[3], style: styles[3] };
                     Some(BorderDetails::Normal(NormalBorder {
-                        top: top,
-                        left: left,
-                        bottom: bottom,
-                        right: right,
-                        radius: radius,
+                        top,
+                        left,
+                        bottom,
+                        right,
+                        radius,
                     }))
                 },
                 "image" => {
@@ -354,16 +354,16 @@ impl YamlFrameReader {
                             s => panic!("Unknown box border image repeat mode {}", s),
                         };
                     Some(BorderDetails::Image(ImageBorder {
-                        image_key: image_key,
+                        image_key,
                         patch: NinePatchDescriptor {
                             width: image_width as u32,
                             height: image_height as u32,
                             slice: SideOffsets2D::new(slice[0], slice[1], slice[2], slice[3]),
                         },
-                        fill: fill,
+                        fill,
                         outset: SideOffsets2D::new(outset[0], outset[1], outset[2], outset[3]),
-                        repeat_horizontal: repeat_horizontal,
-                        repeat_vertical: repeat_vertical,
+                        repeat_horizontal,
+                        repeat_vertical,
                     }))
                 },
                 "gradient" => {
@@ -371,7 +371,7 @@ impl YamlFrameReader {
                     let outset = item["outset"].as_vec_f32().expect("borders must have outset");
                     let outset = broadcast(&outset, 4);
                     Some(BorderDetails::Gradient(GradientBorder {
-                        gradient: gradient,
+                        gradient,
                         outset: SideOffsets2D::new(outset[0], outset[1], outset[2], outset[3]),
                     }))
                 },
@@ -380,7 +380,7 @@ impl YamlFrameReader {
                     let outset = item["outset"].as_vec_f32().expect("borders must have outset");
                     let outset = broadcast(&outset, 4);
                     Some(BorderDetails::RadialGradient(RadialGradientBorder {
-                        gradient: gradient,
+                        gradient,
                         outset: SideOffsets2D::new(outset[0], outset[1], outset[2], outset[3]),
                     }))
                 },

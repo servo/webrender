@@ -114,10 +114,10 @@ impl GlyphRasterizer {
                     workers: Arc::clone(&workers),
                 }
             ),
-            glyph_rx: glyph_rx,
-            glyph_tx: glyph_tx,
+            glyph_rx,
+            glyph_tx,
             pending_glyphs: HashSet::new(),
-            workers: workers,
+            workers,
             fonts_to_remove: Vec::new(),
         }
     }
@@ -337,8 +337,8 @@ impl GlyphRequest {
     ) -> GlyphRequest {
         GlyphRequest {
             key: GlyphKey::new(font_key, size, color, index, point, render_mode),
-            render_mode: render_mode,
-            glyph_options: glyph_options,
+            render_mode,
+            glyph_options,
         }
     }
 }

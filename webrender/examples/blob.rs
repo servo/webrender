@@ -131,9 +131,9 @@ impl CheckerboardRenderer {
         CheckerboardRenderer {
             image_cmds: HashMap::new(),
             rendered_images: HashMap::new(),
-            workers: workers,
-            tx: tx,
-            rx: rx,
+            workers,
+            tx,
+            rx,
         }
     }
 }

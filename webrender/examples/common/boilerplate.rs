@@ -16,7 +16,7 @@ struct Notifier {
 impl Notifier {
     fn new(window_proxy: glutin::WindowProxy) -> Notifier {
         Notifier {
-            window_proxy: window_proxy,
+            window_proxy,
         }
     }
 }

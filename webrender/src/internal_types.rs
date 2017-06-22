@@ -170,11 +170,11 @@ pub struct DebugFontVertex {
 impl DebugFontVertex {
     pub fn new(x: f32, y: f32, u: f32, v: f32, color: PackedColor) -> DebugFontVertex {
         DebugFontVertex {
-            x: x,
-            y: y,
-            color: color,
-            u: u,
-            v: v,
+            x,
+            y,
+            color,
+            u,
+            v,
         }
     }
 }
@@ -189,9 +189,9 @@ pub struct DebugColorVertex {
 impl DebugColorVertex {
     pub fn new(x: f32, y: f32, color: PackedColor) -> DebugColorVertex {
         DebugColorVertex {
-            x: x,
-            y: y,
-            color: color,
+            x,
+            y,
+            color,
         }
     }
 }
@@ -278,9 +278,9 @@ impl RendererFrame {
                frame: Option<tiling::Frame>)
                -> RendererFrame {
         RendererFrame {
-            pipeline_epoch_map: pipeline_epoch_map,
-            layers_bouncing_back: layers_bouncing_back,
-            frame: frame,
+            pipeline_epoch_map,
+            layers_bouncing_back,
+            frame,
         }
     }
 }

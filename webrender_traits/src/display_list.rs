@@ -95,8 +95,8 @@ impl BuiltDisplayListDescriptor {
 impl BuiltDisplayList {
     pub fn from_data(data: Vec<u8>, descriptor: BuiltDisplayListDescriptor) -> BuiltDisplayList {
         BuiltDisplayList {
-            data: data,
-            descriptor: descriptor,
+            data,
+            descriptor,
         }
     }
 
@@ -128,7 +128,7 @@ impl BuiltDisplayList {
 impl<'a> BuiltDisplayListIter<'a> {
     pub fn new(list: &'a BuiltDisplayList) -> Self {
         BuiltDisplayListIter {
-            list: list,
+            list,
             data: &list.data,
             // Dummy data, will be overwritten by `next`
             cur_item: DisplayItem {
@@ -339,8 +339,8 @@ impl<'de, 'a, T: Deserialize<'de>> AuxIter<'a, T> {
         };
 
         AuxIter {
-            data: data,
-            size: size,
+            data,
+            size,
             _boo: PhantomData,
         }
     }
@@ -443,11 +443,11 @@ impl DisplayListBuilder {
 
         DisplayListBuilder {
             data: Vec::with_capacity(capacity),
-            pipeline_id: pipeline_id,
+            pipeline_id,
             clip_stack: vec![ClipAndScrollInfo::simple(ClipId::root_scroll_node(pipeline_id))],
             next_clip_id: FIRST_CLIP_ID,
             builder_start_time: start_time,
-            content_size: content_size,
+            content_size,
         }
     }
 
@@ -467,15 +467,15 @@ impl DisplayListBuilder {
 
     fn push_item(&mut self, item: SpecificDisplayItem, rect: LayoutRect) {
         bincode::serialize_into(&mut self.data, &DisplayItem {
-            item: item,
-            rect: rect,
+            item,
+            rect,
             clip_and_scroll: *self.clip_stack.last().unwrap(),
         }, bincode::Infinite).unwrap();
     }
 
     fn push_new_empty_item(&mut self, item: SpecificDisplayItem) {
         bincode::serialize_into(&mut self.data, &DisplayItem {
-            item: item,
+            item,
             rect: LayoutRect::zero(),
             clip_and_scroll: *self.clip_stack.last().unwrap(),
         }, bincode::Infinite).unwrap();
@@ -504,7 +504,7 @@ impl DisplayListBuilder {
                      _token: ClipRegionToken,
                      color: ColorF) {
         let item = SpecificDisplayItem::Rectangle(RectangleDisplayItem {
-            color: color,
+            color,
         });
 
         self.push_item(item, rect);
@@ -519,9 +519,9 @@ impl DisplayListBuilder {
                       key: ImageKey) {
         let item = SpecificDisplayItem::Image(ImageDisplayItem {
             image_key: key,
-            stretch_size: stretch_size,
-            tile_spacing: tile_spacing,
-            image_rendering: image_rendering,
+            stretch_size,
+            tile_spacing,
+            image_rendering,
         });
 
         self.push_item(item, rect);
@@ -535,9 +535,9 @@ impl DisplayListBuilder {
                           color_space: YuvColorSpace,
                           image_rendering: ImageRendering) {
         let item = SpecificDisplayItem::YuvImage(YuvImageDisplayItem {
-            yuv_data: yuv_data,
-            color_space: color_space,
-            image_rendering: image_rendering,
+            yuv_data,
+            color_space,
+            image_rendering,
         });
         self.push_item(item, rect);
     }
@@ -547,7 +547,7 @@ impl DisplayListBuilder {
                              _token: ClipRegionToken,
                              context_id: WebGLContextId) {
         let item = SpecificDisplayItem::WebGL(WebGLDisplayItem {
-            context_id: context_id,
+            context_id,
         });
         self.push_item(item, rect);
     }
@@ -569,11 +569,11 @@ impl DisplayListBuilder {
         // by the azure renderer.
         if size < Au::from_px(4096) {
             let item = SpecificDisplayItem::Text(TextDisplayItem {
-                color: color,
-                font_key: font_key,
-                size: size,
-                blur_radius: blur_radius,
-                glyph_options: glyph_options,
+                color,
+                font_key,
+                size,
+                blur_radius,
+                glyph_options,
             });
 
             self.push_item(item, rect);
@@ -675,7 +675,7 @@ impl DisplayListBuilder {
         Gradient {
             start_point: start_point + start_to_end * start_offset,
             end_point: start_point + start_to_end * end_offset,
-            extend_mode: extend_mode,
+            extend_mode,
         }
     }
 
@@ -711,7 +711,7 @@ impl DisplayListBuilder {
                 end_center: center,
                 end_radius: 1.0,
                 ratio_xy: 1.0,
-                extend_mode: extend_mode,
+                extend_mode,
             };
         }
 
@@ -726,7 +726,7 @@ impl DisplayListBuilder {
             end_center: center,
             end_radius: radius.width * end_offset,
             ratio_xy: radius.width / radius.height,
-            extend_mode: extend_mode,
+            extend_mode,
         }
     }
 
@@ -744,12 +744,12 @@ impl DisplayListBuilder {
         self.push_stops(&stops);
 
         RadialGradient {
-            start_center: start_center,
-            start_radius: start_radius,
-            end_center: end_center,
-            end_radius: end_radius,
-            ratio_xy: ratio_xy,
-            extend_mode: extend_mode,
+            start_center,
+            start_radius,
+            end_center,
+            end_radius,
+            ratio_xy,
+            extend_mode,
         }
     }
 
@@ -759,8 +759,8 @@ impl DisplayListBuilder {
                        widths: BorderWidths,
                        details: BorderDetails) {
         let item = SpecificDisplayItem::Border(BorderDisplayItem {
-            details: details,
-            widths: widths,
+            details,
+            widths,
         });
 
         self.push_item(item, rect);
@@ -777,13 +777,13 @@ impl DisplayListBuilder {
                            border_radius: f32,
                            clip_mode: BoxShadowClipMode) {
         let item = SpecificDisplayItem::BoxShadow(BoxShadowDisplayItem {
-            box_bounds: box_bounds,
-            offset: offset,
-            color: color,
-            blur_radius: blur_radius,
-            spread_radius: spread_radius,
-            border_radius: border_radius,
-            clip_mode: clip_mode,
+            box_bounds,
+            offset,
+            color,
+            blur_radius,
+            spread_radius,
+            border_radius,
+            clip_mode,
         });
 
         self.push_item(item, rect);
@@ -796,9 +796,9 @@ impl DisplayListBuilder {
                          tile_size: LayoutSize,
                          tile_spacing: LayoutSize) {
         let item = SpecificDisplayItem::Gradient(GradientDisplayItem {
-            gradient: gradient,
-            tile_size: tile_size,
-            tile_spacing: tile_spacing,
+            gradient,
+            tile_size,
+            tile_spacing,
         });
 
         self.push_item(item, rect);
@@ -811,9 +811,9 @@ impl DisplayListBuilder {
                                 tile_size: LayoutSize,
                                 tile_spacing: LayoutSize) {
         let item = SpecificDisplayItem::RadialGradient(RadialGradientDisplayItem {
-            gradient: gradient,
-            tile_size: tile_size,
-            tile_spacing: tile_spacing,
+            gradient,
+            tile_size,
+            tile_spacing,
         });
 
         self.push_item(item, rect);
@@ -829,11 +829,11 @@ impl DisplayListBuilder {
                                  filters: Vec<FilterOp>) {
         let item = SpecificDisplayItem::PushStackingContext(PushStackingContextDisplayItem {
             stacking_context: StackingContext {
-                scroll_policy: scroll_policy,
-                transform: transform,
-                transform_style: transform_style,
-                perspective: perspective,
-                mix_blend_mode: mix_blend_mode,
+                scroll_policy,
+                transform,
+                transform_style,
+                perspective,
+                mix_blend_mode,
             }
         });
 
@@ -867,7 +867,7 @@ impl DisplayListBuilder {
         };
 
         let item = SpecificDisplayItem::Clip(ClipDisplayItem {
-            id: id,
+            id,
             parent_id: self.clip_stack.last().unwrap().scroll_node_id,
         });
 

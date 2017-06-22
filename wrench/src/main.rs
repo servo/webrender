@@ -138,8 +138,8 @@ impl HeadlessContext {
         };
 
         HeadlessContext {
-            width: width,
-            height: height,
+            width,
+            height,
             _context: context,
             _buffer: buffer,
         }
@@ -148,8 +148,8 @@ impl HeadlessContext {
     #[cfg(not(feature = "headless"))]
     fn new(width: u32, height: u32) -> HeadlessContext {
         HeadlessContext {
-            width: width,
-            height: height,
+            width,
+            height,
         }
     }
 

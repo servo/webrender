@@ -154,8 +154,8 @@ impl GpuProfile {
             paint_time_ns += sample.time_ns;
         }
         GpuProfile {
-            frame_id: frame_id,
-            paint_time_ns: paint_time_ns,
+            frame_id,
+            paint_time_ns,
         }
     }
 }
@@ -172,9 +172,9 @@ impl CpuProfile {
            composite_time_ns: u64,
            draw_calls: usize) -> CpuProfile {
         CpuProfile {
-            frame_id: frame_id,
-            composite_time_ns: composite_time_ns,
-            draw_calls: draw_calls,
+            frame_id,
+            composite_time_ns,
+            draw_calls,
         }
     }
 }
@@ -216,8 +216,8 @@ impl CacheTexture {
         let pbo_id = device.create_pbo();
 
         CacheTexture {
-            texture_id: texture_id,
-            pbo_id: pbo_id,
+            texture_id,
+            pbo_id,
             rows: Vec::new(),
             cpu_blocks: Vec::new(),
         }
@@ -360,7 +360,7 @@ impl<L: GpuStoreLayout> GpuDataTexture<L> {
         let id = device.create_texture_ids(1, TextureTarget::Default)[0];
 
         GpuDataTexture {
-            id: id,
+            id,
             layout: PhantomData,
         }
     }
@@ -418,9 +418,9 @@ impl GpuStoreLayout for VertexDataTextureLayout {
 
 type VertexDataTexture = GpuDataTexture<VertexDataTextureLayout>;
 
-const TRANSFORM_FEATURE: &'static str = "TRANSFORM";
-const SUBPIXEL_AA_FEATURE: &'static str = "SUBPIXEL_AA";
-const CLIP_FEATURE: &'static str = "CLIP";
+const TRANSFORM_FEATURE: &str = "TRANSFORM";
+const SUBPIXEL_AA_FEATURE: &str = "SUBPIXEL_AA";
+const CLIP_FEATURE: &str = "CLIP";
 
 enum ShaderKind {
     Primitive,
@@ -443,8 +443,8 @@ impl LazilyCompiledShader {
            precache: bool) -> Result<LazilyCompiledShader, ShaderError> {
         let mut shader = LazilyCompiledShader {
             id: None,
-            name: name,
-            kind: kind,
+            name,
+            kind,
             features: features.to_vec(),
         };
 
@@ -537,8 +537,8 @@ impl PrimitiveShader {
         };
 
         Ok(PrimitiveShader {
-            simple: simple,
-            transform: transform,
+            simple,
+            transform,
         })
     }
 
@@ -1122,7 +1122,7 @@ impl Renderer {
 
         let config = FrameBuilderConfig {
             enable_scrollbars: options.enable_scrollbars,
-            default_font_render_mode: default_font_render_mode,
+            default_font_render_mode,
             debug: options.debug,
             cache_expiry_frames: options.cache_expiry_frames,
         };
@@ -1163,38 +1163,38 @@ impl Renderer {
         let gpu_profile = GpuProfiler::new(device.rc_gl());
 
         let renderer = Renderer {
-            result_rx: result_rx,
-            device: device,
+            result_rx,
+            device,
             current_frame: None,
             pending_texture_updates: Vec::new(),
             pending_gpu_cache_updates: Vec::new(),
             pending_shader_updates: Vec::new(),
-            cs_box_shadow: cs_box_shadow,
-            cs_text_run: cs_text_run,
-            cs_blur: cs_blur,
-            cs_clip_rectangle: cs_clip_rectangle,
-            cs_clip_border: cs_clip_border,
-            cs_clip_image: cs_clip_image,
-            ps_rectangle: ps_rectangle,
-            ps_rectangle_clip: ps_rectangle_clip,
-            ps_text_run: ps_text_run,
-            ps_text_run_subpixel: ps_text_run_subpixel,
-            ps_image: ps_image,
-            ps_yuv_image: ps_yuv_image,
-            ps_border_corner: ps_border_corner,
-            ps_border_edge: ps_border_edge,
-            ps_box_shadow: ps_box_shadow,
-            ps_gradient: ps_gradient,
-            ps_angle_gradient: ps_angle_gradient,
-            ps_radial_gradient: ps_radial_gradient,
-            ps_cache_image: ps_cache_image,
-            ps_blend: ps_blend,
-            ps_hw_composite: ps_hw_composite,
-            ps_split_composite: ps_split_composite,
-            ps_composite: ps_composite,
-            notifier: notifier,
+            cs_box_shadow,
+            cs_text_run,
+            cs_blur,
+            cs_clip_rectangle,
+            cs_clip_border,
+            cs_clip_image,
+            ps_rectangle,
+            ps_rectangle_clip,
+            ps_text_run,
+            ps_text_run_subpixel,
+            ps_image,
+            ps_yuv_image,
+            ps_border_corner,
+            ps_border_edge,
+            ps_box_shadow,
+            ps_gradient,
+            ps_angle_gradient,
+            ps_radial_gradient,
+            ps_cache_image,
+            ps_blend,
+            ps_hw_composite,
+            ps_split_composite,
+            ps_composite,
+            notifier,
             debug: debug_renderer,
-            render_target_debug: render_target_debug,
+            render_target_debug,
             enable_batcher: options.enable_batcher,
             backend_profile_counters: BackendProfileCounters::new(),
             profile_counters: RendererProfileCounters::new(),
@@ -1207,23 +1207,23 @@ impl Renderer {
             last_time: 0,
             color_render_targets: Vec::new(),
             alpha_render_targets: Vec::new(),
-            gpu_profile: gpu_profile,
-            prim_vao_id: prim_vao_id,
-            blur_vao_id: blur_vao_id,
-            clip_vao_id: clip_vao_id,
+            gpu_profile,
+            prim_vao_id,
+            blur_vao_id,
+            clip_vao_id,
             gdt_index: 0,
-            gpu_data_textures: gpu_data_textures,
+            gpu_data_textures,
             pipeline_epoch_map: HashMap::default(),
-            main_thread_dispatcher: main_thread_dispatcher,
+            main_thread_dispatcher,
             cache_texture_id_map: Vec::new(),
-            dummy_cache_texture_id: dummy_cache_texture_id,
-            dither_matrix_texture_id: dither_matrix_texture_id,
+            dummy_cache_texture_id,
+            dither_matrix_texture_id,
             external_image_handler: None,
             external_images: HashMap::default(),
             vr_compositor_handler: vr_compositor,
             cpu_profiles: VecDeque::new(),
             gpu_profiles: VecDeque::new(),
-            gpu_cache_texture: gpu_cache_texture,
+            gpu_cache_texture,
         };
 
         let sender = RenderApiSender::new(api_tx, payload_tx);

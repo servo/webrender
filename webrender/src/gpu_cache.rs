@@ -162,8 +162,8 @@ impl Block {
            next: Option<BlockIndex>,
            frame_id: FrameId) -> Block {
         Block {
-            address: address,
-            next: next,
+            address,
+            next,
             last_access_time: frame_id,
             epoch: Epoch(0),
         }
@@ -185,7 +185,7 @@ struct Row {
 impl Row {
     fn new(block_count_per_item: usize) -> Row {
         Row {
-            block_count_per_item: block_count_per_item,
+            block_count_per_item,
         }
     }
 }
@@ -356,7 +356,7 @@ impl Texture {
             // to be updated on the GPU.
             self.updates.push(GpuCacheUpdate::Copy {
                 block_index: pending_block_index,
-                block_count: block_count,
+                block_count,
                 address: block.address,
             });
         }
@@ -514,7 +514,7 @@ impl GpuCache {
         }
 
         Some(GpuDataRequest {
-            handle: handle,
+            handle,
             frame_id: self.frame_id,
             start_index: self.texture.pending_blocks.len(),
             texture: &mut self.texture,

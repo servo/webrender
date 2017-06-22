@@ -90,7 +90,7 @@ pub struct Geometry {
 impl From<LayerRect> for Geometry {
     fn from(local_rect: LayerRect) -> Self {
         Geometry {
-            local_rect: local_rect,
+            local_rect,
             device_rect: DeviceIntRect::zero(),
         }
     }
@@ -170,8 +170,8 @@ impl MaskCacheInfo {
         MaskCacheInfo {
             complex_clip_range: ClipAddressRange::new(complex_clip_count),
             layer_clip_range: ClipAddressRange::new(layer_clip_count),
-            image: image,
-            border_corners: border_corners,
+            image,
+            border_corners,
             bounds: MaskBounds {
                 inner: None,
                 outer: None,

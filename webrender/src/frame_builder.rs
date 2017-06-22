@@ -77,9 +77,9 @@ impl ImageBorderSegment {
 
         ImageBorderSegment {
             geom_rect: rect,
-            sub_rect: sub_rect,
+            sub_rect,
             stretch_size: LayerSize::new(stretch_size_x, stretch_size_y),
-            tile_spacing: tile_spacing,
+            tile_spacing,
         }
     }
 }
@@ -150,9 +150,9 @@ impl FrameBuilder {
                     reference_frame_stack: recycle_vec(prev.reference_frame_stack),
                     stacking_context_stack: recycle_vec(prev.stacking_context_stack),
                     prim_store: prev.prim_store.recycle(),
-                    screen_size: screen_size,
-                    background_color: background_color,
-                    config: config,
+                    screen_size,
+                    background_color,
+                    config,
                     has_root_stacking_context: false,
                 }
             }
@@ -166,9 +166,9 @@ impl FrameBuilder {
                     reference_frame_stack: Vec::new(),
                     stacking_context_stack: Vec::new(),
                     prim_store: PrimitiveStore::new(),
-                    screen_size: screen_size,
-                    background_color: background_color,
-                    config: config,
+                    screen_size,
+                    background_color,
+                    config,
                     has_root_stacking_context: false,
                 }
             }
@@ -241,10 +241,10 @@ impl FrameBuilder {
         self.packed_layers.push(PackedLayer::empty());
 
         self.clip_scroll_group_store.push(ClipScrollGroup {
-            stacking_context_index: stacking_context_index,
+            stacking_context_index,
             scroll_node_id: info.scroll_node_id,
             clip_node_id: info.clip_node_id(),
-            packed_layer_index: packed_layer_index,
+            packed_layer_index,
             screen_bounding_rect: None,
          });
 
@@ -429,9 +429,9 @@ impl FrameBuilder {
             PrimitiveFlags::None => {}
             PrimitiveFlags::Scrollbar(clip_id, border_radius) => {
                 self.scrollbar_prims.push(ScrollbarPrimitive {
-                    prim_index: prim_index,
-                    clip_id: clip_id,
-                    border_radius: border_radius,
+                    prim_index,
+                    clip_id,
+                    border_radius,
                 });
             }
         }
@@ -687,9 +687,9 @@ impl FrameBuilder {
 
         let gradient_cpu = GradientPrimitiveCpu {
             stops_range: stops,
-            stops_count: stops_count,
-            extend_mode: extend_mode,
-            reverse_stops: reverse_stops,
+            stops_count,
+            extend_mode,
+            reverse_stops,
             gpu_blocks: [
                 [sp.x, sp.y, ep.x, ep.y].into(),
                 [tile_size.width, tile_size.height, tile_repeat.width, tile_repeat.height].into(),
@@ -723,7 +723,7 @@ impl FrameBuilder {
 
         let radial_gradient_cpu = RadialGradientPrimitiveCpu {
             stops_range: stops,
-            extend_mode: extend_mode,
+            extend_mode,
             gpu_data_count: 0,
             gpu_blocks: [
                 [start_center.x, start_center.y, end_center.x, end_center.y].into(),
@@ -788,15 +788,15 @@ impl FrameBuilder {
         }
 
         let prim_cpu = TextRunPrimitiveCpu {
-            font_key: font_key,
+            font_key,
             logical_font_size: size,
-            blur_radius: blur_radius,
-            glyph_range: glyph_range,
-            glyph_count: glyph_count,
+            blur_radius,
+            glyph_range,
+            glyph_count,
             glyph_instances: Vec::new(),
             color: *color,
-            render_mode: render_mode,
-            glyph_options: glyph_options,
+            render_mode,
+            glyph_options,
         };
 
         self.add_primitive(clip_and_scroll,
@@ -997,13 +997,13 @@ impl FrameBuilder {
 
                 let prim_cpu = BoxShadowPrimitiveCpu {
                     src_rect: *box_bounds,
-                    bs_rect: bs_rect,
+                    bs_rect,
                     color: *color,
-                    blur_radius: blur_radius,
-                    border_radius: border_radius,
-                    edge_size: edge_size,
-                    inverted: inverted,
-                    rects: rects,
+                    blur_radius,
+                    border_radius,
+                    edge_size,
+                    inverted,
+                    rects,
                 };
 
                 self.add_primitive(clip_and_scroll,
@@ -1082,10 +1082,10 @@ impl FrameBuilder {
         };
 
         let prim_cpu = YuvImagePrimitiveCpu {
-            yuv_key: yuv_key,
-            format: format,
-            color_space: color_space,
-            image_rendering: image_rendering,
+            yuv_key,
+            format,
+            color_space,
+            image_rendering,
             gpu_block: [rect.size.width, rect.size.height, 0.0, 0.0].into(),
         };
 
@@ -1436,11 +1436,11 @@ impl FrameBuilder {
 
         for pass in &mut passes {
             let ctx = RenderTargetContext {
-                device_pixel_ratio: device_pixel_ratio,
+                device_pixel_ratio,
                 stacking_context_store: &self.stacking_context_store,
                 clip_scroll_group_store: &self.clip_scroll_group_store,
                 prim_store: &self.prim_store,
-                resource_cache: resource_cache,
+                resource_cache,
             };
 
             pass.build(&ctx, gpu_cache, &mut render_tasks, &mut deferred_resolves);
@@ -1455,15 +1455,15 @@ impl FrameBuilder {
         resource_cache.end_frame();
 
         Frame {
-            device_pixel_ratio: device_pixel_ratio,
+            device_pixel_ratio,
             background_color: self.background_color,
             window_size: self.screen_size,
-            profile_counters: profile_counters,
-            passes: passes,
-            cache_size: cache_size,
+            profile_counters,
+            passes,
+            cache_size,
             layer_texture_data: self.packed_layers.clone(),
             render_task_data: render_tasks.render_task_data,
-            deferred_resolves: deferred_resolves,
+            deferred_resolves,
             gpu_cache_updates: Some(gpu_cache_updates),
         }
     }
@@ -1508,14 +1508,14 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                       device_pixel_ratio: f32) {
 
         let mut pass = LayerRectCalculationAndCullingPass {
-            frame_builder: frame_builder,
-            screen_rect: screen_rect,
-            clip_scroll_tree: clip_scroll_tree,
-            display_lists: display_lists,
-            resource_cache: resource_cache,
-            gpu_cache: gpu_cache,
-            profile_counters: profile_counters,
-            device_pixel_ratio: device_pixel_ratio,
+            frame_builder,
+            screen_rect,
+            clip_scroll_tree,
+            display_lists,
+            resource_cache,
+            gpu_cache,
+            profile_counters,
+            device_pixel_ratio,
             stacking_context_stack: Vec::new(),
             current_clip_stack: Vec::new(),
             current_clip_info: None,

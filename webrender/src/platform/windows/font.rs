@@ -103,8 +103,8 @@ fn get_glyph_dimensions_with_analysis(analysis: dwrote::GlyphRunAnalysis,
     Some(GlyphDimensions {
         left: bounds.left,
         top: -bounds.top,
-        width: width,
-        height: height,
+        width,
+        height,
     })
 }
 

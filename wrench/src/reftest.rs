@@ -207,9 +207,9 @@ impl<'a> ReftestHarness<'a> {
         wrench.renderer.set_render_notifier(Box::new(Notifier { tx: tx }));
 
         ReftestHarness {
-            wrench: wrench,
-            window: window,
-            rx: rx,
+            wrench,
+            window,
+            rx,
         }
     }
 
@@ -318,7 +318,7 @@ impl<'a> ReftestHarness<'a> {
 
         ReftestImage {
             data: pixels,
-            size: size,
+            size,
         }
     }
 }
