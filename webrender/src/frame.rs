@@ -97,9 +97,9 @@ impl<'a> FlattenContext<'a> {
            resource_cache: &'a mut ResourceCache)
            -> FlattenContext<'a> {
         FlattenContext {
-            scene: scene,
-            builder: builder,
-            resource_cache: resource_cache,
+            scene,
+            builder,
+            resource_cache,
             replacements: Vec::new(),
             nested_display_list_info: Vec::new(),
             current_nested_display_list_index: 0,

@@ -336,8 +336,8 @@ impl<'a> GradientGpuBlockBuilder<'a> {
     fn new(stops_range: ItemRange<GradientStop>,
            display_list: &'a BuiltDisplayList) -> GradientGpuBlockBuilder<'a> {
         GradientGpuBlockBuilder {
-            stops_range: stops_range,
-            display_list: display_list,
+            stops_range,
+            display_list,
         }
     }
 
@@ -554,7 +554,7 @@ impl ClipCorner {
 
     fn uniform(rect: LayerRect, outer_radius: f32, inner_radius: f32) -> ClipCorner {
         ClipCorner {
-            rect: rect,
+            rect,
             outer_radius_x: outer_radius,
             outer_radius_y: outer_radius,
             inner_radius_x: inner_radius,
@@ -635,7 +635,7 @@ impl ClipData {
     pub fn uniform(rect: LayerRect, radius: f32, mode: ClipMode) -> ClipData {
         ClipData {
             rect: ClipRect {
-                rect: rect,
+                rect,
                 mode: mode as u32 as f32,
             },
             top_left: ClipCorner::uniform(
@@ -741,7 +741,7 @@ impl PrimitiveStore {
             PrimitiveContainer::Rectangle(rect) => {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::from_alpha(rect.color.a),
-                    clips: clips,
+                    clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::Rectangle,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_rectangles.len()),
@@ -759,7 +759,7 @@ impl PrimitiveStore {
             PrimitiveContainer::TextRun(text_cpu) => {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
-                    clips: clips,
+                    clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::TextRun,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_text_runs.len()),
@@ -776,7 +776,7 @@ impl PrimitiveStore {
             PrimitiveContainer::Image(image_cpu) => {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
-                    clips: clips,
+                    clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::Image,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_images.len()),
@@ -793,7 +793,7 @@ impl PrimitiveStore {
             PrimitiveContainer::YuvImage(image_cpu) => {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::opaque(),
-                    clips: clips,
+                    clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::YuvImage,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_yuv_images.len()),
@@ -810,7 +810,7 @@ impl PrimitiveStore {
             PrimitiveContainer::Border(border_cpu) => {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
-                    clips: clips,
+                    clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::Border,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_borders.len()),
@@ -827,7 +827,7 @@ impl PrimitiveStore {
             PrimitiveContainer::AlignedGradient(gradient_cpu) => {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
-                    clips: clips,
+                    clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::AlignedGradient,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_gradients.len()),
@@ -845,7 +845,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     // TODO: calculate if the gradient is actually opaque
                     opacity: PrimitiveOpacity::translucent(),
-                    clips: clips,
+                    clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::AngleGradient,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_gradients.len()),
@@ -863,7 +863,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     // TODO: calculate if the gradient is actually opaque
                     opacity: PrimitiveOpacity::translucent(),
-                    clips: clips,
+                    clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::RadialGradient,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_radial_gradients.len()),
@@ -905,7 +905,7 @@ impl PrimitiveStore {
 
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
-                    clips: clips,
+                    clips,
                     clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::BoxShadow,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_box_shadows.len()),

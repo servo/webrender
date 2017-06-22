@@ -77,12 +77,12 @@ pub struct ImageDescriptor {
 impl ImageDescriptor {
     pub fn new(width: u32, height: u32, format: ImageFormat, is_opaque: bool) -> Self {
         ImageDescriptor {
-            width: width,
-            height: height,
-            format: format,
+            width,
+            height,
+            format,
             stride: None,
             offset: 0,
-            is_opaque: is_opaque,
+            is_opaque,
         }
     }
 

@@ -80,7 +80,7 @@ impl BorderCornerKind {
         };
         let clip_data = BorderCornerClipData {
             corner_rect: LayerRect::new(origin, size),
-            clip_center: clip_center,
+            clip_center,
             corner: pack_as_float(corner as u32),
             kind: pack_as_float(kind as u32),
         };
@@ -242,7 +242,7 @@ impl FrameBuilder {
         let bottom_color    = bottom.border_color(2.0/3.0, 1.0, 0.7, 0.3);
 
         let prim_cpu = BorderPrimitiveCpu {
-            corner_instances: corner_instances,
+            corner_instances,
 
             // TODO(gw): In the future, we will build these on demand
             //           from the deserialized display list, rather
@@ -536,12 +536,12 @@ impl BorderCornerClipSource {
         };
 
         BorderCornerClipSource {
-            kind: kind,
-            corner_data: corner_data,
-            max_clip_count: max_clip_count,
+            kind,
+            corner_data,
+            max_clip_count,
             actual_clip_count: 0,
-            ellipse: ellipse,
-            widths: widths,
+            ellipse,
+            widths,
         }
     }
 
@@ -730,8 +730,8 @@ impl BorderCornerDotClipData {
         let (center, _) = ellipse.get_point_and_tangent(theta);
 
         BorderCornerDotClipData {
-            center: center,
-            radius: radius,
+            center,
+            radius,
         }
     }
 
@@ -749,8 +749,8 @@ struct DotInfo {
 impl DotInfo {
     fn new(arc_pos: f32, diameter: f32) -> DotInfo {
         DotInfo {
-            arc_pos: arc_pos,
-            diameter: diameter,
+            arc_pos,
+            diameter,
         }
     }
 }

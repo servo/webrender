@@ -49,8 +49,8 @@ impl ClipInfo {
 
         ClipInfo {
             mask_cache_info: MaskCacheInfo::new(&clip_sources),
-            clip_sources: clip_sources,
-            packed_layer_index: packed_layer_index,
+            clip_sources,
+            packed_layer_index,
             screen_bounding_rect: None,
             screen_inner_rect: DeviceIntRect::zero(),
         }
@@ -132,7 +132,7 @@ impl ClipScrollNode {
             reference_frame_relative_scroll_offset: LayerVector2D::zero(),
             parent: Some(parent_id),
             children: Vec::new(),
-            pipeline_id: pipeline_id,
+            pipeline_id,
             node_type: NodeType::ScrollFrame(ScrollingState::new()),
         }
     }
@@ -158,7 +158,7 @@ impl ClipScrollNode {
         );
         ClipScrollNode {
             content_size: content_rect.size,
-            local_viewport_rect: local_viewport_rect,
+            local_viewport_rect,
             local_clip_rect: LayerRect::new(content_rect.origin, local_clip_rect.unwrap_or(LayerRect::zero()).size),
             combined_local_viewport_rect: LayerRect::zero(),
             world_viewport_transform: LayerToWorldTransform::identity(),
@@ -166,7 +166,7 @@ impl ClipScrollNode {
             reference_frame_relative_scroll_offset: LayerVector2D::zero(),
             parent: Some(parent_id),
             children: Vec::new(),
-            pipeline_id: pipeline_id,
+            pipeline_id,
             node_type: NodeType::Clip(clip_info),
         }
     }
@@ -178,7 +178,7 @@ impl ClipScrollNode {
                                pipeline_id: PipelineId)
                                -> ClipScrollNode {
         ClipScrollNode {
-            content_size: content_size,
+            content_size,
             local_viewport_rect: *local_viewport_rect,
             local_clip_rect: *local_viewport_rect,
             combined_local_viewport_rect: LayerRect::zero(),
@@ -187,7 +187,7 @@ impl ClipScrollNode {
             reference_frame_relative_scroll_offset: LayerVector2D::zero(),
             parent: parent_id,
             children: Vec::new(),
-            pipeline_id: pipeline_id,
+            pipeline_id,
             node_type: NodeType::ReferenceFrame(*local_transform),
         }
     }

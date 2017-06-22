@@ -34,8 +34,8 @@ impl Spring {
             cur: pos,
             prev: pos,
             dest: pos,
-            stiffness: stiffness,
-            damping: damping,
+            stiffness,
+            damping,
         }
     }
 

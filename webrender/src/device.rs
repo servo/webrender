@@ -299,7 +299,7 @@ impl TextureId {
 
     pub fn new(name: gl::GLuint, texture_target: TextureTarget) -> TextureId {
         TextureId {
-            name: name,
+            name,
             target: texture_target.to_gl_target(),
         }
     }
@@ -521,8 +521,8 @@ impl<T> GpuFrameProfile<T> {
             gl::GlType::Gl => {
                 let queries = gl.gen_queries(MAX_EVENTS_PER_FRAME as gl::GLint);
                 GpuFrameProfile {
-                    gl: gl,
-                    queries: queries,
+                    gl,
+                    queries,
                     samples: Vec::new(),
                     next_query: 0,
                     pending_query: 0,
@@ -532,7 +532,7 @@ impl<T> GpuFrameProfile<T> {
             }
             gl::GlType::Gles => {
                 GpuFrameProfile {
-                    gl: gl,
+                    gl,
                     queries: Vec::new(),
                     samples: Vec::new(),
                     next_query: 0,
@@ -589,7 +589,7 @@ impl<T> GpuFrameProfile<T> {
             self.pending_query = self.queries[self.next_query];
             self.gl.begin_query(gl::TIME_ELAPSED, self.pending_query);
             self.samples.push(GpuSample {
-                tag: tag,
+                tag,
                 time_ns: 0,
             });
         } else {
@@ -604,7 +604,7 @@ impl<T> GpuFrameProfile<T> {
     where T: NamedTag {
         let marker = GpuMarker::new(&self.gl, tag.get_label());
         self.samples.push(GpuSample {
-            tag: tag,
+            tag,
             time_ns: 0,
         });
         marker
@@ -819,7 +819,7 @@ impl FileWatcherThread {
         });
 
         FileWatcherThread {
-            api_tx: api_tx,
+            api_tx,
         }
     }
 
@@ -897,15 +897,15 @@ impl Device {
         let max_texture_size = gl.get_integer_v(gl::MAX_TEXTURE_SIZE) as u32;
 
         Device {
-            gl: gl,
-            resource_override_path: resource_override_path,
+            gl,
+            resource_override_path,
             // This is initialized to 1 by default, but it is set
             // every frame by the call to begin_frame().
             device_pixel_ratio: 1.0,
             inside_frame: false,
 
             capabilities: Capabilities {
-                max_ubo_size: max_ubo_size,
+                max_ubo_size,
                 supports_multisampling: false, //TODO
             },
 
@@ -922,12 +922,12 @@ impl Device {
             programs: HashMap::default(),
             vaos: HashMap::default(),
 
-            shader_preamble: shader_preamble,
+            shader_preamble,
 
             next_vao_id: 1,
             //file_watcher: file_watcher,
 
-            max_texture_size: max_texture_size,
+            max_texture_size,
             frame_id: FrameId(0),
         }
     }
@@ -1097,7 +1097,7 @@ impl Device {
 
             let texture = Texture {
                 gl: Rc::clone(&self.gl),
-                id: id,
+                id,
                 width: 0,
                 height: 0,
                 format: ImageFormat::Invalid,
@@ -1446,7 +1446,7 @@ impl Device {
             u_device_pixel_ratio: -1,
             vs_source: get_shader_source(&vs_name, &self.resource_override_path),
             fs_source: get_shader_source(&fs_name, &self.resource_override_path),
-            prefix: prefix,
+            prefix,
             vs_id: None,
             fs_id: None,
         };
@@ -1794,13 +1794,13 @@ impl Device {
         let vao = VAO {
             gl: Rc::clone(&self.gl),
             id: vao_id,
-            ibo_id: ibo_id,
-            main_vbo_id: main_vbo_id,
-            instance_vbo_id: instance_vbo_id,
-            instance_stride: instance_stride,
-            owns_indices: owns_indices,
-            owns_vertices: owns_vertices,
-            owns_instances: owns_instances,
+            ibo_id,
+            main_vbo_id,
+            instance_vbo_id,
+            instance_stride,
+            owns_indices,
+            owns_vertices,
+            owns_instances,
         };
 
         self.gl.bind_vertex_array(0);

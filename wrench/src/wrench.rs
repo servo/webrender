@@ -45,10 +45,10 @@ impl Notifier {
            verbose: bool)
            -> Notifier {
         Notifier {
-            window_proxy: window_proxy,
+            window_proxy,
             frames_notified: 0,
-            timing_receiver: timing_receiver,
-            verbose: verbose,
+            timing_receiver,
+            verbose,
         }
     }
 }
@@ -168,9 +168,9 @@ impl Wrench {
         let opts = webrender::RendererOptions {
             device_pixel_ratio: dp_ratio,
             resource_override_path: shader_override_path,
-            recorder: recorder,
+            recorder,
             enable_subpixel_aa: subpixel_aa,
-            debug: debug,
+            debug,
             enable_clear_scissor: !no_scissor,
             enable_batcher: !no_batch,
             max_recorded_profiles: 16,
@@ -196,19 +196,19 @@ impl Wrench {
         let mut wrench = Wrench {
             window_size: size,
 
-            renderer: renderer,
-            api: api,
+            renderer,
+            api,
             window_title_to_set: None,
 
             rebuild_display_lists: do_rebuild,
-            verbose: verbose,
+            verbose,
             device_pixel_ratio: dp_ratio,
 
             image_map: HashMap::new(),
 
             root_pipeline_id: PipelineId(0, 0),
 
-            graphics_api: graphics_api,
+            graphics_api,
             frame_start_sender: timing_sender,
         };
 
@@ -264,9 +264,9 @@ impl Wrench {
 
         let desc = dwrote::FontDescriptor {
             family_name: family.to_owned(),
-            weight: weight,
-            style: style,
-            stretch: stretch,
+            weight,
+            style,
+            stretch,
         };
         (self.font_key_from_native_handle(&desc), Some(desc))
     }

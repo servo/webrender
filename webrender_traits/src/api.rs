@@ -164,8 +164,8 @@ impl RenderApiSender {
                payload_sender: PayloadSender)
                -> RenderApiSender {
         RenderApiSender {
-            api_sender: api_sender,
-            payload_sender: payload_sender,
+            api_sender,
+            payload_sender,
         }
     }
 
@@ -322,9 +322,9 @@ impl RenderApi {
         self.api_sender.send(msg).unwrap();
 
         self.payload_sender.send_payload(Payload {
-            epoch: epoch,
-            pipeline_id: pipeline_id,
-            display_list_data: display_list_data,
+            epoch,
+            pipeline_id,
+            display_list_data,
         }).unwrap();
     }
 
@@ -519,7 +519,7 @@ impl<T: Copy> PropertyBindingKey<T> {
     pub fn with(&self, value: T) -> PropertyValue<T> {
         PropertyValue {
             key: *self,
-            value: value,
+            value,
         }
     }
 }

@@ -29,7 +29,7 @@ impl ClipAndScrollInfo {
 
     pub fn new(scroll_node_id: ClipId, clip_node_id: ClipId) -> ClipAndScrollInfo {
         ClipAndScrollInfo {
-            scroll_node_id: scroll_node_id,
+            scroll_node_id,
             clip_node_id: Some(clip_node_id),
         }
     }
@@ -521,7 +521,7 @@ impl ClipRegion {
                -> ClipRegion {
         ClipRegion {
             main: *rect,
-            image_mask: image_mask,
+            image_mask,
             complex_clips: ItemRange::default(),
             complex_clip_count: 0,
         }
@@ -553,10 +553,10 @@ impl ClipRegion {
 impl ColorF {
     pub fn new(r: f32, g: f32, b: f32, a: f32) -> ColorF {
         ColorF {
-            r: r,
-            g: g,
-            b: b,
-            a: a,
+            r,
+            g,
+            b,
+            a,
         }
     }
 
@@ -578,8 +578,8 @@ impl ComplexClipRegion {
     /// Create a new complex clip region.
     pub fn new(rect: LayoutRect, radii: BorderRadius) -> ComplexClipRegion {
         ComplexClipRegion {
-            rect: rect,
-            radii: radii,
+            rect,
+            radii,
         }
     }
 }

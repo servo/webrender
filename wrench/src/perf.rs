@@ -56,7 +56,7 @@ impl BenchmarkManifest {
                 Some(name) => {
                     let test = dir.join(name);
                     benchmarks.push(Benchmark {
-                        test: test,
+                        test,
                     });
                 }
                 _ => panic!(),
@@ -144,9 +144,9 @@ impl<'a> PerfHarness<'a> {
         wrench.renderer.set_render_notifier(Box::new(Notifier { tx: tx }));
 
         PerfHarness {
-            wrench: wrench,
-            window: window,
-            rx: rx,
+            wrench,
+            window,
+            rx,
         }
     }
 
@@ -207,7 +207,7 @@ impl<'a> PerfHarness<'a> {
             name: filename.to_str().unwrap().to_string(),
             composite_time_ns: composite_time / cpu_samples.len() as u64,
             paint_time_ns: paint_time / gpu_samples.len() as u64,
-            draw_calls: draw_calls,
+            draw_calls,
         }
     }
 }

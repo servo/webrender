@@ -65,7 +65,7 @@ impl FontContext {
         }
 
         FontContext {
-            lib: lib,
+            lib,
             faces: HashMap::new(),
         }
     }
@@ -86,7 +86,7 @@ impl FontContext {
             };
             if result.succeeded() && !face.is_null() {
                 self.faces.insert(*font_key, Face {
-                    face: face,
+                    face,
                     //_bytes: bytes
                 });
             } else {

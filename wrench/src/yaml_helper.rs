@@ -406,10 +406,10 @@ impl YamlHelper for Yaml {
                 let bottom_left = array[2].as_border_radius_component();
                 let bottom_right = array[3].as_border_radius_component();
                 Some(BorderRadius {
-                    top_left: top_left,
-                    top_right: top_right,
-                    bottom_left: bottom_left,
-                    bottom_right: bottom_right,
+                    top_left,
+                    top_right,
+                    bottom_left,
+                    bottom_right,
                 })
             }
             Yaml::Hash(_) => {
@@ -418,10 +418,10 @@ impl YamlHelper for Yaml {
                 let bottom_left = self["bottom-left"].as_border_radius_component();
                 let bottom_right = self["bottom-right"].as_border_radius_component();
                 Some(BorderRadius {
-                    top_left: top_left,
-                    top_right: top_right,
-                    bottom_left: bottom_left,
-                    bottom_right: bottom_right,
+                    top_left,
+                    top_right,
+                    bottom_left,
+                    bottom_right,
                 })
             }
             _ => {

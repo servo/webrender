@@ -143,9 +143,9 @@ impl RenderTask {
         RenderTask {
             id: RenderTaskId::Static(task_index),
             children: Vec::new(),
-            location: location,
+            location,
             kind: RenderTaskKind::Alpha(AlphaRenderTask {
-                screen_origin: screen_origin,
+                screen_origin,
                 items: Vec::new(),
             }),
         }
@@ -228,8 +228,8 @@ impl RenderTask {
             kind: RenderTaskKind::CacheMask(CacheMaskTask {
                 actual_rect: task_rect,
                 inner_rect: inner_rect.unwrap_or(DeviceIntRect::zero()),
-                clips: clips,
-                geometry_kind: geometry_kind,
+                clips,
+                geometry_kind,
             }),
         })
     }

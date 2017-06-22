@@ -37,7 +37,7 @@ impl BinaryRecorder {
         file.write_u64::<LittleEndian>(apimsg_type_id).ok();
 
         BinaryRecorder {
-            file: file,
+            file,
         }
     }
 

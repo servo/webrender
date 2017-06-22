@@ -228,13 +228,13 @@ impl ResourceCache {
                 image_templates: ImageTemplates::new(),
             },
             cached_glyph_dimensions: HashMap::default(),
-            texture_cache: texture_cache,
+            texture_cache,
             state: State::Idle,
             current_frame_id: FrameId(0),
             pending_image_requests: Vec::new(),
             glyph_rasterizer: GlyphRasterizer::new(workers),
 
-            blob_image_renderer: blob_image_renderer,
+            blob_image_renderer,
             blob_image_requests: HashSet::new(),
 
             requested_glyphs: HashSet::default(),
@@ -294,10 +294,10 @@ impl ResourceCache {
         }
 
         let resource = ImageResource {
-            descriptor: descriptor,
-            data: data,
+            descriptor,
+            data,
             epoch: Epoch(0),
-            tiling: tiling,
+            tiling,
             dirty_rect: None,
         };
 
@@ -329,10 +329,10 @@ impl ResourceCache {
             }
 
             ImageResource {
-                descriptor: descriptor,
-                data: data,
+                descriptor,
+                data,
                 epoch: next_epoch,
-                tiling: tiling,
+                tiling,
                 dirty_rect: match (dirty_rect, image.dirty_rect) {
                     (Some(rect), Some(prev_rect)) => Some(rect.union(&prev_rect)),
                     (Some(rect), None) => Some(rect),
@@ -364,7 +364,7 @@ impl ResourceCache {
     pub fn add_webgl_texture(&mut self, id: WebGLContextId, texture_id: SourceTexture, size: DeviceIntSize) {
         self.webgl_textures.insert(id, WebGLTexture {
             id: texture_id,
-            size: size,
+            size,
         });
     }
 
@@ -383,9 +383,9 @@ impl ResourceCache {
 
         debug_assert_eq!(self.state, State::AddResources);
         let request = ImageRequest {
-            key: key,
-            rendering: rendering,
-            tile: tile,
+            key,
+            rendering,
+            tile,
         };
 
         let template = self.resources.image_templates.get(key).unwrap();
@@ -433,7 +433,7 @@ impl ResourceCache {
                         &BlobImageDescriptor {
                             width: w,
                             height: h,
-                            offset: offset,
+                            offset,
                             format: template.descriptor.format,
                         },
                         template.dirty_rect,
@@ -525,7 +525,7 @@ impl ResourceCache {
         let key = ImageRequest {
             key: image_key,
             rendering: image_rendering,
-            tile: tile,
+            tile,
         };
         let image_info = &self.cached_images.get(&key, self.current_frame_id);
         let item = self.texture_cache.get(image_info.texture_cache_id);
@@ -556,7 +556,7 @@ impl ResourceCache {
 
         ImageProperties {
             descriptor: image_template.descriptor,
-            external_image: external_image,
+            external_image,
             tiling: image_template.tiling,
         }
     }
@@ -681,8 +681,8 @@ impl ResourceCache {
             ImageDescriptor {
                 width: actual_width,
                 height: actual_height,
-                stride: stride,
-                offset: offset,
+                stride,
+                offset,
                 format: image_descriptor.format,
                 is_opaque: image_descriptor.is_opaque,
             }

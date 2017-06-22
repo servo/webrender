@@ -120,11 +120,11 @@ impl Scene {
         self.display_lists.insert(pipeline_id, built_display_list);
 
         let new_pipeline = ScenePipeline {
-            pipeline_id: pipeline_id,
-            epoch: epoch,
-            viewport_size: viewport_size,
-            content_size: content_size,
-            background_color: background_color,
+            pipeline_id,
+            epoch,
+            viewport_size,
+            content_size,
+            background_color,
         };
 
         self.pipeline_map.insert(pipeline_id, new_pipeline);

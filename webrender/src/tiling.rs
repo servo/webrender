@@ -138,7 +138,7 @@ impl RenderTaskCollection {
                 let key = (key, pass);
                 debug_assert!(!self.dynamic_tasks.contains_key(&key));
                 self.dynamic_tasks.insert(key, DynamicTaskInfo {
-                    index: index,
+                    index,
                     rect: match task.location {
                         RenderTaskLocation::Fixed => panic!("Dynamic tasks should not have fixed locations!"),
                         RenderTaskLocation::Dynamic(Some((origin, _)), size) => DeviceIntRect::new(origin, size),
@@ -877,8 +877,8 @@ impl<T: RenderTarget> RenderTargetList<T> {
         }
 
         RenderTargetList {
-            targets: targets,
-            target_size: target_size,
+            targets,
+            target_size,
         }
     }
 
@@ -1159,7 +1159,7 @@ impl RenderPass {
     pub fn new(pass_index: isize, is_framebuffer: bool, size: DeviceUintSize) -> RenderPass {
         RenderPass {
             pass_index: RenderPassIndex(pass_index),
-            is_framebuffer: is_framebuffer,
+            is_framebuffer,
             color_targets: RenderTargetList::new(size, is_framebuffer),
             alpha_targets: RenderTargetList::new(size, false),
             tasks: vec![],
@@ -1313,10 +1313,10 @@ impl AlphaBatchKey {
            blend_mode: BlendMode,
            textures: BatchTextures) -> AlphaBatchKey {
         AlphaBatchKey {
-            kind: kind,
-            flags: flags,
-            blend_mode: blend_mode,
-            textures: textures,
+            kind,
+            flags,
+            blend_mode,
+            textures,
         }
     }
 
@@ -1390,11 +1390,11 @@ impl SimplePrimitiveInstance {
            layer_index: PackedLayerIndex,
            z_sort_index: i32) -> SimplePrimitiveInstance {
         SimplePrimitiveInstance {
-            specific_prim_address: specific_prim_address,
+            specific_prim_address,
             task_index: task_index.0 as i32,
             clip_task_index: clip_task_index.0 as i32,
             layer_index: layer_index.0 as i32,
-            z_sort_index: z_sort_index,
+            z_sort_index,
         }
     }
 
@@ -1431,12 +1431,12 @@ impl CompositePrimitiveInstance {
            data1: i32,
            z: i32) -> CompositePrimitiveInstance {
         CompositePrimitiveInstance {
-            task_index: task_index,
-            src_task_index: src_task_index,
-            backdrop_task_index: backdrop_task_index,
-            data0: data0,
-            data1: data1,
-            z: z,
+            task_index,
+            src_task_index,
+            backdrop_task_index,
+            data0,
+            data1,
+            z,
         }
     }
 }
@@ -1481,7 +1481,7 @@ pub struct PrimitiveBatch {
 impl PrimitiveBatch {
     fn new(key: AlphaBatchKey) -> PrimitiveBatch {
         PrimitiveBatch {
-            key: key,
+            key,
             instances: Vec::new(),
             item_rects: Vec::new(),
         }
@@ -1560,15 +1560,15 @@ impl StackingContext {
             TransformStyle::Preserve3D => ContextIsolation::Items,
         };
         StackingContext {
-            pipeline_id: pipeline_id,
-            reference_frame_offset: reference_frame_offset,
-            reference_frame_id: reference_frame_id,
-            local_bounds: local_bounds,
+            pipeline_id,
+            reference_frame_offset,
+            reference_frame_id,
+            local_bounds,
             screen_bounds: DeviceIntRect::zero(),
-            composite_ops: composite_ops,
+            composite_ops,
             clip_scroll_groups: Vec::new(),
-            isolation: isolation,
-            is_page_root: is_page_root,
+            isolation,
+            is_page_root,
             is_visible: false,
         }
     }
@@ -1670,7 +1670,7 @@ pub struct CompositeOps {
 impl CompositeOps {
     pub fn new(filters: Vec<LowLevelFilterOp>, mix_blend_mode: Option<MixBlendMode>) -> CompositeOps {
         CompositeOps {
-            filters: filters,
+            filters,
             mix_blend_mode: mix_blend_mode
         }
     }
@@ -1739,7 +1739,7 @@ fn resolve_image(image_key: ImageKey,
             // the render thread...
             let cache_handle = gpu_cache.push_deferred_per_frame_blocks(1);
             deferred_resolves.push(DeferredResolve {
-                image_properties: image_properties,
+                image_properties,
                 address: gpu_cache.get_address(&cache_handle),
             });
 
