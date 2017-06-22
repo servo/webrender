@@ -1,7 +1,7 @@
 dist: trusty
 language: rust
 rust:
-  - 1.15.1
+  - 1.17.0
   - nightly
 os:
   - linux
