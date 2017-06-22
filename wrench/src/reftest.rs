@@ -10,6 +10,7 @@ use image::{ColorType, ImageFormat};
 use parse_function::parse_function;
 use png::save_flipped;
 use std::cmp;
+use std::fmt::{Display, Error, Formatter};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -37,12 +38,29 @@ pub enum ReftestOp {
     Equal,
     NotEqual,
 }
+
+impl Display for ReftestOp {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        write!(f, "{}",
+               match *self {
+                   ReftestOp::Equal => "==".to_owned(),
+                   ReftestOp::NotEqual => "!=".to_owned(),
+                })
+    }
+}
+
 pub struct Reftest {
     op: ReftestOp,
     test: PathBuf,
     reference: PathBuf,
     max_difference: usize,
     num_differences: usize,
+}
+
+impl Display for Reftest {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        write!(f, "{} {} {}", self.test.display(), self.op, self.reference.display())
+    }
 }
 
 struct ReftestImage {
@@ -218,29 +236,32 @@ impl<'a> ReftestHarness<'a> {
         let reftests = manifest.find(reftests.unwrap_or(&PathBuf::new()));
 
         let mut total_passing = 0;
-        let mut total_failing = 0;
+        let mut failing = Vec::new();
 
         for t in reftests {
             if self.run_reftest(t) {
                 total_passing += 1;
             } else {
-                total_failing += 1;
+                failing.push(t);
             }
         }
 
-        println!("REFTEST INFO | {} passing, {} failing", total_passing, total_failing);
+        println!("REFTEST INFO | {} passing, {} failing", total_passing, failing.len());
+
+        if !failing.is_empty() {
+            println!("\nReftests with unexpected results:");
+
+            for reftest in &failing {
+                println!("\t{}", reftest);
+            }
+        }
 
         // panic here so that we fail CI
-        assert!(total_failing <= 0);
+        assert!(failing.is_empty());
     }
 
     fn run_reftest(&mut self, t: &Reftest) -> bool {
-        let name = match t.op {
-            ReftestOp::Equal => format!("{} == {}", t.test.display(), t.reference.display()),
-            ReftestOp::NotEqual => format!("{} != {}", t.test.display(), t.reference.display()),
-        };
-
-        println!("REFTEST {}", name);
+        println!("REFTEST {}", t);
 
         let window_size = DeviceUintSize::new(self.window.get_inner_size_pixels().0,
                                               self.window.get_inner_size_pixels().1);
@@ -260,12 +281,12 @@ impl<'a> ReftestHarness<'a> {
               ReftestImageComparison::NotEqual { max_difference, count_different }) => {
                 if max_difference > t.max_difference || count_different > t.num_differences {
                     println!("{} | {} | {}: {}, {}: {}",
-                             "REFTEST TEST-UNEXPECTED-FAIL", name,
+                             "REFTEST TEST-UNEXPECTED-FAIL", t,
                              "image comparison, max difference", max_difference,
                              "number of differing pixels", count_different);
                     println!("REFTEST   IMAGE 1 (TEST): {}", test.create_data_uri());
                     println!("REFTEST   IMAGE 2 (REFERENCE): {}", reference.create_data_uri());
-                    println!("REFTEST TEST-END | {}", name);
+                    println!("REFTEST TEST-END | {}", t);
 
                     false
                 } else {
@@ -273,8 +294,8 @@ impl<'a> ReftestHarness<'a> {
                 }
             },
             (&ReftestOp::NotEqual, ReftestImageComparison::Equal) => {
-                println!("REFTEST TEST-UNEXPECTED-FAIL | {} | image comparison", name);
-                println!("REFTEST TEST-END | {}", name);
+                println!("REFTEST TEST-UNEXPECTED-FAIL | {} | image comparison", t);
+                println!("REFTEST TEST-END | {}", t);
 
                 false
             },
