@@ -33,7 +33,8 @@ use webrender_traits::{ClipId, ClipRegion, ColorF, DeviceIntPoint, DeviceIntRect
 use webrender_traits::{DeviceUintRect, DeviceUintSize, ExtendMode, FontKey, FontRenderMode};
 use webrender_traits::{GlyphInstance, GlyphOptions, GradientStop, ImageKey, ImageRendering};
 use webrender_traits::{ItemRange, LayerPoint, LayerRect, LayerSize, LayerToScrollTransform};
-use webrender_traits::{PipelineId, RepeatMode, TileOffset, TransformStyle, WebGLContextId};
+use webrender_traits::{PipelineId, RepeatMode, TextDecorations, TextShadow};
+use webrender_traits::{TileOffset, TransformStyle, WebGLContextId};
 use webrender_traits::{WorldPixel, YuvColorSpace, YuvData, LayerVector2D};
 
 #[derive(Debug, Clone)]
@@ -739,11 +740,15 @@ impl FrameBuilder {
                     clip_rect: &LayerRect,
                     font_key: FontKey,
                     size: Au,
-                    blur_radius: f32,
                     color: &ColorF,
                     glyph_range: ItemRange<GlyphInstance>,
+                    shadow_range: ItemRange<TextShadow>,
                     glyph_count: usize,
-                    glyph_options: Option<GlyphOptions>) {
+                    glyph_options: Option<GlyphOptions>,
+                    decorations: &TextDecorations) {
+
+        let mut blur_radius = 0.0;
+
         if color.a == 0.0 {
             return
         }
@@ -788,13 +793,15 @@ impl FrameBuilder {
         let prim_cpu = TextRunPrimitiveCpu {
             font_key,
             logical_font_size: size,
-            blur_radius,
             glyph_range,
             glyph_count,
             glyph_instances: Vec::new(),
+            shadow_range,
             color: *color,
             render_mode,
             glyph_options,
+            decorations: *decorations,
+            blur_radius: blur_radius,
         };
 
         self.add_primitive(clip_and_scroll,

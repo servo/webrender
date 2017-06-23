@@ -14,8 +14,8 @@ use {GradientDisplayItem, GradientStop, IframeDisplayItem, ImageDisplayItem, Ima
 use {ImageRendering, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D};
 use {MixBlendMode, PipelineId, PropertyBinding, PushStackingContextDisplayItem, RadialGradient};
 use {RadialGradientDisplayItem, RectangleDisplayItem, ScrollPolicy, SpecificDisplayItem};
-use {StackingContext, TextDisplayItem, TransformStyle, WebGLContextId, WebGLDisplayItem};
-use {YuvColorSpace, YuvData, YuvImageDisplayItem};
+use {StackingContext, TextDecorations, TextDisplayItem, TextShadow};
+use {TransformStyle, WebGLContextId, WebGLDisplayItem, YuvColorSpace, YuvData, YuvImageDisplayItem};
 use std::marker::PhantomData;
 
 #[repr(C)]
@@ -66,6 +66,7 @@ pub struct BuiltDisplayListIter<'a> {
     cur_item: DisplayItem,
     cur_stops: ItemRange<GradientStop>,
     cur_glyphs: ItemRange<GlyphInstance>,
+    cur_text_shadows: ItemRange<TextShadow>,
     cur_filters: ItemRange<FilterOp>,
     cur_clip: ClipRegion,
     peeking: Peek,
@@ -142,6 +143,7 @@ impl<'a> BuiltDisplayListIter<'a> {
             },
             cur_stops: ItemRange::default(),
             cur_glyphs: ItemRange::default(),
+            cur_text_shadows: ItemRange::default(),
             cur_filters: ItemRange::default(),
             cur_clip: ClipRegion::empty(),
             peeking: Peek::NotPeeking,
@@ -191,7 +193,10 @@ impl<'a> BuiltDisplayListIter<'a> {
                     self.cur_clip.complex_clip_count = clip_count;
                     self.cur_clip.complex_clips = clip_range;
                 }
-                Text(_) => self.cur_glyphs = self.skip_slice::<GlyphInstance>().0,
+                Text(_) => {
+                    self.cur_glyphs = self.skip_slice::<GlyphInstance>().0;
+                    self.cur_text_shadows = self.skip_slice::<TextShadow>().0;
+                }
                 PushStackingContext(_) => self.cur_filters = self.skip_slice::<FilterOp>().0,
                 _ => { /* do nothing */ }
             }
@@ -298,6 +303,10 @@ impl<'a, 'b> DisplayItemRef<'a, 'b> {
 
     pub fn glyphs(&self) -> ItemRange<GlyphInstance> {
         self.iter.cur_glyphs
+    }
+
+    pub fn text_shadows(&self) -> ItemRange<TextShadow> {
+        self.iter.cur_text_shadows
     }
 
     pub fn filters(&self) -> ItemRange<FilterOp> {
@@ -541,11 +550,12 @@ impl DisplayListBuilder {
                      rect: LayoutRect,
                      clip_rect: LayoutRect,
                      glyphs: &[GlyphInstance],
+                     shadows: &[TextShadow],
                      font_key: FontKey,
                      color: ColorF,
                      size: Au,
-                     blur_radius: f32,
-                     glyph_options: Option<GlyphOptions>) {
+                     glyph_options: Option<GlyphOptions>,
+                     decorations: TextDecorations) {
         // Sanity check - anything with glyphs bigger than this
         // is probably going to consume too much memory to render
         // efficiently anyway. This is specifically to work around
@@ -557,12 +567,13 @@ impl DisplayListBuilder {
                 color,
                 font_key,
                 size,
-                blur_radius,
                 glyph_options,
+                decorations,
             });
 
             self.push_item(item, rect, clip_rect);
             self.push_iter(glyphs);
+            self.push_iter(shadows);
         }
     }
 
