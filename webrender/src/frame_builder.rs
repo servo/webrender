@@ -1331,6 +1331,7 @@ impl FrameBuilder {
                     let group_index = self.stacking_context_store[stacking_context_index.0]
                                           .clip_scroll_group(clip_and_scroll);
                     if self.clip_scroll_group_store[group_index.0].screen_bounding_rect.is_none() {
+                        debug!("\tcs-group {:?} screen rect is None", group_index);
                         continue
                     }
 
@@ -1521,6 +1522,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         self.recalculate_clip_scroll_groups();
         self.compute_stacking_context_visibility();
 
+        debug!("processing commands...");
         let commands = mem::replace(&mut self.frame_builder.cmds, Vec::new());
         for cmd in &commands {
             match *cmd {
@@ -1594,6 +1596,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
     }
 
     fn recalculate_clip_scroll_groups(&mut self) {
+        debug!("recalculate_clip_scroll_groups");
         for ref mut group in &mut self.frame_builder.clip_scroll_group_store {
             let stacking_context_index = group.stacking_context_index;
             let stacking_context = &mut self.frame_builder
@@ -1609,6 +1612,8 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                 .pre_translate(stacking_context.reference_frame_offset.to_3d());
 
             if !packed_layer.set_transform(transform) || !stacking_context.can_contribute_to_scene() {
+                debug!("\t{:?} unable to set transform or contribute with {:?}",
+                    stacking_context_index, transform);
                 return;
             }
 
@@ -1623,6 +1628,9 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             group.screen_bounding_rect = packed_layer.set_rect(&local_viewport_rect,
                                                                self.screen_rect,
                                                                self.device_pixel_ratio);
+
+            debug!("\t{:?} local viewport {:?} screen bound {:?}",
+                stacking_context_index, local_viewport_rect, group.screen_bounding_rect);
         }
     }
 
@@ -1749,6 +1757,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                 &self.frame_builder.stacking_context_store[stacking_context_index.0];
 
             if !stacking_context.is_visible {
+                debug!("{:?} of invisible {:?}", base_prim_index, stacking_context_index);
                 return;
             }
 
@@ -1758,7 +1767,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
              stacking_context.pipeline_id)
         };
 
-        debug!("\t{:?} at {:?}", base_prim_index, packed_layer_index);
+        debug!("\t{:?} of {:?} at {:?}", base_prim_index, stacking_context_index, packed_layer_index);
         let clip_bounds = match self.rebuild_clip_info_stack_if_necessary(clip_and_scroll.clip_node_id()) {
             Some(rect) => rect,
             None => return,
