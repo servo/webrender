@@ -23,8 +23,7 @@ use webrender_traits::*;
 fn body(_api: &RenderApi,
         builder: &mut DisplayListBuilder,
         _pipeline_id: &PipelineId,
-        _layout_size: &LayoutSize)
-{
+        _layout_size: &LayoutSize) {
     // Create a 100x100 stacking context with an animatable transform property.
     // Note the magic "42" we use as the animation key. That is used to update
     // the transform in the keyboard event handler code.
@@ -38,9 +37,8 @@ fn body(_api: &RenderApi,
                                   Vec::new());
 
     // Fill it with a white rect
-    let clip = builder.push_clip_region(&bounds, vec![], None);
     builder.push_rect(bounds,
-                      clip,
+                      bounds,
                       ColorF::new(1.0, 1.0, 1.0, 1.0));
 
     builder.pop_stacking_context();

@@ -190,7 +190,7 @@ impl FrameBuilder {
     pub fn add_primitive(&mut self,
                          clip_and_scroll: ClipAndScrollInfo,
                          rect: &LayerRect,
-                         clip_region: &ClipRegion,
+                         clip_rect: &LayerRect,
                          extra_clips: &[ClipSource],
                          container: PrimitiveContainer)
                          -> PrimitiveIndex {
@@ -198,13 +198,7 @@ impl FrameBuilder {
 
         self.create_clip_scroll_group_if_necessary(stacking_context_index, clip_and_scroll);
 
-        let mut clip_sources = Vec::new();
-        if clip_region.is_complex() {
-            clip_sources.push(ClipSource::Region(clip_region.clone()));
-        }
-
-        clip_sources.extend(extra_clips.iter().cloned());
-
+        let clip_sources = extra_clips.to_vec();
         let clip_info = if !clip_sources.is_empty() {
             Some(MaskCacheInfo::new(&clip_sources))
         } else {
@@ -212,7 +206,7 @@ impl FrameBuilder {
         };
 
         let prim_index = self.prim_store.add_primitive(rect,
-                                                       &clip_region.main,
+                                                       &clip_rect,
                                                        clip_sources,
                                                        clip_info,
                                                        container);
@@ -408,7 +402,7 @@ impl FrameBuilder {
     pub fn add_solid_rectangle(&mut self,
                                clip_and_scroll: ClipAndScrollInfo,
                                rect: &LayerRect,
-                               clip_region: &ClipRegion,
+                               clip_rect: &LayerRect,
                                color: &ColorF,
                                flags: PrimitiveFlags) {
         if color.a == 0.0 {
@@ -421,7 +415,7 @@ impl FrameBuilder {
 
         let prim_index = self.add_primitive(clip_and_scroll,
                                             rect,
-                                            clip_region,
+                                            clip_rect,
                                             &[],
                                             PrimitiveContainer::Rectangle(prim));
 
@@ -440,7 +434,7 @@ impl FrameBuilder {
     pub fn add_border(&mut self,
                       clip_and_scroll: ClipAndScrollInfo,
                       rect: LayerRect,
-                      clip_region: &ClipRegion,
+                      clip_rect: &LayerRect,
                       border_item: &BorderDisplayItem,
                       gradient_stops: ItemRange<GradientStop>,
                       gradient_stops_count: usize) {
@@ -587,7 +581,7 @@ impl FrameBuilder {
                 for segment in segments {
                     self.add_image(clip_and_scroll,
                                    segment.geom_rect,
-                                   clip_region,
+                                   clip_rect,
                                    &segment.stretch_size,
                                    &segment.tile_spacing,
                                    Some(segment.sub_rect),
@@ -601,7 +595,7 @@ impl FrameBuilder {
                                        border,
                                        &border_item.widths,
                                        clip_and_scroll,
-                                       clip_region);
+                                       clip_rect);
             }
             BorderDetails::Gradient(ref border) => {
                 for segment in create_segments(border.outset) {
@@ -609,7 +603,7 @@ impl FrameBuilder {
 
                     self.add_gradient(clip_and_scroll,
                                       segment,
-                                      clip_region,
+                                      clip_rect,
                                       border.gradient.start_point - segment_rel,
                                       border.gradient.end_point - segment_rel,
                                       gradient_stops,
@@ -625,7 +619,7 @@ impl FrameBuilder {
 
                     self.add_radial_gradient(clip_and_scroll,
                                              segment,
-                                             clip_region,
+                                             clip_rect,
                                              border.gradient.start_center - segment_rel,
                                              border.gradient.start_radius,
                                              border.gradient.end_center - segment_rel,
@@ -643,7 +637,7 @@ impl FrameBuilder {
     pub fn add_gradient(&mut self,
                         clip_and_scroll: ClipAndScrollInfo,
                         rect: LayerRect,
-                        clip_region: &ClipRegion,
+                        clip_rect: &LayerRect,
                         start_point: LayerPoint,
                         end_point: LayerPoint,
                         stops: ItemRange<GradientStop>,
@@ -703,13 +697,13 @@ impl FrameBuilder {
             PrimitiveContainer::AngleGradient(gradient_cpu)
         };
 
-        self.add_primitive(clip_and_scroll, &rect, clip_region, &[], prim);
+        self.add_primitive(clip_and_scroll, &rect, clip_rect, &[], prim);
     }
 
     pub fn add_radial_gradient(&mut self,
                                clip_and_scroll: ClipAndScrollInfo,
                                rect: LayerRect,
-                               clip_region: &ClipRegion,
+                               clip_rect: &LayerRect,
                                start_center: LayerPoint,
                                start_radius: f32,
                                end_center: LayerPoint,
@@ -734,7 +728,7 @@ impl FrameBuilder {
 
         self.add_primitive(clip_and_scroll,
                            &rect,
-                           clip_region,
+                           clip_rect,
                            &[],
                            PrimitiveContainer::RadialGradient(radial_gradient_cpu));
     }
@@ -742,7 +736,7 @@ impl FrameBuilder {
     pub fn add_text(&mut self,
                     clip_and_scroll: ClipAndScrollInfo,
                     rect: LayerRect,
-                    clip_region: &ClipRegion,
+                    clip_rect: &LayerRect,
                     font_key: FontKey,
                     size: Au,
                     blur_radius: f32,
@@ -805,7 +799,7 @@ impl FrameBuilder {
 
         self.add_primitive(clip_and_scroll,
                            &rect,
-                           clip_region,
+                           clip_rect,
                            &[],
                            PrimitiveContainer::TextRun(prim_cpu));
     }
@@ -814,7 +808,7 @@ impl FrameBuilder {
                                 clip_and_scroll: ClipAndScrollInfo,
                                 box_bounds: &LayerRect,
                                 bs_rect: LayerRect,
-                                clip_region: &ClipRegion,
+                                clip_rect: &LayerRect,
                                 color: &ColorF,
                                 border_radius: f32,
                                 clip_mode: BoxShadowClipMode) {
@@ -827,14 +821,9 @@ impl FrameBuilder {
 
         let box_clip_mode = !bs_clip_mode;
 
-        // Clip the inside
-        let extra_clips = [ClipSource::Complex(bs_rect,
-                                               border_radius,
-                                               bs_clip_mode),
-                           // Clip the outside of the box
-                           ClipSource::Complex(*box_bounds,
-                                             border_radius,
-                                             box_clip_mode)];
+        // Clip the inside and then the outside of the box.
+        let extra_clips = [ClipSource::Complex(bs_rect, border_radius, bs_clip_mode),
+                           ClipSource::Complex(*box_bounds, border_radius, box_clip_mode)];
 
         let prim = RectanglePrimitive {
             color: *color,
@@ -842,7 +831,7 @@ impl FrameBuilder {
 
         self.add_primitive(clip_and_scroll,
                            &rect_to_draw,
-                           clip_region,
+                           clip_rect,
                            &extra_clips,
                            PrimitiveContainer::Rectangle(prim));
     }
@@ -850,7 +839,7 @@ impl FrameBuilder {
     pub fn add_box_shadow(&mut self,
                           clip_and_scroll: ClipAndScrollInfo,
                           box_bounds: &LayerRect,
-                          clip_region: &ClipRegion,
+                          clip_rect: &LayerRect,
                           box_offset: &LayerVector2D,
                           color: &ColorF,
                           blur_radius: f32,
@@ -880,7 +869,7 @@ impl FrameBuilder {
            || bs_rect_empty {
             self.add_solid_rectangle(clip_and_scroll,
                                      box_bounds,
-                                     clip_region,
+                                     clip_rect,
                                      color,
                                      PrimitiveFlags::None);
             return;
@@ -890,7 +879,7 @@ impl FrameBuilder {
             self.fill_box_shadow_rect(clip_and_scroll,
                                       box_bounds,
                                       bs_rect,
-                                      clip_region,
+                                      clip_rect,
                                       color,
                                       border_radius,
                                       clip_mode);
@@ -963,7 +952,7 @@ impl FrameBuilder {
                 for rect in &rects {
                     self.add_solid_rectangle(clip_and_scroll,
                                              rect,
-                                             clip_region,
+                                             clip_rect,
                                              color,
                                              PrimitiveFlags::None)
                 }
@@ -974,7 +963,7 @@ impl FrameBuilder {
                     self.fill_box_shadow_rect(clip_and_scroll,
                                               box_bounds,
                                               bs_rect,
-                                              clip_region,
+                                              clip_rect,
                                               color,
                                               border_radius,
                                               clip_mode);
@@ -1012,7 +1001,7 @@ impl FrameBuilder {
 
                 self.add_primitive(clip_and_scroll,
                                    &outer_rect,
-                                   clip_region,
+                                   clip_rect,
                                    extra_clips.as_slice(),
                                    PrimitiveContainer::BoxShadow(prim_cpu));
             }
@@ -1022,7 +1011,7 @@ impl FrameBuilder {
     pub fn add_webgl_rectangle(&mut self,
                                clip_and_scroll: ClipAndScrollInfo,
                                rect: LayerRect,
-                               clip_region: &ClipRegion,
+                               clip_rect: &LayerRect,
                                context_id: WebGLContextId) {
         let prim_cpu = ImagePrimitiveCpu {
             kind: ImagePrimitiveKind::WebGL(context_id),
@@ -1032,7 +1021,7 @@ impl FrameBuilder {
 
         self.add_primitive(clip_and_scroll,
                            &rect,
-                           clip_region,
+                           clip_rect,
                            &[],
                            PrimitiveContainer::Image(prim_cpu));
     }
@@ -1040,7 +1029,7 @@ impl FrameBuilder {
     pub fn add_image(&mut self,
                      clip_and_scroll: ClipAndScrollInfo,
                      rect: LayerRect,
-                     clip_region: &ClipRegion,
+                     clip_rect: &LayerRect,
                      stretch_size: &LayerSize,
                      tile_spacing: &LayerSize,
                      sub_rect: Option<TexelRect>,
@@ -1064,7 +1053,7 @@ impl FrameBuilder {
 
         self.add_primitive(clip_and_scroll,
                            &rect,
-                           clip_region,
+                           clip_rect,
                            &[],
                            PrimitiveContainer::Image(prim_cpu));
     }
@@ -1072,7 +1061,7 @@ impl FrameBuilder {
     pub fn add_yuv_image(&mut self,
                          clip_and_scroll: ClipAndScrollInfo,
                          rect: LayerRect,
-                         clip_region: &ClipRegion,
+                         clip_rect: &LayerRect,
                          yuv_data: YuvData,
                          color_space: YuvColorSpace,
                          image_rendering: ImageRendering) {
@@ -1095,7 +1084,7 @@ impl FrameBuilder {
 
         self.add_primitive(clip_and_scroll,
                            &rect,
-                           clip_region,
+                           clip_rect,
                            &[],
                            PrimitiveContainer::YuvImage(prim_cpu));
     }

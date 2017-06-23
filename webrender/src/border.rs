@@ -9,8 +9,8 @@ use mask_cache::ClipSource;
 use prim_store::{BorderPrimitiveCpu, PrimitiveContainer};
 use tiling::PrimitiveFlags;
 use util::{lerp, pack_as_float};
-use webrender_traits::{BorderSide, BorderStyle, BorderWidths, ClipAndScrollInfo, ClipRegion};
-use webrender_traits::{ColorF, LayerPoint, LayerRect, LayerSize, NormalBorder};
+use webrender_traits::{BorderSide, BorderStyle, BorderWidths, ClipAndScrollInfo, ColorF};
+use webrender_traits::{LayerPoint, LayerRect, LayerSize, NormalBorder};
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -226,7 +226,7 @@ impl FrameBuilder {
                                    border: &NormalBorder,
                                    widths: &BorderWidths,
                                    clip_and_scroll: ClipAndScrollInfo,
-                                   clip_region: &ClipRegion,
+                                   clip_rect: &LayerRect,
                                    corner_instances: [BorderCornerInstance; 4],
                                    extra_clips: &[ClipSource]) {
         let radius = &border.radius;
@@ -273,7 +273,7 @@ impl FrameBuilder {
 
         self.add_primitive(clip_and_scroll,
                            &rect,
-                           clip_region,
+                           clip_rect,
                            extra_clips,
                            PrimitiveContainer::Border(prim_cpu));
     }
@@ -287,7 +287,7 @@ impl FrameBuilder {
                              border: &NormalBorder,
                              widths: &BorderWidths,
                              clip_and_scroll: ClipAndScrollInfo,
-                             clip_region: &ClipRegion) {
+                             clip_rect: &LayerRect) {
         // The border shader is quite expensive. For simple borders, we can just draw
         // the border with a few rectangles. This generally gives better batching, and
         // a GPU win in fragment shader time.
@@ -367,7 +367,7 @@ impl FrameBuilder {
             if top_edge == BorderEdgeKind::Solid {
                 self.add_solid_rectangle(clip_and_scroll,
                                          &LayerRect::new(p0, LayerSize::new(rect_width, top_len)),
-                                         clip_region,
+                                         clip_rect,
                                          &border.top.color,
                                          PrimitiveFlags::None);
             }
@@ -376,7 +376,7 @@ impl FrameBuilder {
                                          &LayerRect::new(LayerPoint::new(p0.x, p0.y + top_len),
                                                          LayerSize::new(left_len,
                                                                         rect_height - top_len - bottom_len)),
-                                         clip_region,
+                                         clip_rect,
                                          &border.left.color,
                                          PrimitiveFlags::None);
             }
@@ -386,7 +386,7 @@ impl FrameBuilder {
                                                                          p0.y + top_len),
                                                          LayerSize::new(right_len,
                                                                         rect_height - top_len - bottom_len)),
-                                         clip_region,
+                                         clip_rect,
                                          &border.right.color,
                                          PrimitiveFlags::None);
             }
@@ -394,7 +394,7 @@ impl FrameBuilder {
                 self.add_solid_rectangle(clip_and_scroll,
                                          &LayerRect::new(LayerPoint::new(p0.x, p1.y - bottom_len),
                                                          LayerSize::new(rect_width, bottom_len)),
-                                         clip_region,
+                                         clip_rect,
                                          &border.bottom.color,
                                          PrimitiveFlags::None);
             }
@@ -423,7 +423,7 @@ impl FrameBuilder {
                                              border,
                                              widths,
                                              clip_and_scroll,
-                                             clip_region,
+                                             clip_rect,
                                              corner_instances,
                                              &extra_clips);
         }

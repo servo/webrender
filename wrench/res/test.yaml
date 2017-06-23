@@ -7,17 +7,6 @@ root:
   # or like this
     - rect: 20 20 200 200
       color: green
-  # they can have clips
-    - type: rect
-      bounds: 300 100 400 400
-      color: 128 100 72
-      clip: 350 150 50 50
-  # including complex ones
-    - type: rect
-      bounds: 100 300 400 400
-      color: green
-  # XXX uh, this isn't doing what I expect
-      clip: [100 300 50 50 10, 150 350 50 50 10]
   
     - type: image
       bounds: 300 300
@@ -40,7 +29,6 @@ root:
   
     - type: box-shadow
       bounds: [ rect ]
-      clip: ..
       offset: point2d (default 0 0)
       color: (default black)
       blur: f32 (default 0)

@@ -1,17 +1,15 @@
 root:
   items:
     - type: scroll-layer
-      bounds: [0, 0, 1000, 1000]
-      clip: [0, 0, 500, 500]
+      bounds: [0, 0, 500, 500]
+      content-size: [1000, 1000]
       scroll-offset: [0, 300]
       items:
       - type: scroll-layer
         bounds: [0, 300, 50, 50]
-        clip: [0, 0, 50, 50]
         items:
         - type: scroll-layer
           bounds: [0, 300, 50, 50]
-          clip: [0, 0, 50, 50]
           items:
             - type: rect
               bounds: [0, 300, 50, 50]

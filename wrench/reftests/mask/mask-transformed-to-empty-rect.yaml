@@ -9,20 +9,17 @@ root:
       items:
         - type: scroll-layer
           bounds: [0, 0, 300, 300]
-          clip:
+          # This image mask here assures that we will be forced to try to
+          # mask instead of skipping it due to the mask rect becoming a
+          # zero rect.
+          image-mask:
+            image: "tiny-check-mask.png"
             rect: [0, 0, 300, 300]
-            image-mask:
-              # This image mask here assures that we will be forced to try to
-              # mask instead of skipping it due to the mask rect becoming a
-              # zero rect.
-              image: "tiny-check-mask.png"
-              rect: [0, 0, 300, 300]
-              repeat: false
+            repeat: false
           id: 1
           items:
             - type: rect
               bounds: [0, 0, 300, 300]
-              clip: [0, 0, 300, 300]
               color: 0 128 0 1.0000
     - type: rect
       bounds: [0, 0, 100, 100]

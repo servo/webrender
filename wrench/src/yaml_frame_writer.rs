@@ -148,10 +148,6 @@ fn f32_vec_node(parent: &mut Table, key: &str, value: &[f32]) {
     yaml_node(parent, key, f32_vec_yaml(value, false));
 }
 
-fn vec_node(parent: &mut Table, key: &str, value: Vec<Yaml>) {
-    yaml_node(parent, key, Yaml::Array(value));
-}
-
 fn maybe_radius_yaml(radius: &BorderRadius) -> Option<Yaml> {
     if let Some(radius) = radius.is_uniform_size() {
         if radius == LayoutSize::zero() {
@@ -436,41 +432,40 @@ impl YamlFrameWriter {
         Some(path)
     }
 
-    fn make_clip_node(&mut self, clip: &ClipRegion, list: &BuiltDisplayList) -> Yaml {
-        if clip.is_complex() {
-            let complex = list.get(clip.complex_clips);
-            let mut complex_table = new_table();
-            rect_node(&mut complex_table, "rect", &clip.main);
-
-            if complex.len() != 0 {
-                let complex_items = complex.map(|ccx|
-                    if ccx.radii.is_zero() {
-                        rect_yaml(&ccx.rect)
-                    } else {
-                        let mut t = new_table();
-                        rect_node(&mut t, "rect", &ccx.rect);
-                        yaml_node(&mut t, "radius", maybe_radius_yaml(&ccx.radii).unwrap());
-                        Yaml::Hash(t)
-                    }
-                ).collect();
-                vec_node(&mut complex_table, "complex", complex_items);
-            }
-
-            if let Some(ref mask) = clip.image_mask {
-                let mut mask_table = new_table();
-                if let Some(path) = self.path_for_image(mask.image) {
-                    path_node(&mut mask_table, "image", &path);
-                }
-                rect_node(&mut mask_table, "rect", &mask.rect);
-                bool_node(&mut mask_table, "repeat", mask.repeat);
-
-                table_node(&mut complex_table, "image-mask", mask_table);
-            }
-
-            Yaml::Hash(complex_table)
-        } else {
-            rect_yaml(&clip.main)
+    fn make_clip_complex_node(&mut self,
+                              clip: &ClipRegion,
+                              list: &BuiltDisplayList)
+                              -> Option<Yaml> {
+        if clip.complex_clip_count == 0 {
+            return None;
         }
+
+        let complex_items = list.get(clip.complex_clips).map(|ccx|
+            if ccx.radii.is_zero() {
+                rect_yaml(&ccx.rect)
+            } else {
+                let mut t = new_table();
+                rect_node(&mut t, "rect", &ccx.rect);
+                yaml_node(&mut t, "radius", maybe_radius_yaml(&ccx.radii).unwrap());
+                Yaml::Hash(t)
+            }
+        ).collect();
+        Some(Yaml::Array(complex_items))
+    }
+
+    fn make_clip_mask_image_node(&mut self, clip: &ClipRegion) -> Option<Yaml> {
+        let mask = match clip.image_mask {
+            Some(ref mask) => mask,
+            None => return None,
+        };
+
+        let mut mask_table = new_table();
+        if let Some(path) = self.path_for_image(mask.image) {
+            path_node(&mut mask_table, "image", &path);
+        }
+        rect_node(&mut mask_table, "rect", &mask.rect);
+        bool_node(&mut mask_table, "repeat", mask.repeat);
+        Some(Yaml::Hash(mask_table))
     }
 
     fn write_display_list_items(&mut self,
@@ -491,7 +486,7 @@ impl YamlFrameWriter {
 
             let mut v = new_table();
             rect_node(&mut v, "bounds", &base.rect());
-            yaml_node(&mut v, "clip", self.make_clip_node(&base.clip_region(), display_list));
+            rect_node(&mut v, "clip-rect", &base.clip_rect());
 
             let clip_and_scroll_info = clip_id_mapper.fix_ids_for_nesting(&base.clip_and_scroll());
             let clip_and_scroll_yaml = match clip_id_mapper.map_info(&clip_and_scroll_info) {
@@ -751,12 +746,28 @@ impl YamlFrameWriter {
                 Clip(item) => {
                     str_node(&mut v, "type", "clip");
                     usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
+
+                    let mut bounds = base.rect();
+                    let content_size = bounds.size;
+                    let clip_region = base.clip_region();
+                    bounds.size = clip_region.main.size;
+
+                    rect_node(&mut v, "bounds", &bounds);
+                    size_node(&mut v, "content-size", &content_size);
+
+                    if let Some(complex) = self.make_clip_complex_node(clip_region, display_list) {
+                        yaml_node(&mut v, "complex", complex);
+                    }
+
+                    if let Some(mask_yaml) = self.make_clip_mask_image_node(clip_region) {
+                        yaml_node(&mut v, "image-mask", mask_yaml);
+                    }
                 }
                 PushNestedDisplayList =>
                     clip_id_mapper.push_nested_display_list_ids(clip_and_scroll_info),
                 PopNestedDisplayList => clip_id_mapper.pop_nested_display_list_ids(),
                 PopStackingContext => return,
-                SetGradientStops | SetClipRegion(_) => { panic!("dummy item yielded?") },
+                SetGradientStops => { panic!("dummy item yielded?") },
             }
             if !v.is_empty() {
                 list.push(Yaml::Hash(v));

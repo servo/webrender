@@ -3,15 +3,13 @@ root:
   items:
     - type: scroll-layer
       bounds: [0, 0, 100, 100]
-      clip:
-        rect: [0, 0, 100, 100]
-        complex:
-          - rect: [0, 0, 100, 100]
-            radius:
-              top-left: [30, 30]
-              top-right: [30, 30]
-              bottom-right: [30, 30]
-              bottom-left: [30, 30]
+      complex:
+        - rect: [0, 0, 100, 100]
+          radius:
+            top-left: [30, 30]
+            top-right: [30, 30]
+            bottom-right: [30, 30]
+            bottom-left: [30, 30]
       items:
         - type: border
           bounds: [0, 0, 100, 100]
