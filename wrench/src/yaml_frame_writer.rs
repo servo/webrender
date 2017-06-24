@@ -747,7 +747,7 @@ impl YamlFrameWriter {
                 Clip(item) => {
                     str_node(&mut v, "type", "clip");
                     usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
-                    size_node(&mut v, "content-size", &item.content_rect.size);
+                    size_node(&mut v, "content-size", &base.rect().size);
 
                     let &(complex_clips, complex_clip_count) = base.complex_clip();
                     if let Some(complex) = self.make_clip_complex_node(complex_clip_count,
@@ -763,7 +763,8 @@ impl YamlFrameWriter {
                 ScrollFrame(item) => {
                     str_node(&mut v, "type", "scroll-frame");
                     usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
-                    size_node(&mut v, "content-size", &item.content_rect.size);
+                    size_node(&mut v, "content-size", &base.rect().size);
+                    rect_node(&mut v, "bounds", &base.clip_rect());
 
                     let &(complex_clips, complex_clip_count) = base.complex_clip();
                     if let Some(complex) = self.make_clip_complex_node(complex_clip_count,

@@ -9,7 +9,7 @@ root:
       "transform-style": flat
       items: 
         - type: clip
-          bounds: [0, 0, 1000, 1000]
+          bounds: [28, 18, 144, 122]
           complex:
             - rect: [28, 18, 144, 122]
               radius:
@@ -38,7 +38,7 @@ root:
             "bottom-left": [0, 0]
             "bottom-right": [61, 61]
         - type: clip
-          bounds: [0, 0, 1000, 1000]
+          bounds: [28, 160, 144, 122]
           complex:
             - rect: [28, 160, 144, 122]
               radius: [61, 61]
@@ -60,7 +60,7 @@ root:
             - none
           radius: [61, 61]
         - type: clip
-          bounds: [0, 0, 1000, 1000]
+          bounds: [28, 302, 154, 122]
           complex:
             - rect: [28, 302, 154, 122]
               radius: 
@@ -93,7 +93,7 @@ root:
             "bottom-left": [0, 0]
             "bottom-right": [61, 61]
         - type: clip
-          bounds: [0, 0, 1000, 1000]
+          bounds: [202, 18, 145, 122]
           complex:
             - rect: [202, 18, 144.03334, 122]
               radius: 
@@ -124,7 +124,7 @@ root:
         - type: clip
           bounds: [202, 160, 144, 122]
           complex:
-            - rect: [0, 0, 144, 122]
+            - rect: [202, 160, 144, 122]
               radius: [61, 61]
           items:
             - type: rect
@@ -145,7 +145,7 @@ root:
         - type: clip
           bounds: [202, 302, 154, 122]
           complex:
-            - rect: [0, 0, 154, 122]
+            - rect: [202, 302, 154, 122]
               radius: 
                 "top-left": [0, 0]
                 "top-right": [72, 72]
@@ -179,7 +179,7 @@ root:
         - type: clip
           bounds: [376, 18, 144, 122]
           complex:
-            - rect: [0, 0, 144, 122]
+            - rect: [376, 18, 144, 122]
               radius: [61, 61]
           items:
           - type: rect
@@ -205,7 +205,7 @@ root:
         - type: clip
           bounds: [376, 160, 144, 122]
           complex:
-            - rect: [0, 0, 144, 122]
+            - rect: [376, 160, 144, 122]
               radius: [61, 61]
           items:
           - type: rect
@@ -232,7 +232,7 @@ root:
         - type: clip
           bounds: [376, 302, 144, 122]
           complex:
-            - rect: [0, 0, 144, 122]
+            - rect: [376, 302, 144, 122]
               radius:
                 "top-left": [0, 0]
                 "top-right": [72, 72]

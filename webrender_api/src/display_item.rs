@@ -4,9 +4,8 @@
 
 use app_units::Au;
 use euclid::SideOffsets2D;
-use {ColorF, FontKey, ImageKey, ItemRange, PipelineId, WebGLContextId};
-use {LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D};
-use {PropertyBinding};
+use {ColorF, FontKey, ImageKey, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform};
+use {LayoutVector2D, PipelineId, PropertyBinding, WebGLContextId};
 
 // NOTE: some of these structs have an "IMPLICIT" comment.
 // This indicates that the BuiltDisplayList will have serialized
@@ -72,7 +71,6 @@ pub enum SpecificDisplayItem {
 pub struct ClipDisplayItem {
     pub id: ClipId,
     pub parent_id: ClipId,
-    pub content_rect: LayoutRect,
     pub image_mask: Option<ImageMask>,
 }
 
@@ -450,17 +448,6 @@ pub struct ImageMask {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
-pub struct ClipRegion {
-    pub main: LayoutRect,
-    pub image_mask: Option<ImageMask>,
-    #[serde(default, skip_serializing, skip_deserializing)]
-    pub complex_clips: ItemRange<ComplexClipRegion>,
-    #[serde(default, skip_serializing, skip_deserializing)]
-    pub complex_clip_count: usize,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ComplexClipRegion {
     /// The boundaries of the rectangle.
     pub rect: LayoutRect,
@@ -520,41 +507,6 @@ impl BorderRadius {
         } else {
             false
         }
-    }
-}
-
-impl ClipRegion {
-    pub fn new(rect: &LayoutRect,
-               image_mask: Option<ImageMask>)
-               -> ClipRegion {
-        ClipRegion {
-            main: *rect,
-            image_mask,
-            complex_clips: ItemRange::default(),
-            complex_clip_count: 0,
-        }
-    }
-
-    pub fn simple(rect: &LayoutRect) -> ClipRegion {
-        ClipRegion {
-            main: *rect,
-            image_mask: None,
-            complex_clips: ItemRange::default(),
-            complex_clip_count: 0,
-        }
-    }
-
-    pub fn empty() -> ClipRegion {
-        ClipRegion {
-            main: LayoutRect::zero(),
-            image_mask: None,
-            complex_clips: ItemRange::default(),
-            complex_clip_count: 0,
-        }
-    }
-
-    pub fn is_complex(&self) -> bool {
-        self.complex_clip_count != 0 || self.image_mask.is_some()
     }
 }
 

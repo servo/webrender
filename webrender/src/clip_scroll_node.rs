@@ -2,15 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use api::{ClipId, DeviceIntRect, LayerPixel, LayerPoint, LayerRect, LayerSize};
+use api::{LayerToScrollTransform, LayerToWorldTransform, LayerVector2D, PipelineId};
+use api::{ScrollClamping, ScrollEventPhase, ScrollLocation, WorldPoint};
 use geometry::ray_intersects_rect;
-use mask_cache::{ClipSource, MaskCacheInfo};
+use mask_cache::{ClipRegion, ClipSource, MaskCacheInfo};
 use spring::{DAMPING, STIFFNESS, Spring};
-use tiling::{DisplayListMap, PackedLayerIndex};
+use tiling::PackedLayerIndex;
 use util::{ComplexClipRegionHelpers, MatrixHelpers, TransformedRectKind};
-use api::{ClipId, ClipRegion, DeviceIntRect, LayerPixel, LayerPoint, LayerRect};
-use api::{LayerSize, LayerToScrollTransform, LayerToWorldTransform, PipelineId};
-use api::{ScrollClamping, ScrollEventPhase, ScrollLocation};
-use api::{WorldPoint, LayerVector2D};
 
 #[cfg(target_os = "macos")]
 const CAN_OVERSCROLL: bool = true;
@@ -39,19 +38,23 @@ pub struct ClipInfo {
     /// The biggest final transformed rectangle that is completely inside the
     /// clipping region for this node.
     pub screen_inner_rect: DeviceIntRect,
+
+    /// A rectangle which defines the rough boundaries of this clip in reference
+    /// frame relative coordinates (with no scroll offsets).
+    pub clip_rect: LayerRect,
 }
 
 impl ClipInfo {
-    pub fn new(clip_region: &ClipRegion,
-               packed_layer_index: PackedLayerIndex)
-               -> ClipInfo {
-        let clip_sources = vec![ClipSource::Region(clip_region.clone())];
+    pub fn new(clip_region: ClipRegion, packed_layer_index: PackedLayerIndex) -> ClipInfo {
+        let clip_rect = LayerRect::new(clip_region.origin, clip_region.main.size);
+        let clip_sources = vec![ClipSource::Region(clip_region)];
         ClipInfo {
             mask_cache_info: MaskCacheInfo::new(&clip_sources),
             clip_sources,
             packed_layer_index,
             screen_bounding_rect: None,
             screen_inner_rect: DeviceIntRect::zero(),
+            clip_rect: clip_rect,
         }
     }
 }
@@ -118,11 +121,11 @@ pub struct ClipScrollNode {
 impl ClipScrollNode {
     pub fn new_scroll_frame(pipeline_id: PipelineId,
                             parent_id: ClipId,
-                            content_rect: &LayerRect,
-                            frame_rect: &LayerRect)
+                            frame_rect: &LayerRect,
+                            content_size: &LayerSize)
                             -> ClipScrollNode {
         ClipScrollNode {
-            content_size: content_rect.size,
+            content_size: *content_size,
             local_viewport_rect: *frame_rect,
             local_clip_rect: *frame_rect,
             combined_local_viewport_rect: LayerRect::zero(),
@@ -136,29 +139,11 @@ impl ClipScrollNode {
         }
     }
 
-    pub fn new(pipeline_id: PipelineId,
-               parent_id: ClipId,
-               content_rect: &LayerRect,
-               clip_rect: &LayerRect,
-               clip_info: ClipInfo)
-               -> ClipScrollNode {
-        // FIXME(mrobinson): We don't yet handle clipping rectangles that don't start at the origin
-        // of the node.
-        // Accumulate the local clips
-        //Note: `MaskCacheInfo::bounds` have that intersection as well,
-        // but we don't have it by hand
-        let local_viewport_rect = LayerRect::new(content_rect.origin, clip_rect.size);
-        let local_clip_rect = clip_info.clip_sources.iter().fold(
-            Some(*clip_rect), |intersection, source| match *source {
-                ClipSource::Complex(rect, _, _) => intersection.and_then(|r| r.intersection(&rect)),
-                ClipSource::Region(ref region) =>  intersection.and_then(|r| r.intersection(&region.main)),
-                ClipSource::BorderCorner(_) => intersection,
-            }
-        );
+    pub fn new(pipeline_id: PipelineId, parent_id: ClipId, clip_info: ClipInfo) -> ClipScrollNode {
         ClipScrollNode {
-            content_size: content_rect.size,
-            local_viewport_rect,
-            local_clip_rect: LayerRect::new(content_rect.origin, local_clip_rect.unwrap_or(LayerRect::zero()).size),
+            content_size: clip_info.clip_rect.size,
+            local_viewport_rect: clip_info.clip_rect,
+            local_clip_rect: clip_info.clip_rect,
             combined_local_viewport_rect: LayerRect::zero(),
             world_viewport_transform: LayerToWorldTransform::identity(),
             world_content_transform: LayerToWorldTransform::identity(),
@@ -409,10 +394,7 @@ impl ClipScrollNode {
         }
     }
 
-    pub fn find_unclipped_rectangle(&self,
-                                    display_lists: &DisplayListMap,
-                                    rect: &LayerRect)
-                                    -> Option<LayerRect> {
+    pub fn find_unclipped_rectangle(&self, rect: &LayerRect) -> Option<LayerRect> {
         let clip_sources = match self.node_type {
             NodeType::Clip(ref clip_info) => &clip_info.clip_sources,
             _ => return None,
@@ -428,11 +410,8 @@ impl ClipScrollNode {
         }
 
         let offset = &self.local_viewport_rect.origin.to_vector();
-        let display_list = display_lists.get(&self.pipeline_id).expect("No display list?");
-        let complex_clips = display_list.get(clip_region.complex_clips);
-
         let base_rect = clip_region.main.translate(offset).intersection(rect);
-        complex_clips.fold(base_rect, |inner_combined, ccr| {
+        clip_region.complex_clips.iter().fold(base_rect, |inner_combined, ccr| {
             inner_combined.and_then(|combined| {
                 ccr.get_inner_rect_full().and_then(|ir| {
                     ir.translate(offset).intersection(&combined)

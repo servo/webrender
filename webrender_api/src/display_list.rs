@@ -853,7 +853,6 @@ impl DisplayListBuilder {
             id: id,
             parent_id: self.clip_stack.last().unwrap().scroll_node_id,
             image_mask: image_mask,
-            content_rect: content_rect,
         });
 
         self.push_item(item, content_rect, clip_rect);
@@ -874,7 +873,6 @@ impl DisplayListBuilder {
             id,
             parent_id: self.clip_stack.last().unwrap().scroll_node_id,
             image_mask: image_mask,
-            content_rect: clip_rect,
         });
 
         self.push_item(item, clip_rect, clip_rect);

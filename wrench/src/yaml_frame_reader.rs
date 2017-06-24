@@ -572,10 +572,9 @@ impl YamlFrameReader {
     }
 
     pub fn handle_scroll_frame(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
-        let bounds = yaml["bounds"].as_rect().expect("clip must have a bounds");
-        let content_size = yaml["content-size"].as_size().unwrap_or(bounds.size);
-        let content_rect = LayerRect::new(bounds.origin, content_size);
-        let clip_rect = LayerRect::new(LayerPoint::zero(), bounds.size);
+        let clip_rect = yaml["bounds"].as_rect().expect("clip must have a bounds");
+        let content_size = yaml["content-size"].as_size().unwrap_or(clip_rect.size);
+        let content_rect = LayerRect::new(clip_rect.origin, content_size);
 
         let id = yaml["id"].as_i64().map(|id| ClipId::new(id as u64, self.builder().pipeline_id));
         let complex_clips = self.to_complex_clip_regions(&yaml["complex"]);

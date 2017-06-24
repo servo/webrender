@@ -2,11 +2,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use api::{BorderDetails, BorderDisplayItem, BoxShadowClipMode, ClipAndScrollInfo, ClipId};
+use api::{ClipRegion, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect};
+use api::{DeviceUintSize, ExtendMode, FontKey, FontRenderMode, GlyphInstance, GlyphOptions};
+use api::{GradientStop, ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize};
+use api::{LayerToScrollTransform, LayerVector2D, PipelineId, RepeatMode, TileOffset};
+use api::{TransformStyle, WebGLContextId, WorldPixel, YuvColorSpace, YuvData};
 use app_units::Au;
 use frame::FrameId;
 use gpu_cache::GpuCache;
 use internal_types::HardwareCompositeOp;
-use mask_cache::{ClipMode, ClipSource, MaskCacheInfo};
+use mask_cache::{ClipMode, ClipRegion, ClipSource, MaskCacheInfo};
 use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveIndex};
@@ -28,13 +34,6 @@ use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, Ren
 use tiling::{RenderTargetContext, RenderTaskCollection, ScrollbarPrimitive, StackingContext};
 use util::{self, pack_as_float, subtract_rect, recycle_vec};
 use util::{MatrixHelpers, RectHelpers};
-use api::{BorderDetails, BorderDisplayItem, BoxShadowClipMode, ClipAndScrollInfo};
-use api::{ClipId, ClipRegion, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use api::{DeviceUintRect, DeviceUintSize, ExtendMode, FontKey, FontRenderMode};
-use api::{GlyphInstance, GlyphOptions, GradientStop, ImageKey, ImageRendering};
-use api::{ItemRange, LayerPoint, LayerRect, LayerSize, LayerToScrollTransform};
-use api::{PipelineId, RepeatMode, TileOffset, TransformStyle, WebGLContextId};
-use api::{WorldPixel, YuvColorSpace, YuvData, LayerVector2D};
 
 #[derive(Debug, Clone)]
 struct ImageBorderSegment {
@@ -351,28 +350,21 @@ impl FrameBuilder {
         self.add_scroll_frame(topmost_scrolling_node_id,
                               clip_scroll_tree.root_reference_frame_id,
                               pipeline_id,
-                              &LayerRect::new(LayerPoint::zero(), *content_size),
                               &viewport_rect,
+                              content_size,
                               clip_scroll_tree);
 
         topmost_scrolling_node_id
     }
 
-    pub fn add_clip_scroll_node(&mut self,
-                                new_node_id: ClipId,
-                                parent_id: ClipId,
-                                pipeline_id: PipelineId,
-                                content_rect: &LayerRect,
-                                clip_region: &ClipRegion,
-                                clip_scroll_tree: &mut ClipScrollTree) {
-        let clip_info = ClipInfo::new(clip_region,
-                                      PackedLayerIndex(self.packed_layers.len()));
-        let node = ClipScrollNode::new(pipeline_id,
-                                       parent_id,
-                                       content_rect,
-                                       &clip_region.main,
-                                       clip_info);
-
+    pub fn add_clip_node(&mut self,
+                         new_node_id: ClipId,
+                         parent_id: ClipId,
+                         pipeline_id: PipelineId,
+                         clip_region: ClipRegion,
+                         clip_scroll_tree: &mut ClipScrollTree) {
+        let clip_info = ClipInfo::new(clip_region, PackedLayerIndex(self.packed_layers.len()));
+        let node = ClipScrollNode::new(pipeline_id, parent_id, clip_info);
         clip_scroll_tree.add_node(node, new_node_id);
         self.packed_layers.push(PackedLayer::empty());
     }
@@ -381,13 +373,13 @@ impl FrameBuilder {
                             new_node_id: ClipId,
                             parent_id: ClipId,
                             pipeline_id: PipelineId,
-                            content_rect: &LayerRect,
                             frame_rect: &LayerRect,
+                            content_size: &LayerSize,
                             clip_scroll_tree: &mut ClipScrollTree) {
         let node = ClipScrollNode::new_scroll_frame(pipeline_id,
                                                     parent_id,
-                                                    content_rect,
-                                                    frame_rect);
+                                                    frame_rect,
+                                                    content_size);
 
         clip_scroll_tree.add_node(node, new_node_id);
     }
@@ -1574,14 +1566,10 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             };
             node_clip_info.screen_inner_rect = inner_rect;
 
-            let display_list = self.display_lists.get(&node.pipeline_id)
-                                                 .expect("No display list?");
-
             let bounds = node_clip_info.mask_cache_info.update(&node_clip_info.clip_sources,
                                                                &transform,
                                                                self.gpu_cache,
-                                                               self.device_pixel_ratio,
-                                                               display_list);
+                                                               self.device_pixel_ratio);
 
             node_clip_info.screen_inner_rect = bounds.inner.as_ref()
                .and_then(|inner| inner.device_rect.intersection(&inner_rect))
