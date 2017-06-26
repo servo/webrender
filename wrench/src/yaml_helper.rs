@@ -35,6 +35,11 @@ pub trait YamlHelper {
     fn as_scroll_policy(&self) -> Option<ScrollPolicy>;
     fn as_filter_op(&self) -> Option<FilterOp>;
     fn as_vec_filter_op(&self) -> Option<Vec<FilterOp>>;
+    fn as_text_decoration(&self) -> Option<TextDecoration>;
+    fn as_text_decorations(&self) -> Option<TextDecorations>;
+    fn as_text_shadow(&self) -> Option<TextShadow>;
+    fn as_vec_text_shadow(&self) -> Option<Vec<TextShadow>>;
+
 }
 
 fn string_to_color(color: &str) -> Option<ColorF> {
@@ -346,6 +351,54 @@ impl YamlHelper for Yaml {
             Some(v.iter().map(|v| v.as_colorf().unwrap()).collect())
         } else if let Some(color) = self.as_colorf() {
             Some(vec![color])
+        } else {
+            None
+        }
+    }
+
+    fn as_text_decoration(&self) -> Option<TextDecoration> {
+        if let Some(s) = self.as_str() {
+            match parse_function(s) {
+                ("opaque", ref args, _) if args.len() == 1 => {
+                    // TODO
+                    Some(unimplemented!())
+                }
+                _ => None
+            }
+        } else {
+            None
+        }
+    }
+
+    fn as_text_decorations(&self) -> Option<TextDecorations> {
+        if let Yaml::Hash(_) = *self {
+            Some(TextDecorations {
+                underline: self["underline"].as_text_decoration(),
+                overline: self["overline"].as_text_decoration(),
+                line_through: self["line-through"].as_text_decoration(),
+            })
+        } else {
+            None
+        }
+    }
+
+    fn as_text_shadow(&self) -> Option<TextShadow> {
+        if let Yaml::Hash(_) = *self {
+            Some(TextShadow {
+                offset: self["offset"].as_vector().expect("a"),
+                color: self["color"].as_colorf().expect("b"),
+                blur_radius: self["blur-radius"].as_f32().expect("c"),
+            })
+        } else {
+            None
+        }
+    }
+
+    fn as_vec_text_shadow(&self) -> Option<Vec<TextShadow>> {
+        if let Some(v) = self.as_vec() {
+            Some(v.iter().map(|v| v.as_text_shadow().unwrap()).collect())
+        } else if let Some(shadow) = self.as_text_shadow() {
+            Some(vec![shadow])
         } else {
             None
         }

@@ -5,7 +5,7 @@ root:
           bounds: [14, 18, 205, 35]
           glyphs: [55]
           offsets: [16, 43]
+          shadows: { color: black, blur-radius: 5, offset: [0, 0] }
           size: 18
-          color: black
-          blur-radius: 5
+          color: [0, 0, 0, 0] # actual text hidden
           font: "VeraBd.ttf"
