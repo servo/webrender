@@ -18,7 +18,7 @@ use webrender_traits::{FontKey, FontRenderMode, WebGLContextId};
 use webrender_traits::{device_length, DeviceIntRect, DeviceIntSize};
 use webrender_traits::{DevicePoint, LayerRect, LayerSize, LayerPoint};
 use webrender_traits::{LayerToWorldTransform, GlyphInstance, GlyphOptions};
-use webrender_traits::{ExtendMode, GradientStop, TileOffset};
+use webrender_traits::{ExtendMode, GradientStop, TileOffset, TextDecorations, TextShadow};
 
 
 pub const CLIP_DATA_GPU_BLOCKS: usize = 10;
@@ -490,9 +490,11 @@ pub struct TextRunPrimitiveCpu {
     pub glyph_count: usize,
     // TODO(gw): Maybe make this an Arc for sharing with resource cache
     pub glyph_instances: Vec<GlyphInstance>,
+    pub shadow_range: ItemRange<TextShadow>,
     pub color: ColorF,
     pub render_mode: FontRenderMode,
     pub glyph_options: Option<GlyphOptions>,
+    pub decorations: TextDecorations,
 }
 
 impl ToGpuBlocks for TextRunPrimitiveCpu {

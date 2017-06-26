@@ -292,11 +292,12 @@ fn body(api: &RenderApi,
         builder.push_text(text_bounds,
                           text_bounds,
                           &glyphs,
+                          &[],
                           font_key,
                           ColorF::new(1.0, 1.0, 0.0, 1.0),
                           Au::from_px(32),
-                          0.0,
-                          None);
+                          None,
+                          TextDecorations::default());
     }
 
     if false { // draw box shadow?

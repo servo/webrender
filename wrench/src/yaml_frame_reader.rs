@@ -429,7 +429,11 @@ impl YamlFrameReader {
     fn handle_text(&mut self, wrench: &mut Wrench, item: &Yaml, clip_rect: LayoutRect) {
         let size = item["size"].as_pt_to_au().unwrap_or(Au::from_f32_px(16.0));
         let color = item["color"].as_colorf().unwrap_or(*BLACK_COLOR);
-        let blur_radius = item["blur-radius"].as_force_f32().unwrap_or(0.0);
+        let shadows = item["shadows"].as_vec_text_shadow().unwrap_or(vec![]);
+        let decorations = item["text-decorations"].as_text_decorations()
+                                                  .unwrap_or(TextDecorations::default());
+
+        assert!(item["blur-radius"].is_badvalue(), "blur-radius has been replaced with shadows");
 
         let (font_key, native_key) = if !item["family"].is_badvalue() {
             wrench.font_key_from_yaml_table(item)
@@ -495,11 +499,12 @@ impl YamlFrameReader {
         self.builder().push_text(rect,
                                  clip_rect,
                                  &glyphs,
+                                 &shadows,
                                  font_key,
                                  color,
                                  size,
-                                 blur_radius,
-                                 None);
+                                 None,
+                                 decorations);
     }
 
     fn handle_iframe(&mut self, item: &Yaml) {

@@ -49,8 +49,12 @@ fn str_node(parent: &mut Table, key: &str, value: &str) {
     yaml_node(parent, key, Yaml::String(value.to_owned()));
 }
 
+fn path_to_string(value: &Path) -> String {
+    value.to_str().unwrap().to_owned().replace("\\", "/")
+}
+
 fn path_node(parent: &mut Table, key: &str, value: &Path) {
-    let pstr = value.to_str().unwrap().to_owned().replace("\\", "/");
+    let pstr = path_to_string(value);
     yaml_node(parent, key, Yaml::String(pstr));
 }
 
@@ -515,6 +519,32 @@ impl YamlFrameWriter {
                     f32_node(&mut v, "size", item.size.to_f32_px() * 12.0 / 16.0);
                     color_node(&mut v, "color", item.color);
 
+                    if item.decorations.overline.is_some()
+                       || item.decorations.underline.is_some()
+                       || item.decorations.line_through.is_some() {
+
+                        let mut yaml_decorations = new_table();
+
+                        let decorations = [
+                            ("underline", item.decorations.underline),
+                            ("overline", item.decorations.overline),
+                            ("line-through", item.decorations.line_through),
+                        ];
+
+                        for &(label, decoration) in decorations.iter() {
+                            match decoration {
+                                Some(TextDecoration::Opaque(image)) => {
+                                    let val = format!("opaque({})",
+                                        path_to_string(&self.path_for_image(image).unwrap()));
+                                    str_node(&mut yaml_decorations, label, &val);
+                                }
+                                None => { }
+                            }
+                        }
+
+                        table_node(&mut v, "text-decorations", yaml_decorations);
+                    }
+
                     let entry = self.fonts.entry(item.font_key).or_insert_with(|| {
                         println!("Warning: font key not found in fonts table!");
                         CachedFont::Raw(Some(vec![]), 0, None)
@@ -541,6 +571,25 @@ impl YamlFrameWriter {
                             if index != 0 {
                                 u32_node(&mut v, "font-index", index);
                             }
+                        }
+                    }
+
+                    let shadows = display_list.get(base.text_shadows());
+                    if shadows.len() > 0 {
+                        let mut yaml_shadows = vec![];
+
+                        for shadow in shadows {
+                            let mut yaml_shadow = new_table();
+                            vector_node(&mut yaml_shadow, "offset", &shadow.offset);
+                            color_node(&mut yaml_shadow, "color", shadow.color);
+                            f32_node(&mut yaml_shadow, "blur-radius", shadow.blur_radius);
+                            yaml_shadows.push(Yaml::Hash(yaml_shadow));
+                        }
+
+                        if yaml_shadows.len() == 1 {
+                            yaml_node(&mut v, "shadows", yaml_shadows.pop().unwrap());
+                        } else {
+                            yaml_node(&mut v, "shadows", Yaml::Array(yaml_shadows));
                         }
                     }
                 },

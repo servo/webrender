@@ -84,9 +84,34 @@ pub struct TextDisplayItem {
     pub font_key: FontKey,
     pub size: Au,
     pub color: ColorF,
-    pub blur_radius: f32,
     pub glyph_options: Option<GlyphOptions>,
-} // IMPLICIT: glyphs: Vec<GlyphInstance>
+    pub decorations: TextDecorations,
+    // IMPLICIT: glyphs: Vec<GlyphInstance>,
+    // IMPLICIT: shadows: Vec<TextShadow>,
+}
+
+#[derive(Copy, Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TextShadow {
+    pub offset: LayoutVector2D,
+    pub color: ColorF,
+    pub blur_radius: f32,
+}
+
+#[derive(Copy, Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct TextDecorations {
+    pub underline: Option<TextDecoration>,
+    pub overline: Option<TextDecoration>,
+    pub line_through: Option<TextDecoration>,
+}
+
+#[derive(Copy, Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub enum TextDecoration {
+    // FIXME: implement this variant:
+    // Native { height: f32, min_x: f32, max_x: f32,
+    //          color: ColorF, style: TextDecorationStyle }
+    // enum TextDecorationStyle { Solid, Double, Dotted, Dashed, Wavy }
+    Opaque(ImageKey),
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize)]
 pub struct GlyphOptions {
