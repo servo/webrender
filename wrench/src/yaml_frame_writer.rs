@@ -432,7 +432,14 @@ impl YamlFrameWriter {
         Some(path)
     }
 
-    fn make_clip_complex_node(&mut self,
+    fn make_complex_clip_node(&mut self, complex_clip: &ComplexClipRegion) -> Yaml {
+        let mut t = new_table();
+        rect_node(&mut t, "rect", &complex_clip.rect);
+        yaml_node(&mut t, "radius", maybe_radius_yaml(&complex_clip.radii).unwrap());
+        Yaml::Hash(t)
+    }
+
+    fn make_complex_clips_node(&mut self,
                               complex_clip_count: usize,
                               complex_clips: ItemRange<ComplexClipRegion>,
                               list: &BuiltDisplayList)
@@ -445,10 +452,7 @@ impl YamlFrameWriter {
             if ccx.radii.is_zero() {
                 rect_yaml(&ccx.rect)
             } else {
-                let mut t = new_table();
-                rect_node(&mut t, "rect", &ccx.rect);
-                yaml_node(&mut t, "radius", maybe_radius_yaml(&ccx.radii).unwrap());
-                Yaml::Hash(t)
+                self.make_complex_clip_node(&ccx)
             }
         ).collect();
         Some(Yaml::Array(complex_items))
@@ -487,7 +491,11 @@ impl YamlFrameWriter {
 
             let mut v = new_table();
             rect_node(&mut v, "bounds", &base.rect());
-            rect_node(&mut v, "clip-rect", &base.clip_rect());
+
+            rect_node(&mut v, "clip-rect", base.local_clip().clip_rect());
+            if let &LocalClip::RoundedRect(_, ref region) = base.local_clip() {
+                yaml_node(&mut v, "complex-clip", self.make_complex_clip_node(region));
+            }
 
             let clip_and_scroll_info = clip_id_mapper.fix_ids_for_nesting(&base.clip_and_scroll());
             let clip_and_scroll_yaml = match clip_id_mapper.map_info(&clip_and_scroll_info) {
@@ -750,9 +758,9 @@ impl YamlFrameWriter {
                     size_node(&mut v, "content-size", &base.rect().size);
 
                     let &(complex_clips, complex_clip_count) = base.complex_clip();
-                    if let Some(complex) = self.make_clip_complex_node(complex_clip_count,
-                                                                       complex_clips,
-                                                                       display_list) {
+                    if let Some(complex) = self.make_complex_clips_node(complex_clip_count,
+                                                                        complex_clips,
+                                                                        display_list) {
                         yaml_node(&mut v, "complex", complex);
                     }
 
@@ -764,12 +772,12 @@ impl YamlFrameWriter {
                     str_node(&mut v, "type", "scroll-frame");
                     usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
                     size_node(&mut v, "content-size", &base.rect().size);
-                    rect_node(&mut v, "bounds", &base.clip_rect());
+                    rect_node(&mut v, "bounds", &base.local_clip().clip_rect());
 
                     let &(complex_clips, complex_clip_count) = base.complex_clip();
-                    if let Some(complex) = self.make_clip_complex_node(complex_clip_count,
-                                                                       complex_clips,
-                                                                       display_list) {
+                    if let Some(complex) = self.make_complex_clips_node(complex_clip_count,
+                                                                        complex_clips,
+                                                                        display_list) {
                         yaml_node(&mut v, "complex", complex);
                     }
 

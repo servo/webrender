@@ -42,7 +42,7 @@ impl ClipAndScrollInfo {
 pub struct DisplayItem {
     pub item: SpecificDisplayItem,
     pub rect: LayoutRect,
-    pub clip_rect: LayoutRect,
+    pub local_clip: LocalClip,
     pub clip_and_scroll: ClipAndScrollInfo,
 }
 
@@ -448,6 +448,27 @@ pub struct ImageMask {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub enum LocalClip {
+    Rect(LayoutRect),
+    RoundedRect(LayoutRect, ComplexClipRegion),
+}
+
+impl From<LayoutRect> for LocalClip {
+    fn from(rect: LayoutRect) -> Self {
+        LocalClip::Rect(rect)
+    }
+}
+
+impl LocalClip {
+    pub fn clip_rect(&self) -> &LayoutRect {
+        match *self {
+            LocalClip::Rect(ref rect) => rect,
+            LocalClip::RoundedRect(ref rect, _) => &rect,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ComplexClipRegion {
     /// The boundaries of the rectangle.
     pub rect: LayoutRect,
@@ -615,3 +636,4 @@ define_empty_heap_size_of!(RepeatMode);
 define_empty_heap_size_of!(ImageKey);
 define_empty_heap_size_of!(MixBlendMode);
 define_empty_heap_size_of!(TransformStyle);
+define_empty_heap_size_of!(LocalClip);

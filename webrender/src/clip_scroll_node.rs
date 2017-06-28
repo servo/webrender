@@ -9,7 +9,7 @@ use geometry::ray_intersects_rect;
 use mask_cache::{ClipRegion, ClipSource, MaskCacheInfo};
 use spring::{DAMPING, STIFFNESS, Spring};
 use tiling::PackedLayerIndex;
-use util::{ComplexClipRegionHelpers, MatrixHelpers, TransformedRectKind};
+use util::{MatrixHelpers, TransformedRectKind};
 
 #[cfg(target_os = "macos")]
 const CAN_OVERSCROLL: bool = true;
@@ -392,32 +392,6 @@ impl ClipScrollNode {
             }
             _ => false,
         }
-    }
-
-    pub fn find_unclipped_rectangle(&self, rect: &LayerRect) -> Option<LayerRect> {
-        let clip_sources = match self.node_type {
-            NodeType::Clip(ref clip_info) => &clip_info.clip_sources,
-            _ => return None,
-        };
-
-        let clip_region = match clip_sources.last() {
-            Some(&ClipSource::Region(ref clip_region)) if clip_sources.len() == 1 => clip_region,
-            _ => return None,
-        };
-
-        if clip_region.image_mask.is_some() || clip_region.complex_clips.is_empty() {
-            return None;
-        }
-
-        let offset = &self.local_viewport_rect.origin.to_vector();
-        let base_rect = clip_region.main.translate(offset).intersection(rect);
-        clip_region.complex_clips.iter().fold(base_rect, |inner_combined, ccr| {
-            inner_combined.and_then(|combined| {
-                ccr.get_inner_rect_full().and_then(|ir| {
-                    ir.translate(offset).intersection(&combined)
-                })
-            })
-        })
     }
 }
 

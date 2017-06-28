@@ -243,7 +243,7 @@ fn body(api: &api::RenderApi,
 
     builder.push_image(
         (30, 30).by(500, 500),
-        bounds,
+        Some(api::LocalClip::from(bounds)),
         api::LayoutSize::new(500.0, 500.0),
         api::LayoutSize::new(0.0, 0.0),
         api::ImageRendering::Auto,
@@ -252,7 +252,7 @@ fn body(api: &api::RenderApi,
 
     builder.push_image(
         (600, 600).by(200, 200),
-        bounds,
+        Some(api::LocalClip::from(bounds)),
         api::LayoutSize::new(200.0, 200.0),
         api::LayoutSize::new(0.0, 0.0),
         api::ImageRendering::Auto,

@@ -2,15 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderRadius, ComplexClipRegion, DeviceIntRect, ImageMask, LayerPoint};
-use api::{LayerRect, LayerSize, LayerToWorldTransform};
+use api::{BorderRadius, ComplexClipRegion, DeviceIntRect, ImageMask, LayerPoint, LayerRect};
+use api::{LayerSize, LayerToWorldTransform, LocalClip};
 use border::BorderCornerClipSource;
 use gpu_cache::{GpuCache, GpuCacheHandle, ToGpuBlocks};
 use prim_store::{CLIP_DATA_GPU_BLOCKS, ClipData, ImageMaskData};
 use util::{ComplexClipRegionHelpers, TransformedRect};
-use api::{BorderRadius, BuiltDisplayList, ClipRegion, ComplexClipRegion, ImageMask};
-use api::{DeviceIntRect, LayerToWorldTransform};
-use api::{LayerRect, LayerPoint, LayerSize};
 use std::ops::Not;
 
 const MAX_CLIP: f32 = 1000000.0;
@@ -24,26 +21,39 @@ pub struct ClipRegion {
 }
 
 impl ClipRegion {
-    pub fn new(main: LayerRect,
-               mut image_mask: Option<ImageMask>,
-               mut complex_clips: Vec<ComplexClipRegion>)
-               -> ClipRegion {
-        let negative_origin = -main.origin.to_vector();
-
+    pub fn for_clip_node(rect: LayerRect,
+                         mut complex_clips: Vec<ComplexClipRegion>,
+                         mut image_mask: Option<ImageMask>)
+                         -> ClipRegion {
         // All the coordinates we receive are relative to the stacking context, but we want
         // to convert them to something relative to the origin of the clip.
+        let negative_origin = -rect.origin.to_vector();
         if let Some(ref mut image_mask) = image_mask {
             image_mask.rect = image_mask.rect.translate(&negative_origin);
         }
 
-        for ref mut complex_clip in complex_clips.iter_mut() {
+        for complex_clip in complex_clips.iter_mut() {
             complex_clip.rect = complex_clip.rect.translate(&negative_origin);
         }
 
         ClipRegion {
-            origin: main.origin,
-            main: LayerRect::new(LayerPoint::zero(), main.size),
+            origin: rect.origin,
+            main: LayerRect::new(LayerPoint::zero(), rect.size),
             image_mask,
+            complex_clips,
+        }
+    }
+
+    pub fn for_local_clip(local_clip: &LocalClip) -> ClipRegion {
+        let complex_clips = match local_clip {
+            &LocalClip::Rect(_) => Vec::new(),
+            &LocalClip::RoundedRect(_, ref region) => vec![region.clone()],
+        };
+
+        ClipRegion {
+            origin: LayerPoint::zero(),
+            main: *local_clip.clip_rect(),
+            image_mask: None,
             complex_clips,
         }
     }

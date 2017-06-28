@@ -206,7 +206,7 @@ fn body(api: &RenderApi,
 
     builder.push_yuv_image(
         LayoutRect::new(LayoutPoint::new(100.0, 0.0), LayoutSize::new(100.0, 100.0)),
-        bounds,
+        Some(LocalClip::from(bounds)),
         YuvData::NV12(yuv_chanel1, yuv_chanel2),
         YuvColorSpace::Rec601,
         ImageRendering::Auto,
@@ -214,7 +214,7 @@ fn body(api: &RenderApi,
 
     builder.push_yuv_image(
         LayoutRect::new(LayoutPoint::new(300.0, 0.0), LayoutSize::new(100.0, 100.0)),
-        bounds,
+        Some(LocalClip::from(bounds)),
         YuvData::PlanarYCbCr(yuv_chanel1, yuv_chanel2_1, yuv_chanel3),
         YuvColorSpace::Rec601,
         ImageRendering::Auto,

@@ -30,9 +30,7 @@ fn body(_api: &RenderApi,
                                   Vec::new());
 
     let outer_scroll_frame_rect = (100, 100).to(600, 400);
-    builder.push_rect(outer_scroll_frame_rect,
-                      outer_scroll_frame_rect,
-                      ColorF::new(1.0, 1.0, 1.0, 1.0));
+    builder.push_rect(outer_scroll_frame_rect, None, ColorF::new(1.0, 1.0, 1.0, 1.0));
 
     let nested_clip_id = builder.define_scroll_frame(None,
                                                      (100, 100).to(1000, 1000),
@@ -45,7 +43,7 @@ fn body(_api: &RenderApi,
     let mut builder3 = DisplayListBuilder::new(*pipeline_id, *layout_size);
 
     let rect = (110, 110).to(210, 210);
-    builder3.push_rect(rect, rect, ColorF::new(0.0, 1.0, 0.0, 1.0));
+    builder3.push_rect(rect, None, ColorF::new(0.0, 1.0, 0.0, 1.0));
 
     // A fixed position rectangle should be fixed to the reference frame that starts
     // in the outer display list.
@@ -57,16 +55,14 @@ fn body(_api: &RenderApi,
                                   MixBlendMode::Normal,
                                   Vec::new());
     let rect = (0, 0).to(100, 100);
-    builder3.push_rect(rect, rect, ColorF::new(0.0, 1.0, 0.0, 1.0));
+    builder3.push_rect(rect, None, ColorF::new(0.0, 1.0, 0.0, 1.0));
     builder3.pop_stacking_context();
 
     // Now we push an inner scroll frame that should have the same id as the outer one,
     // but the WebRender nested display list replacement code should convert it into
     // a unique ClipId.
     let inner_scroll_frame_rect = (330, 110).to(530, 360);
-    builder3.push_rect(inner_scroll_frame_rect,
-                       inner_scroll_frame_rect,
-                       ColorF::new(1.0, 0.0, 1.0, 0.5));
+    builder3.push_rect(inner_scroll_frame_rect, None, ColorF::new(1.0, 0.0, 1.0, 0.5));
     let inner_nested_clip_id = builder3.define_scroll_frame(None,
                                                             (330, 110).to(2000, 2000),
                                                             inner_scroll_frame_rect,
@@ -74,7 +70,7 @@ fn body(_api: &RenderApi,
                                                             None);
     builder3.push_clip_id(inner_nested_clip_id);
     let rect = (340, 120).to(440, 220);
-    builder3.push_rect(rect, rect, ColorF::new(0.0, 1.0, 0.0, 1.0));
+    builder3.push_rect(rect, None, ColorF::new(0.0, 1.0, 0.0, 1.0));
     builder3.pop_clip_id();
 
     let (_, _, built_list) = builder3.finalize();

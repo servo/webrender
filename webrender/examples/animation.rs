@@ -36,9 +36,7 @@ fn body(_api: &RenderApi,
                                   Vec::new());
 
     // Fill it with a white rect
-    builder.push_rect(bounds,
-                      bounds,
-                      ColorF::new(1.0, 1.0, 1.0, 1.0));
+    builder.push_rect(bounds, None, ColorF::new(1.0, 1.0, 1.0, 1.0));
 
     builder.pop_stacking_context();
 }
