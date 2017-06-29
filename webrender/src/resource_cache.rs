@@ -18,7 +18,7 @@ use std::mem;
 use std::sync::Arc;
 use texture_cache::{TextureCache, TextureCacheItemId};
 use api::{Epoch, FontKey, FontTemplate, GlyphKey, ImageKey, ImageRendering};
-use api::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId};
+use api::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId, IdNamespace};
 use api::{DevicePoint, DeviceIntSize, DeviceUintRect, ImageDescriptor, ColorF};
 use api::{GlyphOptions, GlyphInstance, SubpixelPoint, TileOffset, TileSize};
 use api::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, BlobImageRequest, BlobImageData};
@@ -138,18 +138,37 @@ impl<K,V> ResourceClassCache<K,V> where K: Clone + Hash + Eq + Debug, V: Resourc
     }
 
     fn expire_old_resources(&mut self, texture_cache: &mut TextureCache, frame_id: FrameId) {
-        let mut resources_to_destroy = vec![];
-        for (key, this_frame_id) in &self.last_access_times {
-            if *this_frame_id < frame_id {
-                resources_to_destroy.push((*key).clone())
-            }
-        }
+        //TODO: use retain when available
+        let resources_to_destroy = self.last_access_times.iter()
+            .filter_map(|(key, this_frame_id)| {
+                if *this_frame_id < frame_id {
+                    Some(key.clone())
+                } else {
+                    None
+                }
+            }).collect::<Vec<_>>();
+
         for key in resources_to_destroy {
             let resource =
                 self.resources
                     .remove(&key)
                     .expect("Resource was in `last_access_times` but not in `resources`!");
             self.last_access_times.remove(&key);
+            if let Some(texture_cache_item_id) = resource.texture_cache_item_id() {
+                texture_cache.free(texture_cache_item_id)
+            }
+        }
+    }
+
+    fn clear_keys<F>(&mut self, texture_cache: &mut TextureCache, key_fun: F)
+    where for<'r> F: Fn(&'r &K) -> bool
+    {
+        let resources_to_destroy = self.resources.keys()
+            .filter(&key_fun)
+            .cloned()
+            .collect::<Vec<_>>();
+        for key in resources_to_destroy {
+            let resource = self.resources.remove(&key).unwrap();
             if let Some(texture_cache_item_id) = resource.texture_cache_item_id() {
                 texture_cache.free(texture_cache_item_id)
             }
@@ -782,6 +801,28 @@ impl ResourceCache {
     pub fn end_frame(&mut self) {
         debug_assert_eq!(self.state, State::QueryResources);
         self.state = State::Idle;
+    }
+
+    pub fn clear_namespace(&mut self, namespace: IdNamespace) {
+        //TODO: use `retain` when we are on Rust-1.18
+        let image_keys: Vec<_> = self.resources.image_templates.images.keys()
+                                                                      .filter(|&key| key.0 != namespace)
+                                                                      .cloned()
+                                                                      .collect();
+        for key in &image_keys {
+            self.resources.image_templates.images.remove(key);
+        }
+
+        let font_keys: Vec<_> = self.resources.font_templates.keys()
+                                                             .filter(|&key| key.0 != namespace)
+                                                             .cloned()
+                                                             .collect();
+        for key in &font_keys {
+            self.resources.font_templates.remove(key);
+        }
+
+        self.cached_images.clear_keys(&mut self.texture_cache, |request| request.key.0 == namespace);
+        self.cached_glyphs.clear_keys(&mut self.texture_cache, |request| request.key.font_key.0 == namespace);
     }
 }
 
