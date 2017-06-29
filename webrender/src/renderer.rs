@@ -1828,16 +1828,21 @@ impl Renderer {
             self.device.set_blend(false);
             let shader = self.cs_blur.get(&mut self.device).unwrap();
 
-            self.draw_instanced_batch(&target.vertical_blurs,
-                                      vao,
-                                      shader,
-                                      &BatchTextures::no_texture(),
-                                      &projection);
-            self.draw_instanced_batch(&target.horizontal_blurs,
-                                      vao,
-                                      shader,
-                                      &BatchTextures::no_texture(),
-                                      &projection);
+            if !target.vertical_blurs.is_empty() {
+                self.draw_instanced_batch(&target.vertical_blurs,
+                                          vao,
+                                          shader,
+                                          &BatchTextures::no_texture(),
+                                          &projection);
+            }
+
+            if !target.horizontal_blurs.is_empty() {
+                self.draw_instanced_batch(&target.horizontal_blurs,
+                                          vao,
+                                          shader,
+                                          &BatchTextures::no_texture(),
+                                          &projection);
+            }
         }
 
         // Draw any box-shadow caches for this target.
@@ -1874,64 +1879,66 @@ impl Renderer {
                                       &projection);
         }
 
-        let _gm2 = GpuMarker::new(self.device.rc_gl(), "alpha batches");
-        self.device.set_blend(false);
-        let mut prev_blend_mode = BlendMode::None;
+        if !target.alpha_batcher.is_empty() {
+            let _gm2 = GpuMarker::new(self.device.rc_gl(), "alpha batches");
+            self.device.set_blend(false);
+            let mut prev_blend_mode = BlendMode::None;
 
-        //Note: depth equality is needed for split planes
-        self.device.set_depth_func(DepthFunction::LessEqual);
-        self.device.enable_depth();
-        self.device.enable_depth_write();
+            //Note: depth equality is needed for split planes
+            self.device.set_depth_func(DepthFunction::LessEqual);
+            self.device.enable_depth();
+            self.device.enable_depth_write();
 
-        // Draw opaque batches front-to-back for maximum
-        // z-buffer efficiency!
-        for batch in target.alpha_batcher
-                           .batch_list
-                           .opaque_batches
-                           .iter()
-                           .rev() {
-            self.submit_batch(batch,
-                              &projection,
-                              render_task_data,
-                              color_cache_texture,
-                              render_target,
-                              target_size);
-        }
-
-        self.device.disable_depth_write();
-
-        for batch in &target.alpha_batcher.batch_list.alpha_batches {
-            if batch.key.blend_mode != prev_blend_mode {
-                match batch.key.blend_mode {
-                    BlendMode::None => {
-                        self.device.set_blend(false);
-                    }
-                    BlendMode::Alpha => {
-                        self.device.set_blend(true);
-                        self.device.set_blend_mode_alpha();
-                    }
-                    BlendMode::PremultipliedAlpha => {
-                        self.device.set_blend(true);
-                        self.device.set_blend_mode_premultiplied_alpha();
-                    }
-                    BlendMode::Subpixel(color) => {
-                        self.device.set_blend(true);
-                        self.device.set_blend_mode_subpixel(color);
-                    }
-                }
-                prev_blend_mode = batch.key.blend_mode;
+            // Draw opaque batches front-to-back for maximum
+            // z-buffer efficiency!
+            for batch in target.alpha_batcher
+                               .batch_list
+                               .opaque_batches
+                               .iter()
+                               .rev() {
+                self.submit_batch(batch,
+                                  &projection,
+                                  render_task_data,
+                                  color_cache_texture,
+                                  render_target,
+                                  target_size);
             }
 
-            self.submit_batch(batch,
-                              &projection,
-                              render_task_data,
-                              color_cache_texture,
-                              render_target,
-                              target_size);
-        }
+            self.device.disable_depth_write();
 
-        self.device.disable_depth();
-        self.device.set_blend(false);
+            for batch in &target.alpha_batcher.batch_list.alpha_batches {
+                if batch.key.blend_mode != prev_blend_mode {
+                    match batch.key.blend_mode {
+                        BlendMode::None => {
+                            self.device.set_blend(false);
+                        }
+                        BlendMode::Alpha => {
+                            self.device.set_blend(true);
+                            self.device.set_blend_mode_alpha();
+                        }
+                        BlendMode::PremultipliedAlpha => {
+                            self.device.set_blend(true);
+                            self.device.set_blend_mode_premultiplied_alpha();
+                        }
+                        BlendMode::Subpixel(color) => {
+                            self.device.set_blend(true);
+                            self.device.set_blend_mode_subpixel(color);
+                        }
+                    }
+                    prev_blend_mode = batch.key.blend_mode;
+                }
+
+                self.submit_batch(batch,
+                                  &projection,
+                                  render_task_data,
+                                  color_cache_texture,
+                                  render_target,
+                                  target_size);
+            }
+
+            self.device.disable_depth();
+            self.device.set_blend(false);
+        }
     }
 
     fn draw_alpha_target(&mut self,
