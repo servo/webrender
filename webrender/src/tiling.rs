@@ -1536,6 +1536,11 @@ pub struct StackingContext {
     /// calculated based on the size and position of all its children.
     pub screen_bounds: DeviceIntRect,
 
+    /// Local bounding rectangle of this stacking context,
+    /// computed as the union of all contained items that are not
+    /// `ContextIsolation::Items` on their own
+    pub isolated_items_bounds: LayerRect,
+
     pub composite_ops: CompositeOps,
     pub clip_scroll_groups: Vec<ClipScrollGroupIndex>,
 
@@ -1570,6 +1575,7 @@ impl StackingContext {
             reference_frame_id,
             local_bounds,
             screen_bounds: DeviceIntRect::zero(),
+            isolated_items_bounds: LayerRect::zero(),
             composite_ops,
             clip_scroll_groups: Vec::new(),
             isolation,
