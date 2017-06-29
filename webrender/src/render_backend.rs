@@ -446,6 +446,9 @@ impl RenderBackend {
                                     .unwrap()
                                     .external_event(evt);
                         }
+                        ApiMsg::RemoveAllResourcesWithNamespace(namespace) => {
+                            self.resource_cache.remove_all_resources_with_namespace(namespace);
+                        }
                         ApiMsg::ShutDown => {
                             let notifier = self.notifier.lock();
                             notifier.unwrap()

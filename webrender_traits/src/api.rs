@@ -62,6 +62,7 @@ pub enum ApiMsg {
     /// to forward gecko-specific messages to the render thread preserving the ordering
     /// within the other messages.
     ExternalEvent(ExternalEvent),
+    RemoveAllResourcesWithNamespace(IdNamespace),
     ShutDown,
 }
 
@@ -94,6 +95,7 @@ impl fmt::Debug for ApiMsg {
             ApiMsg::SetPinchZoom(..) => "ApiMsg::SetPinchZoom",
             ApiMsg::SetPan(..) => "ApiMsg::SetPan",
             ApiMsg::SetWindowParameters(..) => "ApiMsg::SetWindowParameters",
+            ApiMsg::RemoveAllResourcesWithNamespace(..) => "ApiMsg::RemoveAllResourcesWithNamespace",
         })
     }
 }
@@ -423,6 +425,10 @@ impl RenderApi {
 
     pub fn shut_down(&self) {
         self.api_sender.send(ApiMsg::ShutDown).unwrap();
+    }
+
+    pub fn remove_all_resources_with_namespace(&self, namespace: IdNamespace) {
+        self.api_sender.send(ApiMsg::RemoveAllResourcesWithNamespace(namespace)).unwrap();
     }
 
     /// Create a new unique key that can be used for
