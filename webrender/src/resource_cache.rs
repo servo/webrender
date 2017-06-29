@@ -18,7 +18,7 @@ use std::mem;
 use std::sync::Arc;
 use texture_cache::{TextureCache, TextureCacheItemId};
 use webrender_traits::{Epoch, FontKey, FontTemplate, GlyphKey, ImageKey, ImageRendering};
-use webrender_traits::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId};
+use webrender_traits::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId, IdNamespace};
 use webrender_traits::{DevicePoint, DeviceIntSize, DeviceUintRect, ImageDescriptor, ColorF};
 use webrender_traits::{GlyphOptions, GlyphInstance, TileOffset, TileSize};
 use webrender_traits::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, BlobImageRequest, BlobImageData};
@@ -763,6 +763,11 @@ impl ResourceCache {
     pub fn end_frame(&mut self) {
         debug_assert_eq!(self.state, State::QueryResources);
         self.state = State::Idle;
+    }
+
+    pub fn remove_all_resources_with_namespace(&mut self, namespace: IdNamespace) {
+        self.resources.image_templates.images.retain(|key: &ImageKey, _|{ key.0 != namespace.0 });
+        self.resources.font_templates.retain(|key: &FontKey, _|{ key.0 != namespace.0 });
     }
 }
 
