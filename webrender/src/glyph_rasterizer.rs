@@ -18,9 +18,11 @@ use std::collections::hash_map::Entry;
 use std::collections::HashSet;
 use std::mem;
 use texture_cache::{TextureCacheItemId, TextureCache};
-use api::FontTemplate;
-use api::{FontKey, FontRenderMode, ImageData, ImageFormat};
-use api::{ImageDescriptor, ColorF, LayoutPoint};
+#[cfg(test)]
+use api::IdNamespace;
+use api::{ColorF, LayoutPoint};
+use api::{FontKey, FontTemplate, FontRenderMode};
+use api::{ImageData, ImageDescriptor, ImageFormat};
 use api::{GlyphKey, GlyphOptions, GlyphInstance, GlyphDimensions};
 
 pub type GlyphCache = ResourceClassCache<GlyphRequest, Option<TextureCacheItemId>>;
@@ -366,7 +368,7 @@ fn raterize_200_glyphs() {
     let mut font_data = vec![];
     font_file.read_to_end(&mut font_data).expect("failed to read font file");
 
-    let font_key = FontKey::new(0, 0);
+    let font_key = FontKey::new(IdNamespace(0), 0);
     glyph_rasterizer.add_font(font_key, FontTemplate::Raw(Arc::new(font_data), 0));
 
     let frame_id = FrameId(1);

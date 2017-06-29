@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use {ColorU, ColorF, LayoutPoint};
+use {ColorU, ColorF, IdNamespace, LayoutPoint};
 use std::sync::Arc;
 
 #[cfg(target_os = "macos")] use core_foundation::string::CFString;
@@ -56,11 +56,11 @@ pub struct GlyphDimensions {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize, Ord, PartialOrd)]
-pub struct FontKey(pub u32, pub u32);
+pub struct FontKey(pub IdNamespace, pub u32);
 
 impl FontKey {
-    pub fn new(key0: u32, key1: u32) -> FontKey {
-        FontKey(key0, key1)
+    pub fn new(namespace: IdNamespace, key: u32) -> FontKey {
+        FontKey(namespace, key)
     }
 }
 

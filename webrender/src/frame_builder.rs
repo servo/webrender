@@ -1067,11 +1067,11 @@ impl FrameBuilder {
                          image_rendering: ImageRendering) {
         let format = yuv_data.get_format();
         let yuv_key = match yuv_data {
-            YuvData::NV12(plane_0, plane_1) => [plane_0, plane_1, ImageKey::new(0, 0)],
+            YuvData::NV12(plane_0, plane_1) => [plane_0, plane_1, ImageKey::dummy()],
             YuvData::PlanarYCbCr(plane_0, plane_1, plane_2) =>
                 [plane_0, plane_1, plane_2],
             YuvData::InterleavedYCbCr(plane_0) =>
-                [plane_0, ImageKey::new(0, 0), ImageKey::new(0, 0)],
+                [plane_0, ImageKey::dummy(), ImageKey::dummy()],
         };
 
         let prim_cpu = YuvImagePrimitiveCpu {

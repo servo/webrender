@@ -62,6 +62,8 @@ pub enum ApiMsg {
     /// to forward gecko-specific messages to the render thread preserving the ordering
     /// within the other messages.
     ExternalEvent(ExternalEvent),
+    /// Remove all resources associated with this namespace.
+    ClearNamespace(IdNamespace),
     ShutDown,
 }
 
@@ -94,6 +96,7 @@ impl fmt::Debug for ApiMsg {
             ApiMsg::SetPinchZoom(..) => "ApiMsg::SetPinchZoom",
             ApiMsg::SetPan(..) => "ApiMsg::SetPan",
             ApiMsg::SetWindowParameters(..) => "ApiMsg::SetWindowParameters",
+            ApiMsg::ClearNamespace(..) => "ApiMsg::ClearNamespace",
         })
     }
 }
@@ -125,7 +128,7 @@ pub enum WebGLCommand {
 pub struct PipelineId(pub u32, pub u32);
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Deserialize, Serialize)]
 pub struct IdNamespace(pub u32);
 
 #[repr(C)]
@@ -425,6 +428,10 @@ impl RenderApi {
         self.api_sender.send(ApiMsg::ShutDown).unwrap();
     }
 
+    pub fn remove_all_resources_with_namespace(&self, namespace: IdNamespace) {
+        self.api_sender.send(ApiMsg::ClearNamespace(namespace)).unwrap();
+    }
+
     /// Create a new unique key that can be used for
     /// animated property bindings.
     pub fn generate_property_binding_key<T: Copy>(&self) -> PropertyBindingKey<T> {
@@ -439,11 +446,10 @@ impl RenderApi {
     }
 
     #[inline]
-    fn next_unique_id(&self) -> (u32, u32) {
-        let IdNamespace(namespace) = self.id_namespace;
+    fn next_unique_id(&self) -> (IdNamespace, u32) {
         let ResourceId(id) = self.next_id.get();
         self.next_id.set(ResourceId(id + 1));
-        (namespace, id)
+        (self.id_namespace, id)
     }
 }
 
@@ -492,14 +498,14 @@ impl ZoomFactor {
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, Eq, Hash)]
 pub struct PropertyBindingId {
-    namespace: u32,
+    namespace: IdNamespace,
     uid: u32,
 }
 
 impl PropertyBindingId {
     pub fn new(value: u64) -> Self {
         PropertyBindingId {
-            namespace: (value>>32) as u32,
+            namespace: IdNamespace((value>>32) as u32),
             uid: value as u32,
         }
     }

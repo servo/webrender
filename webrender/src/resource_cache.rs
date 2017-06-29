@@ -18,7 +18,7 @@ use std::mem;
 use std::sync::Arc;
 use texture_cache::{TextureCache, TextureCacheItemId};
 use api::{Epoch, FontKey, FontTemplate, GlyphKey, ImageKey, ImageRendering};
-use api::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId};
+use api::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId, IdNamespace};
 use api::{DevicePoint, DeviceIntSize, DeviceUintRect, ImageDescriptor, ColorF};
 use api::{GlyphOptions, GlyphInstance, TileOffset, TileSize};
 use api::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, BlobImageRequest, BlobImageData};
@@ -763,6 +763,24 @@ impl ResourceCache {
     pub fn end_frame(&mut self) {
         debug_assert_eq!(self.state, State::QueryResources);
         self.state = State::Idle;
+    }
+
+    pub fn clear_namespace(&mut self, namespace: IdNamespace) {
+        //TODO: use `retain` when we are on Rust-1.18
+        let image_keys: Vec<_> = self.resources.image_templates.images.keys()
+                                                                      .filter(|&key| key.0 != namespace)
+                                                                      .cloned()
+                                                                      .collect();
+        for key in &image_keys {
+            self.resources.image_templates.images.remove(key);
+        }
+        let font_keys: Vec<_> = self.resources.font_templates.keys()
+                                                             .filter(|&key| key.0 != namespace)
+                                                             .cloned()
+                                                             .collect();
+        for key in &font_keys {
+            self.resources.font_templates.remove(key);
+        }
     }
 }
 
