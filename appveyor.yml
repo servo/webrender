@@ -12,7 +12,7 @@ install:
 build: false
 
 test_script:
-  - cd webrender_traits
+  - cd webrender_api
   - cargo test --verbose
   - cd ../webrender
   - cargo test --verbose

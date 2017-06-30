@@ -5,7 +5,6 @@
 extern crate gleam;
 extern crate glutin;
 extern crate webrender;
-extern crate webrender_traits;
 
 #[macro_use]
 extern crate lazy_static;
@@ -15,19 +14,19 @@ mod boilerplate;
 
 use boilerplate::HandyDandyRectBuilder;
 use std::sync::Mutex;
-use webrender_traits::*;
+use webrender::api::*;
 
 fn body(_api: &RenderApi,
         builder: &mut DisplayListBuilder,
         pipeline_id: &PipelineId,
         layout_size: &LayoutSize) {
     let bounds = LayoutRect::new(LayoutPoint::zero(), *layout_size);
-    builder.push_stacking_context(webrender_traits::ScrollPolicy::Scrollable,
+    builder.push_stacking_context(ScrollPolicy::Scrollable,
                                   bounds,
                                   None,
                                   TransformStyle::Flat,
                                   None,
-                                  webrender_traits::MixBlendMode::Normal,
+                                  MixBlendMode::Normal,
                                   Vec::new());
 
     let outer_scroll_frame_rect = (100, 100).to(600, 400);
@@ -42,20 +41,20 @@ fn body(_api: &RenderApi,
                                              None);
     builder.push_clip_id(nested_clip_id);
 
-    let mut builder2 = webrender_traits::DisplayListBuilder::new(*pipeline_id, *layout_size);
-    let mut builder3 = webrender_traits::DisplayListBuilder::new(*pipeline_id, *layout_size);
+    let mut builder2 = DisplayListBuilder::new(*pipeline_id, *layout_size);
+    let mut builder3 = DisplayListBuilder::new(*pipeline_id, *layout_size);
 
     let rect = (110, 110).to(210, 210);
     builder3.push_rect(rect, rect, ColorF::new(0.0, 1.0, 0.0, 1.0));
 
     // A fixed position rectangle should be fixed to the reference frame that starts
     // in the outer display list.
-    builder3.push_stacking_context(webrender_traits::ScrollPolicy::Fixed,
+    builder3.push_stacking_context(ScrollPolicy::Fixed,
                                   (220, 110).to(320, 210),
                                   None,
                                   TransformStyle::Flat,
                                   None,
-                                  webrender_traits::MixBlendMode::Normal,
+                                  MixBlendMode::Normal,
                                   Vec::new());
     let rect = (0, 0).to(100, 100);
     builder3.push_rect(rect, rect, ColorF::new(0.0, 1.0, 0.0, 1.0));

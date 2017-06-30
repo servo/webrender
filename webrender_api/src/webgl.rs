@@ -901,7 +901,7 @@ impl WebGLCommand {
                                shader_type: u32,
                                precision_type: u32,
                                chan: MsgSender<WebGLResult<(i32, i32, i32)>>) {
-       
+
         let result = match precision_type {
             gl::LOW_FLOAT |
             gl::MEDIUM_FLOAT |

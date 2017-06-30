@@ -7,7 +7,6 @@ extern crate euclid;
 extern crate gleam;
 extern crate glutin;
 extern crate webrender;
-extern crate webrender_traits;
 
 #[macro_use]
 extern crate lazy_static;
@@ -23,7 +22,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::sync::Mutex;
-use webrender_traits::*;
+use webrender::api::*;
 
 #[derive(Debug)]
 enum Gesture {

@@ -7,10 +7,10 @@ use mask_cache::{ClipSource, MaskCacheInfo};
 use spring::{DAMPING, STIFFNESS, Spring};
 use tiling::{DisplayListMap, PackedLayerIndex};
 use util::{ComplexClipRegionHelpers, MatrixHelpers, TransformedRectKind};
-use webrender_traits::{ClipId, ClipRegion, DeviceIntRect, LayerPixel, LayerPoint, LayerRect};
-use webrender_traits::{LayerSize, LayerToScrollTransform, LayerToWorldTransform, PipelineId};
-use webrender_traits::{ScrollClamping, ScrollEventPhase, ScrollLocation};
-use webrender_traits::{WorldPoint, LayerVector2D};
+use api::{ClipId, ClipRegion, DeviceIntRect, LayerPixel, LayerPoint, LayerRect};
+use api::{LayerSize, LayerToScrollTransform, LayerToWorldTransform, PipelineId};
+use api::{ScrollClamping, ScrollEventPhase, ScrollLocation};
+use api::{WorldPoint, LayerVector2D};
 
 #[cfg(target_os = "macos")]
 const CAN_OVERSCROLL: bool = true;
