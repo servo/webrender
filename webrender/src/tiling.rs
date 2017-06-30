@@ -675,6 +675,11 @@ impl AlphaBatcher {
 
         self.batch_list.finalize();
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.batch_list.opaque_batches.is_empty() &&
+        self.batch_list.alpha_batches.is_empty()
+    }
 }
 
 /// Batcher managing draw calls into the clip mask (in the RT cache).
