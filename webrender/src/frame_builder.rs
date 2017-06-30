@@ -1180,8 +1180,8 @@ impl FrameBuilder {
         //  - ones with `ContextIsolation::Items`, for their actual items to be backed
         //  - immediate children of `ContextIsolation::Items`
         let mut preserve_3d_map: HashMap<StackingContextIndex, RenderTask> = HashMap::new();
-        // The plane splitter, using a simple BSP tree.
-        let mut splitter = BspSplitter::new();
+        // The plane splitter stack, using a simple BSP tree.
+        let mut splitter_stack = Vec::new();
 
         debug!("build_render_task()");
 
@@ -1210,6 +1210,9 @@ impl FrameBuilder {
 
                     if parent_isolation == Some(ContextIsolation::Items) ||
                        stacking_context.isolation == ContextIsolation::Items {
+                        if parent_isolation != Some(ContextIsolation::Items) {
+                            splitter_stack.push(BspSplitter::new());
+                        }
                         alpha_task_stack.push(current_task);
                         current_task = RenderTask::new_dynamic_alpha_batch(next_task_index, stacking_context_rect);
                         next_task_index.0 += 1;
@@ -1221,7 +1224,7 @@ impl FrameBuilder {
                         let frame_node = clip_scroll_tree.nodes.get(&stacking_context.reference_frame_id).unwrap();
                         let sc_polygon = make_polygon(stacking_context, frame_node, stacking_context_index.0);
                         debug!("\tadd {:?} -> {:?}", stacking_context_index, sc_polygon);
-                        splitter.add(sc_polygon);
+                        splitter_stack.last_mut().unwrap().add(sc_polygon);
                     }
 
                     for _ in 0..composite_count {
@@ -1294,7 +1297,9 @@ impl FrameBuilder {
                         current_task = alpha_task_stack.pop().unwrap();
                     }
 
-                    if !preserve_3d_map.is_empty() && parent_isolation != Some(ContextIsolation::Items) {
+                    if parent_isolation != Some(ContextIsolation::Items) &&
+                       stacking_context.isolation == ContextIsolation::Items {
+                        let mut splitter = splitter_stack.pop().unwrap();
                         // Flush the accumulated plane splits onto the task tree.
                         // Notice how this is done before splitting in order to avoid duplicate tasks.
                         current_task.children.extend(preserve_3d_map.values().cloned());
@@ -1314,7 +1319,6 @@ impl FrameBuilder {
                             let item = AlphaRenderItem::SplitComposite(sc_index, task_id, handle, next_z);
                             current_task.as_alpha_batch().items.push(item);
                         }
-                        splitter.reset();
                         preserve_3d_map.clear();
                         next_z += 1;
                     }
