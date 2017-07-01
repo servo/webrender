@@ -1529,9 +1529,6 @@ pub struct StackingContext {
     /// The `ClipId` of the owning reference frame.
     pub reference_frame_id: ClipId,
 
-    /// Local bounding rectangle for this stacking context.
-    pub local_bounds: LayerRect,
-
     /// Screen space bounding rectangle for this stacking context,
     /// calculated based on the size and position of all its children.
     pub screen_bounds: DeviceIntRect,
@@ -1561,7 +1558,6 @@ impl StackingContext {
                reference_frame_offset: LayerVector2D,
                is_page_root: bool,
                reference_frame_id: ClipId,
-               local_bounds: LayerRect,
                transform_style: TransformStyle,
                composite_ops: CompositeOps)
                -> StackingContext {
@@ -1573,7 +1569,6 @@ impl StackingContext {
             pipeline_id,
             reference_frame_offset,
             reference_frame_id,
-            local_bounds,
             screen_bounds: DeviceIntRect::zero(),
             isolated_items_bounds: LayerRect::zero(),
             composite_ops,

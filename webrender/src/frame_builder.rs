@@ -252,7 +252,6 @@ impl FrameBuilder {
                                  reference_frame_offset: &LayerVector2D,
                                  pipeline_id: PipelineId,
                                  composite_ops: CompositeOps,
-                                 local_bounds: LayerRect,
                                  transform_style: TransformStyle) {
         if let Some(parent_index) = self.stacking_context_stack.last() {
             let parent_is_root = self.stacking_context_store[parent_index.0].is_page_root;
@@ -275,7 +274,6 @@ impl FrameBuilder {
                                                               *reference_frame_offset,
                                                               !self.has_root_stacking_context,
                                                               reference_frame_id,
-                                                              local_bounds,
                                                               transform_style,
                                                               composite_ops));
         self.has_root_stacking_context = true;
@@ -1222,8 +1220,8 @@ impl FrameBuilder {
                         // is because we need to preserve the order of drawing for planes that match together.
                         let frame_node = clip_scroll_tree.nodes.get(&stacking_context.reference_frame_id).unwrap();
                         let sc_polygon = make_polygon(stacking_context, frame_node, stacking_context_index.0);
-                        debug!("\tsplitter[{}]: add {:?} -> {:?}", splitter_stack.len(), stacking_context_index, sc_polygon);
-                        debug!("\tisolation bounds {:?}, local bounds {:?}", stacking_context.isolated_items_bounds, stacking_context.local_bounds);
+                        debug!("\tsplitter[{}]: add {:?} -> {:?} with bounds {:?}", splitter_stack.len(),
+                            stacking_context_index, sc_polygon, stacking_context.isolated_items_bounds);
                         splitter_stack.last_mut().unwrap().add(sc_polygon);
                     }
 
