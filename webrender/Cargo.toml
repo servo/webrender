@@ -27,7 +27,7 @@ offscreen_gl_context = {version = "0.11", features = ["serde", "osmesa"], option
 time = "0.1"
 rayon = "0.8"
 webrender_api = {path = "../webrender_api"}
-bitflags = "0.7"
+bitflags = "0.9"
 gamma-lut = "0.2"
 thread_profiler = "0.1.1"
 plane-split = "0.6"

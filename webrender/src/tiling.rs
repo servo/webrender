@@ -1284,9 +1284,9 @@ pub enum AlphaBatchKind {
 }
 
 bitflags! {
-    pub flags AlphaBatchKeyFlags: u8 {
-        const NEEDS_CLIPPING  = 0b00000001,
-        const AXIS_ALIGNED    = 0b00000010,
+    pub struct AlphaBatchKeyFlags: u8 {
+        const NEEDS_CLIPPING  = 0b00000001;
+        const AXIS_ALIGNED    = 0b00000010;
     }
 }
 
