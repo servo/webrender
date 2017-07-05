@@ -87,16 +87,15 @@ impl ImageBorderSegment {
 /// Construct a polygon from stacking context boundaries.
 /// `anchor` here is an index that's going to be preserved in all the
 /// splits of the polygon.
-fn make_polygon(sc: &StackingContext, node: &ClipScrollNode, anchor: usize)
-                -> Polygon<f32, WorldPixel> {
-    //TODO: only work with `sc.local_bounds` worth of space
-    // This can be achieved by moving the `sc.local_bounds.origin` shift
+fn make_polygon(stacking_context: &StackingContext, node: &ClipScrollNode,
+                anchor: usize) -> Polygon<f32, WorldPixel> {
+    //TODO: only work with `isolated_items_bounds.size` worth of space
+    // This can be achieved by moving the `origin` shift
     // from the primitive local coordinates into the layer transformation.
     // Which in turn needs it to be a render task property obeyed by all primitives
     // upon rendering, possibly not limited to `write_*_vertex` implementations.
-    let size = sc.local_bounds.bottom_right();
-    //TODO-LCCR: it would be easier to work with `PackedLayer::transform` here
-    let bounds = LayerRect::new(sc.reference_frame_offset.to_point(), LayerSize::new(size.x, size.y));
+    let size = stacking_context.isolated_items_bounds.bottom_right();
+    let bounds = LayerRect::new(LayerPoint::zero(), LayerSize::new(size.x, size.y));
     Polygon::from_transformed_rect(bounds, node.world_content_transform, anchor)
 }
 
@@ -253,7 +252,6 @@ impl FrameBuilder {
                                  reference_frame_offset: &LayerVector2D,
                                  pipeline_id: PipelineId,
                                  composite_ops: CompositeOps,
-                                 local_bounds: LayerRect,
                                  transform_style: TransformStyle) {
         if let Some(parent_index) = self.stacking_context_stack.last() {
             let parent_is_root = self.stacking_context_store[parent_index.0].is_page_root;
@@ -276,7 +274,6 @@ impl FrameBuilder {
                                                               *reference_frame_offset,
                                                               !self.has_root_stacking_context,
                                                               reference_frame_id,
-                                                              local_bounds,
                                                               transform_style,
                                                               composite_ops));
         self.has_root_stacking_context = true;
@@ -1180,8 +1177,8 @@ impl FrameBuilder {
         //  - ones with `ContextIsolation::Items`, for their actual items to be backed
         //  - immediate children of `ContextIsolation::Items`
         let mut preserve_3d_map: HashMap<StackingContextIndex, RenderTask> = HashMap::new();
-        // The plane splitter, using a simple BSP tree.
-        let mut splitter = BspSplitter::new();
+        // The plane splitter stack, using a simple BSP tree.
+        let mut splitter_stack = Vec::new();
 
         debug!("build_render_task()");
 
@@ -1210,6 +1207,9 @@ impl FrameBuilder {
 
                     if parent_isolation == Some(ContextIsolation::Items) ||
                        stacking_context.isolation == ContextIsolation::Items {
+                        if parent_isolation != Some(ContextIsolation::Items) {
+                            splitter_stack.push(BspSplitter::new());
+                        }
                         alpha_task_stack.push(current_task);
                         current_task = RenderTask::new_dynamic_alpha_batch(next_task_index, stacking_context_rect);
                         next_task_index.0 += 1;
@@ -1220,8 +1220,9 @@ impl FrameBuilder {
                         // is because we need to preserve the order of drawing for planes that match together.
                         let frame_node = clip_scroll_tree.nodes.get(&stacking_context.reference_frame_id).unwrap();
                         let sc_polygon = make_polygon(stacking_context, frame_node, stacking_context_index.0);
-                        debug!("\tadd {:?} -> {:?}", stacking_context_index, sc_polygon);
-                        splitter.add(sc_polygon);
+                        debug!("\tsplitter[{}]: add {:?} -> {:?} with bounds {:?}", splitter_stack.len(),
+                            stacking_context_index, sc_polygon, stacking_context.isolated_items_bounds);
+                        splitter_stack.last_mut().unwrap().add(sc_polygon);
                     }
 
                     for _ in 0..composite_count {
@@ -1294,11 +1295,13 @@ impl FrameBuilder {
                         current_task = alpha_task_stack.pop().unwrap();
                     }
 
-                    if !preserve_3d_map.is_empty() && parent_isolation != Some(ContextIsolation::Items) {
+                    if parent_isolation != Some(ContextIsolation::Items) &&
+                       stacking_context.isolation == ContextIsolation::Items {
+                        debug!("\tsplitter[{}]: flush {:?}", splitter_stack.len(), current_task.id);
+                        let mut splitter = splitter_stack.pop().unwrap();
                         // Flush the accumulated plane splits onto the task tree.
                         // Notice how this is done before splitting in order to avoid duplicate tasks.
                         current_task.children.extend(preserve_3d_map.values().cloned());
-                        debug!("\tplane splitting in {:?}", current_task.id);
                         // Z axis is directed at the screen, `sort` is ascending, and we need back-to-front order.
                         for poly in splitter.sort(vec3(0.0, 0.0, 1.0)) {
                             let sc_index = StackingContextIndex(poly.anchor);
@@ -1314,7 +1317,6 @@ impl FrameBuilder {
                             let item = AlphaRenderItem::SplitComposite(sc_index, task_id, handle, next_z);
                             current_task.as_alpha_batch().items.push(item);
                         }
-                        splitter.reset();
                         preserve_3d_map.clear();
                         next_z += 1;
                     }
@@ -1651,19 +1653,28 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
     fn handle_pop_stacking_context(&mut self) {
         let stacking_context_index = self.stacking_context_stack.pop().unwrap();
 
-        let (bounding_rect, is_visible) = {
+        let (bounding_rect, is_visible, is_preserve_3d, reference_frame_id, reference_frame_bounds) = {
             let stacking_context =
                 &mut self.frame_builder.stacking_context_store[stacking_context_index.0];
             stacking_context.screen_bounds = stacking_context.screen_bounds
                                                              .intersection(self.screen_rect)
                                                              .unwrap_or(DeviceIntRect::zero());
-            (stacking_context.screen_bounds.clone(), stacking_context.is_visible)
+            (stacking_context.screen_bounds.clone(),
+             stacking_context.is_visible,
+             stacking_context.isolation == ContextIsolation::Items,
+             stacking_context.reference_frame_id,
+             stacking_context.isolated_items_bounds.translate(&stacking_context.reference_frame_offset),
+            )
         };
 
         if let Some(ref mut parent_index) = self.stacking_context_stack.last_mut() {
             let parent = &mut self.frame_builder.stacking_context_store[parent_index.0];
             parent.screen_bounds = parent.screen_bounds.union(&bounding_rect);
-
+            // add children local bounds only for non-item-isolated contexts
+            if !is_preserve_3d && parent.reference_frame_id == reference_frame_id {
+                let child_bounds = reference_frame_bounds.translate(&-parent.reference_frame_offset);
+                parent.isolated_items_bounds = parent.isolated_items_bounds.union(&child_bounds);
+            }
             // The previous compute_stacking_context_visibility pass did not take into
             // account visibility of children, so we do that now.
             parent.is_visible = parent.is_visible || is_visible;
@@ -1681,6 +1692,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         let stacking_context = &mut self.frame_builder
                                         .stacking_context_store[stacking_context_index.0];
         stacking_context.screen_bounds = DeviceIntRect::zero();
+        stacking_context.isolated_items_bounds = LayerRect::zero();
     }
 
     fn rebuild_clip_info_stack_if_necessary(&mut self, clip_id: ClipId) -> Option<DeviceIntRect> {
@@ -1783,16 +1795,17 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         for i in 0..prim_count {
             let prim_index = PrimitiveIndex(base_prim_index.0 + i);
             let prim_store = &mut self.frame_builder.prim_store;
-            let prim_bounding_rect = match prim_store.build_bounding_rect(prim_index,
-                                                                          &clip_bounds,
-                                                                          &packed_layer.transform,
-                                                                          &packed_layer.local_clip_rect,
-                                                                          self.device_pixel_ratio) {
-                Some(rect) => rect,
+            let (prim_local_rect, prim_screen_rect) = match prim_store
+                .build_bounding_rect(prim_index,
+                                     &clip_bounds,
+                                     &packed_layer.transform,
+                                     &packed_layer.local_clip_rect,
+                                     self.device_pixel_ratio) {
+                Some(rects) => rects,
                 None => continue,
             };
 
-            debug!("\t\t{:?} bound is {:?}", prim_index, prim_bounding_rect);
+            debug!("\t\t{:?} bound is {:?}", prim_index, prim_screen_rect);
 
             let prim_metadata = prim_store.prepare_prim_for_render(prim_index,
                                                                    self.resource_cache,
@@ -1801,7 +1814,8 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                                                                    self.device_pixel_ratio,
                                                                    display_list);
 
-            stacking_context.screen_bounds = stacking_context.screen_bounds.union(&prim_bounding_rect);
+            stacking_context.screen_bounds = stacking_context.screen_bounds.union(&prim_screen_rect);
+            stacking_context.isolated_items_bounds = stacking_context.isolated_items_bounds.union(&prim_local_rect);
 
             // Try to create a mask if we may need to.
             if !self.current_clip_stack.is_empty() || prim_metadata.clip_cache_info.is_some() {
@@ -1815,12 +1829,12 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                         // mutate the current bounds accordingly.
                         let mask_rect = match info.bounds.outer {
                             Some(ref outer) => {
-                                match prim_bounding_rect.intersection(&outer.device_rect) {
+                                match prim_screen_rect.intersection(&outer.device_rect) {
                                     Some(rect) => rect,
                                     None => continue,
                                 }
                             }
-                            _ => prim_bounding_rect,
+                            _ => prim_screen_rect,
                         };
                         (MaskCacheKey::Primitive(prim_index),
                          mask_rect,

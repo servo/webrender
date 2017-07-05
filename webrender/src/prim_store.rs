@@ -939,13 +939,13 @@ impl PrimitiveStore {
                                screen_rect: &DeviceIntRect,
                                layer_transform: &LayerToWorldTransform,
                                layer_combined_local_clip_rect: &LayerRect,
-                               device_pixel_ratio: f32) -> Option<DeviceIntRect> {
+                               device_pixel_ratio: f32) -> Option<(LayerRect, DeviceIntRect)> {
         let metadata = &self.cpu_metadata[prim_index.0];
+        let local_rect = metadata.local_rect
+                                 .intersection(&metadata.local_clip_rect)
+                                 .and_then(|rect| rect.intersection(layer_combined_local_clip_rect));
 
-        let bounding_rect = metadata.local_rect
-                                    .intersection(&metadata.local_clip_rect)
-                                    .and_then(|rect| rect.intersection(layer_combined_local_clip_rect))
-                                    .and_then(|local_rect| {
+        let bounding_rect = local_rect.and_then(|local_rect| {
             let xf_rect = TransformedRect::new(&local_rect,
                                                layer_transform,
                                                device_pixel_ratio);
@@ -953,7 +953,7 @@ impl PrimitiveStore {
         });
 
         self.cpu_bounding_rects[prim_index.0] = bounding_rect;
-        bounding_rect
+        bounding_rect.map(|screen_bound| (local_rect.unwrap(), screen_bound))
     }
 
     /// Returns true if the bounding box needs to be updated.

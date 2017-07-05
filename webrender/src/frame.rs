@@ -443,7 +443,6 @@ impl Frame {
         context.builder.push_stacking_context(&reference_frame_relative_offset,
                                               pipeline_id,
                                               composition_operations,
-                                              *bounds,
                                               stacking_context.transform_style);
 
         self.flatten_items(traversal,
@@ -772,11 +771,9 @@ impl Frame {
                         pipeline_id: PipelineId,
                         context: &mut FlattenContext,
                         content_size: &LayoutSize) {
-        let root_bounds = LayerRect::new(LayerPoint::zero(), *content_size);
         context.builder.push_stacking_context(&LayerVector2D::zero(),
                                               pipeline_id,
                                               CompositeOps::default(),
-                                              root_bounds,
                                               TransformStyle::Flat);
 
         // We do this here, rather than above because we want any of the top-level
@@ -791,6 +788,7 @@ impl Frame {
         if context.scene.root_pipeline_id != Some(pipeline_id) {
             if let Some(pipeline) = context.scene.pipeline_map.get(&pipeline_id) {
                 if let Some(bg_color) = pipeline.background_color {
+                    let root_bounds = LayerRect::new(LayerPoint::zero(), *content_size);
                     context.builder.add_solid_rectangle(ClipAndScrollInfo::simple(clip_id),
                                                         &root_bounds,
                                                         &root_bounds,

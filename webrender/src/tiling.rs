@@ -1529,12 +1529,14 @@ pub struct StackingContext {
     /// The `ClipId` of the owning reference frame.
     pub reference_frame_id: ClipId,
 
-    /// Local bounding rectangle for this stacking context.
-    pub local_bounds: LayerRect,
-
     /// Screen space bounding rectangle for this stacking context,
     /// calculated based on the size and position of all its children.
     pub screen_bounds: DeviceIntRect,
+
+    /// Local bounding rectangle of this stacking context,
+    /// computed as the union of all contained items that are not
+    /// `ContextIsolation::Items` on their own
+    pub isolated_items_bounds: LayerRect,
 
     pub composite_ops: CompositeOps,
     pub clip_scroll_groups: Vec<ClipScrollGroupIndex>,
@@ -1556,7 +1558,6 @@ impl StackingContext {
                reference_frame_offset: LayerVector2D,
                is_page_root: bool,
                reference_frame_id: ClipId,
-               local_bounds: LayerRect,
                transform_style: TransformStyle,
                composite_ops: CompositeOps)
                -> StackingContext {
@@ -1568,8 +1569,8 @@ impl StackingContext {
             pipeline_id,
             reference_frame_offset,
             reference_frame_id,
-            local_bounds,
             screen_bounds: DeviceIntRect::zero(),
+            isolated_items_bounds: LayerRect::zero(),
             composite_ops,
             clip_scroll_groups: Vec::new(),
             isolation,

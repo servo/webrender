@@ -8,5 +8,5 @@ root:
           bounds: [150, 0, 300, 600]
           color: red
         - type: rect
-          bounds: [150, 0, 50, 100]
+          bounds: [150, 0, 300, 200]
           color: green
