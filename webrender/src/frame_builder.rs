@@ -6,8 +6,8 @@ use api::{BorderDetails, BorderDisplayItem, BoxShadowClipMode, ClipAndScrollInfo
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
 use api::{ExtendMode, FontKey, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop};
 use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize};
-use api::{LayerToScrollTransform, LayerVector2D, LocalClip, PipelineId, RepeatMode, TileOffset};
-use api::{TransformStyle, WebGLContextId, WorldPixel, YuvColorSpace, YuvData};
+use api::{LayerToScrollTransform, LayerVector2D, LocalClip, PipelineId, RepeatMode, TextShadow};
+use api::{TileOffset, TransformStyle, WebGLContextId, WorldPixel, YuvColorSpace, YuvData};
 use app_units::Au;
 use frame::FrameId;
 use gpu_cache::GpuCache;
@@ -116,6 +116,7 @@ pub struct FrameBuilder {
     stacking_context_store: Vec<StackingContext>,
     clip_scroll_group_store: Vec<ClipScrollGroup>,
     packed_layers: Vec<PackedLayer>,
+    text_shadows: Vec<TextShadow>,
 
     scrollbar_prims: Vec<ScrollbarPrimitive>,
 
@@ -144,6 +145,7 @@ impl FrameBuilder {
                     clip_scroll_group_store: recycle_vec(prev.clip_scroll_group_store),
                     cmds: recycle_vec(prev.cmds),
                     packed_layers: recycle_vec(prev.packed_layers),
+                    text_shadows: recycle_vec(prev.text_shadows),
                     scrollbar_prims: recycle_vec(prev.scrollbar_prims),
                     reference_frame_stack: recycle_vec(prev.reference_frame_stack),
                     stacking_context_stack: recycle_vec(prev.stacking_context_stack),
@@ -160,6 +162,7 @@ impl FrameBuilder {
                     clip_scroll_group_store: Vec::new(),
                     cmds: Vec::new(),
                     packed_layers: Vec::new(),
+                    text_shadows: Vec::new(),
                     scrollbar_prims: Vec::new(),
                     reference_frame_stack: Vec::new(),
                     stacking_context_stack: Vec::new(),
@@ -287,6 +290,8 @@ impl FrameBuilder {
     pub fn pop_stacking_context(&mut self) {
         self.cmds.push(PrimitiveRunCmd::PopStackingContext);
         self.stacking_context_stack.pop();
+        assert!(self.text_shadows.is_empty(),
+            "Found unpopped text shadows when popping stacking context!");
     }
 
     pub fn push_reference_frame(&mut self,
@@ -390,6 +395,14 @@ impl FrameBuilder {
 
     pub fn pop_reference_frame(&mut self) {
         self.reference_frame_stack.pop();
+    }
+
+    pub fn push_text_shadow(&mut self, shadow: TextShadow) {
+        self.text_shadows.push(shadow);
+    }
+
+    pub fn pop_text_shadow(&mut self) {
+        self.text_shadows.pop().expect("Too many PopTextShadows?");
     }
 
     pub fn add_solid_rectangle(&mut self,
@@ -732,7 +745,6 @@ impl FrameBuilder {
                     local_clip: &LocalClip,
                     font_key: FontKey,
                     size: Au,
-                    blur_radius: f32,
                     color: &ColorF,
                     glyph_range: ItemRange<GlyphInstance>,
                     glyph_count: usize,
@@ -744,6 +756,8 @@ impl FrameBuilder {
         if size.0 <= 0 {
             return
         }
+
+        let mut blur_radius = 0.0; // TODO: remove this in favour of PushTextShadow handling
 
         // Expand the rectangle of the text run by the blur radius.
         let rect = rect.inflate(blur_radius, blur_radius);
