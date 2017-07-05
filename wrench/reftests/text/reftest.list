@@ -2,4 +2,6 @@
 != negative-pos.yaml blank.yaml
 != shadow.yaml text.yaml
 != shadow-single.yaml blank.yaml
+!= shadow-many.yaml shadow.yaml
+!= shadow-complex.yaml shadow-many.yaml
 != non-opaque.yaml non-opaque-notref.yaml
