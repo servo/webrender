@@ -345,8 +345,10 @@ impl Frame {
                         item: &ClipDisplayItem,
                         content_rect: &LayerRect,
                         clip: &ClipRegion) {
-        let is_scroll_frame =
-            clip.main.origin != LayerPoint::zero() || clip.main.size != content_rect.size;
+        // Until we have an explicit API to allow WR users to create scroll
+        // frames, we treat all clips as scroll frames. Once that API is in
+        // place this can be updated accordingly.
+        let is_scroll_frame = true;
 
         let new_id = context.convert_new_id_to_neested(&item.id);
         let new_clip_id = if is_scroll_frame {
