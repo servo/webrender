@@ -75,8 +75,12 @@ pub fn spawn_svg_renderer(device_pixel_ratio: f32)
                     }
                     GeometryRequestMsg::Request(key, dimensions) => {
                         let geometry = svg_geometries.get(&key)
-                            .expect("Requested geometries wasn't added!");
-                        let image_data = paint_svg(&context, &vg, geometry, dimensions);
+                            .expect("Requested geometry wasn't added!");
+                        let image_data = paint_svg(&context,
+                                                   &vg,
+                                                   geometry,
+                                                   dimensions,
+                                                   device_pixel_ratio);
                         let data = ImageData::Raw(Arc::new(image_data));
                         let descriptor = ImageDescriptor {
                             format: ImageFormat::BGRA8,
@@ -109,14 +113,17 @@ pub fn spawn_svg_renderer(device_pixel_ratio: f32)
 fn paint_svg(context: &GLContext<NativeGLContext>,
              vg: &Context,
              geometry: &[GeometryItem],
-             dimensions: DeviceUintSize)
+             dimensions: DeviceUintSize,
+             device_pixel_ratio: f32)
              -> Vec<u8> {
     context.gl().clear_color(0.0, 0.0, 0.0, 0.0);
     context.gl().clear(gl::COLOR_BUFFER_BIT);
 
-    vg.begin_frame(VIEWPORT_WIDTH as u32, VIEWPORT_HEIGHT as u32, 1.0);
+    let canvas_width = (VIEWPORT_WIDTH as f32 / device_pixel_ratio) as u32;
+    let canvas_height = (VIEWPORT_HEIGHT as f32 / device_pixel_ratio) as u32;
+    vg.begin_frame(canvas_width, canvas_height, device_pixel_ratio);
     // the opengl y-coordinate is inverse with svg, so apply a transform here first.
-    let transform = Transform::new(1.0, 0., 0., -1.0, 0., VIEWPORT_HEIGHT as f32);
+    let transform = Transform::new(1.0, 0., 0., -1.0, 0., canvas_height as f32);
     vg.transform(transform);
     for item in geometry {
         match item {

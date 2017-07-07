@@ -4,14 +4,15 @@
 
 use euclid::Point2D;
 use ColorU;
+use {IdNamespace};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct GeometryKey(pub u32, pub u32);
+pub struct GeometryKey(pub IdNamespace, pub u32);
 
 impl GeometryKey {
-    pub fn new(key0: u32, key1: u32) -> GeometryKey {
-        GeometryKey(key0, key1)
+    pub fn new(namespace: IdNamespace, key1: u32) -> GeometryKey {
+        GeometryKey(namespace, key1)
     }
 }
 

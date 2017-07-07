@@ -2,10 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BuiltDisplayList, ColorF, ComplexClipRegion, DeviceIntRect, DeviceIntSize, DevicePoint};
+use api::{BuiltDisplayList, ColorF, ComplexClipRegion};
+use api::{DeviceIntRect, DeviceIntSize, DevicePoint, DeviceUintSize};
 use api::{BorderRadius, ExtendMode, FontRenderMode, GlyphInstance, GradientStop};
 use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize, TextShadow};
-use api::{GlyphKey, LayerToWorldTransform, TileOffset, YuvColorSpace, YuvFormat};
+use api::{GeometryKey, GlyphKey, LayerToWorldTransform, TileOffset, YuvColorSpace, YuvFormat};
 use api::{device_length, FontInstance, LayerVector2D, LineOrientation, LineStyle};
 use app_units::Au;
 use border::BorderCornerInstance;
@@ -17,7 +18,6 @@ use render_task::{RenderTask, RenderTaskId, RenderTaskTree};
 use resource_cache::{ImageProperties, ResourceCache};
 use std::{mem, usize};
 use util::{pack_as_float, TransformedRect, recycle_vec};
-
 
 pub const CLIP_DATA_GPU_BLOCKS: usize = 10;
 
@@ -109,6 +109,7 @@ pub enum PrimitiveKind {
     Rectangle,
     TextRun,
     Image,
+    Geometry,
     YuvImage,
     Border,
     AlignedGradient,
@@ -191,6 +192,20 @@ impl ToGpuBlocks for LinePrimitive {
                       0.0]);
     }
 }
+
+#[derive(Debug)]
+pub struct GeometryPrimitiveCpu {
+    pub geometry_key: GeometryKey,
+    pub dimensions: LayerSize
+}
+
+impl ToGpuBlocks for GeometryPrimitiveCpu {
+    fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
+        request.push([self.dimensions.width, self.dimensions.height, 0.0, 0.0]);
+        request.push(TexelRect::invalid());
+    }
+}
+
 
 #[derive(Debug)]
 pub struct ImagePrimitiveCpu {
@@ -739,6 +754,7 @@ impl ClipData {
 pub enum PrimitiveContainer {
     Rectangle(RectanglePrimitive),
     TextRun(TextRunPrimitiveCpu),
+    Geometry(GeometryPrimitiveCpu),
     Image(ImagePrimitiveCpu),
     YuvImage(YuvImagePrimitiveCpu),
     Border(BorderPrimitiveCpu),
@@ -756,6 +772,7 @@ pub struct PrimitiveStore {
     pub cpu_rectangles: Vec<RectanglePrimitive>,
     pub cpu_text_runs: Vec<TextRunPrimitiveCpu>,
     pub cpu_text_shadows: Vec<TextShadowPrimitiveCpu>,
+    pub cpu_geometries: Vec<GeometryPrimitiveCpu>,
     pub cpu_images: Vec<ImagePrimitiveCpu>,
     pub cpu_yuv_images: Vec<YuvImagePrimitiveCpu>,
     pub cpu_gradients: Vec<GradientPrimitiveCpu>,
@@ -774,6 +791,7 @@ impl PrimitiveStore {
             cpu_bounding_rects: Vec::new(),
             cpu_text_runs: Vec::new(),
             cpu_text_shadows: Vec::new(),
+            cpu_geometries: Vec::new(),
             cpu_images: Vec::new(),
             cpu_yuv_images: Vec::new(),
             cpu_gradients: Vec::new(),
@@ -792,6 +810,7 @@ impl PrimitiveStore {
             cpu_text_runs: recycle_vec(self.cpu_text_runs),
             cpu_text_shadows: recycle_vec(self.cpu_text_shadows),
             cpu_images: recycle_vec(self.cpu_images),
+            cpu_geometries: recycle_vec(self.cpu_geometries),
             cpu_yuv_images: recycle_vec(self.cpu_yuv_images),
             cpu_gradients: recycle_vec(self.cpu_gradients),
             cpu_radial_gradients: recycle_vec(self.cpu_radial_gradients),
@@ -857,6 +876,22 @@ impl PrimitiveStore {
                 };
 
                 self.cpu_text_runs.push(text_cpu);
+                metadata
+            }
+            PrimitiveContainer::Geometry(geometry_cpu) => {
+                let metadata = PrimitiveMetadata {
+                    opacity: PrimitiveOpacity::translucent(),
+                    clips,
+                    clip_cache_info: clip_info,
+                    prim_kind: PrimitiveKind::Geometry,
+                    cpu_prim_index: SpecificPrimitiveIndex(self.cpu_geometries.len()),
+                    gpu_location: GpuCacheHandle::new(),
+                    render_task: None,
+                    clip_task: None,
+                    local_rect: *local_rect,
+                    local_clip_rect: *local_clip_rect,
+                };
+                self.cpu_geometries.push(geometry_cpu);
                 metadata
             }
             PrimitiveContainer::TextShadow(text_shadow) => {
@@ -1129,6 +1164,13 @@ impl PrimitiveStore {
                                         text_run_mode,
                                         gpu_cache);
             }
+            PrimitiveKind::Geometry => {
+                let geometry_cpu = &mut self.cpu_geometries[metadata.cpu_prim_index.0];
+                let width = (geometry_cpu.dimensions.width * device_pixel_ratio) as u32;
+                let height = (geometry_cpu.dimensions.height * device_pixel_ratio) as u32;
+                let dimensions = DeviceUintSize::new(width, height);
+                resource_cache.request_geometry(geometry_cpu.geometry_key, dimensions);
+            }
             PrimitiveKind::Image => {
                 let image_cpu = &mut self.cpu_images[cpu_prim_index.0];
 
@@ -1189,6 +1231,10 @@ impl PrimitiveStore {
                 PrimitiveKind::Image => {
                     let image = &self.cpu_images[cpu_prim_index.0];
                     image.write_gpu_blocks(request);
+                }
+                PrimitiveKind::Geometry => {
+                    let geometry = &self.cpu_geometries[metadata.cpu_prim_index.0];
+                    geometry.write_gpu_blocks(request);
                 }
                 PrimitiveKind::YuvImage => {
                     let yuv_image = &self.cpu_yuv_images[cpu_prim_index.0];

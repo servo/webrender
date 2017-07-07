@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use euclid::{SideOffsets2D, TypedSideOffsets2D};
-use {ColorF, FontInstanceKey, ImageKey, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform};
+use {ColorF, FontInstanceKey, GeometryKey, ImageKey, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform};
 use {GlyphOptions, LayoutVector2D, PipelineId, PropertyBinding};
 
 // NOTE: some of these structs have an "IMPLICIT" comment.
@@ -54,6 +54,7 @@ pub enum SpecificDisplayItem {
     Line(LineDisplayItem),
     Text(TextDisplayItem),
     Image(ImageDisplayItem),
+    Geometry(GeometryDisplayItem),
     YuvImage(YuvImageDisplayItem),
     Border(BorderDisplayItem),
     BoxShadow(BoxShadowDisplayItem),
@@ -515,6 +516,11 @@ impl LocalClip {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct GeometryDisplayItem {
+    pub geometry_key: GeometryKey
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ComplexClipRegion {
     /// The boundaries of the rectangle.
     pub rect: LayoutRect,
@@ -656,6 +662,7 @@ macro_rules! define_empty_heap_size_of {
 define_empty_heap_size_of!(ClipAndScrollInfo);
 define_empty_heap_size_of!(ClipId);
 define_empty_heap_size_of!(ImageKey);
+define_empty_heap_size_of!(GeometryKey);
 define_empty_heap_size_of!(LocalClip);
 define_empty_heap_size_of!(MixBlendMode);
 define_empty_heap_size_of!(RepeatMode);

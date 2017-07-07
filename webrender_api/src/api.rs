@@ -11,6 +11,7 @@ use {BuiltDisplayList, BuiltDisplayListDescriptor, ClipId, ColorF, DeviceIntPoin
 use {DeviceUintRect, DeviceUintSize, FontInstanceKey, FontKey, GlyphDimensions, GlyphKey};
 use {ImageData, ImageDescriptor, ImageKey, LayoutPoint, LayoutVector2D, LayoutSize, LayoutTransform};
 use {FontInstance, FontInstanceOptions, FontInstancePlatformOptions, NativeFontHandle, WorldPoint};
+use {Geometry, GeometryKey};
 
 pub type TileSize = u16;
 
@@ -29,6 +30,8 @@ pub enum ResourceUpdate {
     DeleteFont(FontKey),
     AddFontInstance(AddFontInstance),
     DeleteFontInstance(FontInstanceKey),
+    UpdateGeometry(GeometryKey, Geometry),
+    DeleteGeometry(GeometryKey),
 }
 
 impl ResourceUpdates {
@@ -456,6 +459,25 @@ impl RenderApi {
         // `RenderApi` instances for layout and compositor.
         //assert_eq!(document_id.0, self.namespace_id);
         self.api_sender.send(ApiMsg::UpdateDocument(document_id, msg)).unwrap()
+    }
+
+    /// Creates an `ImageKey`.
+    pub fn generate_geometry_key(&self) -> GeometryKey {
+        let new_id = self.next_unique_id();
+        GeometryKey::new(self.namespace_id, new_id)
+    }
+
+    pub fn update_geometry(&self,
+                           key: GeometryKey,
+                           data: Geometry) {
+        let msg = ApiMsg::UpdateGeometry(key, data);
+        self.api_sender.send(msg).unwrap();
+    }
+
+    /// Deletes the specific geometry.
+    pub fn delete_geometry(&self, key: GeometryKey) {
+        let msg = ApiMsg::DeleteGeometry(key);
+        self.api_sender.send(msg).unwrap();
     }
 
     /// Sets the root pipeline.

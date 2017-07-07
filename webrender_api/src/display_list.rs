@@ -9,6 +9,7 @@ use time::precise_time_ns;
 use {BorderDetails, BorderDisplayItem, BorderWidths, BoxShadowClipMode, BoxShadowDisplayItem};
 use {ClipAndScrollInfo, ClipDisplayItem, ClipId, ColorF, ComplexClipRegion, DisplayItem};
 use {ExtendMode, FastHashMap, FastHashSet, FilterOp, FontInstanceKey, GlyphIndex, GlyphInstance};
+use {GeometryDisplayItem, GeometryKey};
 use {GlyphOptions, Gradient, GradientDisplayItem, GradientStop, IframeDisplayItem};
 use {ImageDisplayItem, ImageKey, ImageMask, ImageRendering, LayoutPoint, LayoutRect, LayoutSize};
 use {LayoutTransform, LayoutVector2D, LineDisplayItem, LineOrientation, LineStyle, LocalClip};
@@ -596,6 +597,16 @@ impl DisplayListBuilder {
             yuv_data,
             color_space,
             image_rendering,
+        });
+        self.push_item(item, rect, local_clip);
+    }
+
+    pub fn push_geometry(&mut self,
+                         rect: LayoutRect,
+                         local_clip: Option<LocalClip>,
+                         geometry_key: GeometryKey) {
+        let item = SpecificDisplayItem::Geometry(GeometryDisplayItem {
+            geometry_key: geometry_key
         });
         self.push_item(item, rect, local_clip);
     }
