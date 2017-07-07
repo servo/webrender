@@ -119,7 +119,7 @@ impl<'a> FlattenContext<'a> {
         self.nested_display_list_info.pop();
     }
 
-    fn convert_new_id_to_neested(&self, id: &ClipId) -> ClipId {
+    fn convert_new_id_to_nested(&self, id: &ClipId) -> ClipId {
         if let Some(nested_info) = self.nested_display_list_info.last() {
             nested_info.convert_id_to_nested(id)
         } else {
@@ -358,7 +358,7 @@ impl Frame {
                         parent_id: &ClipId,
                         new_clip_id: &ClipId,
                         clip_region: ClipRegion) {
-        let new_clip_id = context.convert_new_id_to_neested(new_clip_id);
+        let new_clip_id = context.convert_new_id_to_nested(new_clip_id);
         context.builder.add_clip_node(new_clip_id,
                                       *parent_id,
                                       pipeline_id,
@@ -381,7 +381,7 @@ impl Frame {
                                       clip_region,
                                       &mut self.clip_scroll_tree);
 
-        let new_scroll_frame_id = context.convert_new_id_to_neested(new_scroll_frame_id);
+        let new_scroll_frame_id = context.convert_new_id_to_nested(new_scroll_frame_id);
         context.builder.add_scroll_frame(new_scroll_frame_id,
                                          clip_id,
                                          pipeline_id,
