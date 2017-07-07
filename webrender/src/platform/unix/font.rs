@@ -13,10 +13,21 @@ use freetype::freetype::{FT_Library, FT_Set_Char_Size};
 use freetype::freetype::{FT_Face, FT_Long, FT_UInt, FT_F26Dot6};
 use freetype::freetype::{FT_Init_FreeType, FT_Load_Glyph, FT_Render_Glyph};
 use freetype::freetype::{FT_New_Memory_Face, FT_GlyphSlot, FT_LcdFilter};
-use freetype::freetype::{FT_Done_Face, FT_Error};
+use freetype::freetype::{FT_Done_Face, FT_Error, FT_Int32};
 
 use std::{cmp, mem, ptr, slice};
 use std::collections::HashMap;
+
+// This constant is not present in the freetype
+// bindings due to bindgen not handling the way
+// the macro is defined.
+const FT_LOAD_TARGET_LIGHT: FT_Int32 = 1 << 16;
+
+// Default to slight hinting, which is what most
+// Linux distros use by default, and is a better
+// default than no hinting.
+// TODO(gw): Make this configurable.
+const GLYPH_LOAD_FLAGS: FT_Int32 = FT_LOAD_TARGET_LIGHT;
 
 struct Face {
     face: FT_Face,
@@ -122,7 +133,9 @@ impl FontContext {
         });
 
         let result = unsafe {
-            FT_Load_Glyph(face.face, character as FT_UInt, 0)
+            FT_Load_Glyph(face.face,
+                          character as FT_UInt,
+                          GLYPH_LOAD_FLAGS)
         };
 
         if result == SUCCESS {
