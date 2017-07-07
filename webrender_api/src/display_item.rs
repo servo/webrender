@@ -4,7 +4,7 @@
 
 use app_units::Au;
 use euclid::SideOffsets2D;
-use {ColorF, FontKey, ImageKey, ItemRange, PipelineId, WebGLContextId};
+use {ColorF, FontKey, GeometryKey, ImageKey, ItemRange, PipelineId, WebGLContextId};
 use {LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D};
 use {PropertyBinding};
 
@@ -53,6 +53,7 @@ pub enum SpecificDisplayItem {
     Rectangle(RectangleDisplayItem),
     Text(TextDisplayItem),
     Image(ImageDisplayItem),
+    Geometry(GeometryDisplayItem),
     YuvImage(YuvImageDisplayItem),
     WebGL(WebGLDisplayItem),
     Border(BorderDisplayItem),
@@ -445,6 +446,11 @@ pub struct ImageMask {
     pub image: ImageKey,
     pub rect: LayoutRect,
     pub repeat: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct GeometryDisplayItem {
+    pub geometry_key: GeometryKey
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]

@@ -182,6 +182,12 @@ impl RenderBackend {
                         ApiMsg::DeleteImage(id) => {
                             self.resource_cache.delete_image_template(id);
                         }
+                        ApiMsg::UpdateGeometry(id, data) => {
+                            self.resource_cache.update_geometry(id, data);
+                        }
+                        ApiMsg::DeleteGeometry(id) => {
+                            self.resource_cache.delete_geometry(id);
+                        }
                         ApiMsg::SetPageZoom(factor) => {
                             self.page_zoom_factor = factor.get();
                         }

@@ -11,7 +11,7 @@ use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
-use prim_store::{RectanglePrimitive, TextRunPrimitiveCpu};
+use prim_store::{RectanglePrimitive, TextRunPrimitiveCpu, GeometryPrimitiveCpu};
 use prim_store::{BoxShadowPrimitiveCpu, TexelRect, YuvImagePrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_task::{AlphaRenderItem, ClipWorkItem, MaskCacheKey, RenderTask, RenderTaskIndex};
@@ -31,7 +31,7 @@ use util::{MatrixHelpers, RectHelpers};
 use api::{BorderDetails, BorderDisplayItem, BoxShadowClipMode, ClipAndScrollInfo};
 use api::{ClipId, ClipRegion, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::{DeviceUintRect, DeviceUintSize, ExtendMode, FontKey, FontRenderMode};
-use api::{GlyphInstance, GlyphOptions, GradientStop, ImageKey, ImageRendering};
+use api::{GeometryKey, GlyphInstance, GlyphOptions, GradientStop, ImageKey, ImageRendering};
 use api::{ItemRange, LayerPoint, LayerRect, LayerSize, LayerToScrollTransform};
 use api::{PipelineId, RepeatMode, TileOffset, TransformStyle, WebGLContextId};
 use api::{WorldPixel, YuvColorSpace, YuvData, LayerVector2D};
@@ -1021,6 +1021,22 @@ impl FrameBuilder {
                            clip_rect,
                            &[],
                            PrimitiveContainer::Image(prim_cpu));
+    }
+
+    pub fn add_geometry(&mut self,
+                        clip_and_scroll: ClipAndScrollInfo,
+                        rect: LayerRect,
+                        clip_rect: &LayerRect,
+                        geometry_key: GeometryKey) {
+        let prim_cpu = GeometryPrimitiveCpu {
+            geometry_key: geometry_key,
+            dimensions: rect.size
+        };
+        self.add_primitive(clip_and_scroll,
+                           &rect,
+                           clip_rect,
+                           &[],
+                           PrimitiveContainer::Geometry(prim_cpu));
     }
 
     pub fn add_image(&mut self,

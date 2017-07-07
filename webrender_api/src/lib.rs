@@ -38,6 +38,7 @@ pub mod channel;
 mod display_item;
 mod display_list;
 mod font;
+mod geometry;
 mod image;
 #[cfg(feature = "webgl")]
 mod webgl;
@@ -47,6 +48,7 @@ pub use color::*;
 pub use display_item::*;
 pub use display_list::*;
 pub use font::*;
+pub use geometry::*;
 pub use image::*;
 pub use units::*;
 #[cfg(feature = "webgl")]

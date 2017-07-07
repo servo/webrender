@@ -11,6 +11,7 @@ use {ImageMask, BorderDetails, BorderDisplayItem, BorderWidths, BoxShadowClipMod
 use {ClipAndScrollInfo, ClipDisplayItem, ClipId, ClipRegion, ColorF, ComplexClipRegion};
 use {DisplayItem, ExtendMode, FilterOp, FontKey, GlyphInstance, GlyphOptions, Gradient};
 use {GradientDisplayItem, GradientStop, IframeDisplayItem, ImageDisplayItem, ImageKey};
+use {GeometryDisplayItem, GeometryKey};
 use {ImageRendering, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D};
 use {MixBlendMode, PipelineId, PropertyBinding, PushStackingContextDisplayItem, RadialGradient};
 use {RadialGradientDisplayItem, RectangleDisplayItem, ScrollPolicy, SpecificDisplayItem};
@@ -523,6 +524,16 @@ impl DisplayListBuilder {
             yuv_data,
             color_space,
             image_rendering,
+        });
+        self.push_item(item, rect, clip_rect);
+    }
+
+    pub fn push_geometry(&mut self,
+                         rect: LayoutRect,
+                         clip_rect: LayoutRect,
+                         geometry_key: GeometryKey) {
+        let item = SpecificDisplayItem::Geometry(GeometryDisplayItem {
+            geometry_key: geometry_key
         });
         self.push_item(item, rect, clip_rect);
     }
