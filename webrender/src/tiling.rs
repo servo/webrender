@@ -481,6 +481,19 @@ impl AlphaRenderItem {
                         let batch = batch_list.get_suitable_batch(&key, item_bounding_rect);
                         batch.add_instance(base_instance.build(uv_address.as_int(gpu_cache), 0, 0));
                     }
+                    PrimitiveKind::Geometry => {
+                        let geometry_cpu = &ctx.prim_store.cpu_geometries[prim_metadata.cpu_prim_index.0];
+                        let batch_kind = AlphaBatchKind::Image(ImageBufferKind::Texture2D);
+                        let cache_item = ctx.resource_cache
+                            .get_cached_geometry(geometry_cpu.geometry_key);
+                        let textures = BatchTextures {
+                            colors: [ cache_item.texture_id, SourceTexture::Invalid, SourceTexture::Invalid]
+                        };
+                        let key = AlphaBatchKey::new(batch_kind, flags, blend_mode, textures);
+                        let batch = batch_list.get_suitable_batch(&key, item_bounding_rect);
+                        batch.add_instance(base_instance.build(cache_item.uv_rect_handle.as_int(gpu_cache), 0, 0));
+                    }
+
                     PrimitiveKind::TextRun => {
                         let text_cpu = &ctx.prim_store.cpu_text_runs[prim_metadata.cpu_prim_index.0];
                         let batch_kind = if text_cpu.blur_radius == 0.0 {

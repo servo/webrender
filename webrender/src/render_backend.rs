@@ -94,7 +94,7 @@ impl RenderBackend {
                vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>,
                initial_window_size: DeviceUintSize) -> RenderBackend {
 
-        let resource_cache = ResourceCache::new(texture_cache, workers, blob_image_renderer);
+        let resource_cache = ResourceCache::new(texture_cache, workers, blob_image_renderer, hidpi_factor);
 
         register_thread_with_profiler("Backend".to_string());
 
@@ -181,6 +181,12 @@ impl RenderBackend {
                         }
                         ApiMsg::DeleteImage(id) => {
                             self.resource_cache.delete_image_template(id);
+                        }
+                        ApiMsg::UpdateGeometry(id, data) => {
+                            self.resource_cache.update_geometry(id, data);
+                        }
+                        ApiMsg::DeleteGeometry(id) => {
+                            self.resource_cache.delete_geometry(id);
                         }
                         ApiMsg::SetPageZoom(factor) => {
                             self.page_zoom_factor = factor.get();

@@ -4,7 +4,7 @@
 
 use app_units::Au;
 use euclid::SideOffsets2D;
-use {ColorF, FontKey, ImageKey, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform};
+use {ColorF, FontKey, GeometryKey, ImageKey, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform};
 use {LayoutVector2D, PipelineId, PropertyBinding, WebGLContextId};
 
 // NOTE: some of these structs have an "IMPLICIT" comment.
@@ -53,6 +53,7 @@ pub enum SpecificDisplayItem {
     Rectangle(RectangleDisplayItem),
     Text(TextDisplayItem),
     Image(ImageDisplayItem),
+    Geometry(GeometryDisplayItem),
     YuvImage(YuvImageDisplayItem),
     WebGL(WebGLDisplayItem),
     Border(BorderDisplayItem),
@@ -469,6 +470,11 @@ impl LocalClip {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct GeometryDisplayItem {
+    pub geometry_key: GeometryKey
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ComplexClipRegion {
     /// The boundaries of the rectangle.
     pub rect: LayoutRect,
@@ -634,6 +640,7 @@ macro_rules! define_empty_heap_size_of {
 define_empty_heap_size_of!(ClipId);
 define_empty_heap_size_of!(RepeatMode);
 define_empty_heap_size_of!(ImageKey);
+define_empty_heap_size_of!(GeometryKey);
 define_empty_heap_size_of!(MixBlendMode);
 define_empty_heap_size_of!(TransformStyle);
 define_empty_heap_size_of!(LocalClip);

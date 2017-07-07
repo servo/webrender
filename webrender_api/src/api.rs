@@ -11,6 +11,7 @@ use std::marker::PhantomData;
 use {BuiltDisplayList, BuiltDisplayListDescriptor, ClipId, ColorF, DeviceIntPoint, DeviceIntSize};
 use {DeviceUintRect, DeviceUintSize, FontKey, GlyphDimensions, GlyphKey};
 use {ImageData, ImageDescriptor, ImageKey, LayoutPoint, LayoutVector2D, LayoutSize, LayoutTransform};
+use {Geometry, GeometryKey};
 use {NativeFontHandle, WorldPoint};
 #[cfg(feature = "webgl")]
 use {WebGLCommand, WebGLContextId};
@@ -30,6 +31,8 @@ pub enum ApiMsg {
     UpdateImage(ImageKey, ImageDescriptor, ImageData, Option<DeviceUintRect>),
     /// Drops an image from the resource cache.
     DeleteImage(ImageKey),
+    UpdateGeometry(GeometryKey, Geometry),
+    DeleteGeometry(GeometryKey),
     CloneApi(MsgSender<IdNamespace>),
     /// Supplies a new frame to WebRender.
     ///
@@ -75,6 +78,8 @@ impl fmt::Debug for ApiMsg {
             ApiMsg::AddImage(..) => "ApiMsg::AddImage",
             ApiMsg::UpdateImage(..) => "ApiMsg::UpdateImage",
             ApiMsg::DeleteImage(..) => "ApiMsg::DeleteImage",
+            ApiMsg::UpdateGeometry(..) => "ApiMsg::UpdateGeometry",
+            ApiMsg::DeleteGeometry(..) => "ApiMsg::DeleteGeometry",
             ApiMsg::CloneApi(..) => "ApiMsg::CloneApi",
             ApiMsg::SetDisplayList(..) => "ApiMsg::SetDisplayList",
             ApiMsg::SetRootPipeline(..) => "ApiMsg::SetRootPipeline",
@@ -263,6 +268,25 @@ impl RenderApi {
     /// Deletes the specific image.
     pub fn delete_image(&self, key: ImageKey) {
         let msg = ApiMsg::DeleteImage(key);
+        self.api_sender.send(msg).unwrap();
+    }
+
+    /// Creates an `ImageKey`.
+    pub fn generate_geometry_key(&self) -> GeometryKey {
+        let new_id = self.next_unique_id();
+        GeometryKey::new(new_id.0, new_id.1)
+    }
+
+    pub fn update_geometry(&self,
+                           key: GeometryKey,
+                           data: Geometry) {
+        let msg = ApiMsg::UpdateGeometry(key, data);
+        self.api_sender.send(msg).unwrap();
+    }
+
+    /// Deletes the specific geometry.
+    pub fn delete_geometry(&self, key: GeometryKey) {
+        let msg = ApiMsg::DeleteGeometry(key);
         self.api_sender.send(msg).unwrap();
     }
 
