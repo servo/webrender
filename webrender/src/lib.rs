@@ -129,6 +129,8 @@ extern crate bincode;
 extern crate euclid;
 extern crate fxhash;
 extern crate gleam;
+#[cfg(feature = "vector-rasterizer")]
+extern crate nanovg;
 extern crate num_traits;
 //extern crate notify;
 extern crate time;
