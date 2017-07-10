@@ -51,14 +51,6 @@ pub struct RasterizedGlyph {
     pub bytes: Vec<u8>,
 }
 
-fn float_to_fixed(before: usize, f: f64) -> i32 {
-    ((1i32 << before) as f64 * f) as i32
-}
-
-fn float_to_fixed_ft(f: f64) -> i32 {
-    float_to_fixed(6, f)
-}
-
 const SUCCESS: FT_Error = FT_Error(0);
 
 impl FontContext {
@@ -126,7 +118,7 @@ impl FontContext {
 
         debug_assert!(self.faces.contains_key(&font_key));
         let face = self.faces.get(&font_key).unwrap();
-        let char_size = float_to_fixed_ft(size.to_f64_px());
+        let char_size = size.to_f64_px() * 64.0 + 0.5;
 
         assert_eq!(SUCCESS, unsafe {
             FT_Set_Char_Size(face.face, char_size as FT_F26Dot6, 0, 0, 0)
