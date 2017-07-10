@@ -2,16 +2,62 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use api::{BorderRadius, ComplexClipRegion, DeviceIntRect, ImageMask, LayerPoint, LayerRect};
+use api::{LayerSize, LayerToWorldTransform, LocalClip};
 use border::BorderCornerClipSource;
 use gpu_cache::{GpuCache, GpuCacheHandle, ToGpuBlocks};
 use prim_store::{CLIP_DATA_GPU_BLOCKS, ClipData, ImageMaskData};
 use util::{ComplexClipRegionHelpers, TransformedRect};
-use api::{BorderRadius, BuiltDisplayList, ClipRegion, ComplexClipRegion, ImageMask};
-use api::{DeviceIntRect, LayerToWorldTransform};
-use api::{LayerRect, LayerPoint, LayerSize};
 use std::ops::Not;
 
 const MAX_CLIP: f32 = 1000000.0;
+
+#[derive(Clone, Debug)]
+pub struct ClipRegion {
+    pub origin: LayerPoint,
+    pub main: LayerRect,
+    pub image_mask: Option<ImageMask>,
+    pub complex_clips: Vec<ComplexClipRegion>,
+}
+
+impl ClipRegion {
+    pub fn for_clip_node(rect: LayerRect,
+                         mut complex_clips: Vec<ComplexClipRegion>,
+                         mut image_mask: Option<ImageMask>)
+                         -> ClipRegion {
+        // All the coordinates we receive are relative to the stacking context, but we want
+        // to convert them to something relative to the origin of the clip.
+        let negative_origin = -rect.origin.to_vector();
+        if let Some(ref mut image_mask) = image_mask {
+            image_mask.rect = image_mask.rect.translate(&negative_origin);
+        }
+
+        for complex_clip in complex_clips.iter_mut() {
+            complex_clip.rect = complex_clip.rect.translate(&negative_origin);
+        }
+
+        ClipRegion {
+            origin: rect.origin,
+            main: LayerRect::new(LayerPoint::zero(), rect.size),
+            image_mask,
+            complex_clips,
+        }
+    }
+
+    pub fn for_local_clip(local_clip: &LocalClip) -> ClipRegion {
+        let complex_clips = match local_clip {
+            &LocalClip::Rect(_) => Vec::new(),
+            &LocalClip::RoundedRect(_, ref region) => vec![region.clone()],
+        };
+
+        ClipRegion {
+            origin: LayerPoint::zero(),
+            main: *local_clip.clip_rect(),
+            image_mask: None,
+            complex_clips,
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -158,7 +204,7 @@ impl MaskCacheInfo {
                         debug_assert!(image.is_none());     // TODO(gw): Support >1 image mask!
                         image = Some((info, GpuCacheHandle::new()));
                     }
-                    complex_clip_count += region.complex_clip_count;
+                    complex_clip_count += region.complex_clips.len();
                     layer_clip_count += 1;
                 }
                 ClipSource::BorderCorner(ref source) => {
@@ -183,8 +229,8 @@ impl MaskCacheInfo {
                   sources: &[ClipSource],
                   transform: &LayerToWorldTransform,
                   gpu_cache: &mut GpuCache,
-                  device_pixel_ratio: f32,
-                  display_list: &BuiltDisplayList) -> &MaskBounds {
+                  device_pixel_ratio: f32)
+                  -> &MaskBounds {
 
         // Step[1] - compute the local bounds
         //TODO: move to initialization stage?
@@ -220,7 +266,7 @@ impl MaskCacheInfo {
                             None => local_rect,
                         };
 
-                        for clip in display_list.get(region.complex_clips) {
+                        for clip in &region.complex_clips {
                             local_rect = local_rect.and_then(|r| r.intersection(&clip.rect));
                             local_inner = local_inner.and_then(|r| clip.get_inner_rect_safe()
                                                                        .and_then(|ref inner| r.intersection(inner)));
@@ -264,7 +310,7 @@ impl MaskCacheInfo {
                             data.write(&mut request);
                         }
                         ClipSource::Region(ref region) => {
-                            for clip in display_list.get(region.complex_clips) {
+                            for clip in &region.complex_clips {
                                 let data = ClipData::from_clip_region(&clip);
                                 data.write(&mut request);
                             }

@@ -213,34 +213,34 @@ impl YamlFrameReader {
         }
     }
 
-    fn handle_rect(&mut self, item: &Yaml, clip_rect: LayoutRect) {
+    fn handle_rect(&mut self, item: &Yaml, local_clip: LocalClip) {
         let bounds_key = if item["type"].is_badvalue() { "rect" } else { "bounds" };
         let rect = item[bounds_key].as_rect().expect("rect type must have bounds");
         let color = item["color"].as_colorf().unwrap_or(*WHITE_COLOR);
-        self.builder().push_rect(rect, clip_rect, color);
+        self.builder().push_rect(rect, Some(local_clip), color);
     }
 
-    fn handle_gradient(&mut self, item: &Yaml, clip_rect: LayoutRect) {
+    fn handle_gradient(&mut self, item: &Yaml, local_clip: LocalClip) {
         let bounds_key = if item["type"].is_badvalue() { "gradient" } else { "bounds" };
         let bounds = item[bounds_key].as_rect().expect("gradient must have bounds");
         let gradient = self.to_gradient(item);
         let tile_size = item["tile-size"].as_size().unwrap_or(bounds.size);
         let tile_spacing = item["tile-spacing"].as_size().unwrap_or(LayoutSize::zero());
 
-        self.builder().push_gradient(bounds, clip_rect, gradient, tile_size, tile_spacing);
+        self.builder().push_gradient(bounds, Some(local_clip), gradient, tile_size, tile_spacing);
     }
 
-    fn handle_radial_gradient(&mut self, item: &Yaml, clip_rect: LayoutRect) {
+    fn handle_radial_gradient(&mut self, item: &Yaml, local_clip: LocalClip) {
         let bounds_key = if item["type"].is_badvalue() { "radial-gradient" } else { "bounds" };
         let bounds = item[bounds_key].as_rect().expect("radial gradient must have bounds");
         let gradient = self.to_radial_gradient(item);
         let tile_size = item["tile-size"].as_size().unwrap_or(bounds.size);
         let tile_spacing = item["tile-spacing"].as_size().unwrap_or(LayoutSize::zero());
 
-        self.builder().push_radial_gradient(bounds, clip_rect, gradient, tile_size, tile_spacing);
+        self.builder().push_radial_gradient(bounds, Some(local_clip), gradient, tile_size, tile_spacing);
     }
 
-    fn handle_border(&mut self, wrench: &mut Wrench, item: &Yaml, clip_rect: LayoutRect) {
+    fn handle_border(&mut self, wrench: &mut Wrench, item: &Yaml, local_clip: LocalClip) {
         let bounds_key = if item["type"].is_badvalue() { "border" } else { "bounds" };
         let bounds = item[bounds_key].as_rect().expect("borders must have bounds");
         let widths = item["width"].as_vec_f32().expect("borders must have width(s)");
@@ -350,11 +350,11 @@ impl YamlFrameReader {
             None
         };
         if let Some(details) = border_details {
-            self.builder().push_border(bounds, clip_rect, widths, details);
+            self.builder().push_border(bounds, Some(local_clip), widths, details);
         }
     }
 
-    fn handle_box_shadow(&mut self, item: &Yaml, clip_rect: LayoutRect) {
+    fn handle_box_shadow(&mut self, item: &Yaml, local_clip: LocalClip) {
         let bounds_key = if item["type"].is_badvalue() { "box-shadow" } else { "bounds" };
         let bounds = item[bounds_key].as_rect().expect("box shadow must have bounds");
         let box_bounds = item["box-bounds"].as_rect().unwrap_or(bounds);
@@ -375,7 +375,7 @@ impl YamlFrameReader {
         };
 
         self.builder().push_box_shadow(bounds,
-                                       clip_rect,
+                                       Some(local_clip),
                                        box_bounds,
                                        offset,
                                        color,
@@ -392,7 +392,7 @@ impl YamlFrameReader {
         file
     }
 
-    fn handle_image(&mut self, wrench: &mut Wrench, item: &Yaml, clip_rect: LayoutRect) {
+    fn handle_image(&mut self, wrench: &mut Wrench, item: &Yaml, local_clip: LocalClip) {
         let filename = &item[if item["type"].is_badvalue() { "image" } else { "src" }];
         let tiling = item["tile-size"].as_i64();
         let (image_key, image_dims) = wrench.add_or_get_image(&self.rsrc_path(filename), tiling);
@@ -419,14 +419,14 @@ impl YamlFrameReader {
             Some(_) => panic!("ImageRendering can be auto, crisp-edges, or pixelated -- got {:?}", item),
         };
         self.builder().push_image(bounds,
-                                  clip_rect,
+                                  Some(local_clip),
                                   stretch_size,
                                   tile_spacing,
                                   rendering,
                                   image_key);
     }
 
-    fn handle_text(&mut self, wrench: &mut Wrench, item: &Yaml, clip_rect: LayoutRect) {
+    fn handle_text(&mut self, wrench: &mut Wrench, item: &Yaml, local_clip: LocalClip) {
         let size = item["size"].as_pt_to_au().unwrap_or(Au::from_f32_px(16.0));
         let color = item["color"].as_colorf().unwrap_or(*BLACK_COLOR);
         let blur_radius = item["blur-radius"].as_force_f32().unwrap_or(0.0);
@@ -493,7 +493,7 @@ impl YamlFrameReader {
         };
 
         self.builder().push_text(rect,
-                                 clip_rect,
+                                 Some(local_clip),
                                  &glyphs,
                                  font_key,
                                  color,
@@ -508,8 +508,18 @@ impl YamlFrameReader {
         self.builder().push_iframe(bounds, pipeline_id);
     }
 
+    pub fn get_local_clip_for_item(&mut self, yaml: &Yaml, full_clip: LayoutRect) -> LocalClip {
+        let rect = yaml["clip-rect"].as_rect().unwrap_or(full_clip);
+        let complex_clip = &yaml["complex-clip"];
+        if !complex_clip.is_badvalue() {
+            LocalClip::RoundedRect(rect, self.to_complex_clip_region(complex_clip))
+        } else {
+            LocalClip::from(rect)
+        }
+    }
+
     pub fn add_display_list_items_from_yaml(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
-        let full_clip_rect = LayoutRect::new(LayoutPoint::zero(), wrench.window_size_f32());
+        let full_clip = LayoutRect::new(LayoutPoint::zero(), wrench.window_size_f32());
 
         for item in yaml.as_vec().unwrap() {
             // an explicit type can be skipped with some shorthand
@@ -548,18 +558,17 @@ impl YamlFrameReader {
                 self.builder().push_clip_and_scroll_info(clip_scroll_info);
             }
 
-            let clip_rect = item["clip-rect"].as_rect().unwrap_or(full_clip_rect);
-
+            let local_clip = self.get_local_clip_for_item(item, full_clip);
             match item_type {
-                "rect" => self.handle_rect(item, clip_rect),
-                "image" => self.handle_image(wrench, item, clip_rect),
-                "text" | "glyphs" => self.handle_text(wrench, item, clip_rect),
-                "scroll-layer" => self.handle_scroll_layer(wrench, item),
+                "rect" => self.handle_rect(item, local_clip),
+                "image" => self.handle_image(wrench, item, local_clip),
+                "text" | "glyphs" => self.handle_text(wrench, item, local_clip),
+                "scroll-frame" => self.handle_scroll_frame(wrench, item),
                 "clip" => self.handle_clip(wrench, item),
-                "border" => self.handle_border(wrench, item, clip_rect),
-                "gradient" => self.handle_gradient(item, clip_rect),
-                "radial-gradient" => self.handle_radial_gradient(item, clip_rect),
-                "box-shadow" => self.handle_box_shadow(item, clip_rect),
+                "border" => self.handle_border(wrench, item, local_clip),
+                "gradient" => self.handle_gradient(item, local_clip),
+                "radial-gradient" => self.handle_radial_gradient(item, local_clip),
+                "box-shadow" => self.handle_box_shadow(item, local_clip),
                 "iframe" => self.handle_iframe(item),
                 "stacking-context" => self.add_stacking_context_from_yaml(wrench, item, false),
                 _ => println!("Skipping unknown item type: {:?}", item),
@@ -571,21 +580,39 @@ impl YamlFrameReader {
         }
     }
 
-    pub fn handle_scroll_layer(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
-        self.handle_clip(wrench, yaml);
-    }
-
-    pub fn handle_clip(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
-        let bounds = yaml["bounds"].as_rect().expect("clip must have a bounds");
-        let content_size = yaml["content-size"].as_size().unwrap_or(bounds.size);
-        let content_rect = LayerRect::new(bounds.origin, content_size);
-        let clip_rect = LayerRect::new(LayerPoint::zero(), bounds.size);
+    pub fn handle_scroll_frame(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
+        let clip_rect = yaml["bounds"].as_rect().expect("clip must have a bounds");
+        let content_size = yaml["content-size"].as_size().unwrap_or(clip_rect.size);
+        let content_rect = LayerRect::new(clip_rect.origin, content_size);
 
         let id = yaml["id"].as_i64().map(|id| ClipId::new(id as u64, self.builder().pipeline_id));
         let complex_clips = self.to_complex_clip_regions(&yaml["complex"]);
         let image_mask = self.to_image_mask(&yaml["image-mask"], wrench);
 
-        let id = self.builder().define_clip(id, content_rect, clip_rect, complex_clips, image_mask);
+        let id = self.builder().define_scroll_frame(id,
+                                                    content_rect,
+                                                    clip_rect,
+                                                    complex_clips,
+                                                    image_mask);
+
+        if let Some(size) = yaml["scroll-offset"].as_point() {
+            self.scroll_offsets.insert(id, LayerPoint::new(size.x, size.y));
+        }
+
+        self.builder().push_clip_id(id);
+        if !yaml["items"].is_badvalue() {
+            self.add_display_list_items_from_yaml(wrench, &yaml["items"]);
+        }
+        self.builder().pop_clip_id();
+    }
+
+    pub fn handle_clip(&mut self, wrench: &mut Wrench, yaml: &Yaml) {
+        let clip_rect = yaml["bounds"].as_rect().expect("clip must have a bounds");
+        let id = yaml["id"].as_i64().map(|id| ClipId::new(id as u64, self.builder().pipeline_id));
+        let complex_clips = self.to_complex_clip_regions(&yaml["complex"]);
+        let image_mask = self.to_image_mask(&yaml["image-mask"], wrench);
+
+        let id = self.builder().define_clip(id, clip_rect, complex_clips, image_mask);
 
         if let Some(size) = yaml["scroll-offset"].as_point() {
             self.scroll_offsets.insert(id, LayerPoint::new(size.x, size.y));

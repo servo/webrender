@@ -1,14 +1,14 @@
 ---
 root:
   items:
-    - type: scroll-layer
+    - type: clip
       bounds: [0, 0, 95, 88]
       image-mask:
         image: "mask.png"
         rect: [0, 0, 35, 35]
         repeat: false
       items:
-        - type: scroll-layer
+        - type: clip
           bounds: [0, 0, 95, 88]
           image-mask:
             image: "mask.png"

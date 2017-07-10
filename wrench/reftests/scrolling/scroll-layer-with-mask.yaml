@@ -8,7 +8,7 @@ root:
       bounds: [10, 10, 100, 100]
       scroll-policy: scrollable
       items:
-      - type: scroll-layer
+      - type: scroll-frame
         bounds: [0, 0, 100, 100]
         image-mask:
           image: "mask.png"
@@ -25,12 +25,12 @@ root:
       bounds: [100, 0, 100, 100]
       scroll-policy: scrollable
       items:
-      - type: scroll-layer
+      - type: scroll-frame
         bounds: [10, 10, 100, 300]
         scroll-offset: [0, 100]
         image-mask:
           image: "mask.png"
-          rect: [0, 0, 100, 100]
+          rect: [10, 10, 100, 100]
           repeat: false
         items:
         - type: rect
@@ -40,13 +40,13 @@ root:
     # Same as the previous case, but this time we verify that a scroll layer that is
     # not at the origin works as well.
     -
-      type: scroll-layer
+      type: scroll-frame
       bounds: [210, 10, 100, 100]
       content-size: [100, 300]
       scroll-offset: [0, 100]
       image-mask:
         image: "mask.png"
-        rect: [0, 0, 100, 100]
+        rect: [210, 10, 100, 100]
         repeat: false
       items:
       - type: rect

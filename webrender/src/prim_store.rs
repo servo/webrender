@@ -2,23 +2,21 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use api::{BuiltDisplayList, ColorF, ComplexClipRegion, DeviceIntRect, DeviceIntSize, DevicePoint};
+use api::{ExtendMode, FontKey, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop};
+use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize};
+use api::{LayerToWorldTransform, TileOffset, WebGLContextId, YuvColorSpace, YuvFormat};
+use api::device_length;
 use app_units::Au;
 use border::BorderCornerInstance;
 use euclid::{Size2D};
 use gpu_cache::{GpuCacheAddress, GpuBlockData, GpuCache, GpuCacheHandle, GpuDataRequest, ToGpuBlocks};
-use mask_cache::{ClipMode, ClipSource, MaskCacheInfo};
+use mask_cache::{ClipMode, ClipRegion, ClipSource, MaskCacheInfo};
 use renderer::MAX_VERTEX_TEXTURE_WIDTH;
 use render_task::{RenderTask, RenderTaskLocation};
 use resource_cache::{ImageProperties, ResourceCache};
 use std::{mem, usize};
 use util::{TransformedRect, recycle_vec};
-use api::{BuiltDisplayList, ColorF, ImageKey, ImageRendering, YuvColorSpace};
-use api::{YuvFormat, ClipRegion, ComplexClipRegion, ItemRange};
-use api::{FontKey, FontRenderMode, WebGLContextId};
-use api::{device_length, DeviceIntRect, DeviceIntSize};
-use api::{DevicePoint, LayerRect, LayerSize, LayerPoint};
-use api::{LayerToWorldTransform, GlyphInstance, GlyphOptions};
-use api::{ExtendMode, GradientStop, TileOffset};
 
 
 pub const CLIP_DATA_GPU_BLOCKS: usize = 10;
@@ -969,11 +967,7 @@ impl PrimitiveStore {
         let metadata = &mut self.cpu_metadata[prim_index.0];
 
         if let Some(ref mut clip_info) = metadata.clip_cache_info {
-            clip_info.update(&metadata.clips,
-                             layer_transform,
-                             gpu_cache,
-                             device_pixel_ratio,
-                             display_list);
+            clip_info.update(&metadata.clips, layer_transform, gpu_cache, device_pixel_ratio);
 
             //TODO-LCCR: we could tighten up the `local_clip_rect` here
             // but that would require invalidating the whole GPU block

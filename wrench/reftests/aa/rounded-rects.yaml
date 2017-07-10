@@ -8,7 +8,7 @@ root:
         - type: clip
           bounds: [50, 50, 200, 200]
           complex:
-            - rect: [0, 0, 200, 200]
+            - rect: [50, 50, 200, 200]
               radius: 8
           items:
           - type: rect
@@ -18,7 +18,7 @@ root:
         - type: clip
           bounds: [270, 50, 200, 200]
           complex:
-            - rect: [0, 0, 200, 200]
+            - rect: [270, 50, 200, 200]
               radius: [16, 32, 48, 64]
           items:
           - type: rect
@@ -28,7 +28,7 @@ root:
         - type: clip
           bounds: [490, 50, 200, 200]
           complex:
-            - rect: [0, 0, 200, 200]
+            - rect: [490, 50, 200, 200]
               radius: {
                 top-left: [32, 16],
                 top-right: [40, 24],

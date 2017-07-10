@@ -197,15 +197,14 @@ fn body(api: &RenderApi,
         repeat: false,
     };
     let complex = ComplexClipRegion::new((50, 50).to(150, 150), BorderRadius::uniform(20.0));
-    builder.push_clip_node(None, bounds, bounds, vec![complex], Some(mask));
+    let id = builder.define_clip(None, bounds, vec![complex], Some(mask));
+    builder.push_clip_id(id);
 
     let bounds = (100, 100).to(200, 200);
-    builder.push_rect(bounds, bounds, ColorF::new(0.0, 1.0, 0.0, 1.0));
+    builder.push_rect(bounds, None, ColorF::new(0.0, 1.0, 0.0, 1.0));
 
     let bounds = (250, 100).to(350, 200);
-    builder.push_rect(bounds,
-                      bounds,
-                      ColorF::new(0.0, 1.0, 0.0, 1.0));
+    builder.push_rect(bounds, None, ColorF::new(0.0, 1.0, 0.0, 1.0));
     let border_side = BorderSide {
         color: ColorF::new(0.0, 0.0, 1.0, 1.0),
         style: BorderStyle::Groove,
@@ -225,10 +224,7 @@ fn body(api: &RenderApi,
     });
 
     let bounds = (100, 100).to(200, 200);
-    builder.push_border(bounds,
-                        bounds,
-                        border_widths,
-                        border_details);
+    builder.push_border(bounds, None, border_widths, border_details);
 
 
     if false { // draw text?
@@ -289,7 +285,7 @@ fn body(api: &RenderApi,
         ];
 
         builder.push_text(text_bounds,
-                          text_bounds,
+                          None,
                           &glyphs,
                           font_key,
                           ColorF::new(1.0, 1.0, 0.0, 1.0),
@@ -309,7 +305,7 @@ fn body(api: &RenderApi,
         let box_shadow_type = BoxShadowClipMode::Inset;
 
         builder.push_box_shadow(rect,
-                                bounds,
+                                Some(LocalClip::from(bounds)),
                                 simple_box_bounds,
                                 offset,
                                 color,
@@ -319,7 +315,7 @@ fn body(api: &RenderApi,
                                 box_shadow_type);
     }
 
-    builder.pop_clip_node();
+    builder.pop_clip_id();
     builder.pop_stacking_context();
 }
 

@@ -41,50 +41,49 @@ fn body(_api: &RenderApi,
                                       MixBlendMode::Normal,
                                       Vec::new());
         // set the scrolling clip
-        let clip_id = builder.define_clip(None, (0, 0).by(1000, 1000), scrollbox, vec![], None);
+        let clip_id = builder.define_scroll_frame(None,
+                                                  (0, 0).by(1000, 1000),
+                                                  scrollbox,
+                                                  vec![],
+                                                  None);
         builder.push_clip_id(clip_id);
 
         // now put some content into it.
         // start with a white background
-        builder.push_rect((0, 0).to(1000, 1000),
-                          (0, 0).to(1000, 1000),
-                          ColorF::new(1.0, 1.0, 1.0, 1.0));
+        builder.push_rect((0, 0).to(1000, 1000), None, ColorF::new(1.0, 1.0, 1.0, 1.0));
+
         // let's make a 50x50 blue square as a visual reference
-        builder.push_rect((0, 0).to(50, 50),
-                          (0, 0).to(50, 50),
-                          ColorF::new(0.0, 0.0, 1.0, 1.0));
+        builder.push_rect((0, 0).to(50, 50), None, ColorF::new(0.0, 0.0, 1.0, 1.0));
+
         // and a 50x50 green square next to it with an offset clip
         // to see what that looks like
         builder.push_rect((50, 0).to(100, 50),
-                          (60, 10).to(110, 60),
+                          Some(LocalClip::from((60, 10).to(110, 60))),
                           ColorF::new(0.0, 1.0, 0.0, 1.0));
 
         // Below the above rectangles, set up a nested scrollbox. It's still in
         // the same stacking context, so note that the rects passed in need to
         // be relative to the stacking context.
-        let nested_clip_id = builder.define_clip(None,
-                                                 (0, 100).to(300, 400),
-                                                 (0, 100).to(200, 300),
-                                                 vec![],
-                                                 None);
+        let nested_clip_id = builder.define_scroll_frame(None,
+                                                         (0, 100).to(300, 400),
+                                                         (0, 100).to(200, 300),
+                                                         vec![],
+                                                         None);
         builder.push_clip_id(nested_clip_id);
 
         // give it a giant gray background just to distinguish it and to easily
         // visually identify the nested scrollbox
-        builder.push_rect((-1000, -1000).to(5000, 5000),
-                          (-1000, -1000).to(5000, 5000),
-                          ColorF::new(0.5, 0.5, 0.5, 1.0));
+        builder.push_rect((-1000, -1000).to(5000, 5000), None, ColorF::new(0.5, 0.5, 0.5, 1.0));
+
         // add a teal square to visualize the scrolling/clipping behaviour
         // as you scroll the nested scrollbox with WASD keys
-        builder.push_rect((0, 100).to(50, 150),
-                          (0, 100).to(50, 150),
-                          ColorF::new(0.0, 1.0, 1.0, 1.0));
+        builder.push_rect((0, 100).to(50, 150), None, ColorF::new(0.0, 1.0, 1.0, 1.0));
+
         // just for good measure add another teal square in the bottom-right
         // corner of the nested scrollframe content, which can be scrolled into
         // view by the user
-        builder.push_rect((250, 350).to(300, 400),
-                          (250, 350).to(300, 400),
-                          ColorF::new(0.0, 1.0, 1.0, 1.0));
+        builder.push_rect((250, 350).to(300, 400), None, ColorF::new(0.0, 1.0, 1.0, 1.0));
+
         builder.pop_clip_id(); // nested_clip_id
 
         builder.pop_clip_id(); // clip_id
