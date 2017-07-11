@@ -43,6 +43,7 @@ pub struct CacheItem {
     pub uv_rect_handle: GpuCacheHandle,
 }
 
+#[derive(Debug)]
 pub struct ImageProperties {
     pub descriptor: ImageDescriptor,
     pub external_image: Option<ExternalImageData>,
@@ -56,6 +57,7 @@ enum State {
     QueryResources,
 }
 
+#[derive(Debug)]
 struct ImageResource {
     data: ImageData,
     descriptor: ImageDescriptor,
