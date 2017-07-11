@@ -67,7 +67,11 @@ impl NestedDisplayListInfo {
 
     fn convert_scroll_id_to_nested(&self, id: &ClipId) -> ClipId {
         if id.is_root_scroll_node() {
-            self.scroll_node_id
+            if id.pipeline_id() == self.scroll_node_id.pipeline_id() {
+                self.scroll_node_id
+            } else {
+                *id
+            }
         } else {
             self.convert_id_to_nested(id)
         }
@@ -75,7 +79,11 @@ impl NestedDisplayListInfo {
 
     fn convert_clip_id_to_nested(&self, id: &ClipId) -> ClipId {
         if id.is_root_scroll_node() {
-            self.clip_node_id
+            if id.pipeline_id() == self.clip_node_id.pipeline_id() {
+                self.clip_node_id
+            } else {
+                *id
+            }
         } else {
             self.convert_id_to_nested(id)
         }
