@@ -26,7 +26,6 @@ use internal_types::{BatchTextures, TextureSampler};
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
 use record::ApiRecordingReceiver;
-use render_backend::RenderBackend;
 use render_task::RenderTaskData;
 use std;
 use std::cmp;
@@ -39,8 +38,6 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::thread;
-use texture_cache::TextureCache;
 use rayon::ThreadPool;
 use rayon::Configuration as ThreadPoolConfig;
 use tiling::{AlphaBatchKind, BlurCommand, CompositePrimitiveInstance, Frame, PrimitiveBatch, RenderTarget};
@@ -56,6 +53,7 @@ use api::{BlobImageRenderer, channel, FontRenderMode};
 use api::VRCompositorHandler;
 use api::{YuvColorSpace, YuvFormat};
 use api::{YUV_COLOR_SPACES, YUV_FORMATS};
+use render_backend::{RenderBackendThread, RenderBackendInit};
 
 pub const GPU_DATA_TEXTURE_POOL: usize = 5;
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
@@ -757,10 +755,17 @@ impl Renderer {
     /// let (renderer, sender) = Renderer::new(opts);
     /// ```
     /// [rendereroptions]: struct.RendererOptions.html
-    pub fn new(gl: Rc<gl::Gl>,
-               mut options: RendererOptions,
-               initial_window_size: DeviceUintSize) -> Result<(Renderer, RenderApiSender), InitError> {
-        let (api_tx, api_rx) = try!{ channel::msg_channel() };
+    pub fn new(
+        gl: Rc<gl::Gl>,
+        mut options: RendererOptions,
+        initial_window_size: DeviceUintSize,
+        render_backend_thread: &mut RenderBackendThread
+    ) -> Result<(Renderer, RenderApiSender), InitError> {
+
+        let api_tx = render_backend_thread.clone_api_sender();
+        let renderer_id = render_backend_thread.alloc_renderer_id();
+
+        //let (api_tx, api_rx) = try!{ channel::msg_channel() };
         let (payload_tx, payload_rx) = try!{ channel::payload_channel() };
         let (result_tx, result_rx) = channel();
         let gl_type = gl.get_type();
@@ -1021,9 +1026,6 @@ impl Renderer {
         let device_max_size = device.max_texture_size();
         let max_texture_size = cmp::min(device_max_size, options.max_texture_size.unwrap_or(device_max_size));
 
-        let texture_cache = TextureCache::new(max_texture_size);
-        let backend_profile_counters = BackendProfileCounters::new();
-
         let dummy_cache_texture_id = device.create_texture_ids(1, TextureTarget::Array)[0];
         device.init_texture(dummy_cache_texture_id,
                             1,
@@ -1120,7 +1122,7 @@ impl Renderer {
             (false, _) => FontRenderMode::Mono,
         };
 
-        let config = FrameBuilderConfig {
+        let frame_builder_config = FrameBuilderConfig {
             enable_scrollbars: options.enable_scrollbars,
             default_font_render_mode,
             debug: options.debug,
@@ -1139,24 +1141,26 @@ impl Renderer {
         });
 
         let blob_image_renderer = options.blob_image_renderer.take();
-        try!{ thread::Builder::new().name("RenderBackend".to_string()).spawn(move || {
-            let mut backend = RenderBackend::new(api_rx,
-                                                 payload_rx,
-                                                 payload_tx_for_backend,
-                                                 result_tx,
-                                                 device_pixel_ratio,
-                                                 texture_cache,
-                                                 workers,
-                                                 backend_notifier,
-                                                 context_handle,
-                                                 config,
-                                                 recorder,
-                                                 backend_main_thread_dispatcher,
-                                                 blob_image_renderer,
-                                                 backend_vr_compositor,
-                                                 initial_window_size);
-            backend.run(backend_profile_counters);
-        })};
+
+        let backend = RenderBackendInit {
+            payload_rx: payload_rx,
+            payload_tx: payload_tx_for_backend,
+            result_tx: result_tx,
+            hidpi_factor: device_pixel_ratio,
+            max_texture_size: max_texture_size,
+            workers: workers,
+            notifier: backend_notifier,
+            webrender_context_handle: context_handle,
+            frame_builder_config: frame_builder_config,
+            recorder: recorder,
+            main_thread_dispatcher: backend_main_thread_dispatcher,
+            blob_image_renderer: blob_image_renderer,
+            vr_compositor_handler: backend_vr_compositor,
+            initial_window_size: initial_window_size,
+            renderer_id: renderer_id,
+        };
+
+        render_backend_thread.add_render_backend(backend);
 
         let gpu_cache_texture = CacheTexture::new(&mut device);
 
@@ -1226,7 +1230,7 @@ impl Renderer {
             gpu_cache_texture,
         };
 
-        let sender = RenderApiSender::new(api_tx, payload_tx);
+        let sender = RenderApiSender::new(api_tx, payload_tx, renderer_id);
         Ok((renderer, sender))
     }
 

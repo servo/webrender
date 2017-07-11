@@ -77,6 +77,8 @@ mod util;
 #[doc(hidden)] // for benchmarks
 pub use texture_cache::TexturePage;
 
+pub use render_backend::RenderBackendThread;
+
 #[cfg(feature = "webgl")]
 mod webgl_types;
 
