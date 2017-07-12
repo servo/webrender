@@ -897,9 +897,12 @@ impl DisplayListBuilder {
         assert!(self.clip_stack.len() > 0);
     }
 
-    pub fn push_iframe(&mut self, rect: LayoutRect, pipeline_id: PipelineId) {
+    pub fn push_iframe(&mut self,
+                       rect: LayoutRect,
+                       local_clip: Option<LocalClip>,
+                       pipeline_id: PipelineId) {
         let item = SpecificDisplayItem::Iframe(IframeDisplayItem { pipeline_id: pipeline_id });
-        self.push_item(item, rect, None);
+        self.push_item(item, rect, local_clip);
     }
 
     // Don't use this function. It will go away.
