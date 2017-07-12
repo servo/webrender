@@ -4,6 +4,7 @@ root:
         -
           type: "text-shadow"
           blur-radius: 5
+          bounds: [14, 18, 205, 35]
           offset: [0, 0]
           color: black
         -

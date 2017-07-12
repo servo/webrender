@@ -912,8 +912,13 @@ impl DisplayListBuilder {
         self.push_new_empty_item(SpecificDisplayItem::PopNestedDisplayList);
     }
 
-    pub fn push_text_shadow(&mut self, shadow: TextShadow) {
-        self.push_new_empty_item(SpecificDisplayItem::PushTextShadow(shadow));
+    pub fn push_text_shadow(&mut self,
+                            rect: LayoutRect,
+                            local_clip: Option<LocalClip>,
+                            shadow: TextShadow) {
+        self.push_item(SpecificDisplayItem::PushTextShadow(shadow),
+                       rect,
+                       local_clip);
     }
 
     pub fn pop_text_shadow(&mut self) {

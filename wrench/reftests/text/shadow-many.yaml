@@ -3,16 +3,19 @@ root:
   items:
         -
           type: "text-shadow"
+          bounds: [14, 18, 205, 35]
           blur-radius: 5
           offset: [0, 0]
           color: black
         -
           type: "text-shadow"
+          bounds: [14, 18, 205, 35]
           blur-radius: 0
           offset: [2, 3]
           color: red
         -
           type: "text-shadow"
+          bounds: [14, 18, 205, 35]
           blur-radius: 3
           offset: [-2, 3.5]
           color: blue

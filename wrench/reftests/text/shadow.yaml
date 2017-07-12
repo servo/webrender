@@ -3,6 +3,7 @@ root:
   items:
         -
           type: "text-shadow"
+          bounds: [14, 18, 205, 35]
           blur-radius: 5
           offset: [0, 0]
           color: black

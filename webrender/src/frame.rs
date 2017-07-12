@@ -718,7 +718,9 @@ impl Frame {
             SpecificDisplayItem::PopStackingContext =>
                 unreachable!("Should have returned in parent method."),
             SpecificDisplayItem::PushTextShadow(shadow) => {
-                context.builder.push_text_shadow(shadow);
+                context.builder.push_text_shadow(shadow,
+                                                 clip_and_scroll,
+                                                 item.local_clip());
             }
             SpecificDisplayItem::PopTextShadow => {
                 context.builder.pop_text_shadow();

@@ -610,13 +610,17 @@ impl YamlFrameReader {
     }
 
     pub fn handle_push_text_shadow(&mut self, yaml: &Yaml) {
+        let rect = yaml["bounds"].as_rect()
+                                 .expect("Text shadows require bounds");
         let blur_radius = yaml["blur-radius"].as_f32().unwrap_or(0.0);
-        let offset = yaml["blur-radius"].as_vector().unwrap_or(LayoutVector2D::zero());
+        let offset = yaml["offset"].as_vector().unwrap_or(LayoutVector2D::zero());
         let color = yaml["color"].as_colorf().unwrap_or(*BLACK_COLOR);
 
-        self.builder().push_text_shadow(TextShadow {
-            blur_radius, offset, color
-        });
+        self.builder().push_text_shadow(rect,
+                                        None,
+                                        TextShadow {
+                                            blur_radius, offset, color
+                                        });
     }
 
     pub fn handle_pop_text_shadow(&mut self) {
