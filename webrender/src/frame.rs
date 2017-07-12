@@ -483,6 +483,7 @@ impl Frame {
                           pipeline_id: PipelineId,
                           parent_id: ClipId,
                           bounds: &LayerRect,
+                          local_clip: &LocalClip,
                           context: &mut FlattenContext,
                           reference_frame_relative_offset: LayerVector2D) {
         let pipeline = match context.scene.pipeline_map.get(&pipeline_id) {
@@ -495,6 +496,16 @@ impl Frame {
             None => return,
         };
 
+        let mut clip_region = ClipRegion::create_for_clip_node_with_local_clip(local_clip);
+        clip_region.origin += reference_frame_relative_offset;
+        let parent_pipeline_id = parent_id.pipeline_id();
+        let clip_id = self.clip_scroll_tree.generate_new_clip_id(parent_pipeline_id);
+        context.builder.add_clip_node(clip_id,
+                                      parent_id,
+                                      parent_pipeline_id,
+                                      clip_region,
+                                      &mut self.clip_scroll_tree);
+
         self.pipeline_epoch_map.insert(pipeline_id, pipeline.epoch);
 
         let iframe_rect = LayerRect::new(LayerPoint::zero(), bounds.size);
@@ -504,7 +515,7 @@ impl Frame {
             0.0);
 
         let iframe_reference_frame_id =
-            context.builder.push_reference_frame(Some(parent_id),
+            context.builder.push_reference_frame(Some(clip_id),
                                                  pipeline_id,
                                                  &iframe_rect,
                                                  &transform,
@@ -665,6 +676,7 @@ impl Frame {
                 self.flatten_iframe(info.pipeline_id,
                                     clip_and_scroll.scroll_node_id,
                                     &item.rect(),
+                                    &item.local_clip(),
                                     context,
                                     reference_frame_relative_offset);
             }

@@ -503,10 +503,10 @@ impl YamlFrameReader {
                                  None);
     }
 
-    fn handle_iframe(&mut self, item: &Yaml) {
+    fn handle_iframe(&mut self, item: &Yaml, local_clip: LocalClip) {
         let bounds = item["bounds"].as_rect().expect("iframe must have bounds");
         let pipeline_id = item["id"].as_pipeline_id().unwrap();
-        self.builder().push_iframe(bounds, pipeline_id);
+        self.builder().push_iframe(bounds, Some(local_clip), pipeline_id);
     }
 
     pub fn get_local_clip_for_item(&mut self, yaml: &Yaml, full_clip: LayoutRect) -> LocalClip {
@@ -570,7 +570,7 @@ impl YamlFrameReader {
                 "gradient" => self.handle_gradient(item, local_clip),
                 "radial-gradient" => self.handle_radial_gradient(item, local_clip),
                 "box-shadow" => self.handle_box_shadow(item, local_clip),
-                "iframe" => self.handle_iframe(item),
+                "iframe" => self.handle_iframe(item, local_clip),
                 "stacking-context" => self.add_stacking_context_from_yaml(wrench, item, false),
                 "text-shadow" => self.handle_push_text_shadow(item),
                 "pop-text-shadow" => self.handle_pop_text_shadow(),
