@@ -429,7 +429,9 @@ impl YamlFrameReader {
     fn handle_text(&mut self, wrench: &mut Wrench, item: &Yaml, local_clip: LocalClip) {
         let size = item["size"].as_pt_to_au().unwrap_or(Au::from_f32_px(16.0));
         let color = item["color"].as_colorf().unwrap_or(*BLACK_COLOR);
-        let blur_radius = item["blur-radius"].as_force_f32().unwrap_or(0.0);
+
+        assert!(item["blur-radius"].is_badvalue(),
+            "text no longer has a blur radius, use PushTextShadow and PopTextShadow");
 
         let (font_key, native_key) = if !item["family"].is_badvalue() {
             wrench.font_key_from_yaml_table(item)
@@ -498,7 +500,6 @@ impl YamlFrameReader {
                                  font_key,
                                  color,
                                  size,
-                                 blur_radius,
                                  None);
     }
 
@@ -571,6 +572,8 @@ impl YamlFrameReader {
                 "box-shadow" => self.handle_box_shadow(item, local_clip),
                 "iframe" => self.handle_iframe(item),
                 "stacking-context" => self.add_stacking_context_from_yaml(wrench, item, false),
+                "text-shadow" => self.handle_push_text_shadow(item),
+                "pop-text-shadow" => self.handle_pop_text_shadow(),
                 _ => println!("Skipping unknown item type: {:?}", item),
             }
 
@@ -604,6 +607,24 @@ impl YamlFrameReader {
             self.add_display_list_items_from_yaml(wrench, &yaml["items"]);
         }
         self.builder().pop_clip_id();
+    }
+
+    pub fn handle_push_text_shadow(&mut self, yaml: &Yaml) {
+        let rect = yaml["bounds"].as_rect()
+                                 .expect("Text shadows require bounds");
+        let blur_radius = yaml["blur-radius"].as_f32().unwrap_or(0.0);
+        let offset = yaml["offset"].as_vector().unwrap_or(LayoutVector2D::zero());
+        let color = yaml["color"].as_colorf().unwrap_or(*BLACK_COLOR);
+
+        self.builder().push_text_shadow(rect,
+                                        None,
+                                        TextShadow {
+                                            blur_radius, offset, color
+                                        });
+    }
+
+    pub fn handle_pop_text_shadow(&mut self) {
+        self.builder().pop_text_shadow();
     }
 
     pub fn handle_clip(&mut self, wrench: &mut Wrench, yaml: &Yaml) {

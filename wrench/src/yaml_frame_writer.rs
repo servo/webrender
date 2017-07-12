@@ -791,6 +791,15 @@ impl YamlFrameWriter {
                 PopNestedDisplayList => clip_id_mapper.pop_nested_display_list_ids(),
                 PopStackingContext => return,
                 SetGradientStops => { panic!("dummy item yielded?") },
+                PushTextShadow(shadow) => {
+                    str_node(&mut v, "type", "text-shadow");
+                    vector_node(&mut v, "offset", &shadow.offset);
+                    color_node(&mut v, "color", shadow.color);
+                    f32_node(&mut v, "blur-radius", shadow.blur_radius);
+                }
+                PopTextShadow => {
+                    str_node(&mut v, "type", "pop-text-shadow");
+                },
             }
             if !v.is_empty() {
                 list.push(Yaml::Hash(v));

@@ -2,10 +2,17 @@
 root:
   items:
         -
+          type: "text-shadow"
+          blur-radius: 5
+          bounds: [14, 18, 205, 35]
+          offset: [0, 0]
+          color: black
+        -
           bounds: [14, 18, 205, 35]
           glyphs: [55]
           offsets: [16, 43]
           size: 18
-          color: black
-          blur-radius: 5
+          color: [0, 0, 0, 0] # actual text is transparent
           font: "VeraBd.ttf"
+        -
+          type: "pop-text-shadow"
