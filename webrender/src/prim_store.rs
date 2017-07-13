@@ -536,10 +536,24 @@ impl TextRunPrimitiveCpu {
             // GPU block.
             let first_glyph = glyph_chunk.first().unwrap();
             let second_glyph = glyph_chunk.last().unwrap();
-            request.push([first_glyph.point.x,
-                          first_glyph.point.y,
-                          second_glyph.point.x,
-                          second_glyph.point.y]);
+            let data = match self.render_mode {
+                FontRenderMode::Mono |
+                FontRenderMode::Alpha => [
+                    first_glyph.point.x,
+                    first_glyph.point.y,
+                    second_glyph.point.x,
+                    second_glyph.point.y,
+                ],
+                // The sub-pixel offset has already been taken into account
+                // by the glyph rasterizer, thus the truncating here.
+                FontRenderMode::Subpixel => [
+                    first_glyph.point.x.trunc(),
+                    first_glyph.point.y.trunc(),
+                    second_glyph.point.x.trunc(),
+                    second_glyph.point.y.trunc(),
+                ],
+            };
+            request.push(data);
         }
     }
 }
