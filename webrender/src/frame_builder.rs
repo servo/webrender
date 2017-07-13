@@ -803,62 +803,57 @@ impl FrameBuilder {
                     glyph_range: ItemRange<GlyphInstance>,
                     glyph_count: usize,
                     glyph_options: Option<GlyphOptions>) {
-        let is_text_shadow = !self.pending_text_shadows.is_empty();
-
-        if color.a == 0.0 && !is_text_shadow {
-            return
-        }
-
+        // Trivial early out checks
         if size.0 <= 0 {
             return
         }
 
-        // TODO(gw): Use a proper algorithm to select
-        // whether this item should be rendered with
-        // subpixel AA!
-        let mut render_mode = self.config.default_font_render_mode;
-
-        // There are some conditions under which we can't use
-        // subpixel text rendering, even if enabled.
-        if render_mode == FontRenderMode::Subpixel {
-            // text-blur shadow needs to force alpha AA.
-            if is_text_shadow {
-                render_mode = FontRenderMode::Alpha;
-            }
-
-            if color.a != 1.0 {
-                render_mode = FontRenderMode::Alpha;
-            }
-
-            // text on a stacking context that has filters
-            // (e.g. opacity) can't use sub-pixel.
-            // TODO(gw): It's possible we can relax this in
-            //           the future, if we modify the way
-            //           we handle subpixel blending.
-            if let Some(sc_index) = self.stacking_context_stack.last() {
-                let stacking_context = &self.stacking_context_store[sc_index.0];
-                if stacking_context.composite_ops.count() > 0 {
-                    render_mode = FontRenderMode::Alpha;
-                }
-            }
-        }
-
-        let prim_cpu = TextRunPrimitiveCpu {
+        // Construct the primitive struct that will
+        // be used for any text-shadows.
+        // text-blur shadow needs to force alpha AA.
+        let mut prim_cpu = TextRunPrimitiveCpu {
             font_key,
             logical_font_size: size,
             glyph_range,
             glyph_count,
             glyph_instances: Vec::new(),
             color: *color,
-            render_mode,
+            render_mode: FontRenderMode::Alpha,
             glyph_options,
         };
 
-        if is_text_shadow {
-            for shadow in &mut self.pending_text_shadows {
-                shadow.push(rect, &prim_cpu);
+        // Add the text run to any shadows on the stack.
+        for shadow in &mut self.pending_text_shadows {
+            shadow.push(rect, &prim_cpu);
+        }
+
+        // Add a normal visible text run if not transparent.
+        if color.a > 0.0 {
+            // TODO(gw): Use a proper algorithm to select
+            // whether this item should be rendered with
+            // subpixel AA!
+            prim_cpu.render_mode = self.config.default_font_render_mode;
+
+            // There are some conditions under which we can't use
+            // subpixel text rendering, even if enabled.
+            if prim_cpu.render_mode == FontRenderMode::Subpixel {
+                if color.a != 1.0 {
+                    prim_cpu.render_mode = FontRenderMode::Alpha;
+                }
+
+                // text on a stacking context that has filters
+                // (e.g. opacity) can't use sub-pixel.
+                // TODO(gw): It's possible we can relax this in
+                //           the future, if we modify the way
+                //           we handle subpixel blending.
+                if let Some(sc_index) = self.stacking_context_stack.last() {
+                    let stacking_context = &self.stacking_context_store[sc_index.0];
+                    if stacking_context.composite_ops.count() > 0 {
+                        prim_cpu.render_mode = FontRenderMode::Alpha;
+                    }
+                }
             }
-        } else {
+
             self.add_primitive(clip_and_scroll,
                                &rect,
                                local_clip,
