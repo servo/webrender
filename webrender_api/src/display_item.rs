@@ -51,6 +51,7 @@ pub enum SpecificDisplayItem {
     Clip(ClipDisplayItem),
     ScrollFrame(ClipDisplayItem),
     Rectangle(RectangleDisplayItem),
+    Line(LineDisplayItem),
     Text(TextDisplayItem),
     Image(ImageDisplayItem),
     YuvImage(YuvImageDisplayItem),
@@ -79,6 +80,33 @@ pub struct ClipDisplayItem {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RectangleDisplayItem {
     pub color: ColorF,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct LineDisplayItem {
+    pub baseline: f32, // LayerPixel
+    pub start: f32,
+    pub end: f32,
+    pub orientation: LineOrientation, // toggles whether above values are interpreted as x/y values
+    pub width: f32,
+    pub color: ColorF,
+    pub style: LineStyle,
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub enum LineOrientation {
+    Vertical,
+    Horizontal,
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub enum LineStyle {
+    Solid,
+    Dotted,
+    Dashed,
+    Wavy,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
