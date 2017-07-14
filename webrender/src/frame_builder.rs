@@ -6,8 +6,9 @@ use api::{BorderDetails, BorderDisplayItem, BoxShadowClipMode, ClipAndScrollInfo
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
 use api::{ExtendMode, FontKey, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop};
 use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize};
-use api::{LayerToScrollTransform, LayerVector2D, LocalClip, PipelineId, RepeatMode, TextShadow};
-use api::{TileOffset, TransformStyle, WebGLContextId, WorldPixel, YuvColorSpace, YuvData};
+use api::{LayerToScrollTransform, LayerVector2D, LineOrientation, LineStyle, LocalClip};
+use api::{PipelineId, RepeatMode, TextShadow, TileOffset, TransformStyle};
+use api::{WebGLContextId, WorldPixel, YuvColorSpace, YuvData};
 use app_units::Au;
 use frame::FrameId;
 use gpu_cache::GpuCache;
@@ -597,6 +598,42 @@ impl FrameBuilder {
                 });
             }
         }
+    }
+
+    pub fn add_line(&mut self,
+                    clip_and_scroll: ClipAndScrollInfo,
+                    local_clip: &LocalClip,
+                    baseline: f32,
+                    start: f32,
+                    end: f32,
+                    orientation: LineOrientation,
+                    width: f32,
+                    color: &ColorF,
+                    style: LineStyle) {
+
+        // Dummy impl for testing (replace this)
+        match style {
+            LineStyle::Solid => {
+                let new_rect = match orientation {
+                    LineOrientation::Horizontal => {
+                        LayerRect::new(LayerPoint::new(start, baseline),
+                                       LayerSize::new(end - start, width))
+                    }
+                    LineOrientation::Vertical => {
+                        LayerRect::new(LayerPoint::new(baseline, start),
+                                       LayerSize::new(width, end - start))
+                    }
+                };
+
+                self.add_solid_rectangle(clip_and_scroll,
+                                         &new_rect,
+                                         local_clip,
+                                         color,
+                                         PrimitiveFlags::None);
+            }
+            _ => unimplemented!(),
+        }
+
     }
 
     pub fn add_border(&mut self,

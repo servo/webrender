@@ -11,11 +11,12 @@ use {BorderDetails, BorderDisplayItem, BorderWidths, BoxShadowClipMode, BoxShado
 use {ClipAndScrollInfo, ClipDisplayItem, ClipId, ColorF, ComplexClipRegion, DisplayItem};
 use {ExtendMode, FilterOp, FontKey, GlyphInstance, GlyphOptions, Gradient, GradientDisplayItem};
 use {GradientStop, IframeDisplayItem, ImageDisplayItem, ImageKey, ImageMask, ImageRendering};
-use {LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D, LocalClip};
-use {MixBlendMode, PipelineId, PropertyBinding, PushStackingContextDisplayItem, RadialGradient};
-use {RadialGradientDisplayItem, RectangleDisplayItem, ScrollPolicy, SpecificDisplayItem};
-use {StackingContext, TextDisplayItem, TextShadow, TransformStyle, WebGLContextId, WebGLDisplayItem};
-use {YuvColorSpace, YuvData, YuvImageDisplayItem};
+use {LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D, LineDisplayItem};
+use {LineOrientation, LineStyle, LocalClip, MixBlendMode, PipelineId};
+use {PropertyBinding, PushStackingContextDisplayItem, RadialGradient};
+use {RadialGradientDisplayItem, RectangleDisplayItem, ScrollPolicy};
+use {SpecificDisplayItem, StackingContext, TextDisplayItem, TextShadow, TransformStyle};
+use {WebGLContextId, WebGLDisplayItem, YuvColorSpace, YuvData, YuvImageDisplayItem};
 use std::marker::PhantomData;
 
 #[repr(C)]
@@ -492,6 +493,23 @@ impl DisplayListBuilder {
         });
 
         self.push_item(item, rect, local_clip);
+    }
+
+    pub fn push_line(&mut self,
+                     local_clip: Option<LocalClip>,
+                     baseline: f32,
+                     start: f32,
+                     end: f32,
+                     orientation: LineOrientation,
+                     width: f32,
+                     color: ColorF,
+                     style: LineStyle) {
+        let item = SpecificDisplayItem::Line(LineDisplayItem {
+            baseline, start, end, orientation,
+            width, color, style,
+        });
+
+        self.push_item(item, LayoutRect::zero(), local_clip);
     }
 
     pub fn push_image(&mut self,
