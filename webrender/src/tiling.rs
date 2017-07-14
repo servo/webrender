@@ -478,17 +478,17 @@ impl AlphaRenderItem {
                     }
                     PrimitiveKind::TextRun => {
                         let text_cpu = &ctx.prim_store.cpu_text_runs[prim_metadata.cpu_prim_index.0];
-                        let font_size_dp = text_cpu.logical_font_size.scale_by(ctx.device_pixel_ratio);
+                        let font_size_dp = text_cpu.run.logical_font_size.scale_by(ctx.device_pixel_ratio);
 
                         // TODO(gw): avoid / recycle this allocation in the future.
                         let mut instances = Vec::new();
 
-                        let texture_id = ctx.resource_cache.get_glyphs(text_cpu.font_key,
+                        let texture_id = ctx.resource_cache.get_glyphs(text_cpu.run.font_key,
                                                                        font_size_dp,
                                                                        text_cpu.color,
-                                                                       &text_cpu.glyph_instances,
+                                                                       &text_cpu.run.glyph_instances,
                                                                        text_cpu.render_mode,
-                                                                       text_cpu.glyph_options, |index, handle| {
+                                                                       text_cpu.run.glyph_options, |index, handle| {
                             let uv_address = handle.as_int(gpu_cache);
                             instances.push(base_instance.build(index as i32, 0, uv_address));
                         });
@@ -1033,7 +1033,27 @@ impl RenderTarget for ColorRenderTarget {
 
                         // todo(gw): avoid / recycle this allocation...
                         let mut instances = Vec::new();
-                        let mut base_index = 0;
+
+                        /*
+                          GPU block layout for the text-shadow primitive.
+
+                          +-----------------------------------------+
+                          | Shadow color [1 block]                  |
+                          +-----------------------------------------+
+                          | Local space offsets [1 block per run]   |
+                          |   ...                                   |
+                          +-----------------------------------------+
+                          | Glyph offsets [1 block per TWO glyphs]  |
+                          |   ...                                   |
+                          +-----------------------------------------+
+
+                        */
+
+                        // The base glyph index is multipled by 2 here
+                        // since the glyph lookup is calculated in the
+                        // vertex shader by dividing by 2 due to the
+                        // way glyphs are packed two per GPU block.
+                        let mut base_index = 2 * prim.runs.len() as i32;
 
                         let task_index = render_tasks.get_task_index(&task.id, pass_index);
 
@@ -1043,17 +1063,19 @@ impl RenderTarget for ColorRenderTarget {
                                                                     PackedLayerIndex(0),
                                                                     0);     // z is disabled for rendering cache primitives
 
-                        for text in &prim.text_primitives {
-                            let font_size_dp = text.logical_font_size.scale_by(ctx.device_pixel_ratio);
+                        for (run_index, text) in prim.runs.iter().enumerate() {
+                            let font_size_dp = text.run.logical_font_size.scale_by(ctx.device_pixel_ratio);
 
-                            let texture_id = ctx.resource_cache.get_glyphs(text.font_key,
+                            let texture_id = ctx.resource_cache.get_glyphs(text.run.font_key,
                                                                            font_size_dp,
-                                                                           text.color,
-                                                                           &text.glyph_instances,
-                                                                           text.render_mode,
-                                                                           text.glyph_options, |index, handle| {
+                                                                           ColorF::new(0.0, 0.0, 0.0, 1.0),
+                                                                           &text.run.glyph_instances,
+                                                                           FontRenderMode::Alpha,
+                                                                           text.run.glyph_options, |index, handle| {
                                 let uv_address = handle.as_int(gpu_cache);
-                                instances.push(instance.build(base_index + index as i32, 0, uv_address));
+                                instances.push(instance.build(run_index as i32,
+                                                              base_index + index as i32,
+                                                              uv_address));
                             });
 
                             if texture_id != SourceTexture::Invalid {
@@ -1062,7 +1084,7 @@ impl RenderTarget for ColorRenderTarget {
                                 };
 
                                 self.text_run_cache_prims.extend_from_slice(&instances);
-                                base_index += text.glyph_instances.len() as i32;
+                                base_index += text.run.glyph_instances.len() as i32;
                                 instances.clear();
 
                                 debug_assert!(textures.colors[0] != SourceTexture::Invalid);

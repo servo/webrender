@@ -481,26 +481,57 @@ impl RadialGradientPrimitiveCpu {
 }
 
 #[derive(Debug, Clone)]
-pub struct TextShadowPrimitiveCpu {
-    pub text_primitives: Vec<TextRunPrimitiveCpu>,
-    pub shadow: TextShadow,
-}
-
-#[derive(Debug, Clone)]
-pub struct TextRunPrimitiveCpu {
+pub struct TextRun {
     pub font_key: FontKey,
     pub logical_font_size: Au,
     pub glyph_range: ItemRange<GlyphInstance>,
     pub glyph_count: usize,
     // TODO(gw): Maybe make this an Arc for sharing with resource cache
     pub glyph_instances: Vec<GlyphInstance>,
-    pub color: ColorF,
-    pub render_mode: FontRenderMode,
     pub glyph_options: Option<GlyphOptions>,
 }
 
-impl TextRunPrimitiveCpu {
+#[derive(Debug, Clone)]
+pub struct ShadowTextRun {
+    pub run: TextRun,
+    pub offset: LayerPoint,
+}
+
+impl ShadowTextRun {
     fn prepare_for_render(&mut self,
+                          resource_cache: &mut ResourceCache,
+                          device_pixel_ratio: f32,
+                          display_list: &BuiltDisplayList) {
+        // The color used to request glyphs for shadow rendering
+        // doesn't actually matter (since we're not using subpixel
+        // rendering in this case). Passing a constant color here
+        // is a bit more efficient, since we don't need to rasterize
+        // glyphs multiple times for shadows of different colors.
+        self.run.prepare_for_render(ColorF::new(0.0, 0.0, 0.0, 1.0),
+                                    FontRenderMode::Alpha,
+                                    resource_cache,
+                                    device_pixel_ratio,
+                                    display_list);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TextShadowPrimitiveCpu {
+    pub runs: Vec<ShadowTextRun>,
+    pub shadow: TextShadow,
+}
+
+#[derive(Debug, Clone)]
+pub struct TextRunPrimitiveCpu {
+    pub run: TextRun,
+    pub color: ColorF,
+    pub render_mode: FontRenderMode,
+}
+
+impl TextRun {
+    fn prepare_for_render(&mut self,
+                          color: ColorF,
+                          render_mode: FontRenderMode,
                           resource_cache: &mut ResourceCache,
                           device_pixel_ratio: f32,
                           display_list: &BuiltDisplayList) {
@@ -522,13 +553,15 @@ impl TextRunPrimitiveCpu {
 
         resource_cache.request_glyphs(self.font_key,
                                       font_size_dp,
-                                      self.color,
+                                      color,
                                       &self.glyph_instances,
-                                      self.render_mode,
+                                      render_mode,
                                       self.glyph_options);
     }
 
-    fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
+    fn write_gpu_blocks(&self,
+                        request: &mut GpuDataRequest,
+                        render_mode: FontRenderMode) {
         // Two glyphs are packed per GPU block.
         for glyph_chunk in self.glyph_instances.chunks(2) {
             // In the case of an odd number of glyphs, the
@@ -536,7 +569,7 @@ impl TextRunPrimitiveCpu {
             // GPU block.
             let first_glyph = glyph_chunk.first().unwrap();
             let second_glyph = glyph_chunk.last().unwrap();
-            let data = match self.render_mode {
+            let data = match render_mode {
                 FontRenderMode::Mono |
                 FontRenderMode::Alpha => [
                     first_glyph.point.x,
@@ -555,6 +588,19 @@ impl TextRunPrimitiveCpu {
             };
             request.push(data);
         }
+    }
+}
+
+impl TextRunPrimitiveCpu {
+    fn prepare_for_render(&mut self,
+                          resource_cache: &mut ResourceCache,
+                          device_pixel_ratio: f32,
+                          display_list: &BuiltDisplayList) {
+        self.run.prepare_for_render(self.color,
+                                    self.render_mode,
+                                    resource_cache,
+                                    device_pixel_ratio,
+                                    display_list);
     }
 }
 
@@ -1066,7 +1112,7 @@ impl PrimitiveStore {
             }
             PrimitiveKind::TextShadow => {
                 let shadow = &mut self.cpu_text_shadows[metadata.cpu_prim_index.0];
-                for text in &mut shadow.text_primitives {
+                for text in &mut shadow.runs {
                     text.prepare_for_render(resource_cache,
                                             device_pixel_ratio,
                                             display_list);
@@ -1170,13 +1216,16 @@ impl PrimitiveStore {
                 PrimitiveKind::TextRun => {
                     let text = &self.cpu_text_runs[metadata.cpu_prim_index.0];
                     request.push(text.color);
-                    text.write_gpu_blocks(&mut request);
+                    text.run.write_gpu_blocks(&mut request, text.render_mode);
                 }
                 PrimitiveKind::TextShadow => {
                     let prim = &self.cpu_text_shadows[metadata.cpu_prim_index.0];
                     request.push(prim.shadow.color);
-                    for text in &prim.text_primitives {
-                        text.write_gpu_blocks(&mut request);
+                    for text in &prim.runs {
+                        request.push([text.offset.x, text.offset.y, 0.0, 0.0]);
+                    }
+                    for text in &prim.runs {
+                        text.run.write_gpu_blocks(&mut request, FontRenderMode::Alpha);
                     }
                 }
             }
