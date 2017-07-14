@@ -510,6 +510,26 @@ impl YamlFrameWriter {
                     str_node(&mut v, "type", "rect");
                     color_node(&mut v, "color", item.color);
                 },
+                Line(item) => {
+                    str_node(&mut v, "type", "line");
+                    f32_node(&mut v, "baseline", item.baseline);
+                    f32_node(&mut v, "start", item.start);
+                    f32_node(&mut v, "end", item.end);
+                    let orientation = match item.orientation {
+                        LineOrientation::Vertical => "vertical",
+                        LineOrientation::Horizontal => "horizontal",
+                    };
+                    str_node(&mut v, "orientation", orientation);
+                    f32_node(&mut v, "width", item.width);
+                    color_node(&mut v, "color", item.color);
+                    let style = match item.style {
+                        LineStyle::Solid => "solid",
+                        LineStyle::Dotted => "dotted",
+                        LineStyle::Dashed => "dashed",
+                        LineStyle::Wavy => "wavy",
+                    };
+                    str_node(&mut v, "style", style);
+                }
                 Text(item) => {
                     let gi = display_list.get(base.glyphs());
                     let mut indices: Vec<u32> = vec![];

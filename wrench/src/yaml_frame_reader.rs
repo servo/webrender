@@ -220,6 +220,28 @@ impl YamlFrameReader {
         self.builder().push_rect(rect, Some(local_clip), color);
     }
 
+    fn handle_line(&mut self, item: &Yaml, local_clip: LocalClip) {
+        let color = item["color"].as_colorf().unwrap_or(*BLACK_COLOR);
+        let baseline = item["baseline"].as_f32().expect("line must have baseline");
+        let start = item["start"].as_f32().expect("line must have start");
+        let end = item["end"].as_f32().expect("line must have end");
+        let width = item["width"].as_f32().expect("line must have width");
+        let orientation = match item["orientation"].as_str().expect("line must have orientation") {
+            "vertical" => LineOrientation::Vertical,
+            "horizontal" => LineOrientation::Horizontal,
+            s => panic!("Unknown line orientation: {}", s),
+        };
+        let style = match item["style"].as_str().expect("line must have style") {
+            "solid" => LineStyle::Solid,
+            "dotted" => LineStyle::Dotted,
+            "dashed" => LineStyle::Dashed,
+            "wavy" => LineStyle::Wavy,
+            s => panic!("Unknown line style: {}", s),
+        };
+
+        self.builder().push_line(Some(local_clip), baseline, start, end, orientation, width, color, style);
+    }
+
     fn handle_gradient(&mut self, item: &Yaml, local_clip: LocalClip) {
         let bounds_key = if item["type"].is_badvalue() { "gradient" } else { "bounds" };
         let bounds = item[bounds_key].as_rect().expect("gradient must have bounds");
@@ -562,6 +584,7 @@ impl YamlFrameReader {
             let local_clip = self.get_local_clip_for_item(item, full_clip);
             match item_type {
                 "rect" => self.handle_rect(item, local_clip),
+                "line" => self.handle_line(item, local_clip),
                 "image" => self.handle_image(wrench, item, local_clip),
                 "text" | "glyphs" => self.handle_text(wrench, item, local_clip),
                 "scroll-frame" => self.handle_scroll_frame(wrench, item),
