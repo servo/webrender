@@ -11,7 +11,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use webrender::api::*;
 use wrench::{Wrench, WrenchThing, layout_simple_ascii};
-use yaml_helper::YamlHelper;
+use yaml_helper::{YamlHelper, StringEnum};
 use yaml_rust::{Yaml, YamlLoader};
 use {WHITE_COLOR, BLACK_COLOR, PLATFORM_DEFAULT_FACE_NAME};
 
@@ -218,6 +218,19 @@ impl YamlFrameReader {
         let rect = item[bounds_key].as_rect().expect("rect type must have bounds");
         let color = item["color"].as_colorf().unwrap_or(*WHITE_COLOR);
         self.builder().push_rect(rect, Some(local_clip), color);
+    }
+
+    fn handle_line(&mut self, item: &Yaml, local_clip: LocalClip) {
+        let color = item["color"].as_colorf().unwrap_or(*BLACK_COLOR);
+        let baseline = item["baseline"].as_f32().expect("line must have baseline");
+        let start = item["start"].as_f32().expect("line must have start");
+        let end = item["end"].as_f32().expect("line must have end");
+        let width = item["width"].as_f32().expect("line must have width");
+        let orientation = item["orientation"].as_str().and_then(LineOrientation::from_str)
+                                             .expect("line must have orientation");
+        let style = item["style"].as_str().and_then(LineStyle::from_str)
+                                          .expect("line must have style");
+        self.builder().push_line(Some(local_clip), baseline, start, end, orientation, width, color, style);
     }
 
     fn handle_gradient(&mut self, item: &Yaml, local_clip: LocalClip) {
@@ -562,6 +575,7 @@ impl YamlFrameReader {
             let local_clip = self.get_local_clip_for_item(item, full_clip);
             match item_type {
                 "rect" => self.handle_rect(item, local_clip),
+                "line" => self.handle_line(item, local_clip),
                 "image" => self.handle_image(wrench, item, local_clip),
                 "text" | "glyphs" => self.handle_text(wrench, item, local_clip),
                 "scroll-frame" => self.handle_scroll_frame(wrench, item),
