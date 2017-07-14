@@ -14,9 +14,9 @@ use gpu_cache::GpuCache;
 use internal_types::HardwareCompositeOp;
 use mask_cache::{ClipMode, ClipRegion, ClipSource, MaskCacheInfo};
 use plane_split::{BspSplitter, Polygon, Splitter};
-use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu};
+use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, ShadowTextRun};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveIndex};
-use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
+use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, TextRun};
 use prim_store::{RectanglePrimitive, TextRunPrimitiveCpu, TextShadowPrimitiveCpu};
 use prim_store::{BoxShadowPrimitiveCpu, TexelRect, YuvImagePrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
@@ -106,34 +106,123 @@ pub struct FrameBuilderConfig {
     pub cache_expiry_frames: u32,
 }
 
-struct PendingTextShadow {
-    shadow: TextShadow,
-    text_primitives: Vec<TextRunPrimitiveCpu>,
-    clip_and_scroll: ClipAndScrollInfo,
+// A normal text run that was added while adding a text-shadow.
+// This is a text run added inside a push/pop text-shadow
+// context where the alpha of the text run is > 0.
+// We need to store them in a pending list so that we
+// can add them after adding the popped text shadows,
+// to maintain correct paint order.
+struct PendingTextRun {
+    prim: TextRunPrimitiveCpu,
     local_rect: LayerRect,
+    clip_and_scroll: ClipAndScrollInfo,
     local_clip: LocalClip,
 }
 
-impl PendingTextShadow {
-    fn new(shadow: TextShadow,
-           clip_and_scroll: ClipAndScrollInfo,
-           local_clip: &LocalClip) -> PendingTextShadow {
-        PendingTextShadow {
-            shadow: shadow,
-            text_primitives: Vec::new(),
-            clip_and_scroll: clip_and_scroll,
-            local_clip: local_clip.clone(),
-            local_rect: LayerRect::zero(),
-        }
-    }
+// A pending text shadow. Contains the details of the
+// shadow itself, plus a list of text runs that
+// make up this shadow.
+struct PendingTextShadow {
+    shadow: TextShadow,
+    clip_and_scroll: ClipAndScrollInfo,
+    local_rect: LayerRect,
+    local_clip: LocalClip,
+    runs: Vec<ShadowTextRun>,
+}
 
-    fn push(&mut self,
-            local_rect: LayerRect,
-            primitive: &TextRunPrimitiveCpu) {
-        self.text_primitives.push(primitive.clone());
+impl PendingTextShadow {
+    fn push_text(&mut self,
+                 run: &TextRun,
+                 local_rect: &LayerRect) {
+        // The combined local rect of the text-shadow primitive, is
+        // the union of all text runs, expanded by the blur radius
+        // for each run.
         let shadow_rect = local_rect.inflate(self.shadow.blur_radius,
                                              self.shadow.blur_radius);
         self.local_rect = self.local_rect.union(&shadow_rect);
+
+        // The blur shaders expect the source items to be placed in the
+        // center of the target (so offset by the blur radius). Since
+        // we are rendering glyphs into a target, we need to subtract the
+        // origin of their local bounding rect, to give a normalized
+        // glyph position.
+        let offset = LayerPoint::new(self.shadow.blur_radius - local_rect.origin.x,
+                                     self.shadow.blur_radius - local_rect.origin.y);
+
+        self.runs.push(ShadowTextRun {
+            run: run.clone(),
+            offset: offset,
+        });
+    }
+}
+
+// Maintains state when processing a text-shadow
+// stack, via push_text_shadow() and pop_text_shadow().
+struct TextShadowBuilder {
+    pending_shadows: Vec<PendingTextShadow>,
+    pending_texts: Vec<PendingTextRun>,
+}
+
+impl TextShadowBuilder {
+    fn new() -> TextShadowBuilder {
+        TextShadowBuilder {
+            pending_shadows: Vec::new(),
+            pending_texts: Vec::new(),
+        }
+    }
+
+    fn recycle(self) -> TextShadowBuilder {
+        TextShadowBuilder {
+            pending_shadows: recycle_vec(self.pending_shadows),
+            pending_texts: recycle_vec(self.pending_texts),
+        }
+    }
+
+    fn has_shadows(&self) -> bool {
+        !self.pending_shadows.is_empty()
+    }
+
+    // Add a new shadow to the list.
+    fn push_shadow(&mut self,
+                   shadow: TextShadow,
+                   clip_and_scroll: ClipAndScrollInfo,
+                   local_clip: LocalClip) {
+        self.pending_shadows.push(PendingTextShadow {
+            runs: Vec::new(),
+            shadow,
+            local_rect: LayerRect::zero(),
+            clip_and_scroll,
+            local_clip,
+        });
+    }
+
+    // Add a text run inside a push/pop text shadow stack.
+    fn push_text(&mut self,
+                 prim: TextRunPrimitiveCpu,
+                 local_rect: LayerRect,
+                 local_clip: LocalClip,
+                 clip_and_scroll: ClipAndScrollInfo) {
+        debug_assert!(self.has_shadows());
+
+        // Add the text run to each shadow in the list.
+        // TODO(gw): In the future we may be able to optimize
+        //           this to share glyph resources better.
+        for pending_shadow in &mut self.pending_shadows {
+            pending_shadow.push_text(&prim.run, &local_rect);
+        }
+
+        // If the color of the text run is not transparent,
+        // then also render it as a normal visual text run.
+        // Store in pending list so that it gets drawn
+        // *after* any text shadows are flushed.
+        if prim.color.a > 0.0 {
+            self.pending_texts.push(PendingTextRun {
+                prim,
+                local_rect,
+                clip_and_scroll,
+                local_clip,
+            });
+        }
     }
 }
 
@@ -147,7 +236,7 @@ pub struct FrameBuilder {
     stacking_context_store: Vec<StackingContext>,
     clip_scroll_group_store: Vec<ClipScrollGroup>,
     packed_layers: Vec<PackedLayer>,
-    pending_text_shadows: Vec<PendingTextShadow>,
+    text_shadow_builder: TextShadowBuilder,
 
     scrollbar_prims: Vec<ScrollbarPrimitive>,
 
@@ -176,7 +265,7 @@ impl FrameBuilder {
                     clip_scroll_group_store: recycle_vec(prev.clip_scroll_group_store),
                     cmds: recycle_vec(prev.cmds),
                     packed_layers: recycle_vec(prev.packed_layers),
-                    pending_text_shadows: recycle_vec(prev.pending_text_shadows),
+                    text_shadow_builder: prev.text_shadow_builder.recycle(),
                     scrollbar_prims: recycle_vec(prev.scrollbar_prims),
                     reference_frame_stack: recycle_vec(prev.reference_frame_stack),
                     stacking_context_stack: recycle_vec(prev.stacking_context_stack),
@@ -193,7 +282,7 @@ impl FrameBuilder {
                     clip_scroll_group_store: Vec::new(),
                     cmds: Vec::new(),
                     packed_layers: Vec::new(),
-                    pending_text_shadows: Vec::new(),
+                    text_shadow_builder: TextShadowBuilder::new(),
                     scrollbar_prims: Vec::new(),
                     reference_frame_stack: Vec::new(),
                     stacking_context_stack: Vec::new(),
@@ -321,7 +410,7 @@ impl FrameBuilder {
     pub fn pop_stacking_context(&mut self) {
         self.cmds.push(PrimitiveRunCmd::PopStackingContext);
         self.stacking_context_stack.pop();
-        assert!(self.pending_text_shadows.is_empty(),
+        assert!(!self.text_shadow_builder.has_shadows(),
             "Found unpopped text shadows when popping stacking context!");
     }
 
@@ -432,30 +521,49 @@ impl FrameBuilder {
                             shadow: TextShadow,
                             clip_and_scroll: ClipAndScrollInfo,
                             local_clip: &LocalClip) {
-        let text_shadow = PendingTextShadow::new(shadow,
-                                                 clip_and_scroll,
-                                                 local_clip);
-        self.pending_text_shadows.push(text_shadow);
+        self.text_shadow_builder.push_shadow(shadow,
+                                             clip_and_scroll,
+                                             local_clip.clone());
     }
 
     pub fn pop_text_shadow(&mut self) {
-        let mut text_shadow = self.pending_text_shadows
-                                  .pop()
-                                  .expect("Too many PopTextShadows?");
-        if !text_shadow.text_primitives.is_empty() {
+        let text_shadow = self.text_shadow_builder
+                              .pending_shadows
+                              .pop()
+                              .expect("Too many PopTextShadows?");
+        if !text_shadow.runs.is_empty() {
             let prim_cpu = TextShadowPrimitiveCpu {
-                text_primitives: text_shadow.text_primitives,
+                runs: text_shadow.runs,
                 shadow: text_shadow.shadow,
             };
 
-            text_shadow.local_rect = text_shadow.local_rect
-                                                .translate(&text_shadow.shadow.offset);
+            // Offset the position we will draw the cached primitive result
+            // (which is blurred) into the main target by the text-shadow offset.
+            let local_rect = text_shadow.local_rect
+                                        .translate(&text_shadow.shadow.offset);
 
+            // Add a text shadow that contains all the text runs added for
+            // this shadow.
             self.add_primitive(text_shadow.clip_and_scroll,
-                               &text_shadow.local_rect,
+                               &local_rect,
                                &text_shadow.local_clip,
                                &[],
                                PrimitiveContainer::TextShadow(prim_cpu));
+        }
+
+        // Once all shadows have been added for this stack, and we have
+        // emptied the stack, add any normal / visual text runs that
+        // were added. This ensures they paint after their associated
+        // shadow primitives.
+        if !self.text_shadow_builder.has_shadows() {
+            let pending_texts = mem::replace(&mut self.text_shadow_builder.pending_texts, Vec::new());
+            for prim in pending_texts {
+                self.add_primitive(prim.clip_and_scroll,
+                                   &prim.local_rect,
+                                   &prim.local_clip,
+                                   &[],
+                                   PrimitiveContainer::TextRun(prim.prim));
+            }
         }
     }
 
@@ -808,57 +916,55 @@ impl FrameBuilder {
             return
         }
 
-        // Construct the primitive struct that will
-        // be used for any text-shadows.
-        // text-blur shadow needs to force alpha AA.
-        let mut prim_cpu = TextRunPrimitiveCpu {
-            font_key,
-            logical_font_size: size,
-            glyph_range,
-            glyph_count,
-            glyph_instances: Vec::new(),
-            color: *color,
-            render_mode: FontRenderMode::Alpha,
-            glyph_options,
-        };
+        // TODO(gw): Use a proper algorithm to select
+        // whether this item should be rendered with
+        // subpixel AA!
+        let mut render_mode = self.config.default_font_render_mode;
 
-        // Add the text run to any shadows on the stack.
-        for shadow in &mut self.pending_text_shadows {
-            shadow.push(rect, &prim_cpu);
-        }
-
-        // Add a normal visible text run if not transparent.
-        if color.a > 0.0 {
-            // TODO(gw): Use a proper algorithm to select
-            // whether this item should be rendered with
-            // subpixel AA!
-            prim_cpu.render_mode = self.config.default_font_render_mode;
-
-            // There are some conditions under which we can't use
-            // subpixel text rendering, even if enabled.
-            if prim_cpu.render_mode == FontRenderMode::Subpixel {
-                if color.a != 1.0 {
-                    prim_cpu.render_mode = FontRenderMode::Alpha;
-                }
-
-                // text on a stacking context that has filters
-                // (e.g. opacity) can't use sub-pixel.
-                // TODO(gw): It's possible we can relax this in
-                //           the future, if we modify the way
-                //           we handle subpixel blending.
-                if let Some(sc_index) = self.stacking_context_stack.last() {
-                    let stacking_context = &self.stacking_context_store[sc_index.0];
-                    if stacking_context.composite_ops.count() > 0 {
-                        prim_cpu.render_mode = FontRenderMode::Alpha;
-                    }
-                }
+        // There are some conditions under which we can't use
+        // subpixel text rendering, even if enabled.
+        if render_mode == FontRenderMode::Subpixel {
+            if color.a != 1.0 {
+                render_mode = FontRenderMode::Alpha;
             }
 
+            // text on a stacking context that has filters
+            // (e.g. opacity) can't use sub-pixel.
+            // TODO(gw): It's possible we can relax this in
+            //           the future, if we modify the way
+            //           we handle subpixel blending.
+            if let Some(sc_index) = self.stacking_context_stack.last() {
+                let stacking_context = &self.stacking_context_store[sc_index.0];
+                if stacking_context.composite_ops.count() > 0 {
+                    render_mode = FontRenderMode::Alpha;
+                }
+            }
+        }
+
+        let prim = TextRunPrimitiveCpu {
+            run: TextRun {
+                font_key,
+                logical_font_size: size,
+                glyph_range,
+                glyph_count,
+                glyph_instances: Vec::new(),
+                glyph_options,
+            },
+            color: *color,
+            render_mode: render_mode,
+        };
+
+        if self.text_shadow_builder.has_shadows() {
+            self.text_shadow_builder.push_text(prim,
+                                               rect,
+                                               local_clip.clone(),
+                                               clip_and_scroll);
+        } else if color.a > 0.0 {
             self.add_primitive(clip_and_scroll,
                                &rect,
                                local_clip,
                                &[],
-                               PrimitiveContainer::TextRun(prim_cpu));
+                               PrimitiveContainer::TextRun(prim));
         }
     }
 
