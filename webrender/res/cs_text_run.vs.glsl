@@ -7,28 +7,22 @@
 // drawn un-transformed. These are used for effects such
 // as text-shadow.
 
-#define TEXT_RUN_HEADER_VECS 1
-
 void main(void) {
     Primitive prim = load_primitive();
     TextRun text = fetch_text_run(prim.specific_prim_address);
 
-    int rect_index = prim.user_data0;
-    int glyph_index = prim.user_data1;
-    int resource_address = prim.user_data2;
+    int glyph_index = prim.user_data0;
+    int resource_address = prim.user_data1;
     Glyph glyph = fetch_glyph(prim.specific_prim_address, glyph_index);
     GlyphResource res = fetch_glyph_resource(resource_address);
-
-    vec2 offset = fetch_from_resource_cache_1(prim.specific_prim_address +
-                                              TEXT_RUN_HEADER_VECS +
-                                              rect_index).xy;
 
     // Glyphs size is already in device-pixels.
     // The render task origin is in device-pixels. Offset that by
     // the glyph offset, relative to its primitive bounding rect.
     vec2 size = res.uv_rect.zw - res.uv_rect.xy;
     vec2 local_pos = glyph.offset + vec2(res.offset.x, -res.offset.y) / uDevicePixelRatio;
-    vec2 origin = prim.task.render_target_origin + uDevicePixelRatio * (offset + local_pos);
+    vec2 origin = prim.task.render_target_origin +
+                  uDevicePixelRatio * (text.offset + local_pos);
     vec4 local_rect = vec4(origin, size);
 
     vec2 texture_size = vec2(textureSize(sColor0, 0));

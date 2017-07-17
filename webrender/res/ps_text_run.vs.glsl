@@ -12,7 +12,9 @@ void main(void) {
     Glyph glyph = fetch_glyph(prim.specific_prim_address, glyph_index);
     GlyphResource res = fetch_glyph_resource(resource_address);
 
-    vec2 local_pos = glyph.offset + vec2(res.offset.x, -res.offset.y) / uDevicePixelRatio;
+    vec2 local_pos = glyph.offset +
+                     text.offset +
+                     vec2(res.offset.x, -res.offset.y) / uDevicePixelRatio;
 
     RectWithSize local_rect = RectWithSize(local_pos,
                                            (res.uv_rect.zw - res.uv_rect.xy) / uDevicePixelRatio);

@@ -14,7 +14,7 @@ use gpu_cache::GpuCache;
 use internal_types::HardwareCompositeOp;
 use mask_cache::{ClipMode, ClipRegion, ClipSource, MaskCacheInfo};
 use plane_split::{BspSplitter, Polygon, Splitter};
-use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, ShadowTextRun};
+use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, TextRun};
 use prim_store::{RectanglePrimitive, TextRunPrimitiveCpu, TextShadowPrimitiveCpu};
@@ -127,13 +127,36 @@ struct PendingTextShadow {
     clip_and_scroll: ClipAndScrollInfo,
     local_rect: LayerRect,
     local_clip: LocalClip,
-    runs: Vec<ShadowTextRun>,
+    runs: Vec<TextRun>,
 }
 
 impl PendingTextShadow {
     fn push_text(&mut self,
                  run: &TextRun,
                  local_rect: &LayerRect) {
+        let mut run = run.clone();
+
+        if self.shadow.blur_radius == 0.0 {
+            // This text can be pushed through a fast path. Set the offset
+            // of the run to the shadow offset, to move the normal text
+            // run to the correct location.
+            run.offset = self.shadow.offset;
+        } else {
+            // Blur filter needs to render without subpixel AA.
+            if run.render_mode == FontRenderMode::Subpixel {
+                run.render_mode = FontRenderMode::Alpha;
+            }
+
+            // The blur shaders expect the source items to be placed in the
+            // center of the target (so offset by the blur radius). Since
+            // we are rendering glyphs into a target, we need to subtract the
+            // origin of their local bounding rect, to give a normalized
+            // glyph position.
+            let offset = LayerVector2D::new(self.shadow.blur_radius - local_rect.origin.x,
+                                            self.shadow.blur_radius - local_rect.origin.y);
+            run.offset = offset;
+        }
+
         // The combined local rect of the text-shadow primitive, is
         // the union of all text runs, expanded by the blur radius
         // for each run.
@@ -141,18 +164,7 @@ impl PendingTextShadow {
                                              self.shadow.blur_radius);
         self.local_rect = self.local_rect.union(&shadow_rect);
 
-        // The blur shaders expect the source items to be placed in the
-        // center of the target (so offset by the blur radius). Since
-        // we are rendering glyphs into a target, we need to subtract the
-        // origin of their local bounding rect, to give a normalized
-        // glyph position.
-        let offset = LayerPoint::new(self.shadow.blur_radius - local_rect.origin.x,
-                                     self.shadow.blur_radius - local_rect.origin.y);
-
-        self.runs.push(ShadowTextRun {
-            run: run.clone(),
-            offset: offset,
-        });
+        self.runs.push(run);
     }
 }
 
@@ -532,23 +544,41 @@ impl FrameBuilder {
                               .pop()
                               .expect("Too many PopTextShadows?");
         if !text_shadow.runs.is_empty() {
-            let prim_cpu = TextShadowPrimitiveCpu {
-                runs: text_shadow.runs,
-                shadow: text_shadow.shadow,
-            };
-
             // Offset the position we will draw the cached primitive result
             // (which is blurred) into the main target by the text-shadow offset.
             let local_rect = text_shadow.local_rect
                                         .translate(&text_shadow.shadow.offset);
 
-            // Add a text shadow that contains all the text runs added for
-            // this shadow.
-            self.add_primitive(text_shadow.clip_and_scroll,
-                               &local_rect,
-                               &text_shadow.local_clip,
-                               &[],
-                               PrimitiveContainer::TextShadow(prim_cpu));
+            // Select a fast path if the blur radius is zero.
+            if text_shadow.shadow.blur_radius == 0.0 {
+                // In the case of zero blur, just add each run as a normal text
+                // primitive.
+                for run in text_shadow.runs {
+                    let prim = TextRunPrimitiveCpu {
+                        run: run,
+                        color: text_shadow.shadow.color,
+                    };
+
+                    self.add_primitive(text_shadow.clip_and_scroll,
+                                       &local_rect,
+                                       &text_shadow.local_clip,
+                                       &[],
+                                       PrimitiveContainer::TextRun(prim));
+                }
+            } else {
+                let prim_cpu = TextShadowPrimitiveCpu {
+                    runs: text_shadow.runs,
+                    shadow: text_shadow.shadow,
+                };
+
+                // Add a text shadow that contains all the text runs added for
+                // this shadow.
+                self.add_primitive(text_shadow.clip_and_scroll,
+                                   &local_rect,
+                                   &text_shadow.local_clip,
+                                   &[],
+                                   PrimitiveContainer::TextShadow(prim_cpu));
+            }
         }
 
         // Once all shadows have been added for this stack, and we have
@@ -949,9 +979,10 @@ impl FrameBuilder {
                 glyph_count,
                 glyph_instances: Vec::new(),
                 glyph_options,
+                render_mode: render_mode,
+                offset: LayerVector2D::zero(),
             },
             color: *color,
-            render_mode: render_mode,
         };
 
         if self.text_shadow_builder.has_shadows() {
