@@ -16,7 +16,7 @@ use mask_cache::{ClipMode, ClipRegion, ClipSource, MaskCacheInfo};
 use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveIndex};
-use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, TextRun};
+use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, TextDecoration, TextRun};
 use prim_store::{RectanglePrimitive, TextRunPrimitiveCpu, TextShadowPrimitiveCpu};
 use prim_store::{BoxShadowPrimitiveCpu, TexelRect, YuvImagePrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
@@ -119,6 +119,13 @@ struct PendingTextRun {
     local_clip: LocalClip,
 }
 
+struct PendingTextDecoration {
+    prim: RectanglePrimitive,
+    local_rect: LayerRect,
+    clip_and_scroll: ClipAndScrollInfo,
+    local_clip: LocalClip,
+}
+
 // A pending text shadow. Contains the details of the
 // shadow itself, plus a list of text runs that
 // make up this shadow.
@@ -128,6 +135,7 @@ struct PendingTextShadow {
     local_rect: LayerRect,
     local_clip: LocalClip,
     runs: Vec<TextRun>,
+    decorations: Vec<TextDecoration>,
 }
 
 impl PendingTextShadow {
@@ -166,6 +174,18 @@ impl PendingTextShadow {
 
         self.runs.push(run);
     }
+
+    fn push_decoration(&mut self,
+                       local_rect: &LayerRect) {
+        self.local_rect = self.local_rect.union(local_rect);
+
+        self.decorations.push(TextDecoration {
+            local_rect: *local_rect,
+            prim: RectanglePrimitive {
+                color: self.shadow.color,
+            },
+        });
+    }
 }
 
 // Maintains state when processing a text-shadow
@@ -173,6 +193,7 @@ impl PendingTextShadow {
 struct TextShadowBuilder {
     pending_shadows: Vec<PendingTextShadow>,
     pending_texts: Vec<PendingTextRun>,
+    pending_decorations: Vec<PendingTextDecoration>,
 }
 
 impl TextShadowBuilder {
@@ -180,6 +201,7 @@ impl TextShadowBuilder {
         TextShadowBuilder {
             pending_shadows: Vec::new(),
             pending_texts: Vec::new(),
+            pending_decorations: Vec::new(),
         }
     }
 
@@ -187,6 +209,7 @@ impl TextShadowBuilder {
         TextShadowBuilder {
             pending_shadows: recycle_vec(self.pending_shadows),
             pending_texts: recycle_vec(self.pending_texts),
+            pending_decorations: recycle_vec(self.pending_decorations),
         }
     }
 
@@ -201,6 +224,7 @@ impl TextShadowBuilder {
                    local_clip: LocalClip) {
         self.pending_shadows.push(PendingTextShadow {
             runs: Vec::new(),
+            decorations: Vec::new(),
             shadow,
             local_rect: LayerRect::zero(),
             clip_and_scroll,
@@ -233,6 +257,29 @@ impl TextShadowBuilder {
                 local_rect,
                 clip_and_scroll,
                 local_clip,
+            });
+        }
+    }
+
+    fn push_decoration(&mut self,
+                       local_rect: &LayerRect,
+                       color: &ColorF,
+                       local_clip: &LocalClip,
+                       clip_and_scroll: ClipAndScrollInfo) {
+        debug_assert!(self.has_shadows());
+
+        for pending_shadow in &mut self.pending_shadows {
+            pending_shadow.push_decoration(local_rect);
+        }
+
+        if color.a > 0.0 {
+            self.pending_decorations.push(PendingTextDecoration {
+                prim: RectanglePrimitive {
+                    color: *color,
+                },
+                local_rect: *local_rect,
+                clip_and_scroll,
+                local_clip: *local_clip,
             });
         }
     }
@@ -579,6 +626,14 @@ impl FrameBuilder {
                                    &[],
                                    PrimitiveContainer::TextShadow(prim_cpu));
             }
+
+            for decoration in text_shadow.decorations {
+                self.add_primitive(text_shadow.clip_and_scroll,
+                                   &decoration.local_rect.translate(&text_shadow.shadow.offset),
+                                   &text_shadow.local_clip,
+                                   &[],
+                                   PrimitiveContainer::Rectangle(decoration.prim));
+            }
         }
 
         // Once all shadows have been added for this stack, and we have
@@ -594,6 +649,15 @@ impl FrameBuilder {
                                    &[],
                                    PrimitiveContainer::TextRun(prim.prim));
             }
+
+            let pending_decorations = mem::replace(&mut self.text_shadow_builder.pending_decorations, Vec::new());
+            for prim in pending_decorations {
+                self.add_primitive(prim.clip_and_scroll,
+                                   &prim.local_rect,
+                                   &prim.local_clip,
+                                   &[],
+                                   PrimitiveContainer::Rectangle(prim.prim));
+            }
         }
     }
 
@@ -603,28 +667,39 @@ impl FrameBuilder {
                                local_clip: &LocalClip,
                                color: &ColorF,
                                flags: PrimitiveFlags) {
-        if color.a == 0.0 {
-            return;
-        }
+        // TODO(gw): This is here as a temporary measure to allow
+        //           solid rectangles to be drawn into an
+        //           (unblurred) text-shadow. Supporting this allows
+        //           a WR update in Servo, since the tests rely
+        //           on this functionality. Once the complete
+        //           text decoration support is added (via the
+        //           Line display item) this can be removed, so that
+        //           rectangles don't participate in text shadows.
+        if self.text_shadow_builder.has_shadows() {
+            self.text_shadow_builder.push_decoration(rect,
+                                                     color,
+                                                     local_clip,
+                                                     clip_and_scroll);
+        } else if color.a > 0.0 {
+            let prim = RectanglePrimitive {
+                color: *color,
+            };
 
-        let prim = RectanglePrimitive {
-            color: *color,
-        };
+            let prim_index = self.add_primitive(clip_and_scroll,
+                                                rect,
+                                                local_clip,
+                                                &[],
+                                                PrimitiveContainer::Rectangle(prim));
 
-        let prim_index = self.add_primitive(clip_and_scroll,
-                                            rect,
-                                            local_clip,
-                                            &[],
-                                            PrimitiveContainer::Rectangle(prim));
-
-        match flags {
-            PrimitiveFlags::None => {}
-            PrimitiveFlags::Scrollbar(clip_id, border_radius) => {
-                self.scrollbar_prims.push(ScrollbarPrimitive {
-                    prim_index,
-                    clip_id,
-                    border_radius,
-                });
+            match flags {
+                PrimitiveFlags::None => {}
+                PrimitiveFlags::Scrollbar(clip_id, border_radius) => {
+                    self.scrollbar_prims.push(ScrollbarPrimitive {
+                        prim_index,
+                        clip_id,
+                        border_radius,
+                    });
+                }
             }
         }
     }

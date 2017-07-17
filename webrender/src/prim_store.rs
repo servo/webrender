@@ -494,6 +494,12 @@ pub struct TextRun {
 }
 
 #[derive(Debug, Clone)]
+pub struct TextDecoration {
+    pub local_rect: LayerRect,
+    pub prim: RectanglePrimitive,
+}
+
+#[derive(Debug, Clone)]
 pub struct TextShadowPrimitiveCpu {
     pub runs: Vec<TextRun>,
     pub shadow: TextShadow,
