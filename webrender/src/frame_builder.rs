@@ -14,9 +14,9 @@ use gpu_cache::GpuCache;
 use internal_types::HardwareCompositeOp;
 use mask_cache::{ClipMode, ClipRegion, ClipSource, MaskCacheInfo};
 use plane_split::{BspSplitter, Polygon, Splitter};
-use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, ShadowTextRun};
+use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveIndex};
-use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, TextRun};
+use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, TextDecoration, TextRun};
 use prim_store::{RectanglePrimitive, TextRunPrimitiveCpu, TextShadowPrimitiveCpu};
 use prim_store::{BoxShadowPrimitiveCpu, TexelRect, YuvImagePrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
@@ -119,6 +119,13 @@ struct PendingTextRun {
     local_clip: LocalClip,
 }
 
+struct PendingTextDecoration {
+    prim: RectanglePrimitive,
+    local_rect: LayerRect,
+    clip_and_scroll: ClipAndScrollInfo,
+    local_clip: LocalClip,
+}
+
 // A pending text shadow. Contains the details of the
 // shadow itself, plus a list of text runs that
 // make up this shadow.
@@ -127,13 +134,37 @@ struct PendingTextShadow {
     clip_and_scroll: ClipAndScrollInfo,
     local_rect: LayerRect,
     local_clip: LocalClip,
-    runs: Vec<ShadowTextRun>,
+    runs: Vec<TextRun>,
+    decorations: Vec<TextDecoration>,
 }
 
 impl PendingTextShadow {
     fn push_text(&mut self,
                  run: &TextRun,
                  local_rect: &LayerRect) {
+        let mut run = run.clone();
+
+        if self.shadow.blur_radius == 0.0 {
+            // This text can be pushed through a fast path. Set the offset
+            // of the run to the shadow offset, to move the normal text
+            // run to the correct location.
+            run.offset = self.shadow.offset;
+        } else {
+            // Blur filter needs to render without subpixel AA.
+            if run.render_mode == FontRenderMode::Subpixel {
+                run.render_mode = FontRenderMode::Alpha;
+            }
+
+            // The blur shaders expect the source items to be placed in the
+            // center of the target (so offset by the blur radius). Since
+            // we are rendering glyphs into a target, we need to subtract the
+            // origin of their local bounding rect, to give a normalized
+            // glyph position.
+            let offset = LayerVector2D::new(self.shadow.blur_radius - local_rect.origin.x,
+                                            self.shadow.blur_radius - local_rect.origin.y);
+            run.offset = offset;
+        }
+
         // The combined local rect of the text-shadow primitive, is
         // the union of all text runs, expanded by the blur radius
         // for each run.
@@ -141,17 +172,18 @@ impl PendingTextShadow {
                                              self.shadow.blur_radius);
         self.local_rect = self.local_rect.union(&shadow_rect);
 
-        // The blur shaders expect the source items to be placed in the
-        // center of the target (so offset by the blur radius). Since
-        // we are rendering glyphs into a target, we need to subtract the
-        // origin of their local bounding rect, to give a normalized
-        // glyph position.
-        let offset = LayerPoint::new(self.shadow.blur_radius - local_rect.origin.x,
-                                     self.shadow.blur_radius - local_rect.origin.y);
+        self.runs.push(run);
+    }
 
-        self.runs.push(ShadowTextRun {
-            run: run.clone(),
-            offset: offset,
+    fn push_decoration(&mut self,
+                       local_rect: &LayerRect) {
+        self.local_rect = self.local_rect.union(local_rect);
+
+        self.decorations.push(TextDecoration {
+            local_rect: *local_rect,
+            prim: RectanglePrimitive {
+                color: self.shadow.color,
+            },
         });
     }
 }
@@ -161,6 +193,7 @@ impl PendingTextShadow {
 struct TextShadowBuilder {
     pending_shadows: Vec<PendingTextShadow>,
     pending_texts: Vec<PendingTextRun>,
+    pending_decorations: Vec<PendingTextDecoration>,
 }
 
 impl TextShadowBuilder {
@@ -168,6 +201,7 @@ impl TextShadowBuilder {
         TextShadowBuilder {
             pending_shadows: Vec::new(),
             pending_texts: Vec::new(),
+            pending_decorations: Vec::new(),
         }
     }
 
@@ -175,6 +209,7 @@ impl TextShadowBuilder {
         TextShadowBuilder {
             pending_shadows: recycle_vec(self.pending_shadows),
             pending_texts: recycle_vec(self.pending_texts),
+            pending_decorations: recycle_vec(self.pending_decorations),
         }
     }
 
@@ -189,6 +224,7 @@ impl TextShadowBuilder {
                    local_clip: LocalClip) {
         self.pending_shadows.push(PendingTextShadow {
             runs: Vec::new(),
+            decorations: Vec::new(),
             shadow,
             local_rect: LayerRect::zero(),
             clip_and_scroll,
@@ -221,6 +257,29 @@ impl TextShadowBuilder {
                 local_rect,
                 clip_and_scroll,
                 local_clip,
+            });
+        }
+    }
+
+    fn push_decoration(&mut self,
+                       local_rect: &LayerRect,
+                       color: &ColorF,
+                       local_clip: &LocalClip,
+                       clip_and_scroll: ClipAndScrollInfo) {
+        debug_assert!(self.has_shadows());
+
+        for pending_shadow in &mut self.pending_shadows {
+            pending_shadow.push_decoration(local_rect);
+        }
+
+        if color.a > 0.0 {
+            self.pending_decorations.push(PendingTextDecoration {
+                prim: RectanglePrimitive {
+                    color: *color,
+                },
+                local_rect: *local_rect,
+                clip_and_scroll,
+                local_clip: *local_clip,
             });
         }
     }
@@ -532,23 +591,49 @@ impl FrameBuilder {
                               .pop()
                               .expect("Too many PopTextShadows?");
         if !text_shadow.runs.is_empty() {
-            let prim_cpu = TextShadowPrimitiveCpu {
-                runs: text_shadow.runs,
-                shadow: text_shadow.shadow,
-            };
-
             // Offset the position we will draw the cached primitive result
             // (which is blurred) into the main target by the text-shadow offset.
             let local_rect = text_shadow.local_rect
                                         .translate(&text_shadow.shadow.offset);
 
-            // Add a text shadow that contains all the text runs added for
-            // this shadow.
-            self.add_primitive(text_shadow.clip_and_scroll,
-                               &local_rect,
-                               &text_shadow.local_clip,
-                               &[],
-                               PrimitiveContainer::TextShadow(prim_cpu));
+            // Select a fast path if the blur radius is zero.
+            if text_shadow.shadow.blur_radius == 0.0 {
+                // In the case of zero blur, just add each run as a normal text
+                // primitive.
+                for run in text_shadow.runs {
+                    let prim = TextRunPrimitiveCpu {
+                        run: run,
+                        color: text_shadow.shadow.color,
+                    };
+
+                    self.add_primitive(text_shadow.clip_and_scroll,
+                                       &local_rect,
+                                       &text_shadow.local_clip,
+                                       &[],
+                                       PrimitiveContainer::TextRun(prim));
+                }
+            } else {
+                let prim_cpu = TextShadowPrimitiveCpu {
+                    runs: text_shadow.runs,
+                    shadow: text_shadow.shadow,
+                };
+
+                // Add a text shadow that contains all the text runs added for
+                // this shadow.
+                self.add_primitive(text_shadow.clip_and_scroll,
+                                   &local_rect,
+                                   &text_shadow.local_clip,
+                                   &[],
+                                   PrimitiveContainer::TextShadow(prim_cpu));
+            }
+
+            for decoration in text_shadow.decorations {
+                self.add_primitive(text_shadow.clip_and_scroll,
+                                   &decoration.local_rect.translate(&text_shadow.shadow.offset),
+                                   &text_shadow.local_clip,
+                                   &[],
+                                   PrimitiveContainer::Rectangle(decoration.prim));
+            }
         }
 
         // Once all shadows have been added for this stack, and we have
@@ -564,6 +649,15 @@ impl FrameBuilder {
                                    &[],
                                    PrimitiveContainer::TextRun(prim.prim));
             }
+
+            let pending_decorations = mem::replace(&mut self.text_shadow_builder.pending_decorations, Vec::new());
+            for prim in pending_decorations {
+                self.add_primitive(prim.clip_and_scroll,
+                                   &prim.local_rect,
+                                   &prim.local_clip,
+                                   &[],
+                                   PrimitiveContainer::Rectangle(prim.prim));
+            }
         }
     }
 
@@ -573,28 +667,39 @@ impl FrameBuilder {
                                local_clip: &LocalClip,
                                color: &ColorF,
                                flags: PrimitiveFlags) {
-        if color.a == 0.0 {
-            return;
-        }
+        // TODO(gw): This is here as a temporary measure to allow
+        //           solid rectangles to be drawn into an
+        //           (unblurred) text-shadow. Supporting this allows
+        //           a WR update in Servo, since the tests rely
+        //           on this functionality. Once the complete
+        //           text decoration support is added (via the
+        //           Line display item) this can be removed, so that
+        //           rectangles don't participate in text shadows.
+        if self.text_shadow_builder.has_shadows() {
+            self.text_shadow_builder.push_decoration(rect,
+                                                     color,
+                                                     local_clip,
+                                                     clip_and_scroll);
+        } else if color.a > 0.0 {
+            let prim = RectanglePrimitive {
+                color: *color,
+            };
 
-        let prim = RectanglePrimitive {
-            color: *color,
-        };
+            let prim_index = self.add_primitive(clip_and_scroll,
+                                                rect,
+                                                local_clip,
+                                                &[],
+                                                PrimitiveContainer::Rectangle(prim));
 
-        let prim_index = self.add_primitive(clip_and_scroll,
-                                            rect,
-                                            local_clip,
-                                            &[],
-                                            PrimitiveContainer::Rectangle(prim));
-
-        match flags {
-            PrimitiveFlags::None => {}
-            PrimitiveFlags::Scrollbar(clip_id, border_radius) => {
-                self.scrollbar_prims.push(ScrollbarPrimitive {
-                    prim_index,
-                    clip_id,
-                    border_radius,
-                });
+            match flags {
+                PrimitiveFlags::None => {}
+                PrimitiveFlags::Scrollbar(clip_id, border_radius) => {
+                    self.scrollbar_prims.push(ScrollbarPrimitive {
+                        prim_index,
+                        clip_id,
+                        border_radius,
+                    });
+                }
             }
         }
     }
@@ -949,9 +1054,10 @@ impl FrameBuilder {
                 glyph_count,
                 glyph_instances: Vec::new(),
                 glyph_options,
+                render_mode: render_mode,
+                offset: LayerVector2D::zero(),
             },
             color: *color,
-            render_mode: render_mode,
         };
 
         if self.text_shadow_builder.has_shadows() {

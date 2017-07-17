@@ -6,7 +6,7 @@ use api::{BuiltDisplayList, ColorF, ComplexClipRegion, DeviceIntRect, DeviceIntS
 use api::{ExtendMode, FontKey, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop};
 use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize, TextShadow};
 use api::{LayerToWorldTransform, TileOffset, WebGLContextId, YuvColorSpace, YuvFormat};
-use api::device_length;
+use api::{device_length, LayerVector2D};
 use app_units::Au;
 use border::BorderCornerInstance;
 use euclid::{Size2D};
@@ -483,41 +483,25 @@ impl RadialGradientPrimitiveCpu {
 #[derive(Debug, Clone)]
 pub struct TextRun {
     pub font_key: FontKey,
+    pub offset: LayerVector2D,
     pub logical_font_size: Au,
     pub glyph_range: ItemRange<GlyphInstance>,
     pub glyph_count: usize,
     // TODO(gw): Maybe make this an Arc for sharing with resource cache
     pub glyph_instances: Vec<GlyphInstance>,
     pub glyph_options: Option<GlyphOptions>,
+    pub render_mode: FontRenderMode,
 }
 
 #[derive(Debug, Clone)]
-pub struct ShadowTextRun {
-    pub run: TextRun,
-    pub offset: LayerPoint,
-}
-
-impl ShadowTextRun {
-    fn prepare_for_render(&mut self,
-                          resource_cache: &mut ResourceCache,
-                          device_pixel_ratio: f32,
-                          display_list: &BuiltDisplayList) {
-        // The color used to request glyphs for shadow rendering
-        // doesn't actually matter (since we're not using subpixel
-        // rendering in this case). Passing a constant color here
-        // is a bit more efficient, since we don't need to rasterize
-        // glyphs multiple times for shadows of different colors.
-        self.run.prepare_for_render(ColorF::new(0.0, 0.0, 0.0, 1.0),
-                                    FontRenderMode::Alpha,
-                                    resource_cache,
-                                    device_pixel_ratio,
-                                    display_list);
-    }
+pub struct TextDecoration {
+    pub local_rect: LayerRect,
+    pub prim: RectanglePrimitive,
 }
 
 #[derive(Debug, Clone)]
 pub struct TextShadowPrimitiveCpu {
-    pub runs: Vec<ShadowTextRun>,
+    pub runs: Vec<TextRun>,
     pub shadow: TextShadow,
 }
 
@@ -525,13 +509,11 @@ pub struct TextShadowPrimitiveCpu {
 pub struct TextRunPrimitiveCpu {
     pub run: TextRun,
     pub color: ColorF,
-    pub render_mode: FontRenderMode,
 }
 
 impl TextRun {
     fn prepare_for_render(&mut self,
                           color: ColorF,
-                          render_mode: FontRenderMode,
                           resource_cache: &mut ResourceCache,
                           device_pixel_ratio: f32,
                           display_list: &BuiltDisplayList) {
@@ -555,13 +537,16 @@ impl TextRun {
                                       font_size_dp,
                                       color,
                                       &self.glyph_instances,
-                                      render_mode,
+                                      self.render_mode,
                                       self.glyph_options);
     }
 
     fn write_gpu_blocks(&self,
-                        request: &mut GpuDataRequest,
-                        render_mode: FontRenderMode) {
+                        color: ColorF,
+                        request: &mut GpuDataRequest) {
+        request.push(color);
+        request.push([self.offset.x, self.offset.y, 0.0, 0.0]);
+
         // Two glyphs are packed per GPU block.
         for glyph_chunk in self.glyph_instances.chunks(2) {
             // In the case of an odd number of glyphs, the
@@ -569,7 +554,7 @@ impl TextRun {
             // GPU block.
             let first_glyph = glyph_chunk.first().unwrap();
             let second_glyph = glyph_chunk.last().unwrap();
-            let data = match render_mode {
+            let data = match self.render_mode {
                 FontRenderMode::Mono |
                 FontRenderMode::Alpha => [
                     first_glyph.point.x,
@@ -597,7 +582,6 @@ impl TextRunPrimitiveCpu {
                           device_pixel_ratio: f32,
                           display_list: &BuiltDisplayList) {
         self.run.prepare_for_render(self.color,
-                                    self.render_mode,
                                     resource_cache,
                                     device_pixel_ratio,
                                     display_list);
@@ -1113,7 +1097,13 @@ impl PrimitiveStore {
             PrimitiveKind::TextShadow => {
                 let shadow = &mut self.cpu_text_shadows[metadata.cpu_prim_index.0];
                 for text in &mut shadow.runs {
-                    text.prepare_for_render(resource_cache,
+                    // The color used to request glyphs for shadow rendering
+                    // doesn't actually matter (since we're not using subpixel
+                    // rendering in this case). Passing a constant color here
+                    // is a bit more efficient, since we don't need to rasterize
+                    // glyphs multiple times for shadows of different colors.
+                    text.prepare_for_render(ColorF::new(0.0, 0.0, 0.0, 1.0),
+                                            resource_cache,
                                             device_pixel_ratio,
                                             display_list);
                 }
@@ -1215,17 +1205,12 @@ impl PrimitiveStore {
                 }
                 PrimitiveKind::TextRun => {
                     let text = &self.cpu_text_runs[metadata.cpu_prim_index.0];
-                    request.push(text.color);
-                    text.run.write_gpu_blocks(&mut request, text.render_mode);
+                    text.run.write_gpu_blocks(text.color, &mut request);
                 }
                 PrimitiveKind::TextShadow => {
                     let prim = &self.cpu_text_shadows[metadata.cpu_prim_index.0];
-                    request.push(prim.shadow.color);
                     for text in &prim.runs {
-                        request.push([text.offset.x, text.offset.y, 0.0, 0.0]);
-                    }
-                    for text in &prim.runs {
-                        text.run.write_gpu_blocks(&mut request, FontRenderMode::Alpha);
+                        text.write_gpu_blocks(prim.shadow.color, &mut request);
                     }
                 }
             }
