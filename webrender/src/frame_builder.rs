@@ -321,7 +321,7 @@ impl FrameBuilder {
 
         let mut clip_sources = extra_clips.to_vec();
         if let &LocalClip::RoundedRect(_, _) = local_clip {
-            clip_sources.push(ClipSource::Region(ClipRegion::for_local_clip(local_clip)))
+            clip_sources.push(ClipSource::Region(ClipRegion::create_for_local_clip(local_clip)))
         }
 
         let clip_info = if !clip_sources.is_empty() {
