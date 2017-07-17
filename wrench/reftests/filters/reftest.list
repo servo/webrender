@@ -1,3 +1,6 @@
 == filter-grayscale.yaml filter-grayscale-ref.yaml
 == isolated.yaml isolated-ref.yaml
 == invisible.yaml invisible-ref.yaml
+== opacity.yaml opacity-ref.yaml
+== opacity-combined.yaml opacity-combined-ref.yaml
+== opacity-overlap.yaml opacity-overlap-ref.yaml
