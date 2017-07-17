@@ -615,14 +615,37 @@ impl TextureCache {
         mem::replace(&mut self.pending_updates, TextureUpdateList::new())
     }
 
-    pub fn allocate(&mut self,
-                    requested_width: u32,
-                    requested_height: u32,
-                    format: ImageFormat,
-                    filter: TextureFilter,
-                    user_data: [f32; 2],
-                    profile: &mut TextureCacheProfileCounters)
-                    -> AllocationResult {
+    pub fn allocate(
+        &mut self,
+        requested_width: u32,
+        requested_height: u32,
+        format: ImageFormat,
+        filter: TextureFilter,
+        user_data: [f32; 2],
+        profile: &mut TextureCacheProfileCounters
+    ) -> AllocationResult {
+        self.allocate_impl(
+            requested_width,
+            requested_height,
+            format,
+            filter,
+            user_data,
+            profile,
+            None,
+        )
+    }
+
+    // If item_id is None, create a new id, otherwise reuse it.
+    fn allocate_impl(
+        &mut self,
+        requested_width: u32,
+        requested_height: u32,
+        format: ImageFormat,
+        filter: TextureFilter,
+        user_data: [f32; 2],
+        profile: &mut TextureCacheProfileCounters,
+        item_id: Option<TextureCacheItemId>
+    ) -> AllocationResult {
         let requested_size = DeviceUintSize::new(requested_width, requested_height);
 
         // TODO(gw): For now, anything that requests nearest filtering
@@ -636,8 +659,13 @@ impl TextureCache {
             let cache_item = TextureCacheItem::new(
                 texture_id,
                 DeviceUintRect::new(DeviceUintPoint::zero(), requested_size),
-                user_data);
-            let image_id = self.items.insert(cache_item);
+                user_data
+            );
+
+            let image_id = match item_id {
+                Some(id) => id,
+                None => self.items.insert(cache_item.clone()),
+            };
 
             return AllocationResult {
                 item: self.items.get(image_id).clone(),
@@ -734,7 +762,11 @@ impl TextureCache {
         let cache_item = TextureCacheItem::new(page.texture_id,
                                                DeviceUintRect::new(location, requested_size),
                                                user_data);
-        let image_id = self.items.insert(cache_item.clone());
+
+        let image_id = match item_id {
+            Some(id) => id,
+            None => self.items.insert(cache_item.clone()),
+        };
 
         AllocationResult {
             item: cache_item,
@@ -746,13 +778,28 @@ impl TextureCache {
     pub fn update(&mut self,
                   image_id: TextureCacheItemId,
                   descriptor: ImageDescriptor,
+                  filter: TextureFilter,
                   data: ImageData,
                   dirty_rect: Option<DeviceUintRect>) {
-        let existing_item = self.items.get(image_id);
+        let existing_item = self.items.get(image_id).clone();
 
-        // TODO(gw): Handle updates to size/format!
-        debug_assert_eq!(existing_item.allocated_rect.size.width, descriptor.width);
-        debug_assert_eq!(existing_item.allocated_rect.size.height, descriptor.height);
+        if existing_item.allocated_rect.size.width != descriptor.width ||
+           existing_item.allocated_rect.size.height != descriptor.height {
+
+            self.free_item_rect(existing_item.clone());
+
+            self.allocate_impl(
+                descriptor.width,
+                descriptor.height,
+                descriptor.format,
+                filter,
+                existing_item.user_data,
+                &mut TextureCacheProfileCounters::new(),
+                Some(image_id),
+            );
+
+            return;
+        }
 
         let op = match data {
             ImageData::External(..) => {
@@ -933,6 +980,10 @@ impl TextureCache {
 
     pub fn free(&mut self, id: TextureCacheItemId) {
         let item = self.items.free(id);
+        self.free_item_rect(item);
+    }
+
+    fn free_item_rect(&mut self, item: TextureCacheItem) {
         match self.arena.texture_page_for_id(item.texture_id) {
             Some(texture_page) => texture_page.free(&item.allocated_rect),
             None => {
