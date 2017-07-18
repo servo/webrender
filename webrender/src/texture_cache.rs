@@ -775,13 +775,15 @@ impl TextureCache {
         }
     }
 
-    pub fn update(&mut self,
-                  image_id: TextureCacheItemId,
-                  descriptor: ImageDescriptor,
-                  filter: TextureFilter,
-                  data: ImageData,
-                  dirty_rect: Option<DeviceUintRect>) {
-        let existing_item = self.items.get(image_id).clone();
+    pub fn update(
+        &mut self,
+        image_id: TextureCacheItemId,
+        descriptor: ImageDescriptor,
+        filter: TextureFilter,
+        data: ImageData,
+        mut dirty_rect: Option<DeviceUintRect>,
+    ) {
+        let mut existing_item = self.items.get(image_id).clone();
 
         if existing_item.allocated_rect.size.width != descriptor.width ||
            existing_item.allocated_rect.size.height != descriptor.height {
@@ -798,7 +800,10 @@ impl TextureCache {
                 Some(image_id),
             );
 
-            return;
+            // Fetch the item again because the rect most likely changed during reallocation.
+            existing_item = self.items.get(image_id).clone();
+            // If we reallocated, we need to upload the whole item again.
+            dirty_rect = None;
         }
 
         let op = match data {
