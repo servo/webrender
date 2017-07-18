@@ -1,0 +1,257 @@
+---
+root:
+  items:
+    - type: line
+      baseline: 10
+      start: 10
+      end: 210
+      width: 3
+      orientation: horizontal
+      color: black
+      style: solid
+    - type: line
+      baseline: 20
+      start: 10
+      end: 210
+      width: 3
+      orientation: horizontal
+      color: blue
+      style: dashed
+    - type: line
+      baseline: 30
+      start: 10
+      end: 210
+      width: 3
+      orientation: horizontal
+      color: green
+      style: dotted
+    - type: line
+      baseline: 40
+      start: 10
+      end: 210
+      width: 3
+      orientation: horizontal
+      color: red
+      style: wavy
+
+    - type: line
+      baseline: 50
+      start: 10
+      end: 210
+      width: 8
+      orientation: horizontal
+      color: black
+      style: solid
+    - type: line
+      baseline: 65
+      start: 10
+      end: 210
+      width: 8
+      orientation: horizontal
+      color: blue
+      style: dashed
+    - type: line
+      baseline: 80
+      start: 10
+      end: 210
+      width: 8
+      orientation: horizontal
+      color: green
+      style: dotted
+    - type: line
+      baseline: 95
+      start: 10
+      end: 210
+      width: 8
+      orientation: horizontal
+      color: red
+      style: wavy
+
+    -
+      type: "text-shadow"
+      bounds: [14, 18, 205, 35]
+      blur-radius: 0
+      offset: [5, 7]
+      color: red
+    - type: line
+      baseline: 130
+      start: 10
+      end: 210
+      width: 8
+      orientation: horizontal
+      color: black
+      style: solid
+    - type: line
+      baseline: 150
+      start: 10
+      end: 210
+      width: 8
+      orientation: horizontal
+      color: blue
+      style: dashed
+    - type: line
+      baseline: 170
+      start: 10
+      end: 210
+      width: 8
+      orientation: horizontal
+      color: green
+      style: dotted
+    - type: line
+      baseline: 190
+      start: 10
+      end: 210
+      width: 8
+      orientation: horizontal
+      color: black
+      style: wavy
+    -
+      type: "pop-text-shadow"
+
+    -
+      type: "text-shadow"
+      bounds: [0, 200, 220, 120]
+      blur-radius: 3
+      offset: [5, 7]
+      color: red
+    - type: line
+      baseline: 230
+      start: 10
+      end: 210
+      width: 8
+      orientation: horizontal
+      color: black
+      style: solid
+    - type: line
+      baseline: 250
+      start: 10
+      end: 210
+      width: 8
+      orientation: horizontal
+      color: blue
+      style: dashed
+    - type: line
+      baseline: 270
+      start: 10
+      end: 210
+      width: 8
+      orientation: horizontal
+      color: green
+      style: dotted
+    - type: line
+      baseline: 290
+      start: 10
+      end: 210
+      width: 8
+      orientation: horizontal
+      color: black
+      style: wavy
+    -
+      type: "pop-text-shadow"
+
+    - type: line
+      baseline: 220
+      start: 10
+      end: 210
+      width: 3
+      orientation: vertical
+      color: black
+      style: solid
+    - type: line
+      baseline: 230
+      start: 10
+      end: 210
+      width: 3
+      orientation: vertical
+      color: blue
+      style: dashed
+    - type: line
+      baseline: 240
+      start: 10
+      end: 210
+      width: 3
+      orientation: vertical
+      color: green
+      style: dotted
+    - type: line
+      baseline: 250
+      start: 10
+      end: 210
+      width: 3
+      orientation: vertical
+      color: red
+      style: wavy
+
+    - type: line
+      baseline: 270
+      start: 10
+      end: 210
+      width: 8
+      orientation: vertical
+      color: black
+      style: solid
+    - type: line
+      baseline: 290
+      start: 10
+      end: 210
+      width: 8
+      orientation: vertical
+      color: blue
+      style: dashed
+    - type: line
+      baseline: 310
+      start: 10
+      end: 210
+      width: 8
+      orientation: vertical
+      color: green
+      style: dotted
+    - type: line
+      baseline: 330
+      start: 10
+      end: 210
+      width: 8
+      orientation: vertical
+      color: red
+      style: wavy
+
+    -
+      type: "text-shadow"
+      bounds: [350, 0, 120, 240]
+      blur-radius: 3
+      offset: [5, 2]
+      color: black
+    - type: line
+      baseline: 380
+      start: 10
+      end: 210
+      width: 8
+      orientation: vertical
+      color: yellow
+      style: solid
+    - type: line
+      baseline: 400
+      start: 10
+      end: 210
+      width: 8
+      orientation: vertical
+      color: blue
+      style: dashed
+    - type: line
+      baseline: 420
+      start: 10
+      end: 210
+      width: 8
+      orientation: vertical
+      color: green
+      style: dotted
+    - type: line
+      baseline: 440
+      start: 10
+      end: 210
+      width: 8
+      orientation: vertical
+      color: red
+      style: wavy
+    -
+      type: "pop-text-shadow"

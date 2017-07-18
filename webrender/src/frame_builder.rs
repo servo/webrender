@@ -15,7 +15,7 @@ use gpu_cache::GpuCache;
 use internal_types::HardwareCompositeOp;
 use mask_cache::{ClipMode, ClipRegion, ClipSource, MaskCacheInfo};
 use plane_split::{BspSplitter, Polygon, Splitter};
-use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, PrimitiveKind};
+use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, LinePrimitive, PrimitiveKind};
 use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, TextRunMode};
 use prim_store::{RectanglePrimitive, TextRunPrimitiveCpu, TextShadowPrimitiveCpu};
@@ -470,52 +470,24 @@ impl FrameBuilder {
                                local_clip: &LocalClip,
                                color: &ColorF,
                                flags: PrimitiveFlags) {
-        // TODO(gw): This is here as a temporary measure to allow
-        //           solid rectangles to be drawn into an
-        //           (unblurred) text-shadow. Supporting this allows
-        //           a WR update in Servo, since the tests rely
-        //           on this functionality. Once the complete
-        //           text decoration support is added (via the
-        //           Line display item) this can be removed, so that
-        //           rectangles don't participate in text shadows.
-        let mut trivial_shadows = Vec::new();
-        for shadow_prim_index in &self.shadow_prim_stack {
-            let shadow_metadata = &self.prim_store.cpu_metadata[shadow_prim_index.0];
-            let shadow_prim = &self.prim_store.cpu_text_shadows[shadow_metadata.cpu_prim_index.0];
-            if shadow_prim.shadow.blur_radius == 0.0 {
-                trivial_shadows.push(shadow_prim.shadow);
-            }
-        }
-        for shadow in trivial_shadows {
-            self.add_primitive(clip_and_scroll,
-                               &rect.translate(&shadow.offset),
-                               local_clip,
-                               &[],
-                               PrimitiveContainer::Rectangle(RectanglePrimitive {
-                                   color: shadow.color,
-                               }));
-        }
+        let prim = RectanglePrimitive {
+            color: *color,
+        };
 
-        if color.a > 0.0 {
-            let prim = RectanglePrimitive {
-                color: *color,
-            };
+        let prim_index = self.add_primitive(clip_and_scroll,
+                                            rect,
+                                            local_clip,
+                                            &[],
+                                            PrimitiveContainer::Rectangle(prim));
 
-            let prim_index = self.add_primitive(clip_and_scroll,
-                                                rect,
-                                                local_clip,
-                                                &[],
-                                                PrimitiveContainer::Rectangle(prim));
-
-            match flags {
-                PrimitiveFlags::None => {}
-                PrimitiveFlags::Scrollbar(clip_id, border_radius) => {
-                    self.scrollbar_prims.push(ScrollbarPrimitive {
-                        prim_index,
-                        clip_id,
-                        border_radius,
-                    });
-                }
+        match flags {
+            PrimitiveFlags::None => {}
+            PrimitiveFlags::Scrollbar(clip_id, border_radius) => {
+                self.scrollbar_prims.push(ScrollbarPrimitive {
+                    prim_index,
+                    clip_id,
+                    border_radius,
+                });
             }
         }
     }
@@ -530,30 +502,64 @@ impl FrameBuilder {
                     width: f32,
                     color: &ColorF,
                     style: LineStyle) {
-
-        // Dummy impl for testing (replace this)
-        match style {
-            LineStyle::Solid => {
-                let new_rect = match orientation {
-                    LineOrientation::Horizontal => {
-                        LayerRect::new(LayerPoint::new(start, baseline),
-                                       LayerSize::new(end - start, width))
-                    }
-                    LineOrientation::Vertical => {
-                        LayerRect::new(LayerPoint::new(baseline, start),
-                                       LayerSize::new(width, end - start))
-                    }
-                };
-
-                self.add_solid_rectangle(clip_and_scroll,
-                                         &new_rect,
-                                         local_clip,
-                                         color,
-                                         PrimitiveFlags::None);
+        let new_rect = match orientation {
+            LineOrientation::Horizontal => {
+                LayerRect::new(LayerPoint::new(start, baseline),
+                               LayerSize::new(end - start, width))
             }
-            _ => unimplemented!(),
+            LineOrientation::Vertical => {
+                LayerRect::new(LayerPoint::new(baseline, start),
+                               LayerSize::new(width, end - start))
+            }
+        };
+
+        let line = LinePrimitive {
+            color: *color,
+            style: style,
+            orientation: orientation,
+        };
+
+        let mut fast_text_shadow_prims = Vec::new();
+        for shadow_prim_index in &self.shadow_prim_stack {
+            let shadow_metadata = &self.prim_store.cpu_metadata[shadow_prim_index.0];
+            let shadow_prim = &self.prim_store.cpu_text_shadows[shadow_metadata.cpu_prim_index.0];
+            if shadow_prim.shadow.blur_radius == 0.0 {
+                fast_text_shadow_prims.push(shadow_prim.shadow);
+            }
+        }
+        for shadow in fast_text_shadow_prims {
+            let mut line = line.clone();
+            line.color = shadow.color;
+            self.add_primitive(clip_and_scroll,
+                               &new_rect.translate(&shadow.offset),
+                               local_clip,
+                               &[],
+                               PrimitiveContainer::Line(line));
         }
 
+        let prim_index = self.create_primitive(clip_and_scroll,
+                                               &new_rect,
+                                               local_clip,
+                                               &[],
+                                               PrimitiveContainer::Line(line));
+
+        if color.a > 0.0 {
+            self.add_primitive_to_draw_list(prim_index, clip_and_scroll);
+        }
+
+        for shadow_prim_index in &self.shadow_prim_stack {
+            let shadow_metadata = &mut self.prim_store.cpu_metadata[shadow_prim_index.0];
+            debug_assert_eq!(shadow_metadata.prim_kind, PrimitiveKind::TextShadow);
+            let shadow_prim = &mut self.prim_store.cpu_text_shadows[shadow_metadata.cpu_prim_index.0];
+
+            // Only run real blurs here (fast path zero blurs are handled above).
+            if shadow_prim.shadow.blur_radius > 0.0 {
+                let shadow_rect = new_rect.inflate(shadow_prim.shadow.blur_radius,
+                                                   shadow_prim.shadow.blur_radius);
+                shadow_metadata.local_rect = shadow_metadata.local_rect.union(&shadow_rect);
+                shadow_prim.primitives.push(prim_index);
+            }
+        }
     }
 
     pub fn add_border(&mut self,
