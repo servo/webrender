@@ -427,6 +427,11 @@ impl AlphaRenderItem {
                         let batch = batch_list.get_suitable_batch(&key, item_bounding_rect);
                         batch.add_instance(base_instance.build(0, 0, 0));
                     }
+                    PrimitiveKind::Line => {
+                        let key = AlphaBatchKey::new(AlphaBatchKind::Line, flags, blend_mode, no_textures);
+                        let batch = batch_list.get_suitable_batch(&key, item_bounding_rect);
+                        batch.add_instance(base_instance.build(0, 0, 0));
+                    }
                     PrimitiveKind::Image => {
                         let image_cpu = &ctx.prim_store.cpu_images[prim_metadata.cpu_prim_index.0];
 
@@ -1283,6 +1288,7 @@ pub enum AlphaBatchKind {
     CacheImage,
     BorderCorner,
     BorderEdge,
+    Line,
 }
 
 bitflags! {

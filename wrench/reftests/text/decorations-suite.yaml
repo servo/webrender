@@ -1,0 +1,134 @@
+---
+root:
+  items:
+    - type: line
+      baseline: 10
+      start: 10
+      end: 210
+      width: 3
+      orientation: horizontal
+      color: black
+      style: solid
+    - type: line
+      baseline: 20
+      start: 10
+      end: 210
+      width: 3
+      orientation: horizontal
+      color: blue
+      style: dashed
+    - type: line
+      baseline: 30
+      start: 10
+      end: 210
+      width: 3
+      orientation: horizontal
+      color: green
+      style: dotted
+    - type: line
+      baseline: 40
+      start: 10
+      end: 210
+      width: 3
+      orientation: horizontal
+      color: red
+      style: wavy
+
+    - type: line
+      baseline: 50
+      start: 10
+      end: 210
+      width: 8
+      orientation: horizontal
+      color: black
+      style: solid
+    - type: line
+      baseline: 65
+      start: 10
+      end: 210
+      width: 8
+      orientation: horizontal
+      color: blue
+      style: dashed
+    - type: line
+      baseline: 80
+      start: 10
+      end: 210
+      width: 8
+      orientation: horizontal
+      color: green
+      style: dotted
+    - type: line
+      baseline: 95
+      start: 10
+      end: 210
+      width: 8
+      orientation: horizontal
+      color: red
+      style: wavy
+
+    - type: line
+      baseline: 220
+      start: 10
+      end: 210
+      width: 3
+      orientation: vertical
+      color: black
+      style: solid
+    - type: line
+      baseline: 230
+      start: 10
+      end: 210
+      width: 3
+      orientation: vertical
+      color: blue
+      style: dashed
+    - type: line
+      baseline: 240
+      start: 10
+      end: 210
+      width: 3
+      orientation: vertical
+      color: green
+      style: dotted
+    - type: line
+      baseline: 250
+      start: 10
+      end: 210
+      width: 3
+      orientation: vertical
+      color: red
+      style: wavy
+
+    - type: line
+      baseline: 270
+      start: 10
+      end: 210
+      width: 8
+      orientation: vertical
+      color: black
+      style: solid
+    - type: line
+      baseline: 290
+      start: 10
+      end: 210
+      width: 8
+      orientation: vertical
+      color: blue
+      style: dashed
+    - type: line
+      baseline: 310
+      start: 10
+      end: 210
+      width: 8
+      orientation: vertical
+      color: green
+      style: dotted
+    - type: line
+      baseline: 330
+      start: 10
+      end: 210
+      width: 8
+      orientation: vertical
+      color: red
+      style: wavy

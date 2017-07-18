@@ -54,6 +54,11 @@
 #define EXTEND_MODE_CLAMP  0
 #define EXTEND_MODE_REPEAT 1
 
+#define LINE_STYLE_SOLID        0
+#define LINE_STYLE_DOTTED       1
+#define LINE_STYLE_DASHED       2
+#define LINE_STYLE_WAVY         3
+
 uniform sampler2DArray sCacheA8;
 uniform sampler2DArray sCacheRGBA8;
 
@@ -759,6 +764,17 @@ struct Rectangle {
 Rectangle fetch_rectangle(int address) {
     vec4 data = fetch_from_resource_cache_1(address);
     return Rectangle(data);
+}
+
+struct Line {
+    vec4 color;
+    float style;
+    float orientation;
+};
+
+Line fetch_line(int address) {
+    vec4 data[2] = fetch_from_resource_cache_2(address);
+    return Line(data[0], data[1].x, data[1].y);
 }
 
 struct TextRun {
