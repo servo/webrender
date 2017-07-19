@@ -452,6 +452,8 @@ pub struct TextureCacheItem {
     // Handle to the location of the UV rect for this item in GPU cache.
     pub uv_rect_handle: GpuCacheHandle,
 
+    pub format: ImageFormat,
+
     // Some arbitrary data associated with this item.
     // In the case of glyphs, it is the top / left offset
     // from the rasterized glyph.
@@ -493,6 +495,7 @@ impl FreeListItem for TextureCacheItem {
 impl TextureCacheItem {
     fn new(texture_id: CacheTextureId,
            rect: DeviceUintRect,
+           format: ImageFormat,
            user_data: [f32; 2])
            -> TextureCacheItem {
         TextureCacheItem {
@@ -505,6 +508,7 @@ impl TextureCacheItem {
             },
             allocated_rect: rect,
             uv_rect_handle: GpuCacheHandle::new(),
+            format,
             user_data,
         }
     }
@@ -659,6 +663,7 @@ impl TextureCache {
             let cache_item = TextureCacheItem::new(
                 texture_id,
                 DeviceUintRect::new(DeviceUintPoint::zero(), requested_size),
+                format,
                 user_data
             );
 
@@ -759,9 +764,12 @@ impl TextureCache {
 
         let location = page.allocate(&requested_size)
                            .expect("All the checks have passed till now, there is no way back.");
-        let cache_item = TextureCacheItem::new(page.texture_id,
-                                               DeviceUintRect::new(location, requested_size),
-                                               user_data);
+        let cache_item = TextureCacheItem::new(
+            page.texture_id,
+            DeviceUintRect::new(location, requested_size),
+            format,
+            user_data
+        );
 
         let image_id = match item_id {
             Some(id) => id,
@@ -786,7 +794,8 @@ impl TextureCache {
         let mut existing_item = self.items.get(image_id).clone();
 
         if existing_item.allocated_rect.size.width != descriptor.width ||
-           existing_item.allocated_rect.size.height != descriptor.height {
+           existing_item.allocated_rect.size.height != descriptor.height ||
+           existing_item.format != descriptor.format {
 
             self.free_item_rect(existing_item.clone());
 

@@ -312,7 +312,6 @@ impl ResourceCache {
                                  mut data: ImageData,
                                  dirty_rect: Option<DeviceUintRect>) {
         let resource = if let Some(image) = self.resources.image_templates.get(image_key) {
-            assert_eq!(image.descriptor.format, descriptor.format);
 
             let next_epoch = Epoch(image.epoch.0 + 1);
 
