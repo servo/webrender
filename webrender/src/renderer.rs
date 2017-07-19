@@ -66,6 +66,7 @@ const GPU_TAG_CACHE_TEXT_RUN: GpuProfileTag = GpuProfileTag { label: "C_TextRun"
 const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag { label: "target", color: debug_colors::SLATEGREY };
 const GPU_TAG_SETUP_DATA: GpuProfileTag = GpuProfileTag { label: "data init", color: debug_colors::LIGHTGREY };
 const GPU_TAG_PRIM_RECT: GpuProfileTag = GpuProfileTag { label: "Rect", color: debug_colors::RED };
+const GPU_TAG_PRIM_LINE: GpuProfileTag = GpuProfileTag { label: "Line", color: debug_colors::DARKRED };
 const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag { label: "Image", color: debug_colors::GREEN };
 const GPU_TAG_PRIM_YUV_IMAGE: GpuProfileTag = GpuProfileTag { label: "YuvImage", color: debug_colors::DARKGREEN };
 const GPU_TAG_PRIM_BLEND: GpuProfileTag = GpuProfileTag { label: "Blend", color: debug_colors::LIGHTBLUE };
@@ -651,6 +652,7 @@ pub struct Renderer {
     ps_radial_gradient: PrimitiveShader,
     ps_box_shadow: PrimitiveShader,
     ps_cache_image: PrimitiveShader,
+    ps_line: PrimitiveShader,
 
     ps_blend: LazilyCompiledShader,
     ps_hw_composite: LazilyCompiledShader,
@@ -839,6 +841,13 @@ impl Renderer {
             PrimitiveShader::new("ps_rectangle",
                                  &mut device,
                                  &[ CLIP_FEATURE ],
+                                 options.precache_shaders)
+        };
+
+        let ps_line = try!{
+            PrimitiveShader::new("ps_line",
+                                 &mut device,
+                                 &[],
                                  options.precache_shaders)
         };
 
@@ -1192,6 +1201,7 @@ impl Renderer {
             ps_hw_composite,
             ps_split_composite,
             ps_composite,
+            ps_line,
             notifier,
             debug: debug_renderer,
             render_target_debug,
@@ -1663,6 +1673,10 @@ impl Renderer {
                     self.ps_rectangle.get(&mut self.device, transform_kind)
                 };
                 (GPU_TAG_PRIM_RECT, shader)
+            }
+            AlphaBatchKind::Line => {
+                let shader = self.ps_line.get(&mut self.device, transform_kind);
+                (GPU_TAG_PRIM_LINE, shader)
             }
             AlphaBatchKind::TextRun => {
                 let shader = match batch.key.blend_mode {

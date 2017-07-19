@@ -621,6 +621,17 @@ impl Frame {
 
                 }
             }
+            SpecificDisplayItem::Line(ref info) => {
+                context.builder.add_line(clip_and_scroll,
+                                         item.local_clip(),
+                                         info.baseline,
+                                         info.start,
+                                         info.end,
+                                         info.orientation,
+                                         info.width,
+                                         &info.color,
+                                         info.style);
+            }
             SpecificDisplayItem::Gradient(ref info) => {
                 context.builder.add_gradient(clip_and_scroll,
                                              item.rect(),
