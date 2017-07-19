@@ -113,6 +113,18 @@ define_string_enum!(ScrollPolicy, [
     Fixed = "fixed",
 ]);
 
+define_string_enum!(LineOrientation, [
+    Horizontal = "horizontal",
+    Vertical = "vertical",
+]);
+
+define_string_enum!(LineStyle, [
+    Solid = "solid",
+    Dotted = "dotted",
+    Dashed = "dashed",
+    Wavy = "wavy",
+]);
+
 // Rotate around `axis` by `degrees` angle
 fn make_rotation(origin: &LayoutPoint, degrees: f32, axis_x: f32, axis_y: f32, axis_z: f32)
                  -> LayoutTransform {
