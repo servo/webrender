@@ -166,6 +166,11 @@ const int ComplexCompositeOperation_Hue         = 12;
 const int ComplexCompositeOperation_Saturation  = 13;
 const int ComplexCompositeOperation_Color       = 14;
 const int ComplexCompositeOperation_Luminosity  = 15;
+const int ComplexCompositeOperation_Clear       = 16;
+
+bool ShouldComputeAlpha(int op) {
+    return op != ComplexCompositeOperation_Clear;
+}
 
 void main(void) {
     vec4 Cb = texture(sCacheRGBA8, vUv0);
@@ -240,10 +245,15 @@ void main(void) {
         case ComplexCompositeOperation_Luminosity:
             result.rgb = Luminosity(Cb.rgb, Cs.rgb);
             break;
+        case ComplexCompositeOperation_Clear:
+            result = vec4(0.0, 0.0, 0.0, 0.0);
+            break;
     }
 
-    result.rgb = (1.0 - Cb.a) * Cs.rgb + Cb.a * result.rgb;
-    result.a = Cs.a;
+    if (ShouldComputeAlpha(vOp)) {
+        result.rgb = (1.0 - Cb.a) * Cs.rgb + Cb.a * result.rgb;
+        result.a = Cs.a;
+    }
 
     oFragColor = result;
 }

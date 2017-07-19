@@ -106,6 +106,7 @@ define_string_enum!(ComplexCompositeOperation, [
     Saturation = "saturation",
     Color = "color",
     Luminosity = "luminosity",
+    Clear = "clear",
 ]);
 
 define_string_enum!(ScrollPolicy, [

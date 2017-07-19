@@ -19,7 +19,7 @@ root:
 
     - type: stacking-context
       bounds: 512 100 412 568
-      composite-op: color-dodge
+      composite-op: clear
       items:
         - type: gradient
           bounds: 0 0 412 568

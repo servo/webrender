@@ -202,7 +202,10 @@ impl BatchList {
             BlendMode::None => {
                 (&mut self.opaque_batches, false)
             }
-            BlendMode::Alpha | BlendMode::PremultipliedAlpha | BlendMode::Subpixel(..) => {
+            BlendMode::Clear |
+            BlendMode::Alpha |
+            BlendMode::PremultipliedAlpha |
+            BlendMode::Subpixel(..) => {
                 (&mut self.alpha_batches, true)
             }
         };
@@ -263,6 +266,19 @@ impl BatchList {
 pub struct AlphaBatcher {
     pub batch_list: BatchList,
     tasks: Vec<AlphaBatchTask>,
+}
+
+trait ComplexCompositeOperationHelpers {
+    fn to_blend_mode(&self) -> BlendMode;
+}
+
+impl ComplexCompositeOperationHelpers for ComplexCompositeOperation {
+    fn to_blend_mode(&self) -> BlendMode {
+        match *self {
+            ComplexCompositeOperation::Clear => BlendMode::PremultipliedAlpha,
+            _ => BlendMode::Alpha,
+        }
+    }
 }
 
 impl AlphaRenderItem {
@@ -333,7 +349,7 @@ impl AlphaRenderItem {
                 let stacking_context = &ctx.stacking_context_store[stacking_context_index.0];
                 let key = AlphaBatchKey::new(AlphaBatchKind::Composite,
                                              AlphaBatchKeyFlags::empty(),
-                                             BlendMode::Alpha,
+                                             mode.to_blend_mode(),
                                              BatchTextures::no_texture());
                 let batch = batch_list.get_suitable_batch(&key, &stacking_context.screen_bounds);
                 let backdrop_task = render_tasks.get_task_index(&backdrop_id, child_pass_index);

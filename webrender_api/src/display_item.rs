@@ -328,6 +328,7 @@ pub enum ComplexCompositeOperation {
     Saturation  = 13,
     Color       = 14,
     Luminosity  = 15,
+    Clear       = 16,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]

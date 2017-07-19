@@ -184,6 +184,7 @@ pub enum BlendMode {
     None,
     Alpha,
     PremultipliedAlpha,
+    Clear,
 
     // Use the color of the text itself as a constant color blend factor.
     Subpixel(ColorF),
@@ -1632,12 +1633,7 @@ impl Renderer {
         let transform_kind = batch.key.flags.transform_kind();
         let needs_clipping = batch.key.flags.needs_clipping();
         debug_assert!(!needs_clipping ||
-                      match batch.key.blend_mode {
-                          BlendMode::Alpha |
-                          BlendMode::PremultipliedAlpha |
-                          BlendMode::Subpixel(..) => true,
-                          BlendMode::None => false,
-                      });
+                      batch.key.blend_mode != BlendMode::None);
 
         let (marker, shader) = match batch.key.kind {
             AlphaBatchKind::Composite => {
@@ -1668,6 +1664,7 @@ impl Renderer {
                 let shader = match batch.key.blend_mode {
                     BlendMode::Subpixel(..) => self.ps_text_run_subpixel.get(&mut self.device, transform_kind),
                     BlendMode::Alpha | BlendMode::PremultipliedAlpha | BlendMode::None => self.ps_text_run.get(&mut self.device, transform_kind),
+                    BlendMode::Clear => unreachable!(),
                 };
                 (GPU_TAG_PRIM_TEXT_RUN, shader)
             }
@@ -1911,6 +1908,10 @@ impl Renderer {
                     match batch.key.blend_mode {
                         BlendMode::None => {
                             self.device.set_blend(false);
+                        }
+                        BlendMode::Clear => {
+                            self.device.set_blend(true);
+                            self.device.set_blend_mode_clear();
                         }
                         BlendMode::Alpha => {
                             self.device.set_blend(true);
