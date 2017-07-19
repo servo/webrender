@@ -28,6 +28,7 @@ use rayon::ThreadPool;
 use glyph_rasterizer::{GlyphRasterizer, GlyphCache, GlyphRequest};
 
 const DEFAULT_TILE_SIZE: TileSize = 512;
+const BLACK: ColorF = ColorF { r: 0.0, b: 0.0, g: 0.0, a: 1.0 };
 
 // These coordinates are always in texels.
 // They are converted to normalized ST
@@ -447,11 +448,18 @@ impl ResourceCache {
     pub fn request_glyphs(&mut self,
                           key: FontKey,
                           size: Au,
-                          color: ColorF,
+                          mut color: ColorF,
                           glyph_instances: &[GlyphInstance],
                           render_mode: FontRenderMode,
                           glyph_options: Option<GlyphOptions>) {
         debug_assert_eq!(self.state, State::AddResources);
+
+        // In alpha/mono mode, the color of the font is irrelevant.
+        // Forcing it to black in those cases saves rasterizing glyphs
+        // of different colors when not needed.
+        if render_mode != FontRenderMode::Subpixel {
+            color = BLACK;
+        }
 
         self.glyph_rasterizer.request_glyphs(
             &mut self.cached_glyphs,
@@ -473,11 +481,17 @@ impl ResourceCache {
     pub fn get_glyphs<F>(&self,
                          font_key: FontKey,
                          size: Au,
-                         color: ColorF,
+                         mut color: ColorF,
                          glyph_instances: &[GlyphInstance],
                          render_mode: FontRenderMode,
                          glyph_options: Option<GlyphOptions>,
                          mut f: F) -> SourceTexture where F: FnMut(usize, &GpuCacheHandle) {
+        // Color when retrieving glyphs must match that of the request,
+        // otherwise the hash keys won't match.
+        if render_mode != FontRenderMode::Subpixel {
+            color = BLACK;
+        }
+
         debug_assert_eq!(self.state, State::QueryResources);
         let mut glyph_request = GlyphRequest::new(
             font_key,
