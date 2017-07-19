@@ -475,6 +475,19 @@ impl LocalClip {
             LocalClip::RoundedRect(ref rect, _) => &rect,
         }
     }
+
+    pub fn create_with_offset(&self, offset: &LayoutVector2D) -> LocalClip {
+        match *self {
+            LocalClip::Rect(rect) => LocalClip::from(rect.translate(offset)),
+            LocalClip::RoundedRect(rect, complex) => {
+                LocalClip::RoundedRect(rect.translate(offset),
+                                       ComplexClipRegion {
+                                            rect: complex.rect.translate(offset),
+                                            radii: complex.radii,
+                                        })
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]

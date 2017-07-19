@@ -4,9 +4,9 @@
 
 use api::{BuiltDisplayList, ColorF, ComplexClipRegion, DeviceIntRect, DeviceIntSize, DevicePoint};
 use api::{ExtendMode, FontKey, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop};
-use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize, TextShadow};
-use api::{LayerToWorldTransform, TileOffset, WebGLContextId, YuvColorSpace, YuvFormat};
-use api::{device_length, LayerVector2D};
+use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize};
+use api::{LayerToWorldTransform, LayerVector2D, LayoutVector2D, TextShadow, TileOffset};
+use api::{WebGLContextId, YuvColorSpace, YuvFormat, device_length};
 use app_units::Au;
 use border::BorderCornerInstance;
 use euclid::{Size2D};
@@ -485,6 +485,7 @@ pub struct TextRun {
     pub font_key: FontKey,
     pub offset: LayerVector2D,
     pub logical_font_size: Au,
+    pub run_offset: LayoutVector2D,
     pub glyph_range: ItemRange<GlyphInstance>,
     pub glyph_count: usize,
     // TODO(gw): Maybe make this an Arc for sharing with resource cache
@@ -526,7 +527,7 @@ impl TextRun {
             for src in src_glyphs {
                 self.glyph_instances.push(GlyphInstance {
                     index: src.index,
-                    point: src.point,
+                    point: src.point + self.run_offset,
                 });
             }
         }

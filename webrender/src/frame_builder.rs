@@ -6,8 +6,9 @@ use api::{BorderDetails, BorderDisplayItem, BoxShadowClipMode, ClipAndScrollInfo
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
 use api::{ExtendMode, FontKey, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop};
 use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize};
-use api::{LayerToScrollTransform, LayerVector2D, LocalClip, PipelineId, RepeatMode, TextShadow};
-use api::{TileOffset, TransformStyle, WebGLContextId, WorldPixel, YuvColorSpace, YuvData};
+use api::{LayerToScrollTransform, LayerVector2D, LayoutVector2D, LocalClip, PipelineId};
+use api::{RepeatMode, TextShadow, TileOffset, TransformStyle, WebGLContextId, WorldPixel};
+use api::{YuvColorSpace, YuvData};
 use app_units::Au;
 use frame::FrameId;
 use gpu_cache::GpuCache;
@@ -294,6 +295,7 @@ pub struct FrameBuilder {
 
     stacking_context_store: Vec<StackingContext>,
     clip_scroll_group_store: Vec<ClipScrollGroup>,
+    clip_scroll_group_indices: HashMap<ClipAndScrollInfo, ClipScrollGroupIndex>,
     packed_layers: Vec<PackedLayer>,
     text_shadow_builder: TextShadowBuilder,
 
@@ -322,6 +324,7 @@ impl FrameBuilder {
                 FrameBuilder {
                     stacking_context_store: recycle_vec(prev.stacking_context_store),
                     clip_scroll_group_store: recycle_vec(prev.clip_scroll_group_store),
+                    clip_scroll_group_indices: HashMap::new(),
                     cmds: recycle_vec(prev.cmds),
                     packed_layers: recycle_vec(prev.packed_layers),
                     text_shadow_builder: prev.text_shadow_builder.recycle(),
@@ -339,6 +342,7 @@ impl FrameBuilder {
                 FrameBuilder {
                     stacking_context_store: Vec::new(),
                     clip_scroll_group_store: Vec::new(),
+                    clip_scroll_group_indices: HashMap::new(),
                     cmds: Vec::new(),
                     packed_layers: Vec::new(),
                     text_shadow_builder: TextShadowBuilder::new(),
@@ -355,16 +359,13 @@ impl FrameBuilder {
         }
     }
 
-    pub fn create_clip_scroll_group_if_necessary(&mut self,
-                                                 stacking_context_index: StackingContextIndex,
-                                                 info: ClipAndScrollInfo) {
-        if self.stacking_context_store[stacking_context_index.0].has_clip_scroll_group(info) {
+    pub fn create_clip_scroll_group_if_necessary(&mut self, info: ClipAndScrollInfo) {
+        if self.clip_scroll_group_indices.contains_key(&info) {
             return;
         }
 
-        let group_index = self.create_clip_scroll_group(stacking_context_index, info);
-        let stacking_context = &mut self.stacking_context_store[stacking_context_index.0];
-        stacking_context.clip_scroll_groups.push(group_index);
+        let group_index = self.create_clip_scroll_group(info);
+        self.clip_scroll_group_indices.insert(info, group_index);
     }
 
     pub fn add_primitive(&mut self,
@@ -374,9 +375,7 @@ impl FrameBuilder {
                          extra_clips: &[ClipSource],
                          container: PrimitiveContainer)
                          -> PrimitiveIndex {
-        let stacking_context_index = *self.stacking_context_stack.last().unwrap();
-
-        self.create_clip_scroll_group_if_necessary(stacking_context_index, clip_and_scroll);
+        self.create_clip_scroll_group_if_necessary(clip_and_scroll);
 
         let mut clip_sources = extra_clips.to_vec();
         if let &LocalClip::RoundedRect(_, _) = local_clip {
@@ -411,15 +410,11 @@ impl FrameBuilder {
         prim_index
     }
 
-    pub fn create_clip_scroll_group(&mut self,
-                                    stacking_context_index: StackingContextIndex,
-                                    info: ClipAndScrollInfo)
-                                    -> ClipScrollGroupIndex {
+    pub fn create_clip_scroll_group(&mut self, info: ClipAndScrollInfo) -> ClipScrollGroupIndex {
         let packed_layer_index = PackedLayerIndex(self.packed_layers.len());
         self.packed_layers.push(PackedLayer::empty());
 
         self.clip_scroll_group_store.push(ClipScrollGroup {
-            stacking_context_index,
             scroll_node_id: info.scroll_node_id,
             clip_node_id: info.clip_node_id(),
             packed_layer_index,
@@ -1008,6 +1003,7 @@ impl FrameBuilder {
 
     pub fn add_text(&mut self,
                     clip_and_scroll: ClipAndScrollInfo,
+                    run_offset: LayoutVector2D,
                     rect: LayerRect,
                     local_clip: &LocalClip,
                     font_key: FontKey,
@@ -1050,6 +1046,7 @@ impl FrameBuilder {
             run: TextRun {
                 font_key,
                 logical_font_size: size,
+                run_offset,
                 glyph_range,
                 glyph_count,
                 glyph_instances: Vec::new(),
@@ -1596,15 +1593,11 @@ impl FrameBuilder {
                 }
                 PrimitiveRunCmd::PrimitiveRun(first_prim_index, prim_count, clip_and_scroll) => {
                     let stacking_context_index = *sc_stack.last().unwrap();
-                    let stacking_context = &self.stacking_context_store[stacking_context_index.0];
-
-                    if !stacking_context.is_visible {
+                    if !self.stacking_context_store[stacking_context_index.0].is_visible {
                         continue;
                     }
 
-                    let stacking_context_index = *sc_stack.last().unwrap();
-                    let group_index = self.stacking_context_store[stacking_context_index.0]
-                                          .clip_scroll_group(clip_and_scroll);
+                    let group_index = *self.clip_scroll_group_indices.get(&clip_and_scroll).unwrap();
                     if self.clip_scroll_group_store[group_index.0].screen_bounding_rect.is_none() {
                         debug!("\tcs-group {:?} screen rect is None", group_index);
                         continue
@@ -1795,7 +1788,6 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
     fn run(&mut self) {
         self.recalculate_clip_scroll_nodes();
         self.recalculate_clip_scroll_groups();
-        self.compute_stacking_context_visibility();
 
         debug!("processing commands...");
         let commands = mem::replace(&mut self.frame_builder.cmds, Vec::new());
@@ -1869,22 +1861,16 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
     fn recalculate_clip_scroll_groups(&mut self) {
         debug!("recalculate_clip_scroll_groups");
         for ref mut group in &mut self.frame_builder.clip_scroll_group_store {
-            let stacking_context_index = group.stacking_context_index;
-            let stacking_context = &mut self.frame_builder
-                                            .stacking_context_store[stacking_context_index.0];
-
             let scroll_node = &self.clip_scroll_tree.nodes[&group.scroll_node_id];
             let clip_node = &self.clip_scroll_tree.nodes[&group.clip_node_id];
             let packed_layer = &mut self.frame_builder.packed_layers[group.packed_layer_index.0];
 
-            // The world content transform is relative to the containing reference frame,
-            // so we translate into the origin of the stacking context itself.
-            let transform = scroll_node.world_content_transform
-                .pre_translate(stacking_context.reference_frame_offset.to_3d());
+            debug!("\tProcessing group scroll={:?}, clip={:?}",
+                   group.scroll_node_id, group.clip_node_id);
 
-            if !packed_layer.set_transform(transform) || !stacking_context.can_contribute_to_scene() {
-                debug!("\t{:?} unable to set transform or contribute with {:?}",
-                    stacking_context_index, transform);
+            let transform = scroll_node.world_content_transform;
+            if !packed_layer.set_transform(transform) {
+                debug!("\t\tUnable to set transform {:?}", transform);
                 return;
             }
 
@@ -1893,29 +1879,15 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             let local_viewport_rect = clip_node.combined_local_viewport_rect
                 .translate(&clip_node.reference_frame_relative_scroll_offset)
                 .translate(&-scroll_node.reference_frame_relative_scroll_offset)
-                .translate(&-stacking_context.reference_frame_offset)
                 .translate(&-scroll_node.scroll_offset());
 
             group.screen_bounding_rect = packed_layer.set_rect(&local_viewport_rect,
                                                                self.screen_rect,
                                                                self.device_pixel_ratio);
 
-            debug!("\t{:?} local viewport {:?} screen bound {:?}",
-                stacking_context_index, local_viewport_rect, group.screen_bounding_rect);
-        }
-    }
-
-    fn compute_stacking_context_visibility(&mut self) {
-        for context_index in 0..self.frame_builder.stacking_context_store.len() {
-            let is_visible = {
-                // We don't take into account visibility of children here, so we must
-                // do that later.
-                let stacking_context = &self.frame_builder.stacking_context_store[context_index];
-                stacking_context.clip_scroll_groups.iter().any(|group_index| {
-                    self.frame_builder.clip_scroll_group_store[group_index.0].is_visible()
-                })
-            };
-            self.frame_builder.stacking_context_store[context_index].is_visible = is_visible;
+            debug!("\t\tlocal viewport {:?} screen bound {:?}",
+                   local_viewport_rect,
+                   group.screen_bounding_rect);
         }
     }
 
@@ -1944,8 +1916,8 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                 let child_bounds = reference_frame_bounds.translate(&-parent.reference_frame_offset);
                 parent.isolated_items_bounds = parent.isolated_items_bounds.union(&child_bounds);
             }
-            // The previous compute_stacking_context_visibility pass did not take into
-            // account visibility of children, so we do that now.
+            // Per-primitive stacking context visibility checks do not take into account
+            // visibility of child stacking contexts, so do that now.
             parent.is_visible = parent.is_visible || is_visible;
         }
     }
@@ -2035,18 +2007,26 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         let stacking_context_index = *self.stacking_context_stack.last().unwrap();
         let (packed_layer_index, pipeline_id) = {
             let stacking_context =
-                &self.frame_builder.stacking_context_store[stacking_context_index.0];
+                &mut self.frame_builder.stacking_context_store[stacking_context_index.0];
+            if !stacking_context.can_contribute_to_scene() {
+                return;
+            }
 
-            if !stacking_context.is_visible {
+            let group_index =
+                self.frame_builder.clip_scroll_group_indices.get(&clip_and_scroll).unwrap();
+            let clip_scroll_group = &self.frame_builder.clip_scroll_group_store[group_index.0];
+            if !clip_scroll_group.is_visible() {
                 debug!("{:?} of invisible {:?}", base_prim_index, stacking_context_index);
                 return;
             }
 
-            let group_index = stacking_context.clip_scroll_group(clip_and_scroll);
-            let clip_scroll_group = &self.frame_builder.clip_scroll_group_store[group_index.0];
-            (clip_scroll_group.packed_layer_index,
-             stacking_context.pipeline_id)
+            // At least one primitive in this stacking context is visible, so the stacking
+            // context is visible.
+            stacking_context.is_visible = true;
+
+            (clip_scroll_group.packed_layer_index, stacking_context.pipeline_id)
         };
+
 
         debug!("\t{:?} of {:?} at {:?}", base_prim_index, stacking_context_index, packed_layer_index);
         let clip_bounds = match self.rebuild_clip_info_stack_if_necessary(clip_and_scroll.clip_node_id()) {

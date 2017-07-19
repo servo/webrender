@@ -276,6 +276,10 @@ impl<'a, 'b> DisplayItemRef<'a, 'b> {
         &self.iter.cur_item.local_clip
     }
 
+    pub fn local_clip_with_offset(&self, offset: &LayoutVector2D) -> LocalClip {
+        self.iter.cur_item.local_clip.create_with_offset(offset)
+    }
+
     pub fn clip_and_scroll(&self) -> ClipAndScrollInfo {
         self.iter.cur_item.clip_and_scroll
     }

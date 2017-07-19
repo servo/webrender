@@ -1541,7 +1541,6 @@ pub struct StackingContext {
     pub isolated_items_bounds: LayerRect,
 
     pub composite_ops: CompositeOps,
-    pub clip_scroll_groups: Vec<ClipScrollGroupIndex>,
 
     /// Type of the isolation of the content.
     pub isolation: ContextIsolation,
@@ -1574,31 +1573,14 @@ impl StackingContext {
             screen_bounds: DeviceIntRect::zero(),
             isolated_items_bounds: LayerRect::zero(),
             composite_ops,
-            clip_scroll_groups: Vec::new(),
             isolation,
             is_page_root,
             is_visible: false,
         }
     }
 
-    pub fn clip_scroll_group(&self, clip_and_scroll: ClipAndScrollInfo) -> ClipScrollGroupIndex {
-        // Currently there is only one scrolled stacking context per context,
-        // but eventually this will be selected from the vector based on the
-        // scroll layer of this primitive.
-        for group in &self.clip_scroll_groups {
-            if group.1 == clip_and_scroll {
-                return *group;
-            }
-        }
-        unreachable!("Looking for non-existent ClipScrollGroup");
-    }
-
     pub fn can_contribute_to_scene(&self) -> bool {
         !self.composite_ops.will_make_invisible()
-    }
-
-    pub fn has_clip_scroll_group(&self, clip_and_scroll: ClipAndScrollInfo) -> bool {
-        self.clip_scroll_groups.iter().rev().any(|index| index.1 == clip_and_scroll)
     }
 }
 
@@ -1607,7 +1589,6 @@ pub struct ClipScrollGroupIndex(pub usize, pub ClipAndScrollInfo);
 
 #[derive(Debug)]
 pub struct ClipScrollGroup {
-    pub stacking_context_index: StackingContextIndex,
     pub scroll_node_id: ClipId,
     pub clip_node_id: ClipId,
     pub packed_layer_index: PackedLayerIndex,
