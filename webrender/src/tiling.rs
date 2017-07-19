@@ -1666,7 +1666,7 @@ impl PackedLayer {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CompositeOps {
     // Requires only a single texture as input (e.g. most filters)
     pub filters: Vec<LowLevelFilterOp>,
@@ -1694,15 +1694,6 @@ impl CompositeOps {
             }
         }
         false
-    }
-}
-
-impl Default for CompositeOps {
-    fn default() -> CompositeOps {
-        CompositeOps {
-            filters: Vec::new(),
-            mix_blend_mode: None,
-        }
     }
 }
 
