@@ -8,6 +8,7 @@ use api::{ImageDisplayItem, ItemRange, LayerPoint, LayerRect, LayerSize, LayerTo
 use api::{LayerVector2D, LayoutSize, LayoutTransform, LocalClip, MixBlendMode, PipelineId};
 use api::{ScrollClamping, ScrollEventPhase, ScrollLayerState, ScrollLocation, ScrollPolicy};
 use api::{SpecificDisplayItem, StackingContext, TileOffset, TransformStyle, WorldPoint};
+use api::ComplexCompositeOperation;
 use app_units::Au;
 use clip_scroll_tree::{ClipScrollTree, ScrollStates};
 use euclid::rect;
@@ -186,7 +187,7 @@ pub struct Frame {
 }
 
 trait StackingContextHelpers {
-    fn mix_blend_mode_for_compositing(&self) -> Option<MixBlendMode>;
+    fn composite_op(&self) -> Option<ComplexCompositeOperation>;
     fn filter_ops_for_compositing(&self,
                                   display_list: &BuiltDisplayList,
                                   input_filters: ItemRange<FilterOp>,
@@ -194,10 +195,10 @@ trait StackingContextHelpers {
 }
 
 impl StackingContextHelpers for StackingContext {
-    fn mix_blend_mode_for_compositing(&self) -> Option<MixBlendMode> {
+    fn composite_op(&self) -> Option<ComplexCompositeOperation> {
         match self.mix_blend_mode {
             MixBlendMode::Normal => None,
-            _ => Some(self.mix_blend_mode),
+            _ => Some(self.mix_blend_mode.to_complex_composite_op()),
         }
     }
 
@@ -420,7 +421,7 @@ impl Frame {
                                       .expect("No display list?!");
             CompositeOps::new(
                 stacking_context.filter_ops_for_compositing(display_list, filters, &context.scene.properties),
-                stacking_context.mix_blend_mode_for_compositing())
+                stacking_context.composite_op())
         };
 
         if composition_operations.will_make_invisible() {
