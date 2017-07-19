@@ -6,7 +6,7 @@ root:
           color: green
         - type: stacking-context
           bounds: [25, 25, 50, 50]
-          mix-blend-mode: multiply
+          composite-op: multiply
           items:
             - type: rect
               bounds: [0, 0, 50, 50]

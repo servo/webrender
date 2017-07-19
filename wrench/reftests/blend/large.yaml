@@ -6,7 +6,7 @@ root:
       items:
         - type: stacking-context
           bounds: 0 0 2000 2000
-          mix-blend-mode: screen
+          composite-op: screen
           items:
             - type: rect
               bounds: 0 0 2000 2000

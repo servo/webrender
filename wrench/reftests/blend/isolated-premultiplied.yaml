@@ -8,7 +8,7 @@ root:
           # we don't want it to actually draw anything so just make it draw a white rect
         - type: stacking-context
           bounds: [0, 0, 100, 100]
-          mix-blend-mode: lighten
+          composite-op: lighten
           items:
           - type: rect
             bounds: [500, 500, 100, 100]

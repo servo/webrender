@@ -6,7 +6,7 @@ root:
           color: [10, 20, 30]
         - type: stacking-context
           bounds: [0, 0, 100, 100]
-          mix-blend-mode: lighten
+          composite-op: lighten
           items:
             - type: rect
               bounds: [0, 0, 100, 100]

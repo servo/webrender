@@ -6,7 +6,7 @@ root:
           color: green
         - type: stacking-context
           bounds: [0, 0, 100, 100]
-          mix-blend-mode: difference
+          composite-op: difference
           items:
             - type: rect
               bounds: [0, 0, 100, 100]

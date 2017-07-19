@@ -3,7 +3,7 @@ root:
   items:
     - type: stacking-context
       bounds: [0, 0, 100, 100]
-      mix-blend-mode: darken
+      composite-op: darken
       items:
         - type: gradient
           bounds: [0, 0, 100, 100]
