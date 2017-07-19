@@ -27,7 +27,7 @@ use util::{TransformedRect, TransformedRectKind};
 use api::{BuiltDisplayList, ClipAndScrollInfo, ClipId, ColorF, DeviceIntPoint, ImageKey};
 use api::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintSize};
 use api::{ExternalImageType, FontRenderMode, ImageRendering, LayerRect};
-use api::{LayerToWorldTransform, MixBlendMode, PipelineId, TransformStyle};
+use api::{ComplexCompositeOperation, LayerToWorldTransform, MixBlendMode, PipelineId, TransformStyle};
 use api::{TileOffset, WorldToLayerTransform, YuvColorSpace, YuvFormat, LayerVector2D};
 
 // Special sentinel value recognized by the shader. It is considered to be
@@ -330,6 +330,7 @@ impl AlphaRenderItem {
                                        src_id,
                                        mode,
                                        z) => {
+                let mode = mode.to_mix_blend_mode();
                 let stacking_context = &ctx.stacking_context_store[stacking_context_index.0];
                 let key = AlphaBatchKey::new(AlphaBatchKind::Composite,
                                              AlphaBatchKeyFlags::empty(),
@@ -1672,19 +1673,19 @@ pub struct CompositeOps {
     pub filters: Vec<LowLevelFilterOp>,
 
     // Requires two source textures (e.g. mix-blend-mode)
-    pub mix_blend_mode: Option<MixBlendMode>,
+    pub complex_composite_op: Option<ComplexCompositeOperation>,
 }
 
 impl CompositeOps {
     pub fn new(filters: Vec<LowLevelFilterOp>, mix_blend_mode: Option<MixBlendMode>) -> CompositeOps {
         CompositeOps {
             filters,
-            mix_blend_mode: mix_blend_mode
+            complex_composite_op: mix_blend_mode.map(|bm| bm.to_complex_composite_op()),
         }
     }
 
     pub fn count(&self) -> usize {
-        self.filters.len() + if self.mix_blend_mode.is_some() { 1 } else { 0 }
+        self.filters.len() + if self.complex_composite_op.is_some() { 1 } else { 0 }
     }
 
     pub fn will_make_invisible(&self) -> bool {

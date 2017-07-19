@@ -441,7 +441,7 @@ impl FrameBuilder {
         if let Some(parent_index) = self.stacking_context_stack.last() {
             let parent_is_root = self.stacking_context_store[parent_index.0].is_page_root;
 
-            if composite_ops.mix_blend_mode.is_some() && !parent_is_root {
+            if composite_ops.complex_composite_op.is_some() && !parent_is_root {
                 // the parent stacking context of a stacking context with mix-blend-mode
                 // must be drawn with a transparent background, unless the parent stacking context
                 // is the root of the page
@@ -1541,7 +1541,7 @@ impl FrameBuilder {
                         current_task = prev_task;
                     }
 
-                    if let Some(mix_blend_mode) = stacking_context.composite_ops.mix_blend_mode {
+                    if let Some(op) = stacking_context.composite_ops.complex_composite_op {
                         let readback_task =
                             RenderTask::new_readback(stacking_context_index,
                                                      stacking_context.screen_bounds);
@@ -1550,7 +1550,7 @@ impl FrameBuilder {
                         let item = AlphaRenderItem::Composite(stacking_context_index,
                                                               readback_task.id,
                                                               current_task.id,
-                                                              mix_blend_mode,
+                                                              op,
                                                               next_z);
                         next_z += 1;
                         prev_task.as_alpha_batch().items.push(item);

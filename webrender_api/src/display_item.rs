@@ -330,6 +330,21 @@ pub enum MixBlendMode {
     Luminosity  = 15,
 }
 
+impl MixBlendMode {
+    pub fn to_complex_composite_op(&self) -> ComplexCompositeOperation {
+        ComplexCompositeOperation(*self)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub struct ComplexCompositeOperation(MixBlendMode);
+
+impl ComplexCompositeOperation {
+    pub fn to_mix_blend_mode(&self) -> MixBlendMode {
+        self.0
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum FilterOp {
     Blur(Au),

@@ -10,7 +10,7 @@ use std::{cmp, f32, i32, mem, usize};
 use tiling::{ClipScrollGroupIndex, PackedLayerIndex, RenderPass, RenderTargetIndex};
 use tiling::{RenderTargetKind, StackingContextIndex};
 use api::{ClipId, DeviceIntLength, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use api::{MixBlendMode};
+use api::{ComplexCompositeOperation};
 
 const FLOATS_PER_RENDER_TASK_INFO: usize = 12;
 
@@ -54,7 +54,7 @@ pub enum RenderTaskLocation {
 pub enum AlphaRenderItem {
     Primitive(Option<ClipScrollGroupIndex>, PrimitiveIndex, i32),
     Blend(StackingContextIndex, RenderTaskId, LowLevelFilterOp, i32),
-    Composite(StackingContextIndex, RenderTaskId, RenderTaskId, MixBlendMode, i32),
+    Composite(StackingContextIndex, RenderTaskId, RenderTaskId, ComplexCompositeOperation, i32),
     SplitComposite(StackingContextIndex, RenderTaskId, GpuCacheHandle, i32),
     HardwareComposite(StackingContextIndex, RenderTaskId, HardwareCompositeOp, i32),
 }
