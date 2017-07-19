@@ -279,7 +279,7 @@ impl AlphaRenderItem {
                 let stacking_context = &ctx.stacking_context_store[stacking_context_index.0];
                 let key = AlphaBatchKey::new(AlphaBatchKind::Blend,
                                              AlphaBatchKeyFlags::empty(),
-                                             BlendMode::Alpha,
+                                             BlendMode::PremultipliedAlpha,
                                              BatchTextures::no_texture());
                 let src_task_index = render_tasks.get_static_task_index(&src_id);
 
