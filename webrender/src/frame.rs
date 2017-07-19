@@ -524,11 +524,14 @@ impl Frame {
         clip_and_scroll.scroll_node_id =
             context.apply_scroll_frame_id_replacement(clip_and_scroll.scroll_node_id);
 
+
+        let item_rect_with_offset = item.rect().translate(&reference_frame_relative_offset);
+        let clip_with_offset = item.local_clip_with_offset(&reference_frame_relative_offset);
         match *item.item() {
             SpecificDisplayItem::WebGL(ref info) => {
                 context.builder.add_webgl_rectangle(clip_and_scroll,
-                                                    item.rect(),
-                                                    item.local_clip(),
+                                                    item_rect_with_offset,
+                                                    &clip_with_offset,
                                                     info.context_id);
             }
             SpecificDisplayItem::Image(ref info) => {
@@ -540,15 +543,15 @@ impl Frame {
                                                          image.descriptor.height);
                     self.decompose_image(clip_and_scroll,
                                          context,
-                                         &item.rect(),
-                                         item.local_clip(),
+                                         &item_rect_with_offset,
+                                         &clip_with_offset,
                                          info,
                                          image_size,
                                          tile_size as u32);
                 } else {
                     context.builder.add_image(clip_and_scroll,
-                                              item.rect(),
-                                              item.local_clip(),
+                                              item_rect_with_offset,
+                                              &clip_with_offset,
                                               &info.stretch_size,
                                               &info.tile_spacing,
                                               None,
@@ -559,16 +562,17 @@ impl Frame {
             }
             SpecificDisplayItem::YuvImage(ref info) => {
                 context.builder.add_yuv_image(clip_and_scroll,
-                                              item.rect(),
-                                              item.local_clip(),
+                                              item_rect_with_offset,
+                                              &clip_with_offset,
                                               info.yuv_data,
                                               info.color_space,
                                               info.image_rendering);
             }
             SpecificDisplayItem::Text(ref text_info) => {
                 context.builder.add_text(clip_and_scroll,
-                                         item.rect(),
-                                         item.local_clip(),
+                                         reference_frame_relative_offset,
+                                         item_rect_with_offset,
+                                         &clip_with_offset,
                                          text_info.font_key,
                                          text_info.size,
                                          &text_info.color,
@@ -578,13 +582,13 @@ impl Frame {
             }
             SpecificDisplayItem::Rectangle(ref info) => {
                 if !self.try_to_add_rectangle_splitting_on_clip(context,
-                                                                &item.rect(),
-                                                                item.local_clip(),
+                                                                &item_rect_with_offset,
+                                                                &clip_with_offset,
                                                                 &info.color,
                                                                 &clip_and_scroll) {
                     context.builder.add_solid_rectangle(clip_and_scroll,
-                                                        &item.rect(),
-                                                        item.local_clip(),
+                                                        &item_rect_with_offset,
+                                                        &clip_with_offset,
                                                         &info.color,
                                                         PrimitiveFlags::None);
 
@@ -603,8 +607,8 @@ impl Frame {
             }
             SpecificDisplayItem::Gradient(ref info) => {
                 context.builder.add_gradient(clip_and_scroll,
-                                             item.rect(),
-                                             item.local_clip(),
+                                             item_rect_with_offset,
+                                             &clip_with_offset,
                                              info.gradient.start_point,
                                              info.gradient.end_point,
                                              item.gradient_stops(),
@@ -616,8 +620,8 @@ impl Frame {
             }
             SpecificDisplayItem::RadialGradient(ref info) => {
                 context.builder.add_radial_gradient(clip_and_scroll,
-                                                    item.rect(),
-                                                    item.local_clip(),
+                                                    item_rect_with_offset,
+                                                    &clip_with_offset,
                                                     info.gradient.start_center,
                                                     info.gradient.start_radius,
                                                     info.gradient.end_center,
@@ -629,9 +633,10 @@ impl Frame {
                                                     info.tile_spacing);
             }
             SpecificDisplayItem::BoxShadow(ref box_shadow_info) => {
+                let bounds = box_shadow_info.box_bounds.translate(&reference_frame_relative_offset);
                 context.builder.add_box_shadow(clip_and_scroll,
-                                               &box_shadow_info.box_bounds,
-                                               item.local_clip(),
+                                               &bounds,
+                                               &clip_with_offset,
                                                &box_shadow_info.offset,
                                                &box_shadow_info.color,
                                                box_shadow_info.blur_radius,
@@ -641,8 +646,8 @@ impl Frame {
             }
             SpecificDisplayItem::Border(ref info) => {
                 context.builder.add_border(clip_and_scroll,
-                                           item.rect(),
-                                           item.local_clip(),
+                                           item_rect_with_offset,
+                                           &clip_with_offset,
                                            info,
                                            item.gradient_stops(),
                                            item.display_list()
@@ -722,7 +727,7 @@ impl Frame {
             SpecificDisplayItem::PushTextShadow(shadow) => {
                 context.builder.push_text_shadow(shadow,
                                                  clip_and_scroll,
-                                                 item.local_clip());
+                                                 &clip_with_offset);
             }
             SpecificDisplayItem::PopTextShadow => {
                 context.builder.pop_text_shadow();
