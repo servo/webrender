@@ -171,7 +171,7 @@ fn body(api: &RenderApi,
                                   None,
                                   TransformStyle::Flat,
                                   None,
-                                  MixBlendMode::Normal,
+                                  ComplexCompositeOperation::Normal,
                                   Vec::new());
 
 

@@ -151,21 +151,21 @@ vec3 Luminosity(vec3 Cb, vec3 Cs) {
     return SetLum(Cb, Lum(Cs));
 }
 
-const int MixBlendMode_Multiply    = 1;
-const int MixBlendMode_Screen      = 2;
-const int MixBlendMode_Overlay     = 3;
-const int MixBlendMode_Darken      = 4;
-const int MixBlendMode_Lighten     = 5;
-const int MixBlendMode_ColorDodge  = 6;
-const int MixBlendMode_ColorBurn   = 7;
-const int MixBlendMode_HardLight   = 8;
-const int MixBlendMode_SoftLight   = 9;
-const int MixBlendMode_Difference  = 10;
-const int MixBlendMode_Exclusion   = 11;
-const int MixBlendMode_Hue         = 12;
-const int MixBlendMode_Saturation  = 13;
-const int MixBlendMode_Color       = 14;
-const int MixBlendMode_Luminosity  = 15;
+const int ComplexCompositeOperation_Multiply    = 1;
+const int ComplexCompositeOperation_Screen      = 2;
+const int ComplexCompositeOperation_Overlay     = 3;
+const int ComplexCompositeOperation_Darken      = 4;
+const int ComplexCompositeOperation_Lighten     = 5;
+const int ComplexCompositeOperation_ColorDodge  = 6;
+const int ComplexCompositeOperation_ColorBurn   = 7;
+const int ComplexCompositeOperation_HardLight   = 8;
+const int ComplexCompositeOperation_SoftLight   = 9;
+const int ComplexCompositeOperation_Difference  = 10;
+const int ComplexCompositeOperation_Exclusion   = 11;
+const int ComplexCompositeOperation_Hue         = 12;
+const int ComplexCompositeOperation_Saturation  = 13;
+const int ComplexCompositeOperation_Color       = 14;
+const int ComplexCompositeOperation_Luminosity  = 15;
 
 void main(void) {
     vec4 Cb = texture(sCacheRGBA8, vUv0);
@@ -188,56 +188,56 @@ void main(void) {
     vec4 result = vec4(1.0, 1.0, 0.0, 1.0);
 
     switch (vOp) {
-        case MixBlendMode_Multiply:
+        case ComplexCompositeOperation_Multiply:
             result.rgb = Multiply(Cb.rgb, Cs.rgb);
             break;
-        case MixBlendMode_Screen:
+        case ComplexCompositeOperation_Screen:
             result.rgb = Screen(Cb.rgb, Cs.rgb);
             break;
-        case MixBlendMode_Overlay:
+        case ComplexCompositeOperation_Overlay:
             // Overlay is inverse of Hardlight
             result.rgb = HardLight(Cs.rgb, Cb.rgb);
             break;
-        case MixBlendMode_Darken:
+        case ComplexCompositeOperation_Darken:
             result.rgb = min(Cs.rgb, Cb.rgb);
             break;
-        case MixBlendMode_Lighten:
+        case ComplexCompositeOperation_Lighten:
             result.rgb = max(Cs.rgb, Cb.rgb);
             break;
-        case MixBlendMode_ColorDodge:
+        case ComplexCompositeOperation_ColorDodge:
             result.r = ColorDodge(Cb.r, Cs.r);
             result.g = ColorDodge(Cb.g, Cs.g);
             result.b = ColorDodge(Cb.b, Cs.b);
             break;
-        case MixBlendMode_ColorBurn:
+        case ComplexCompositeOperation_ColorBurn:
             result.r = ColorBurn(Cb.r, Cs.r);
             result.g = ColorBurn(Cb.g, Cs.g);
             result.b = ColorBurn(Cb.b, Cs.b);
             break;
-        case MixBlendMode_HardLight:
+        case ComplexCompositeOperation_HardLight:
             result.rgb = HardLight(Cb.rgb, Cs.rgb);
             break;
-        case MixBlendMode_SoftLight:
+        case ComplexCompositeOperation_SoftLight:
             result.r = SoftLight(Cb.r, Cs.r);
             result.g = SoftLight(Cb.g, Cs.g);
             result.b = SoftLight(Cb.b, Cs.b);
             break;
-        case MixBlendMode_Difference:
+        case ComplexCompositeOperation_Difference:
             result.rgb = Difference(Cb.rgb, Cs.rgb);
             break;
-        case MixBlendMode_Exclusion:
+        case ComplexCompositeOperation_Exclusion:
             result.rgb = Exclusion(Cb.rgb, Cs.rgb);
             break;
-        case MixBlendMode_Hue:
+        case ComplexCompositeOperation_Hue:
             result.rgb = Hue(Cb.rgb, Cs.rgb);
             break;
-        case MixBlendMode_Saturation:
+        case ComplexCompositeOperation_Saturation:
             result.rgb = Saturation(Cb.rgb, Cs.rgb);
             break;
-        case MixBlendMode_Color:
+        case ComplexCompositeOperation_Color:
             result.rgb = Color(Cb.rgb, Cs.rgb);
             break;
-        case MixBlendMode_Luminosity:
+        case ComplexCompositeOperation_Luminosity:
             result.rgb = Luminosity(Cb.rgb, Cs.rgb);
             break;
     }

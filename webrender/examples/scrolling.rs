@@ -26,7 +26,7 @@ fn body(_api: &RenderApi,
                                   None,
                                   TransformStyle::Flat,
                                   None,
-                                  MixBlendMode::Normal,
+                                  ComplexCompositeOperation::Normal,
                                   Vec::new());
 
     if true {   // scrolling and clips stuff
@@ -38,7 +38,7 @@ fn body(_api: &RenderApi,
                                       None,
                                       TransformStyle::Flat,
                                       None,
-                                      MixBlendMode::Normal,
+                                      ComplexCompositeOperation::Normal,
                                       Vec::new());
         // set the scrolling clip
         let clip_id = builder.define_scroll_frame(None,

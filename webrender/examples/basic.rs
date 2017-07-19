@@ -183,7 +183,7 @@ fn body(api: &RenderApi,
                                   None,
                                   TransformStyle::Flat,
                                   None,
-                                  MixBlendMode::Normal,
+                                  ComplexCompositeOperation::Normal,
                                   Vec::new());
 
     let image_mask_key = api.generate_image_key();

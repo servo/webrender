@@ -290,7 +290,7 @@ pub struct StackingContext {
     pub transform: Option<PropertyBinding<LayoutTransform>>,
     pub transform_style: TransformStyle,
     pub perspective: Option<LayoutTransform>,
-    pub mix_blend_mode: MixBlendMode,
+    pub composite_op: ComplexCompositeOperation,
 } // IMPLICIT: filters: Vec<FilterOp>
 
 #[repr(u32)]
@@ -311,7 +311,7 @@ pub enum TransformStyle {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub enum MixBlendMode {
+pub enum ComplexCompositeOperation {
     Normal      = 0,
     Multiply    = 1,
     Screen      = 2,
@@ -328,21 +328,6 @@ pub enum MixBlendMode {
     Saturation  = 13,
     Color       = 14,
     Luminosity  = 15,
-}
-
-impl MixBlendMode {
-    pub fn to_complex_composite_op(&self) -> ComplexCompositeOperation {
-        ComplexCompositeOperation(*self)
-    }
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct ComplexCompositeOperation(MixBlendMode);
-
-impl ComplexCompositeOperation {
-    pub fn to_mix_blend_mode(&self) -> MixBlendMode {
-        self.0
-    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -658,6 +643,6 @@ macro_rules! define_empty_heap_size_of {
 define_empty_heap_size_of!(ClipId);
 define_empty_heap_size_of!(RepeatMode);
 define_empty_heap_size_of!(ImageKey);
-define_empty_heap_size_of!(MixBlendMode);
+define_empty_heap_size_of!(ComplexCompositeOperation);
 define_empty_heap_size_of!(TransformStyle);
 define_empty_heap_size_of!(LocalClip);

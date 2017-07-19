@@ -26,7 +26,7 @@ fn body(_api: &RenderApi,
                                   None,
                                   TransformStyle::Flat,
                                   None,
-                                  MixBlendMode::Normal,
+                                  ComplexCompositeOperation::Normal,
                                   Vec::new());
 
     let outer_scroll_frame_rect = (100, 100).to(600, 400);
@@ -52,7 +52,7 @@ fn body(_api: &RenderApi,
                                   None,
                                   TransformStyle::Flat,
                                   None,
-                                  MixBlendMode::Normal,
+                                  ComplexCompositeOperation::Normal,
                                   Vec::new());
     let rect = (0, 0).to(100, 100);
     builder3.push_rect(rect, None, ColorF::new(0.0, 1.0, 0.0, 1.0));

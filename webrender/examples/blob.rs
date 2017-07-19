@@ -238,7 +238,7 @@ fn body(api: &api::RenderApi,
                                   None,
                                   api::TransformStyle::Flat,
                                   None,
-                                  api::MixBlendMode::Normal,
+                                  api::ComplexCompositeOperation::Normal,
                                   Vec::new());
 
     builder.push_image(

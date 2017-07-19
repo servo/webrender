@@ -32,7 +32,7 @@ fn body(_api: &RenderApi,
                                   Some(PropertyBinding::Binding(PropertyBindingKey::new(42))),
                                   TransformStyle::Flat,
                                   None,
-                                  MixBlendMode::Normal,
+                                  ComplexCompositeOperation::Normal,
                                   Vec::new());
 
     // Fill it with a white rect

@@ -31,7 +31,7 @@ pub trait YamlHelper {
     fn as_clip_and_scroll_info(&self, pipeline_id: PipelineId) -> Option<ClipAndScrollInfo>;
     fn as_border_radius(&self) -> Option<BorderRadius>;
     fn as_transform_style(&self) -> Option<TransformStyle>;
-    fn as_mix_blend_mode(&self) -> Option<MixBlendMode>;
+    fn as_composite_op(&self) -> Option<ComplexCompositeOperation>;
     fn as_scroll_policy(&self) -> Option<ScrollPolicy>;
     fn as_filter_op(&self) -> Option<FilterOp>;
     fn as_vec_filter_op(&self) -> Option<Vec<FilterOp>>;
@@ -89,7 +89,7 @@ define_string_enum!(TransformStyle, [
     Preserve3D = "preserve-3d",
 ]);
 
-define_string_enum!(MixBlendMode, [
+define_string_enum!(ComplexCompositeOperation, [
     Normal = "normal",
     Multiply = "multiply",
     Screen = "screen",
@@ -434,7 +434,7 @@ impl YamlHelper for Yaml {
         self.as_str().and_then(|x| StringEnum::from_str(x))
     }
 
-    fn as_mix_blend_mode(&self) -> Option<MixBlendMode> {
+    fn as_composite_op(&self) -> Option<ComplexCompositeOperation> {
         self.as_str().and_then(|x| StringEnum::from_str(x))
     }
 

@@ -180,9 +180,9 @@ fn write_sc(parent: &mut Table, sc: &StackingContext) {
         matrix4d_node(parent, "perspective", &perspective);
     }
 
-    // mix_blend_mode
-    if sc.mix_blend_mode != MixBlendMode::Normal {
-        enum_node(parent, "mix-blend-mode", sc.mix_blend_mode)
+    // CompositeOp
+    if sc.composite_op != ComplexCompositeOperation::Normal {
+        enum_node(parent, "composite-op", sc.composite_op)
     }
     // filters
 }

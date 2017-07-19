@@ -5,7 +5,7 @@
 use api::{BuiltDisplayList, BuiltDisplayListIter, ClipAndScrollInfo, ClipId, ColorF};
 use api::{ComplexClipRegion, DeviceUintRect, DeviceUintSize, DisplayItemRef, Epoch, FilterOp};
 use api::{ImageDisplayItem, ItemRange, LayerPoint, LayerRect, LayerSize, LayerToScrollTransform};
-use api::{LayerVector2D, LayoutSize, LayoutTransform, LocalClip, MixBlendMode, PipelineId};
+use api::{LayerVector2D, LayoutSize, LayoutTransform, LocalClip, PipelineId};
 use api::{ScrollClamping, ScrollEventPhase, ScrollLayerState, ScrollLocation, ScrollPolicy};
 use api::{SpecificDisplayItem, StackingContext, TileOffset, TransformStyle, WorldPoint};
 use api::ComplexCompositeOperation;
@@ -196,9 +196,9 @@ trait StackingContextHelpers {
 
 impl StackingContextHelpers for StackingContext {
     fn composite_op(&self) -> Option<ComplexCompositeOperation> {
-        match self.mix_blend_mode {
-            MixBlendMode::Normal => None,
-            _ => Some(self.mix_blend_mode.to_complex_composite_op()),
+        match self.composite_op {
+            ComplexCompositeOperation::Normal => None,
+            _ => Some(self.composite_op),
         }
     }
 

@@ -330,7 +330,6 @@ impl AlphaRenderItem {
                                        src_id,
                                        mode,
                                        z) => {
-                let mode = mode.to_mix_blend_mode();
                 let stacking_context = &ctx.stacking_context_store[stacking_context_index.0];
                 let key = AlphaBatchKey::new(AlphaBatchKind::Composite,
                                              AlphaBatchKeyFlags::empty(),

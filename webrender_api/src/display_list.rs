@@ -12,7 +12,7 @@ use {ClipAndScrollInfo, ClipDisplayItem, ClipId, ColorF, ComplexClipRegion, Disp
 use {ExtendMode, FilterOp, FontKey, GlyphInstance, GlyphOptions, Gradient, GradientDisplayItem};
 use {GradientStop, IframeDisplayItem, ImageDisplayItem, ImageKey, ImageMask, ImageRendering};
 use {LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D, LocalClip};
-use {MixBlendMode, PipelineId, PropertyBinding, PushStackingContextDisplayItem, RadialGradient};
+use {ComplexCompositeOperation, PipelineId, PropertyBinding, PushStackingContextDisplayItem, RadialGradient};
 use {RadialGradientDisplayItem, RectangleDisplayItem, ScrollPolicy, SpecificDisplayItem};
 use {StackingContext, TextDisplayItem, TextShadow, TransformStyle, WebGLContextId, WebGLDisplayItem};
 use {YuvColorSpace, YuvData, YuvImageDisplayItem};
@@ -806,7 +806,7 @@ impl DisplayListBuilder {
                                  transform: Option<PropertyBinding<LayoutTransform>>,
                                  transform_style: TransformStyle,
                                  perspective: Option<LayoutTransform>,
-                                 mix_blend_mode: MixBlendMode,
+                                 composite_op: ComplexCompositeOperation,
                                  filters: Vec<FilterOp>) {
         let item = SpecificDisplayItem::PushStackingContext(PushStackingContextDisplayItem {
             stacking_context: StackingContext {
@@ -814,7 +814,7 @@ impl DisplayListBuilder {
                 transform,
                 transform_style,
                 perspective,
-                mix_blend_mode,
+                composite_op,
             }
         });
 

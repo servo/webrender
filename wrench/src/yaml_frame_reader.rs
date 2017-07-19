@@ -673,8 +673,12 @@ impl YamlFrameReader {
 
         let transform_style = yaml["transform-style"].as_transform_style()
                                                      .unwrap_or(TransformStyle::Flat);
-        let mix_blend_mode = yaml["mix-blend-mode"].as_mix_blend_mode()
-                                                   .unwrap_or(MixBlendMode::Normal);
+
+        // TODO(emilio): remove the legacy mix-blend-mode alias.
+        let composite_op =
+            yaml["composite-op"].as_composite_op()
+                .or_else(|| yaml["mix-blend-mode"].as_composite_op())
+                .unwrap_or(ComplexCompositeOperation::Normal);
         let scroll_policy = yaml["scroll-policy"].as_scroll_policy()
                                                  .unwrap_or(ScrollPolicy::Scrollable);
 
@@ -692,7 +696,7 @@ impl YamlFrameReader {
                                              transform.into(),
                                              transform_style,
                                              perspective,
-                                             mix_blend_mode,
+                                             composite_op,
                                              filters);
 
         if !yaml["items"].is_badvalue() {
