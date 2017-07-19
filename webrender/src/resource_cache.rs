@@ -312,9 +312,6 @@ impl ResourceCache {
                                  mut data: ImageData,
                                  dirty_rect: Option<DeviceUintRect>) {
         let resource = if let Some(image) = self.resources.image_templates.get(image_key) {
-            assert_eq!(image.descriptor.width, descriptor.width);
-            assert_eq!(image.descriptor.height, descriptor.height);
-            assert_eq!(image.descriptor.format, descriptor.format);
 
             let next_epoch = Epoch(image.epoch.0 + 1);
 
@@ -659,6 +656,11 @@ impl ResourceCache {
             image_template.data.clone()
         });
 
+        let filter = match request.rendering {
+            ImageRendering::Pixelated => TextureFilter::Nearest,
+            ImageRendering::Auto | ImageRendering::CrispEdges => TextureFilter::Linear,
+        };
+
         let descriptor = if let Some(tile) = request.tile {
             let tile_size = image_template.tiling.unwrap();
             let image_descriptor = &image_template.descriptor;
@@ -699,6 +701,7 @@ impl ResourceCache {
                 if entry.get().epoch != image_template.epoch {
                     self.texture_cache.update(image_id,
                                               descriptor,
+                                              filter,
                                               image_data,
                                               image_template.dirty_rect);
 
