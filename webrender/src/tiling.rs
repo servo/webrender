@@ -50,7 +50,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
         match metadata.prim_kind {
             PrimitiveKind::TextRun => {
                 let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
-                match text_run_cpu.run.render_mode {
+                match text_run_cpu.normal_render_mode {
                     FontRenderMode::Subpixel => BlendMode::Subpixel(text_run_cpu.color),
                     FontRenderMode::Alpha | FontRenderMode::Mono => BlendMode::Alpha,
                 }
@@ -478,19 +478,21 @@ impl AlphaRenderItem {
                     }
                     PrimitiveKind::TextRun => {
                         let text_cpu = &ctx.prim_store.cpu_text_runs[prim_metadata.cpu_prim_index.0];
-                        let font_size_dp = text_cpu.run.logical_font_size.scale_by(ctx.device_pixel_ratio);
+                        let font_size_dp = text_cpu.logical_font_size.scale_by(ctx.device_pixel_ratio);
 
                         // TODO(gw): avoid / recycle this allocation in the future.
                         let mut instances = Vec::new();
 
-                        let texture_id = ctx.resource_cache.get_glyphs(text_cpu.run.font_key,
+                        let texture_id = ctx.resource_cache.get_glyphs(text_cpu.font_key,
                                                                        font_size_dp,
                                                                        text_cpu.color,
-                                                                       &text_cpu.run.glyph_instances,
-                                                                       text_cpu.run.render_mode,
-                                                                       text_cpu.run.glyph_options, |index, handle| {
+                                                                       &text_cpu.glyph_instances,
+                                                                       text_cpu.normal_render_mode,
+                                                                       text_cpu.glyph_options, |index, handle| {
                             let uv_address = handle.as_int(gpu_cache);
-                            instances.push(base_instance.build(index as i32, 0, uv_address));
+                            instances.push(base_instance.build(index as i32,
+                                                               text_cpu.normal_render_mode as i32,
+                                                               uv_address));
                         });
 
                         if texture_id != SourceTexture::Invalid {
@@ -1017,7 +1019,7 @@ impl RenderTarget for ColorRenderTarget {
             RenderTaskKind::CachePrimitive(prim_index) => {
                 let prim_metadata = ctx.prim_store.get_metadata(prim_index);
 
-                let mut prim_address = prim_metadata.gpu_location.as_int(gpu_cache);
+                let prim_address = prim_metadata.gpu_location.as_int(gpu_cache);
 
                 match prim_metadata.prim_kind {
                     PrimitiveKind::BoxShadow => {
@@ -1036,51 +1038,53 @@ impl RenderTarget for ColorRenderTarget {
 
                         let task_index = render_tasks.get_task_index(&task.id, pass_index);
 
-                        for text in &prim.runs {
-                            let instance = SimplePrimitiveInstance::new(prim_address,
-                                                                        task_index,
-                                                                        RenderTaskIndex(0),
-                                                                        PackedLayerIndex(0),
-                                                                        0);     // z is disabled for rendering cache primitives
+                        for sub_prim_index in &prim.primitives {
+                            let sub_metadata = ctx.prim_store.get_metadata(*sub_prim_index);
+                            match sub_metadata.prim_kind {
+                                PrimitiveKind::TextRun => {
+                                    // Add instances that reference the text run GPU location. Also supply
+                                    // the parent text-shadow prim address as a user data field, allowing
+                                    // the shader to fetch the text-shadow parameters.
+                                    let sub_prim_address = sub_metadata.gpu_location.as_int(gpu_cache);
+                                    let text = &ctx.prim_store.cpu_text_runs[sub_metadata.cpu_prim_index.0];
 
-                            let font_size_dp = text.logical_font_size.scale_by(ctx.device_pixel_ratio);
+                                    let instance = SimplePrimitiveInstance::new(sub_prim_address,
+                                                                                task_index,
+                                                                                RenderTaskIndex(0),
+                                                                                PackedLayerIndex(0),
+                                                                                0);     // z is disabled for rendering cache primitives
 
-                            let texture_id = ctx.resource_cache.get_glyphs(text.font_key,
-                                                                           font_size_dp,
-                                                                           ColorF::new(0.0, 0.0, 0.0, 1.0),
-                                                                           &text.glyph_instances,
-                                                                           text.render_mode,
-                                                                           text.glyph_options, |index, handle| {
-                                let uv_address = handle.as_int(gpu_cache);
-                                instances.push(instance.build(index as i32,
-                                                              uv_address,
-                                                              0));
-                            });
+                                    let font_size_dp = text.logical_font_size.scale_by(ctx.device_pixel_ratio);
 
-                            if texture_id != SourceTexture::Invalid {
-                                let textures = BatchTextures {
-                                    colors: [texture_id, SourceTexture::Invalid, SourceTexture::Invalid],
-                                };
+                                    let texture_id = ctx.resource_cache.get_glyphs(text.font_key,
+                                                                                   font_size_dp,
+                                                                                   text.color,
+                                                                                   &text.glyph_instances,
+                                                                                   text.shadow_render_mode,
+                                                                                   text.glyph_options, |index, handle| {
+                                        let uv_address = handle.as_int(gpu_cache);
+                                        instances.push(instance.build(index as i32,
+                                                                      uv_address,
+                                                                      prim_address));
+                                    });
 
-                                self.text_run_cache_prims.extend_from_slice(&instances);
-                                instances.clear();
+                                    if texture_id != SourceTexture::Invalid {
+                                        let textures = BatchTextures {
+                                            colors: [texture_id, SourceTexture::Invalid, SourceTexture::Invalid],
+                                        };
 
-                                //
-                                // Work out the GPU address of the next primitive in the GPU cache
-                                // for this text run. The GPU block layout for a text run is:
-                                //
-                                // Color of text run [1 block]
-                                // Local offset for this text run [1 block]
-                                // Packed glyph offsets [ (glyph count + 1) / 2 ]
-                                //
-                                // Two glyphs are packed per GPU block.
-                                //
-                                prim_address += 2 + (text.glyph_instances.len() as i32 + 1) / 2;
+                                        self.text_run_cache_prims.extend_from_slice(&instances);
+                                        instances.clear();
 
-                                debug_assert!(textures.colors[0] != SourceTexture::Invalid);
-                                debug_assert!(self.text_run_textures.colors[0] == SourceTexture::Invalid ||
-                                              self.text_run_textures.colors[0] == textures.colors[0]);
-                                self.text_run_textures = textures;
+                                        debug_assert!(textures.colors[0] != SourceTexture::Invalid);
+                                        debug_assert!(self.text_run_textures.colors[0] == SourceTexture::Invalid ||
+                                                      self.text_run_textures.colors[0] == textures.colors[0]);
+                                        self.text_run_textures = textures;
+                                    }
+                                }
+                                _ => {
+                                    unreachable!("Unexpected sub primitive type");
+                                }
                             }
                         }
                     }
