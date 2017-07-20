@@ -446,6 +446,9 @@ impl RenderBackend {
                                     .unwrap()
                                     .external_event(evt);
                         }
+                        ApiMsg::ClearNamespace(namespace) => {
+                            self.resource_cache.clear_namespace(namespace);
+                        }
                         ApiMsg::ShutDown => {
                             let notifier = self.notifier.lock();
                             notifier.unwrap()
