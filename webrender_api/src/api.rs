@@ -18,6 +18,53 @@ use {WebGLCommand, WebGLContextId};
 pub type TileSize = u16;
 
 #[derive(Clone, Deserialize, Serialize)]
+pub enum DocumentMsg {
+    // Supplies a new frame to WebRender.
+    ///
+    /// After receiving this message, WebRender will read the display list from the payload channel.
+    SetDisplayList {
+        epoch: Epoch,
+        pipeline_id: PipelineId,
+        background: Option<ColorF>,
+        viewport_size: LayoutSize,
+        content_size: LayoutSize,
+        list_descriptor: BuiltDisplayListDescriptor,
+        preserve_frame_state: bool,
+    },
+    SetPageZoom(ZoomFactor),
+    SetPinchZoom(ZoomFactor),
+    SetPan(DeviceIntPoint),
+    SetRootPipeline(PipelineId),
+    SetWindowParameters {
+        window_size: DeviceUintSize,
+        inner_rect: DeviceUintRect,
+    },
+    Scroll(ScrollLocation, WorldPoint, ScrollEventPhase),
+    ScrollNodeWithId(LayoutPoint, ClipId, ScrollClamping),
+    TickScrollingBounce,
+    GetScrollNodeState(MsgSender<Vec<ScrollLayerState>>),
+    GenerateFrame(Option<DynamicProperties>),
+}
+
+impl fmt::Debug for DocumentMsg {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(match *self {
+            DocumentMsg::SetDisplayList{..} => "DocumentMsg::SetDisplayList",
+            DocumentMsg::SetPageZoom(..) => "DocumentMsg::SetPageZoom",
+            DocumentMsg::SetPinchZoom(..) => "DocumentMsg::SetPinchZoom",
+            DocumentMsg::SetPan(..) => "DocumentMsg::SetPan",
+            DocumentMsg::SetRootPipeline(..) => "DocumentMsg::SetRootPipeline",
+            DocumentMsg::SetWindowParameters{..} => "DocumentMsg::SetWindowParameters",
+            DocumentMsg::Scroll(..) => "DocumentMsg::Scroll",
+            DocumentMsg::ScrollNodeWithId(..) => "DocumentMsg::ScrollNodeWithId",
+            DocumentMsg::TickScrollingBounce => "DocumentMsg::TickScrollingBounce",
+            DocumentMsg::GetScrollNodeState(..) => "DocumentMsg::GetScrollNodeState",
+            DocumentMsg::GenerateFrame(..) => "DocumentMsg::GenerateFrame",
+        })
+    }
+}
+
+#[derive(Clone, Deserialize, Serialize)]
 pub enum ApiMsg {
     AddRawFont(FontKey, Vec<u8>, u32),
     AddNativeFont(FontKey, NativeFontHandle),
@@ -32,39 +79,24 @@ pub enum ApiMsg {
     UpdateImage(ImageKey, ImageDescriptor, ImageData, Option<DeviceUintRect>),
     /// Drops an image from the resource cache.
     DeleteImage(ImageKey),
+    /// Adds a new document namespace.
     CloneApi(MsgSender<IdNamespace>),
-    /// Supplies a new frame to WebRender.
-    ///
-    /// After receiving this message, WebRender will read the display list from the payload channel.
-    // TODO: We should consider using named members to avoid confusion.
-    SetDisplayList(Option<ColorF>,
-                   Epoch,
-                   PipelineId,
-                   LayoutSize, // viewport_size
-                   LayoutSize, // content size
-                   BuiltDisplayListDescriptor,
-                   bool),
-    SetPageZoom(ZoomFactor),
-    SetPinchZoom(ZoomFactor),
-    SetPan(DeviceIntPoint),
-    SetRootPipeline(PipelineId),
-    SetWindowParameters(DeviceUintSize, DeviceUintRect),
-    Scroll(ScrollLocation, WorldPoint, ScrollEventPhase),
-    ScrollNodeWithId(LayoutPoint, ClipId, ScrollClamping),
-    TickScrollingBounce,
-    TranslatePointToLayerSpace(WorldPoint, MsgSender<(LayoutPoint, PipelineId)>),
-    GetScrollNodeState(MsgSender<Vec<ScrollLayerState>>),
+    /// Adds a new document with given initial size.
+    AddDocument(DocumentId, DeviceUintSize),
+    /// A message targeted at a particular document.
+    UpdateDocument(DocumentId, DocumentMsg),
+    /// Deletes an existing document.
+    DeleteDocument(DocumentId),
     RequestWebGLContext(DeviceIntSize, GLContextAttributes, MsgSender<Result<(WebGLContextId, GLLimits), String>>),
     ResizeWebGLContext(WebGLContextId, DeviceIntSize),
     WebGLCommand(WebGLContextId, WebGLCommand),
-    GenerateFrame(Option<DynamicProperties>),
     // WebVR commands that must be called in the WebGL render thread.
     VRCompositorCommand(WebGLContextId, VRCompositorCommand),
     /// An opaque handle that must be passed to the render notifier. It is used by Gecko
     /// to forward gecko-specific messages to the render thread preserving the ordering
     /// within the other messages.
     ExternalEvent(ExternalEvent),
-    /// Remove all resources associated with this namespace.
+    /// Removes all resources associated with a namespace.
     ClearNamespace(IdNamespace),
     ShutDown,
 }
@@ -81,25 +113,16 @@ impl fmt::Debug for ApiMsg {
             ApiMsg::UpdateImage(..) => "ApiMsg::UpdateImage",
             ApiMsg::DeleteImage(..) => "ApiMsg::DeleteImage",
             ApiMsg::CloneApi(..) => "ApiMsg::CloneApi",
-            ApiMsg::SetDisplayList(..) => "ApiMsg::SetDisplayList",
-            ApiMsg::SetRootPipeline(..) => "ApiMsg::SetRootPipeline",
-            ApiMsg::Scroll(..) => "ApiMsg::Scroll",
-            ApiMsg::ScrollNodeWithId(..) => "ApiMsg::ScrollNodeWithId",
-            ApiMsg::TickScrollingBounce => "ApiMsg::TickScrollingBounce",
-            ApiMsg::TranslatePointToLayerSpace(..) => "ApiMsg::TranslatePointToLayerSpace",
-            ApiMsg::GetScrollNodeState(..) => "ApiMsg::GetScrollNodeState",
+            ApiMsg::AddDocument(..) => "ApiMsg::AddDocument",
+            ApiMsg::UpdateDocument(..) => "ApiMsg::UpdateDocument",
+            ApiMsg::DeleteDocument(..) => "ApiMsg::DeleteDocument",
             ApiMsg::RequestWebGLContext(..) => "ApiMsg::RequestWebGLContext",
             ApiMsg::ResizeWebGLContext(..) => "ApiMsg::ResizeWebGLContext",
             ApiMsg::WebGLCommand(..) => "ApiMsg::WebGLCommand",
-            ApiMsg::GenerateFrame(..) => "ApiMsg::GenerateFrame",
             ApiMsg::VRCompositorCommand(..) => "ApiMsg::VRCompositorCommand",
             ApiMsg::ExternalEvent(..) => "ApiMsg::ExternalEvent",
-            ApiMsg::ShutDown => "ApiMsg::ShutDown",
-            ApiMsg::SetPageZoom(..) => "ApiMsg::SetPageZoom",
-            ApiMsg::SetPinchZoom(..) => "ApiMsg::SetPinchZoom",
-            ApiMsg::SetPan(..) => "ApiMsg::SetPan",
-            ApiMsg::SetWindowParameters(..) => "ApiMsg::SetWindowParameters",
             ApiMsg::ClearNamespace(..) => "ApiMsg::ClearNamespace",
+            ApiMsg::ShutDown => "ApiMsg::ShutDown",
         })
     }
 }
@@ -127,12 +150,31 @@ pub enum WebGLCommand {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct PipelineId(pub u32, pub u32);
-
-#[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Deserialize, Serialize)]
 pub struct IdNamespace(pub u32);
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub struct DocumentId(pub IdNamespace, pub u32);
+
+/// This type carries no valuable semantics for WR. However, it reflects the fact that
+/// clients (Servo) may generate pipelines by different semi-independent sources.
+/// These pipelines still belong to the same `IdNamespace` and the same `DocumentId`.
+/// Having this extra Id field enables them to generate `PipelineId` without collision.
+pub type PipelineSourceId = u32;
+
+/// From the point of view of WR, `PipelineId` is completely opaque and generic as long as
+/// it's clonable, serializable, comparable, and hashable.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub struct PipelineId(pub PipelineSourceId, pub u32);
+
+impl PipelineId {
+    pub fn dummy() -> Self {
+        PipelineId(0, 0)
+    }
+}
+
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -168,35 +210,32 @@ pub struct RenderApiSender {
 impl RenderApiSender {
     pub fn new(api_sender: MsgSender<ApiMsg>,
                payload_sender: PayloadSender)
-               -> RenderApiSender {
+               -> Self {
         RenderApiSender {
             api_sender,
             payload_sender,
         }
     }
 
+    /// Creates a new resource API object with a dedicated namespace.
     pub fn create_api(&self) -> RenderApi {
-        let RenderApiSender {
-            ref api_sender,
-            ref payload_sender
-        } = *self;
         let (sync_tx, sync_rx) = channel::msg_channel().unwrap();
         let msg = ApiMsg::CloneApi(sync_tx);
-        api_sender.send(msg).unwrap();
+        self.api_sender.send(msg).unwrap();
         RenderApi {
-            api_sender: api_sender.clone(),
-            payload_sender: payload_sender.clone(),
-            id_namespace: sync_rx.recv().unwrap(),
+            api_sender: self.api_sender.clone(),
+            payload_sender: self.payload_sender.clone(),
+            namespace_id: sync_rx.recv().unwrap(),
             next_id: Cell::new(ResourceId(0)),
         }
     }
 }
 
 pub struct RenderApi {
-    pub api_sender: MsgSender<ApiMsg>,
-    pub payload_sender: PayloadSender,
-    pub id_namespace: IdNamespace,
-    pub next_id: Cell<ResourceId>,
+    api_sender: MsgSender<ApiMsg>,
+    payload_sender: PayloadSender,
+    namespace_id: IdNamespace,
+    next_id: Cell<ResourceId>,
 }
 
 impl RenderApi {
@@ -204,22 +243,40 @@ impl RenderApi {
         RenderApiSender::new(self.api_sender.clone(), self.payload_sender.clone())
     }
 
+    pub fn add_document(&self, initial_size: DeviceUintSize) -> DocumentId {
+        let new_id = self.next_unique_id();
+        let document_id = DocumentId(self.namespace_id, new_id);
+
+        let msg = ApiMsg::AddDocument(document_id, initial_size);
+        self.api_sender.send(msg).unwrap();
+
+        document_id
+    }
+
+    pub fn delete_document(&self, document_id: DocumentId) {
+        let msg = ApiMsg::DeleteDocument(document_id);
+        self.api_sender.send(msg).unwrap();
+    }
+
     pub fn generate_font_key(&self) -> FontKey {
         let new_id = self.next_unique_id();
-        FontKey::new(new_id.0, new_id.1)
+        FontKey::new(self.namespace_id, new_id)
     }
 
     pub fn add_raw_font(&self, key: FontKey, bytes: Vec<u8>, index: u32) {
+        debug_assert_eq!(key.0, self.namespace_id);
         let msg = ApiMsg::AddRawFont(key, bytes, index);
         self.api_sender.send(msg).unwrap();
     }
 
     pub fn add_native_font(&self, key: FontKey, native_font_handle: NativeFontHandle) {
+        debug_assert_eq!(key.0, self.namespace_id);
         let msg = ApiMsg::AddNativeFont(key, native_font_handle);
         self.api_sender.send(msg).unwrap();
     }
 
     pub fn delete_font(&self, key: FontKey) {
+        debug_assert_eq!(key.0, self.namespace_id);
         let msg = ApiMsg::DeleteFont(key);
         self.api_sender.send(msg).unwrap();
     }
@@ -253,7 +310,7 @@ impl RenderApi {
     /// Creates an `ImageKey`.
     pub fn generate_image_key(&self) -> ImageKey {
         let new_id = self.next_unique_id();
-        ImageKey::new(new_id.0, new_id.1)
+        ImageKey::new(self.namespace_id, new_id)
     }
 
     /// Adds an image identified by the `ImageKey`.
@@ -262,6 +319,7 @@ impl RenderApi {
                      descriptor: ImageDescriptor,
                      data: ImageData,
                      tiling: Option<TileSize>) {
+        debug_assert_eq!(key.0, self.namespace_id);
         let msg = ApiMsg::AddImage(key, descriptor, data, tiling);
         self.api_sender.send(msg).unwrap();
     }
@@ -275,133 +333,16 @@ impl RenderApi {
                         descriptor: ImageDescriptor,
                         data: ImageData,
                         dirty_rect: Option<DeviceUintRect>) {
+        debug_assert_eq!(key.0, self.namespace_id);
         let msg = ApiMsg::UpdateImage(key, descriptor, data, dirty_rect);
         self.api_sender.send(msg).unwrap();
     }
 
     /// Deletes the specific image.
     pub fn delete_image(&self, key: ImageKey) {
+        debug_assert_eq!(key.0, self.namespace_id);
         let msg = ApiMsg::DeleteImage(key);
         self.api_sender.send(msg).unwrap();
-    }
-
-    /// Sets the root pipeline.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use webrender_api::{PipelineId, RenderApiSender};
-    /// # fn example(sender: RenderApiSender) {
-    /// let api = sender.create_api();
-    /// // ...
-    /// let pipeline_id = PipelineId(0, 0);
-    /// api.set_root_pipeline(pipeline_id);
-    /// # }
-    /// ```
-    pub fn set_root_pipeline(&self, pipeline_id: PipelineId) {
-        let msg = ApiMsg::SetRootPipeline(pipeline_id);
-        self.api_sender.send(msg).unwrap();
-    }
-
-    /// Supplies a new frame to WebRender.
-    ///
-    /// Non-blocking, it notifies a worker process which processes the display list.
-    /// When it's done and a RenderNotifier has been set in `webrender::renderer::Renderer`,
-    /// [new_frame_ready()][notifier] gets called.
-    ///
-    /// Note: Scrolling doesn't require an own Frame.
-    ///
-    /// Arguments:
-    ///
-    /// * `background_color`: The background color of this pipeline.
-    /// * `epoch`: The unique Frame ID, monotonically increasing.
-    /// * `viewport_size`: The size of the viewport for this frame.
-    /// * `pipeline_id`: The ID of the pipeline that is supplying this display list.
-    /// * `content_size`: The total screen space size of this display list's display items.
-    /// * `display_list`: The root Display list used in this frame.
-    /// * `preserve_frame_state`: If a previous frame exists which matches this pipeline
-    ///                           id, this setting determines if frame state (such as scrolling
-    ///                           position) should be preserved for this new display list.
-    ///
-    /// [notifier]: trait.RenderNotifier.html#tymethod.new_frame_ready
-    pub fn set_display_list(&self,
-                            background_color: Option<ColorF>,
-                            epoch: Epoch,
-                            viewport_size: LayoutSize,
-                            (pipeline_id, content_size, display_list): (PipelineId, LayoutSize, BuiltDisplayList),
-                            preserve_frame_state: bool) {
-        let (display_list_data, display_list_descriptor) = display_list.into_data();
-        let msg = ApiMsg::SetDisplayList(background_color,
-                                         epoch,
-                                         pipeline_id,
-                                         viewport_size,
-                                         content_size,
-                                         display_list_descriptor,
-                                         preserve_frame_state);
-        self.api_sender.send(msg).unwrap();
-
-        self.payload_sender.send_payload(Payload {
-            epoch,
-            pipeline_id,
-            display_list_data,
-        }).unwrap();
-    }
-
-    /// Scrolls the scrolling layer under the `cursor`
-    ///
-    /// WebRender looks for the layer closest to the user
-    /// which has `ScrollPolicy::Scrollable` set.
-    pub fn scroll(&self, scroll_location: ScrollLocation, cursor: WorldPoint, phase: ScrollEventPhase) {
-        let msg = ApiMsg::Scroll(scroll_location, cursor, phase);
-        self.api_sender.send(msg).unwrap();
-    }
-
-    pub fn scroll_node_with_id(&self, origin: LayoutPoint, id: ClipId, clamp: ScrollClamping) {
-        let msg = ApiMsg::ScrollNodeWithId(origin, id, clamp);
-        self.api_sender.send(msg).unwrap();
-    }
-
-    pub fn set_page_zoom(&self, page_zoom: ZoomFactor) {
-        let msg = ApiMsg::SetPageZoom(page_zoom);
-        self.api_sender.send(msg).unwrap();
-    }
-
-    pub fn set_pinch_zoom(&self, pinch_zoom: ZoomFactor) {
-        let msg = ApiMsg::SetPinchZoom(pinch_zoom);
-        self.api_sender.send(msg).unwrap();
-    }
-
-    pub fn set_pan(&self, pan: DeviceIntPoint) {
-        let msg = ApiMsg::SetPan(pan);
-        self.api_sender.send(msg).unwrap();
-    }
-
-    pub fn set_window_parameters(&self,
-                                 window_size: DeviceUintSize,
-                                 inner_rect: DeviceUintRect) {
-        let msg = ApiMsg::SetWindowParameters(window_size, inner_rect);
-        self.api_sender.send(msg).unwrap();
-    }
-
-    pub fn tick_scrolling_bounce_animations(&self) {
-        let msg = ApiMsg::TickScrollingBounce;
-        self.api_sender.send(msg).unwrap();
-    }
-
-    /// Translates a point from viewport coordinates to layer space
-    pub fn translate_point_to_layer_space(&self, point: &WorldPoint)
-                                          -> (LayoutPoint, PipelineId) {
-        let (tx, rx) = channel::msg_channel().unwrap();
-        let msg = ApiMsg::TranslatePointToLayerSpace(*point, tx);
-        self.api_sender.send(msg).unwrap();
-        rx.recv().unwrap()
-    }
-
-    pub fn get_scroll_node_state(&self) -> Vec<ScrollLayerState> {
-        let (tx, rx) = channel::msg_channel().unwrap();
-        let msg = ApiMsg::GetScrollNodeState(tx);
-        self.api_sender.send(msg).unwrap();
-        rx.recv().unwrap()
     }
 
     pub fn request_webgl_context(&self, size: &DeviceIntSize, attributes: GLContextAttributes)
@@ -419,14 +360,6 @@ impl RenderApi {
 
     pub fn send_webgl_command(&self, context_id: WebGLContextId, command: WebGLCommand) {
         let msg = ApiMsg::WebGLCommand(context_id, command);
-        self.api_sender.send(msg).unwrap();
-    }
-
-    /// Generate a new frame. Optionally, supply a list of animated
-    /// property bindings that should be used to resolve bindings
-    /// in the current display list.
-    pub fn generate_frame(&self, property_bindings: Option<DynamicProperties>) {
-        let msg = ApiMsg::GenerateFrame(property_bindings);
         self.api_sender.send(msg).unwrap();
     }
 
@@ -450,24 +383,163 @@ impl RenderApi {
         let new_id = self.next_unique_id();
         PropertyBindingKey {
             id: PropertyBindingId {
-                namespace: new_id.0,
-                uid: new_id.1,
+                namespace: self.namespace_id,
+                uid: new_id,
             },
             _phantom: PhantomData,
         }
     }
 
     #[inline]
-    fn next_unique_id(&self) -> (IdNamespace, u32) {
+    fn next_unique_id(&self) -> u32 {
         let ResourceId(id) = self.next_id.get();
         self.next_id.set(ResourceId(id + 1));
-        (self.id_namespace, id)
+        id
+    }
+
+    // For use in Wrench only
+    #[doc(hidden)]
+    pub fn send_message(&self, msg: ApiMsg) {
+        self.api_sender.send(msg).unwrap();
+    }
+
+    // For use in Wrench only
+    #[doc(hidden)]
+    pub fn send_payload(&self, data: &[u8]) {
+        self.payload_sender.send_payload(Payload::from_data(data)).unwrap();
+    }
+
+    /// A helper method to send document messages.
+    fn send(&self, document_id: DocumentId, msg: DocumentMsg) {
+        // This assertion fails on Servo use-cases, because it creates different
+        // `RenderApi` instances for layout and compositor.
+        //assert_eq!(document_id.0, self.namespace_id);
+        self.api_sender.send(ApiMsg::UpdateDocument(document_id, msg)).unwrap()
+    }
+
+        /// Sets the root pipeline.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webrender_api::{DeviceUintSize, PipelineId, RenderApiSender};
+    /// # fn example(sender: RenderApiSender) {
+    /// let api = sender.create_api();
+    /// let document_id = api.add_document(DeviceUintSize::zero());
+    /// let pipeline_id = PipelineId(0, 0);
+    /// api.set_root_pipeline(document_id, pipeline_id);
+    /// # }
+    /// ```
+    pub fn set_root_pipeline(&self, document_id: DocumentId, pipeline_id: PipelineId) {
+        self.send(document_id, DocumentMsg::SetRootPipeline(pipeline_id));
+    }
+
+    /// Supplies a new frame to WebRender.
+    ///
+    /// Non-blocking, it notifies a worker process which processes the display list.
+    /// When it's done and a RenderNotifier has been set in `webrender::renderer::Renderer`,
+    /// [new_frame_ready()][notifier] gets called.
+    ///
+    /// Note: Scrolling doesn't require an own Frame.
+    ///
+    /// Arguments:
+    ///
+    /// * `document_id`: Target Document ID.
+    /// * `epoch`: The unique Frame ID, monotonically increasing.
+    /// * `background`: The background color of this pipeline.
+    /// * `viewport_size`: The size of the viewport for this frame.
+    /// * `pipeline_id`: The ID of the pipeline that is supplying this display list.
+    /// * `content_size`: The total screen space size of this display list's display items.
+    /// * `display_list`: The root Display list used in this frame.
+    /// * `preserve_frame_state`: If a previous frame exists which matches this pipeline
+    ///                           id, this setting determines if frame state (such as scrolling
+    ///                           position) should be preserved for this new display list.
+    ///
+    /// [notifier]: trait.RenderNotifier.html#tymethod.new_frame_ready
+    pub fn set_display_list(&self,
+                            document_id: DocumentId,
+                            epoch: Epoch,
+                            background: Option<ColorF>,
+                            viewport_size: LayoutSize,
+                            (pipeline_id, content_size, display_list): (PipelineId, LayoutSize, BuiltDisplayList),
+                            preserve_frame_state: bool) {
+        let (display_list_data, list_descriptor) = display_list.into_data();
+        self.send(document_id, DocumentMsg::SetDisplayList {
+            epoch,
+            pipeline_id,
+            background,
+            viewport_size,
+            content_size,
+            list_descriptor,
+            preserve_frame_state
+        });
+
+        self.payload_sender.send_payload(Payload {
+            epoch,
+            pipeline_id,
+            display_list_data,
+        }).unwrap();
+    }
+
+    /// Scrolls the scrolling layer under the `cursor`
+    ///
+    /// WebRender looks for the layer closest to the user
+    /// which has `ScrollPolicy::Scrollable` set.
+    pub fn scroll(&self, document_id: DocumentId, scroll_location: ScrollLocation,
+                  cursor: WorldPoint, phase: ScrollEventPhase) {
+        self.send(document_id, DocumentMsg::Scroll(scroll_location, cursor, phase));
+    }
+
+    pub fn scroll_node_with_id(&self, document_id: DocumentId, origin: LayoutPoint,
+                               id: ClipId, clamp: ScrollClamping) {
+        self.send(document_id, DocumentMsg::ScrollNodeWithId(origin, id, clamp));
+    }
+
+    pub fn set_page_zoom(&self, document_id: DocumentId, page_zoom: ZoomFactor) {
+        self.send(document_id, DocumentMsg::SetPageZoom(page_zoom));
+    }
+
+    pub fn set_pinch_zoom(&self, document_id: DocumentId, pinch_zoom: ZoomFactor) {
+        self.send(document_id, DocumentMsg::SetPinchZoom(pinch_zoom));
+    }
+
+    pub fn set_pan(&self, document_id: DocumentId, pan: DeviceIntPoint) {
+        self.send(document_id, DocumentMsg::SetPan(pan));
+    }
+
+    pub fn set_window_parameters(&self,
+                                 document_id: DocumentId,
+                                 window_size: DeviceUintSize,
+                                 inner_rect: DeviceUintRect) {
+        self.send(document_id, DocumentMsg::SetWindowParameters {
+            window_size,
+            inner_rect,
+        });
+    }
+
+    pub fn tick_scrolling_bounce_animations(&self, document_id: DocumentId) {
+        self.send(document_id, DocumentMsg::TickScrollingBounce);
+    }
+
+    pub fn get_scroll_node_state(&self, document_id: DocumentId) -> Vec<ScrollLayerState> {
+        let (tx, rx) = channel::msg_channel().unwrap();
+        self.send(document_id, DocumentMsg::GetScrollNodeState(tx));
+        rx.recv().unwrap()
+    }
+
+    /// Generate a new frame. Optionally, supply a list of animated
+    /// property bindings that should be used to resolve bindings
+    /// in the current display list.
+    pub fn generate_frame(&self, document_id: DocumentId,
+                          property_bindings: Option<DynamicProperties>) {
+        self.send(document_id, DocumentMsg::GenerateFrame(property_bindings));
     }
 }
 
 impl Drop for RenderApi {
     fn drop(&mut self) {
-        let _ = self.api_sender.send(ApiMsg::ClearNamespace(self.id_namespace));
+        let msg = ApiMsg::ClearNamespace(self.namespace_id);
+        let _ = self.api_sender.send(msg);
     }
 }
 

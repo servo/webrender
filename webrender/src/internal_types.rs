@@ -13,8 +13,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tiling;
 use renderer::BlendMode;
-use api::{ClipId, ColorU, DeviceUintRect, Epoch, ExternalImageData, ExternalImageId};
-use api::{DevicePoint, ImageData, ImageFormat, PipelineId};
+use api::{ClipId, ColorU, DevicePoint, DeviceUintRect, DocumentId, Epoch};
+use api::{ExternalImageData, ExternalImageId};
+use api::{ImageData, ImageFormat, PipelineId};
 
 // An ID for a texture that is owned by the
 // texture cache module. This can include atlases
@@ -263,7 +264,7 @@ impl RendererFrame {
 
 pub enum ResultMsg {
     RefreshShader(PathBuf),
-    NewFrame(RendererFrame, TextureUpdateList, BackendProfileCounters),
+    NewFrame(DocumentId, RendererFrame, TextureUpdateList, BackendProfileCounters),
 }
 
 #[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]

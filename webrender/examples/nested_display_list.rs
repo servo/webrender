@@ -90,9 +90,7 @@ lazy_static! {
     static ref CURSOR_POSITION: Mutex<WorldPoint> = Mutex::new(WorldPoint::zero());
 }
 
-fn event_handler(event: &glutin::Event,
-                 api: &RenderApi)
-{
+fn event_handler(event: &glutin::Event, document_id: DocumentId, api: &RenderApi) {
     match *event {
         glutin::Event::KeyboardInput(glutin::ElementState::Pressed, _, Some(key)) => {
             let offset = match key {
@@ -103,7 +101,8 @@ fn event_handler(event: &glutin::Event,
                  _ => return,
             };
 
-            api.scroll(ScrollLocation::Delta(LayoutVector2D::new(offset.0, offset.1)),
+            api.scroll(document_id,
+                       ScrollLocation::Delta(LayoutVector2D::new(offset.0, offset.1)),
                        *CURSOR_POSITION.lock().unwrap(),
                        ScrollEventPhase::Start);
         }
@@ -121,7 +120,8 @@ fn event_handler(event: &glutin::Event,
                 glutin::MouseScrollDelta::PixelDelta(dx, dy) => (dx, dy),
             };
 
-            api.scroll(ScrollLocation::Delta(LayoutVector2D::new(dx, dy)),
+            api.scroll(document_id,
+                       ScrollLocation::Delta(LayoutVector2D::new(dx, dy)),
                        *CURSOR_POSITION.lock().unwrap(),
                        ScrollEventPhase::Start);
         }

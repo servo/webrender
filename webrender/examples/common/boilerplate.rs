@@ -56,6 +56,7 @@ pub fn main_wrapper(builder_callback: fn(&RenderApi,
                                          &PipelineId,
                                          &LayoutSize) -> (),
                     event_handler: fn(&glutin::Event,
+                                      DocumentId,
                                       &RenderApi) -> (),
                     options: Option<webrender::RendererOptions>)
 {
@@ -99,7 +100,7 @@ pub fn main_wrapper(builder_callback: fn(&RenderApi,
     };
 
     let size = DeviceUintSize::new(width, height);
-    let (mut renderer, sender) = webrender::renderer::Renderer::new(gl, opts, size).unwrap();
+    let (mut renderer, sender) = webrender::renderer::Renderer::new(gl, opts).unwrap();
     let api = sender.create_api();
 
     let notifier = Box::new(Notifier::new(window.create_window_proxy()));
@@ -114,14 +115,16 @@ pub fn main_wrapper(builder_callback: fn(&RenderApi,
 
     builder_callback(&api, &mut builder, &pipeline_id, &layout_size);
 
+    let document_id = api.add_document(size);
     api.set_display_list(
-        Some(root_background_color),
+        document_id,
         epoch,
+        Some(root_background_color),
         LayoutSize::new(width as f32, height as f32),
         builder.finalize(),
         true);
-    api.set_root_pipeline(pipeline_id);
-    api.generate_frame(None);
+    api.set_root_pipeline(document_id, pipeline_id);
+    api.generate_frame(document_id, None);
 
     'outer: for event in window.wait_events() {
         let mut events = Vec::new();
@@ -141,10 +144,10 @@ pub fn main_wrapper(builder_callback: fn(&RenderApi,
                                              _, Some(glutin::VirtualKeyCode::P)) => {
                     let enable_profiler = !renderer.get_profiler_enabled();
                     renderer.set_profiler_enabled(enable_profiler);
-                    api.generate_frame(None);
+                    api.generate_frame(document_id, None);
                 }
 
-                _ => event_handler(&event, &api),
+                _ => event_handler(&event, document_id, &api),
             }
         }
 

@@ -144,7 +144,7 @@ impl<'a> BuiltDisplayListIter<'a> {
                 item: SpecificDisplayItem::PopStackingContext,
                 rect: LayoutRect::zero(),
                 local_clip: LocalClip::from(LayoutRect::zero()),
-                clip_and_scroll: ClipAndScrollInfo::simple(ClipId::new(0, PipelineId(0, 0))),
+                clip_and_scroll: ClipAndScrollInfo::simple(ClipId::new(0, PipelineId::dummy())),
             },
             cur_stops: ItemRange::default(),
             cur_glyphs: ItemRange::default(),
