@@ -197,15 +197,15 @@ impl YamlHelper for Yaml {
     }
 
     fn as_pipeline_id(&self) -> Option<PipelineId> {
-        if let Some(v) = self.as_vec() {
-            let a = v.get(0).and_then(|v| v.as_i64()).map(|v| v as u32);
-            let b = v.get(1).and_then(|v| v.as_i64()).map(|v| v as u32);
-            match (a, b) {
-                (Some(a), Some(b)) if v.len() == 2 => Some(PipelineId(a, b)),
-                _ => None,
+        match *self {
+            Yaml::Integer(v) => {
+                Some(PipelineId(v as u32))
             }
-        } else {
-            None
+            Yaml::BadValue => { None }
+            _ =>  {
+                println!("unknown pipeline id: {:?}", self);
+                None
+            }
         }
     }
 

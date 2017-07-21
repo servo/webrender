@@ -1,0 +1,34 @@
+# This tests have a A(3D) -> B(2D) -> C(3D) context chain.
+# All 3 contexts end up getting baked, but C last one doesn't participate in the
+# same plane splitting pass as `A` and `B`, because it's separated from them by a
+# non-preserve-3D parent `B`.
+# `B` is layed out in the same plane as the parent, so should be ordered
+# after `A`, given that it's coming later than the parent.
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 0, 1024, 1024]
+      items:
+        - type: stacking-context
+          bounds: [0, 0, 600, 600]
+          transform-style: preserve-3d
+          transform: rotate-y(60.0)
+          items:
+            - type: rect
+              bounds: [0, 0, 600, 600]
+              color: red
+            - type: stacking-context
+              bounds: [0, 0, 300, 100]
+              items:
+                - type: rect
+                  bounds: [0, 0, 600, 200]
+                  color: green
+                - type: stacking-context
+                  bounds: [0, 0, 600, 200]
+                  transform-style: preserve-3d
+                  transform: rotate-x(60.0)
+                  items:
+                    - type: rect
+                      bounds: [0, 0, 600, 200]
+                      color: blue

@@ -50,7 +50,7 @@ use thread_profiler::{register_thread_with_profiler, write_profile};
 use util::TransformedRectKind;
 use webgl_types::GLContextHandleWrapper;
 use api::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
-use api::{ExternalImageId, ExternalImageType, ImageData, ImageFormat, RenderApiSender};
+use api::{DocumentApiSender, ExternalImageId, ExternalImageType, ImageData, ImageFormat};
 use api::{DeviceIntRect, DeviceUintRect, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
 use api::{BlobImageRenderer, channel, FontRenderMode};
 use api::VRCompositorHandler;
@@ -744,7 +744,7 @@ impl From<std::io::Error> for InitError {
 }
 
 impl Renderer {
-    /// Initializes webrender and creates a `Renderer` and `RenderApiSender`.
+    /// Initializes webrender and creates a `Renderer` and `DocumentApiSender`.
     ///
     /// # Examples
     /// Initializes a `Renderer` with some reasonable values. For more information see
@@ -762,9 +762,7 @@ impl Renderer {
     /// let (renderer, sender) = Renderer::new(opts);
     /// ```
     /// [rendereroptions]: struct.RendererOptions.html
-    pub fn new(gl: Rc<gl::Gl>,
-               mut options: RendererOptions,
-               initial_window_size: DeviceUintSize) -> Result<(Renderer, RenderApiSender), InitError> {
+    pub fn new(gl: Rc<gl::Gl>, mut options: RendererOptions) -> Result<(Renderer, DocumentApiSender), InitError> {
         let (api_tx, api_rx) = try!{ channel::msg_channel() };
         let (payload_tx, payload_rx) = try!{ channel::payload_channel() };
         let (result_tx, result_rx) = channel();
@@ -1173,8 +1171,7 @@ impl Renderer {
                                                  recorder,
                                                  backend_main_thread_dispatcher,
                                                  blob_image_renderer,
-                                                 backend_vr_compositor,
-                                                 initial_window_size);
+                                                 backend_vr_compositor);
             backend.run(backend_profile_counters);
         })};
 
@@ -1248,7 +1245,7 @@ impl Renderer {
             gpu_cache_texture,
         };
 
-        let sender = RenderApiSender::new(api_tx, payload_tx);
+        let sender = DocumentApiSender::new(api_tx, payload_tx);
         Ok((renderer, sender))
     }
 
@@ -1372,7 +1369,7 @@ impl Renderer {
     /// Renders the current frame.
     ///
     /// A Frame is supplied by calling [`set_display_list()`][newframe].
-    /// [newframe]: ../../webrender_api/struct.RenderApi.html#method.set_display_list
+    /// [newframe]: ../../webrender_api/struct.DocumentApi.html#method.set_display_list
     pub fn render(&mut self, framebuffer_size: DeviceUintSize) {
         profile_scope!("render");
 

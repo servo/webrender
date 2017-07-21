@@ -16,7 +16,7 @@ use boilerplate::HandyDandyRectBuilder;
 use std::sync::Mutex;
 use webrender::api::*;
 
-fn body(_api: &RenderApi,
+fn body(_api: &DocumentApi,
         builder: &mut DisplayListBuilder,
         _pipeline_id: &PipelineId,
         layout_size: &LayoutSize) {
@@ -97,7 +97,7 @@ lazy_static! {
     static ref CURSOR_POSITION: Mutex<WorldPoint> = Mutex::new(WorldPoint::zero());
 }
 
-fn event_handler(event: &glutin::Event, api: &RenderApi) {
+fn event_handler(event: &glutin::Event, api: &DocumentApi) {
     match *event {
         glutin::Event::KeyboardInput(glutin::ElementState::Pressed, _, Some(key)) => {
             let offset = match key {

@@ -41,7 +41,7 @@ pub struct ClipScrollTree {
 
 impl ClipScrollTree {
     pub fn new() -> ClipScrollTree {
-        let dummy_pipeline = PipelineId(0, 0);
+        let dummy_pipeline = PipelineId(0);
         ClipScrollTree {
             nodes: HashMap::default(),
             pending_scroll_offsets: HashMap::new(),

@@ -212,7 +212,7 @@ impl api::BlobImageRenderer for CheckerboardRenderer {
     fn delete_font(&mut self, _font: api::FontKey) { }
 }
 
-fn body(api: &api::RenderApi,
+fn body(api: &api::DocumentApi,
         builder: &mut api::DisplayListBuilder,
         _pipeline_id: &api::PipelineId,
         layout_size: &api::LayoutSize) {
@@ -263,7 +263,7 @@ fn body(api: &api::RenderApi,
 }
 
 fn event_handler(_event: &glutin::Event,
-                 _api: &api::RenderApi)
+                 _api: &api::DocumentApi)
 {
 }
 

@@ -71,9 +71,9 @@ impl JsonFrameWriter {
     }
 
     pub fn begin_write_display_list(&mut self,
-                                    _: &Option<ColorF>,
                                     _: &Epoch,
                                     _: &PipelineId,
+                                    _: &Option<ColorF>,
                                     _: &LayoutSize,
                                     display_list: &BuiltDisplayListDescriptor)
     {
@@ -191,7 +191,7 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
         match *msg {
             ApiMsg::SetRootPipeline(..) |
             ApiMsg::Scroll(..) |
-            ApiMsg::TickScrollingBounce |
+            ApiMsg::TickScrollingBounce(..) |
             ApiMsg::WebGLCommand(..) => {
             }
 
@@ -241,18 +241,19 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
                 self.images.remove(key);
             }
 
-            ApiMsg::SetDisplayList(ref background_color,
-                                    ref epoch,
-                                    ref pipeline_id,
-                                    ref viewport_size,
-                                    ref _content_size,
-                                    ref display_list,
-                                    _preserve_frame_state) => {
-                self.begin_write_display_list(background_color,
-                                              epoch,
+            ApiMsg::SetDisplayList {
+                ref epoch,
+                ref pipeline_id,
+                ref background,
+                ref viewport_size,
+                ref list_descriptor,
+                ..
+            } => {
+                self.begin_write_display_list(epoch,
                                               pipeline_id,
+                                              background,
                                               viewport_size,
-                                              display_list);
+                                              list_descriptor);
             }
             _ => {}
         }

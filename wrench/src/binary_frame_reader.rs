@@ -12,7 +12,6 @@ use std::path::{Path, PathBuf};
 use std::{mem, process};
 use webrender::WEBRENDER_RECORDING_HEADER;
 use webrender::api::ApiMsg;
-use webrender::api::channel::{Payload, PayloadSenderHelperMethods};
 use wrench::{Wrench, WrenchThing};
 
 #[derive(Clone)]
@@ -146,7 +145,7 @@ impl WrenchThing for BinaryFrameReader {
                         ApiMsg::GenerateFrame(..) => {
                             found_frame_marker = true;
                         }
-                        ApiMsg::SetDisplayList(..) => {
+                        ApiMsg::SetDisplayList{..} => {
                             found_frame_marker = false;
                             found_display_list = true;
                         }
@@ -183,11 +182,11 @@ impl WrenchThing for BinaryFrameReader {
                 match item {
                     Item::Message(msg) => {
                         if !self.should_skip_upload_msg(&msg) {
-                            wrench.api.api_sender.send(msg).unwrap();
+                            wrench.api.send_message(msg);
                         }
                     }
                     Item::Data(buf) => {
-                        wrench.api.payload_sender.send_payload(Payload::from_data(&buf)).unwrap();
+                        wrench.api.send_payload(&buf);
                     }
                 }
             }

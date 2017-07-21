@@ -19,7 +19,7 @@ use webrender::api::*;
 // This example creates a 100x100 white rect and allows the user to move it
 // around by using the arrow keys. It does this by using the animation API.
 
-fn body(_api: &RenderApi,
+fn body(_api: &DocumentApi,
         builder: &mut DisplayListBuilder,
         _pipeline_id: &PipelineId,
         _layout_size: &LayoutSize) {
@@ -46,7 +46,7 @@ lazy_static! {
 }
 
 fn event_handler(event: &glutin::Event,
-                 api: &RenderApi)
+                 api: &DocumentApi)
 {
     match *event {
         glutin::Event::KeyboardInput(glutin::ElementState::Pressed, _, Some(key)) => {

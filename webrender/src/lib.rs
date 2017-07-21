@@ -13,16 +13,16 @@
 //! # Api Structure
 //! The main entry point to WebRender is the `webrender::renderer::Renderer`.
 //!
-//! By calling `Renderer::new(...)` you get a `Renderer`, as well as a `RenderApiSender`.
+//! By calling `Renderer::new(...)` you get a `Renderer`, as well as a `DocumentApiSender`.
 //! Your `Renderer` is responsible to render the previously processed frames onto the screen.
 //!
-//! By calling `yourRenderApiSenderInstance.create_api()`, you'll get a `RenderApi` instance,
+//! By calling `yourDocumentApiSenderInstance.create_api()`, you'll get a `DocumentApi` instance,
 //! which is responsible for the processing of new frames. A worker thread is used internally to
 //! untie the workload from the application thread and therefore be able
 //! to make better use of multicore systems.
 //!
 //! What is referred to as a `frame`, is the current geometry on the screen.
-//! A new Frame is created by calling [`set_display_list()`][newframe] on the `RenderApi`.
+//! A new Frame is created by calling [`set_display_list()`][newframe] on the `DocumentApi`.
 //! When the geometry is processed, the application will be informed via a `RenderNotifier`,
 //! a callback which you employ with [set_render_notifier][notifier] on the `Renderer`
 //! More information about [stacking contexts][stacking_contexts].
@@ -33,7 +33,7 @@
 //! they're nestable.
 //!
 //! [stacking_contexts]: https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_Positioning/Understanding_z_index/The_stacking_context
-//! [newframe]: ../webrender_api/struct.RenderApi.html#method.set_display_list
+//! [newframe]: ../webrender_api/struct.DocumentApi.html#method.set_display_list
 //! [notifier]: renderer/struct.Renderer.html#method.set_render_notifier
 
 #[macro_use]

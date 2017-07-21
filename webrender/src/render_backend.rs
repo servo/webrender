@@ -21,8 +21,8 @@ use webgl_types::{GLContextHandleWrapper, GLContextWrapper};
 use api::channel::{MsgReceiver, PayloadReceiver, PayloadReceiverHelperMethods};
 use api::channel::{PayloadSender, PayloadSenderHelperMethods};
 use api::{ApiMsg, BlobImageRenderer, BuiltDisplayList, DeviceIntPoint};
-use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, IdNamespace, ImageData};
-use api::{LayerPoint, PipelineId, RenderDispatcher, RenderNotifier};
+use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentId, IdNamespace};
+use api::{ImageData, LayerPoint, RenderDispatcher, RenderNotifier};
 use api::{VRCompositorCommand, VRCompositorHandler, WebGLCommand, WebGLContextId};
 use api::{FontTemplate};
 
@@ -31,6 +31,69 @@ use offscreen_gl_context::GLContextDispatcher;
 
 #[cfg(not(feature = "webgl"))]
 use webgl_types::GLContextDispatcher;
+
+struct Document {
+    scene: Scene,
+    frame: Frame,
+    window_size: DeviceUintSize,
+    inner_rect: DeviceUintRect,
+    pan: DeviceIntPoint,
+    page_zoom_factor: f32,
+    pinch_zoom_factor: f32,
+    // A helper switch to prevent any frames rendering triggered by scrolling
+    // messages between `SetDisplayList` and `GenerateFrame`.
+    // If we allow them, then a reftest that scrolls a few layers before generating
+    // the first frame would produce inconsistent rendering results, because
+    // scroll events are not necessarily received in deterministic order.
+    render_on_scroll: bool,
+}
+
+impl Document {
+    pub fn new(config: FrameBuilderConfig, initial_size: DeviceUintSize) -> Self {
+        Document {
+            scene: Scene::new(),
+            frame: Frame::new(config),
+            window_size: initial_size,
+            inner_rect: DeviceUintRect::new(DeviceUintPoint::zero(), initial_size),
+            pan: DeviceIntPoint::zero(),
+            page_zoom_factor: 1.0,
+            pinch_zoom_factor: 1.0,
+            render_on_scroll: false,
+        }
+    }
+
+    fn accumulated_scale_factor(&self, hidpi_factor: f32) -> f32 {
+        hidpi_factor * self.page_zoom_factor * self.pinch_zoom_factor
+    }
+
+    fn build_scene(&mut self, resource_cache: &mut ResourceCache, hidpi_factor: f32) {
+        let accumulated_scale_factor = self.accumulated_scale_factor(hidpi_factor);
+        self.frame.create(&self.scene,
+                          resource_cache,
+                          self.window_size,
+                          self.inner_rect,
+                          accumulated_scale_factor);
+    }
+
+    fn render(&mut self,
+        resource_cache: &mut ResourceCache,
+        gpu_cache: &mut GpuCache,
+        texture_cache_profile: &mut TextureCacheProfileCounters,
+        gpu_cache_profile: &mut GpuCacheProfileCounters,
+        hidpi_factor: f32,
+    )-> RendererFrame {
+        let accumulated_scale_factor = self.accumulated_scale_factor(hidpi_factor);
+        let pan = LayerPoint::new(self.pan.x as f32 / accumulated_scale_factor,
+                                  self.pan.y as f32 / accumulated_scale_factor);
+        self.frame.build(resource_cache,
+                         gpu_cache,
+                         &self.scene.display_lists,
+                         accumulated_scale_factor,
+                         pan,
+                         texture_cache_profile,
+                         gpu_cache_profile)
+    }
+}
 
 /// The render backend is responsible for transforming high level display lists into
 /// GPU-friendly work which is then submitted to the renderer in the form of a frame::Frame.
@@ -44,18 +107,13 @@ pub struct RenderBackend {
 
     // TODO(gw): Consider using strongly typed units here.
     hidpi_factor: f32,
-    page_zoom_factor: f32,
-    pinch_zoom_factor: f32,
-    pan: DeviceIntPoint,
-    window_size: DeviceUintSize,
-    inner_rect: DeviceUintRect,
     next_namespace_id: IdNamespace,
 
     gpu_cache: GpuCache,
     resource_cache: ResourceCache,
 
-    scene: Scene,
-    frame: Frame,
+    frame_config: FrameBuilderConfig,
+    documents: HashMap<DocumentId, Document>,
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
     webrender_context_handle: Option<GLContextHandleWrapper>,
@@ -67,31 +125,25 @@ pub struct RenderBackend {
     next_webgl_id: usize,
 
     vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>,
-
-    // A helper switch to prevent any frames rendering triggered by scrolling
-    // messages between `SetDisplayList` and `GenerateFrame`.
-    // If we allow them, then a reftest that scrolls a few layers before generating
-    // the first frame would produce inconsistent rendering results, because
-    // scroll events are not necessarily received in deterministic order.
-    render_on_scroll: bool,
 }
 
 impl RenderBackend {
-    pub fn new(api_rx: MsgReceiver<ApiMsg>,
-               payload_rx: PayloadReceiver,
-               payload_tx: PayloadSender,
-               result_tx: Sender<ResultMsg>,
-               hidpi_factor: f32,
-               texture_cache: TextureCache,
-               workers: Arc<ThreadPool>,
-               notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
-               webrender_context_handle: Option<GLContextHandleWrapper>,
-               config: FrameBuilderConfig,
-               recorder: Option<Box<ApiRecordingReceiver>>,
-               main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
-               blob_image_renderer: Option<Box<BlobImageRenderer>>,
-               vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>,
-               initial_window_size: DeviceUintSize) -> RenderBackend {
+    pub fn new(
+        api_rx: MsgReceiver<ApiMsg>,
+        payload_rx: PayloadReceiver,
+        payload_tx: PayloadSender,
+        result_tx: Sender<ResultMsg>,
+        hidpi_factor: f32,
+        texture_cache: TextureCache,
+        workers: Arc<ThreadPool>,
+        notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
+        webrender_context_handle: Option<GLContextHandleWrapper>,
+        frame_config: FrameBuilderConfig,
+        recorder: Option<Box<ApiRecordingReceiver>>,
+        main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
+        blob_image_renderer: Option<Box<BlobImageRenderer>>,
+        vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>,
+    ) -> RenderBackend {
 
         let resource_cache = ResourceCache::new(texture_cache, workers, blob_image_renderer);
 
@@ -103,13 +155,10 @@ impl RenderBackend {
             payload_tx,
             result_tx,
             hidpi_factor,
-            page_zoom_factor: 1.0,
-            pinch_zoom_factor: 1.0,
-            pan: DeviceIntPoint::zero(),
             resource_cache,
             gpu_cache: GpuCache::new(),
-            scene: Scene::new(),
-            frame: Frame::new(config),
+            frame_config,
+            documents: HashMap::new(),
             next_namespace_id: IdNamespace(1),
             notifier,
             webrender_context_handle,
@@ -119,9 +168,6 @@ impl RenderBackend {
             main_thread_dispatcher,
             next_webgl_id: 0,
             vr_compositor_handler,
-            window_size: initial_window_size,
-            inner_rect: DeviceUintRect::new(DeviceUintPoint::zero(), initial_window_size),
-            render_on_scroll: false,
         }
     }
 
@@ -180,34 +226,43 @@ impl RenderBackend {
                         ApiMsg::DeleteImage(id) => {
                             self.resource_cache.delete_image_template(id);
                         }
-                        ApiMsg::SetPageZoom(factor) => {
-                            self.page_zoom_factor = factor.get();
+                        ApiMsg::SetPageZoom(document_id, factor) => {
+                            self.documents.get_mut(&document_id).expect("No document?")
+                                          .page_zoom_factor = factor.get();
                         }
-                        ApiMsg::SetPinchZoom(factor) => {
-                            self.pinch_zoom_factor = factor.get();
+                        ApiMsg::SetPinchZoom(document_id, factor) => {
+                            self.documents.get_mut(&document_id).expect("No document?")
+                                          .pinch_zoom_factor = factor.get();
                         }
-                        ApiMsg::SetPan(pan) => {
-                            self.pan = pan;
+                        ApiMsg::SetPan(document_id, pan) => {
+                            self.documents.get_mut(&document_id).expect("No document?")
+                                          .pan = pan;
                         }
-                        ApiMsg::SetWindowParameters(window_size, inner_rect) => {
-                            self.window_size = window_size;
-                            self.inner_rect = inner_rect;
+                        ApiMsg::SetWindowParameters{ document_id, window_size, inner_rect } => {
+                            let doc = self.documents.get_mut(&document_id).expect("No document?");
+                            doc.window_size = window_size;
+                            doc.inner_rect = inner_rect;
                         }
-                        ApiMsg::CloneApi(sender) => {
-                            let result = self.next_namespace_id;
+                        ApiMsg::AddDocument(initial_size, sender) => {
+                            let namespace = self.next_namespace_id;
+                            self.next_namespace_id = IdNamespace(namespace.0 + 1);
 
-                            let IdNamespace(id_namespace) = self.next_namespace_id;
-                            self.next_namespace_id = IdNamespace(id_namespace + 1);
+                            let document_id = DocumentId(namespace);
+                            let document = Document::new(self.frame_config.clone(), initial_size);
+                            self.documents.insert(document_id, document);
 
-                            sender.send(result).unwrap();
+                            sender.send(document_id).unwrap();
                         }
-                        ApiMsg::SetDisplayList(background_color,
-                                               epoch,
-                                               pipeline_id,
-                                               viewport_size,
-                                               content_size,
-                                               display_list_descriptor,
-                                               preserve_frame_state) => {
+                        ApiMsg::SetDisplayList{
+                            document_id,
+                            epoch,
+                            pipeline_id,
+                            background,
+                            viewport_size,
+                            content_size,
+                            list_descriptor,
+                            preserve_frame_state,
+                        } => {
                             profile_scope!("SetDisplayList");
                             let mut leftover_data = vec![];
                             let mut data;
@@ -228,30 +283,36 @@ impl RenderBackend {
                                 r.write_payload(frame_counter, &data.to_data());
                             }
 
+                            self.flush_webgl();
+
                             let built_display_list =
                                 BuiltDisplayList::from_data(data.display_list_data,
-                                                            display_list_descriptor);
+                                                            list_descriptor);
 
+
+                            let document = self.documents.get_mut(&document_id).expect("No document?");
                             if !preserve_frame_state {
-                                self.discard_frame_state_for_pipeline(pipeline_id);
+                                document.frame.discard_frame_state_for_pipeline(pipeline_id);
                             }
 
                             let display_list_len = built_display_list.data().len();
                             let (builder_start_time, builder_finish_time) = built_display_list.times();
 
                             let display_list_received_time = precise_time_ns();
+                            let resource_cache = &mut self.resource_cache;
+                            let hidpi_factor = self.hidpi_factor;
 
                             profile_counters.total_time.profile(|| {
-                                self.scene.set_display_list(pipeline_id,
-                                                            epoch,
-                                                            built_display_list,
-                                                            background_color,
-                                                            viewport_size,
-                                                            content_size);
-                                self.build_scene();
+                                document.scene.set_display_list(pipeline_id,
+                                                                epoch,
+                                                                built_display_list,
+                                                                background,
+                                                                viewport_size,
+                                                                content_size);
+                                document.build_scene(resource_cache, hidpi_factor);
                             });
 
-                            self.render_on_scroll = false; //wait for `GenerateFrame`
+                            document.render_on_scroll = false; //wait for `GenerateFrame`
 
                             // Note: this isn't quite right as auxiliary values will be
                             // pulled out somewhere in the prim_store, but aux values are
@@ -262,26 +323,44 @@ impl RenderBackend {
                                                      display_list_received_time, display_list_consumed_time,
                                                      display_list_len);
                         }
-                        ApiMsg::SetRootPipeline(pipeline_id) => {
+                        ApiMsg::SetRootPipeline(document_id, pipeline_id) => {
                             profile_scope!("SetRootPipeline");
-                            self.scene.set_root_pipeline_id(pipeline_id);
 
-                            if self.scene.display_lists.get(&pipeline_id).is_none() {
-                                continue;
+                            {
+                                let document = self.documents.get_mut(&document_id).expect("No document?");
+                                let resource_cache = &mut self.resource_cache;
+                                let hidpi_factor = self.hidpi_factor;
+
+                                document.scene.set_root_pipeline_id(pipeline_id);
+                                if document.scene.display_lists.get(&pipeline_id).is_none() {
+                                    continue;
+                                }
+
+
+                                profile_counters.total_time.profile(|| {
+                                    document.build_scene(resource_cache, hidpi_factor);
+                                })
                             }
 
-                            profile_counters.total_time.profile(|| {
-                                self.build_scene();
-                            })
+                            self.flush_webgl();
                         }
-                        ApiMsg::Scroll(delta, cursor, move_phase) => {
+                        ApiMsg::Scroll(document_id, delta, cursor, move_phase) => {
                             profile_scope!("Scroll");
                             let frame = {
                                 let counters = &mut profile_counters.resources.texture_cache;
                                 let gpu_cache_counters = &mut profile_counters.resources.gpu_cache;
+                                let resource_cache = &mut self.resource_cache;
+                                let gpu_cache = &mut self.gpu_cache;
+                                let hidpi_factor = self.hidpi_factor;
+                                let document = self.documents.get_mut(&document_id).expect("No document?");
+
                                 profile_counters.total_time.profile(|| {
-                                    if self.frame.scroll(delta, cursor, move_phase) && self.render_on_scroll {
-                                        Some(self.render(counters, gpu_cache_counters))
+                                    if document.frame.scroll(delta, cursor, move_phase) && document.render_on_scroll {
+                                        Some(document.render(resource_cache,
+                                                             gpu_cache,
+                                                             counters,
+                                                             gpu_cache_counters,
+                                                             hidpi_factor))
                                     } else {
                                         None
                                     }
@@ -290,14 +369,23 @@ impl RenderBackend {
 
                             self.scroll_frame(frame, &mut profile_counters);
                         }
-                        ApiMsg::ScrollNodeWithId(origin, id, clamp) => {
+                        ApiMsg::ScrollNodeWithId(document_id, origin, id, clamp) => {
                             profile_scope!("ScrollNodeWithScrollId");
                             let frame = {
                                 let counters = &mut profile_counters.resources.texture_cache;
                                 let gpu_cache_counters = &mut profile_counters.resources.gpu_cache;
+                                let resource_cache = &mut self.resource_cache;
+                                let gpu_cache = &mut self.gpu_cache;
+                                let hidpi_factor = self.hidpi_factor;
+                                let document = self.documents.get_mut(&document_id).expect("No document?");
+
                                 profile_counters.total_time.profile(|| {
-                                    if self.frame.scroll_node(origin, id, clamp) && self.render_on_scroll {
-                                        Some(self.render(counters, gpu_cache_counters))
+                                    if document.frame.scroll_node(origin, id, clamp) && document.render_on_scroll {
+                                        Some(document.render(resource_cache,
+                                                             gpu_cache,
+                                                             counters,
+                                                             gpu_cache_counters,
+                                                             hidpi_factor))
                                     } else {
                                         None
                                     }
@@ -306,15 +394,24 @@ impl RenderBackend {
 
                             self.scroll_frame(frame, &mut profile_counters);
                         }
-                        ApiMsg::TickScrollingBounce => {
+                        ApiMsg::TickScrollingBounce(document_id) => {
                             profile_scope!("TickScrollingBounce");
                             let frame = {
+                                let document = self.documents.get_mut(&document_id).expect("No document?");
                                 let counters = &mut profile_counters.resources.texture_cache;
                                 let gpu_cache_counters = &mut profile_counters.resources.gpu_cache;
+                                let resource_cache = &mut self.resource_cache;
+                                let gpu_cache = &mut self.gpu_cache;
+                                let hidpi_factor = self.hidpi_factor;
+
                                 profile_counters.total_time.profile(|| {
-                                    self.frame.tick_scrolling_bounce_animations();
-                                    if self.render_on_scroll {
-                                        Some(self.render(counters, gpu_cache_counters))
+                                    document.frame.tick_scrolling_bounce_animations();
+                                    if document.render_on_scroll {
+                                        Some(document.render(resource_cache,
+                                                             gpu_cache,
+                                                             counters,
+                                                             gpu_cache_counters,
+                                                             hidpi_factor))
                                     } else {
                                         None
                                     }
@@ -323,12 +420,59 @@ impl RenderBackend {
 
                             self.scroll_frame(frame, &mut profile_counters);
                         }
-                        ApiMsg::TranslatePointToLayerSpace(..) => {
-                            panic!("unused api - remove from webrender_api");
-                        }
-                        ApiMsg::GetScrollNodeState(tx) => {
+                        ApiMsg::GetScrollNodeState(document_id, tx) => {
                             profile_scope!("GetScrollNodeState");
-                            tx.send(self.frame.get_scroll_node_state()).unwrap()
+                            let document = &self.documents[&document_id];
+                            tx.send(document.frame.get_scroll_node_state()).unwrap()
+                        }
+                        ApiMsg::GenerateFrame(document_id, property_bindings) => {
+                            profile_scope!("GenerateFrame");
+
+                            self.flush_webgl();
+                            let frame = {
+                                let document = self.documents.get_mut(&document_id).expect("No document?");
+                                let resource_cache = &mut self.resource_cache;
+                                let gpu_cache = &mut self.gpu_cache;
+                                let hidpi_factor = self.hidpi_factor;
+
+                                // Ideally, when there are property bindings present,
+                                // we won't need to rebuild the entire frame here.
+                                // However, to avoid conflicts with the ongoing work to
+                                // refactor how scroll roots + transforms work, this
+                                // just rebuilds the frame if there are animated property
+                                // bindings present for now.
+                                // TODO(gw): Once the scrolling / reference frame changes
+                                //           are completed, optimize the internals of
+                                //           animated properties to not require a full
+                                //           rebuild of the frame!
+                                if let Some(property_bindings) = property_bindings {
+                                    document.scene.properties.set_properties(property_bindings);
+                                    profile_counters.total_time.profile(|| {
+                                        document.build_scene(resource_cache, hidpi_factor);
+                                    });
+                                }
+
+                                document.render_on_scroll = true;
+
+                                if document.scene.root_pipeline_id.is_some() {
+                                    let counters = &mut profile_counters.resources.texture_cache;
+                                    let gpu_cache_counters = &mut profile_counters.resources.gpu_cache;
+                                    Some(profile_counters.total_time.profile(|| {
+                                        document.render(resource_cache,
+                                                        gpu_cache,
+                                                        counters,
+                                                        gpu_cache_counters,
+                                                        hidpi_factor)
+                                    }))
+                                } else {
+                                    None
+                                }
+                            };
+
+                            if let Some(frame) = frame {
+                                self.publish_frame_and_notify_compositor(frame, &mut profile_counters);
+                                frame_counter += 1;
+                            }
                         }
                         ApiMsg::RequestWebGLContext(size, attributes, tx) => {
                             if let Some(ref wrapper) = self.webrender_context_handle {
@@ -405,40 +549,6 @@ impl RenderBackend {
                             }
                             self.handle_vr_compositor_command(context_id, command);
                         }
-                        ApiMsg::GenerateFrame(property_bindings) => {
-                            profile_scope!("GenerateFrame");
-
-                            // Ideally, when there are property bindings present,
-                            // we won't need to rebuild the entire frame here.
-                            // However, to avoid conflicts with the ongoing work to
-                            // refactor how scroll roots + transforms work, this
-                            // just rebuilds the frame if there are animated property
-                            // bindings present for now.
-                            // TODO(gw): Once the scrolling / reference frame changes
-                            //           are completed, optimize the internals of
-                            //           animated properties to not require a full
-                            //           rebuild of the frame!
-                            if let Some(property_bindings) = property_bindings {
-                                self.scene.properties.set_properties(property_bindings);
-                                profile_counters.total_time.profile(|| {
-                                    self.build_scene();
-                                });
-                            }
-
-                            self.render_on_scroll = true;
-
-                            let frame = {
-                                let counters = &mut profile_counters.resources.texture_cache;
-                                let gpu_cache_counters = &mut profile_counters.resources.gpu_cache;
-                                profile_counters.total_time.profile(|| {
-                                    self.render(counters, gpu_cache_counters)
-                                })
-                            };
-                            if self.scene.root_pipeline_id.is_some() {
-                                self.publish_frame_and_notify_compositor(frame, &mut profile_counters);
-                                frame_counter += 1;
-                            }
-                        }
                         ApiMsg::ExternalEvent(evt) => {
                             let notifier = self.notifier.lock();
                             notifier.unwrap()
@@ -446,8 +556,11 @@ impl RenderBackend {
                                     .unwrap()
                                     .external_event(evt);
                         }
-                        ApiMsg::ClearNamespace(namespace) => {
-                            self.resource_cache.clear_namespace(namespace);
+                        ApiMsg::DeleteDocument(document_id) => {
+                            match self.documents.remove(&document_id) {
+                                Some(_) => self.resource_cache.clear_namespace(document_id.0),
+                                None => error!("Unable to delete {:?}", document_id),
+                            }
                         }
                         ApiMsg::ShutDown => {
                             let notifier = self.notifier.lock();
@@ -471,16 +584,7 @@ impl RenderBackend {
         }
     }
 
-    fn discard_frame_state_for_pipeline(&mut self, pipeline_id: PipelineId) {
-        self.frame.discard_frame_state_for_pipeline(pipeline_id);
-    }
-
-    fn accumulated_scale_factor(&self) -> f32 {
-        self.hidpi_factor * self.page_zoom_factor * self.pinch_zoom_factor
-    }
-
-    fn build_scene(&mut self) {
-        // Flatten the stacking context hierarchy
+    fn flush_webgl(&mut self) {
         if let Some(id) = self.current_bound_webgl_context_id {
             self.webgl_contexts[&id].unbind();
             self.current_bound_webgl_context_id = None;
@@ -498,30 +602,6 @@ impl RenderBackend {
             webgl_context.apply_command(WebGLCommand::Flush);
             webgl_context.unbind();
         }
-
-        let accumulated_scale_factor = self.accumulated_scale_factor();
-        self.frame.create(&self.scene,
-                          &mut self.resource_cache,
-                          self.window_size,
-                          self.inner_rect,
-                          accumulated_scale_factor);
-    }
-
-    fn render(&mut self,
-              texture_cache_profile: &mut TextureCacheProfileCounters,
-              gpu_cache_profile: &mut GpuCacheProfileCounters)
-              -> RendererFrame {
-        let accumulated_scale_factor = self.accumulated_scale_factor();
-        let pan = LayerPoint::new(self.pan.x as f32 / accumulated_scale_factor,
-                                  self.pan.y as f32 / accumulated_scale_factor);
-        let frame = self.frame.build(&mut self.resource_cache,
-                                     &mut self.gpu_cache,
-                                     &self.scene.display_lists,
-                                     accumulated_scale_factor,
-                                     pan,
-                                     texture_cache_profile,
-                                     gpu_cache_profile);
-        frame
     }
 
     fn publish_frame(&mut self,

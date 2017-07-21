@@ -275,9 +275,9 @@ impl YamlFrameWriter {
 
     pub fn begin_write_display_list(&mut self,
                                     scene: &mut Scene,
-                                    background_color: &Option<ColorF>,
                                     epoch: &Epoch,
                                     pipeline_id: &PipelineId,
+                                    background_color: &Option<ColorF>,
                                     viewport_size: &LayoutSize,
                                     display_list: &BuiltDisplayListDescriptor)
     {
@@ -312,7 +312,7 @@ impl YamlFrameWriter {
 
         let mut root = new_table();
         if let Some(root_pipeline_id) = scene.root_pipeline_id {
-            u32_vec_node(&mut root_dl_table, "id", &[root_pipeline_id.0, root_pipeline_id.1]);
+            u32_node(&mut root_dl_table, "id", root_pipeline_id.0);
 
             let mut referenced_pipeline_ids = vec![];
             let mut traversal = dl.iter();
@@ -328,7 +328,7 @@ impl YamlFrameWriter {
                     continue;
                 }
                 let mut pipeline = new_table();
-                u32_vec_node(&mut pipeline, "id", &[pipeline_id.0, pipeline_id.1]);
+                u32_node(&mut pipeline, "id", pipeline_id.0);
 
                 let dl = scene.display_lists.get(&pipeline_id).unwrap();
                 let mut iter = dl.iter();
@@ -752,7 +752,7 @@ impl YamlFrameWriter {
                 },
                 Iframe(item) => {
                     str_node(&mut v, "type", "iframe");
-                    u32_vec_node(&mut v, "id", &[item.pipeline_id.0, item.pipeline_id.1]);
+                    u32_node(&mut v, "id", item.pipeline_id.0);
                 },
                 PushStackingContext(item) => {
                     str_node(&mut v, "type", "stacking-context");
@@ -831,11 +831,11 @@ impl YamlFrameWriter {
 impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
     fn write_msg(&mut self, _: u32, msg: &ApiMsg) {
         match *msg {
-            ApiMsg::SetRootPipeline(ref pipeline_id) => {
+            ApiMsg::SetRootPipeline(ref _document_id, ref pipeline_id) => {
                 self.scene.set_root_pipeline_id(pipeline_id.clone());
             }
             ApiMsg::Scroll(..) |
-            ApiMsg::TickScrollingBounce |
+            ApiMsg::TickScrollingBounce(..) |
             ApiMsg::WebGLCommand(..) => {
             }
 
@@ -886,19 +886,20 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                 self.frame_writer.images.remove(key);
             }
 
-            ApiMsg::SetDisplayList(ref background_color,
-                                    ref epoch,
-                                    ref pipeline_id,
-                                    ref viewport_size,
-                                    ref _content_size,
-                                    ref display_list,
-                                    _preserve_frame_state) => {
+            ApiMsg::SetDisplayList {
+                ref epoch,
+                ref pipeline_id,
+                ref background,
+                ref viewport_size,
+                ref list_descriptor,
+                ..
+            } => {
                 self.frame_writer.begin_write_display_list(&mut self.scene,
-                                                           background_color,
                                                            epoch,
                                                            pipeline_id,
+                                                           background,
                                                            viewport_size,
-                                                           display_list);
+                                                           list_descriptor);
             }
             _ => {}
         }

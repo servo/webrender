@@ -120,7 +120,7 @@ pub struct Wrench {
     device_pixel_ratio: f32,
 
     pub renderer: webrender::renderer::Renderer,
-    pub api: RenderApi,
+    pub api: DocumentApi,
     pub root_pipeline_id: PipelineId,
 
     window_title_to_set: Option<String>,
@@ -177,8 +177,8 @@ impl Wrench {
             .. Default::default()
         };
 
-        let (renderer, sender) = webrender::renderer::Renderer::new(window.clone_gl(), opts, size).unwrap();
-        let api = sender.create_api();
+        let (renderer, sender) = webrender::renderer::Renderer::new(window.clone_gl(), opts).unwrap();
+        let api = sender.create_api(size);
 
         let proxy = window.create_window_proxy();
         // put an Awakened event into the queue to kick off the first frame
@@ -206,7 +206,7 @@ impl Wrench {
 
             image_map: HashMap::new(),
 
-            root_pipeline_id: PipelineId(0, 0),
+            root_pipeline_id: PipelineId(0),
 
             graphics_api,
             frame_start_sender: timing_sender,
@@ -372,8 +372,8 @@ impl Wrench {
                       display_list: DisplayListBuilder,
                       scroll_offsets: &HashMap<ClipId, LayerPoint>) {
         let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
-        self.api.set_display_list(root_background_color,
-                                  Epoch(frame_number),
+        self.api.set_display_list(Epoch(frame_number),
+                                  root_background_color,
                                   self.window_size_f32(),
                                   display_list.finalize(),
                                   false);

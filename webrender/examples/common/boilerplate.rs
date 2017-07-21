@@ -51,12 +51,12 @@ impl HandyDandyRectBuilder for (i32, i32) {
     }
 }
 
-pub fn main_wrapper(builder_callback: fn(&RenderApi,
+pub fn main_wrapper(builder_callback: fn(&DocumentApi,
                                          &mut DisplayListBuilder,
                                          &PipelineId,
                                          &LayoutSize) -> (),
                     event_handler: fn(&glutin::Event,
-                                      &RenderApi) -> (),
+                                      &DocumentApi) -> (),
                     options: Option<webrender::RendererOptions>)
 {
     let args: Vec<String> = env::args().collect();
@@ -99,8 +99,8 @@ pub fn main_wrapper(builder_callback: fn(&RenderApi,
     };
 
     let size = DeviceUintSize::new(width, height);
-    let (mut renderer, sender) = webrender::renderer::Renderer::new(gl, opts, size).unwrap();
-    let api = sender.create_api();
+    let (mut renderer, sender) = webrender::renderer::Renderer::new(gl, opts).unwrap();
+    let api = sender.create_api(size);
 
     let notifier = Box::new(Notifier::new(window.create_window_proxy()));
     renderer.set_render_notifier(notifier);
@@ -108,15 +108,15 @@ pub fn main_wrapper(builder_callback: fn(&RenderApi,
     let epoch = Epoch(0);
     let root_background_color = ColorF::new(0.3, 0.0, 0.0, 1.0);
 
-    let pipeline_id = PipelineId(0, 0);
+    let pipeline_id = PipelineId(0);
     let layout_size = LayoutSize::new(width as f32, height as f32);
     let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);
 
     builder_callback(&api, &mut builder, &pipeline_id, &layout_size);
 
     api.set_display_list(
-        Some(root_background_color),
         epoch,
+        Some(root_background_color),
         LayoutSize::new(width as f32, height as f32),
         builder.finalize(),
         true);

@@ -71,12 +71,12 @@ pub fn should_record_msg(msg: &ApiMsg) -> bool {
         ApiMsg::GenerateFrame(..) |
         ApiMsg::UpdateImage(..) |
         ApiMsg::DeleteImage(..) |
-        ApiMsg::SetDisplayList(..) |
+        ApiMsg::SetDisplayList{..} |
         ApiMsg::SetRootPipeline(..) |
         ApiMsg::Scroll(..) |
-        ApiMsg::TickScrollingBounce |
+        ApiMsg::TickScrollingBounce(..) |
         ApiMsg::WebGLCommand(..) |
-        ApiMsg::SetWindowParameters(..) =>
+        ApiMsg::SetWindowParameters{..} =>
             true,
         _ => false
     }

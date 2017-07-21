@@ -33,7 +33,6 @@ impl Payload {
                                           self.display_list_data.len());
         data.write_u32::<LittleEndian>(self.epoch.0).unwrap();
         data.write_u32::<LittleEndian>(self.pipeline_id.0).unwrap();
-        data.write_u32::<LittleEndian>(self.pipeline_id.1).unwrap();
         data.write_u64::<LittleEndian>(self.display_list_data.len() as u64).unwrap();
         data.extend_from_slice(&self.display_list_data);
         data
@@ -43,8 +42,7 @@ impl Payload {
     pub fn from_data(data: &[u8]) -> Payload {
         let mut payload_reader = Cursor::new(data);
         let epoch = Epoch(payload_reader.read_u32::<LittleEndian>().unwrap());
-        let pipeline_id = PipelineId(payload_reader.read_u32::<LittleEndian>().unwrap(),
-                                     payload_reader.read_u32::<LittleEndian>().unwrap());
+        let pipeline_id = PipelineId(payload_reader.read_u32::<LittleEndian>().unwrap());
 
         let dl_size = payload_reader.read_u64::<LittleEndian>().unwrap() as usize;
         let mut built_display_list_data = vec![0; dl_size];

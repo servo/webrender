@@ -161,7 +161,7 @@ fn main() {
     boilerplate::main_wrapper(body, event_handler, None);
 }
 
-fn body(api: &RenderApi,
+fn body(api: &DocumentApi,
         builder: &mut DisplayListBuilder,
         _pipeline_id: &PipelineId,
         layout_size: &LayoutSize) {
@@ -228,7 +228,7 @@ lazy_static! {
 }
 
 
-fn event_handler(event: &glutin::Event, api: &RenderApi) {
+fn event_handler(event: &glutin::Event, api: &DocumentApi) {
     match *event {
         glutin::Event::Touch(touch) => {
             match TOUCH_STATE.lock().unwrap().handle_event(touch) {
