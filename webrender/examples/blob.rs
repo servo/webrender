@@ -262,9 +262,7 @@ fn body(api: &api::RenderApi,
     builder.pop_stacking_context();
 }
 
-fn event_handler(_event: &glutin::Event,
-                 _api: &api::RenderApi)
-{
+fn event_handler(_event: &glutin::Event, _document_id: api::DocumentId, _api: &api::RenderApi) {
 }
 
 fn main() {

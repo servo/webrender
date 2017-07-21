@@ -49,8 +49,8 @@ use time::precise_time_ns;
 use thread_profiler::{register_thread_with_profiler, write_profile};
 use util::TransformedRectKind;
 use webgl_types::GLContextHandleWrapper;
-use api::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
-use api::{ExternalImageId, ExternalImageType, ImageData, ImageFormat, RenderApiSender};
+use api::{ColorF, Epoch, PipelineId, RenderApiSender, RenderNotifier, RenderDispatcher};
+use api::{ExternalImageId, ExternalImageType, ImageData, ImageFormat};
 use api::{DeviceIntRect, DeviceUintRect, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
 use api::{BlobImageRenderer, channel, FontRenderMode};
 use api::VRCompositorHandler;
@@ -762,9 +762,7 @@ impl Renderer {
     /// let (renderer, sender) = Renderer::new(opts);
     /// ```
     /// [rendereroptions]: struct.RendererOptions.html
-    pub fn new(gl: Rc<gl::Gl>,
-               mut options: RendererOptions,
-               initial_window_size: DeviceUintSize) -> Result<(Renderer, RenderApiSender), InitError> {
+    pub fn new(gl: Rc<gl::Gl>, mut options: RendererOptions) -> Result<(Renderer, RenderApiSender), InitError> {
         let (api_tx, api_rx) = try!{ channel::msg_channel() };
         let (payload_tx, payload_rx) = try!{ channel::payload_channel() };
         let (result_tx, result_rx) = channel();
@@ -1173,8 +1171,7 @@ impl Renderer {
                                                  recorder,
                                                  backend_main_thread_dispatcher,
                                                  blob_image_renderer,
-                                                 backend_vr_compositor,
-                                                 initial_window_size);
+                                                 backend_vr_compositor);
             backend.run(backend_profile_counters);
         })};
 
@@ -1310,7 +1307,8 @@ impl Renderer {
         // Pull any pending results and return the most recent.
         while let Ok(msg) = self.result_rx.try_recv() {
             match msg {
-                ResultMsg::NewFrame(mut frame, texture_update_list, profile_counters) => {
+                ResultMsg::NewFrame(_document_id, mut frame, texture_update_list, profile_counters) => {
+                    //TODO: associate `document_id` with target window
                     self.pending_texture_updates.push(texture_update_list);
                     if let Some(ref mut frame) = frame.frame {
                         // TODO(gw): This whole message / Frame / RendererFrame stuff
@@ -1371,8 +1369,8 @@ impl Renderer {
 
     /// Renders the current frame.
     ///
-    /// A Frame is supplied by calling [`set_display_list()`][newframe].
-    /// [newframe]: ../../webrender_api/struct.RenderApi.html#method.set_display_list
+    /// A Frame is supplied by calling [`generate_frame()`][genframe].
+    /// [genframe]: ../../webrender_api/struct.DocumentApi.html#method.generate_frame
     pub fn render(&mut self, framebuffer_size: DeviceUintSize) {
         profile_scope!("render");
 

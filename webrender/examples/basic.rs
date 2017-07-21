@@ -322,17 +322,17 @@ lazy_static! {
     static ref TOUCH_STATE: Mutex<TouchState> = Mutex::new(TouchState::new());
 }
 
-fn event_handler(event: &glutin::Event, api: &RenderApi) {
+fn event_handler(event: &glutin::Event, document_id: DocumentId, api: &RenderApi) {
     match *event {
         glutin::Event::Touch(touch) => {
             match TOUCH_STATE.lock().unwrap().handle_event(touch) {
                 TouchResult::Pan(pan) => {
-                    api.set_pan(pan);
-                    api.generate_frame(None);
+                    api.set_pan(document_id, pan);
+                    api.generate_frame(document_id, None);
                 }
                 TouchResult::Zoom(zoom) => {
-                    api.set_pinch_zoom(ZoomFactor::new(zoom));
-                    api.generate_frame(None);
+                    api.set_pinch_zoom(document_id, ZoomFactor::new(zoom));
+                    api.generate_frame(document_id, None);
                 }
                 TouchResult::None => {}
             }
