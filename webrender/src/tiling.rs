@@ -427,6 +427,11 @@ impl AlphaRenderItem {
                         let batch = batch_list.get_suitable_batch(&key, item_bounding_rect);
                         batch.add_instance(base_instance.build(0, 0, 0));
                     }
+                    PrimitiveKind::Line => {
+                        let key = AlphaBatchKey::new(AlphaBatchKind::Line, flags, blend_mode, no_textures);
+                        let batch = batch_list.get_suitable_batch(&key, item_bounding_rect);
+                        batch.add_instance(base_instance.build(0, 0, 0));
+                    }
                     PrimitiveKind::Image => {
                         let image_cpu = &ctx.prim_store.cpu_images[prim_metadata.cpu_prim_index.0];
 
@@ -932,6 +937,7 @@ pub struct ColorRenderTarget {
     //           cache changes land, this restriction will
     //           be removed anyway.
     pub text_run_cache_prims: Vec<PrimitiveInstance>,
+    pub line_cache_prims: Vec<PrimitiveInstance>,
     pub text_run_textures: BatchTextures,
     // List of blur operations to apply for this render target.
     pub vertical_blurs: Vec<BlurCommand>,
@@ -950,6 +956,7 @@ impl RenderTarget for ColorRenderTarget {
             alpha_batcher: AlphaBatcher::new(),
             box_shadow_cache_prims: Vec::new(),
             text_run_cache_prims: Vec::new(),
+            line_cache_prims: Vec::new(),
             text_run_textures: BatchTextures::no_texture(),
             vertical_blurs: Vec::new(),
             horizontal_blurs: Vec::new(),
@@ -1040,20 +1047,19 @@ impl RenderTarget for ColorRenderTarget {
 
                         for sub_prim_index in &prim.primitives {
                             let sub_metadata = ctx.prim_store.get_metadata(*sub_prim_index);
+                            let sub_prim_address = sub_metadata.gpu_location.as_int(gpu_cache);
+                            let instance = SimplePrimitiveInstance::new(sub_prim_address,
+                                                                        task_index,
+                                                                        RenderTaskIndex(0),
+                                                                        PackedLayerIndex(0),
+                                                                        0);     // z is disabled for rendering cache primitives
+
                             match sub_metadata.prim_kind {
                                 PrimitiveKind::TextRun => {
                                     // Add instances that reference the text run GPU location. Also supply
                                     // the parent text-shadow prim address as a user data field, allowing
                                     // the shader to fetch the text-shadow parameters.
-                                    let sub_prim_address = sub_metadata.gpu_location.as_int(gpu_cache);
                                     let text = &ctx.prim_store.cpu_text_runs[sub_metadata.cpu_prim_index.0];
-
-                                    let instance = SimplePrimitiveInstance::new(sub_prim_address,
-                                                                                task_index,
-                                                                                RenderTaskIndex(0),
-                                                                                PackedLayerIndex(0),
-                                                                                0);     // z is disabled for rendering cache primitives
-
                                     let font_size_dp = text.logical_font_size.scale_by(ctx.device_pixel_ratio);
 
                                     let texture_id = ctx.resource_cache.get_glyphs(text.font_key,
@@ -1081,6 +1087,9 @@ impl RenderTarget for ColorRenderTarget {
                                                       self.text_run_textures.colors[0] == textures.colors[0]);
                                         self.text_run_textures = textures;
                                     }
+                                }
+                                PrimitiveKind::Line => {
+                                    self.line_cache_prims.push(instance.build(prim_address, 0, 0));
                                 }
                                 _ => {
                                     unreachable!("Unexpected sub primitive type");
@@ -1287,6 +1296,7 @@ pub enum AlphaBatchKind {
     CacheImage,
     BorderCorner,
     BorderEdge,
+    Line,
 }
 
 bitflags! {
