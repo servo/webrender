@@ -252,16 +252,19 @@ impl ResourceApi {
     }
 
     pub fn add_raw_font(&self, key: FontKey, bytes: Vec<u8>, index: u32) {
+        debug_assert_eq!(key.0, self.namespace_id);
         let msg = ApiMsg::AddRawFont(key, bytes, index);
         self.api_sender.send(msg).unwrap();
     }
 
     pub fn add_native_font(&self, key: FontKey, native_font_handle: NativeFontHandle) {
+        debug_assert_eq!(key.0, self.namespace_id);
         let msg = ApiMsg::AddNativeFont(key, native_font_handle);
         self.api_sender.send(msg).unwrap();
     }
 
     pub fn delete_font(&self, key: FontKey) {
+        debug_assert_eq!(key.0, self.namespace_id);
         let msg = ApiMsg::DeleteFont(key);
         self.api_sender.send(msg).unwrap();
     }
@@ -291,6 +294,7 @@ impl ResourceApi {
                      descriptor: ImageDescriptor,
                      data: ImageData,
                      tiling: Option<TileSize>) {
+        debug_assert_eq!(key.0, self.namespace_id);
         let msg = ApiMsg::AddImage(key, descriptor, data, tiling);
         self.api_sender.send(msg).unwrap();
     }
@@ -304,12 +308,14 @@ impl ResourceApi {
                         descriptor: ImageDescriptor,
                         data: ImageData,
                         dirty_rect: Option<DeviceUintRect>) {
+        debug_assert_eq!(key.0, self.namespace_id);
         let msg = ApiMsg::UpdateImage(key, descriptor, data, dirty_rect);
         self.api_sender.send(msg).unwrap();
     }
 
     /// Deletes the specific image.
     pub fn delete_image(&self, key: ImageKey) {
+        debug_assert_eq!(key.0, self.namespace_id);
         let msg = ApiMsg::DeleteImage(key);
         self.api_sender.send(msg).unwrap();
     }
