@@ -11,7 +11,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::{mem, process};
 use webrender::WEBRENDER_RECORDING_HEADER;
-use webrender::api::ApiMsg;
+use webrender::api::{ApiMsg, DocumentMsg};
 use wrench::{Wrench, WrenchThing};
 
 #[derive(Clone)]
@@ -142,14 +142,14 @@ impl WrenchThing for BinaryFrameReader {
                     // (b) SetDisplayList
                     // (c) GenerateFrame that occurs *after* (a) and (b)
                     match msg {
-                        ApiMsg::GenerateFrame(..) => {
+                        ApiMsg::UpdateDocument(_, DocumentMsg::GenerateFrame(..)) => {
                             found_frame_marker = true;
                         }
-                        ApiMsg::SetDisplayList{..} => {
+                        ApiMsg::UpdateDocument(_, DocumentMsg::SetDisplayList{..}) => {
                             found_frame_marker = false;
                             found_display_list = true;
                         }
-                        ApiMsg::SetRootPipeline(..) => {
+                        ApiMsg::UpdateDocument(_, DocumentMsg::SetRootPipeline(..)) => {
                             found_frame_marker = false;
                             found_pipeline = true;
                         }
@@ -182,11 +182,11 @@ impl WrenchThing for BinaryFrameReader {
                 match item {
                     Item::Message(msg) => {
                         if !self.should_skip_upload_msg(&msg) {
-                            wrench.api.send_message(msg);
+                            wrench.resource_api.send_message(msg);
                         }
                     }
                     Item::Data(buf) => {
-                        wrench.api.send_payload(&buf);
+                        wrench.resource_api.send_payload(&buf);
                     }
                 }
             }

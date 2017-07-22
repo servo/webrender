@@ -161,7 +161,7 @@ fn main() {
     boilerplate::main_wrapper(body, event_handler, None);
 }
 
-fn body(api: &DocumentApi,
+fn body(api: &ResourceApi,
         builder: &mut DisplayListBuilder,
         _pipeline_id: &PipelineId,
         layout_size: &LayoutSize) {

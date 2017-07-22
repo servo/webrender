@@ -16,7 +16,7 @@ use boilerplate::HandyDandyRectBuilder;
 use std::sync::Mutex;
 use webrender::api::*;
 
-fn body(_api: &DocumentApi,
+fn body(_api: &ResourceApi,
         builder: &mut DisplayListBuilder,
         pipeline_id: &PipelineId,
         layout_size: &LayoutSize) {

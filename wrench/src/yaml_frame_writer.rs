@@ -831,14 +831,6 @@ impl YamlFrameWriter {
 impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
     fn write_msg(&mut self, _: u32, msg: &ApiMsg) {
         match *msg {
-            ApiMsg::SetRootPipeline(ref _document_id, ref pipeline_id) => {
-                self.scene.set_root_pipeline_id(pipeline_id.clone());
-            }
-            ApiMsg::Scroll(..) |
-            ApiMsg::TickScrollingBounce(..) |
-            ApiMsg::WebGLCommand(..) => {
-            }
-
             ApiMsg::AddRawFont(ref key, ref bytes, index) => {
                 self.frame_writer.fonts.insert(*key, CachedFont::Raw(Some(bytes.clone()), index, None));
             }
@@ -886,20 +878,26 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                 self.frame_writer.images.remove(key);
             }
 
-            ApiMsg::SetDisplayList {
+            ApiMsg::UpdateDocument(_, DocumentMsg::SetRootPipeline(ref pipeline_id)) => {
+                self.scene.set_root_pipeline_id(pipeline_id.clone());
+            }
+            ApiMsg::UpdateDocument(_, DocumentMsg::SetDisplayList {
                 ref epoch,
                 ref pipeline_id,
                 ref background,
                 ref viewport_size,
                 ref list_descriptor,
                 ..
-            } => {
+            }) => {
                 self.frame_writer.begin_write_display_list(&mut self.scene,
                                                            epoch,
                                                            pipeline_id,
                                                            background,
                                                            viewport_size,
                                                            list_descriptor);
+            }
+            ApiMsg::UpdateDocument(..) |
+            ApiMsg::WebGLCommand(..) => {
             }
             _ => {}
         }

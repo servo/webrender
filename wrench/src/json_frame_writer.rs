@@ -189,12 +189,6 @@ impl fmt::Debug for JsonFrameWriter {
 impl webrender::ApiRecordingReceiver for JsonFrameWriter {
     fn write_msg(&mut self, _: u32, msg: &ApiMsg) {
         match *msg {
-            ApiMsg::SetRootPipeline(..) |
-            ApiMsg::Scroll(..) |
-            ApiMsg::TickScrollingBounce(..) |
-            ApiMsg::WebGLCommand(..) => {
-            }
-
             ApiMsg::AddRawFont(ref key, ref bytes, index) => {
                 self.fonts.insert(*key, CachedFont::Raw(Some(bytes.clone()), index, None));
             }
@@ -241,19 +235,22 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
                 self.images.remove(key);
             }
 
-            ApiMsg::SetDisplayList {
+            ApiMsg::UpdateDocument(_, DocumentMsg::SetDisplayList {
                 ref epoch,
                 ref pipeline_id,
                 ref background,
                 ref viewport_size,
                 ref list_descriptor,
                 ..
-            } => {
+            }) => {
                 self.begin_write_display_list(epoch,
                                               pipeline_id,
                                               background,
                                               viewport_size,
                                               list_descriptor);
+            }
+            ApiMsg::CloneApi(..) |
+            ApiMsg::WebGLCommand(..) => {
             }
             _ => {}
         }

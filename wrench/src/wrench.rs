@@ -120,7 +120,8 @@ pub struct Wrench {
     device_pixel_ratio: f32,
 
     pub renderer: webrender::renderer::Renderer,
-    pub api: DocumentApi,
+    pub resource_api: ResourceApi,
+    pub document_api: DocumentApi,
     pub root_pipeline_id: PipelineId,
 
     window_title_to_set: Option<String>,
@@ -178,7 +179,8 @@ impl Wrench {
         };
 
         let (renderer, sender) = webrender::renderer::Renderer::new(window.clone_gl(), opts).unwrap();
-        let api = sender.create_api(size);
+        let resource_api = sender.create_api();
+        let document_api = resource_api.create_document(size);
 
         let proxy = window.create_window_proxy();
         // put an Awakened event into the queue to kick off the first frame
@@ -197,7 +199,8 @@ impl Wrench {
             window_size: size,
 
             renderer,
-            api,
+            resource_api,
+            document_api,
             window_title_to_set: None,
 
             rebuild_display_lists: do_rebuild,
@@ -213,7 +216,7 @@ impl Wrench {
         };
 
         wrench.set_title("start");
-        wrench.api.set_root_pipeline(wrench.root_pipeline_id);
+        wrench.document_api.set_root_pipeline(wrench.root_pipeline_id);
 
         wrench
     }
@@ -292,8 +295,8 @@ impl Wrench {
     }
 
     pub fn font_key_from_bytes(&mut self, bytes: Vec<u8>, index: u32) -> (FontKey, Option<NativeFontHandle>) {
-        let key = self.api.generate_font_key();
-        self.api.add_raw_font(key, bytes, index);
+        let key = self.resource_api.generate_font_key();
+        self.resource_api.add_raw_font(key, bytes, index);
         (key, None)
     }
 
@@ -350,8 +353,8 @@ impl Wrench {
             }
         };
         let tiling = tiling.map(|tile_size|{ tile_size as u16 });
-        let image_key = self.api.generate_image_key();
-        self.api.add_image(image_key, descriptor, image_data, tiling);
+        let image_key = self.resource_api.generate_image_key();
+        self.resource_api.add_image(image_key, descriptor, image_data, tiling);
         let val = (image_key, LayoutSize::new(descriptor.width as f32, descriptor.height as f32));
         self.image_map.insert(key, val);
         val
@@ -372,17 +375,17 @@ impl Wrench {
                       display_list: DisplayListBuilder,
                       scroll_offsets: &HashMap<ClipId, LayerPoint>) {
         let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
-        self.api.set_display_list(Epoch(frame_number),
+        self.document_api.set_display_list(Epoch(frame_number),
                                   root_background_color,
                                   self.window_size_f32(),
                                   display_list.finalize(),
                                   false);
 
         for (id, offset) in scroll_offsets {
-            self.api.scroll_node_with_id(*offset, *id, ScrollClamping::NoClamping);
+            self.document_api.scroll_node_with_id(*offset, *id, ScrollClamping::NoClamping);
         }
 
-        self.api.generate_frame(None);
+        self.document_api.generate_frame(None);
     }
 
     pub fn get_frame_profiles(&mut self) -> (Vec<CpuProfile>, Vec<GpuProfile>) {
@@ -396,7 +399,7 @@ impl Wrench {
 
     pub fn refresh(&mut self) {
         self.begin_frame();
-        self.api.generate_frame(None);
+        self.document_api.generate_frame(None);
     }
 
     pub fn show_onscreen_help(&mut self) {

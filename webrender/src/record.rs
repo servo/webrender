@@ -68,15 +68,12 @@ pub fn should_record_msg(msg: &ApiMsg) -> bool {
         ApiMsg::AddNativeFont(..) |
         ApiMsg::DeleteFont(..) |
         ApiMsg::AddImage(..) |
-        ApiMsg::GenerateFrame(..) |
         ApiMsg::UpdateImage(..) |
         ApiMsg::DeleteImage(..) |
-        ApiMsg::SetDisplayList{..} |
-        ApiMsg::SetRootPipeline(..) |
-        ApiMsg::Scroll(..) |
-        ApiMsg::TickScrollingBounce(..) |
-        ApiMsg::WebGLCommand(..) |
-        ApiMsg::SetWindowParameters{..} =>
+        ApiMsg::AddDocument(..) |
+        ApiMsg::UpdateDocument(..) |
+        ApiMsg::DeleteDocument(..) |
+        ApiMsg::WebGLCommand(..) =>
             true,
         _ => false
     }

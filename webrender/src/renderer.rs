@@ -49,8 +49,8 @@ use time::precise_time_ns;
 use thread_profiler::{register_thread_with_profiler, write_profile};
 use util::TransformedRectKind;
 use webgl_types::GLContextHandleWrapper;
-use api::{ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
-use api::{DocumentApiSender, ExternalImageId, ExternalImageType, ImageData, ImageFormat};
+use api::{ApiSenderTemplate, ColorF, Epoch, PipelineId, RenderNotifier, RenderDispatcher};
+use api::{ExternalImageId, ExternalImageType, ImageData, ImageFormat};
 use api::{DeviceIntRect, DeviceUintRect, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
 use api::{BlobImageRenderer, channel, FontRenderMode};
 use api::VRCompositorHandler;
@@ -744,7 +744,7 @@ impl From<std::io::Error> for InitError {
 }
 
 impl Renderer {
-    /// Initializes webrender and creates a `Renderer` and `DocumentApiSender`.
+    /// Initializes webrender and creates a `Renderer` and `ApiSenderTemplate`.
     ///
     /// # Examples
     /// Initializes a `Renderer` with some reasonable values. For more information see
@@ -762,7 +762,7 @@ impl Renderer {
     /// let (renderer, sender) = Renderer::new(opts);
     /// ```
     /// [rendereroptions]: struct.RendererOptions.html
-    pub fn new(gl: Rc<gl::Gl>, mut options: RendererOptions) -> Result<(Renderer, DocumentApiSender), InitError> {
+    pub fn new(gl: Rc<gl::Gl>, mut options: RendererOptions) -> Result<(Renderer, ApiSenderTemplate), InitError> {
         let (api_tx, api_rx) = try!{ channel::msg_channel() };
         let (payload_tx, payload_rx) = try!{ channel::payload_channel() };
         let (result_tx, result_rx) = channel();
@@ -1245,7 +1245,7 @@ impl Renderer {
             gpu_cache_texture,
         };
 
-        let sender = DocumentApiSender::new(api_tx, payload_tx);
+        let sender = ApiSenderTemplate::new(api_tx, payload_tx);
         Ok((renderer, sender))
     }
 
