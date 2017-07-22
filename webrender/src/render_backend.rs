@@ -6,7 +6,7 @@ use frame::Frame;
 use frame_builder::FrameBuilderConfig;
 use gpu_cache::GpuCache;
 use internal_types::{SourceTexture, ResultMsg, RendererFrame};
-use profiler::{BackendProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
+use profiler::{BackendProfileCounters, ResourceProfileCounters};
 use record::ApiRecordingReceiver;
 use resource_cache::ResourceCache;
 use scene::Scene;
@@ -78,8 +78,7 @@ impl Document {
     fn render(&mut self,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
-        texture_cache_profile: &mut TextureCacheProfileCounters,
-        gpu_cache_profile: &mut GpuCacheProfileCounters,
+        resource_profile: &mut ResourceProfileCounters,
         hidpi_factor: f32,
     )-> RendererFrame {
         let accumulated_scale_factor = self.accumulated_scale_factor(hidpi_factor);
@@ -90,8 +89,8 @@ impl Document {
                          &self.scene.display_lists,
                          accumulated_scale_factor,
                          pan,
-                         texture_cache_profile,
-                         gpu_cache_profile)
+                         &mut resource_profile.texture_cache,
+                         &mut resource_profile.gpu_cache)
     }
 }
 
@@ -184,8 +183,6 @@ impl RenderBackend {
                         -> DocumentOp
     {
         let doc = self.documents.get_mut(&document_id).expect("No document?");
-        let resource_cache = &mut self.resource_cache;
-        let hidpi_factor = self.hidpi_factor;
 
         match message {
             DocumentMsg::SetPageZoom(factor) => {
@@ -240,15 +237,16 @@ impl RenderBackend {
                 let (builder_start_time, builder_finish_time) = built_display_list.times();
                 let display_list_received_time = precise_time_ns();
 
-                profile_counters.total_time.profile(|| {
+                {
+                    let _timer = profile_counters.total_time.timer();
                     doc.scene.set_display_list(pipeline_id,
                                                epoch,
                                                built_display_list,
                                                background,
                                                viewport_size,
                                                content_size);
-                    doc.build_scene(resource_cache, hidpi_factor);
-                });
+                    doc.build_scene(&mut self.resource_cache, self.hidpi_factor);
+                }
 
                 doc.render_on_scroll = false; //wait for `GenerateFrame`
 
@@ -268,9 +266,8 @@ impl RenderBackend {
 
                 doc.scene.set_root_pipeline_id(pipeline_id);
                 if doc.scene.display_lists.get(&pipeline_id).is_some() {
-                    profile_counters.total_time.profile(|| {
-                        doc.build_scene(resource_cache, hidpi_factor);
-                    });
+                    let _timer = profile_counters.total_time.timer();
+                    doc.build_scene(&mut self.resource_cache, self.hidpi_factor);
                     DocumentOp::Built
                 } else {
                     DocumentOp::Nop
@@ -278,64 +275,46 @@ impl RenderBackend {
             }
             DocumentMsg::Scroll(delta, cursor, move_phase) => {
                 profile_scope!("Scroll");
+                let _timer = profile_counters.total_time.timer();
 
-                let counters = &mut profile_counters.resources.texture_cache;
-                let gpu_cache_counters = &mut profile_counters.resources.gpu_cache;
-                let gpu_cache = &mut self.gpu_cache;
-
-                profile_counters.total_time.profile(|| {
-                    if doc.frame.scroll(delta, cursor, move_phase) && doc.render_on_scroll {
-                        let frame = doc.render(resource_cache,
-                                               gpu_cache,
-                                               counters,
-                                               gpu_cache_counters,
-                                               hidpi_factor);
-                        DocumentOp::Scrolled(frame)
-                    } else {
-                        DocumentOp::ScrolledNop
-                    }
-                })
+                if doc.frame.scroll(delta, cursor, move_phase) && doc.render_on_scroll {
+                    let frame = doc.render(&mut self.resource_cache,
+                                           &mut self.gpu_cache,
+                                           &mut profile_counters.resources,
+                                           self.hidpi_factor);
+                    DocumentOp::Scrolled(frame)
+                } else {
+                    DocumentOp::ScrolledNop
+                }
             }
             DocumentMsg::ScrollNodeWithId(origin, id, clamp) => {
                 profile_scope!("ScrollNodeWithScrollId");
+                let _timer = profile_counters.total_time.timer();
 
-                let counters = &mut profile_counters.resources.texture_cache;
-                let gpu_cache_counters = &mut profile_counters.resources.gpu_cache;
-                let gpu_cache = &mut self.gpu_cache;
-
-                profile_counters.total_time.profile(|| {
-                    if doc.frame.scroll_node(origin, id, clamp) && doc.render_on_scroll {
-                        let frame = doc.render(resource_cache,
-                                               gpu_cache,
-                                               counters,
-                                               gpu_cache_counters,
-                                               hidpi_factor);
-                        DocumentOp::Scrolled(frame)
-                    } else {
-                        DocumentOp::ScrolledNop
-                    }
-                })
+                if doc.frame.scroll_node(origin, id, clamp) && doc.render_on_scroll {
+                    let frame = doc.render(&mut self.resource_cache,
+                                           &mut self.gpu_cache,
+                                           &mut profile_counters.resources,
+                                           self.hidpi_factor);
+                    DocumentOp::Scrolled(frame)
+                } else {
+                    DocumentOp::ScrolledNop
+                }
             }
             DocumentMsg::TickScrollingBounce => {
                 profile_scope!("TickScrollingBounce");
+                let _timer = profile_counters.total_time.timer();
 
-                let counters = &mut profile_counters.resources.texture_cache;
-                let gpu_cache_counters = &mut profile_counters.resources.gpu_cache;
-                let gpu_cache = &mut self.gpu_cache;
-
-                profile_counters.total_time.profile(|| {
-                    doc.frame.tick_scrolling_bounce_animations();
-                    if doc.render_on_scroll {
-                        let frame = doc.render(resource_cache,
-                                               gpu_cache,
-                                               counters,
-                                               gpu_cache_counters,
-                                               hidpi_factor);
-                        DocumentOp::Scrolled(frame)
-                    } else {
-                        DocumentOp::ScrolledNop
-                    }
-                })
+                doc.frame.tick_scrolling_bounce_animations();
+                if doc.render_on_scroll {
+                    let frame = doc.render(&mut self.resource_cache,
+                                           &mut self.gpu_cache,
+                                           &mut profile_counters.resources,
+                                           self.hidpi_factor);
+                    DocumentOp::Scrolled(frame)
+                } else {
+                    DocumentOp::ScrolledNop
+                }
             }
             DocumentMsg::GetScrollNodeState(tx) => {
                 profile_scope!("GetScrollNodeState");
@@ -344,8 +323,7 @@ impl RenderBackend {
             }
             DocumentMsg::GenerateFrame(property_bindings) => {
                 profile_scope!("GenerateFrame");
-
-                let gpu_cache = &mut self.gpu_cache;
+                let _timer = profile_counters.total_time.timer();
 
                 // Ideally, when there are property bindings present,
                 // we won't need to rebuild the entire frame here.
@@ -359,23 +337,16 @@ impl RenderBackend {
                 //           rebuild of the frame!
                 if let Some(property_bindings) = property_bindings {
                     doc.scene.properties.set_properties(property_bindings);
-                    profile_counters.total_time.profile(|| {
-                        doc.build_scene(resource_cache, hidpi_factor);
-                    });
+                    doc.build_scene(&mut self.resource_cache, self.hidpi_factor);
                 }
 
                 doc.render_on_scroll = true;
 
                 if doc.scene.root_pipeline_id.is_some() {
-                    let counters = &mut profile_counters.resources.texture_cache;
-                    let gpu_cache_counters = &mut profile_counters.resources.gpu_cache;
-                    let frame = profile_counters.total_time.profile(|| {
-                        doc.render(resource_cache,
-                                   gpu_cache,
-                                   counters,
-                                   gpu_cache_counters,
-                                   hidpi_factor)
-                    });
+                    let frame = doc.render(&mut self.resource_cache,
+                                           &mut self.gpu_cache,
+                                           &mut profile_counters.resources,
+                                           self.hidpi_factor);
                     DocumentOp::Rendered(frame)
                 } else {
                     DocumentOp::ScrolledNop
