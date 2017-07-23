@@ -568,30 +568,6 @@ impl BorderRadius {
     }
 }
 
-impl ColorF {
-    pub fn new(r: f32, g: f32, b: f32, a: f32) -> ColorF {
-        ColorF {
-            r,
-            g,
-            b,
-            a,
-        }
-    }
-
-    pub fn scale_rgb(&self, scale: f32) -> ColorF {
-        ColorF {
-            r: self.r * scale,
-            g: self.g * scale,
-            b: self.b * scale,
-            a: self.a,
-        }
-    }
-
-    pub fn to_array(&self) -> [f32; 4] {
-        [self.r, self.g, self.b, self.a]
-    }
-}
-
 impl ComplexClipRegion {
     /// Create a new complex clip region.
     pub fn new(rect: LayoutRect, radii: BorderRadius) -> ComplexClipRegion {
