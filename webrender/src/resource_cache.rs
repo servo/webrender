@@ -16,13 +16,14 @@ use std::hash::Hash;
 use std::mem;
 use std::sync::Arc;
 use texture_cache::{TextureCache, TextureCacheItemId};
-use api::{Epoch, FontInstanceKey, FontKey, FontTemplate, GlyphKey, ImageKey, ImageRendering};
-use api::{ImageData, GlyphDimensions, WebGLContextId, IdNamespace};
-use api::{DevicePoint, DeviceIntSize, DeviceUintRect, ImageDescriptor};
-use api::{GlyphInstance, SubpixelPoint, TileOffset, TileSize};
-use api::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, BlobImageRequest, BlobImageData};
-use api::BlobImageResources;
-use api::{ExternalImageData, ExternalImageType, LayoutPoint};
+use api::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, BlobImageRequest};
+use api::{BlobImageResources, BlobImageData};
+use api::{DevicePoint, DeviceIntSize, DeviceUintRect, DeviceUintSize};
+use api::{Epoch, FontInstanceKey, FontKey, FontTemplate};
+use api::{GlyphDimensions, GlyphKey, GlyphInstance, IdNamespace};
+use api::{ImageData, ImageDescriptor, ImageKey, ImageRendering, LayoutPoint};
+use api::{SubpixelPoint, TileOffset, TileSize};
+use api::{ExternalImageData, ExternalImageType, WebGLContextId};
 use rayon::ThreadPool;
 use glyph_rasterizer::{GlyphRasterizer, GlyphCache, GlyphRequest};
 
@@ -64,6 +65,14 @@ struct ImageResource {
     tiling: Option<TileSize>,
     dirty_rect: Option<DeviceUintRect>
 }
+
+#[derive(Debug)]
+pub struct ImageTiling {
+    pub image_size: DeviceUintSize,
+    pub tile_size: TileSize,
+}
+
+pub type TiledImageMap = HashMap<ImageKey, ImageTiling, BuildHasherDefault<FnvHasher>>;
 
 struct ImageTemplates {
     images: HashMap<ImageKey, ImageResource, BuildHasherDefault<FnvHasher>>,
@@ -572,6 +581,16 @@ impl ResourceCache {
             external_image,
             tiling: image_template.tiling,
         }
+    }
+
+    pub fn get_tiled_image_map(&self) -> TiledImageMap {
+        self.resources.image_templates.images.iter().filter_map(|(&key, template)|
+            template.tiling.map(|tile_size| (key, ImageTiling {
+                image_size: DeviceUintSize::new(template.descriptor.width,
+                                                template.descriptor.height),
+                tile_size,
+            }))
+        ).collect()
     }
 
     pub fn get_webgl_texture(&self, context_id: &WebGLContextId) -> &WebGLTexture {
