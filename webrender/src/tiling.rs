@@ -2,12 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use app_units::Au;
 use border::{BorderCornerInstance, BorderCornerSide};
 use device::TextureId;
 use fnv::FnvHasher;
 use gpu_cache::{GpuCache, GpuCacheHandle, GpuCacheUpdateList};
-use internal_types::{ANGLE_FLOAT_TO_FIXED, BatchTextures, CacheTextureId, LowLevelFilterOp};
+use internal_types::{BatchTextures, CacheTextureId};
 use internal_types::SourceTexture;
 use mask_cache::MaskCacheInfo;
 use prim_store::{CLIP_DATA_GPU_BLOCKS, DeferredResolve, ImagePrimitiveKind, PrimitiveCacheKey};
@@ -26,8 +25,8 @@ use texture_cache::TexturePage;
 use util::{TransformedRect, TransformedRectKind};
 use api::{BuiltDisplayList, ClipAndScrollInfo, ClipId, ColorF, DeviceIntPoint, ImageKey};
 use api::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintSize};
-use api::{ExternalImageType, FontRenderMode, ImageRendering, LayerRect};
-use api::{LayerToWorldTransform, MixBlendMode, PipelineId, TransformStyle};
+use api::{ExternalImageType, FilterOp, FontRenderMode, ImageRendering, LayerRect};
+use api::{LayerToWorldTransform, MixBlendMode, PipelineId, PropertyBinding, TransformStyle};
 use api::{TileOffset, WorldToLayerTransform, YuvColorSpace, YuvFormat, LayerVector2D};
 
 // Special sentinel value recognized by the shader. It is considered to be
@@ -284,15 +283,17 @@ impl AlphaRenderItem {
                 let src_task_index = render_tasks.get_static_task_index(&src_id);
 
                 let (filter_mode, amount) = match filter {
-                    LowLevelFilterOp::Blur(..) => (0, 0.0),
-                    LowLevelFilterOp::Contrast(amount) => (1, amount.to_f32_px()),
-                    LowLevelFilterOp::Grayscale(amount) => (2, amount.to_f32_px()),
-                    LowLevelFilterOp::HueRotate(angle) => (3, (angle as f32) / ANGLE_FLOAT_TO_FIXED),
-                    LowLevelFilterOp::Invert(amount) => (4, amount.to_f32_px()),
-                    LowLevelFilterOp::Saturate(amount) => (5, amount.to_f32_px()),
-                    LowLevelFilterOp::Sepia(amount) => (6, amount.to_f32_px()),
-                    LowLevelFilterOp::Brightness(amount) => (7, amount.to_f32_px()),
-                    LowLevelFilterOp::Opacity(amount) => (8, amount.to_f32_px()),
+                    // TODO: Implement blur filter #1351
+                    FilterOp::Blur(..) => (0, 0.0),
+                    FilterOp::Contrast(amount) => (1, amount),
+                    FilterOp::Grayscale(amount) => (2, amount),
+                    FilterOp::HueRotate(angle) => (3, angle),
+                    FilterOp::Invert(amount) => (4, amount),
+                    FilterOp::Saturate(amount) => (5, amount),
+                    FilterOp::Sepia(amount) => (6, amount),
+                    FilterOp::Brightness(amount) => (7, amount),
+                    FilterOp::Opacity(PropertyBinding::Value(amount)) => (8, amount),
+                    FilterOp::Opacity(_) => unreachable!(),
                 };
 
                 let amount = (amount * 65535.0).round() as i32;
@@ -1683,14 +1684,14 @@ impl PackedLayer {
 #[derive(Debug, Clone, Default)]
 pub struct CompositeOps {
     // Requires only a single texture as input (e.g. most filters)
-    pub filters: Vec<LowLevelFilterOp>,
+    pub filters: Vec<FilterOp>,
 
     // Requires two source textures (e.g. mix-blend-mode)
     pub mix_blend_mode: Option<MixBlendMode>,
 }
 
 impl CompositeOps {
-    pub fn new(filters: Vec<LowLevelFilterOp>, mix_blend_mode: Option<MixBlendMode>) -> CompositeOps {
+    pub fn new(filters: Vec<FilterOp>, mix_blend_mode: Option<MixBlendMode>) -> CompositeOps {
         CompositeOps {
             filters,
             mix_blend_mode: mix_blend_mode
@@ -1703,7 +1704,7 @@ impl CompositeOps {
 
     pub fn will_make_invisible(&self) -> bool {
         for op in &self.filters {
-            if op == &LowLevelFilterOp::Opacity(Au(0)) {
+            if op == &FilterOp::Opacity(PropertyBinding::Value(0.0)) {
                 return true;
             }
         }

@@ -5,16 +5,13 @@
 use api::{BuiltDisplayList, BuiltDisplayListIter, ClipAndScrollInfo, ClipId, ColorF};
 use api::{ComplexClipRegion, DeviceUintRect, DeviceUintSize, DisplayItemRef, Epoch, FilterOp};
 use api::{ImageDisplayItem, ItemRange, LayerPoint, LayerRect, LayerSize, LayerToScrollTransform};
-use api::{LayerVector2D, LayoutSize, LayoutTransform, LocalClip, MixBlendMode, PipelineId};
+use api::{LayerVector2D, LayoutSize, LayoutTransform, LocalClip, MixBlendMode, PipelineId, PropertyBinding};
 use api::{ScrollClamping, ScrollEventPhase, ScrollLayerState, ScrollLocation, ScrollPolicy};
 use api::{SpecificDisplayItem, StackingContext, TileOffset, TransformStyle, WorldPoint};
-use app_units::Au;
 use clip_scroll_tree::{ClipScrollTree, ScrollStates};
 use euclid::rect;
 use fnv::FnvHasher;
 use gpu_cache::GpuCache;
-use internal_types::{ANGLE_FLOAT_TO_FIXED, AxisDirection};
-use internal_types::{LowLevelFilterOp};
 use internal_types::{RendererFrame};
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use mask_cache::ClipRegion;
@@ -190,7 +187,7 @@ trait StackingContextHelpers {
     fn filter_ops_for_compositing(&self,
                                   display_list: &BuiltDisplayList,
                                   input_filters: ItemRange<FilterOp>,
-                                  properties: &SceneProperties) -> Vec<LowLevelFilterOp>;
+                                  properties: &SceneProperties) -> Vec<FilterOp>;
 }
 
 impl StackingContextHelpers for StackingContext {
@@ -204,45 +201,17 @@ impl StackingContextHelpers for StackingContext {
     fn filter_ops_for_compositing(&self,
                                   display_list: &BuiltDisplayList,
                                   input_filters: ItemRange<FilterOp>,
-                                  properties: &SceneProperties) -> Vec<LowLevelFilterOp> {
+                                  properties: &SceneProperties) -> Vec<FilterOp> {
         let mut filters = vec![];
         for filter in display_list.get(input_filters) {
             if filter.is_noop() {
                 continue;
             }
-
-            match filter {
-                FilterOp::Blur(radius) => {
-                    filters.push(LowLevelFilterOp::Blur(radius, AxisDirection::Horizontal));
-                    filters.push(LowLevelFilterOp::Blur(radius, AxisDirection::Vertical));
-                }
-                FilterOp::Brightness(amount) => {
-                    filters.push(LowLevelFilterOp::Brightness(Au::from_f32_px(amount)));
-                }
-                FilterOp::Contrast(amount) => {
-                    filters.push(LowLevelFilterOp::Contrast(Au::from_f32_px(amount)));
-                }
-                FilterOp::Grayscale(amount) => {
-                    filters.push(LowLevelFilterOp::Grayscale(Au::from_f32_px(amount)));
-                }
-                FilterOp::HueRotate(angle) => {
-                    filters.push(
-                            LowLevelFilterOp::HueRotate(f32::round(
-                                    angle * ANGLE_FLOAT_TO_FIXED) as i32));
-                }
-                FilterOp::Invert(amount) => {
-                    filters.push(LowLevelFilterOp::Invert(Au::from_f32_px(amount)));
-                }
-                FilterOp::Opacity(ref value) => {
-                    let amount = properties.resolve_float(value, 1.0);
-                    filters.push(LowLevelFilterOp::Opacity(Au::from_f32_px(amount)));
-                }
-                FilterOp::Saturate(amount) => {
-                    filters.push(LowLevelFilterOp::Saturate(Au::from_f32_px(amount)));
-                }
-                FilterOp::Sepia(amount) => {
-                    filters.push(LowLevelFilterOp::Sepia(Au::from_f32_px(amount)));
-                }
+            if let FilterOp::Opacity(ref value) = filter {
+                let amount = properties.resolve_float(value, 1.0);
+                filters.push(FilterOp::Opacity(PropertyBinding::Value(amount)));
+            } else {
+                filters.push(filter);
             }
         }
         filters

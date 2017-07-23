@@ -458,7 +458,7 @@ impl YamlHelper for Yaml {
         if let Some(s) = self.as_str() {
             match parse_function(s) {
                 ("blur", ref args, _) if args.len() == 1 => {
-                    Some(FilterOp::Blur(Au(args[0].parse().unwrap())))
+                    Some(FilterOp::Blur(args[0].parse().unwrap()))
                 }
                 ("brightness", ref args, _) if args.len() == 1 => {
                     Some(FilterOp::Brightness(args[0].parse().unwrap()))
