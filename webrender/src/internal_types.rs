@@ -2,7 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use app_units::Au;
 use device::TextureFilter;
 use fnv::FnvHasher;
 use profiler::BackendProfileCounters;
@@ -47,7 +46,6 @@ pub enum SourceTexture {
 }
 
 const COLOR_FLOAT_TO_FIXED: f32 = 255.0;
-pub const ANGLE_FLOAT_TO_FIXED: f32 = 65535.0;
 
 pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;
 pub const ORTHO_FAR_PLANE: f32 = 1000000.0;
@@ -292,13 +290,6 @@ pub enum ResultMsg {
     NewFrame(RendererFrame, TextureUpdateList, BackendProfileCounters),
 }
 
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum AxisDirection {
-    Horizontal,
-    Vertical,
-}
-
 #[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
 pub struct StackingContextIndex(pub usize);
 
@@ -306,20 +297,6 @@ pub struct StackingContextIndex(pub usize);
 pub struct UvRect {
     pub uv0: DevicePoint,
     pub uv1: DevicePoint,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum LowLevelFilterOp {
-    Blur(Au, AxisDirection),
-    Brightness(Au),
-    Contrast(Au),
-    Grayscale(Au),
-    /// Fixed-point in `ANGLE_FLOAT_TO_FIXED` units.
-    HueRotate(i32),
-    Invert(Au),
-    Opacity(Au),
-    Saturate(Au),
-    Sepia(Au),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

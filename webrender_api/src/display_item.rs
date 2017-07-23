@@ -358,9 +358,9 @@ pub enum MixBlendMode {
     Luminosity  = 15,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 pub enum FilterOp {
-    Blur(Au),
+    Blur(f32),
     Brightness(f32),
     Contrast(f32),
     Grayscale(f32),
@@ -374,7 +374,7 @@ pub enum FilterOp {
 impl FilterOp {
     pub fn is_noop(&self) -> bool {
         match *self {
-            FilterOp::Blur(length) if length == Au(0) => true,
+            FilterOp::Blur(length) if length == 0.0 => true,
             FilterOp::Brightness(amount) if amount == 1.0 => true,
             FilterOp::Contrast(amount) if amount == 1.0 => true,
             FilterOp::Grayscale(amount) if amount == 0.0 => true,
