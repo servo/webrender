@@ -63,13 +63,7 @@ use wrench::{Wrench, WrenchThing};
 use yaml_frame_reader::YamlFrameReader;
 
 lazy_static! {
-    static ref PLATFORM_DEFAULT_FACE_NAME: String =
-        if cfg!(target_os = "windows") {
-            String::from("Arial")
-        } else {
-            String::from("Helvetica")
-        };
-
+    static ref PLATFORM_DEFAULT_FACE_NAME: String = String::from("Arial");
     static ref WHITE_COLOR: ColorF = ColorF::new(1.0, 1.0, 1.0, 1.0);
     static ref BLACK_COLOR: ColorF = ColorF::new(0.0, 0.0, 0.0, 1.0);
 }

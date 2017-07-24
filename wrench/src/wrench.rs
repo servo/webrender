@@ -83,31 +83,6 @@ impl RenderNotifier for Notifier {
     }
 }
 
-#[cfg(target_os = "windows")]
-pub fn layout_simple_ascii(face: NativeFontHandle, text: &str, size: Au) -> (Vec<u16>, Vec<f32>) {
-    let system_fc = dwrote::FontCollection::system();
-    let font = system_fc.get_font_from_descriptor(&(face as dwrote::FontDescriptor)).unwrap();
-    let face = font.create_font_face();
-
-    let chars: Vec<u32> = text.chars().map(|c| c as u32).collect();
-    let indices = face.get_glyph_indices(&chars);
-    let glyph_metrics = face.get_design_glyph_metrics(&indices, false);
-
-    let device_pixel_ratio: f32 = 1.0;
-    let em_size = size.to_f32_px() / 16.;
-    let design_units_per_pixel = face.metrics().designUnitsPerEm as f32 / 16. as f32;
-    let scaled_design_units_to_pixels = (em_size * device_pixel_ratio) / design_units_per_pixel;
-
-    let advances = glyph_metrics.iter().map(|m| m.advanceWidth as f32 * scaled_design_units_to_pixels).collect();
-
-    (indices, advances)
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn layout_simple_ascii(_: NativeFontHandle, _: &str, _: Au) -> (Vec<u16>, Vec<f32>) {
-    panic!("Can't layout simple ascii on this platform");
-}
-
 pub trait WrenchThing {
     fn next_frame(&mut self);
     fn prev_frame(&mut self);
@@ -218,6 +193,38 @@ impl Wrench {
         wrench
     }
 
+    pub fn layout_simple_ascii(&self, font_key: FontKey, text: &str, size: Au) -> (Vec<u32>, Vec<f32>) {
+        // Map the string codepoints to glyph indices in this font.
+        // Just drop any glyph that isn't present in this font.
+        let indices: Vec<u32> = self.api
+                                    .get_glyph_indices(font_key, text)
+                                    .iter()
+                                    .filter_map(|idx| *idx)
+                                    .collect();
+
+        // Retrieve the metrics for each glyph.
+        let mut keys = Vec::new();
+        for glyph_index in &indices {
+            keys.push(GlyphKey::new(font_key,
+                                    size,
+                                    ColorF::new(0.0, 0.0, 0.0, 1.0),
+                                    *glyph_index,
+                                    LayerPoint::zero(),
+                                    FontRenderMode::Alpha));
+        }
+        let metrics = self.api.get_glyph_dimensions(keys);
+
+        // Extract the advances from the metrics. The get_glyph_dimensions API
+        // has a limitation that it can't currently get dimensions for non-renderable
+        // glyphs (e.g. spaces), so just use a rough estimate in that case.
+        let space_advance = size.to_f32_px() / 3.0;
+        let advances = metrics.iter()
+                              .map(|m| m.map(|dim| dim.advance).unwrap_or(space_advance))
+                              .collect();
+
+        (indices, advances)
+    }
+
     pub fn set_title(&mut self, extra: &str) {
         self.window_title_to_set = Some(format!("Wrench: {} ({}x) - {} - {}", extra,
             self.device_pixel_ratio, self.graphics_api.renderer, self.graphics_api.version));
@@ -244,18 +251,18 @@ impl Wrench {
     }
 
     #[cfg(target_os = "windows")]
-    pub fn font_key_from_name(&mut self, font_name: &str) -> (FontKey, Option<NativeFontHandle>) {
+    pub fn font_key_from_name(&mut self, font_name: &str) -> FontKey {
         let system_fc = dwrote::FontCollection::system();
         let family = system_fc.get_font_family_by_name(font_name).unwrap();
         let font = family.get_first_matching_font(dwrote::FontWeight::Regular,
                                                   dwrote::FontStretch::Normal,
                                                   dwrote::FontStyle::Normal);
         let descriptor = font.to_descriptor();
-        (self.font_key_from_native_handle(&descriptor), Some(descriptor))
+        self.font_key_from_native_handle(&descriptor)
     }
 
     #[cfg(target_os = "windows")]
-    pub fn font_key_from_yaml_table(&mut self, item: &Yaml) -> (FontKey, Option<NativeFontHandle>) {
+    pub fn font_key_from_yaml_table(&mut self, item: &Yaml) -> FontKey {
         assert!(!item["family"].is_badvalue());
         let family = item["family"].as_str().unwrap();
         let weight = dwrote::FontWeight::from_u32(item["weight"].as_i64().unwrap_or(400) as u32);
@@ -268,11 +275,11 @@ impl Wrench {
             style,
             stretch,
         };
-        (self.font_key_from_native_handle(&desc), Some(desc))
+        self.font_key_from_native_handle(&desc)
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    pub fn font_key_from_yaml_table(&mut self, item: &Yaml) -> (FontKey, Option<NativeFontHandle>) {
+    pub fn font_key_from_yaml_table(&mut self, item: &Yaml) -> FontKey {
         let family = item["family"].as_str().unwrap();
         let property = system_fonts::FontPropertyBuilder::new().family(family).build();
         let (font, index) = system_fonts::get(&property).unwrap();
@@ -280,21 +287,21 @@ impl Wrench {
     }
 
     #[cfg(unix)]
-    pub fn font_key_from_name(&mut self, font_name: &str) -> (FontKey, Option<NativeFontHandle>) {
+    pub fn font_key_from_name(&mut self, font_name: &str) -> FontKey {
         let property = system_fonts::FontPropertyBuilder::new().family(font_name).build();
         let (font, index) = system_fonts::get(&property).unwrap();
         self.font_key_from_bytes(font, index as u32)
     }
 
     #[cfg(target_os = "android")]
-    pub fn font_key_from_name(&mut self, font_name: &str) -> (FontKey, Option<NativeFontHandle>) {
+    pub fn font_key_from_name(&mut self, font_name: &str) -> FontKey {
         unimplemented!()
     }
 
-    pub fn font_key_from_bytes(&mut self, bytes: Vec<u8>, index: u32) -> (FontKey, Option<NativeFontHandle>) {
+    pub fn font_key_from_bytes(&mut self, bytes: Vec<u8>, index: u32) -> FontKey {
         let key = self.api.generate_font_key();
         self.api.add_raw_font(key, bytes, index);
-        (key, None)
+        key
     }
 
     pub fn add_or_get_image(&mut self, file: &Path, tiling: Option<i64>) -> (ImageKey, LayoutSize) {

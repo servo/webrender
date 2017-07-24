@@ -24,6 +24,8 @@ pub enum ApiMsg {
     DeleteFont(FontKey),
     /// Gets the glyph dimensions
     GetGlyphDimensions(Vec<GlyphKey>, MsgSender<Vec<Option<GlyphDimensions>>>),
+    /// Gets the glyph indices from a string
+    GetGlyphIndices(FontKey, String, MsgSender<Vec<Option<u32>>>),
     /// Adds an image from the resource cache.
     AddImage(ImageKey, ImageDescriptor, ImageData, Option<TileSize>),
     /// Updates the the resource cache with the new image data.
@@ -74,6 +76,7 @@ impl fmt::Debug for ApiMsg {
             ApiMsg::AddNativeFont(..) => "ApiMsg::AddNativeFont",
             ApiMsg::DeleteFont(..) => "ApiMsg::DeleteFont",
             ApiMsg::GetGlyphDimensions(..) => "ApiMsg::GetGlyphDimensions",
+            ApiMsg::GetGlyphIndices(..) => "ApiMsg::GetGlyphIndices",
             ApiMsg::AddImage(..) => "ApiMsg::AddImage",
             ApiMsg::UpdateImage(..) => "ApiMsg::UpdateImage",
             ApiMsg::DeleteImage(..) => "ApiMsg::DeleteImage",
@@ -230,6 +233,17 @@ impl RenderApi {
                                 -> Vec<Option<GlyphDimensions>> {
         let (tx, rx) = channel::msg_channel().unwrap();
         let msg = ApiMsg::GetGlyphDimensions(glyph_keys, tx);
+        self.api_sender.send(msg).unwrap();
+        rx.recv().unwrap()
+    }
+
+    /// Gets the glyph indices for the supplied string. These
+    /// can be used to construct GlyphKeys.
+    pub fn get_glyph_indices(&self,
+                             font_key: FontKey,
+                             text: &str) -> Vec<Option<u32>> {
+        let (tx, rx) = channel::msg_channel().unwrap();
+        let msg = ApiMsg::GetGlyphIndices(font_key, text.to_string(), tx);
         self.api_sender.send(msg).unwrap();
         rx.recv().unwrap()
     }

@@ -168,6 +168,14 @@ impl RenderBackend {
                             };
                             tx.send(glyph_dimensions).unwrap();
                         }
+                        ApiMsg::GetGlyphIndices(font_key, text, tx) => {
+                            let mut glyph_indices = Vec::new();
+                            for ch in text.chars() {
+                                let index = self.resource_cache.get_glyph_index(font_key, ch);
+                                glyph_indices.push(index);
+                            };
+                            tx.send(glyph_indices).unwrap();
+                        }
                         ApiMsg::AddImage(id, descriptor, data, tiling) => {
                             if let ImageData::Raw(ref bytes) = data {
                                 profile_counters.resources.image_templates.inc(bytes.len());

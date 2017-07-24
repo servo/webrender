@@ -52,6 +52,7 @@ pub struct GlyphDimensions {
     pub top: i32,
     pub width: u32,
     pub height: u32,
+    pub advance: f32,
 }
 
 #[repr(C)]

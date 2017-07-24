@@ -10,7 +10,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use webrender::api::*;
-use wrench::{Wrench, WrenchThing, layout_simple_ascii};
+use wrench::{Wrench, WrenchThing};
 use yaml_helper::{YamlHelper, StringEnum};
 use yaml_rust::{Yaml, YamlLoader};
 use {WHITE_COLOR, BLACK_COLOR, PLATFORM_DEFAULT_FACE_NAME};
@@ -446,7 +446,7 @@ impl YamlFrameReader {
         assert!(item["blur-radius"].is_badvalue(),
             "text no longer has a blur radius, use PushTextShadow and PopTextShadow");
 
-        let (font_key, native_key) = if !item["family"].is_badvalue() {
+        let font_key = if !item["family"].is_badvalue() {
             wrench.font_key_from_yaml_table(item)
         } else if !item["font"].is_badvalue() {
             let font_file = self.rsrc_path(&item["font"]);
@@ -483,14 +483,9 @@ impl YamlFrameReader {
                                      .expect("Text items with glyphs require bounds [for now]");
             (glyphs, rect)
         } else {
-            assert!(native_key.is_some(), "Can't layout simple ascii text with raw font [for now]");
-            let native_key = native_key.unwrap();
             let text = item["text"].as_str().unwrap();
             let (glyph_indices, glyph_advances) =
-                layout_simple_ascii(native_key, text, size);
-            println!("Text layout: {}", text);
-            println!(" glyphs  -> {:?}", glyph_indices);
-            println!("    adv  -> {:?}", glyph_advances);
+                wrench.layout_simple_ascii(font_key, text, size);
             let origin = item["origin"].as_point()
                 .expect("origin required for text without glyphs");
 
