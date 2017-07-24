@@ -86,28 +86,6 @@ fn dwrite_render_mode(font_face: &dwrote::FontFace,
     dwrite_render_mode
 }
 
-fn get_glyph_dimensions_with_analysis(analysis: dwrote::GlyphRunAnalysis,
-                                      texture_type: dwrote::DWRITE_TEXTURE_TYPE)
-                                      -> Option<GlyphDimensions> {
-    let bounds = analysis.get_alpha_texture_bounds(texture_type);
-
-    let width = (bounds.right - bounds.left) as u32;
-    let height = (bounds.bottom - bounds.top) as u32;
-
-    // Alpha texture bounds can sometimes return an empty rect
-    // Such as for spaces
-    if width == 0 || height == 0 {
-        return None
-    }
-
-    Some(GlyphDimensions {
-        left: bounds.left,
-        top: -bounds.top,
-        width,
-        height,
-    })
-}
-
 impl FontContext {
     pub fn new() -> FontContext {
         // These are the default values we use in Gecko.
@@ -214,6 +192,16 @@ impl FontContext {
                                          0.0, 0.0)
     }
 
+    pub fn get_glyph_index(&mut self, font_key: FontKey, ch: char) -> Option<u32> {
+        let face = self.fonts.get(&font_key).unwrap();
+        let indices = face.get_glyph_indices(&[ch as u32]);
+        if indices.len() == 1 {
+            Some(indices[0] as u32)
+        } else {
+            None
+        }
+    }
+
     // TODO: Pipe GlyphOptions into glyph_dimensions too
     pub fn get_glyph_dimensions(&self,
                                 key: &GlyphKey)
@@ -223,7 +211,35 @@ impl FontContext {
         let analysis = self.create_glyph_analysis(key, render_mode, None);
 
         let texture_type = dwrite_texture_type(render_mode);
-        get_glyph_dimensions_with_analysis(analysis, texture_type)
+
+        let bounds = analysis.get_alpha_texture_bounds(texture_type);
+
+        let width = (bounds.right - bounds.left) as u32;
+        let height = (bounds.bottom - bounds.top) as u32;
+
+        // Alpha texture bounds can sometimes return an empty rect
+        // Such as for spaces
+        if width == 0 || height == 0 {
+            return None
+        }
+
+        let face = self.fonts.get(&key.font_key).unwrap();
+        face.get_design_glyph_metrics(&[key.index as u16], false)
+            .first()
+            .map(|metrics| {
+                let em_size = key.size.to_f32_px() / 16.;
+                let design_units_per_pixel = face.metrics().designUnitsPerEm as f32 / 16. as f32;
+                let scaled_design_units_to_pixels = em_size / design_units_per_pixel;
+                let advance = metrics.advanceWidth as f32 * scaled_design_units_to_pixels;
+
+                GlyphDimensions {
+                    left: bounds.left,
+                    top: -bounds.top,
+                    width,
+                    height,
+                    advance: advance,
+                }
+            })
     }
 
     // DWRITE gives us values in RGB. WR doesn't really touch it after. Note, CG returns in BGR

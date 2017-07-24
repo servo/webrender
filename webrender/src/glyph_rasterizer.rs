@@ -227,6 +227,10 @@ impl GlyphRasterizer {
         self.font_contexts.lock_shared_context().get_glyph_dimensions(glyph_key)
     }
 
+    pub fn get_glyph_index(&mut self, font_key: FontKey, ch: char) -> Option<u32> {
+        self.font_contexts.lock_shared_context().get_glyph_index(font_key, ch)
+    }
+
     pub fn resolve_glyphs(
         &mut self,
         current_frame_id: FrameId,

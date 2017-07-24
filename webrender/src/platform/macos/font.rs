@@ -19,6 +19,7 @@ use api::{ColorU, FontKey, FontRenderMode, GlyphDimensions};
 use api::{GlyphKey, GlyphOptions, SubpixelPoint};
 use api::NativeFontHandle;
 use gamma_lut::{GammaLut, Color as ColorLut};
+use std::ptr;
 
 pub struct FontContext {
     cg_fonts: HashMap<FontKey, CGFont>,
@@ -56,6 +57,7 @@ struct GlyphMetrics {
     rasterized_ascent: i32,
     rasterized_width: u32,
     rasterized_height: u32,
+    advance: f32,
 }
 
 // According to the Skia source code, there's no public API to
@@ -97,6 +99,7 @@ fn get_glyph_metrics(ct_font: &CTFont,
             rasterized_height: 0,
             rasterized_ascent: 0,
             rasterized_descent: 0,
+            advance: 0.0,
         };
     }
 
@@ -125,12 +128,18 @@ fn get_glyph_metrics(ct_font: &CTFont,
     let width = right - left;
     let height = top - bottom;
 
+    let advance = ct_font.get_advances_for_glyphs(kCTFontDefaultOrientation,
+                                                  &glyph,
+                                                  ptr::null_mut(),
+                                                  1);
+
     let metrics = GlyphMetrics {
         rasterized_left: left,
         rasterized_width: width as u32,
         rasterized_height: height as u32,
         rasterized_ascent: top,
         rasterized_descent: -bottom,
+        advance: advance as f32,
     };
 
     metrics
@@ -210,6 +219,24 @@ impl FontContext {
         }
     }
 
+    pub fn get_glyph_index(&mut self, font_key: FontKey, ch: char) -> Option<u32> {
+        let characters: [u16; 1] = [ ch as u16 ];
+        let mut glyphs = [ 0 ];
+
+        self.get_ct_font(font_key, Au(16 * 60))
+            .and_then(|ref ct_font| {
+                let result = ct_font.get_glyphs_for_characters(&characters[0],
+                                                               &mut glyphs[0],
+                                                               1);
+
+                if result {
+                    Some(glyphs[0] as u32)
+                } else {
+                    None
+                }
+            })
+    }
+
     pub fn get_glyph_dimensions(&mut self,
                                 key: &GlyphKey) -> Option<GlyphDimensions> {
         self.get_ct_font(key.font_key, key.size).and_then(|ref ct_font| {
@@ -223,6 +250,7 @@ impl FontContext {
                     top: metrics.rasterized_ascent,
                     width: metrics.rasterized_width as u32,
                     height: metrics.rasterized_height as u32,
+                    advance: metrics.advance,
                 })
             }
         })

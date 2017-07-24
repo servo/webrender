@@ -548,6 +548,10 @@ impl ResourceCache {
         }
     }
 
+    pub fn get_glyph_index(&mut self, font_key: FontKey, ch: char) -> Option<u32> {
+        self.glyph_rasterizer.get_glyph_index(font_key, ch)
+    }
+
     #[inline]
     pub fn get_cached_image(&self,
                             image_key: ImageKey,

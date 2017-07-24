@@ -13,7 +13,7 @@ use freetype::freetype::{FT_Library, FT_Set_Char_Size};
 use freetype::freetype::{FT_Face, FT_Long, FT_UInt, FT_F26Dot6};
 use freetype::freetype::{FT_Init_FreeType, FT_Load_Glyph, FT_Render_Glyph};
 use freetype::freetype::{FT_New_Memory_Face, FT_GlyphSlot, FT_LcdFilter};
-use freetype::freetype::{FT_Done_Face, FT_Error, FT_Int32};
+use freetype::freetype::{FT_Done_Face, FT_Error, FT_Int32, FT_Get_Char_Index};
 
 use std::{cmp, mem, ptr, slice};
 use std::collections::HashMap;
@@ -155,7 +155,22 @@ impl FontContext {
                 top: top as i32,
                 width: (right - left) as u32,
                 height: (bottom - top) as u32,
+                advance: metrics.horiAdvance as f32 / 64.0,
             })
+        }
+    }
+
+    pub fn get_glyph_index(&mut self, font_key: FontKey, ch: char) -> Option<u32> {
+        let face = self.faces
+                       .get(&font_key)
+                       .expect("Unknown font key!");
+        unsafe {
+            let idx = FT_Get_Char_Index(face.face, ch as _);
+            if idx != 0 {
+                Some(idx)
+            } else {
+                None
+            }
         }
     }
 
