@@ -49,7 +49,7 @@ pub struct DisplayItem {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum SpecificDisplayItem {
     Clip(ClipDisplayItem),
-    ScrollFrame(ClipDisplayItem),
+    ScrollFrame(ScrollFrameDisplayItem),
     Rectangle(RectangleDisplayItem),
     Line(LineDisplayItem),
     Text(TextDisplayItem),
@@ -75,6 +75,20 @@ pub struct ClipDisplayItem {
     pub id: ClipId,
     pub parent_id: ClipId,
     pub image_mask: Option<ImageMask>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub enum ScrollSensitivity {
+    ScriptAndInputEvents,
+    Script,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ScrollFrameDisplayItem {
+    pub id: ClipId,
+    pub parent_id: ClipId,
+    pub image_mask: Option<ImageMask>,
+    pub scroll_sensitivity: ScrollSensitivity,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -663,3 +677,4 @@ define_empty_heap_size_of!(ImageKey);
 define_empty_heap_size_of!(MixBlendMode);
 define_empty_heap_size_of!(TransformStyle);
 define_empty_heap_size_of!(LocalClip);
+define_empty_heap_size_of!(ScrollSensitivity);

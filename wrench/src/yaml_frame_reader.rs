@@ -610,7 +610,8 @@ impl YamlFrameReader {
                                                     content_rect,
                                                     clip_rect,
                                                     complex_clips,
-                                                    image_mask);
+                                                    image_mask,
+                                                    ScrollSensitivity::Script);
 
         if let Some(size) = yaml["scroll-offset"].as_point() {
             self.scroll_offsets.insert(id, LayerPoint::new(size.x, size.y));
