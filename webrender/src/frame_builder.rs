@@ -7,8 +7,8 @@ use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUi
 use api::{ExtendMode, FontKey, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop};
 use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize};
 use api::{LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation, LineStyle};
-use api::{LocalClip, PipelineId, RepeatMode, TextShadow, TileOffset, TransformStyle};
-use api::{WebGLContextId, WorldPixel, YuvColorSpace, YuvData};
+use api::{LocalClip, PipelineId, RepeatMode, ScrollSensitivity, TextShadow, TileOffset};
+use api::{TransformStyle, WebGLContextId, WorldPixel, YuvColorSpace, YuvData};
 use app_units::Au;
 use fnv::FnvHasher;
 use frame::FrameId;
@@ -389,6 +389,7 @@ impl FrameBuilder {
                               pipeline_id,
                               &viewport_rect,
                               content_size,
+                              ScrollSensitivity::ScriptAndInputEvents,
                               clip_scroll_tree);
 
         topmost_scrolling_node_id
@@ -412,11 +413,13 @@ impl FrameBuilder {
                             pipeline_id: PipelineId,
                             frame_rect: &LayerRect,
                             content_size: &LayerSize,
+                            scroll_sensitivity: ScrollSensitivity,
                             clip_scroll_tree: &mut ClipScrollTree) {
         let node = ClipScrollNode::new_scroll_frame(pipeline_id,
                                                     parent_id,
                                                     frame_rect,
-                                                    content_size);
+                                                    content_size,
+                                                    scroll_sensitivity);
 
         clip_scroll_tree.add_node(node, new_node_id);
     }

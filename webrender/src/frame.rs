@@ -5,9 +5,10 @@
 use api::{BuiltDisplayList, BuiltDisplayListIter, ClipAndScrollInfo, ClipId, ColorF};
 use api::{ComplexClipRegion, DeviceUintRect, DeviceUintSize, DisplayItemRef, Epoch, FilterOp};
 use api::{ImageDisplayItem, ItemRange, LayerPoint, LayerRect, LayerSize, LayerToScrollTransform};
-use api::{LayerVector2D, LayoutSize, LayoutTransform, LocalClip, MixBlendMode, PipelineId, PropertyBinding};
-use api::{ScrollClamping, ScrollEventPhase, ScrollLayerState, ScrollLocation, ScrollPolicy};
-use api::{SpecificDisplayItem, StackingContext, TileOffset, TransformStyle, WorldPoint};
+use api::{LayerVector2D, LayoutSize, LayoutTransform, LocalClip, MixBlendMode, PipelineId};
+use api::{PropertyBinding, ScrollClamping, ScrollEventPhase, ScrollLayerState, ScrollLocation};
+use api::{ScrollPolicy, ScrollSensitivity, SpecificDisplayItem, StackingContext, TileOffset};
+use api::{TransformStyle, WorldPoint};
 use clip_scroll_tree::{ClipScrollTree, ScrollStates};
 use euclid::rect;
 use fnv::FnvHasher;
@@ -350,7 +351,8 @@ impl Frame {
                                 new_scroll_frame_id: &ClipId,
                                 frame_rect: &LayerRect,
                                 content_rect: &LayerRect,
-                                clip_region: ClipRegion) {
+                                clip_region: ClipRegion,
+                                scroll_sensitivity: ScrollSensitivity) {
         let clip_id = self.clip_scroll_tree.generate_new_clip_id(pipeline_id);
         context.builder.add_clip_node(clip_id,
                                       *parent_id,
@@ -364,6 +366,7 @@ impl Frame {
                                          pipeline_id,
                                          &frame_rect,
                                          &content_rect.size,
+                                         scroll_sensitivity,
                                          &mut self.clip_scroll_tree);
     }
 
@@ -504,6 +507,7 @@ impl Frame {
             pipeline_id,
             &iframe_rect,
             &pipeline.content_size,
+            ScrollSensitivity::ScriptAndInputEvents,
             &mut self.clip_scroll_tree);
 
         self.flatten_root(&mut display_list.iter(), pipeline_id, context, &pipeline.content_size);
@@ -708,7 +712,8 @@ impl Frame {
                                           &info.id,
                                           &frame_rect,
                                           &content_rect,
-                                          clip_region);
+                                          clip_region,
+                                          info.scroll_sensitivity);
             }
             SpecificDisplayItem::PushNestedDisplayList => {
                 // Using the clip and scroll already processed for nesting here

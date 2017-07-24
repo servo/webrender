@@ -12,9 +12,9 @@ use {ClipAndScrollInfo, ClipDisplayItem, ClipId, ColorF, ComplexClipRegion, Disp
 use {ExtendMode, FilterOp, FontKey, GlyphInstance, GlyphOptions, Gradient, GradientDisplayItem};
 use {GradientStop, IframeDisplayItem, ImageDisplayItem, ImageKey, ImageMask, ImageRendering};
 use {LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D, LineDisplayItem};
-use {LineOrientation, LineStyle, LocalClip, MixBlendMode, PipelineId};
-use {PropertyBinding, PushStackingContextDisplayItem, RadialGradient};
-use {RadialGradientDisplayItem, RectangleDisplayItem, ScrollPolicy};
+use {LineOrientation, LineStyle, LocalClip, MixBlendMode, PipelineId, PropertyBinding};
+use {PushStackingContextDisplayItem, RadialGradient, RadialGradientDisplayItem};
+use {RectangleDisplayItem, ScrollFrameDisplayItem, ScrollPolicy, ScrollSensitivity};
 use {SpecificDisplayItem, StackingContext, TextDisplayItem, TextShadow, TransformStyle};
 use {WebGLContextId, WebGLDisplayItem, YuvColorSpace, YuvData, YuvImageDisplayItem};
 use std::marker::PhantomData;
@@ -868,15 +868,17 @@ impl DisplayListBuilder {
                                   content_rect: LayoutRect,
                                   clip_rect: LayoutRect,
                                   complex_clips: I,
-                                  image_mask: Option<ImageMask>)
+                                  image_mask: Option<ImageMask>,
+                                  scroll_sensitivity: ScrollSensitivity)
                                   -> ClipId
                                   where I: IntoIterator<Item = ComplexClipRegion>,
                                         I::IntoIter: ExactSizeIterator {
         let id = self.generate_clip_id(id);
-        let item = SpecificDisplayItem::ScrollFrame(ClipDisplayItem {
+        let item = SpecificDisplayItem::ScrollFrame(ScrollFrameDisplayItem {
             id: id,
             parent_id: self.clip_stack.last().unwrap().scroll_node_id,
             image_mask: image_mask,
+            scroll_sensitivity,
         });
 
         self.push_item(item, content_rect, Some(LocalClip::from(clip_rect)));
