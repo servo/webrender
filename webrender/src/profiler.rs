@@ -329,13 +329,20 @@ pub struct IpcProfileCounters {
 }
 
 impl IpcProfileCounters {
-    pub fn set(&mut self, build_start: u64, build_end: u64, 
-                              consume_start: u64, consume_end: u64,
-                              display_len: usize) {
-        self.build_time.inc(build_end - build_start);
-        self.consume_time.inc(consume_end - consume_start);
-        self.send_time.inc(consume_start - build_end);
-        self.total_time.inc(consume_end - build_start);
+    pub fn set(&mut self,
+               build_start: u64,
+               build_end: u64,
+               send_start: u64,
+               consume_start: u64,
+               consume_end: u64,
+               display_len: usize) {
+        let build_time = build_end - build_start;
+        let consume_time = consume_end - consume_start;
+        let send_time = consume_start - send_start;
+        self.build_time.inc(build_time);
+        self.consume_time.inc(consume_time);
+        self.send_time.inc(send_time);
+        self.total_time.inc(build_time + consume_time + send_time);
         self.display_lists.inc(display_len);
     }
 }

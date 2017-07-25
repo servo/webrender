@@ -245,7 +245,7 @@ impl RenderBackend {
                             }
 
                             let display_list_len = built_display_list.data().len();
-                            let (builder_start_time, builder_finish_time) = built_display_list.times();
+                            let (builder_start_time, builder_finish_time, send_start_time) = built_display_list.times();
 
                             let display_list_received_time = precise_time_ns();
 
@@ -266,8 +266,11 @@ impl RenderBackend {
                             // really simple and cheap to access, so it's not a big deal.
                             let display_list_consumed_time = precise_time_ns();
 
-                            profile_counters.ipc.set(builder_start_time, builder_finish_time,
-                                                     display_list_received_time, display_list_consumed_time,
+                            profile_counters.ipc.set(builder_start_time,
+                                                     builder_finish_time,
+                                                     send_start_time,
+                                                     display_list_received_time,
+                                                     display_list_consumed_time,
                                                      display_list_len);
                         }
                         ApiMsg::SetRootPipeline(pipeline_id) => {
