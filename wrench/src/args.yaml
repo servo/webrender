@@ -24,10 +24,10 @@ args:
       long: save
       help: 'Save frames, one of: yaml, json, or binary'
       takes_value: true
-  - subpixel_aa:
+  - disable_subpixel_aa:
       short: a
-      long: subpixel-aa
-      help: Enable subpixel aa
+      long: disable-subpixel-aa
+      help: Disable subpixel aa
   - headless:
       short: h
       long: headless
