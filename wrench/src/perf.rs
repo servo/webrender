@@ -19,6 +19,9 @@ const COLOR_RED: &str = "\x1b[31m";
 const COLOR_GREEN: &str = "\x1b[32m";
 const COLOR_MAGENTA: &str = "\x1b[95m";
 
+const MIN_SAMPLE_COUNT: usize = 50;
+const SAMPLE_EXCLUDE_COUNT: usize = 10;
+
 pub struct Benchmark {
     pub test: PathBuf,
 }
@@ -72,6 +75,7 @@ impl BenchmarkManifest {
 #[derive(Clone, Serialize, Deserialize)]
 struct TestProfile {
     name: String,
+    backend_time_ns: u64,
     composite_time_ns: u64,
     paint_time_ns: u64,
     draw_calls: usize,
@@ -165,18 +169,16 @@ impl<'a> PerfHarness<'a> {
 
     fn render_yaml(&mut self, filename: &Path) -> TestProfile {
         let mut reader = YamlFrameReader::new(filename);
-        reader.do_frame(self.wrench);
-
-        // wait for the frame
-        self.rx.recv().unwrap();
 
         // Loop until we get a reasonable number of CPU and GPU
         // frame profiles. Then take the mean.
         let mut cpu_frame_profiles = Vec::new();
         let mut gpu_frame_profiles = Vec::new();
 
-        while cpu_frame_profiles.len() < 10 ||
-              gpu_frame_profiles.len() < 10 {
+        while cpu_frame_profiles.len() < MIN_SAMPLE_COUNT ||
+              gpu_frame_profiles.len() < MIN_SAMPLE_COUNT {
+            reader.do_frame(self.wrench);
+            self.rx.recv().unwrap();
             self.wrench.render();
             self.window.swap_buffers();
             let (cpu_profiles, gpu_profiles) = self.wrench.get_frame_profiles();
@@ -188,28 +190,26 @@ impl<'a> PerfHarness<'a> {
         let draw_calls = cpu_frame_profiles[0].draw_calls;
         assert!(cpu_frame_profiles.iter().all(|s| s.draw_calls == draw_calls));
 
-        cpu_frame_profiles.sort_by_key(|a| a.composite_time_ns);
-        gpu_frame_profiles.sort_by_key(|a| a.paint_time_ns);
-
-        // Remove the two slowest and fastest frames.
-        let cpu_samples = &cpu_frame_profiles[2..cpu_frame_profiles.len() - 2];
-        let gpu_samples = &gpu_frame_profiles[2..gpu_frame_profiles.len() - 2];
-
-        // Use the mean value from the remaining frames.
-        let composite_time: u64 = cpu_samples.iter()
-                                             .map(|s| s.composite_time_ns)
-                                             .sum();
-        let paint_time: u64 = gpu_samples.iter()
-                                         .map(|s| s.paint_time_ns)
-                                         .sum();
+        let composite_time_ns = extract_sample(&mut cpu_frame_profiles, |a| a.composite_time_ns);
+        let paint_time_ns = extract_sample(&mut gpu_frame_profiles, |a| a.paint_time_ns);
+        let backend_time_ns = extract_sample(&mut cpu_frame_profiles, |a| a.backend_time_ns);
 
         TestProfile {
             name: filename.to_str().unwrap().to_string(),
-            composite_time_ns: composite_time / cpu_samples.len() as u64,
-            paint_time_ns: paint_time / gpu_samples.len() as u64,
+            composite_time_ns,
+            paint_time_ns,
+            backend_time_ns,
             draw_calls,
         }
     }
+}
+
+fn extract_sample<F, T>(profiles: &mut [T], f: F) -> u64 where F: Fn(&T) -> u64 {
+    let mut samples: Vec<u64> = profiles.iter().map(f).collect();
+    samples.sort();
+    let useful_samples = &samples[SAMPLE_EXCLUDE_COUNT..samples.len() - SAMPLE_EXCLUDE_COUNT];
+    let total_time: u64 = useful_samples.iter().sum();
+    total_time / useful_samples.len() as u64
 }
 
 fn select_color(base: f32, value: f32) -> &'static str {
