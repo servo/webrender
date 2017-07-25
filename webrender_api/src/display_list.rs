@@ -18,6 +18,7 @@ use {RectangleDisplayItem, ScrollFrameDisplayItem, ScrollPolicy, ScrollSensitivi
 use {SpecificDisplayItem, StackingContext, TextDisplayItem, TextShadow, TransformStyle};
 use {WebGLContextId, WebGLDisplayItem, YuvColorSpace, YuvData, YuvImageDisplayItem};
 use std::marker::PhantomData;
+use std::collections::{HashMap, HashSet};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -59,6 +60,8 @@ pub struct BuiltDisplayListDescriptor {
     builder_start_time: u64,
     /// The second IPC time stamp: after serialization
     builder_finish_time: u64,
+    /// The offset where DisplayItems stop and the Glyph list starts
+    glyph_offset: usize,
 }
 
 pub struct BuiltDisplayListIter<'a> {
@@ -75,6 +78,12 @@ pub struct BuiltDisplayListIter<'a> {
 pub struct DisplayItemRef<'a: 'b, 'b> {
     iter: &'b BuiltDisplayListIter<'a>,
 }
+
+pub struct GlyphsIter<'a> {
+    list: &'a BuiltDisplayList,
+    data: &'a [u8],
+}
+
 
 #[derive(PartialEq)]
 enum Peek {
@@ -121,14 +130,40 @@ impl BuiltDisplayList {
         BuiltDisplayListIter::new(self)
     }
 
+    pub fn glyphs(&self) -> GlyphsIter {
+        GlyphsIter {
+            list: self,
+            data: &self.data[self.descriptor.glyph_offset..],
+        }
+    }
+
     pub fn get<'de, T: Deserialize<'de>>(&self, range: ItemRange<T>) -> AuxIter<T> {
         AuxIter::new(&self.data[range.start .. range.start + range.length])
     }
 }
 
+/// Returns the byte-range the slice occupied, and the number of elements
+/// in the slice.
+fn skip_slice<T: for<'de> Deserialize<'de>>(list: &BuiltDisplayList, data: &mut &[u8]) -> (ItemRange<T>, usize) {
+    let base = list.data.as_ptr() as usize;
+    let start = data.as_ptr() as usize;
+
+    // Read through the values (this is a bit of a hack to reuse logic)
+    let mut iter = AuxIter::<T>::new(*data);
+    let count = iter.len();
+    for _ in &mut iter {}
+    let end = iter.data.as_ptr() as usize;
+
+    let range = ItemRange { start: start - base, length: end - start, _boo: PhantomData };
+
+    // Adjust data pointer to skip read values
+    *data = &data[range.length..];
+    (range, count)
+}
+
 impl<'a> BuiltDisplayListIter<'a> {
     pub fn new(list: &'a BuiltDisplayList) -> Self {
-        Self::new_with_list_and_data(list, &list.data)
+        Self::new_with_list_and_data(list, &list.data[..list.descriptor.glyph_offset])
     }
 
     pub fn new_with_list_and_data(list: &'a BuiltDisplayList, data: &'a [u8]) -> Self {
@@ -181,7 +216,7 @@ impl<'a> BuiltDisplayListIter<'a> {
 
             match self.cur_item.item {
                 SetGradientStops => {
-                    self.cur_stops = self.skip_slice::<GradientStop>().0;
+                    self.cur_stops = skip_slice::<GradientStop>(self.list, &mut self.data).0;
 
                     // This is a dummy item, skip over it
                     continue;
@@ -199,23 +234,8 @@ impl<'a> BuiltDisplayListIter<'a> {
         Some(self.as_ref())
     }
 
-    /// Returns the byte-range the slice occupied, and the number of elements
-    /// in the slice.
     fn skip_slice<T: for<'de> Deserialize<'de>>(&mut self) -> (ItemRange<T>, usize) {
-        let base = self.list.data.as_ptr() as usize;
-        let start = self.data.as_ptr() as usize;
-
-        // Read through the values (this is a bit of a hack to reuse logic)
-        let mut iter = AuxIter::<T>::new(self.data);
-        let count = iter.len();
-        for _ in &mut iter {}
-        let end = iter.data.as_ptr() as usize;
-
-        let range = ItemRange { start: start - base, length: end - start, _boo: PhantomData };
-
-        // Adjust data pointer to skip read values
-        self.data = &self.data[range.length..];
-        (range, count)
+        skip_slice::<T>(self.list, &mut self.data)
     }
 
     pub fn as_ref<'b>(&'b self) -> DisplayItemRef<'a, 'b> {
@@ -260,6 +280,19 @@ impl<'a> BuiltDisplayListIter<'a> {
         } else {
             Some(self.as_ref())
         }
+    }
+}
+
+impl<'a> Iterator for GlyphsIter<'a> {
+    type Item = (FontKey, ColorF, ItemRange<GlyphInstance>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.data.len() == 0 { return None; }
+
+        let (font_key, color) = bincode::deserialize_from(&mut self.data, bincode::Infinite)
+                                        .expect("MEH: malicious process?");
+        let glyphs = skip_slice::<GlyphInstance>(self.list, &mut self.data).0;
+        Some((font_key, color, glyphs))
     }
 }
 
@@ -406,6 +439,8 @@ pub struct DisplayListBuilder {
     pub data: Vec<u8>,
     pub pipeline_id: PipelineId,
     clip_stack: Vec<ClipAndScrollInfo>,
+    // FIXME: audit whether fast hashers (FNV?) are safe here
+    glyphs: HashMap<(FontKey, ColorF), HashSet<u32>>,
     next_clip_id: u64,
     builder_start_time: u64,
 
@@ -431,6 +466,7 @@ impl DisplayListBuilder {
             data: Vec::with_capacity(capacity),
             pipeline_id,
             clip_stack: vec![ClipAndScrollInfo::simple(ClipId::root_scroll_node(pipeline_id))],
+            glyphs: HashMap::new(),
             next_clip_id: FIRST_CLIP_ID,
             builder_start_time: start_time,
             content_size,
@@ -582,6 +618,12 @@ impl DisplayListBuilder {
 
             self.push_item(item, rect, local_clip);
             self.push_iter(glyphs);
+
+            // Remember that we've seen these glyphs
+            let mut font_glyphs = self.glyphs.entry((font_key, color))
+                                             .or_insert(HashSet::new());
+
+            font_glyphs.extend(glyphs.iter().map(|glyph| glyph.index));
         }
     }
 
@@ -952,8 +994,22 @@ impl DisplayListBuilder {
         self.push_new_empty_item(SpecificDisplayItem::PopTextShadow);
     }
 
-    pub fn finalize(self) -> (PipelineId, LayoutSize, BuiltDisplayList) {
+    pub fn finalize(mut self) -> (PipelineId, LayoutSize, BuiltDisplayList) {
+
+        let glyph_offset = self.data.len();
+
+        // Want to use self.push_iter, so can't borrow self
+        let glyphs = ::std::mem::replace(&mut self.glyphs, HashMap::new());
+
+        // Append glyph data to the end
+        for ((font_key, color), sub_glyphs) in glyphs {
+            bincode::serialize_into(&mut self.data, &font_key, bincode::Infinite).unwrap();
+            bincode::serialize_into(&mut self.data, &color, bincode::Infinite).unwrap();
+            self.push_iter(sub_glyphs);
+        }
+
         let end_time = precise_time_ns();
+
 
         (self.pipeline_id,
          self.content_size,
@@ -961,6 +1017,7 @@ impl DisplayListBuilder {
             descriptor: BuiltDisplayListDescriptor {
                 builder_start_time: self.builder_start_time,
                 builder_finish_time: end_time,
+                glyph_offset,
             },
             data: self.data,
          })
