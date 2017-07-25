@@ -10,10 +10,39 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use webrender::api::*;
-use wrench::{Wrench, WrenchThing};
+use wrench::{FontDescriptor, Wrench, WrenchThing};
 use yaml_helper::{YamlHelper, StringEnum};
 use yaml_rust::{Yaml, YamlLoader};
 use {WHITE_COLOR, BLACK_COLOR, PLATFORM_DEFAULT_FACE_NAME};
+
+fn rsrc_path(item: &Yaml, aux_dir: &PathBuf) -> PathBuf {
+    let filename = item.as_str().unwrap();
+    let mut file = aux_dir.clone();
+    file.push(filename);
+    file
+}
+
+impl FontDescriptor {
+    fn from_yaml(item: &Yaml, aux_dir: &PathBuf) -> FontDescriptor {
+        if !item["family"].is_badvalue() {
+            FontDescriptor::Properties {
+                family: item["family"].as_str().unwrap().to_owned(),
+                weight: item["weight"].as_i64().unwrap_or(400) as u32,
+                style: item["style"].as_i64().unwrap_or(0) as u32,
+                stretch: item["stretch"].as_i64().unwrap_or(5) as u32,
+            }
+        } else if !item["font"].is_badvalue() {
+            FontDescriptor::Path {
+                path: rsrc_path(&item["font"], aux_dir),
+                font_index: item["font-index"].as_i64().unwrap_or(0) as u32,
+            }
+        } else {
+            FontDescriptor::Family {
+                name: PLATFORM_DEFAULT_FACE_NAME.clone(),
+            }
+        }
+    }
+}
 
 fn broadcast<T: Clone>(base_vals: &[T], num_items: usize) -> Vec<T> {
     if base_vals.len() == num_items {
@@ -49,6 +78,8 @@ pub struct YamlFrameReader {
     /// A HashMap of offsets which specify what scroll offsets particular
     /// scroll layers should be initialized with.
     scroll_offsets: HashMap<ClipId, LayerPoint>,
+
+    fonts: HashMap<FontDescriptor, FontKey>,
 }
 
 impl YamlFrameReader {
@@ -63,6 +94,7 @@ impl YamlFrameReader {
             queue_depth: 1,
             include_only: vec![],
             scroll_offsets: HashMap::new(),
+            fonts: HashMap::new(),
         }
     }
 
@@ -135,13 +167,34 @@ impl YamlFrameReader {
 
     }
 
+    fn get_or_create_font(&mut self, desc: FontDescriptor, wrench: &mut Wrench) -> FontKey {
+        *self.fonts
+            .entry(desc.clone())
+            .or_insert_with(|| {
+                match desc {
+                    FontDescriptor::Path { ref path, font_index } => {
+                        let mut file = File::open(path).expect("Couldn't open font file");
+                        let mut bytes = vec![];
+                        file.read_to_end(&mut bytes).expect("failed to read font file");
+                        wrench.font_key_from_bytes(bytes, font_index)
+                    }
+                    FontDescriptor::Family { ref name } => {
+                        wrench.font_key_from_name(name)
+                    }
+                    FontDescriptor::Properties { ref family, weight, style, stretch } => {
+                        wrench.font_key_from_properties(family, weight, style, stretch)
+                    }
+                }
+            })
+    }
+
     fn to_image_mask(&mut self, item: &Yaml, wrench: &mut Wrench) -> Option<ImageMask> {
         if item.as_hash().is_none() {
             return None;
         }
 
         let (image_key, image_dims) =
-            wrench.add_or_get_image(&self.rsrc_path(&item["image"]), None);
+            wrench.add_or_get_image(&rsrc_path(&item["image"], &self.aux_dir), None);
         let image_rect =
                 item["rect"].as_rect().unwrap_or(LayoutRect::new(LayoutPoint::zero(), image_dims));
         let image_repeat = item["repeat"].as_bool().expect("Expected boolean");
@@ -289,7 +342,7 @@ impl YamlFrameReader {
                 },
                 "image" => {
                     let (image_key, _) =
-                        wrench.add_or_get_image(&self.rsrc_path(&item["image-source"]), None);
+                        wrench.add_or_get_image(&rsrc_path(&item["image-source"], &self.aux_dir), None);
                     let image_width = item["image-width"].as_i64().expect("border must have image-width");
                     let image_height = item["image-height"].as_i64().expect("border must have image-height");
                     let fill = item["fill"].as_bool().unwrap_or(false);
@@ -389,17 +442,10 @@ impl YamlFrameReader {
                            clip_mode);
     }
 
-    fn rsrc_path(&self, item: &Yaml) -> PathBuf {
-        let filename = item.as_str().unwrap();
-        let mut file = self.aux_dir.clone();
-        file.push(filename);
-        file
-    }
-
     fn handle_image(&mut self, dl: &mut DisplayListBuilder, wrench: &mut Wrench, item: &Yaml, local_clip: LocalClip) {
         let filename = &item[if item["type"].is_badvalue() { "image" } else { "src" }];
         let tiling = item["tile-size"].as_i64();
-        let (image_key, image_dims) = wrench.add_or_get_image(&self.rsrc_path(filename), tiling);
+        let (image_key, image_dims) = wrench.add_or_get_image(&rsrc_path(filename, &self.aux_dir), tiling);
 
         let bounds_raws = item["bounds"].as_vec_f32().unwrap();
         let bounds = if bounds_raws.len() == 2 {
@@ -437,18 +483,8 @@ impl YamlFrameReader {
         assert!(item["blur-radius"].is_badvalue(),
             "text no longer has a blur radius, use PushTextShadow and PopTextShadow");
 
-        let font_key = if !item["family"].is_badvalue() {
-            wrench.font_key_from_yaml_table(item)
-        } else if !item["font"].is_badvalue() {
-            let font_file = self.rsrc_path(&item["font"]);
-            let font_index = item["font-index"].as_i64().unwrap_or(0) as u32;
-            let mut file = File::open(&font_file).expect("Couldn't open font file");
-            let mut bytes = vec![];
-            file.read_to_end(&mut bytes).expect("failed to read font file");
-            wrench.font_key_from_bytes(bytes, font_index)
-        } else {
-            wrench.font_key_from_name(&*PLATFORM_DEFAULT_FACE_NAME)
-        };
+        let desc = FontDescriptor::from_yaml(item, &self.aux_dir);
+        let font_key = self.get_or_create_font(desc, wrench);
 
         assert!(!(item["glyphs"].is_badvalue() && item["text"].is_badvalue()),
                "text item had neither text nor glyphs!");

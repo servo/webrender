@@ -23,8 +23,27 @@ use webrender;
 use webrender::api::*;
 use webrender::renderer::{CpuProfile, GpuProfile, GraphicsApiInfo};
 use yaml_frame_writer::YamlFrameWriterReceiver;
-use yaml_rust::Yaml;
 use {WHITE_COLOR, BLACK_COLOR};
+
+// TODO(gw): This descriptor matches what we currently support for fonts
+//           but is quite a mess. We should at least document and
+//           use better types for things like the style and stretch.
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum FontDescriptor {
+    Path {
+        path: PathBuf,
+        font_index: u32,
+    },
+    Family {
+        name: String,
+    },
+    Properties {
+        family: String,
+        weight: u32,
+        style: u32,
+        stretch: u32,
+    }
+}
 
 pub enum SaveType {
     Yaml,
@@ -262,12 +281,10 @@ impl Wrench {
     }
 
     #[cfg(target_os = "windows")]
-    pub fn font_key_from_yaml_table(&mut self, item: &Yaml) -> FontKey {
-        assert!(!item["family"].is_badvalue());
-        let family = item["family"].as_str().unwrap();
-        let weight = dwrote::FontWeight::from_u32(item["weight"].as_i64().unwrap_or(400) as u32);
-        let style = dwrote::FontStyle::from_u32(item["style"].as_i64().unwrap_or(0) as u32);
-        let stretch = dwrote::FontStretch::from_u32(item["stretch"].as_i64().unwrap_or(5) as u32);
+    pub fn font_key_from_properties(&mut self, family: &str, weight: u32, style: u32, stretch: u32) -> FontKey {
+        let weight = dwrote::FontWeight::from_u32(weight);
+        let style = dwrote::FontStyle::from_u32(style);
+        let stretch = dwrote::FontStretch::from_u32(stretch);
 
         let desc = dwrote::FontDescriptor {
             family_name: family.to_owned(),
@@ -279,8 +296,7 @@ impl Wrench {
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    pub fn font_key_from_yaml_table(&mut self, item: &Yaml) -> FontKey {
-        let family = item["family"].as_str().unwrap();
+    pub fn font_key_from_properties(&mut self, family: &str, _weight: u32, _style: u32, _stretch: u32) -> FontKey {
         let property = system_fonts::FontPropertyBuilder::new().family(family).build();
         let (font, index) = system_fonts::get(&property).unwrap();
         self.font_key_from_bytes(font, index as u32)
