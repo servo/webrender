@@ -810,7 +810,7 @@ impl ResourceCache {
     pub fn clear_namespace(&mut self, namespace: IdNamespace) {
         //TODO: use `retain` when we are on Rust-1.18
         let image_keys: Vec<_> = self.resources.image_templates.images.keys()
-                                                                      .filter(|&key| key.0 != namespace)
+                                                                      .filter(|&key| key.0 == namespace)
                                                                       .cloned()
                                                                       .collect();
         for key in &image_keys {
@@ -818,7 +818,7 @@ impl ResourceCache {
         }
 
         let font_keys: Vec<_> = self.resources.font_templates.keys()
-                                                             .filter(|&key| key.0 != namespace)
+                                                             .filter(|&key| key.0 == namespace)
                                                              .cloned()
                                                              .collect();
         for key in &font_keys {
