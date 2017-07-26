@@ -68,6 +68,8 @@ pub struct RenderBackend {
 
     vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>,
 
+    enable_render_on_scroll: bool,
+
     // A helper switch to prevent any frames rendering triggered by scrolling
     // messages between `SetDisplayList` and `GenerateFrame`.
     // If we allow them, then a reftest that scrolls a few layers before generating
@@ -91,7 +93,8 @@ impl RenderBackend {
                main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
                blob_image_renderer: Option<Box<BlobImageRenderer>>,
                vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>,
-               initial_window_size: DeviceUintSize) -> RenderBackend {
+               initial_window_size: DeviceUintSize,
+               enable_render_on_scroll: bool) -> RenderBackend {
 
         let resource_cache = ResourceCache::new(texture_cache, workers, blob_image_renderer);
 
@@ -121,6 +124,7 @@ impl RenderBackend {
             vr_compositor_handler,
             window_size: initial_window_size,
             inner_rect: DeviceUintRect::new(DeviceUintPoint::zero(), initial_window_size),
+            enable_render_on_scroll: enable_render_on_scroll,
             render_on_scroll: false,
         }
     }
@@ -433,7 +437,9 @@ impl RenderBackend {
                                 });
                             }
 
-                            self.render_on_scroll = true;
+                            if self.enable_render_on_scroll {
+                                self.render_on_scroll = true;
+                            }
 
                             let frame = {
                                 let counters = &mut profile_counters.resources.texture_cache;
