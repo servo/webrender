@@ -93,13 +93,13 @@ impl From<ColorF> for ColorU {
     }
 }
 
-impl Into<ColorF> for ColorU {
-    fn into(self) -> ColorF {
+impl From<ColorU> for ColorF {
+    fn from(color: ColorU) -> ColorF {
         ColorF {
-            r: self.r as f32 / 255.0,
-            g: self.g as f32 / 255.0,
-            b: self.b as f32 / 255.0,
-            a: self.a as f32 / 255.0,
+            r: color.r as f32 / 255.0,
+            g: color.g as f32 / 255.0,
+            b: color.b as f32 / 255.0,
+            a: color.a as f32 / 255.0,
         }
     }
 }
