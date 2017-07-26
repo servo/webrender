@@ -160,10 +160,10 @@ impl RenderBackend {
                         ApiMsg::DeleteFont(id) => {
                             self.resource_cache.delete_font_template(id);
                         }
-                        ApiMsg::GetGlyphDimensions(glyph_keys, tx) => {
+                        ApiMsg::GetGlyphDimensions(font, glyph_keys, tx) => {
                             let mut glyph_dimensions = Vec::with_capacity(glyph_keys.len());
                             for glyph_key in &glyph_keys {
-                                let glyph_dim = self.resource_cache.get_glyph_dimensions(glyph_key);
+                                let glyph_dim = self.resource_cache.get_glyph_dimensions(&font, glyph_key);
                                 glyph_dimensions.push(glyph_dim);
                             };
                             tx.send(glyph_dimensions).unwrap();

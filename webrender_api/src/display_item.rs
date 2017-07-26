@@ -5,7 +5,7 @@
 use app_units::Au;
 use euclid::SideOffsets2D;
 use {ColorF, FontKey, ImageKey, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform};
-use {LayoutVector2D, PipelineId, PropertyBinding, WebGLContextId};
+use {GlyphOptions, LayoutVector2D, PipelineId, PropertyBinding, WebGLContextId};
 
 // NOTE: some of these structs have an "IMPLICIT" comment.
 // This indicates that the BuiltDisplayList will have serialized
@@ -131,18 +131,10 @@ pub struct TextDisplayItem {
     pub glyph_options: Option<GlyphOptions>,
 } // IMPLICIT: glyphs: Vec<GlyphInstance>
 
-#[derive(Clone, Copy, Debug, Deserialize, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize)]
-pub struct GlyphOptions {
-    // These are currently only used on windows for dwrite fonts.
-    pub use_embedded_bitmap: bool,
-    pub force_gdi_rendering: bool,
-}
-
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct WebGLDisplayItem {
     pub context_id: WebGLContextId,
 }
-
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct NormalBorder {

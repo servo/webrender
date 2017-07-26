@@ -222,16 +222,18 @@ impl Wrench {
                                     .collect();
 
         // Retrieve the metrics for each glyph.
+        let font = FontInstanceKey::new(font_key,
+                                        size,
+                                        ColorF::new(0.0, 0.0, 0.0, 1.0),
+                                        FontRenderMode::Alpha,
+                                        None);
         let mut keys = Vec::new();
         for glyph_index in &indices {
-            keys.push(GlyphKey::new(font_key,
-                                    size,
-                                    ColorF::new(0.0, 0.0, 0.0, 1.0),
-                                    *glyph_index,
+            keys.push(GlyphKey::new(*glyph_index,
                                     LayerPoint::zero(),
                                     FontRenderMode::Alpha));
         }
-        let metrics = self.api.get_glyph_dimensions(keys);
+        let metrics = self.api.get_glyph_dimensions(font, keys);
 
         // Extract the advances from the metrics. The get_glyph_dimensions API
         // has a limitation that it can't currently get dimensions for non-renderable

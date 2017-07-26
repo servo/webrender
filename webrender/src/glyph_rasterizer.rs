@@ -2,7 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use app_units::Au;
 use device::TextureFilter;
 use fnv::FnvHasher;
 use frame::FrameId;
@@ -20,10 +19,10 @@ use std::mem;
 use texture_cache::{TextureCacheItemId, TextureCache};
 #[cfg(test)]
 use api::IdNamespace;
-use api::{ColorF, LayoutPoint};
-use api::{FontKey, FontTemplate, FontRenderMode};
+use api::{FontInstanceKey, LayoutPoint, SubpixelPoint};
+use api::{FontKey, FontTemplate};
 use api::{ImageData, ImageDescriptor, ImageFormat};
-use api::{GlyphKey, GlyphOptions, GlyphInstance, GlyphDimensions};
+use api::{GlyphKey, GlyphInstance, GlyphDimensions};
 
 pub type GlyphCache = ResourceClassCache<GlyphRequest, Option<TextureCacheItemId>>;
 
@@ -149,29 +148,24 @@ impl GlyphRasterizer {
         &mut self,
         glyph_cache: &mut GlyphCache,
         current_frame_id: FrameId,
-        font_key: FontKey,
-        size: Au,
-        color: ColorF,
+        font: FontInstanceKey,
         glyph_instances: &[GlyphInstance],
-        render_mode: FontRenderMode,
-        glyph_options: Option<GlyphOptions>,
         requested_items: &mut HashSet<TextureCacheItemId, BuildHasherDefault<FnvHasher>>,
     ) {
-        assert!(self.font_contexts.lock_shared_context().has_font(&font_key));
+        assert!(self.font_contexts.lock_shared_context().has_font(&font.font_key));
 
         let mut glyphs = Vec::with_capacity(glyph_instances.len());
 
+        let mut glyph_request = GlyphRequest::new(
+            font.clone(),
+            0,
+            LayoutPoint::zero(),
+        );
+
         // select glyphs that have not been requested yet.
         for glyph in glyph_instances {
-            let glyph_request = GlyphRequest::new(
-                font_key,
-                size,
-                color,
-                glyph.index,
-                glyph.point,
-                render_mode,
-                glyph_options,
-            );
+            glyph_request.key.index = glyph.index;
+            glyph_request.key.subpixel_point = SubpixelPoint::new(glyph.point, font.render_mode);
 
             match glyph_cache.entry(glyph_request.clone(), current_frame_id) {
                 Entry::Occupied(entry) => {
@@ -182,7 +176,7 @@ impl GlyphRasterizer {
                 Entry::Vacant(..) => {
                     if !self.pending_glyphs.contains(&glyph_request) {
                         self.pending_glyphs.insert(glyph_request.clone());
-                        glyphs.push(glyph_request);
+                        glyphs.push(glyph_request.clone());
                     }
                 }
             }
@@ -203,11 +197,7 @@ impl GlyphRasterizer {
                 let mut context = font_contexts.lock_current_context();
                 let job = GlyphRasterJob {
                     request: request.clone(),
-                    result: context.rasterize_glyph(
-                        &request.key,
-                        request.render_mode,
-                        request.glyph_options
-                    ),
+                    result: context.rasterize_glyph(&request.font, &request.key),
                 };
 
                 // Sanity check.
@@ -223,8 +213,10 @@ impl GlyphRasterizer {
         });
     }
 
-    pub fn get_glyph_dimensions(&mut self, glyph_key: &GlyphKey) -> Option<GlyphDimensions> {
-        self.font_contexts.lock_shared_context().get_glyph_dimensions(glyph_key)
+    pub fn get_glyph_dimensions(&mut self,
+                                font: &FontInstanceKey,
+                                glyph_key: &GlyphKey) -> Option<GlyphDimensions> {
+        self.font_contexts.lock_shared_context().get_glyph_dimensions(font, glyph_key)
     }
 
     pub fn get_glyph_index(&mut self, font_key: FontKey, ch: char) -> Option<u32> {
@@ -328,24 +320,17 @@ impl FontContext {
 #[derive(Clone, Hash, PartialEq, Eq, Debug, Ord, PartialOrd)]
 pub struct GlyphRequest {
     pub key: GlyphKey,
-    pub render_mode: FontRenderMode,
-    pub glyph_options: Option<GlyphOptions>,
+    pub font: FontInstanceKey,
 }
 
 impl GlyphRequest {
     pub fn new(
-        font_key: FontKey,
-        size: Au,
-        color: ColorF,
+        font: FontInstanceKey,
         index: u32,
-        point: LayoutPoint,
-        render_mode: FontRenderMode,
-        glyph_options: Option<GlyphOptions>,
-    ) -> Self {
+        point: LayoutPoint) -> Self {
         GlyphRequest {
-            key: GlyphKey::new(font_key, size, color, index, point, render_mode),
-            render_mode,
-            glyph_options,
+            key: GlyphKey::new(index, point, font.render_mode),
+            font,
         }
     }
 }
