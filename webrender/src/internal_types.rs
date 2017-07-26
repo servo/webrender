@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tiling;
 use renderer::BlendMode;
-use api::{ClipId, ColorF, DeviceUintRect, Epoch, ExternalImageData, ExternalImageId};
+use api::{ClipId, ColorU, DeviceUintRect, Epoch, ExternalImageData, ExternalImageId};
 use api::{DevicePoint, ImageData, ImageFormat, PipelineId};
 
 // An ID for a texture that is owned by the
@@ -44,8 +44,6 @@ pub enum SourceTexture {
     /// main context and the WebGL context.
     WebGL(u32),
 }
-
-const COLOR_FLOAT_TO_FIXED: f32 = 255.0;
 
 pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;
 pub const ORTHO_FAR_PLANE: f32 = 1000000.0;
@@ -127,28 +125,6 @@ pub enum ClipAttribute {
     ResourceAddress,
 }
 
-// A packed RGBA8 color ordered for vertex data or similar.
-
-#[derive(Debug, Clone, Copy)]
-#[repr(C)]
-pub struct PackedColor {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-    pub a: u8,
-}
-
-impl PackedColor {
-    pub fn from_color(color: &ColorF) -> PackedColor {
-        PackedColor {
-            r: (0.5 + color.r * COLOR_FLOAT_TO_FIXED).floor() as u8,
-            g: (0.5 + color.g * COLOR_FLOAT_TO_FIXED).floor() as u8,
-            b: (0.5 + color.b * COLOR_FLOAT_TO_FIXED).floor() as u8,
-            a: (0.5 + color.a * COLOR_FLOAT_TO_FIXED).floor() as u8,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct PackedVertex {
@@ -160,13 +136,13 @@ pub struct PackedVertex {
 pub struct DebugFontVertex {
     pub x: f32,
     pub y: f32,
-    pub color: PackedColor,
+    pub color: ColorU,
     pub u: f32,
     pub v: f32,
 }
 
 impl DebugFontVertex {
-    pub fn new(x: f32, y: f32, u: f32, v: f32, color: PackedColor) -> DebugFontVertex {
+    pub fn new(x: f32, y: f32, u: f32, v: f32, color: ColorU) -> DebugFontVertex {
         DebugFontVertex {
             x,
             y,
@@ -181,11 +157,11 @@ impl DebugFontVertex {
 pub struct DebugColorVertex {
     pub x: f32,
     pub y: f32,
-    pub color: PackedColor,
+    pub color: ColorU,
 }
 
 impl DebugColorVertex {
-    pub fn new(x: f32, y: f32, color: PackedColor) -> DebugColorVertex {
+    pub fn new(x: f32, y: f32, color: ColorU) -> DebugColorVertex {
         DebugColorVertex {
             x,
             y,
