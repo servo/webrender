@@ -59,6 +59,8 @@ pub struct BuiltDisplayListDescriptor {
     builder_start_time: u64,
     /// The second IPC time stamp: after serialization
     builder_finish_time: u64,
+    /// The third IPC time stamp: just before sending
+    send_start_time: u64,
 }
 
 pub struct BuiltDisplayListIter<'a> {
@@ -101,7 +103,8 @@ impl BuiltDisplayList {
         }
     }
 
-    pub fn into_data(self) -> (Vec<u8>, BuiltDisplayListDescriptor) {
+    pub fn into_data(mut self) -> (Vec<u8>, BuiltDisplayListDescriptor) {
+        self.descriptor.send_start_time = precise_time_ns();
         (self.data, self.descriptor)
     }
 
@@ -113,8 +116,10 @@ impl BuiltDisplayList {
         &self.descriptor
     }
 
-    pub fn times(&self) -> (u64, u64) {
-      (self.descriptor.builder_start_time, self.descriptor.builder_finish_time)
+    pub fn times(&self) -> (u64, u64, u64) {
+      (self.descriptor.builder_start_time,
+       self.descriptor.builder_finish_time,
+       self.descriptor.send_start_time)
     }
 
     pub fn iter(&self) -> BuiltDisplayListIter {
@@ -961,6 +966,7 @@ impl DisplayListBuilder {
             descriptor: BuiltDisplayListDescriptor {
                 builder_start_time: self.builder_start_time,
                 builder_finish_time: end_time,
+                send_start_time: 0,
             },
             data: self.data,
          })
