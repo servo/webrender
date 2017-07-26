@@ -20,7 +20,7 @@ use std::collections::HashSet;
 use std::mem;
 use texture_cache::{TextureCacheItemId, TextureCache};
 #[cfg(test)]
-use api::{ColorF, FontRenderMode, IdNamespace};
+use api::{ColorF, FontRenderMode, IdNamespace, SubpixelDirection};
 use api::{FontInstanceKey, LayoutPoint};
 use api::{FontKey, FontTemplate};
 use api::{ImageData, ImageDescriptor, ImageFormat};
@@ -321,12 +321,11 @@ pub struct GlyphRequest {
 }
 
 impl GlyphRequest {
-    pub fn new(
-        font: FontInstanceKey,
-        index: u32,
-        point: LayoutPoint) -> Self {
+    pub fn new(font: FontInstanceKey, index: u32, point: LayoutPoint) -> Self {
+        let key = GlyphKey::new(index, point, font.render_mode, font.subpx_dir);
+
         GlyphRequest {
-            key: GlyphKey::new(index, point, font.render_mode),
+            key,
             font,
         }
     }
@@ -374,6 +373,7 @@ fn raterize_200_glyphs() {
         size: Au::from_px(32),
         render_mode: FontRenderMode::Subpixel,
         glyph_options: None,
+        subpx_dir: SubpixelDirection::Horizontal,
     };
 
     for i in 0..4 {

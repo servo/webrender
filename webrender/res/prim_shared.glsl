@@ -802,11 +802,12 @@ Line fetch_line(int address) {
 struct TextRun {
     vec4 color;
     vec2 offset;
+    int subpx_dir;
 };
 
 TextRun fetch_text_run(int address) {
     vec4 data[2] = fetch_from_resource_cache_2(address);
-    return TextRun(data[0], data[1].xy);
+    return TextRun(data[0], data[1].xy, int(data[1].z));
 }
 
 struct Image {

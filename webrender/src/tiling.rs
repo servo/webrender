@@ -493,15 +493,14 @@ impl AlphaRenderItem {
                                                         font_size_dp,
                                                         text_cpu.color,
                                                         text_cpu.normal_render_mode,
-                                                        text_cpu.glyph_options);
+                                                        text_cpu.glyph_options,
+                                                        text_cpu.subpx_dir);
 
                         let texture_id = ctx.resource_cache.get_glyphs(font,
                                                                        &text_cpu.glyph_instances,
                                                                        |index, handle| {
                             let uv_address = handle.as_int(gpu_cache);
-                            instances.push(base_instance.build(index as i32,
-                                                               text_cpu.normal_render_mode as i32,
-                                                               uv_address));
+                            instances.push(base_instance.build(index as i32, uv_address, 0));
                         });
 
                         if texture_id != SourceTexture::Invalid {
@@ -1070,7 +1069,8 @@ impl RenderTarget for ColorRenderTarget {
                                                                     font_size_dp,
                                                                     text.color,
                                                                     text.shadow_render_mode,
-                                                                    text.glyph_options);
+                                                                    text.glyph_options,
+                                                                    text.subpx_dir);
 
                                     let texture_id = ctx.resource_cache.get_glyphs(font,
                                                                                    &text.glyph_instances,

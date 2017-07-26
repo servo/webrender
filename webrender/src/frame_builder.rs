@@ -5,7 +5,7 @@
 use api::{BorderDetails, BorderDisplayItem, BoxShadowClipMode, ClipAndScrollInfo, ClipId, ColorF};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
 use api::{ExtendMode, FontKey, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop};
-use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize};
+use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize, SubpixelDirection};
 use api::{LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation, LineStyle};
 use api::{LocalClip, PipelineId, RepeatMode, ScrollSensitivity, TextShadow, TileOffset};
 use api::{TransformStyle, WebGLContextId, WorldPixel, YuvColorSpace, YuvData};
@@ -908,9 +908,15 @@ impl FrameBuilder {
 
         // Shadows never use subpixel AA, but need to respect the alpha/mono flag
         // for reftests.
-        let shadow_render_mode = match self.config.default_font_render_mode {
-            FontRenderMode::Subpixel | FontRenderMode::Alpha => FontRenderMode::Alpha,
-            FontRenderMode::Mono => FontRenderMode::Mono,
+        let (shadow_render_mode, subpx_dir) = match self.config.default_font_render_mode {
+            FontRenderMode::Subpixel | FontRenderMode::Alpha => {
+                // TODO(gw): Expose subpixel direction in API once WR supports
+                //           vertical text runs.
+                (FontRenderMode::Alpha, SubpixelDirection::Horizontal)
+            }
+            FontRenderMode::Mono => {
+                (FontRenderMode::Mono, SubpixelDirection::None)
+            }
         };
 
         let prim = TextRunPrimitiveCpu {
@@ -924,6 +930,7 @@ impl FrameBuilder {
             shadow_render_mode,
             offset: run_offset,
             color: *color,
+            subpx_dir,
         };
 
         // Text shadows that have a blur radius of 0 need to be rendered as normal

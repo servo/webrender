@@ -2,7 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use app_units::Au;
 use api::{FontInstanceKey, FontKey, FontRenderMode, GlyphDimensions};
 use api::{NativeFontHandle};
 use api::{GlyphKey};
@@ -36,6 +35,7 @@ struct Face {
 pub struct FontContext {
     lib: FT_Library,
     faces: HashMap<FontKey, Face>,
+    lcd_extra_pixels: i32,
 }
 
 // FreeType resources are safe to move between threads as long as they
@@ -56,20 +56,27 @@ const SUCCESS: FT_Error = FT_Error(0);
 impl FontContext {
     pub fn new() -> FontContext {
         let mut lib: FT_Library = ptr::null_mut();
+
+        // Per Skia, using a filter adds one full pixel to each side.
+        let mut lcd_extra_pixels = 1;
+
         unsafe {
             let result = FT_Init_FreeType(&mut lib);
             assert!(result.succeeded(), "Unable to initialize FreeType library {:?}", result);
 
             // TODO(gw): Check result of this to determine if freetype build supports subpixel.
             let result = FT_Library_SetLcdFilter(lib, FT_LcdFilter::FT_LCD_FILTER_DEFAULT);
+
             if !result.succeeded() {
                 println!("WARN: Initializing a FreeType library build without subpixel AA enabled!");
+                lcd_extra_pixels = 0;
             }
         }
 
         FontContext {
             lib,
             faces: HashMap::new(),
+            lcd_extra_pixels: lcd_extra_pixels,
         }
     }
 
@@ -112,21 +119,44 @@ impl FontContext {
     }
 
     fn load_glyph(&self,
-                  font_key: FontKey,
-                  size: Au,
-                  character: u32) -> Option<FT_GlyphSlot> {
+                  font: &FontInstanceKey,
+                  glyph: &GlyphKey) -> Option<FT_GlyphSlot> {
 
-        debug_assert!(self.faces.contains_key(&font_key));
-        let face = self.faces.get(&font_key).unwrap();
-        let char_size = size.to_f64_px() * 64.0 + 0.5;
+        debug_assert!(self.faces.contains_key(&font.font_key));
+        let face = self.faces.get(&font.font_key).unwrap();
+        let char_size = font.size.to_f64_px() * 64.0 + 0.5;
 
         assert_eq!(SUCCESS, unsafe {
             FT_Set_Char_Size(face.face, char_size as FT_F26Dot6, 0, 0, 0)
         });
 
+        // TODO(gw): Linux / Freetype doesn't actually apply subpixel
+        //           positioning. The code below doesn't quite work
+        //           because FreeType doesn't transform the the metrics
+        //           when using FT_Set_Transform, which complicates things.
+        //           Need to refactor how the metrics are calculated in
+        //           order to enable subpixel positioning.
+/*
+        let subpixel_offset: f64 = glyph.subpixel_offset.into();
+        let ft_offset = subpixel_offset * 64.0 + 0.5;
+        let mut translation = match font.subpx_dir {
+            SubpixelDirection::None => {
+                FT_Vector { x: 0, y: 0 }
+            }
+            SubpixelDirection::Horizontal => {
+                FT_Vector { x: ft_offset as FT_Long, y: 0 }
+            }
+            SubpixelDirection::Vertical => {
+                FT_Vector { x: 0, y: ft_offset as FT_Long }
+            }
+        };
+        unsafe {
+            FT_Set_Transform(face.face, ptr::null_mut(), &mut translation);
+        }*/
+
         let result = unsafe {
             FT_Load_Glyph(face.face,
-                          character as FT_UInt,
+                          glyph.index as FT_UInt,
                           GLYPH_LOAD_FLAGS)
         };
 
@@ -136,23 +166,29 @@ impl FontContext {
             Some(slot)
         } else {
             error!("Unable to load glyph for {} of size {:?} from font {:?}, {:?}",
-                character, size, font_key, result);
+                glyph.index, font.size, font.font_key, result);
             None
         }
     }
 
-    fn get_glyph_dimensions_impl(slot: FT_GlyphSlot) -> Option<GlyphDimensions> {
+    fn get_glyph_dimensions_impl(&self,
+                                 slot: FT_GlyphSlot,
+                                 render_mode: FontRenderMode) -> Option<GlyphDimensions> {
         let metrics = unsafe { &(*slot).metrics };
         if metrics.width == 0 || metrics.height == 0 {
             None
         } else {
-            let left = metrics.horiBearingX >> 6;
-            let top = metrics.horiBearingY >> 6;
-            let right = (metrics.horiBearingX + metrics.width + 0x3f) >> 6;
-            let bottom = (metrics.horiBearingY + metrics.height + 0x3f) >> 6;
+            let padding = match render_mode {
+                FontRenderMode::Subpixel => self.lcd_extra_pixels,
+                FontRenderMode::Alpha | FontRenderMode::Mono => 0,
+            };
+            let left = (metrics.horiBearingX >> 6) as i32 - padding;
+            let top = (metrics.horiBearingY >> 6) as i32;
+            let right = padding + ((metrics.horiBearingX + metrics.width + 0x3f) >> 6) as i32;
+            let bottom = ((metrics.horiBearingY + metrics.height + 0x3f) >> 6) as i32;
             Some(GlyphDimensions {
-                left: left as i32,
-                top: top as i32,
+                left: left,
+                top: top,
                 width: (right - left) as u32,
                 height: (bottom - top) as u32,
                 advance: metrics.horiAdvance as f32 / 64.0,
@@ -177,10 +213,10 @@ impl FontContext {
     pub fn get_glyph_dimensions(&mut self,
                                 font: &FontInstanceKey,
                                 key: &GlyphKey) -> Option<GlyphDimensions> {
-        self.load_glyph(font.font_key,
-                        font.size,
-                        key.index)
-            .and_then(Self::get_glyph_dimensions_impl)
+        let slot = self.load_glyph(font, key);
+        slot.and_then(|slot| {
+            self.get_glyph_dimensions_impl(slot, font.render_mode)
+        })
     }
 
     pub fn rasterize_glyph(&mut self,
@@ -188,9 +224,7 @@ impl FontContext {
                            key: &GlyphKey)
                            -> Option<RasterizedGlyph> {
 
-        let slot = match self.load_glyph(font.font_key,
-                                         font.size,
-                                         key.index) {
+        let slot = match self.load_glyph(font, key) {
             Some(slot) => slot,
             None => return None,
         };
@@ -206,7 +240,7 @@ impl FontContext {
             return None;
         }
 
-        let dimensions = match Self::get_glyph_dimensions_impl(slot) {
+        let dimensions = match self.get_glyph_dimensions_impl(slot, font.render_mode) {
             Some(val) => val,
             None => return None,
         };

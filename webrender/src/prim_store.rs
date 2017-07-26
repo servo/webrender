@@ -6,7 +6,7 @@ use api::{BuiltDisplayList, ColorF, ComplexClipRegion, DeviceIntRect, DeviceIntS
 use api::{ExtendMode, FontKey, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop};
 use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize, TextShadow};
 use api::{LayerToWorldTransform, TileOffset, WebGLContextId, YuvColorSpace, YuvFormat};
-use api::{device_length, FontInstanceKey, LayerVector2D, LineOrientation, LineStyle};
+use api::{device_length, FontInstanceKey, LayerVector2D, LineOrientation, LineStyle, SubpixelDirection};
 use app_units::Au;
 use border::BorderCornerInstance;
 use euclid::{Size2D};
@@ -524,6 +524,7 @@ pub struct TextRunPrimitiveCpu {
     pub normal_render_mode: FontRenderMode,
     pub shadow_render_mode: FontRenderMode,
     pub color: ColorF,
+    pub subpx_dir: SubpixelDirection,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -562,7 +563,8 @@ impl TextRunPrimitiveCpu {
                                         font_size_dp,
                                         self.color,
                                         render_mode,
-                                        self.glyph_options);
+                                        self.glyph_options,
+                                        self.subpx_dir);
 
         resource_cache.request_glyphs(font, &self.glyph_instances);
     }
@@ -570,7 +572,10 @@ impl TextRunPrimitiveCpu {
     fn write_gpu_blocks(&self,
                         request: &mut GpuDataRequest) {
         request.push(self.color);
-        request.push([self.offset.x, self.offset.y, 0.0, 0.0]);
+        request.push([self.offset.x,
+                      self.offset.y,
+                      self.subpx_dir as u32 as f32,
+                      0.0]);
 
         // Two glyphs are packed per GPU block.
         for glyph_chunk in self.glyph_instances.chunks(2) {
