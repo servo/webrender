@@ -24,7 +24,7 @@ use std::hash::BuildHasherDefault;
 use texture_cache::TexturePage;
 use util::{TransformedRect, TransformedRectKind};
 use api::{BuiltDisplayList, ClipAndScrollInfo, ClipId, ColorF, DeviceIntPoint, ImageKey};
-use api::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintSize};
+use api::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintSize, FontInstanceKey};
 use api::{ExternalImageType, FilterOp, FontRenderMode, ImageRendering, LayerRect};
 use api::{LayerToWorldTransform, MixBlendMode, PipelineId, PropertyBinding, TransformStyle};
 use api::{TileOffset, WorldToLayerTransform, YuvColorSpace, YuvFormat, LayerVector2D};
@@ -489,12 +489,15 @@ impl AlphaRenderItem {
                         // TODO(gw): avoid / recycle this allocation in the future.
                         let mut instances = Vec::new();
 
-                        let texture_id = ctx.resource_cache.get_glyphs(text_cpu.font_key,
-                                                                       font_size_dp,
-                                                                       text_cpu.color,
+                        let font = FontInstanceKey::new(text_cpu.font_key,
+                                                        font_size_dp,
+                                                        text_cpu.color,
+                                                        text_cpu.normal_render_mode,
+                                                        text_cpu.glyph_options);
+
+                        let texture_id = ctx.resource_cache.get_glyphs(font,
                                                                        &text_cpu.glyph_instances,
-                                                                       text_cpu.normal_render_mode,
-                                                                       text_cpu.glyph_options, |index, handle| {
+                                                                       |index, handle| {
                             let uv_address = handle.as_int(gpu_cache);
                             instances.push(base_instance.build(index as i32,
                                                                text_cpu.normal_render_mode as i32,
@@ -1063,12 +1066,15 @@ impl RenderTarget for ColorRenderTarget {
                                     let text = &ctx.prim_store.cpu_text_runs[sub_metadata.cpu_prim_index.0];
                                     let font_size_dp = text.logical_font_size.scale_by(ctx.device_pixel_ratio);
 
-                                    let texture_id = ctx.resource_cache.get_glyphs(text.font_key,
-                                                                                   font_size_dp,
-                                                                                   text.color,
+                                    let font = FontInstanceKey::new(text.font_key,
+                                                                    font_size_dp,
+                                                                    text.color,
+                                                                    text.shadow_render_mode,
+                                                                    text.glyph_options);
+
+                                    let texture_id = ctx.resource_cache.get_glyphs(font,
                                                                                    &text.glyph_instances,
-                                                                                   text.shadow_render_mode,
-                                                                                   text.glyph_options, |index, handle| {
+                                                                                   |index, handle| {
                                         let uv_address = handle.as_int(gpu_cache);
                                         instances.push(instance.build(index as i32,
                                                                       uv_address,
