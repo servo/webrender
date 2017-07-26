@@ -165,16 +165,19 @@ impl GpuProfile {
 #[derive(Debug)]
 pub struct CpuProfile {
     pub frame_id: FrameId,
+    pub backend_time_ns: u64,
     pub composite_time_ns: u64,
     pub draw_calls: usize,
 }
 
 impl CpuProfile {
     fn new(frame_id: FrameId,
+           backend_time_ns: u64,
            composite_time_ns: u64,
            draw_calls: usize) -> CpuProfile {
         CpuProfile {
             frame_id,
+            backend_time_ns,
             composite_time_ns,
             draw_calls,
         }
@@ -1431,6 +1434,7 @@ impl Renderer {
                         self.cpu_profiles.pop_front();
                     }
                     let cpu_profile = CpuProfile::new(cpu_frame_id,
+                                                      self.backend_profile_counters.total_time.get(),
                                                       profile_timers.cpu_time.get(),
                                                       self.profile_counters.draw_calls.get());
                     self.cpu_profiles.push_back(cpu_profile);

@@ -320,7 +320,7 @@ fn main() {
                                  save_type,
                                  size,
                                  args.is_present("rebuild"),
-                                 args.is_present("subpixel_aa"),
+                                 args.is_present("no_subpixel_aa"),
                                  args.is_present("debug"),
                                  args.is_present("verbose"),
                                  args.is_present("no_scissor"),
@@ -348,6 +348,9 @@ fn main() {
             harness.run(base_manifest, specific_reftest, &reftest_options);
             return;
         } else if let Some(subargs) = args.subcommand_matches("perf") {
+            // Perf mode wants to benchmark the total cost of drawing
+            // a new displaty list each frame.
+            wrench.rebuild_display_lists = true;
             let harness = PerfHarness::new(&mut wrench, &mut window);
             let base_manifest = Path::new("benchmarks/benchmarks.list");
             let filename = subargs.value_of("filename").unwrap();
