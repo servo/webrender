@@ -45,9 +45,7 @@ lazy_static! {
     static ref TRANSFORM: Mutex<LayoutTransform> = Mutex::new(LayoutTransform::identity());
 }
 
-fn event_handler(event: &glutin::Event,
-                 api: &RenderApi)
-{
+fn event_handler(event: &glutin::Event, document_id: DocumentId, api: &RenderApi) {
     match *event {
         glutin::Event::KeyboardInput(glutin::ElementState::Pressed, _, Some(key)) => {
             let offset = match key {
@@ -61,7 +59,7 @@ fn event_handler(event: &glutin::Event,
             // webrender using the generate_frame API. This will recomposite with
             // the updated transform.
             let new_transform = TRANSFORM.lock().unwrap().post_translate(LayoutVector3D::new(offset.0, offset.1, 0.0));
-            api.generate_frame(Some(DynamicProperties {
+            api.generate_frame(document_id, Some(DynamicProperties {
                 transforms: vec![
                   PropertyValue {
                     key: PropertyBindingKey::new(42),

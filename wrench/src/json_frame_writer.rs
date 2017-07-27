@@ -11,7 +11,6 @@ use premultiply::unpremultiply;
 use serde_json;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
-use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::{fmt, fs};
@@ -71,9 +70,9 @@ impl JsonFrameWriter {
     }
 
     pub fn begin_write_display_list(&mut self,
-                                    _: &Option<ColorF>,
                                     _: &Epoch,
                                     _: &PipelineId,
+                                    _: &Option<ColorF>,
                                     _: &LayoutSize,
                                     display_list: &BuiltDisplayListDescriptor)
     {
@@ -100,7 +99,7 @@ impl JsonFrameWriter {
         let current_shown_frame = unsafe { CURRENT_FRAME_NUMBER };
         frame_file_name.push(format!("frame-{}.json", current_shown_frame));
 
-        let mut file = File::create(&frame_file_name).unwrap();
+        let mut file = fs::File::create(&frame_file_name).unwrap();
 
         let s = serde_json::to_string_pretty(&dl).unwrap();
         file.write_all(&s.into_bytes()).unwrap();
@@ -189,12 +188,6 @@ impl fmt::Debug for JsonFrameWriter {
 impl webrender::ApiRecordingReceiver for JsonFrameWriter {
     fn write_msg(&mut self, _: u32, msg: &ApiMsg) {
         match *msg {
-            ApiMsg::SetRootPipeline(..) |
-            ApiMsg::Scroll(..) |
-            ApiMsg::TickScrollingBounce |
-            ApiMsg::WebGLCommand(..) => {
-            }
-
             ApiMsg::AddRawFont(ref key, ref bytes, index) => {
                 self.fonts.insert(*key, CachedFont::Raw(Some(bytes.clone()), index, None));
             }
@@ -241,18 +234,22 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
                 self.images.remove(key);
             }
 
-            ApiMsg::SetDisplayList(ref background_color,
-                                    ref epoch,
-                                    ref pipeline_id,
-                                    ref viewport_size,
-                                    ref _content_size,
-                                    ref display_list,
-                                    _preserve_frame_state) => {
-                self.begin_write_display_list(background_color,
-                                              epoch,
+            ApiMsg::UpdateDocument(_, DocumentMsg::SetDisplayList {
+                ref epoch,
+                ref pipeline_id,
+                ref background,
+                ref viewport_size,
+                ref list_descriptor,
+                ..
+            }) => {
+                self.begin_write_display_list(epoch,
                                               pipeline_id,
+                                              background,
                                               viewport_size,
-                                              display_list);
+                                              list_descriptor);
+            }
+            ApiMsg::CloneApi(..) |
+            ApiMsg::WebGLCommand(..) => {
             }
             _ => {}
         }

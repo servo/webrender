@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 
-use WindowWrapper;
 use app_units::Au;
 use crossbeam::sync::chase_lev;
 #[cfg(windows)]
@@ -23,7 +22,7 @@ use webrender;
 use webrender::api::*;
 use webrender::renderer::{CpuProfile, GpuProfile, GraphicsApiInfo};
 use yaml_frame_writer::YamlFrameWriterReceiver;
-use {WHITE_COLOR, BLACK_COLOR};
+use {WHITE_COLOR, BLACK_COLOR, WindowWrapper};
 
 // TODO(gw): This descriptor matches what we currently support for fonts
 //           but is quite a mess. We should at least document and
@@ -115,6 +114,7 @@ pub struct Wrench {
 
     pub renderer: webrender::renderer::Renderer,
     pub api: RenderApi,
+    document_id: DocumentId,
     pub root_pipeline_id: PipelineId,
 
     window_title_to_set: Option<String>,
@@ -171,8 +171,9 @@ impl Wrench {
             .. Default::default()
         };
 
-        let (renderer, sender) = webrender::renderer::Renderer::new(window.clone_gl(), opts, size).unwrap();
+        let (renderer, sender) = webrender::renderer::Renderer::new(window.clone_gl(), opts).unwrap();
         let api = sender.create_api();
+        let document_id = api.add_document(size);
 
         let proxy = window.create_window_proxy();
         // put an Awakened event into the queue to kick off the first frame
@@ -192,6 +193,7 @@ impl Wrench {
 
             renderer,
             api,
+            document_id,
             window_title_to_set: None,
 
             rebuild_display_lists: do_rebuild,
@@ -207,7 +209,7 @@ impl Wrench {
         };
 
         wrench.set_title("start");
-        wrench.api.set_root_pipeline(wrench.root_pipeline_id);
+        wrench.api.set_root_pipeline(wrench.document_id, wrench.root_pipeline_id);
 
         wrench
     }
@@ -399,18 +401,22 @@ impl Wrench {
         let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
 
         for display_list in display_lists {
-            self.api.set_display_list(root_background_color,
+            self.api.set_display_list(self.document_id,
                                       Epoch(frame_number),
+                                      root_background_color,
                                       self.window_size_f32(),
                                       display_list,
                                       false);
         }
 
         for (id, offset) in scroll_offsets {
-            self.api.scroll_node_with_id(*offset, *id, ScrollClamping::NoClamping);
+            self.api.scroll_node_with_id(self.document_id,
+                                         *offset,
+                                         *id,
+                                         ScrollClamping::NoClamping);
         }
 
-        self.api.generate_frame(None);
+        self.api.generate_frame(self.document_id, None);
     }
 
     pub fn get_frame_profiles(&mut self) -> (Vec<CpuProfile>, Vec<GpuProfile>) {
@@ -424,7 +430,7 @@ impl Wrench {
 
     pub fn refresh(&mut self) {
         self.begin_frame();
-        self.api.generate_frame(None);
+        self.api.generate_frame(self.document_id, None);
     }
 
     pub fn show_onscreen_help(&mut self) {
