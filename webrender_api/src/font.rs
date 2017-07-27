@@ -182,6 +182,14 @@ impl FontInstanceKey {
             subpx_dir,
         }
     }
+
+    pub fn get_subpx_offset(&self, glyph: &GlyphKey) -> (f64, f64) {
+        match self.subpx_dir {
+            SubpixelDirection::None => (0.0, 0.0),
+            SubpixelDirection::Horizontal => (glyph.subpixel_offset.into(), 0.0),
+            SubpixelDirection::Vertical => (0.0, glyph.subpixel_offset.into()),
+        }
+    }
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug, Deserialize, Serialize, Ord, PartialOrd)]

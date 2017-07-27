@@ -241,7 +241,7 @@ impl FontContext {
                                 key: &GlyphKey) -> Option<GlyphDimensions> {
         self.get_ct_font(font.font_key, font.size).and_then(|ref ct_font| {
             let glyph = key.index as CGGlyph;
-            let (x_offset, y_offset) = get_subpx_offset(font, key);
+            let (x_offset, y_offset) = font.get_subpx_offset(key);
             let metrics = get_glyph_metrics(ct_font, glyph, x_offset, y_offset);
             if metrics.rasterized_width == 0 || metrics.rasterized_height == 0 {
                 None
@@ -307,7 +307,7 @@ impl FontContext {
         };
 
         let glyph = key.index as CGGlyph;
-        let (x_offset, y_offset) = get_subpx_offset(font, key);
+        let (x_offset, y_offset) = font.get_subpx_offset(key);
         let metrics = get_glyph_metrics(&ct_font, glyph, x_offset, y_offset);
         if metrics.rasterized_width == 0 || metrics.rasterized_height == 0 {
             return Some(RasterizedGlyph::blank())
@@ -437,13 +437,5 @@ impl FontContext {
             height: metrics.rasterized_height,
             bytes: rasterized_pixels,
         })
-    }
-}
-
-fn get_subpx_offset(font: &FontInstanceKey, glyph: &GlyphKey) -> (f64, f64) {
-    match font.subpx_dir {
-        SubpixelDirection::None => (0.0, 0.0),
-        SubpixelDirection::Horizontal => (glyph.subpixel_offset.into(), 0.0),
-        SubpixelDirection::Vertical => (0.0, glyph.subpixel_offset.into()),
     }
 }

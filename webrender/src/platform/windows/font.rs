@@ -181,7 +181,7 @@ impl FontContext {
                                                     dwrite_measure_mode,
                                                     font.glyph_options);
 
-        let (x_offset, y_offset) = get_subpx_offset(font, key);
+        let (x_offset, y_offset) = font.get_subpx_offset(key);
         let transform = Some(
                         dwrote::DWRITE_MATRIX { m11: 1.0, m12: 0.0, m21: 0.0, m22: 1.0,
                                                 dx: x_offset as f32, dy: y_offset as f32 }
@@ -328,13 +328,5 @@ impl FontContext {
             height: height as u32,
             bytes: rgba_pixels,
         })
-    }
-}
-
-fn get_subpx_offset(font: &FontInstanceKey, glyph: &GlyphKey) -> (f64, f64) {
-    match font.subpx_dir {
-        SubpixelDirection::None => (0.0, 0.0),
-        SubpixelDirection::Horizontal => (glyph.subpixel_offset.into(), 0.0),
-        SubpixelDirection::Vertical => (0.0, glyph.subpixel_offset.into()),
     }
 }

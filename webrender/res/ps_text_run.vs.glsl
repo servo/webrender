@@ -3,10 +3,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#define SUBPX_DIR_NONE        0
-#define SUBPX_DIR_HORIZONTAL  1
-#define SUBPX_DIR_VERTICAL    2
-
 void main(void) {
     Primitive prim = load_primitive();
     TextRun text = fetch_text_run(prim.specific_prim_address);
@@ -14,21 +10,10 @@ void main(void) {
     int glyph_index = prim.user_data0;
     int resource_address = prim.user_data1;
 
-    Glyph glyph = fetch_glyph(prim.specific_prim_address, glyph_index);
+    Glyph glyph = fetch_glyph(prim.specific_prim_address,
+                              glyph_index,
+                              text.subpx_dir);
     GlyphResource res = fetch_glyph_resource(resource_address);
-
-    // In subpixel mode, the subpixel offset has already been
-    // accounted for while rasterizing the glyph.
-    switch (text.subpx_dir) {
-        case SUBPX_DIR_NONE:
-            break;
-        case SUBPX_DIR_HORIZONTAL:
-            glyph.offset.x = trunc(glyph.offset.x);
-            break;
-        case SUBPX_DIR_VERTICAL:
-            glyph.offset.y = trunc(glyph.offset.y);
-            break;
-    }
 
     vec2 local_pos = glyph.offset +
                      text.offset +

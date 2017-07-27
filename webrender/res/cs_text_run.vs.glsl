@@ -7,10 +7,6 @@
 // drawn un-transformed. These are used for effects such
 // as text-shadow.
 
-#define SUBPX_DIR_NONE        0
-#define SUBPX_DIR_HORIZONTAL  1
-#define SUBPX_DIR_VERTICAL    2
-
 void main(void) {
     Primitive prim = load_primitive();
     TextRun text = fetch_text_run(prim.specific_prim_address);
@@ -28,20 +24,9 @@ void main(void) {
     PrimitiveGeometry shadow_geom = fetch_primitive_geometry(text_shadow_address);
     TextShadow shadow = fetch_text_shadow(text_shadow_address + VECS_PER_PRIM_HEADER);
 
-    Glyph glyph = fetch_glyph(prim.specific_prim_address, glyph_index);
-
-    // In subpixel mode, the subpixel offset has already been
-    // accounted for while rasterizing the glyph.
-    switch (text.subpx_dir) {
-        case SUBPX_DIR_NONE:
-            break;
-        case SUBPX_DIR_HORIZONTAL:
-            glyph.offset.x = trunc(glyph.offset.x);
-            break;
-        case SUBPX_DIR_VERTICAL:
-            glyph.offset.y = trunc(glyph.offset.y);
-            break;
-    }
+    Glyph glyph = fetch_glyph(prim.specific_prim_address,
+                              glyph_index,
+                              text.subpx_dir);
 
     GlyphResource res = fetch_glyph_resource(resource_address);
 
