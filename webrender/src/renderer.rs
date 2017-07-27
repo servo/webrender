@@ -1160,6 +1160,7 @@ impl Renderer {
         let workers = options.workers.take().unwrap_or_else(||{
             Arc::new(ThreadPool::new(worker_config).unwrap())
         });
+        let enable_render_on_scroll = options.enable_render_on_scroll;
 
         let blob_image_renderer = options.blob_image_renderer.take();
         try!{ thread::Builder::new().name("RenderBackend".to_string()).spawn(move || {
@@ -1177,7 +1178,8 @@ impl Renderer {
                                                  backend_main_thread_dispatcher,
                                                  blob_image_renderer,
                                                  backend_vr_compositor,
-                                                 initial_window_size);
+                                                 initial_window_size,
+                                                 enable_render_on_scroll);
             backend.run(backend_profile_counters);
         })};
 
@@ -2438,6 +2440,7 @@ pub struct RendererOptions {
     pub workers: Option<Arc<ThreadPool>>,
     pub blob_image_renderer: Option<Box<BlobImageRenderer>>,
     pub recorder: Option<Box<ApiRecordingReceiver>>,
+    pub enable_render_on_scroll: bool,
 }
 
 impl Default for RendererOptions {
@@ -2464,6 +2467,7 @@ impl Default for RendererOptions {
             workers: None,
             blob_image_renderer: None,
             recorder: None,
+            enable_render_on_scroll: true,
         }
     }
 }
