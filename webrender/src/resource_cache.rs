@@ -2,7 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use app_units::Au;
 use device::TextureFilter;
 use fnv::FnvHasher;
 use frame::FrameId;
@@ -17,10 +16,10 @@ use std::hash::Hash;
 use std::mem;
 use std::sync::Arc;
 use texture_cache::{TextureCache, TextureCacheItemId};
-use api::{Epoch, FontKey, FontTemplate, GlyphKey, ImageKey, ImageRendering};
-use api::{FontRenderMode, ImageData, GlyphDimensions, WebGLContextId, IdNamespace};
-use api::{DevicePoint, DeviceIntSize, DeviceUintRect, ImageDescriptor, ColorF};
-use api::{GlyphOptions, GlyphInstance, SubpixelPoint, TileOffset, TileSize};
+use api::{Epoch, FontInstanceKey, FontKey, FontTemplate, GlyphKey, ImageKey, ImageRendering};
+use api::{ImageData, GlyphDimensions, WebGLContextId, IdNamespace};
+use api::{DevicePoint, DeviceIntSize, DeviceUintRect, ImageDescriptor};
+use api::{GlyphInstance, SubpixelPoint, TileOffset, TileSize};
 use api::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, BlobImageRequest, BlobImageData};
 use api::BlobImageResources;
 use api::{ExternalImageData, ExternalImageType, LayoutPoint};
@@ -28,7 +27,6 @@ use rayon::ThreadPool;
 use glyph_rasterizer::{GlyphRasterizer, GlyphCache, GlyphRequest};
 
 const DEFAULT_TILE_SIZE: TileSize = 512;
-const BLACK: ColorF = ColorF { r: 0.0, b: 0.0, g: 0.0, a: 1.0 };
 
 // These coordinates are always in texels.
 // They are converted to normalized ST
@@ -226,7 +224,7 @@ pub struct ResourceCache {
     texture_cache: TextureCache,
 
     // TODO(gw): We should expire (parts of) this cache semi-regularly!
-    cached_glyph_dimensions: HashMap<GlyphKey, Option<GlyphDimensions>, BuildHasherDefault<FnvHasher>>,
+    cached_glyph_dimensions: HashMap<GlyphRequest, Option<GlyphDimensions>, BuildHasherDefault<FnvHasher>>,
     pending_image_requests: Vec<ImageRequest>,
     glyph_rasterizer: GlyphRasterizer,
 
@@ -465,30 +463,15 @@ impl ResourceCache {
     }
 
     pub fn request_glyphs(&mut self,
-                          key: FontKey,
-                          size: Au,
-                          mut color: ColorF,
-                          glyph_instances: &[GlyphInstance],
-                          render_mode: FontRenderMode,
-                          glyph_options: Option<GlyphOptions>) {
+                          font: FontInstanceKey,
+                          glyph_instances: &[GlyphInstance]) {
         debug_assert_eq!(self.state, State::AddResources);
-
-        // In alpha/mono mode, the color of the font is irrelevant.
-        // Forcing it to black in those cases saves rasterizing glyphs
-        // of different colors when not needed.
-        if render_mode != FontRenderMode::Subpixel {
-            color = BLACK;
-        }
 
         self.glyph_rasterizer.request_glyphs(
             &mut self.cached_glyphs,
             self.current_frame_id,
-            key,
-            size,
-            color,
+            font,
             glyph_instances,
-            render_mode,
-            glyph_options,
             &mut self.requested_glyphs,
         );
     }
@@ -498,33 +481,20 @@ impl ResourceCache {
     }
 
     pub fn get_glyphs<F>(&self,
-                         font_key: FontKey,
-                         size: Au,
-                         mut color: ColorF,
+                         font: FontInstanceKey,
                          glyph_instances: &[GlyphInstance],
-                         render_mode: FontRenderMode,
-                         glyph_options: Option<GlyphOptions>,
                          mut f: F) -> SourceTexture where F: FnMut(usize, &GpuCacheHandle) {
-        // Color when retrieving glyphs must match that of the request,
-        // otherwise the hash keys won't match.
-        if render_mode != FontRenderMode::Subpixel {
-            color = BLACK;
-        }
-
         debug_assert_eq!(self.state, State::QueryResources);
         let mut glyph_request = GlyphRequest::new(
-            font_key,
-            size,
-            color,
+            font,
             0,
             LayoutPoint::zero(),
-            render_mode,
-            glyph_options
         );
         let mut texture_id = None;
         for (loop_index, glyph_instance) in glyph_instances.iter().enumerate() {
             glyph_request.key.index = glyph_instance.index;
-            glyph_request.key.subpixel_point = SubpixelPoint::new(glyph_instance.point, render_mode);
+            glyph_request.key.subpixel_point = SubpixelPoint::new(glyph_instance.point,
+                                                                  glyph_request.font.render_mode);
 
             let image_id = self.cached_glyphs.get(&glyph_request, self.current_frame_id);
             let cache_item = image_id.map(|image_id| self.texture_cache.get(image_id));
@@ -539,11 +509,18 @@ impl ResourceCache {
         texture_id.map_or(SourceTexture::Invalid, SourceTexture::TextureCache)
     }
 
-    pub fn get_glyph_dimensions(&mut self, glyph_key: &GlyphKey) -> Option<GlyphDimensions> {
-        match self.cached_glyph_dimensions.entry(glyph_key.clone()) {
+    pub fn get_glyph_dimensions(&mut self,
+                                font: &FontInstanceKey,
+                                glyph_key: &GlyphKey) -> Option<GlyphDimensions> {
+        let key = GlyphRequest {
+            font: font.clone(),
+            key: glyph_key.clone(),
+        };
+
+        match self.cached_glyph_dimensions.entry(key.clone()) {
             Occupied(entry) => *entry.get(),
             Vacant(entry) => {
-                *entry.insert(self.glyph_rasterizer.get_glyph_dimensions(glyph_key))
+                *entry.insert(self.glyph_rasterizer.get_glyph_dimensions(&key.font, &key.key))
             }
         }
     }
@@ -826,7 +803,7 @@ impl ResourceCache {
         }
 
         self.cached_images.clear_keys(&mut self.texture_cache, |request| request.key.0 == namespace);
-        self.cached_glyphs.clear_keys(&mut self.texture_cache, |request| request.key.font_key.0 == namespace);
+        self.cached_glyphs.clear_keys(&mut self.texture_cache, |request| request.font.font_key.0 == namespace);
     }
 }
 

@@ -6,7 +6,7 @@ use api::{BuiltDisplayList, ColorF, ComplexClipRegion, DeviceIntRect, DeviceIntS
 use api::{ExtendMode, FontKey, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop};
 use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize, TextShadow};
 use api::{LayerToWorldTransform, TileOffset, WebGLContextId, YuvColorSpace, YuvFormat};
-use api::{device_length, LayerVector2D, LineOrientation, LineStyle};
+use api::{device_length, FontInstanceKey, LayerVector2D, LineOrientation, LineStyle};
 use app_units::Au;
 use border::BorderCornerInstance;
 use euclid::{Size2D};
@@ -558,12 +558,13 @@ impl TextRunPrimitiveCpu {
             TextRunMode::Shadow => self.shadow_render_mode,
         };
 
-        resource_cache.request_glyphs(self.font_key,
-                                      font_size_dp,
-                                      self.color,
-                                      &self.glyph_instances,
-                                      render_mode,
-                                      self.glyph_options);
+        let font = FontInstanceKey::new(self.font_key,
+                                        font_size_dp,
+                                        self.color,
+                                        render_mode,
+                                        self.glyph_options);
+
+        resource_cache.request_glyphs(font, &self.glyph_instances);
     }
 
     fn write_gpu_blocks(&self,
