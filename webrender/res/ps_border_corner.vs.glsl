@@ -90,29 +90,34 @@ void write_color(vec4 color0, vec4 color1, int style, vec2 delta, int instance_k
     vColor11 = vec4(color1.rgb * modulate.w, color1.a);
 }
 
+bool dot_or_dash(int style) {
+    return style == BORDER_STYLE_DOTTED || style == BORDER_STYLE_DASHED;
+}
+
 int select_style(int color_select, vec2 fstyle) {
     ivec2 style = ivec2(fstyle);
+    int result = BORDER_STYLE_SOLID;
+    //Note: working around Angle warts by not returning
+    // or declaring new variables within `switch` arms
 
     switch (color_select) {
         case SIDE_BOTH:
-        {
             // TODO(gw): A temporary hack! While we don't support
             //           border corners that have dots or dashes
             //           with another style, pretend they are solid
             //           border corners.
-            bool has_dots = style.x == BORDER_STYLE_DOTTED ||
-                            style.y == BORDER_STYLE_DOTTED;
-            bool has_dashes = style.x == BORDER_STYLE_DASHED ||
-                              style.y == BORDER_STYLE_DASHED;
-            if (style.x != style.y && (has_dots || has_dashes))
-                return BORDER_STYLE_SOLID;
-            return style.x;
-        }
+            if (style.x == style.y || !(dot_or_dash(style.x) || dot_or_dash(style.y)))
+                result = style.x;
+            break;
         case SIDE_FIRST:
-            return style.x;
+            result = style.x;
+            break;
         case SIDE_SECOND:
-            return style.y;
+            result = style.y;
+            break;
     }
+
+    return result;
 }
 
 void main(void) {
