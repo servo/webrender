@@ -341,7 +341,7 @@ dependencies = [
 
 [[package]]
 name = "freetype"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "libc 0.2.20 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1035,7 +1035,7 @@ dependencies = [
  "dwrote 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "euclid 0.15.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "fnv 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "freetype 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "freetype 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "gamma-lut 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1169,7 +1169,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum expat-sys 2.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "cef36cd1a8a02d28b91d97347c63247b9e4cb8a8e36df36f8201dc87a1c0859c"
 "checksum fnv 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)" = "6cc484842f1e2884faf56f529f960cc12ad8c71ce96cc7abba0a067c98fee344"
 "checksum font-loader 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "4cffa6a4953349a6dc37945f1f14228ca009e29cc7c3e9abc5fd78ac884a19a2"
-"checksum freetype 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "fde23272c687e4570aefec06cb71174ec0f5284b725deac4e77ba2665d635faf"
+"checksum freetype 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "398b8a11884898184d55aca9806f002b3cf68f0e860e0cbb4586f834ee39b0e7"
 "checksum futures 0.1.13 (registry+https://github.com/rust-lang/crates.io-index)" = "55f0008e13fc853f79ea8fc86e931486860d4c4c156cdffb59fa5f7fa833660a"
 "checksum gamma-lut 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "41f72af1e933f296b827361eb9e70d0267abf8ad0de9ec7fa667bbe67177b297"
 "checksum gcc 0.3.43 (registry+https://github.com/rust-lang/crates.io-index)" = "c07c758b972368e703a562686adb39125707cc1ef3399da8c019fc6c2498a75d"
