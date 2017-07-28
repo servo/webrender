@@ -105,6 +105,59 @@ impl Document {
     }
 }
 
+struct WebGL {
+    last_id: WebGLContextId,
+    contexts: HashMap<WebGLContextId, GLContextWrapper, BuildHasherDefault<FnvHasher>>,
+    active_id: Option<WebGLContextId>,
+}
+
+impl WebGL {
+    fn new() -> Self {
+        WebGL {
+            last_id: WebGLContextId(0),
+            contexts: HashMap::with_hasher(Default::default()),
+            active_id: None,
+        }
+    }
+
+    fn register(&mut self, context: GLContextWrapper) -> WebGLContextId {
+        // Creating a new GLContext may make the current bound context_id dirty.
+        // Clear it to ensure that  make_current() is called in subsequent commands.
+        self.active_id = None;
+        self.last_id.0 += 1;
+        self.contexts.insert(self.last_id, context);
+        self.last_id
+    }
+
+    fn activate(&mut self, id: WebGLContextId) -> &mut GLContextWrapper {
+        let ctx = self.contexts.get_mut(&id).unwrap();
+        if Some(id) != self.active_id {
+            ctx.make_current();
+            self.active_id = Some(id);
+        }
+        ctx
+    }
+
+    fn flush(&mut self) {
+        if let Some(id) = self.active_id.take() {
+            self.contexts[&id].unbind();
+        }
+
+        // When running in OSMesa mode with texture sharing,
+        // a flush is required on any GL contexts to ensure
+        // that read-back from the shared texture returns
+        // valid data! This should be fine to have run on all
+        // implementations - a single flush for each webgl
+        // context at the start of a render frame should
+        // incur minimal cost.
+        for (_, context) in &self.contexts {
+            context.make_current();
+            context.apply_command(WebGLCommand::Flush);
+            context.unbind();
+        }
+    }
+}
+
 enum DocumentOp {
     Nop,
     Built,
@@ -138,10 +191,8 @@ pub struct RenderBackend {
     recorder: Option<Box<ApiRecordingReceiver>>,
     main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
 
-    next_webgl_id: usize,
-    webgl_contexts: HashMap<WebGLContextId, GLContextWrapper>,
-    current_bound_webgl_context_id: Option<WebGLContextId>,
     vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>,
+    webgl: WebGL,
 
     enable_render_on_scroll: bool,
 }
@@ -186,10 +237,8 @@ impl RenderBackend {
             recorder,
             main_thread_dispatcher,
 
-            next_webgl_id: 0,
-            webgl_contexts: HashMap::new(),
-            current_bound_webgl_context_id: None,
             vr_compositor_handler,
+            webgl: WebGL::new(),
 
             enable_render_on_scroll,
         }
@@ -255,6 +304,7 @@ impl RenderBackend {
                 let display_list_received_time = precise_time_ns();
 
                 {
+                    self.webgl.flush();
                     let _timer = profile_counters.total_time.timer();
                     doc.scene.set_display_list(pipeline_id,
                                                epoch,
@@ -288,6 +338,7 @@ impl RenderBackend {
 
                 doc.scene.set_root_pipeline_id(pipeline_id);
                 if doc.scene.display_lists.get(&pipeline_id).is_some() {
+                    self.webgl.flush();
                     let _timer = profile_counters.total_time.timer();
                     doc.build_scene(&mut self.resource_cache, self.hidpi_factor);
                     DocumentOp::Built
@@ -358,6 +409,7 @@ impl RenderBackend {
                 //           animated properties to not require a full
                 //           rebuild of the frame!
                 if let Some(property_bindings) = property_bindings {
+                    self.webgl.flush();
                     doc.scene.properties.set_properties(property_bindings);
                     doc.build_scene(&mut self.resource_cache, self.hidpi_factor);
                 }
@@ -457,11 +509,8 @@ impl RenderBackend {
                 ApiMsg::UpdateDocument(document_id, doc_msg) => {
                     match self.process_document(document_id, doc_msg, frame_counter, &mut profile_counters) {
                         DocumentOp::Nop => {}
-                        DocumentOp::Built => {
-                            self.flush_webgl();
-                        }
+                        DocumentOp::Built => {}
                         DocumentOp::ScrolledNop => {
-                            self.flush_webgl();
                             self.notify_compositor_of_new_scroll_frame(false);
                         }
                         DocumentOp::Scrolled(frame) => {
@@ -488,18 +537,11 @@ impl RenderBackend {
                         };
 
                         let result = wrapper.new_context(size, attributes, dispatcher);
-                        // Creating a new GLContext may make the current bound context_id dirty.
-                        // Clear it to ensure that  make_current() is called in subsequent commands.
-                        self.current_bound_webgl_context_id = None;
 
                         match result {
                             Ok(ctx) => {
-                                let id = WebGLContextId(self.next_webgl_id);
-                                self.next_webgl_id += 1;
-
                                 let (real_size, texture_id, limits) = ctx.get_info();
-
-                                self.webgl_contexts.insert(id, ctx);
+                                let id = self.webgl.register(ctx);
 
                                 self.resource_cache
                                     .add_webgl_texture(id, SourceTexture::WebGL(texture_id),
@@ -516,11 +558,7 @@ impl RenderBackend {
                     }
                 }
                 ApiMsg::ResizeWebGLContext(context_id, size) => {
-                    let ctx = self.webgl_contexts.get_mut(&context_id).unwrap();
-                    if Some(context_id) != self.current_bound_webgl_context_id {
-                        ctx.make_current();
-                        self.current_bound_webgl_context_id = Some(context_id);
-                    }
+                    let ctx = self.webgl.activate(context_id);
                     match ctx.resize(&size) {
                         Ok(_) => {
                             // Update webgl texture size. Texture id may change too.
@@ -537,19 +575,12 @@ impl RenderBackend {
                 ApiMsg::WebGLCommand(context_id, command) => {
                     // TODO: Buffer the commands and only apply them here if they need to
                     // be synchronous.
-                    let ctx = &self.webgl_contexts[&context_id];
-                    if Some(context_id) != self.current_bound_webgl_context_id {
-                        ctx.make_current();
-                        self.current_bound_webgl_context_id = Some(context_id);
-                    }
+                    let ctx = self.webgl.activate(context_id);
                     ctx.apply_command(command);
                 },
 
                 ApiMsg::VRCompositorCommand(context_id, command) => {
-                    if Some(context_id) != self.current_bound_webgl_context_id {
-                        self.webgl_contexts[&context_id].make_current();
-                        self.current_bound_webgl_context_id = Some(context_id);
-                    }
+                    self.webgl.activate(context_id);
                     self.handle_vr_compositor_command(context_id, command);
                 }
                 ApiMsg::ExternalEvent(evt) => {
@@ -579,33 +610,12 @@ impl RenderBackend {
                 }
             }
         }
-
-        if let Some(id) = self.current_bound_webgl_context_id {
-            self.webgl_contexts[&id].unbind();
-            self.current_bound_webgl_context_id = None;
-        }
-    }
-
-    fn flush_webgl(&mut self) {
-        // When running in OSMesa mode with texture sharing,
-        // a flush is required on any GL contexts to ensure
-        // that read-back from the shared texture returns
-        // valid data! This should be fine to have run on all
-        // implementations - a single flush for each webgl
-        // context at the start of a render frame should
-        // incur minimal cost.
-        for (_, webgl_context) in &self.webgl_contexts {
-            webgl_context.make_current();
-            webgl_context.apply_command(WebGLCommand::Flush);
-            webgl_context.unbind();
-        }
     }
 
     fn publish_frame(&mut self,
                      document_id: DocumentId,
                      frame: RendererFrame,
                      profile_counters: &mut BackendProfileCounters) {
-        self.flush_webgl();
         let pending_update = self.resource_cache.pending_updates();
         let msg = ResultMsg::NewFrame(document_id, frame, pending_update, profile_counters.clone());
         self.result_tx.send(msg).unwrap();
