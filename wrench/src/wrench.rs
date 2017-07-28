@@ -228,12 +228,14 @@ impl Wrench {
                                         size,
                                         ColorF::new(0.0, 0.0, 0.0, 1.0),
                                         FontRenderMode::Alpha,
-                                        None);
+                                        None,
+                                        SubpixelDirection::Horizontal);
         let mut keys = Vec::new();
         for glyph_index in &indices {
             keys.push(GlyphKey::new(*glyph_index,
                                     LayerPoint::zero(),
-                                    FontRenderMode::Alpha));
+                                    FontRenderMode::Alpha,
+                                    SubpixelDirection::Horizontal));
         }
         let metrics = self.api.get_glyph_dimensions(font, keys);
 

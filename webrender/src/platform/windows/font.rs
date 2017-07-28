@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use api::{FontKey, FontRenderMode, GlyphDimensions};
-use api::{FontInstanceKey, GlyphKey, GlyphOptions};
+use api::{FontInstanceKey, GlyphKey, GlyphOptions, SubpixelDirection};
 use gamma_lut::{GammaLut, Color as ColorLut};
 
 use dwrote;
@@ -181,7 +181,7 @@ impl FontContext {
                                                     dwrite_measure_mode,
                                                     font.glyph_options);
 
-        let (x_offset, y_offset) = key.subpixel_point.to_f64();
+        let (x_offset, y_offset) = font.get_subpx_offset(key);
         let transform = Some(
                         dwrote::DWRITE_MATRIX { m11: 1.0, m12: 0.0, m21: 0.0, m22: 1.0,
                                                 dx: x_offset as f32, dy: y_offset as f32 }

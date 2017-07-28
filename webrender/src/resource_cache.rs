@@ -21,8 +21,8 @@ use api::{BlobImageResources, BlobImageData};
 use api::{DevicePoint, DeviceIntSize, DeviceUintRect, DeviceUintSize};
 use api::{Epoch, FontInstanceKey, FontKey, FontTemplate};
 use api::{GlyphDimensions, GlyphKey, GlyphInstance, IdNamespace};
-use api::{ImageData, ImageDescriptor, ImageKey, ImageRendering, LayoutPoint};
-use api::{SubpixelPoint, TileOffset, TileSize};
+use api::{ImageData, ImageDescriptor, ImageKey, ImageRendering};
+use api::{TileOffset, TileSize};
 use api::{ExternalImageData, ExternalImageType, WebGLContextId};
 use rayon::ThreadPool;
 use glyph_rasterizer::{GlyphRasterizer, GlyphCache, GlyphRequest};
@@ -494,16 +494,11 @@ impl ResourceCache {
                          glyph_instances: &[GlyphInstance],
                          mut f: F) -> SourceTexture where F: FnMut(usize, &GpuCacheHandle) {
         debug_assert_eq!(self.state, State::QueryResources);
-        let mut glyph_request = GlyphRequest::new(
-            font,
-            0,
-            LayoutPoint::zero(),
-        );
         let mut texture_id = None;
         for (loop_index, glyph_instance) in glyph_instances.iter().enumerate() {
-            glyph_request.key.index = glyph_instance.index;
-            glyph_request.key.subpixel_point = SubpixelPoint::new(glyph_instance.point,
-                                                                  glyph_request.font.render_mode);
+            let glyph_request = GlyphRequest::new(font.clone(),
+                                                  glyph_instance.index,
+                                                  glyph_instance.point);
 
             let image_id = self.cached_glyphs.get(&glyph_request, self.current_frame_id);
             let cache_item = image_id.map(|image_id| self.texture_cache.get(image_id));
