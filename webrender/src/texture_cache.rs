@@ -816,8 +816,23 @@ impl TextureCache {
         }
 
         let op = match data {
-            ImageData::External(..) => {
-                panic!("Doesn't support Update() for external image.");
+            ImageData::External(ext_image) => {
+                match ext_image.image_type {
+                    ExternalImageType::Texture2DHandle |
+                    ExternalImageType::TextureRectHandle |
+                    ExternalImageType::TextureExternalHandle => {
+                        panic!("External texture handle should not go through texture_cache.");
+                    }
+                    ExternalImageType::ExternalBuffer => {
+                        TextureUpdateOp::UpdateForExternalBuffer {
+                            rect: existing_item.allocated_rect,
+                            id: ext_image.id,
+                            channel_index: ext_image.channel_index,
+                            stride: descriptor.stride,
+                            offset: descriptor.offset,
+                        }
+                    }
+                }
             }
             ImageData::Blob(..) => {
                 panic!("The vector image should have been rasterized into a raw image.");
