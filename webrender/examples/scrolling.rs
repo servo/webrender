@@ -18,6 +18,7 @@ use webrender::api::*;
 
 fn body(_api: &RenderApi,
         builder: &mut DisplayListBuilder,
+        _resources: &mut ResourceUpdates,
         _pipeline_id: &PipelineId,
         layout_size: &LayoutSize) {
     let bounds = LayoutRect::new(LayoutPoint::zero(), *layout_size);

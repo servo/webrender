@@ -838,43 +838,44 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                 self.frame_writer.fonts.insert(*key, CachedFont::Native(native_font_handle.clone()));
             }
 
-            ApiMsg::AddImage(ref key, ref descriptor, ref data, ref tiling) => {
-                let stride = descriptor.stride.unwrap_or(
-                    descriptor.width * descriptor.format.bytes_per_pixel().unwrap()
-                );
-                let bytes = match *data {
-                    ImageData::Raw(ref v) => { (**v).clone() }
-                    ImageData::External(_) | ImageData::Blob(_) => { return; }
-                };
-                self.frame_writer.images.insert(*key, CachedImage {
-                    width: descriptor.width,
-                    height: descriptor.height,
-                    stride,
-                    format: descriptor.format,
-                    bytes: Some(bytes),
-                    path: None,
-                    tiling: *tiling,
-                });
-            }
+            ApiMsg::UpdateResources(ref updates) => {
+                for img in &updates.added_images {
+                    let stride = img.descriptor.stride.unwrap_or(
+                        img.descriptor.width * img.descriptor.format.bytes_per_pixel().unwrap()
+                    );
+                    let bytes = match img.data {
+                        ImageData::Raw(ref v) => { (**v).clone() }
+                        ImageData::External(_) | ImageData::Blob(_) => { return; }
+                    };
+                    self.frame_writer.images.insert(img.key, CachedImage {
+                        width: img.descriptor.width,
+                        height: img.descriptor.height,
+                        stride,
+                        format: img.descriptor.format,
+                        bytes: Some(bytes),
+                        path: None,
+                        tiling: img.tiling,
+                    });
+                }
+                for img in &updates.updated_images {
+                    if let Some(ref mut data) = self.frame_writer.images.get_mut(&img.key) {
+                        assert_eq!(data.width, img.descriptor.width);
+                        assert_eq!(data.height, img.descriptor.height);
+                        assert_eq!(data.format, img.descriptor.format);
 
-            ApiMsg::UpdateImage(ref key, ref descriptor, ref img_data, _dirty_rect) => {
-                if let Some(ref mut data) = self.frame_writer.images.get_mut(key) {
-                    assert_eq!(data.width, descriptor.width);
-                    assert_eq!(data.height, descriptor.height);
-                    assert_eq!(data.format, descriptor.format);
-
-                    if let ImageData::Raw(ref bytes) = *img_data {
-                        *data.path.borrow_mut() = None;
-                        *data.bytes.borrow_mut() = Some((**bytes).clone());
-                    } else {
-                        // Other existing image types only make sense within the gecko integration.
-                        println!("Wrench only supports updating buffer images (ignoring update command).");
+                        if let ImageData::Raw(ref bytes) = img.data {
+                            *data.path.borrow_mut() = None;
+                            *data.bytes.borrow_mut() = Some((**bytes).clone());
+                        } else {
+                            // Other existing image types only make sense within the gecko integration.
+                            println!("Wrench only supports updating buffer images (ignoring update command).");
+                        }
                     }
                 }
-            }
 
-            ApiMsg::DeleteImage(ref key) => {
-                self.frame_writer.images.remove(key);
+                for img in &updates.deleted_images {
+                    self.frame_writer.images.remove(img);
+                }
             }
 
             ApiMsg::UpdateDocument(_, DocumentMsg::SetRootPipeline(ref pipeline_id)) => {

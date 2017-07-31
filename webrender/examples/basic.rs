@@ -175,6 +175,7 @@ fn main() {
 
 fn body(api: &RenderApi,
         builder: &mut DisplayListBuilder,
+        resources: &mut ResourceUpdates,
         _pipeline_id: &PipelineId,
         layout_size: &LayoutSize) {
     let bounds = LayoutRect::new(LayoutPoint::zero(), *layout_size);
@@ -187,10 +188,12 @@ fn body(api: &RenderApi,
                                   Vec::new());
 
     let image_mask_key = api.generate_image_key();
-    api.add_image(image_mask_key,
-                  ImageDescriptor::new(2, 2, ImageFormat::A8, true),
-                  ImageData::new(vec![0, 80, 180, 255]),
-                  None);
+    resources.add_image(
+        image_mask_key,
+        ImageDescriptor::new(2, 2, ImageFormat::A8, true),
+        ImageData::new(vec![0, 80, 180, 255]),
+        None
+    );
     let mask = ImageMask {
         image: image_mask_key,
         rect: (75, 75).by(100, 100),

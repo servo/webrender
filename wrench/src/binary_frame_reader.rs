@@ -92,9 +92,7 @@ impl BinaryFrameReader {
         match *msg {
             ApiMsg::AddRawFont(..) |
             ApiMsg::AddNativeFont(..) |
-            ApiMsg::AddImage(..) |
-            ApiMsg::UpdateImage(..) |
-            ApiMsg::DeleteImage(..) => {
+            ApiMsg::UpdateResources(..) => {
                 true
             }
             _ => {
