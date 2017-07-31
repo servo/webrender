@@ -20,8 +20,8 @@ pub type TileSize = u16;
 /// The resource updates for a given transaction (they must be applied in the same frame).
 #[derive(Clone, Deserialize, Serialize)]
 pub struct ResourceUpdates {
-    pub added_images: Vec<AddImageMsg>,
-    pub updated_images: Vec<UpdateImageMsg>,
+    pub added_images: Vec<AddImage>,
+    pub updated_images: Vec<UpdateImage>,
     pub deleted_images: Vec<ImageKey>,
 }
 
@@ -41,7 +41,7 @@ impl ResourceUpdates {
         data: ImageData,
         tiling: Option<TileSize>
     ) {
-        self.added_images.push(AddImageMsg { key, descriptor, data, tiling });
+        self.added_images.push(AddImage { key, descriptor, data, tiling });
     }
 
     pub fn update_image(
@@ -51,7 +51,7 @@ impl ResourceUpdates {
         data: ImageData,
         dirty_rect: Option<DeviceUintRect>
     ) {
-        self.updated_images.push(UpdateImageMsg { key, descriptor, data, dirty_rect });
+        self.updated_images.push(UpdateImage { key, descriptor, data, dirty_rect });
     }
 
     pub fn delete_image(&mut self, key: ImageKey) {
@@ -60,7 +60,7 @@ impl ResourceUpdates {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-pub struct AddImageMsg {
+pub struct AddImage {
     pub key: ImageKey,
     pub descriptor: ImageDescriptor,
     pub data: ImageData,
@@ -68,7 +68,7 @@ pub struct AddImageMsg {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-pub struct UpdateImageMsg {
+pub struct UpdateImage {
     pub key: ImageKey,
     pub descriptor: ImageDescriptor,
     pub data: ImageData,
