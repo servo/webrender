@@ -322,7 +322,9 @@ impl Wrench {
 
     pub fn font_key_from_bytes(&mut self, bytes: Vec<u8>, index: u32) -> FontKey {
         let key = self.api.generate_font_key();
-        self.api.add_raw_font(key, bytes, index);
+        let mut update = ResourceUpdates::new();
+        update.add_raw_font(key, bytes, index);
+        self.api.update_resources(update);
         key
     }
 

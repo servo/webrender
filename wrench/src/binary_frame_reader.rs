@@ -90,8 +90,6 @@ impl BinaryFrameReader {
         }
 
         match *msg {
-            ApiMsg::AddRawFont(..) |
-            ApiMsg::AddNativeFont(..) |
             ApiMsg::UpdateResources(..) => {
                 true
             }

@@ -188,14 +188,6 @@ impl fmt::Debug for JsonFrameWriter {
 impl webrender::ApiRecordingReceiver for JsonFrameWriter {
     fn write_msg(&mut self, _: u32, msg: &ApiMsg) {
         match *msg {
-            ApiMsg::AddRawFont(ref key, ref bytes, index) => {
-                self.fonts.insert(*key, CachedFont::Raw(Some(bytes.clone()), index, None));
-            }
-
-            ApiMsg::AddNativeFont(ref key, ref native_font_handle) => {
-                self.fonts.insert(*key, CachedFont::Native(native_font_handle.clone()));
-            }
-
             ApiMsg::UpdateResources(ref updates) => {
                 for img in &updates.added_images {
                     let stride = img.descriptor.stride.unwrap_or(
@@ -232,6 +224,17 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
 
                 for img in &updates.deleted_images {
                     self.images.remove(img);
+                }
+
+                for font in &updates.added_fonts {
+                    match font {
+                        &AddFont::Raw(key, ref bytes, index) => {
+                            self.fonts.insert(key, CachedFont::Raw(Some(bytes.clone()), index, None));
+                        }
+                        &AddFont::Native(key, ref handle) => {
+                            self.fonts.insert(key, CachedFont::Native(handle.clone()));
+                        }
+                    }
                 }
             }
 

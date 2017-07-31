@@ -23,6 +23,8 @@ pub struct ResourceUpdates {
     pub added_images: Vec<AddImage>,
     pub updated_images: Vec<UpdateImage>,
     pub deleted_images: Vec<ImageKey>,
+    pub added_fonts: Vec<AddFont>,
+    pub deleted_fonts: Vec<FontKey>,
 }
 
 impl ResourceUpdates {
@@ -31,6 +33,8 @@ impl ResourceUpdates {
             added_images: Vec::new(),
             updated_images: Vec::new(),
             deleted_images: Vec::new(),
+            added_fonts: Vec::new(),
+            deleted_fonts: Vec::new(),
         }
     }
 
@@ -57,6 +61,18 @@ impl ResourceUpdates {
     pub fn delete_image(&mut self, key: ImageKey) {
         self.deleted_images.push(key);
     }
+
+    pub fn add_raw_font(&mut self, key: FontKey, bytes: Vec<u8>, index: u32) {
+        self.added_fonts.push(AddFont::Raw(key, bytes, index));
+    }
+
+    pub fn add_native_font(&mut self, key: FontKey, native_handle: NativeFontHandle) {
+        self.added_fonts.push(AddFont::Native(key, native_handle));
+    }
+
+    pub fn delete_font(&mut self, key: FontKey) {
+        self.deleted_fonts.push(key);
+    }
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -73,6 +89,12 @@ pub struct UpdateImage {
     pub descriptor: ImageDescriptor,
     pub data: ImageData,
     pub dirty_rect: Option<DeviceUintRect>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub enum AddFont {
+    Raw(FontKey, Vec<u8>, u32),
+    Native(FontKey, NativeFontHandle),
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -122,9 +144,7 @@ impl fmt::Debug for DocumentMsg {
 
 #[derive(Clone, Deserialize, Serialize)]
 pub enum ApiMsg {
-    AddRawFont(FontKey, Vec<u8>, u32),
-    AddNativeFont(FontKey, NativeFontHandle),
-    DeleteFont(FontKey),
+    /// Add/remove/update images and fonts.
     UpdateResources(ResourceUpdates),
     /// Gets the glyph dimensions
     GetGlyphDimensions(FontInstanceKey, Vec<GlyphKey>, MsgSender<Vec<Option<GlyphDimensions>>>),
@@ -156,9 +176,6 @@ impl fmt::Debug for ApiMsg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(match *self {
             ApiMsg::UpdateResources(..) => "ApiMsg::UpdateResources",
-            ApiMsg::AddRawFont(..) => "ApiMsg::AddRawFont",
-            ApiMsg::AddNativeFont(..) => "ApiMsg::AddNativeFont",
-            ApiMsg::DeleteFont(..) => "ApiMsg::DeleteFont",
             ApiMsg::GetGlyphDimensions(..) => "ApiMsg::GetGlyphDimensions",
             ApiMsg::GetGlyphIndices(..) => "ApiMsg::GetGlyphIndices",
             ApiMsg::CloneApi(..) => "ApiMsg::CloneApi",
@@ -310,24 +327,6 @@ impl RenderApi {
     pub fn generate_font_key(&self) -> FontKey {
         let new_id = self.next_unique_id();
         FontKey::new(self.namespace_id, new_id)
-    }
-
-    pub fn add_raw_font(&self, key: FontKey, bytes: Vec<u8>, index: u32) {
-        debug_assert_eq!(key.0, self.namespace_id);
-        let msg = ApiMsg::AddRawFont(key, bytes, index);
-        self.api_sender.send(msg).unwrap();
-    }
-
-    pub fn add_native_font(&self, key: FontKey, native_font_handle: NativeFontHandle) {
-        debug_assert_eq!(key.0, self.namespace_id);
-        let msg = ApiMsg::AddNativeFont(key, native_font_handle);
-        self.api_sender.send(msg).unwrap();
-    }
-
-    pub fn delete_font(&self, key: FontKey) {
-        debug_assert_eq!(key.0, self.namespace_id);
-        let msg = ApiMsg::DeleteFont(key);
-        self.api_sender.send(msg).unwrap();
     }
 
     /// Gets the dimensions for the supplied glyph keys

@@ -233,7 +233,7 @@ fn body(api: &RenderApi,
     if false { // draw text?
         let font_key = api.generate_font_key();
         let font_bytes = load_file("res/FreeSans.ttf");
-        api.add_raw_font(font_key, font_bytes, 0);
+        resources.add_raw_font(font_key, font_bytes, 0);
 
         let text_bounds = (100, 200).by(700, 300);
         let glyphs = vec![
