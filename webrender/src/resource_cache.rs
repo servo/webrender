@@ -234,11 +234,14 @@ pub struct ResourceCache {
 
     // TODO(gw): We should expire (parts of) this cache semi-regularly!
     cached_glyph_dimensions: HashMap<GlyphRequest, Option<GlyphDimensions>, BuildHasherDefault<FnvHasher>>,
-    pending_image_requests: Vec<ImageRequest>,
     glyph_rasterizer: GlyphRasterizer,
 
+    // The set of images that aren't present or valid in the texture cache,
+    // and need to be rasterized and/or uploaded this frame. This includes
+    // both blobs and regular images.
+    pending_image_requests: HashSet<ImageRequest, BuildHasherDefault<FnvHasher>>,
+
     blob_image_renderer: Option<Box<BlobImageRenderer>>,
-    blob_image_requests: HashSet<ImageRequest>,
 
     requested_glyphs: HashSet<TextureCacheItemId, BuildHasherDefault<FnvHasher>>,
     requested_images: HashSet<TextureCacheItemId, BuildHasherDefault<FnvHasher>>,
@@ -260,12 +263,9 @@ impl ResourceCache {
             texture_cache,
             state: State::Idle,
             current_frame_id: FrameId(0),
-            pending_image_requests: Vec::new(),
+            pending_image_requests: HashSet::default(),
             glyph_rasterizer: GlyphRasterizer::new(workers),
-
             blob_image_renderer,
-            blob_image_requests: HashSet::new(),
-
             requested_glyphs: HashSet::default(),
             requested_images: HashSet::default(),
         }
@@ -415,28 +415,46 @@ impl ResourceCache {
         };
 
         let template = self.resources.image_templates.get(key).unwrap();
-        if template.data.uses_texture_cache() {
-            self.cached_images.mark_as_needed(&request, self.current_frame_id);
+
+        // Images that don't use the texture cache can early out.
+        if !template.data.uses_texture_cache() {
+            return;
         }
-        if template.data.is_blob() {
-            if let Some(ref mut renderer) = self.blob_image_renderer {
-                let (same_epoch, texture_cache_id) = match self.cached_images.resources
-                                                               .get(&request) {
-                    Some(entry) => {
-                        (entry.epoch == template.epoch, Some(entry.texture_cache_id))
-                    }
-                    None => {
-                        (false, None)
-                    }
-                };
 
-                // Ensure that blobs are added to the list of requested items
-                // foe the GPU cache, even if the cached blob image is up to date.
-                if let Some(texture_cache_id) = texture_cache_id {
-                    self.requested_images.insert(texture_cache_id);
-                }
+        // If this image exists in the texture cache, *and* the epoch
+        // in the cache matches that of the template, then it is
+        // valid to use as-is.
+        let valid_texture_id = self.cached_images
+                                   .resources
+                                   .get(&request)
+                                   .and_then(|entry| {
+                                      if entry.epoch == template.epoch {
+                                          Some(entry.texture_cache_id)
+                                      } else {
+                                          None
+                                      }
+                                   });
 
-                if !same_epoch && self.blob_image_requests.insert(request) {
+        // If the currently cached item is valid, update cache timestamps
+        // and early out.
+        if let Some(texture_cache_id) = valid_texture_id {
+            // Ensure this image won't expire from cache for a while.
+            self.cached_images.mark_as_needed(&request, self.current_frame_id);
+
+            // Request this texture cache item, so that its resource
+            // rect will be placed into the GPU cache for vertex
+            // shaders to read.
+            self.requested_images.insert(texture_cache_id);
+
+            return;
+        }
+
+        // We can start a worker thread rasterizing right now, if:
+        //  - The image is a blob.
+        //  - The blob hasn't already been requested this frame.
+        if self.pending_image_requests.insert(request) {
+            if template.data.is_blob() {
+                if let Some(ref mut renderer) = self.blob_image_renderer {
                     let (offset, w, h) = match template.tiling {
                         Some(tile_size) => {
                             let tile_offset = request.tile.unwrap();
@@ -466,8 +484,6 @@ impl ResourceCache {
                     );
                 }
             }
-        } else {
-            self.pending_image_requests.push(request);
         }
     }
 
@@ -625,39 +641,8 @@ impl ResourceCache {
             texture_cache_profile,
         );
 
-        let mut image_requests = mem::replace(&mut self.pending_image_requests, Vec::new());
-        for request in image_requests.drain(..) {
-            self.finalize_image_request(request, None, texture_cache_profile);
-        }
-
-        let mut blob_image_requests = mem::replace(&mut self.blob_image_requests, HashSet::new());
-        if self.blob_image_renderer.is_some() {
-            for request in blob_image_requests.drain() {
-                match self.blob_image_renderer.as_mut().unwrap().resolve(request.into()) {
-                    Ok(image) => {
-                        self.finalize_image_request(request,
-                                                    Some(ImageData::new(image.data)),
-                                                    texture_cache_profile);
-                    }
-                    // TODO(nical): I think that we should handle these somewhat gracefully,
-                    // at least in the out-of-memory scenario.
-                    Err(BlobImageError::Oom) => {
-                        // This one should be recoverable-ish.
-                        panic!("Failed to render a vector image (OOM)");
-                    }
-                    Err(BlobImageError::InvalidKey) => {
-                        panic!("Invalid vector image key");
-                    }
-                    Err(BlobImageError::InvalidData) => {
-                        // TODO(nical): If we run into this we should kill the content process.
-                        panic!("Invalid vector image data");
-                    }
-                    Err(BlobImageError::Other(msg)) => {
-                        panic!("Vector image error {}", msg);
-                    }
-                }
-            }
-        }
+        // Apply any updates of new / updated images (incl. blobs) to the texture cache.
+        self.update_texture_cache(texture_cache_profile);
 
         for texture_cache_item_id in self.requested_images.drain() {
             let item = self.texture_cache.get_mut(texture_cache_item_id);
@@ -675,58 +660,86 @@ impl ResourceCache {
         }
     }
 
-    fn update_texture_cache(&mut self,
-                            request: &ImageRequest,
-                            image_data: Option<ImageData>,
-                            texture_cache_profile: &mut TextureCacheProfileCounters) {
-        let image_template = self.resources.image_templates.get_mut(request.key).unwrap();
-        let image_data = image_data.unwrap_or_else(||{
-            image_template.data.clone()
-        });
+    fn update_texture_cache(&mut self, texture_cache_profile: &mut TextureCacheProfileCounters) {
+        for request in self.pending_image_requests.drain() {
+            let image_template = self.resources.image_templates.get_mut(request.key).unwrap();
+            debug_assert!(image_template.data.uses_texture_cache());
 
-        let filter = match request.rendering {
-            ImageRendering::Pixelated => TextureFilter::Nearest,
-            ImageRendering::Auto | ImageRendering::CrispEdges => TextureFilter::Linear,
-        };
-
-        let descriptor = if let Some(tile) = request.tile {
-            let tile_size = image_template.tiling.unwrap();
-            let image_descriptor = &image_template.descriptor;
-
-            let (actual_width, actual_height) = compute_tile_size(image_descriptor, tile_size, tile);
-
-            // The tiled image could be stored on the CPU as one large image or be
-            // already broken up into tiles. This affects the way we compute the stride
-            // and offset.
-            let tiled_on_cpu = image_template.data.is_blob();
-
-            let (stride, offset) = if tiled_on_cpu {
-                (image_descriptor.stride, 0)
-            } else {
-                let bpp = image_descriptor.format.bytes_per_pixel().unwrap();
-                let stride = image_descriptor.compute_stride();
-                let offset = image_descriptor.offset + tile.y as u32 * tile_size as u32 * stride
-                                                     + tile.x as u32 * tile_size as u32 * bpp;
-                (Some(stride), offset)
+            let image_data = match image_template.data {
+                ImageData::Raw(..) | ImageData::External(..) => {
+                    // Safe to clone here since the Raw image data is an
+                    // Arc, and the external image data is small.
+                    image_template.data.clone()
+                }
+                ImageData::Blob(..) => {
+                    // Extract the rasterized image from the blob renderer.
+                    match self.blob_image_renderer.as_mut().unwrap().resolve(request.into()) {
+                        Ok(image) => ImageData::new(image.data),
+                        // TODO(nical): I think that we should handle these somewhat gracefully,
+                        // at least in the out-of-memory scenario.
+                        Err(BlobImageError::Oom) => {
+                            // This one should be recoverable-ish.
+                            panic!("Failed to render a vector image (OOM)");
+                        }
+                        Err(BlobImageError::InvalidKey) => {
+                            panic!("Invalid vector image key");
+                        }
+                        Err(BlobImageError::InvalidData) => {
+                            // TODO(nical): If we run into this we should kill the content process.
+                            panic!("Invalid vector image data");
+                        }
+                        Err(BlobImageError::Other(msg)) => {
+                            panic!("Vector image error {}", msg);
+                        }
+                    }
+                }
             };
 
-            ImageDescriptor {
-                width: actual_width,
-                height: actual_height,
-                stride,
-                offset,
-                format: image_descriptor.format,
-                is_opaque: image_descriptor.is_opaque,
-            }
-        } else {
-            image_template.descriptor.clone()
-        };
+            let filter = match request.rendering {
+                ImageRendering::Pixelated => TextureFilter::Nearest,
+                ImageRendering::Auto | ImageRendering::CrispEdges => TextureFilter::Linear,
+            };
 
-        let image_id = match self.cached_images.entry(*request, self.current_frame_id) {
-            Occupied(entry) => {
-                let image_id = entry.get().texture_cache_id;
+            let descriptor = if let Some(tile) = request.tile {
+                let tile_size = image_template.tiling.unwrap();
+                let image_descriptor = &image_template.descriptor;
 
-                if entry.get().epoch != image_template.epoch {
+                let (actual_width, actual_height) = compute_tile_size(image_descriptor, tile_size, tile);
+
+                // The tiled image could be stored on the CPU as one large image or be
+                // already broken up into tiles. This affects the way we compute the stride
+                // and offset.
+                let tiled_on_cpu = image_template.data.is_blob();
+
+                let (stride, offset) = if tiled_on_cpu {
+                    (image_descriptor.stride, 0)
+                } else {
+                    let bpp = image_descriptor.format.bytes_per_pixel().unwrap();
+                    let stride = image_descriptor.compute_stride();
+                    let offset = image_descriptor.offset + tile.y as u32 * tile_size as u32 * stride
+                                                         + tile.x as u32 * tile_size as u32 * bpp;
+                    (Some(stride), offset)
+                };
+
+                ImageDescriptor {
+                    width: actual_width,
+                    height: actual_height,
+                    stride,
+                    offset,
+                    format: image_descriptor.format,
+                    is_opaque: image_descriptor.is_opaque,
+                }
+            } else {
+                image_template.descriptor.clone()
+            };
+
+            let image_id = match self.cached_images.entry(request, self.current_frame_id) {
+                Occupied(entry) => {
+                    let image_id = entry.get().texture_cache_id;
+
+                    // We should only get to this code path if the image
+                    // definitely needs to be updated.
+                    debug_assert!(entry.get().epoch != image_template.epoch);
                     self.texture_cache.update(image_id,
                                               descriptor,
                                               filter,
@@ -739,57 +752,28 @@ impl ResourceCache {
                         epoch: image_template.epoch,
                     };
                     image_template.dirty_rect = None;
+
+                    image_id
                 }
+                Vacant(entry) => {
+                    let image_id = self.texture_cache.insert(descriptor,
+                                                             filter,
+                                                             image_data,
+                                                             [0.0; 2],
+                                                             texture_cache_profile);
 
-                image_id
-            }
-            Vacant(entry) => {
-                let filter = match request.rendering {
-                    ImageRendering::Pixelated => TextureFilter::Nearest,
-                    ImageRendering::Auto | ImageRendering::CrispEdges => TextureFilter::Linear,
-                };
+                    entry.insert(CachedImageInfo {
+                        texture_cache_id: image_id,
+                        epoch: image_template.epoch,
+                    });
 
-                let image_id = self.texture_cache.insert(descriptor,
-                                                         filter,
-                                                         image_data,
-                                                         [0.0; 2],
-                                                         texture_cache_profile);
-
-                entry.insert(CachedImageInfo {
-                    texture_cache_id: image_id,
-                    epoch: image_template.epoch,
-                });
-
-                image_id
-            }
-        };
-
-        self.requested_images.insert(image_id);
-    }
-    fn finalize_image_request(&mut self,
-                              request: ImageRequest,
-                              image_data: Option<ImageData>,
-                              texture_cache_profile: &mut TextureCacheProfileCounters) {
-        match self.resources.image_templates.get(request.key).unwrap().data {
-            ImageData::External(ext_image) => {
-                match ext_image.image_type {
-                    ExternalImageType::Texture2DHandle |
-                    ExternalImageType::TextureRectHandle |
-                    ExternalImageType::TextureExternalHandle => {
-                        // external handle doesn't need to update the texture_cache.
-                    }
-                    ExternalImageType::ExternalBuffer => {
-                        self.update_texture_cache(&request,
-                                                  image_data,
-                                                  texture_cache_profile);
-                    }
+                    image_id
                 }
-            }
-            ImageData::Raw(..) | ImageData::Blob(..) => {
-                self.update_texture_cache(&request,
-                                           image_data,
-                                           texture_cache_profile);
-            }
+            };
+
+            // Now that we have a valid texture cache ID, add to the set
+            // of texture cache items to place in the GPU cache.
+            self.requested_images.insert(image_id);
         }
     }
 
