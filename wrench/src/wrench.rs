@@ -271,7 +271,9 @@ impl Wrench {
     #[cfg(target_os = "windows")]
     pub fn font_key_from_native_handle(&mut self, descriptor: &NativeFontHandle) -> FontKey {
         let key = self.api.generate_font_key();
-        self.api.add_native_font(key, descriptor.clone());
+        let resources = ResourceUpdates::new();
+        resources.add_native_font(key, descriptor.clone());
+        self.api.update_resources(resources);
         key
     }
 
@@ -322,7 +324,9 @@ impl Wrench {
 
     pub fn font_key_from_bytes(&mut self, bytes: Vec<u8>, index: u32) -> FontKey {
         let key = self.api.generate_font_key();
-        self.api.add_raw_font(key, bytes, index);
+        let mut update = ResourceUpdates::new();
+        update.add_raw_font(key, bytes, index);
+        self.api.update_resources(update);
         key
     }
 
@@ -380,7 +384,9 @@ impl Wrench {
         };
         let tiling = tiling.map(|tile_size|{ tile_size as u16 });
         let image_key = self.api.generate_image_key();
-        self.api.add_image(image_key, descriptor, image_data, tiling);
+        let mut resources = ResourceUpdates::new();
+        resources.add_image(image_key, descriptor, image_data, tiling);
+        self.api.update_resources(resources);
         let val = (image_key, LayoutSize::new(descriptor.width as f32, descriptor.height as f32));
         self.image_map.insert(key, val);
         val
@@ -403,12 +409,15 @@ impl Wrench {
         let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
 
         for display_list in display_lists {
-            self.api.set_display_list(self.document_id,
-                                      Epoch(frame_number),
-                                      root_background_color,
-                                      self.window_size_f32(),
-                                      display_list,
-                                      false);
+            self.api.set_display_list(
+                self.document_id,
+                Epoch(frame_number),
+                root_background_color,
+                self.window_size_f32(),
+                display_list,
+                false,
+                ResourceUpdates::new()
+            );
         }
 
         for (id, offset) in scroll_offsets {

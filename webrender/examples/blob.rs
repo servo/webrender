@@ -215,10 +215,11 @@ impl api::BlobImageRenderer for CheckerboardRenderer {
 fn body(api: &api::RenderApi,
         _document_id: &api::DocumentId,
         builder: &mut api::DisplayListBuilder,
+        resources: &mut api::ResourceUpdates,
         _pipeline_id: &api::PipelineId,
         layout_size: &api::LayoutSize) {
     let blob_img1 = api.generate_image_key();
-    api.add_image(
+    resources.add_image(
         blob_img1,
         api::ImageDescriptor::new(500, 500, api::ImageFormat::BGRA8, true),
         api::ImageData::new_blob_image(serialize_blob(api::ColorU::new(50, 50, 150, 255))),
@@ -226,7 +227,7 @@ fn body(api: &api::RenderApi,
     );
 
     let blob_img2 = api.generate_image_key();
-    api.add_image(
+    resources.add_image(
         blob_img2,
         api::ImageDescriptor::new(200, 200, api::ImageFormat::BGRA8, true),
         api::ImageData::new_blob_image(serialize_blob(api::ColorU::new(50, 150, 50, 255))),
