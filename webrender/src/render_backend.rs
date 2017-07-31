@@ -21,9 +21,8 @@ use api::channel::{MsgReceiver, PayloadReceiver, PayloadReceiverHelperMethods};
 use api::channel::{PayloadSender, PayloadSenderHelperMethods};
 use api::{ApiMsg, BlobImageRenderer, BuiltDisplayList, DeviceIntPoint};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentId, DocumentMsg};
-use api::{IdNamespace, ImageData, LayerPoint, RenderDispatcher, RenderNotifier};
+use api::{IdNamespace, LayerPoint, RenderDispatcher, RenderNotifier};
 use api::{VRCompositorCommand, VRCompositorHandler, WebGLCommand, WebGLContextId};
-use api::{FontTemplate, AddFont, ResourceUpdates};
 
 #[cfg(feature = "webgl")]
 use offscreen_gl_context::GLContextDispatcher;
@@ -280,7 +279,7 @@ impl RenderBackend {
             } => {
                 profile_scope!("SetDisplayList");
 
-                update_resources(&mut self.resource_cache, resources, &mut profile_counters);
+                self.resource_cache.update_resources(resources, &mut profile_counters.resources);
 
                 let mut data;
                 while {
@@ -462,7 +461,7 @@ impl RenderBackend {
 
             match msg {
                 ApiMsg::UpdateResources(updates) => {
-                    update_resources(&mut self.resource_cache, updates, &mut profile_counters)
+                    self.resource_cache.update_resources(updates, &mut profile_counters.resources);
                 }
                 ApiMsg::GetGlyphDimensions(font, glyph_keys, tx) => {
                     let mut glyph_dimensions = Vec::with_capacity(glyph_keys.len());
@@ -656,42 +655,5 @@ impl GLContextDispatcher for WebRenderGLDispatcher {
     fn dispatch(&self, f: Box<Fn() + Send>) {
         let mut dispatcher = self.dispatcher.lock();
         dispatcher.as_mut().unwrap().as_mut().unwrap().dispatch(f);
-    }
-}
-
-fn update_resources(
-    cache: &mut ResourceCache,
-    updates: ResourceUpdates,
-    profile_counters: &mut BackendProfileCounters
-) {
-    for img in updates.deleted_images {
-        cache.delete_image_template(img);
-    }
-
-    for img in updates.added_images {
-        if let ImageData::Raw(ref bytes) = img.data {
-            profile_counters.resources.image_templates.inc(bytes.len());
-        }
-        cache.add_image_template(img.key, img.descriptor, img.data, img.tiling);
-    }
-
-    for img in updates.updated_images {
-        cache.update_image_template(img.key, img.descriptor, img.data, img.dirty_rect);
-    }
-
-    for font in updates.added_fonts {
-        match font {
-            AddFont::Raw(id, bytes, index) => {
-                profile_counters.resources.font_templates.inc(bytes.len());
-                cache.add_font_template(id, FontTemplate::Raw(Arc::new(bytes), index));
-            }
-            AddFont::Native(id, native_font_handle) => {
-                cache.add_font_template(id, FontTemplate::Native(native_font_handle));
-            }
-        }
-    }
-
-    for font in updates.deleted_fonts {
-        cache.delete_font_template(font);
     }
 }
