@@ -22,6 +22,7 @@ use webrender::api::*;
 fn body(_api: &RenderApi,
         _document_id: &DocumentId,
         builder: &mut DisplayListBuilder,
+        _resouces: &mut ResourceUpdates,
         _pipeline_id: &PipelineId,
         _layout_size: &LayoutSize) {
     // Create a 100x100 stacking context with an animatable transform property.

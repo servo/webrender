@@ -23,7 +23,7 @@ use api::{ApiMsg, BlobImageRenderer, BuiltDisplayList, DeviceIntPoint};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentId, DocumentMsg};
 use api::{IdNamespace, ImageData, LayerPoint, RenderDispatcher, RenderNotifier};
 use api::{VRCompositorCommand, VRCompositorHandler, WebGLCommand, WebGLContextId};
-use api::{FontTemplate};
+use api::{FontTemplate, AddFont, ResourceUpdates};
 
 #[cfg(feature = "webgl")]
 use offscreen_gl_context::GLContextDispatcher;
@@ -268,7 +268,7 @@ impl RenderBackend {
                 doc.inner_rect = inner_rect;
                 DocumentOp::Nop
             }
-            DocumentMsg::SetDisplayList{
+            DocumentMsg::SetDisplayList {
                 epoch,
                 pipeline_id,
                 background,
@@ -276,8 +276,11 @@ impl RenderBackend {
                 content_size,
                 list_descriptor,
                 preserve_frame_state,
+                resources,
             } => {
                 profile_scope!("SetDisplayList");
+
+                update_resources(&mut self.resource_cache, resources, &mut profile_counters);
 
                 let mut data;
                 while {
@@ -286,14 +289,15 @@ impl RenderBackend {
                 }{
                     self.payload_tx.send_payload(data).unwrap()
                 }
+
                 if let Some(ref mut r) = self.recorder {
                     r.write_payload(frame_counter, &data.to_data());
                 }
 
-                let built_display_list =
-                    BuiltDisplayList::from_data(data.display_list_data,
-                                                list_descriptor);
-
+                let built_display_list = BuiltDisplayList::from_data(
+                    data.display_list_data,
+                    list_descriptor
+                );
 
                 if !preserve_frame_state {
                     doc.frame.discard_frame_state_for_pipeline(pipeline_id);
@@ -306,12 +310,14 @@ impl RenderBackend {
                 {
                     self.webgl.flush();
                     let _timer = profile_counters.total_time.timer();
-                    doc.scene.set_display_list(pipeline_id,
-                                               epoch,
-                                               built_display_list,
-                                               background,
-                                               viewport_size,
-                                               content_size);
+                    doc.scene.set_display_list(
+                        pipeline_id,
+                        epoch,
+                        built_display_list,
+                        background,
+                        viewport_size,
+                        content_size
+                    );
                     doc.build_scene(&mut self.resource_cache, self.hidpi_factor);
                 }
 
@@ -455,17 +461,8 @@ impl RenderBackend {
             };
 
             match msg {
-                ApiMsg::AddRawFont(id, bytes, index) => {
-                    profile_counters.resources.font_templates.inc(bytes.len());
-                    self.resource_cache
-                        .add_font_template(id, FontTemplate::Raw(Arc::new(bytes), index));
-                }
-                ApiMsg::AddNativeFont(id, native_font_handle) => {
-                    self.resource_cache
-                        .add_font_template(id, FontTemplate::Native(native_font_handle));
-                }
-                ApiMsg::DeleteFont(id) => {
-                    self.resource_cache.delete_font_template(id);
+                ApiMsg::UpdateResources(updates) => {
+                    update_resources(&mut self.resource_cache, updates, &mut profile_counters)
                 }
                 ApiMsg::GetGlyphDimensions(font, glyph_keys, tx) => {
                     let mut glyph_dimensions = Vec::with_capacity(glyph_keys.len());
@@ -482,18 +479,6 @@ impl RenderBackend {
                         glyph_indices.push(index);
                     };
                     tx.send(glyph_indices).unwrap();
-                }
-                ApiMsg::AddImage(id, descriptor, data, tiling) => {
-                    if let ImageData::Raw(ref bytes) = data {
-                        profile_counters.resources.image_templates.inc(bytes.len());
-                    }
-                    self.resource_cache.add_image_template(id, descriptor, data, tiling);
-                }
-                ApiMsg::UpdateImage(id, descriptor, bytes, dirty_rect) => {
-                    self.resource_cache.update_image_template(id, descriptor, bytes, dirty_rect);
-                }
-                ApiMsg::DeleteImage(id) => {
-                    self.resource_cache.delete_image_template(id);
                 }
                 ApiMsg::CloneApi(sender) => {
                     let namespace = self.next_namespace_id;
@@ -671,5 +656,42 @@ impl GLContextDispatcher for WebRenderGLDispatcher {
     fn dispatch(&self, f: Box<Fn() + Send>) {
         let mut dispatcher = self.dispatcher.lock();
         dispatcher.as_mut().unwrap().as_mut().unwrap().dispatch(f);
+    }
+}
+
+fn update_resources(
+    cache: &mut ResourceCache,
+    updates: ResourceUpdates,
+    profile_counters: &mut BackendProfileCounters
+) {
+    for img in updates.deleted_images {
+        cache.delete_image_template(img);
+    }
+
+    for img in updates.added_images {
+        if let ImageData::Raw(ref bytes) = img.data {
+            profile_counters.resources.image_templates.inc(bytes.len());
+        }
+        cache.add_image_template(img.key, img.descriptor, img.data, img.tiling);
+    }
+
+    for img in updates.updated_images {
+        cache.update_image_template(img.key, img.descriptor, img.data, img.dirty_rect);
+    }
+
+    for font in updates.added_fonts {
+        match font {
+            AddFont::Raw(id, bytes, index) => {
+                profile_counters.resources.font_templates.inc(bytes.len());
+                cache.add_font_template(id, FontTemplate::Raw(Arc::new(bytes), index));
+            }
+            AddFont::Native(id, native_font_handle) => {
+                cache.add_font_template(id, FontTemplate::Native(native_font_handle));
+            }
+        }
+    }
+
+    for font in updates.deleted_fonts {
+        cache.delete_font_template(font);
     }
 }
