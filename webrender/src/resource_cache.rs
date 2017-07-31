@@ -7,7 +7,7 @@ use fnv::FnvHasher;
 use frame::FrameId;
 use gpu_cache::{GpuCache, GpuCacheHandle};
 use internal_types::{SourceTexture, TextureUpdateList};
-use profiler::TextureCacheProfileCounters;
+use profiler::{ResourceProfileCounters, TextureCacheProfileCounters};
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry::{self, Occupied, Vacant};
 use std::fmt::Debug;
@@ -17,7 +17,7 @@ use std::mem;
 use std::sync::Arc;
 use texture_cache::{TextureCache, TextureCacheItemId};
 use api::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, BlobImageRequest};
-use api::{BlobImageResources, BlobImageData};
+use api::{BlobImageResources, BlobImageData, ResourceUpdates, AddFont};
 use api::{DevicePoint, DeviceIntSize, DeviceUintRect, DeviceUintSize};
 use api::{Epoch, FontInstanceKey, FontKey, FontTemplate};
 use api::{GlyphDimensions, GlyphKey, GlyphInstance, IdNamespace};
@@ -285,6 +285,47 @@ impl ResourceCache {
                 // not make sense to tile them into smaller ones.
                 info.image_type == ExternalImageType::ExternalBuffer && size_check
             },
+        }
+    }
+
+    pub fn update_resources(
+        &mut self,
+        updates: ResourceUpdates,
+        profile_counters: &mut ResourceProfileCounters
+    ) {
+        // TODO, there is potential for optimization here, by processing updates in
+        // bulk rather than one by one (for example by sorting allocations by size or
+        // in a way that reduces fragmentation in the atlas).
+
+        for img in updates.deleted_images {
+            self.delete_image_template(img);
+        }
+
+        for img in updates.added_images {
+            if let ImageData::Raw(ref bytes) = img.data {
+                profile_counters.image_templates.inc(bytes.len());
+            }
+            self.add_image_template(img.key, img.descriptor, img.data, img.tiling);
+        }
+
+        for img in updates.updated_images {
+            self.update_image_template(img.key, img.descriptor, img.data, img.dirty_rect);
+        }
+
+        for font in updates.added_fonts {
+            match font {
+                AddFont::Raw(id, bytes, index) => {
+                    profile_counters.font_templates.inc(bytes.len());
+                    self.add_font_template(id, FontTemplate::Raw(Arc::new(bytes), index));
+                }
+                AddFont::Native(id, native_font_handle) => {
+                    self.add_font_template(id, FontTemplate::Native(native_font_handle));
+                }
+            }
+        }
+
+        for font in updates.deleted_fonts {
+            self.delete_font_template(font);
         }
     }
 
