@@ -11,17 +11,14 @@ use api::{ScrollPolicy, ScrollSensitivity, SpecificDisplayItem, StackingContext,
 use api::{TransformStyle, WorldPoint};
 use clip_scroll_tree::{ClipScrollTree, ScrollStates};
 use euclid::rect;
-use fnv::FnvHasher;
 use gpu_cache::GpuCache;
-use internal_types::{RendererFrame};
+use internal_types::{FastHashMap, RendererFrame};
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use mask_cache::ClipRegion;
 use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
 use resource_cache::{ResourceCache, TiledImageMap};
 use scene::{Scene, SceneProperties};
 use std::cmp;
-use std::collections::HashMap;
-use std::hash::BuildHasherDefault;
 use tiling::{CompositeOps, DisplayListMap, PrimitiveFlags};
 use util::{ComplexClipRegionHelpers, subtract_rect};
 
@@ -177,7 +174,7 @@ impl<'a> FlattenContext<'a> {
 // TODO: doc
 pub struct Frame {
     pub clip_scroll_tree: ClipScrollTree,
-    pub pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
+    pub pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
     id: FrameId,
     frame_builder_config: FrameBuilderConfig,
     frame_builder: Option<FrameBuilder>,
@@ -222,7 +219,7 @@ impl StackingContextHelpers for StackingContext {
 impl Frame {
     pub fn new(config: FrameBuilderConfig) -> Frame {
         Frame {
-            pipeline_epoch_map: HashMap::default(),
+            pipeline_epoch_map: FastHashMap::default(),
             clip_scroll_tree: ClipScrollTree::new(),
             id: FrameId(0),
             frame_builder: None,

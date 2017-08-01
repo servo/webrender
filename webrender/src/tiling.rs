@@ -4,10 +4,9 @@
 
 use border::{BorderCornerInstance, BorderCornerSide};
 use device::TextureId;
-use fnv::FnvHasher;
 use gpu_cache::{GpuCache, GpuCacheHandle, GpuCacheUpdateList};
 use internal_types::{BatchTextures, CacheTextureId};
-use internal_types::SourceTexture;
+use internal_types::{FastHashMap, SourceTexture};
 use mask_cache::MaskCacheInfo;
 use prim_store::{CLIP_DATA_GPU_BLOCKS, DeferredResolve, ImagePrimitiveKind, PrimitiveCacheKey};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
@@ -19,8 +18,6 @@ use renderer::BlendMode;
 use renderer::ImageBufferKind;
 use resource_cache::ResourceCache;
 use std::{f32, i32, mem, usize};
-use std::collections::HashMap;
-use std::hash::BuildHasherDefault;
 use texture_cache::TexturePage;
 use util::{TransformedRect, TransformedRectKind};
 use api::{BuiltDisplayList, ClipAndScrollInfo, ClipId, ColorF, DeviceIntPoint, ImageKey};
@@ -34,9 +31,7 @@ use api::{TileOffset, WorldToLayerTransform, YuvColorSpace, YuvFormat, LayerVect
 const OPAQUE_TASK_INDEX: RenderTaskIndex = RenderTaskIndex(i32::MAX as usize);
 
 
-pub type DisplayListMap = HashMap<PipelineId,
-                                  BuiltDisplayList,
-                                  BuildHasherDefault<FnvHasher>>;
+pub type DisplayListMap = FastHashMap<PipelineId, BuiltDisplayList>;
 
 trait AlphaBatchHelpers {
     fn get_blend_mode(&self,
@@ -110,14 +105,14 @@ struct DynamicTaskInfo {
 #[derive(Debug)]
 pub struct RenderTaskCollection {
     pub render_task_data: Vec<RenderTaskData>,
-    dynamic_tasks: HashMap<(RenderTaskKey, RenderPassIndex), DynamicTaskInfo, BuildHasherDefault<FnvHasher>>,
+    dynamic_tasks: FastHashMap<(RenderTaskKey, RenderPassIndex), DynamicTaskInfo>,
 }
 
 impl RenderTaskCollection {
     pub fn new(static_render_task_count: usize) -> RenderTaskCollection {
         RenderTaskCollection {
             render_task_data: vec![RenderTaskData::empty(); static_render_task_count],
-            dynamic_tasks: HashMap::default(),
+            dynamic_tasks: FastHashMap::default(),
         }
     }
 
@@ -683,7 +678,7 @@ pub struct ClipBatcher {
     /// Rectangle draws fill up the rectangles with rounded corners.
     pub rectangles: Vec<CacheClipInstance>,
     /// Image draws apply the image masking.
-    pub images: HashMap<SourceTexture, Vec<CacheClipInstance>>,
+    pub images: FastHashMap<SourceTexture, Vec<CacheClipInstance>>,
     pub border_clears: Vec<CacheClipInstance>,
     pub borders: Vec<CacheClipInstance>,
 }
@@ -692,7 +687,7 @@ impl ClipBatcher {
     fn new() -> ClipBatcher {
         ClipBatcher {
             rectangles: Vec::new(),
-            images: HashMap::new(),
+            images: FastHashMap::default(),
             border_clears: Vec::new(),
             borders: Vec::new(),
         }

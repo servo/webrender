@@ -3,15 +3,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use device::TextureFilter;
-use fnv::FnvHasher;
 use frame::FrameId;
 use gpu_cache::{GpuCache, GpuCacheHandle};
-use internal_types::{SourceTexture, TextureUpdateList};
+use internal_types::{FastHashMap, FastHashSet, SourceTexture, TextureUpdateList};
 use profiler::TextureCacheProfileCounters;
-use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry::{self, Occupied, Vacant};
 use std::fmt::Debug;
-use std::hash::BuildHasherDefault;
 use std::hash::Hash;
 use std::mem;
 use std::sync::Arc;
@@ -72,16 +69,16 @@ pub struct ImageTiling {
     pub tile_size: TileSize,
 }
 
-pub type TiledImageMap = HashMap<ImageKey, ImageTiling, BuildHasherDefault<FnvHasher>>;
+pub type TiledImageMap = FastHashMap<ImageKey, ImageTiling>;
 
 struct ImageTemplates {
-    images: HashMap<ImageKey, ImageResource, BuildHasherDefault<FnvHasher>>,
+    images: FastHashMap<ImageKey, ImageResource>,
 }
 
 impl ImageTemplates {
     fn new() -> Self {
         ImageTemplates {
-            images: HashMap::with_hasher(Default::default())
+            images: FastHashMap::default()
         }
     }
 
@@ -108,15 +105,15 @@ struct CachedImageInfo {
 }
 
 pub struct ResourceClassCache<K,V> {
-    resources: HashMap<K, V, BuildHasherDefault<FnvHasher>>,
-    last_access_times: HashMap<K, FrameId, BuildHasherDefault<FnvHasher>>,
+    resources: FastHashMap<K, V>,
+    last_access_times: FastHashMap<K, FrameId>,
 }
 
 impl<K,V> ResourceClassCache<K,V> where K: Clone + Hash + Eq + Debug, V: Resource {
     pub fn new() -> ResourceClassCache<K,V> {
         ResourceClassCache {
-            resources: HashMap::default(),
-            last_access_times: HashMap::default(),
+            resources: FastHashMap::default(),
+            last_access_times: FastHashMap::default(),
         }
     }
 
@@ -206,7 +203,7 @@ pub struct WebGLTexture {
 }
 
 struct Resources {
-    font_templates: HashMap<FontKey, FontTemplate, BuildHasherDefault<FnvHasher>>,
+    font_templates: FastHashMap<FontKey, FontTemplate>,
     image_templates: ImageTemplates,
 }
 
@@ -224,7 +221,7 @@ pub struct ResourceCache {
     cached_images: ResourceClassCache<ImageRequest, CachedImageInfo>,
 
     // TODO(pcwalton): Figure out the lifecycle of these.
-    webgl_textures: HashMap<WebGLContextId, WebGLTexture, BuildHasherDefault<FnvHasher>>,
+    webgl_textures: FastHashMap<WebGLContextId, WebGLTexture>,
 
     resources: Resources,
     state: State,
@@ -233,18 +230,18 @@ pub struct ResourceCache {
     texture_cache: TextureCache,
 
     // TODO(gw): We should expire (parts of) this cache semi-regularly!
-    cached_glyph_dimensions: HashMap<GlyphRequest, Option<GlyphDimensions>, BuildHasherDefault<FnvHasher>>,
+    cached_glyph_dimensions: FastHashMap<GlyphRequest, Option<GlyphDimensions>>,
     glyph_rasterizer: GlyphRasterizer,
 
     // The set of images that aren't present or valid in the texture cache,
     // and need to be rasterized and/or uploaded this frame. This includes
     // both blobs and regular images.
-    pending_image_requests: HashSet<ImageRequest, BuildHasherDefault<FnvHasher>>,
+    pending_image_requests: FastHashSet<ImageRequest>,
 
     blob_image_renderer: Option<Box<BlobImageRenderer>>,
 
-    requested_glyphs: HashSet<TextureCacheItemId, BuildHasherDefault<FnvHasher>>,
-    requested_images: HashSet<TextureCacheItemId, BuildHasherDefault<FnvHasher>>,
+    requested_glyphs: FastHashSet<TextureCacheItemId>,
+    requested_images: FastHashSet<TextureCacheItemId>,
 }
 
 impl ResourceCache {
@@ -254,20 +251,20 @@ impl ResourceCache {
         ResourceCache {
             cached_glyphs: ResourceClassCache::new(),
             cached_images: ResourceClassCache::new(),
-            webgl_textures: HashMap::default(),
+            webgl_textures: FastHashMap::default(),
             resources: Resources {
-                font_templates: HashMap::default(),
+                font_templates: FastHashMap::default(),
                 image_templates: ImageTemplates::new(),
             },
-            cached_glyph_dimensions: HashMap::default(),
+            cached_glyph_dimensions: FastHashMap::default(),
             texture_cache,
             state: State::Idle,
             current_frame_id: FrameId(0),
-            pending_image_requests: HashSet::default(),
+            pending_image_requests: FastHashSet::default(),
             glyph_rasterizer: GlyphRasterizer::new(workers),
             blob_image_renderer,
-            requested_glyphs: HashSet::default(),
-            requested_images: HashSet::default(),
+            requested_glyphs: FastHashSet::default(),
+            requested_images: FastHashSet::default(),
         }
     }
 
