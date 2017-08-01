@@ -5,18 +5,16 @@
 #[cfg(test)]
 use app_units::Au;
 use device::TextureFilter;
-use fnv::FnvHasher;
 use frame::FrameId;
+use internal_types::FastHashSet;
 use platform::font::{FontContext, RasterizedGlyph};
 use profiler::TextureCacheProfileCounters;
 use rayon::ThreadPool;
 use rayon::prelude::*;
 use resource_cache::{Resource, ResourceClassCache};
-use std::hash::BuildHasherDefault;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::collections::hash_map::Entry;
-use std::collections::HashSet;
 use std::mem;
 use texture_cache::{TextureCacheItemId, TextureCache};
 #[cfg(test)]
@@ -108,7 +106,7 @@ pub struct GlyphRasterizer {
     // because the glyph cache hash table is not updated
     // until the end of the frame when we wait for glyph requests
     // to be resolved.
-    pending_glyphs: HashSet<GlyphRequest>,
+    pending_glyphs: FastHashSet<GlyphRequest>,
 
     // We defer removing fonts to the end of the frame so that:
     // - this work is done outside of the critical path,
@@ -138,7 +136,7 @@ impl GlyphRasterizer {
             ),
             glyph_rx,
             glyph_tx,
-            pending_glyphs: HashSet::new(),
+            pending_glyphs: FastHashSet::default(),
             workers,
             fonts_to_remove: Vec::new(),
         }
@@ -171,7 +169,7 @@ impl GlyphRasterizer {
         current_frame_id: FrameId,
         font: FontInstanceKey,
         glyph_instances: &[GlyphInstance],
-        requested_items: &mut HashSet<TextureCacheItemId, BuildHasherDefault<FnvHasher>>,
+        requested_items: &mut FastHashSet<TextureCacheItemId>,
     ) {
         assert!(self.font_contexts.lock_shared_context().has_font(&font.font_key));
 
@@ -244,7 +242,7 @@ impl GlyphRasterizer {
         current_frame_id: FrameId,
         glyph_cache: &mut GlyphCache,
         texture_cache: &mut TextureCache,
-        requested_items: &mut HashSet<TextureCacheItemId, BuildHasherDefault<FnvHasher>>,
+        requested_items: &mut FastHashSet<TextureCacheItemId>,
         texture_cache_profile: &mut TextureCacheProfileCounters,
     ) {
         let mut rasterized_glyphs = Vec::with_capacity(self.pending_glyphs.len());
@@ -370,7 +368,7 @@ fn raterize_200_glyphs() {
     let workers = Arc::new(ThreadPool::new(Configuration::new()).unwrap());
     let mut glyph_rasterizer = GlyphRasterizer::new(workers);
     let mut glyph_cache = GlyphCache::new();
-    let mut requested_items = HashSet::default();
+    let mut requested_items = FastHashSet::default();
 
     let mut font_file = File::open("../wrench/reftests/text/VeraBd.ttf").expect("Couldn't open font file");
     let mut font_data = vec![];

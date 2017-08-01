@@ -2,10 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::collections::HashMap;
 use api::{FontKey, FontRenderMode, GlyphDimensions};
 use api::{FontInstanceKey, GlyphKey, GlyphOptions, SubpixelDirection};
 use gamma_lut::{GammaLut, Color as ColorLut};
+use internal_types::FastHashMap;
 
 use dwrote;
 
@@ -19,7 +19,7 @@ lazy_static! {
 }
 
 pub struct FontContext {
-    fonts: HashMap<FontKey, dwrote::FontFace>,
+    fonts: FastHashMap<FontKey, dwrote::FontFace>,
     gamma_lut: GammaLut,
     gdi_gamma_lut: GammaLut,
 }
@@ -95,7 +95,7 @@ impl FontContext {
         let gamma = 1.8;
         let gdi_gamma = 2.3;
         FontContext {
-            fonts: HashMap::new(),
+            fonts: FastHashMap::default(),
             gamma_lut: GammaLut::new(contrast, gamma, gamma),
             gdi_gamma_lut: GammaLut::new(contrast, gdi_gamma, gdi_gamma),
         }

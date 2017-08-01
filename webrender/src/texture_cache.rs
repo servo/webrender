@@ -3,16 +3,13 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use device::TextureFilter;
-use fnv::FnvHasher;
 use freelist::{FreeList, FreeListItem, FreeListItemId};
 use gpu_cache::GpuCacheHandle;
-use internal_types::{TextureUpdate, TextureUpdateOp, UvRect};
+use internal_types::{FastHashMap, TextureUpdate, TextureUpdateOp, UvRect};
 use internal_types::{CacheTextureId, RenderTargetMode, TextureUpdateList};
 use profiler::TextureCacheProfileCounters;
 use std::cmp;
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::hash::BuildHasherDefault;
 use std::mem;
 use std::slice::Iter;
 use time;
@@ -575,7 +572,7 @@ impl CacheTextureIdList {
 
 pub struct TextureCache {
     cache_id_list: CacheTextureIdList,
-    free_texture_levels: HashMap<ImageFormat, Vec<FreeTextureLevel>, BuildHasherDefault<FnvHasher>>,
+    free_texture_levels: FastHashMap<ImageFormat, Vec<FreeTextureLevel>>,
     items: FreeList<TextureCacheItem>,
     arena: TextureCacheArena,
     pending_updates: TextureUpdateList,
@@ -603,7 +600,7 @@ impl TextureCache {
 
         TextureCache {
             cache_id_list: CacheTextureIdList::new(),
-            free_texture_levels: HashMap::default(),
+            free_texture_levels: FastHashMap::default(),
             items: FreeList::new(),
             pending_updates: TextureUpdateList::new(),
             arena: TextureCacheArena::new(),

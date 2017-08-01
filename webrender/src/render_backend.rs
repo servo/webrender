@@ -2,17 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use fnv::FnvHasher;
 use frame::Frame;
 use frame_builder::FrameBuilderConfig;
 use gpu_cache::GpuCache;
-use internal_types::{SourceTexture, ResultMsg, RendererFrame};
+use internal_types::{FastHashMap, SourceTexture, ResultMsg, RendererFrame};
 use profiler::{BackendProfileCounters, ResourceProfileCounters};
 use record::ApiRecordingReceiver;
 use resource_cache::ResourceCache;
 use scene::Scene;
-use std::collections::HashMap;
-use std::hash::BuildHasherDefault;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use texture_cache::TextureCache;
@@ -107,7 +104,7 @@ impl Document {
 
 struct WebGL {
     last_id: WebGLContextId,
-    contexts: HashMap<WebGLContextId, GLContextWrapper, BuildHasherDefault<FnvHasher>>,
+    contexts: FastHashMap<WebGLContextId, GLContextWrapper>,
     active_id: Option<WebGLContextId>,
 }
 
@@ -115,7 +112,7 @@ impl WebGL {
     fn new() -> Self {
         WebGL {
             last_id: WebGLContextId(0),
-            contexts: HashMap::with_hasher(Default::default()),
+            contexts: FastHashMap::default(),
             active_id: None,
         }
     }
@@ -184,7 +181,7 @@ pub struct RenderBackend {
     resource_cache: ResourceCache,
 
     frame_config: FrameBuilderConfig,
-    documents: HashMap<DocumentId, Document, BuildHasherDefault<FnvHasher>>,
+    documents: FastHashMap<DocumentId, Document>,
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
     webrender_context_handle: Option<GLContextHandleWrapper>,
@@ -230,7 +227,7 @@ impl RenderBackend {
             resource_cache,
             gpu_cache: GpuCache::new(),
             frame_config,
-            documents: HashMap::with_hasher(Default::default()),
+            documents: FastHashMap::default(),
             next_namespace_id: IdNamespace(1),
             notifier,
             webrender_context_handle,
