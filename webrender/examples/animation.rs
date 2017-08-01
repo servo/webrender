@@ -20,6 +20,7 @@ use webrender::api::*;
 // around by using the arrow keys. It does this by using the animation API.
 
 fn body(_api: &RenderApi,
+        _document_id: &DocumentId,
         builder: &mut DisplayListBuilder,
         _pipeline_id: &PipelineId,
         _layout_size: &LayoutSize) {

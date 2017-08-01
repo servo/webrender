@@ -174,6 +174,7 @@ fn main() {
 }
 
 fn body(api: &RenderApi,
+        _document_id: &DocumentId,
         builder: &mut DisplayListBuilder,
         _pipeline_id: &PipelineId,
         layout_size: &LayoutSize) {
