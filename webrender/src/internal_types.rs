@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use device::TextureFilter;
-use fnv::FnvHasher;
+use fxhash::FxHasher;
 use profiler::BackendProfileCounters;
 use std::collections::{HashMap, HashSet};
 use std::f32;
@@ -16,6 +16,9 @@ use renderer::BlendMode;
 use api::{ClipId, ColorU, DevicePoint, DeviceUintRect, DocumentId, Epoch};
 use api::{ExternalImageData, ExternalImageId};
 use api::{ImageData, ImageFormat, PipelineId};
+
+pub type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
+pub type FastHashSet<K> = HashSet<K, BuildHasherDefault<FxHasher>>;
 
 // An ID for a texture that is owned by the
 // texture cache module. This can include atlases
@@ -242,16 +245,16 @@ pub struct RendererFrame {
     /// The last rendered epoch for each pipeline present in the frame.
     /// This information is used to know if a certain transformation on the layout has
     /// been rendered, which is necessary for reftests.
-    pub pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
+    pub pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
     /// The layers that are currently affected by the over-scrolling animation.
-    pub layers_bouncing_back: HashSet<ClipId, BuildHasherDefault<FnvHasher>>,
+    pub layers_bouncing_back: FastHashSet<ClipId>,
 
     pub frame: Option<tiling::Frame>,
 }
 
 impl RendererFrame {
-    pub fn new(pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
-               layers_bouncing_back: HashSet<ClipId, BuildHasherDefault<FnvHasher>>,
+    pub fn new(pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
+               layers_bouncing_back: FastHashSet<ClipId>,
                frame: Option<tiling::Frame>)
                -> RendererFrame {
         RendererFrame {
