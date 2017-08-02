@@ -667,6 +667,8 @@ pub struct Renderer {
 
     notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
 
+    max_texture_size: u32,
+
     enable_profiler: bool,
     max_recorded_profiles: usize,
     clear_framebuffer: bool,
@@ -1223,6 +1225,7 @@ impl Renderer {
             backend_profile_counters: BackendProfileCounters::new(),
             profile_counters: RendererProfileCounters::new(),
             profiler: Profiler::new(),
+            max_texture_size: max_texture_size,
             enable_profiler: options.enable_profiler,
             max_recorded_profiles: options.max_recorded_profiles,
             clear_framebuffer: options.clear_framebuffer,
@@ -1252,6 +1255,10 @@ impl Renderer {
 
         let sender = RenderApiSender::new(api_tx, payload_tx);
         Ok((renderer, sender))
+    }
+
+    pub fn get_max_texture_size(&self) -> u32 {
+        self.max_texture_size
     }
 
     pub fn get_graphics_api_info(&self) -> GraphicsApiInfo {
