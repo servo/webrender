@@ -332,12 +332,6 @@ impl IBOId {
     }
 }
 
-impl UBOId {
-    fn _bind(&self, gl: &gl::Gl) {
-        gl.bind_buffer(gl::UNIFORM_BUFFER, self.0);
-    }
-}
-
 impl FBOId {
     fn bind(&self, gl: &gl::Gl, target: FBOTarget) {
         let target = match target {
@@ -490,9 +484,6 @@ pub struct VBOId(gl::GLuint);
 
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 struct IBOId(gl::GLuint);
-
-#[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
-pub struct UBOId(gl::GLuint);
 
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 pub struct PBOId(gl::GLuint);
@@ -839,7 +830,6 @@ impl FileWatcherThread {
 */
 
 pub struct Capabilities {
-    pub max_ubo_size: usize,
     pub supports_multisampling: bool,
 }
 
@@ -898,7 +888,6 @@ impl Device {
         let shader_preamble = get_shader_source(SHADER_PREAMBLE, &resource_override_path);
         //file_watcher.add_watch(resource_path);
 
-        let max_ubo_size = gl.get_integer_v(gl::MAX_UNIFORM_BLOCK_SIZE) as usize;
         let max_texture_size = gl.get_integer_v(gl::MAX_TEXTURE_SIZE) as u32;
 
         Device {
@@ -910,7 +899,6 @@ impl Device {
             inside_frame: false,
 
             capabilities: Capabilities {
-                max_ubo_size,
                 supports_multisampling: false, //TODO
             },
 
@@ -1952,29 +1940,6 @@ impl Device {
         self.gl.active_texture(gl::TEXTURE0);
 
         self.frame_id.0 += 1;
-    }
-
-    pub fn assign_ubo_binding(&self, program_id: ProgramId, name: &str, value: u32) -> u32 {
-        let index = self.gl.get_uniform_block_index(program_id.0, name);
-        self.gl.uniform_block_binding(program_id.0, index, value);
-        index
-    }
-
-    pub fn create_ubo<T>(&self, data: &[T], binding: u32) -> UBOId {
-        let ubo = self.gl.gen_buffers(1)[0];
-        self.gl.bind_buffer(gl::UNIFORM_BUFFER, ubo);
-        gl::buffer_data(self.gl(), gl::UNIFORM_BUFFER, data, gl::STATIC_DRAW);
-        self.gl.bind_buffer_base(gl::UNIFORM_BUFFER, binding, ubo);
-        UBOId(ubo)
-    }
-
-    pub fn reset_ubo(&self, binding: u32) {
-        self.gl.bind_buffer(gl::UNIFORM_BUFFER, 0);
-        self.gl.bind_buffer_base(gl::UNIFORM_BUFFER, binding, 0);
-    }
-
-    pub fn delete_buffer(&self, buffer: UBOId) {
-        self.gl.delete_buffers(&[buffer.0]);
     }
 
     #[cfg(target_os = "android")]

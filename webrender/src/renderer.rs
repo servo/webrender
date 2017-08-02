@@ -506,17 +506,6 @@ impl FileWatcherHandler for FileWatcher {
     }
 }
 
-fn _get_ubo_max_len<T>(max_ubo_size: usize) -> usize {
-    let item_size = mem::size_of::<T>();
-    let max_items = max_ubo_size / item_size;
-
-    // TODO(gw): Clamping to 1024 since some shader compilers
-    //           seem to go very slow when you have high
-    //           constants for array lengths. Investigate
-    //           whether this clamping actually hurts performance!
-    cmp::min(max_items, 1024)
-}
-
 impl PrimitiveShader {
     fn new(name: &'static str,
            device: &mut Device,
