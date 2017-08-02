@@ -11,7 +11,7 @@ use platform::font::{FontContext, RasterizedGlyph};
 use profiler::TextureCacheProfileCounters;
 use rayon::ThreadPool;
 use rayon::prelude::*;
-use resource_cache::ResourceClassCache;
+use resource_cache::{Resource, ResourceClassCache};
 use std::hash::BuildHasherDefault;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -26,7 +26,26 @@ use api::{FontKey, FontTemplate};
 use api::{ImageData, ImageDescriptor, ImageFormat};
 use api::{GlyphKey, GlyphInstance, GlyphDimensions};
 
-pub type GlyphCache = ResourceClassCache<GlyphRequest, Option<TextureCacheItemId>>;
+pub struct CachedGlyphInfo {
+    pub texture_cache_id: Option<TextureCacheItemId>,
+    pub last_access: FrameId,
+}
+
+impl Resource for CachedGlyphInfo {
+    fn free(&self, texture_cache: &mut TextureCache) {
+        if let Some(id) = self.texture_cache_id {
+            texture_cache.free(id);
+        }
+    }
+    fn get_last_access_time(&self) -> FrameId {
+        self.last_access
+    }
+    fn set_last_access_time(&mut self, frame_id: FrameId) {
+        self.last_access = frame_id;
+    }
+}
+
+pub type GlyphCache = ResourceClassCache<GlyphRequest, CachedGlyphInfo>;
 
 pub struct FontContexts {
     // These worker are mostly accessed from their corresponding worker threads.
@@ -166,7 +185,7 @@ impl GlyphRasterizer {
 
             match glyph_cache.entry(glyph_request.clone(), current_frame_id) {
                 Entry::Occupied(entry) => {
-                    if let &Some(texture_cache_item_id) = entry.get() {
+                    if let Some(texture_cache_item_id) = entry.get().texture_cache_id {
                         requested_items.insert(texture_cache_item_id);
                     }
                 }
@@ -278,7 +297,10 @@ impl GlyphRasterizer {
                 }
             );
 
-            glyph_cache.insert(job.request, image_id, current_frame_id);
+            glyph_cache.insert(job.request, CachedGlyphInfo {
+                texture_cache_id: image_id,
+                last_access: current_frame_id,
+            });
         }
 
         // Now that we are done with the critical path (rendering the glyphs),
