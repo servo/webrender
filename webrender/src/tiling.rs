@@ -492,7 +492,7 @@ impl AlphaRenderItem {
                                                         text_cpu.subpx_dir);
 
                         let texture_id = ctx.resource_cache.get_glyphs(font,
-                                                                       &text_cpu.glyph_instances,
+                                                                       &text_cpu.glyph_keys,
                                                                        |index, handle| {
                             let uv_address = handle.as_int(gpu_cache);
                             instances.push(base_instance.build(index as i32, uv_address, 0));
@@ -1068,7 +1068,7 @@ impl RenderTarget for ColorRenderTarget {
                                                                     text.subpx_dir);
 
                                     let texture_id = ctx.resource_cache.get_glyphs(font,
-                                                                                   &text.glyph_instances,
+                                                                                   &text.glyph_keys,
                                                                                    |index, handle| {
                                         let uv_address = handle.as_int(gpu_cache);
                                         instances.push(instance.build(index as i32,

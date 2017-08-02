@@ -4,6 +4,7 @@
 
 use device::TextureFilter;
 use frame::FrameId;
+use glyph_cache::GlyphCache;
 use gpu_cache::{GpuCache, GpuCacheHandle};
 use internal_types::{FastHashMap, FastHashSet, SourceTexture, TextureUpdateList};
 use profiler::TextureCacheProfileCounters;
@@ -17,12 +18,12 @@ use api::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, BlobImageReque
 use api::{BlobImageResources, BlobImageData};
 use api::{DevicePoint, DeviceIntSize, DeviceUintRect, DeviceUintSize};
 use api::{Epoch, FontInstanceKey, FontKey, FontTemplate};
-use api::{GlyphDimensions, GlyphKey, GlyphInstance, IdNamespace};
+use api::{GlyphDimensions, GlyphKey, IdNamespace};
 use api::{ImageData, ImageDescriptor, ImageKey, ImageRendering};
 use api::{TileOffset, TileSize};
 use api::{ExternalImageData, ExternalImageType, WebGLContextId};
 use rayon::ThreadPool;
-use glyph_rasterizer::{GlyphRasterizer, GlyphCache, GlyphRequest};
+use glyph_rasterizer::{GlyphRasterizer, GlyphRequest};
 
 const DEFAULT_TILE_SIZE: TileSize = 512;
 
@@ -143,7 +144,11 @@ impl<K,V> ResourceClassCache<K,V> where K: Clone + Hash + Eq + Debug, V: Resourc
         entry
     }
 
-    fn expire_old_resources(&mut self, texture_cache: &mut TextureCache, frame_id: FrameId) {
+    pub fn is_empty(&self) -> bool {
+        self.resources.is_empty()
+    }
+
+    pub fn expire_old_resources(&mut self, texture_cache: &mut TextureCache, frame_id: FrameId) {
         //TODO: use retain when available
         let resources_to_destroy = self.resources.iter()
             .filter_map(|(key, resource)| {
@@ -159,6 +164,12 @@ impl<K,V> ResourceClassCache<K,V> where K: Clone + Hash + Eq + Debug, V: Resourc
                 self.resources
                     .remove(&key)
                     .expect("Resource was in `last_access_times` but not in `resources`!");
+            resource.free(texture_cache);
+        }
+    }
+
+    pub fn clear(&mut self, texture_cache: &mut TextureCache) {
+        for (_, resource) in self.resources.drain() {
             resource.free(texture_cache);
         }
     }
@@ -246,7 +257,7 @@ impl ResourceCache {
                workers: Arc<ThreadPool>,
                blob_image_renderer: Option<Box<BlobImageRenderer>>) -> ResourceCache {
         ResourceCache {
-            cached_glyphs: ResourceClassCache::new(),
+            cached_glyphs: GlyphCache::new(),
             cached_images: ResourceClassCache::new(),
             webgl_textures: FastHashMap::default(),
             resources: Resources {
@@ -482,14 +493,14 @@ impl ResourceCache {
 
     pub fn request_glyphs(&mut self,
                           font: FontInstanceKey,
-                          glyph_instances: &[GlyphInstance]) {
+                          glyph_keys: &[GlyphKey]) {
         debug_assert_eq!(self.state, State::AddResources);
 
         self.glyph_rasterizer.request_glyphs(
             &mut self.cached_glyphs,
             self.current_frame_id,
             font,
-            glyph_instances,
+            glyph_keys,
             &mut self.requested_glyphs,
         );
     }
@@ -500,16 +511,15 @@ impl ResourceCache {
 
     pub fn get_glyphs<F>(&self,
                          font: FontInstanceKey,
-                         glyph_instances: &[GlyphInstance],
+                         glyph_keys: &[GlyphKey],
                          mut f: F) -> SourceTexture where F: FnMut(usize, &GpuCacheHandle) {
         debug_assert_eq!(self.state, State::QueryResources);
         let mut texture_id = None;
-        for (loop_index, glyph_instance) in glyph_instances.iter().enumerate() {
-            let glyph_request = GlyphRequest::new(font.clone(),
-                                                  glyph_instance.index,
-                                                  glyph_instance.point);
 
-            let glyph = self.cached_glyphs.get(&glyph_request, self.current_frame_id);
+        let glyph_key_cache = self.cached_glyphs.get_glyph_key_cache_for_font(&font);
+
+        for (loop_index, key) in glyph_keys.iter().enumerate() {
+            let glyph = glyph_key_cache.get(key, self.current_frame_id);
             let cache_item = glyph.texture_cache_id.map(|image_id| self.texture_cache.get(image_id));
             if let Some(cache_item) = cache_item {
                 f(loop_index, &cache_item.uv_rect_handle);
@@ -524,11 +534,8 @@ impl ResourceCache {
 
     pub fn get_glyph_dimensions(&mut self,
                                 font: &FontInstanceKey,
-                                glyph_key: &GlyphKey) -> Option<GlyphDimensions> {
-        let key = GlyphRequest {
-            font: font.clone(),
-            key: glyph_key.clone(),
-        };
+                                key: &GlyphKey) -> Option<GlyphDimensions> {
+        let key = GlyphRequest::new(font, key);
 
         match self.cached_glyph_dimensions.entry(key.clone()) {
             Occupied(entry) => *entry.get(),
@@ -797,7 +804,7 @@ impl ResourceCache {
         }
 
         self.cached_images.clear_keys(&mut self.texture_cache, |request| request.key.0 == namespace);
-        self.cached_glyphs.clear_keys(&mut self.texture_cache, |request| request.font.font_key.0 == namespace);
+        self.cached_glyphs.clear_fonts(&mut self.texture_cache, |font| font.font_key.0 == namespace);
     }
 }
 

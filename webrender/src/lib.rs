@@ -61,6 +61,7 @@ mod frame;
 mod frame_builder;
 mod freelist;
 mod geometry;
+mod glyph_cache;
 mod glyph_rasterizer;
 mod gpu_cache;
 mod internal_types;
