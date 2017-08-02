@@ -5,6 +5,7 @@
 use api::{FontInstanceKey, FontKey, FontRenderMode, GlyphDimensions};
 use api::{NativeFontHandle};
 use api::{GlyphKey};
+use internal_types::FastHashMap;
 
 use freetype::freetype::{FT_Render_Mode, FT_Pixel_Mode};
 use freetype::freetype::{FT_Done_FreeType, FT_Library_SetLcdFilter};
@@ -15,7 +16,6 @@ use freetype::freetype::{FT_New_Memory_Face, FT_GlyphSlot, FT_LcdFilter};
 use freetype::freetype::{FT_Done_Face, FT_Error, FT_Int32, FT_Get_Char_Index};
 
 use std::{cmp, mem, ptr, slice};
-use std::collections::HashMap;
 
 // This constant is not present in the freetype
 // bindings due to bindgen not handling the way
@@ -34,7 +34,7 @@ struct Face {
 
 pub struct FontContext {
     lib: FT_Library,
-    faces: HashMap<FontKey, Face>,
+    faces: FastHashMap<FontKey, Face>,
     lcd_extra_pixels: i32,
 }
 
@@ -75,7 +75,7 @@ impl FontContext {
 
         FontContext {
             lib,
-            faces: HashMap::new(),
+            faces: FastHashMap::default(),
             lcd_extra_pixels: lcd_extra_pixels,
         }
     }

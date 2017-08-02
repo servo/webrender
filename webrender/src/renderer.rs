@@ -15,11 +15,10 @@ use device::{DepthFunction, Device, FrameId, ProgramId, TextureId, VertexFormat,
 use device::{GpuSample, TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
 use device::get_gl_format_bgra;
 use euclid::Transform3D;
-use fnv::FnvHasher;
 use frame_builder::FrameBuilderConfig;
 use gleam::gl;
 use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
-use internal_types::{CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
+use internal_types::{FastHashMap, CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateList, PackedVertex, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, SourceTexture};
 use internal_types::{BatchTextures, TextureSampler};
@@ -30,9 +29,8 @@ use render_backend::RenderBackend;
 use render_task::RenderTaskData;
 use std;
 use std::cmp;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::f32;
-use std::hash::BuildHasherDefault;
 use std::marker::PhantomData;
 use std::mem;
 use std::path::PathBuf;
@@ -684,7 +682,7 @@ pub struct Renderer {
 
     gpu_cache_texture: CacheTexture,
 
-    pipeline_epoch_map: HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>>,
+    pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
     /// Used to dispatch functions to the main thread's event loop.
     /// Required to allow GLContext sharing in some implementations like WGL.
     main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
@@ -711,7 +709,7 @@ pub struct Renderer {
     external_image_handler: Option<Box<ExternalImageHandler>>,
 
     /// Map of external image IDs to native textures.
-    external_images: HashMap<(ExternalImageId, u8), TextureId, BuildHasherDefault<FnvHasher>>,
+    external_images: FastHashMap<(ExternalImageId, u8), TextureId>,
 
     // Optional trait object that handles WebVR commands.
     // Some WebVR commands such as SubmitFrame must be synced with the WebGL render thread.
@@ -1229,13 +1227,13 @@ impl Renderer {
             clip_vao_id,
             gdt_index: 0,
             gpu_data_textures,
-            pipeline_epoch_map: HashMap::default(),
+            pipeline_epoch_map: FastHashMap::default(),
             main_thread_dispatcher,
             cache_texture_id_map: Vec::new(),
             dummy_cache_texture_id,
             dither_matrix_texture_id,
             external_image_handler: None,
-            external_images: HashMap::default(),
+            external_images: FastHashMap::default(),
             vr_compositor_handler: vr_compositor,
             cpu_profiles: VecDeque::new(),
             gpu_profiles: VecDeque::new(),
@@ -1295,8 +1293,8 @@ impl Renderer {
 
     /// Returns a HashMap containing the pipeline ids that have been received by the renderer and
     /// their respective epochs since the last time the method was called.
-    pub fn flush_rendered_epochs(&mut self) -> HashMap<PipelineId, Epoch, BuildHasherDefault<FnvHasher>> {
-        mem::replace(&mut self.pipeline_epoch_map, HashMap::default())
+    pub fn flush_rendered_epochs(&mut self) -> FastHashMap<PipelineId, Epoch> {
+        mem::replace(&mut self.pipeline_epoch_map, FastHashMap::default())
     }
 
     /// Processes the result queue.

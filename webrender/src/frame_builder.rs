@@ -10,10 +10,9 @@ use api::{LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation
 use api::{LocalClip, PipelineId, RepeatMode, ScrollSensitivity, TextShadow, TileOffset};
 use api::{TransformStyle, WebGLContextId, WorldPixel, YuvColorSpace, YuvData};
 use app_units::Au;
-use fnv::FnvHasher;
 use frame::FrameId;
 use gpu_cache::GpuCache;
-use internal_types::HardwareCompositeOp;
+use internal_types::{FastHashMap, HardwareCompositeOp};
 use mask_cache::{ClipMode, ClipRegion, ClipSource, MaskCacheInfo};
 use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, LinePrimitive, PrimitiveKind};
@@ -28,8 +27,6 @@ use resource_cache::ResourceCache;
 use clip_scroll_node::{ClipInfo, ClipScrollNode, NodeType};
 use clip_scroll_tree::ClipScrollTree;
 use std::{cmp, f32, i32, mem, usize};
-use std::collections::HashMap;
-use std::hash::BuildHasherDefault;
 use euclid::{SideOffsets2D, vec2, vec3};
 use tiling::{ContextIsolation, StackingContextIndex};
 use tiling::{ClipScrollGroup, ClipScrollGroupIndex, CompositeOps, DisplayListMap, Frame};
@@ -118,9 +115,8 @@ pub struct FrameBuilder {
 
     stacking_context_store: Vec<StackingContext>,
     clip_scroll_group_store: Vec<ClipScrollGroup>,
-    clip_scroll_group_indices: HashMap<ClipAndScrollInfo,
-                                       ClipScrollGroupIndex,
-                                       BuildHasherDefault<FnvHasher>>,
+    clip_scroll_group_indices: FastHashMap<ClipAndScrollInfo,
+                                           ClipScrollGroupIndex>,
     packed_layers: Vec<PackedLayer>,
 
     // A stack of the current text-shadow primitives.
@@ -151,7 +147,7 @@ impl FrameBuilder {
                 FrameBuilder {
                     stacking_context_store: recycle_vec(prev.stacking_context_store),
                     clip_scroll_group_store: recycle_vec(prev.clip_scroll_group_store),
-                    clip_scroll_group_indices: HashMap::default(),
+                    clip_scroll_group_indices: FastHashMap::default(),
                     cmds: recycle_vec(prev.cmds),
                     packed_layers: recycle_vec(prev.packed_layers),
                     shadow_prim_stack: recycle_vec(prev.shadow_prim_stack),
@@ -169,7 +165,7 @@ impl FrameBuilder {
                 FrameBuilder {
                     stacking_context_store: Vec::new(),
                     clip_scroll_group_store: Vec::new(),
-                    clip_scroll_group_indices: HashMap::default(),
+                    clip_scroll_group_indices: FastHashMap::default(),
                     cmds: Vec::new(),
                     packed_layers: Vec::new(),
                     shadow_prim_stack: Vec::new(),
@@ -924,7 +920,8 @@ impl FrameBuilder {
             logical_font_size: size,
             glyph_range,
             glyph_count,
-            glyph_instances: Vec::new(),
+            glyph_gpu_blocks: Vec::new(),
+            glyph_keys: Vec::new(),
             glyph_options,
             normal_render_mode,
             shadow_render_mode,
@@ -1370,7 +1367,7 @@ impl FrameBuilder {
         // The stacking contexts that fall into this category are
         //  - ones with `ContextIsolation::Items`, for their actual items to be backed
         //  - immediate children of `ContextIsolation::Items`
-        let mut preserve_3d_map: HashMap<StackingContextIndex, RenderTask> = HashMap::new();
+        let mut preserve_3d_map: FastHashMap<StackingContextIndex, RenderTask> = FastHashMap::default();
         // The plane splitter stack, using a simple BSP tree.
         let mut splitter_stack = Vec::new();
 

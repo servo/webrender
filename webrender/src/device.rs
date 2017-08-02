@@ -3,16 +3,13 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use euclid::Transform3D;
-use fnv::FnvHasher;
 use gleam::gl;
 use internal_types::{PackedVertex, RenderTargetMode, TextureSampler, DEFAULT_TEXTURE};
 use internal_types::{BlurAttribute, ClipAttribute, VertexAttribute};
-use internal_types::{DebugFontVertex, DebugColorVertex};
+use internal_types::{DebugFontVertex, DebugColorVertex, FastHashMap};
 //use notify::{self, Watcher};
 use super::shader_source;
-use std::collections::HashMap;
 use std::fs::File;
-use std::hash::BuildHasherDefault;
 use std::io::Read;
 use std::iter::repeat;
 use std::mem;
@@ -860,9 +857,9 @@ pub struct Device {
 
     // resources
     resource_override_path: Option<PathBuf>,
-    textures: HashMap<TextureId, Texture, BuildHasherDefault<FnvHasher>>,
-    programs: HashMap<ProgramId, Program, BuildHasherDefault<FnvHasher>>,
-    vaos: HashMap<VAOId, VAO, BuildHasherDefault<FnvHasher>>,
+    textures: FastHashMap<TextureId, Texture>,
+    programs: FastHashMap<ProgramId, Program>,
+    vaos: FastHashMap<VAOId, VAO>,
 
     // misc.
     shader_preamble: String,
@@ -911,9 +908,9 @@ impl Device {
             default_read_fbo: 0,
             default_draw_fbo: 0,
 
-            textures: HashMap::default(),
-            programs: HashMap::default(),
-            vaos: HashMap::default(),
+            textures: FastHashMap::default(),
+            programs: FastHashMap::default(),
+            vaos: FastHashMap::default(),
 
             shader_preamble,
 

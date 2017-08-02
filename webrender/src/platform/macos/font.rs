@@ -13,7 +13,7 @@ use core_graphics::geometry::{CGPoint, CGSize, CGRect};
 use core_text::font::CTFont;
 use core_text::font_descriptor::kCTFontDefaultOrientation;
 use core_text;
-use std::collections::HashMap;
+use internal_types::FastHashMap;
 use std::collections::hash_map::Entry;
 use api::{ColorU, FontKey, FontRenderMode, GlyphDimensions};
 use api::{GlyphKey, SubpixelDirection};
@@ -22,8 +22,8 @@ use gamma_lut::{GammaLut, Color as ColorLut};
 use std::ptr;
 
 pub struct FontContext {
-    cg_fonts: HashMap<FontKey, CGFont>,
-    ct_fonts: HashMap<(FontKey, Au), CTFont>,
+    cg_fonts: FastHashMap<FontKey, CGFont>,
+    ct_fonts: FastHashMap<(FontKey, Au), CTFont>,
     gamma_lut: GammaLut,
 }
 
@@ -153,8 +153,8 @@ impl FontContext {
         let gamma = 0.0;
 
         FontContext {
-            cg_fonts: HashMap::new(),
-            ct_fonts: HashMap::new(),
+            cg_fonts: FastHashMap::default(),
+            ct_fonts: FastHashMap::default(),
             gamma_lut: GammaLut::new(contrast, gamma, gamma),
         }
     }
