@@ -1942,21 +1942,6 @@ impl Device {
         self.frame_id.0 += 1;
     }
 
-    #[cfg(target_os = "android")]
-    pub fn set_multisample(&self, enable: bool) {
-    }
-
-    #[cfg(not(target_os = "android"))]
-    pub fn set_multisample(&self, enable: bool) {
-        if self.capabilities.supports_multisampling {
-            if enable {
-                self.gl.enable(gl::MULTISAMPLE);
-            } else {
-                self.gl.disable(gl::MULTISAMPLE);
-            }
-        }
-    }
-
     pub fn clear_target(&self,
                         color: Option<[f32; 4]>,
                         depth: Option<f32>) {
