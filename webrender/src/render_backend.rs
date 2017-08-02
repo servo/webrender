@@ -213,7 +213,10 @@ impl RenderBackend {
         enable_render_on_scroll: bool,
     ) -> RenderBackend {
 
-        let resource_cache = ResourceCache::new(texture_cache, workers, blob_image_renderer);
+        let resource_cache = ResourceCache::new(texture_cache,
+                                                workers,
+                                                blob_image_renderer,
+                                                frame_config.cache_expiry_frames);
 
         register_thread_with_profiler("Backend".to_string());
 
