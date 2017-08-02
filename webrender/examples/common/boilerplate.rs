@@ -52,6 +52,7 @@ impl HandyDandyRectBuilder for (i32, i32) {
 }
 
 pub fn main_wrapper(builder_callback: fn(&RenderApi,
+                                         &DocumentId,
                                          &mut DisplayListBuilder,
                                          &PipelineId,
                                          &LayoutSize) -> (),
@@ -102,6 +103,7 @@ pub fn main_wrapper(builder_callback: fn(&RenderApi,
     let size = DeviceUintSize::new(width, height);
     let (mut renderer, sender) = webrender::renderer::Renderer::new(gl, opts).unwrap();
     let api = sender.create_api();
+    let document_id = api.add_document(size);
 
     let notifier = Box::new(Notifier::new(window.create_window_proxy()));
     renderer.set_render_notifier(notifier);
@@ -113,9 +115,8 @@ pub fn main_wrapper(builder_callback: fn(&RenderApi,
     let layout_size = LayoutSize::new(width as f32, height as f32);
     let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);
 
-    builder_callback(&api, &mut builder, &pipeline_id, &layout_size);
+    builder_callback(&api, &document_id, &mut builder, &pipeline_id, &layout_size);
 
-    let document_id = api.add_document(size);
     api.set_display_list(
         document_id,
         epoch,

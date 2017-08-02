@@ -17,6 +17,7 @@ use std::sync::Mutex;
 use webrender::api::*;
 
 fn body(_api: &RenderApi,
+        _document_id: &DocumentId,
         builder: &mut DisplayListBuilder,
         _pipeline_id: &PipelineId,
         layout_size: &LayoutSize) {

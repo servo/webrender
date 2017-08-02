@@ -213,6 +213,7 @@ impl api::BlobImageRenderer for CheckerboardRenderer {
 }
 
 fn body(api: &api::RenderApi,
+        _document_id: &api::DocumentId,
         builder: &mut api::DisplayListBuilder,
         _pipeline_id: &api::PipelineId,
         layout_size: &api::LayoutSize) {
