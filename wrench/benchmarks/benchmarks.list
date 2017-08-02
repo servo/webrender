@@ -4,3 +4,5 @@ simple-batching.yaml
 large-clip-rect.yaml
 transforms-simple.yaml
 text-rendering.yaml
+many-images.yaml
+
