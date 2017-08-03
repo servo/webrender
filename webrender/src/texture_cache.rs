@@ -685,9 +685,18 @@ impl TextureCache {
             ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
         };
 
+
         // TODO(gw): Handle this sensibly (support failing to render items that can't fit?)
-        assert!(requested_size.width <= self.max_texture_size);
-        assert!(requested_size.height <= self.max_texture_size);
+        assert!(
+            requested_size.width <= self.max_texture_size,
+            "Width {:?} > max texture size (format: {:?}).",
+            requested_size.width, format
+        );
+        assert!(
+            requested_size.height <= self.max_texture_size,
+            "Height {:?} > max texture size (format: {:?}).",
+            requested_size.height, format
+        );
 
         let mut page_id = None; //using ID here to please the borrow checker
         for (i, page) in page_list.iter_mut().enumerate() {
