@@ -17,8 +17,8 @@ use {PushStackingContextDisplayItem, RadialGradient, RadialGradientDisplayItem};
 use {RectangleDisplayItem, ScrollFrameDisplayItem, ScrollPolicy, ScrollSensitivity};
 use {SpecificDisplayItem, StackingContext, TextDisplayItem, TextShadow, TransformStyle};
 use {WebGLContextId, WebGLDisplayItem, YuvColorSpace, YuvData, YuvImageDisplayItem};
+use {FastHashMap, FastHashSet};
 use std::marker::PhantomData;
-use std::collections::{HashMap, HashSet};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -445,7 +445,7 @@ pub struct DisplayListBuilder {
     pub pipeline_id: PipelineId,
     clip_stack: Vec<ClipAndScrollInfo>,
     // FIXME: audit whether fast hashers (FNV?) are safe here
-    glyphs: HashMap<(FontKey, ColorF), HashSet<u32>>,
+    glyphs: FastHashMap<(FontKey, ColorF), FastHashSet<u32>>,
     next_clip_id: u64,
     builder_start_time: u64,
 
@@ -471,7 +471,7 @@ impl DisplayListBuilder {
             data: Vec::with_capacity(capacity),
             pipeline_id,
             clip_stack: vec![ClipAndScrollInfo::simple(ClipId::root_scroll_node(pipeline_id))],
-            glyphs: HashMap::new(),
+            glyphs: FastHashMap::default(),
             next_clip_id: FIRST_CLIP_ID,
             builder_start_time: start_time,
             content_size,
@@ -626,7 +626,7 @@ impl DisplayListBuilder {
 
             // Remember that we've seen these glyphs
             let mut font_glyphs = self.glyphs.entry((font_key, color))
-                                             .or_insert(HashSet::new());
+                                             .or_insert(FastHashSet::default());
 
             font_glyphs.extend(glyphs.iter().map(|glyph| glyph.index));
         }
@@ -1004,7 +1004,7 @@ impl DisplayListBuilder {
         let glyph_offset = self.data.len();
 
         // Want to use self.push_iter, so can't borrow self
-        let glyphs = ::std::mem::replace(&mut self.glyphs, HashMap::new());
+        let glyphs = ::std::mem::replace(&mut self.glyphs, FastHashMap::default());
 
         // Append glyph data to the end
         for ((font_key, color), sub_glyphs) in glyphs {
