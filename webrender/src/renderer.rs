@@ -11,15 +11,15 @@
 
 use debug_colors;
 use debug_render::DebugRenderer;
-use device::{DepthFunction, Device, FrameId, ProgramId, TextureId, VertexFormat, GpuMarker, GpuProfiler, PBOId};
+use device::{DepthFunction, Device, FrameId, ProgramId, TextureId, VertexDescriptor, GpuMarker, GpuProfiler, PBOId};
 use device::{GpuSample, TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
-use device::get_gl_format_bgra;
+use device::{get_gl_format_bgra, VertexAttribute, VertexAttributeKind};
 use euclid::{Transform3D, rect};
 use frame_builder::FrameBuilderConfig;
 use gleam::gl;
 use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
 use internal_types::{FastHashMap, CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
-use internal_types::{TextureUpdateList, PackedVertex, RenderTargetMode};
+use internal_types::{TextureUpdateList, RenderTargetMode};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, SourceTexture};
 use internal_types::{BatchTextures, TextureSampler};
 use profiler::{Profiler, BackendProfileCounters};
@@ -91,6 +91,53 @@ bitflags! {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct PackedVertex {
+    pub pos: [f32; 2],
+}
+
+const DESC_PRIM_INSTANCES: VertexDescriptor = VertexDescriptor {
+    vertex_attributes: &[
+        VertexAttribute { name: "aPosition", count: 2, kind: VertexAttributeKind::F32 },
+    ],
+    instance_attributes: &[
+        VertexAttribute { name: "aData0", count: 4, kind: VertexAttributeKind::I32 },
+        VertexAttribute { name: "aData1", count: 4, kind: VertexAttributeKind::I32 },
+    ]
+};
+
+const DESC_BLUR: VertexDescriptor = VertexDescriptor {
+    vertex_attributes: &[
+        VertexAttribute { name: "aPosition", count: 2, kind: VertexAttributeKind::F32 },
+    ],
+    instance_attributes: &[
+        VertexAttribute { name: "aBlurRenderTaskIndex", count: 1, kind: VertexAttributeKind::I32 },
+        VertexAttribute { name: "aBlurSourceTaskIndex", count: 1, kind: VertexAttributeKind::I32 },
+        VertexAttribute { name: "aBlurDirection", count: 1, kind: VertexAttributeKind::I32 },
+    ]
+};
+
+const DESC_CLIP: VertexDescriptor = VertexDescriptor {
+    vertex_attributes: &[
+        VertexAttribute { name: "aPosition", count: 2, kind: VertexAttributeKind::F32 },
+    ],
+    instance_attributes: &[
+        VertexAttribute { name: "aClipRenderTaskIndex", count: 1, kind: VertexAttributeKind::I32 },
+        VertexAttribute { name: "aClipLayerIndex", count: 1, kind: VertexAttributeKind::I32 },
+        VertexAttribute { name: "aClipDataIndex", count: 1, kind: VertexAttributeKind::I32 },
+        VertexAttribute { name: "aClipSegmentIndex", count: 1, kind: VertexAttributeKind::I32 },
+        VertexAttribute { name: "aClipResourceAddress", count: 1, kind: VertexAttributeKind::I32 },
+    ]
+};
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum VertexFormat {
+    PrimitiveInstances,
+    Blur,
+    Clip,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum GraphicsApi {
     OpenGL,
@@ -109,6 +156,7 @@ pub enum ImageBufferKind {
     TextureRect = 1,
     TextureExternal = 2,
 }
+
 pub const IMAGE_BUFFER_KINDS: [ImageBufferKind; 3] = [
     ImageBufferKind::Texture2D,
     ImageBufferKind::TextureRect,
@@ -475,7 +523,7 @@ impl LazilyCompiledShader {
                         create_prim_shader(self.name,
                                            device,
                                            &self.features,
-                                           VertexFormat::Triangles)
+                                           VertexFormat::PrimitiveInstances)
                     }
                     ShaderKind::Cache(format) => {
                         create_prim_shader(self.name,
@@ -567,7 +615,17 @@ fn create_prim_shader(name: &'static str,
     debug!("PrimShader {}", name);
 
     let includes = &["prim_shared"];
-    device.create_program_with_prefix(name, includes, Some(prefix), vertex_format)
+
+    let vertex_descriptor = match vertex_format {
+        VertexFormat::PrimitiveInstances => DESC_PRIM_INSTANCES,
+        VertexFormat::Blur => DESC_BLUR,
+        VertexFormat::Clip => DESC_CLIP,
+    };
+
+    device.create_program_with_prefix(name,
+                                      includes,
+                                      Some(prefix),
+                                      &vertex_descriptor)
 }
 
 fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<ProgramId, ShaderError> {
@@ -578,7 +636,7 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program
     debug!("ClipShader {}", name);
 
     let includes = &["prim_shared", "clip_shared"];
-    device.create_program_with_prefix(name, includes, Some(prefix), VertexFormat::Clip)
+    device.create_program_with_prefix(name, includes, Some(prefix), &DESC_CLIP)
 }
 
 struct GpuDataTextures {
@@ -783,7 +841,7 @@ impl Renderer {
         device.begin_frame(1.0);
 
         let cs_box_shadow = try!{
-            LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::Triangles),
+            LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::PrimitiveInstances),
                                       "cs_box_shadow",
                                       &[],
                                       &mut device,
@@ -791,7 +849,7 @@ impl Renderer {
         };
 
         let cs_text_run = try!{
-            LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::Triangles),
+            LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::PrimitiveInstances),
                                       "cs_text_run",
                                       &[],
                                       &mut device,
@@ -799,7 +857,7 @@ impl Renderer {
         };
 
         let cs_line = try!{
-            LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::Triangles),
+            LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::PrimitiveInstances),
                                       "ps_line",
                                       &["CACHE"],
                                       &mut device,
@@ -1107,13 +1165,13 @@ impl Renderer {
             },
         ];
 
-        let prim_vao_id = device.create_vao(VertexFormat::Triangles, mem::size_of::<PrimitiveInstance>() as i32);
+        let prim_vao_id = device.create_vao(&DESC_PRIM_INSTANCES, mem::size_of::<PrimitiveInstance>() as i32);
         device.bind_vao(prim_vao_id);
         device.update_vao_indices(prim_vao_id, &quad_indices, VertexUsageHint::Static);
         device.update_vao_main_vertices(prim_vao_id, &quad_vertices, VertexUsageHint::Static);
 
-        let blur_vao_id = device.create_vao_with_new_instances(VertexFormat::Blur, mem::size_of::<BlurCommand>() as i32, prim_vao_id);
-        let clip_vao_id = device.create_vao_with_new_instances(VertexFormat::Clip, mem::size_of::<CacheClipInstance>() as i32, prim_vao_id);
+        let blur_vao_id = device.create_vao_with_new_instances(&DESC_BLUR, mem::size_of::<BlurCommand>() as i32, prim_vao_id);
+        let clip_vao_id = device.create_vao_with_new_instances(&DESC_CLIP, mem::size_of::<CacheClipInstance>() as i32, prim_vao_id);
 
         device.end_frame();
 

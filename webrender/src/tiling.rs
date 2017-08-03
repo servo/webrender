@@ -1006,7 +1006,6 @@ impl RenderTarget for ColorRenderTarget {
                     task_id: render_tasks.get_task_index(&task.id, pass_index).0 as i32,
                     src_task_id: render_tasks.get_task_index(&src_id, child_pass_index).0 as i32,
                     blur_direction: BlurDirection::Vertical as i32,
-                    padding: 0,
                 });
             }
             RenderTaskKind::HorizontalBlur(blur_radius, prim_index) => {
@@ -1018,7 +1017,6 @@ impl RenderTarget for ColorRenderTarget {
                     task_id: render_tasks.get_task_index(&task.id, pass_index).0 as i32,
                     src_task_id: render_tasks.get_task_index(&src_id, child_pass_index).0 as i32,
                     blur_direction: BlurDirection::Horizontal as i32,
-                    padding: 0,
                 });
             }
             RenderTaskKind::CachePrimitive(prim_index) => {
@@ -1371,7 +1369,6 @@ pub struct BlurCommand {
     task_id: i32,
     src_task_id: i32,
     blur_direction: i32,
-    padding: i32,
 }
 
 /// A clipping primitive drawn into the clipping mask.
