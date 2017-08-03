@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use debug_font_data;
-use device::{Device, GpuMarker, ProgramId, VAOId, TextureId, VertexDescriptor};
+use device::{Device, GpuMarker, Program, VAOId, TextureId, VertexDescriptor};
 use device::{TextureFilter, VertexAttribute, VertexUsageHint, VertexAttributeKind, TextureTarget};
 use euclid::{Transform3D, Point2D, Size2D, Rect};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, TextureSampler};
@@ -69,7 +69,7 @@ impl DebugColorVertex {
 pub struct DebugRenderer {
     font_vertices: Vec<DebugFontVertex>,
     font_indices: Vec<u32>,
-    font_program_id: ProgramId,
+    font_program: Program,
     font_vao: VAOId,
     font_texture_id: TextureId,
 
@@ -78,13 +78,13 @@ pub struct DebugRenderer {
     tri_vao: VAOId,
     line_vertices: Vec<DebugColorVertex>,
     line_vao: VAOId,
-    color_program_id: ProgramId,
+    color_program: Program,
 }
 
 impl DebugRenderer {
     pub fn new(device: &mut Device) -> DebugRenderer {
-        let font_program_id = device.create_program("debug_font", "shared_other", &DESC_FONT).unwrap();
-        let color_program_id = device.create_program("debug_color", "shared_other", &DESC_COLOR).unwrap();
+        let font_program = device.create_program("debug_font", "shared_other", &DESC_FONT).unwrap();
+        let color_program = device.create_program("debug_color", "shared_other", &DESC_COLOR).unwrap();
 
         let font_vao = device.create_vao(&DESC_FONT, 32);
         let line_vao = device.create_vao(&DESC_COLOR, 32);
@@ -106,12 +106,17 @@ impl DebugRenderer {
             tri_vao,
             tri_vertices: Vec::new(),
             tri_indices: Vec::new(),
-            font_program_id,
-            color_program_id,
+            font_program,
+            color_program,
             font_vao,
             line_vao,
             font_texture_id,
         }
+    }
+
+    pub fn deinit(&mut self, device: &mut Device) {
+        device.delete_program(&mut self.font_program);
+        device.delete_program(&mut self.color_program);
     }
 
     pub fn line_height(&self) -> f32 {
@@ -225,7 +230,8 @@ impl DebugRenderer {
 
         // Triangles
         if !self.tri_vertices.is_empty() {
-            device.bind_program(self.color_program_id, &projection);
+            device.bind_program(&self.color_program);
+            device.set_uniforms(&self.color_program, &projection);
             device.bind_vao(self.tri_vao);
             device.update_vao_indices(self.tri_vao,
                                       &self.tri_indices,
@@ -238,7 +244,8 @@ impl DebugRenderer {
 
         // Lines
         if !self.line_vertices.is_empty() {
-            device.bind_program(self.color_program_id, &projection);
+            device.bind_program(&self.color_program);
+            device.set_uniforms(&self.color_program, &projection);
             device.bind_vao(self.line_vao);
             device.update_vao_main_vertices(self.line_vao,
                                             &self.line_vertices,
@@ -248,7 +255,8 @@ impl DebugRenderer {
 
         // Glyph
         if !self.font_indices.is_empty() {
-            device.bind_program(self.font_program_id, &projection);
+            device.bind_program(&self.font_program);
+            device.set_uniforms(&self.font_program, &projection);
             device.bind_texture(TextureSampler::Color0, self.font_texture_id);
             device.bind_vao(self.font_vao);
             device.update_vao_indices(self.font_vao,
