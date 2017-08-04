@@ -35,3 +35,19 @@ pub enum Command {
     LineTo(Point2D<f32>),
     Arc(Point2D<f32>, f32, f32, f32),
 }
+
+pub trait SvgRenderer: Send {
+    fn update(&mut self, key: ImageKey, data: Geometry);
+
+    fn delete(&mut self, key: GeometryKey);
+
+    fn request(&mut self,
+               services: &BlobImageResources,
+               key: GeometryKey,
+               descriptor: &BlobImageDescriptor);
+
+    fn resolve(&mut self, key: GeometryKey) -> BlobImageResult;
+
+    fn delete_font(&mut self, key: FontKey);
+}
+

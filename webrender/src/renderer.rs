@@ -2878,6 +2878,7 @@ pub struct RendererOptions {
     pub max_texture_size: Option<u32>,
     pub workers: Option<Arc<ThreadPool>>,
     pub blob_image_renderer: Option<Box<BlobImageRenderer>>,
+    pub vector_rasterizer: Option<Box<VectorRasterizer>>,
     pub recorder: Option<Box<ApiRecordingReceiver>>,
     pub enable_render_on_scroll: bool,
     pub debug_flags: DebugFlags,
