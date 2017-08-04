@@ -239,6 +239,10 @@ pub struct RenderApi {
 }
 
 impl RenderApi {
+    pub fn get_namespace_id(&self) -> IdNamespace {
+        self.namespace_id
+    }
+
     pub fn clone_sender(&self) -> RenderApiSender {
         RenderApiSender::new(self.api_sender.clone(), self.payload_sender.clone())
     }
