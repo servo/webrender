@@ -20,21 +20,22 @@ pub type TileSize = u16;
 /// The resource updates for a given transaction (they must be applied in the same frame).
 #[derive(Clone, Deserialize, Serialize)]
 pub struct ResourceUpdates {
-    pub added_images: Vec<AddImage>,
-    pub updated_images: Vec<UpdateImage>,
-    pub deleted_images: Vec<ImageKey>,
-    pub added_fonts: Vec<AddFont>,
-    pub deleted_fonts: Vec<FontKey>,
+    pub updates: Vec<ResourceUpdate>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub enum ResourceUpdate {
+    AddImage(AddImage),
+    UpdateImage(UpdateImage),
+    DeleteImage(ImageKey),
+    AddFont(AddFont),
+    DeleteFont(FontKey),
 }
 
 impl ResourceUpdates {
     pub fn new() -> Self {
         ResourceUpdates {
-            added_images: Vec::new(),
-            updated_images: Vec::new(),
-            deleted_images: Vec::new(),
-            added_fonts: Vec::new(),
-            deleted_fonts: Vec::new(),
+            updates: Vec::new(),
         }
     }
 
@@ -45,7 +46,7 @@ impl ResourceUpdates {
         data: ImageData,
         tiling: Option<TileSize>
     ) {
-        self.added_images.push(AddImage { key, descriptor, data, tiling });
+        self.updates.push(ResourceUpdate::AddImage(AddImage { key, descriptor, data, tiling }));
     }
 
     pub fn update_image(
@@ -55,23 +56,23 @@ impl ResourceUpdates {
         data: ImageData,
         dirty_rect: Option<DeviceUintRect>
     ) {
-        self.updated_images.push(UpdateImage { key, descriptor, data, dirty_rect });
+        self.updates.push(ResourceUpdate::UpdateImage(UpdateImage { key, descriptor, data, dirty_rect }));
     }
 
     pub fn delete_image(&mut self, key: ImageKey) {
-        self.deleted_images.push(key);
+        self.updates.push(ResourceUpdate::DeleteImage(key));
     }
 
     pub fn add_raw_font(&mut self, key: FontKey, bytes: Vec<u8>, index: u32) {
-        self.added_fonts.push(AddFont::Raw(key, bytes, index));
+        self.updates.push(ResourceUpdate::AddFont(AddFont::Raw(key, bytes, index)));
     }
 
     pub fn add_native_font(&mut self, key: FontKey, native_handle: NativeFontHandle) {
-        self.added_fonts.push(AddFont::Native(key, native_handle));
+        self.updates.push(ResourceUpdate::AddFont(AddFont::Native(key, native_handle)));
     }
 
     pub fn delete_font(&mut self, key: FontKey) {
-        self.deleted_fonts.push(key);
+        self.updates.push(ResourceUpdate::DeleteFont(key));
     }
 }
 

@@ -16,7 +16,7 @@ use std::mem;
 use std::sync::Arc;
 use texture_cache::{TextureCache, TextureCacheItemId};
 use api::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, BlobImageRequest};
-use api::{BlobImageResources, BlobImageData, ResourceUpdates, AddFont};
+use api::{BlobImageResources, BlobImageData, ResourceUpdates, ResourceUpdate, AddFont};
 use api::{DevicePoint, DeviceIntSize, DeviceUintRect, DeviceUintSize};
 use api::{Epoch, FontInstanceKey, FontKey, FontTemplate};
 use api::{GlyphDimensions, GlyphKey, IdNamespace};
@@ -307,35 +307,35 @@ impl ResourceCache {
         // bulk rather than one by one (for example by sorting allocations by size or
         // in a way that reduces fragmentation in the atlas).
 
-        for img in updates.deleted_images {
-            self.delete_image_template(img);
-        }
-
-        for img in updates.added_images {
-            if let ImageData::Raw(ref bytes) = img.data {
-                profile_counters.image_templates.inc(bytes.len());
-            }
-            self.add_image_template(img.key, img.descriptor, img.data, img.tiling);
-        }
-
-        for img in updates.updated_images {
-            self.update_image_template(img.key, img.descriptor, img.data, img.dirty_rect);
-        }
-
-        for font in updates.added_fonts {
-            match font {
-                AddFont::Raw(id, bytes, index) => {
-                    profile_counters.font_templates.inc(bytes.len());
-                    self.add_font_template(id, FontTemplate::Raw(Arc::new(bytes), index));
+        for update in updates.updates {
+            match update {
+                ResourceUpdate::AddImage(img) => {
+                    if let ImageData::Raw(ref bytes) = img.data {
+                        profile_counters.image_templates.inc(bytes.len());
+                    }
+                    self.add_image_template(img.key, img.descriptor, img.data, img.tiling);
                 }
-                AddFont::Native(id, native_font_handle) => {
-                    self.add_font_template(id, FontTemplate::Native(native_font_handle));
+                ResourceUpdate::UpdateImage(img) => {
+                    self.update_image_template(img.key, img.descriptor, img.data, img.dirty_rect);
+                }
+                ResourceUpdate::DeleteImage(img) => {
+                    self.delete_image_template(img);
+                }
+                ResourceUpdate::AddFont(font) => {
+                    match font {
+                        AddFont::Raw(id, bytes, index) => {
+                            profile_counters.font_templates.inc(bytes.len());
+                            self.add_font_template(id, FontTemplate::Raw(Arc::new(bytes), index));
+                        }
+                        AddFont::Native(id, native_font_handle) => {
+                            self.add_font_template(id, FontTemplate::Native(native_font_handle));
+                        }
+                    }
+                }
+                ResourceUpdate::DeleteFont(font) => {
+                    self.delete_font_template(font);
                 }
             }
-        }
-
-        for font in updates.deleted_fonts {
-            self.delete_font_template(font);
         }
     }
 

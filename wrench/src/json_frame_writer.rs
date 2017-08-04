@@ -107,51 +107,54 @@ impl JsonFrameWriter {
     }
 
     fn update_resources(&mut self, updates: &ResourceUpdates) {
-        for img in &updates.added_images {
-            let stride = img.descriptor.stride.unwrap_or(
-                img.descriptor.width * img.descriptor.format.bytes_per_pixel().unwrap()
-            );
-            let bytes = match img.data {
-                ImageData::Raw(ref v) => { (**v).clone() }
-                ImageData::External(_) | ImageData::Blob(_) => { return; }
-            };
-            self.images.insert(img.key, CachedImage {
-                width: img.descriptor.width,
-                height: img.descriptor.height,
-                stride,
-                format: img.descriptor.format,
-                bytes: Some(bytes),
-                path: None,
-            });
-        }
-        for img in &updates.updated_images {
-            if let Some(ref mut data) = self.images.get_mut(&img.key) {
-                assert_eq!(data.width, img.descriptor.width);
-                assert_eq!(data.height, img.descriptor.height);
-                assert_eq!(data.format, img.descriptor.format);
-
-                if let ImageData::Raw(ref bytes) = img.data {
-                    *data.path.borrow_mut() = None;
-                    *data.bytes.borrow_mut() = Some((**bytes).clone());
-                } else {
-                    // Other existing image types only make sense within the gecko integration.
-                    println!("Wrench only supports updating buffer images (ignoring update command).");
+        for update in &updates.updates {
+            match *update {
+                ResourceUpdate::AddImage(ref img) => {
+                    let stride = img.descriptor.stride.unwrap_or(
+                        img.descriptor.width * img.descriptor.format.bytes_per_pixel().unwrap()
+                    );
+                    let bytes = match img.data {
+                        ImageData::Raw(ref v) => { (**v).clone() }
+                        ImageData::External(_) | ImageData::Blob(_) => { return; }
+                    };
+                    self.images.insert(img.key, CachedImage {
+                        width: img.descriptor.width,
+                        height: img.descriptor.height,
+                        stride,
+                        format: img.descriptor.format,
+                        bytes: Some(bytes),
+                        path: None,
+                    });
                 }
-            }
-        }
+                ResourceUpdate::UpdateImage(ref img) => {
+                    if let Some(ref mut data) = self.images.get_mut(&img.key) {
+                        assert_eq!(data.width, img.descriptor.width);
+                        assert_eq!(data.height, img.descriptor.height);
+                        assert_eq!(data.format, img.descriptor.format);
 
-        for img in &updates.deleted_images {
-            self.images.remove(img);
-        }
-
-        for font in &updates.added_fonts {
-            match font {
-                &AddFont::Raw(key, ref bytes, index) => {
-                    self.fonts.insert(key, CachedFont::Raw(Some(bytes.clone()), index, None));
+                        if let ImageData::Raw(ref bytes) = img.data {
+                            *data.path.borrow_mut() = None;
+                            *data.bytes.borrow_mut() = Some((**bytes).clone());
+                        } else {
+                            // Other existing image types only make sense within the gecko integration.
+                            println!("Wrench only supports updating buffer images (ignoring update command).");
+                        }
+                    }
                 }
-                &AddFont::Native(key, ref handle) => {
-                    self.fonts.insert(key, CachedFont::Native(handle.clone()));
+                ResourceUpdate::DeleteImage(img) => {
+                    self.images.remove(&img);
                 }
+                ResourceUpdate::AddFont(ref font) => {
+                    match font {
+                        &AddFont::Raw(key, ref bytes, index) => {
+                            self.fonts.insert(key, CachedFont::Raw(Some(bytes.clone()), index, None));
+                        }
+                        &AddFont::Native(key, ref handle) => {
+                            self.fonts.insert(key, CachedFont::Native(handle.clone()));
+                        }
+                    }
+                }
+                ResourceUpdate::DeleteFont(_) => {}
             }
         }
     }
