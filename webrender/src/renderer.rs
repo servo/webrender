@@ -1332,6 +1332,17 @@ impl Renderer {
 
                     self.current_frame = Some(frame);
                 }
+                ResultMsg::UpdateResources { updates, cancel_rendering } => {
+                    self.pending_texture_updates.push(updates);
+                    self.update_texture_cache();
+                    // If we receive a NewFrame message followed by this one within
+                    // the same update we need ot cancel the frame because we might
+                    // have deleted the resources in use in the frame dut to a memory
+                    // pressure event.
+                    if cancel_rendering {
+                        self.current_frame = None;
+                    }
+                }
                 ResultMsg::RefreshShader(path) => {
                     self.pending_shader_updates.push(path);
                 }

@@ -799,6 +799,19 @@ impl ResourceCache {
         self.state = State::Idle;
     }
 
+    pub fn on_memory_pressure(&mut self) {
+        // This is drastic. It will basically flush everything out of the cache,
+        // and the next frame will have to rebuild all of its resources.
+        // We may want to look into something less extreme, but on the other hand this
+        // should only be used in situations where are running low enough on memory
+        // that we risk crashing if we don't do something about it.
+        // The advantage of clearing the cache completely is that it gets rid of any
+        // remaining fragmentation that could have persisted if we kept around the most
+        // recently used resources.
+        self.cached_images.clear(&mut self.texture_cache);
+        self.cached_glyphs.clear(&mut self.texture_cache);
+    }
+
     pub fn clear_namespace(&mut self, namespace: IdNamespace) {
         //TODO: use `retain` when we are on Rust-1.18
         let image_keys: Vec<_> = self.resources.image_templates.images.keys()
