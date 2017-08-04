@@ -380,6 +380,8 @@ impl ResourceCache {
     pub fn delete_image_template(&mut self, image_key: ImageKey) {
         let value = self.resources.image_templates.remove(image_key);
 
+        self.cached_images.clear_keys(&mut self.texture_cache, |request| request.key == image_key);
+
         match value {
             Some(image) => {
                 if image.data.is_blob() {
