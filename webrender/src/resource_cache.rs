@@ -8,6 +8,7 @@ use glyph_cache::GlyphCache;
 use gpu_cache::{GpuCache, GpuCacheHandle};
 use internal_types::{FastHashMap, FastHashSet, SourceTexture, TextureUpdateList};
 use profiler::TextureCacheProfileCounters;
+use std::cmp;
 use std::collections::hash_map::Entry::{self, Occupied, Vacant};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -148,16 +149,21 @@ impl<K,V> ResourceClassCache<K,V> where K: Clone + Hash + Eq + Debug, V: Resourc
         self.resources.is_empty()
     }
 
-    pub fn expire_old_resources(&mut self, texture_cache: &mut TextureCache, frame_id: FrameId) {
-        //TODO: use retain when available
-        let resources_to_destroy = self.resources.iter()
-            .filter_map(|(key, resource)| {
-                if resource.get_last_access_time() < frame_id {
-                    Some(key.clone())
-                } else {
-                    None
-                }
-            }).collect::<Vec<_>>();
+    pub fn update(&mut self,
+                  texture_cache: &mut TextureCache,
+                  gpu_cache: &mut GpuCache,
+                  current_frame_id: FrameId,
+                  expiry_frame_id: FrameId) {
+        let mut resources_to_destroy = Vec::new();
+
+        for (key, resource) in &self.resources {
+            let last_access = resource.get_last_access_time();
+            if last_access < expiry_frame_id {
+                resources_to_destroy.push(key.clone());
+            } else if last_access == current_frame_id {
+                resource.add_to_gpu_cache(texture_cache, gpu_cache);
+            }
+        }
 
         for key in resources_to_destroy {
             let resource =
@@ -248,14 +254,14 @@ pub struct ResourceCache {
 
     blob_image_renderer: Option<Box<BlobImageRenderer>>,
 
-    requested_glyphs: FastHashSet<TextureCacheItemId>,
-    requested_images: FastHashSet<TextureCacheItemId>,
+    cache_expiry_frames: u32,
 }
 
 impl ResourceCache {
     pub fn new(texture_cache: TextureCache,
                workers: Arc<ThreadPool>,
-               blob_image_renderer: Option<Box<BlobImageRenderer>>) -> ResourceCache {
+               blob_image_renderer: Option<Box<BlobImageRenderer>>,
+               cache_expiry_frames: u32) -> ResourceCache {
         ResourceCache {
             cached_glyphs: GlyphCache::new(),
             cached_images: ResourceClassCache::new(),
@@ -271,8 +277,7 @@ impl ResourceCache {
             pending_image_requests: FastHashSet::default(),
             glyph_rasterizer: GlyphRasterizer::new(workers),
             blob_image_renderer,
-            requested_glyphs: FastHashSet::default(),
-            requested_images: FastHashSet::default(),
+            cache_expiry_frames,
         }
     }
 
@@ -429,28 +434,14 @@ impl ResourceCache {
         // If this image exists in the texture cache, *and* the epoch
         // in the cache matches that of the template, then it is
         // valid to use as-is.
-        let valid_texture_id = match self.cached_images
-                                         .entry(request, self.current_frame_id) {
+        match self.cached_images.entry(request, self.current_frame_id) {
             Occupied(entry) => {
                 let cached_image = entry.get();
                 if cached_image.epoch == template.epoch {
-                    Some(cached_image.texture_cache_id)
-                } else {
-                    None
+                    return;
                 }
             }
-            Vacant(..) => None,
-        };
-
-        // If the currently cached item is valid, update cache timestamps
-        // and early out.
-        if let Some(texture_cache_id) = valid_texture_id {
-            // Request this texture cache item, so that its resource
-            // rect will be placed into the GPU cache for vertex
-            // shaders to read.
-            self.requested_images.insert(texture_cache_id);
-
-            return;
+            Vacant(..) => {}
         }
 
         // We can start a worker thread rasterizing right now, if:
@@ -501,7 +492,6 @@ impl ResourceCache {
             self.current_frame_id,
             font,
             glyph_keys,
-            &mut self.requested_glyphs,
         );
     }
 
@@ -612,17 +602,10 @@ impl ResourceCache {
         self.webgl_textures[context_id].size
     }
 
-    pub fn expire_old_resources(&mut self, frame_id: FrameId) {
-        self.cached_images.expire_old_resources(&mut self.texture_cache, frame_id);
-        self.cached_glyphs.expire_old_resources(&mut self.texture_cache, frame_id);
-    }
-
     pub fn begin_frame(&mut self, frame_id: FrameId) {
         debug_assert_eq!(self.state, State::Idle);
         self.state = State::AddResources;
         self.current_frame_id = frame_id;
-        debug_assert!(self.requested_glyphs.is_empty());
-        debug_assert!(self.requested_images.is_empty());
     }
 
     pub fn block_until_all_resources_added(&mut self,
@@ -637,27 +620,23 @@ impl ResourceCache {
             self.current_frame_id,
             &mut self.cached_glyphs,
             &mut self.texture_cache,
-            &mut self.requested_glyphs,
             texture_cache_profile,
         );
 
         // Apply any updates of new / updated images (incl. blobs) to the texture cache.
         self.update_texture_cache(texture_cache_profile);
 
-        for texture_cache_item_id in self.requested_images.drain() {
-            let item = self.texture_cache.get_mut(texture_cache_item_id);
-            if let Some(mut request) = gpu_cache.request(&mut item.uv_rect_handle) {
-                request.push(item.uv_rect);
-            }
-        }
-
-        for texture_cache_item_id in self.requested_glyphs.drain() {
-            let item = self.texture_cache.get_mut(texture_cache_item_id);
-            if let Some(mut request) = gpu_cache.request(&mut item.uv_rect_handle) {
-                request.push(item.uv_rect);
-                request.push([item.user_data[0], item.user_data[1], 0.0, 0.0]);
-            }
-        }
+        // Expire any resources that haven't been used for `cache_expiry_frames`.
+        let num_frames_back = self.cache_expiry_frames;
+        let expiry_frame = FrameId(cmp::max(num_frames_back, self.current_frame_id.0) - num_frames_back);
+        self.cached_images.update(&mut self.texture_cache,
+                                  gpu_cache,
+                                  self.current_frame_id,
+                                  expiry_frame);
+        self.cached_glyphs.update(&mut self.texture_cache,
+                                  gpu_cache,
+                                  self.current_frame_id,
+                                  expiry_frame);
     }
 
     fn update_texture_cache(&mut self, texture_cache_profile: &mut TextureCacheProfileCounters) {
@@ -733,7 +712,7 @@ impl ResourceCache {
                 image_template.descriptor.clone()
             };
 
-            let image_id = match self.cached_images.entry(request, self.current_frame_id) {
+            match self.cached_images.entry(request, self.current_frame_id) {
                 Occupied(entry) => {
                     let image_id = entry.get().texture_cache_id;
 
@@ -754,8 +733,6 @@ impl ResourceCache {
                         last_access: self.current_frame_id,
                     };
                     image_template.dirty_rect = None;
-
-                    image_id
                 }
                 Vacant(entry) => {
                     let image_id = self.texture_cache.insert(descriptor,
@@ -769,14 +746,8 @@ impl ResourceCache {
                         epoch: image_template.epoch,
                         last_access: self.current_frame_id,
                     });
-
-                    image_id
                 }
             };
-
-            // Now that we have a valid texture cache ID, add to the set
-            // of texture cache items to place in the GPU cache.
-            self.requested_images.insert(image_id);
         }
     }
 
@@ -812,6 +783,9 @@ pub trait Resource {
     fn free(&self, texture_cache: &mut TextureCache);
     fn get_last_access_time(&self) -> FrameId;
     fn set_last_access_time(&mut self, frame_id: FrameId);
+    fn add_to_gpu_cache(&self,
+                        texture_cache: &mut TextureCache,
+                        gpu_cache: &mut GpuCache);
 }
 
 impl Resource for CachedImageInfo {
@@ -823,6 +797,14 @@ impl Resource for CachedImageInfo {
     }
     fn set_last_access_time(&mut self, frame_id: FrameId) {
         self.last_access = frame_id;
+    }
+    fn add_to_gpu_cache(&self,
+                        texture_cache: &mut TextureCache,
+                        gpu_cache: &mut GpuCache) {
+        let item = texture_cache.get_mut(self.texture_cache_id);
+        if let Some(mut request) = gpu_cache.request(&mut item.uv_rect_handle) {
+            request.push(item.uv_rect);
+        }
     }
 }
 

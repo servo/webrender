@@ -4,6 +4,7 @@
 
 use api::{FontInstanceKey, GlyphKey};
 use frame::FrameId;
+use gpu_cache::GpuCache;
 use internal_types::FastHashMap;
 use resource_cache::{Resource, ResourceClassCache};
 use texture_cache::{TextureCache, TextureCacheItemId};
@@ -24,6 +25,17 @@ impl Resource for CachedGlyphInfo {
     }
     fn set_last_access_time(&mut self, frame_id: FrameId) {
         self.last_access = frame_id;
+    }
+    fn add_to_gpu_cache(&self,
+                        texture_cache: &mut TextureCache,
+                        gpu_cache: &mut GpuCache) {
+        if let Some(texture_cache_id) = self.texture_cache_id {
+            let item = texture_cache.get_mut(texture_cache_id);
+            if let Some(mut request) = gpu_cache.request(&mut item.uv_rect_handle) {
+                request.push(item.uv_rect);
+                request.push([item.user_data[0], item.user_data[1], 0.0, 0.0]);
+            }
+        }
     }
 }
 
@@ -54,11 +66,18 @@ impl GlyphCache {
             .expect("BUG: Unable to find glyph key cache!")
     }
 
-    pub fn expire_old_resources(&mut self, texture_cache: &mut TextureCache, frame_id: FrameId) {
+    pub fn update(&mut self,
+                  texture_cache: &mut TextureCache,
+                  gpu_cache: &mut GpuCache,
+                  current_frame_id: FrameId,
+                  expiry_frame_id: FrameId) {
         let mut caches_to_remove = Vec::new();
 
         for (font, glyph_key_cache) in &mut self.glyph_key_caches {
-            glyph_key_cache.expire_old_resources(texture_cache, frame_id);
+            glyph_key_cache.update(texture_cache,
+                                   gpu_cache,
+                                   current_frame_id,
+                                   expiry_frame_id);
 
             if glyph_key_cache.is_empty() {
                 caches_to_remove.push(font.clone());
