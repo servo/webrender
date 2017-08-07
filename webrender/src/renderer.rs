@@ -14,7 +14,7 @@ use debug_render::DebugRenderer;
 use device::{DepthFunction, Device, FrameId, ProgramId, TextureId, VertexFormat, GpuMarker, GpuProfiler, PBOId};
 use device::{GpuSample, TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
 use device::get_gl_format_bgra;
-use euclid::Transform3D;
+use euclid::{Transform3D, rect};
 use frame_builder::FrameBuilderConfig;
 use gleam::gl;
 use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
@@ -663,6 +663,7 @@ pub struct Renderer {
     enable_clear_scissor: bool,
     debug: DebugRenderer,
     render_target_debug: bool,
+    texture_cache_debug: bool,
     enable_batcher: bool,
     backend_profile_counters: BackendProfileCounters,
     profile_counters: RendererProfileCounters,
@@ -1139,6 +1140,7 @@ impl Renderer {
 
         let device_pixel_ratio = options.device_pixel_ratio;
         let render_target_debug = options.render_target_debug;
+        let texture_cache_debug = options.texture_cache_debug;
         let payload_tx_for_backend = payload_tx.clone();
         let recorder = options.recorder;
         let worker_config = ThreadPoolConfig::new()
@@ -1208,6 +1210,7 @@ impl Renderer {
             notifier,
             debug: debug_renderer,
             render_target_debug,
+            texture_cache_debug,
             enable_batcher: options.enable_batcher,
             backend_profile_counters: BackendProfileCounters::new(),
             profile_counters: RendererProfileCounters::new(),
@@ -2282,6 +2285,7 @@ impl Renderer {
             self.color_render_targets.reverse();
             self.alpha_render_targets.reverse();
             self.draw_render_target_debug(framebuffer_size);
+            self.draw_texture_cache_debug(framebuffer_size);
         }
 
         self.unlock_external_images();
@@ -2334,6 +2338,28 @@ impl Renderer {
 
                     current_target += 1;
                 }
+            }
+        }
+    }
+
+    fn draw_texture_cache_debug(&mut self, framebuffer_size: &DeviceUintSize) {
+        if self.texture_cache_debug {
+            let x_offset = 16;
+            let y_offset = 16;
+            let spacing = 16;
+            let size = 512;
+
+            for (i, texture_id) in self.cache_texture_id_map.iter().enumerate() {
+                let x = x_offset + (spacing + size) * i as i32;
+                let y = y_offset + if self.render_target_debug { 528 } else { 0 };
+
+                // If we have more targets than fit on one row in screen, just early exit.
+                if x > framebuffer_size.width as i32 {
+                    return;
+                }
+
+                let dest_rect = rect(x, y, size, size);
+                self.device.blit_render_target(Some((*texture_id, 0)), None, dest_rect);
             }
         }
     }
@@ -2427,6 +2453,7 @@ pub struct RendererOptions {
     pub enable_clear_scissor: bool,
     pub enable_batcher: bool,
     pub render_target_debug: bool,
+    pub texture_cache_debug: bool,
     pub max_texture_size: Option<u32>,
     pub cache_expiry_frames: u32,
     pub workers: Option<Arc<ThreadPool>>,
@@ -2454,6 +2481,7 @@ impl Default for RendererOptions {
             enable_clear_scissor: true,
             enable_batcher: true,
             render_target_debug: false,
+            texture_cache_debug: false,
             max_texture_size: None,
             cache_expiry_frames: 600, // roughly, 10 seconds
             workers: None,
