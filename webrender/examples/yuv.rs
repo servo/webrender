@@ -164,6 +164,7 @@ fn main() {
 fn body(api: &RenderApi,
         _document_id: &DocumentId,
         builder: &mut DisplayListBuilder,
+        resources: &mut ResourceUpdates,
         _pipeline_id: &PipelineId,
         layout_size: &LayoutSize) {
     let bounds = LayoutRect::new(LayoutPoint::zero(), *layout_size);
@@ -175,30 +176,29 @@ fn body(api: &RenderApi,
                                   MixBlendMode::Normal,
                                   Vec::new());
 
-
     let yuv_chanel1 = api.generate_image_key();
     let yuv_chanel2 = api.generate_image_key();
     let yuv_chanel2_1 = api.generate_image_key();
     let yuv_chanel3 = api.generate_image_key();
-    api.add_image(
+    resources.add_image(
         yuv_chanel1,
         ImageDescriptor::new(100, 100, ImageFormat::A8, true),
         ImageData::new(vec![127; 100 * 100]),
         None,
     );
-    api.add_image(
+    resources.add_image(
         yuv_chanel2,
         ImageDescriptor::new(100, 100, ImageFormat::RG8, true),
         ImageData::new(vec![0; 100 * 100 * 2]),
         None,
     );
-    api.add_image(
+    resources.add_image(
         yuv_chanel2_1,
         ImageDescriptor::new(100, 100, ImageFormat::A8, true),
         ImageData::new(vec![127; 100 * 100]),
         None,
     );
-    api.add_image(
+    resources.add_image(
         yuv_chanel3,
         ImageDescriptor::new(100, 100, ImageFormat::A8, true),
         ImageData::new(vec![127; 100 * 100]),

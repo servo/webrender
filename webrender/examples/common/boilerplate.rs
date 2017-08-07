@@ -54,6 +54,7 @@ impl HandyDandyRectBuilder for (i32, i32) {
 pub fn main_wrapper(builder_callback: fn(&RenderApi,
                                          &DocumentId,
                                          &mut DisplayListBuilder,
+                                         &mut ResourceUpdates,
                                          &PipelineId,
                                          &LayoutSize) -> (),
                     event_handler: fn(&glutin::Event,
@@ -114,8 +115,9 @@ pub fn main_wrapper(builder_callback: fn(&RenderApi,
     let pipeline_id = PipelineId(0, 0);
     let layout_size = LayoutSize::new(width as f32, height as f32);
     let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);
+    let mut resources = ResourceUpdates::new();
 
-    builder_callback(&api, &document_id, &mut builder, &pipeline_id, &layout_size);
+    builder_callback(&api, &document_id, &mut builder, &mut resources, &pipeline_id, &layout_size);
 
     api.set_display_list(
         document_id,
@@ -123,7 +125,9 @@ pub fn main_wrapper(builder_callback: fn(&RenderApi,
         Some(root_background_color),
         LayoutSize::new(width as f32, height as f32),
         builder.finalize(),
-        true);
+        true,
+        resources
+    );
     api.set_root_pipeline(document_id, pipeline_id);
     api.generate_frame(document_id, None);
 

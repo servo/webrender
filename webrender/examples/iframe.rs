@@ -19,6 +19,7 @@ use webrender::api::*;
 fn body(api: &RenderApi,
         document_id: &DocumentId,
         builder: &mut DisplayListBuilder,
+        _resources: &mut ResourceUpdates,
         pipeline_id: &PipelineId,
         _layout_size: &LayoutSize) {
 
@@ -46,7 +47,9 @@ fn body(api: &RenderApi,
         None,
         sub_bounds.size,
         sub_builder.finalize(),
-        true);
+        true,
+        ResourceUpdates::new(),
+    );
 
     let bounds = sub_bounds;
     // And this is for the root pipeline

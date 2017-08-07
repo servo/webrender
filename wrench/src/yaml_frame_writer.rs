@@ -358,6 +358,60 @@ impl YamlFrameWriter {
         scene.finish_display_list(self.pipeline_id.unwrap(), dl);
     }
 
+    fn update_resources(&mut self, updates: &ResourceUpdates) {
+        for update in &updates.updates {
+            match *update {
+                ResourceUpdate::AddImage(ref img) => {
+                    let stride = img.descriptor.stride.unwrap_or(
+                        img.descriptor.width * img.descriptor.format.bytes_per_pixel().unwrap()
+                    );
+                    let bytes = match img.data {
+                        ImageData::Raw(ref v) => { (**v).clone() }
+                        ImageData::External(_) | ImageData::Blob(_) => { return; }
+                    };
+                    self.images.insert(img.key, CachedImage {
+                        width: img.descriptor.width,
+                        height: img.descriptor.height,
+                        stride,
+                        format: img.descriptor.format,
+                        bytes: Some(bytes),
+                        tiling: img.tiling,
+                        path: None,
+                    });
+                }
+                ResourceUpdate::UpdateImage(ref img) => {
+                    if let Some(ref mut data) = self.images.get_mut(&img.key) {
+                        assert_eq!(data.width, img.descriptor.width);
+                        assert_eq!(data.height, img.descriptor.height);
+                        assert_eq!(data.format, img.descriptor.format);
+
+                        if let ImageData::Raw(ref bytes) = img.data {
+                            *data.path.borrow_mut() = None;
+                            *data.bytes.borrow_mut() = Some((**bytes).clone());
+                        } else {
+                            // Other existing image types only make sense within the gecko integration.
+                            println!("Wrench only supports updating buffer images (ignoring update command).");
+                        }
+                    }
+                }
+                ResourceUpdate::DeleteImage(img) => {
+                    self.images.remove(&img);
+                }
+                ResourceUpdate::AddFont(ref font) => {
+                    match font {
+                        &AddFont::Raw(key, ref bytes, index) => {
+                            self.fonts.insert(key, CachedFont::Raw(Some(bytes.clone()), index, None));
+                        }
+                        &AddFont::Native(key, ref handle) => {
+                            self.fonts.insert(key, CachedFont::Native(handle.clone()));
+                        }
+                    }
+                }
+                ResourceUpdate::DeleteFont(_) => {}
+            }
+        }
+    }
+
     fn next_rsrc_paths(prefix: &str, counter: &mut u32, base_path: &Path, base: &str, ext: &str) -> (PathBuf, PathBuf) {
         let mut path_file = base_path.to_owned();
         let mut path = PathBuf::from("res");
@@ -830,51 +884,8 @@ impl YamlFrameWriter {
 impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
     fn write_msg(&mut self, _: u32, msg: &ApiMsg) {
         match *msg {
-            ApiMsg::AddRawFont(ref key, ref bytes, index) => {
-                self.frame_writer.fonts.insert(*key, CachedFont::Raw(Some(bytes.clone()), index, None));
-            }
-
-            ApiMsg::AddNativeFont(ref key, ref native_font_handle) => {
-                self.frame_writer.fonts.insert(*key, CachedFont::Native(native_font_handle.clone()));
-            }
-
-            ApiMsg::AddImage(ref key, ref descriptor, ref data, ref tiling) => {
-                let stride = descriptor.stride.unwrap_or(
-                    descriptor.width * descriptor.format.bytes_per_pixel().unwrap()
-                );
-                let bytes = match *data {
-                    ImageData::Raw(ref v) => { (**v).clone() }
-                    ImageData::External(_) | ImageData::Blob(_) => { return; }
-                };
-                self.frame_writer.images.insert(*key, CachedImage {
-                    width: descriptor.width,
-                    height: descriptor.height,
-                    stride,
-                    format: descriptor.format,
-                    bytes: Some(bytes),
-                    path: None,
-                    tiling: *tiling,
-                });
-            }
-
-            ApiMsg::UpdateImage(ref key, ref descriptor, ref img_data, _dirty_rect) => {
-                if let Some(ref mut data) = self.frame_writer.images.get_mut(key) {
-                    assert_eq!(data.width, descriptor.width);
-                    assert_eq!(data.height, descriptor.height);
-                    assert_eq!(data.format, descriptor.format);
-
-                    if let ImageData::Raw(ref bytes) = *img_data {
-                        *data.path.borrow_mut() = None;
-                        *data.bytes.borrow_mut() = Some((**bytes).clone());
-                    } else {
-                        // Other existing image types only make sense within the gecko integration.
-                        println!("Wrench only supports updating buffer images (ignoring update command).");
-                    }
-                }
-            }
-
-            ApiMsg::DeleteImage(ref key) => {
-                self.frame_writer.images.remove(key);
+            ApiMsg::UpdateResources(ref updates) => {
+                self.frame_writer.update_resources(updates);
             }
 
             ApiMsg::UpdateDocument(_, DocumentMsg::SetRootPipeline(ref pipeline_id)) => {
@@ -886,8 +897,10 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                 ref background,
                 ref viewport_size,
                 ref list_descriptor,
+                ref resources,
                 ..
             }) => {
+                self.frame_writer.update_resources(resources);
                 self.frame_writer.begin_write_display_list(&mut self.scene,
                                                            epoch,
                                                            pipeline_id,

@@ -17,19 +17,98 @@ use {WebGLCommand, WebGLContextId};
 
 pub type TileSize = u16;
 
+/// The resource updates for a given transaction (they must be applied in the same frame).
+#[derive(Clone, Deserialize, Serialize)]
+pub struct ResourceUpdates {
+    pub updates: Vec<ResourceUpdate>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub enum ResourceUpdate {
+    AddImage(AddImage),
+    UpdateImage(UpdateImage),
+    DeleteImage(ImageKey),
+    AddFont(AddFont),
+    DeleteFont(FontKey),
+}
+
+impl ResourceUpdates {
+    pub fn new() -> Self {
+        ResourceUpdates {
+            updates: Vec::new(),
+        }
+    }
+
+    pub fn add_image(
+        &mut self,
+        key: ImageKey,
+        descriptor: ImageDescriptor,
+        data: ImageData,
+        tiling: Option<TileSize>
+    ) {
+        self.updates.push(ResourceUpdate::AddImage(AddImage { key, descriptor, data, tiling }));
+    }
+
+    pub fn update_image(
+        &mut self,
+        key: ImageKey,
+        descriptor: ImageDescriptor,
+        data: ImageData,
+        dirty_rect: Option<DeviceUintRect>
+    ) {
+        self.updates.push(ResourceUpdate::UpdateImage(UpdateImage { key, descriptor, data, dirty_rect }));
+    }
+
+    pub fn delete_image(&mut self, key: ImageKey) {
+        self.updates.push(ResourceUpdate::DeleteImage(key));
+    }
+
+    pub fn add_raw_font(&mut self, key: FontKey, bytes: Vec<u8>, index: u32) {
+        self.updates.push(ResourceUpdate::AddFont(AddFont::Raw(key, bytes, index)));
+    }
+
+    pub fn add_native_font(&mut self, key: FontKey, native_handle: NativeFontHandle) {
+        self.updates.push(ResourceUpdate::AddFont(AddFont::Native(key, native_handle)));
+    }
+
+    pub fn delete_font(&mut self, key: FontKey) {
+        self.updates.push(ResourceUpdate::DeleteFont(key));
+    }
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct AddImage {
+    pub key: ImageKey,
+    pub descriptor: ImageDescriptor,
+    pub data: ImageData,
+    pub tiling: Option<TileSize>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct UpdateImage {
+    pub key: ImageKey,
+    pub descriptor: ImageDescriptor,
+    pub data: ImageData,
+    pub dirty_rect: Option<DeviceUintRect>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub enum AddFont {
+    Raw(FontKey, Vec<u8>, u32),
+    Native(FontKey, NativeFontHandle),
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 pub enum DocumentMsg {
-    // Supplies a new frame to WebRender.
-    ///
-    /// After receiving this message, WebRender will read the display list from the payload channel.
     SetDisplayList {
+        list_descriptor: BuiltDisplayListDescriptor,
         epoch: Epoch,
         pipeline_id: PipelineId,
         background: Option<ColorF>,
         viewport_size: LayoutSize,
         content_size: LayoutSize,
-        list_descriptor: BuiltDisplayListDescriptor,
         preserve_frame_state: bool,
+        resources: ResourceUpdates,
     },
     SetPageZoom(ZoomFactor),
     SetPinchZoom(ZoomFactor),
@@ -66,19 +145,12 @@ impl fmt::Debug for DocumentMsg {
 
 #[derive(Clone, Deserialize, Serialize)]
 pub enum ApiMsg {
-    AddRawFont(FontKey, Vec<u8>, u32),
-    AddNativeFont(FontKey, NativeFontHandle),
-    DeleteFont(FontKey),
+    /// Add/remove/update images and fonts.
+    UpdateResources(ResourceUpdates),
     /// Gets the glyph dimensions
     GetGlyphDimensions(FontInstanceKey, Vec<GlyphKey>, MsgSender<Vec<Option<GlyphDimensions>>>),
     /// Gets the glyph indices from a string
     GetGlyphIndices(FontKey, String, MsgSender<Vec<Option<u32>>>),
-    /// Adds an image from the resource cache.
-    AddImage(ImageKey, ImageDescriptor, ImageData, Option<TileSize>),
-    /// Updates the the resource cache with the new image data.
-    UpdateImage(ImageKey, ImageDescriptor, ImageData, Option<DeviceUintRect>),
-    /// Drops an image from the resource cache.
-    DeleteImage(ImageKey),
     /// Adds a new document namespace.
     CloneApi(MsgSender<IdNamespace>),
     /// Adds a new document with given initial size.
@@ -104,14 +176,9 @@ pub enum ApiMsg {
 impl fmt::Debug for ApiMsg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(match *self {
-            ApiMsg::AddRawFont(..) => "ApiMsg::AddRawFont",
-            ApiMsg::AddNativeFont(..) => "ApiMsg::AddNativeFont",
-            ApiMsg::DeleteFont(..) => "ApiMsg::DeleteFont",
+            ApiMsg::UpdateResources(..) => "ApiMsg::UpdateResources",
             ApiMsg::GetGlyphDimensions(..) => "ApiMsg::GetGlyphDimensions",
             ApiMsg::GetGlyphIndices(..) => "ApiMsg::GetGlyphIndices",
-            ApiMsg::AddImage(..) => "ApiMsg::AddImage",
-            ApiMsg::UpdateImage(..) => "ApiMsg::UpdateImage",
-            ApiMsg::DeleteImage(..) => "ApiMsg::DeleteImage",
             ApiMsg::CloneApi(..) => "ApiMsg::CloneApi",
             ApiMsg::AddDocument(..) => "ApiMsg::AddDocument",
             ApiMsg::UpdateDocument(..) => "ApiMsg::UpdateDocument",
@@ -267,24 +334,6 @@ impl RenderApi {
         FontKey::new(self.namespace_id, new_id)
     }
 
-    pub fn add_raw_font(&self, key: FontKey, bytes: Vec<u8>, index: u32) {
-        debug_assert_eq!(key.0, self.namespace_id);
-        let msg = ApiMsg::AddRawFont(key, bytes, index);
-        self.api_sender.send(msg).unwrap();
-    }
-
-    pub fn add_native_font(&self, key: FontKey, native_font_handle: NativeFontHandle) {
-        debug_assert_eq!(key.0, self.namespace_id);
-        let msg = ApiMsg::AddNativeFont(key, native_font_handle);
-        self.api_sender.send(msg).unwrap();
-    }
-
-    pub fn delete_font(&self, key: FontKey) {
-        debug_assert_eq!(key.0, self.namespace_id);
-        let msg = ApiMsg::DeleteFont(key);
-        self.api_sender.send(msg).unwrap();
-    }
-
     /// Gets the dimensions for the supplied glyph keys
     ///
     /// Note: Internally, the internal texture cache doesn't store
@@ -318,35 +367,8 @@ impl RenderApi {
     }
 
     /// Adds an image identified by the `ImageKey`.
-    pub fn add_image(&self,
-                     key: ImageKey,
-                     descriptor: ImageDescriptor,
-                     data: ImageData,
-                     tiling: Option<TileSize>) {
-        debug_assert_eq!(key.0, self.namespace_id);
-        let msg = ApiMsg::AddImage(key, descriptor, data, tiling);
-        self.api_sender.send(msg).unwrap();
-    }
-
-    /// Updates a specific image.
-    ///
-    /// Currently doesn't support changing dimensions or format by updating.
-    // TODO: Support changing dimensions (and format) during image update?
-    pub fn update_image(&self,
-                        key: ImageKey,
-                        descriptor: ImageDescriptor,
-                        data: ImageData,
-                        dirty_rect: Option<DeviceUintRect>) {
-        debug_assert_eq!(key.0, self.namespace_id);
-        let msg = ApiMsg::UpdateImage(key, descriptor, data, dirty_rect);
-        self.api_sender.send(msg).unwrap();
-    }
-
-    /// Deletes the specific image.
-    pub fn delete_image(&self, key: ImageKey) {
-        debug_assert_eq!(key.0, self.namespace_id);
-        let msg = ApiMsg::DeleteImage(key);
-        self.api_sender.send(msg).unwrap();
+    pub fn update_resources(&self, resources: ResourceUpdates) {
+        self.api_sender.send(ApiMsg::UpdateResources(resources)).unwrap();
     }
 
     pub fn request_webgl_context(&self, size: &DeviceIntSize, attributes: GLContextAttributes)
@@ -458,15 +480,20 @@ impl RenderApi {
     /// * `preserve_frame_state`: If a previous frame exists which matches this pipeline
     ///                           id, this setting determines if frame state (such as scrolling
     ///                           position) should be preserved for this new display list.
+    /// * `resources`: A set of resource updates that must be applied at the same time as the
+    ///                display list.
     ///
     /// [notifier]: trait.RenderNotifier.html#tymethod.new_frame_ready
-    pub fn set_display_list(&self,
-                            document_id: DocumentId,
-                            epoch: Epoch,
-                            background: Option<ColorF>,
-                            viewport_size: LayoutSize,
-                            (pipeline_id, content_size, display_list): (PipelineId, LayoutSize, BuiltDisplayList),
-                            preserve_frame_state: bool) {
+    pub fn set_display_list(
+        &self,
+        document_id: DocumentId,
+        epoch: Epoch,
+        background: Option<ColorF>,
+        viewport_size: LayoutSize,
+        (pipeline_id, content_size, display_list): (PipelineId, LayoutSize, BuiltDisplayList),
+        preserve_frame_state: bool,
+        resources: ResourceUpdates,
+    ) {
         let (display_list_data, list_descriptor) = display_list.into_data();
         self.send(document_id, DocumentMsg::SetDisplayList {
             epoch,
@@ -475,7 +502,8 @@ impl RenderApi {
             viewport_size,
             content_size,
             list_descriptor,
-            preserve_frame_state
+            preserve_frame_state,
+            resources,
         });
 
         self.payload_sender.send_payload(Payload {
