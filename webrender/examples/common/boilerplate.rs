@@ -8,6 +8,7 @@ use std::env;
 use std::path::PathBuf;
 use webrender;
 use webrender::api::*;
+use webrender::renderer::{PROFILER_DBG, RENDER_TARGET_DBG, TEXTURE_CACHE_DBG};
 
 struct Notifier {
     window_proxy: glutin::WindowProxy,
@@ -143,10 +144,22 @@ pub fn main_wrapper(builder_callback: fn(&RenderApi,
 
                 glutin::Event::KeyboardInput(glutin::ElementState::Pressed,
                                              _, Some(glutin::VirtualKeyCode::P)) => {
-                    let enable_profiler = !renderer.get_profiler_enabled();
-                    renderer.set_profiler_enabled(enable_profiler);
-                    api.generate_frame(document_id, None);
-                }
+                    let mut flags = renderer.get_debug_flags();
+                    flags.toggle(PROFILER_DBG);
+                    renderer.set_debug_flags(flags);
+                },
+                glutin::Event::KeyboardInput(glutin::ElementState::Pressed,
+                                             _, Some(glutin::VirtualKeyCode::O)) => {
+                    let mut flags = renderer.get_debug_flags();
+                    flags.toggle(RENDER_TARGET_DBG);
+                    renderer.set_debug_flags(flags);
+                },
+                glutin::Event::KeyboardInput(glutin::ElementState::Pressed,
+                                             _, Some(glutin::VirtualKeyCode::I)) => {
+                    let mut flags = renderer.get_debug_flags();
+                    flags.toggle(TEXTURE_CACHE_DBG);
+                    renderer.set_debug_flags(flags);
+                },
 
                 _ => event_handler(&event, document_id, &api),
             }

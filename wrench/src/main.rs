@@ -59,6 +59,7 @@ use std::path::{Path, PathBuf};
 use std::ptr;
 use std::rc::Rc;
 use webrender::api::*;
+use webrender::renderer::{PROFILER_DBG, RENDER_TARGET_DBG, TEXTURE_CACHE_DBG};
 use wrench::{Wrench, WrenchThing};
 use yaml_frame_reader::YamlFrameReader;
 
@@ -366,7 +367,6 @@ fn main() {
         };
 
     let mut show_help = false;
-    let mut profiler = false;
     let mut do_loop = false;
 
     let queue_frames = thing.queue_frames();
@@ -513,8 +513,19 @@ fn main() {
                         break 'outer;
                     },
                     VirtualKeyCode::P => {
-                        profiler = !profiler;
-                        wrench.renderer.set_profiler_enabled(profiler);
+                        let mut flags = wrench.renderer.get_debug_flags();
+                        flags.toggle(PROFILER_DBG);
+                        wrench.renderer.set_debug_flags(flags);
+                    },
+                    VirtualKeyCode::O => {
+                        let mut flags = wrench.renderer.get_debug_flags();
+                        flags.toggle(RENDER_TARGET_DBG);
+                        wrench.renderer.set_debug_flags(flags);
+                    },
+                    VirtualKeyCode::I => {
+                        let mut flags = wrench.renderer.get_debug_flags();
+                        flags.toggle(TEXTURE_CACHE_DBG);
+                        wrench.renderer.set_debug_flags(flags);
                     },
                     VirtualKeyCode::L => {
                         do_loop = !do_loop;
