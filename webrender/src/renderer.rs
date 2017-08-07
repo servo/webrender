@@ -14,7 +14,7 @@ use debug_render::DebugRenderer;
 use device::{DepthFunction, Device, FrameId, ProgramId, TextureId, VertexFormat, GpuMarker, GpuProfiler, PBOId};
 use device::{GpuSample, TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
 use device::get_gl_format_bgra;
-use euclid::Transform3D;
+use euclid::{Transform3D, rect};
 use frame_builder::FrameBuilderConfig;
 use gleam::gl;
 use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
@@ -81,6 +81,15 @@ const GPU_TAG_PRIM_BORDER_CORNER: GpuProfileTag = GpuProfileTag { label: "Border
 const GPU_TAG_PRIM_BORDER_EDGE: GpuProfileTag = GpuProfileTag { label: "BorderEdge", color: debug_colors::LAVENDER };
 const GPU_TAG_PRIM_CACHE_IMAGE: GpuProfileTag = GpuProfileTag { label: "CacheImage", color: debug_colors::SILVER };
 const GPU_TAG_BLUR: GpuProfileTag = GpuProfileTag { label: "Blur", color: debug_colors::VIOLET };
+
+bitflags! {
+    #[derive(Default)]
+    pub struct DebugFlags: u32 {
+        const PROFILER_DBG      = 1 << 0;
+        const RENDER_TARGET_DBG = 1 << 1;
+        const TEXTURE_CACHE_DBG = 1 << 2;
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum GraphicsApi {
@@ -656,13 +665,12 @@ pub struct Renderer {
 
     max_texture_size: u32,
 
-    enable_profiler: bool,
     max_recorded_profiles: usize,
     clear_framebuffer: bool,
     clear_color: ColorF,
     enable_clear_scissor: bool,
     debug: DebugRenderer,
-    render_target_debug: bool,
+    debug_flags: DebugFlags,
     enable_batcher: bool,
     backend_profile_counters: BackendProfileCounters,
     profile_counters: RendererProfileCounters,
@@ -749,7 +757,6 @@ impl Renderer {
     ///    device_pixel_ratio: 1.0,
     ///    resource_override_path: None,
     ///    enable_aa: false,
-    ///    enable_profiler: false,
     /// };
     /// let (renderer, sender) = Renderer::new(opts);
     /// ```
@@ -1138,7 +1145,7 @@ impl Renderer {
         };
 
         let device_pixel_ratio = options.device_pixel_ratio;
-        let render_target_debug = options.render_target_debug;
+        let debug_flags = options.debug_flags;
         let payload_tx_for_backend = payload_tx.clone();
         let recorder = options.recorder;
         let worker_config = ThreadPoolConfig::new()
@@ -1207,13 +1214,12 @@ impl Renderer {
             ps_line,
             notifier,
             debug: debug_renderer,
-            render_target_debug,
+            debug_flags,
             enable_batcher: options.enable_batcher,
             backend_profile_counters: BackendProfileCounters::new(),
             profile_counters: RendererProfileCounters::new(),
             profiler: Profiler::new(),
             max_texture_size: max_texture_size,
-            enable_profiler: options.enable_profiler,
             max_recorded_profiles: options.max_recorded_profiles,
             clear_framebuffer: options.clear_framebuffer,
             clear_color: options.clear_color,
@@ -1434,7 +1440,7 @@ impl Renderer {
                     self.cpu_profiles.push_back(cpu_profile);
                 }
 
-                if self.enable_profiler {
+                if self.debug_flags.contains(PROFILER_DBG) {
                     self.profiler.draw_profile(&mut self.device,
                                                &frame.profile_counters,
                                                &self.backend_profile_counters,
@@ -2282,6 +2288,7 @@ impl Renderer {
             self.color_render_targets.reverse();
             self.alpha_render_targets.reverse();
             self.draw_render_target_debug(framebuffer_size);
+            self.draw_texture_cache_debug(framebuffer_size);
         }
 
         self.unlock_external_images();
@@ -2291,12 +2298,12 @@ impl Renderer {
         &mut self.debug
     }
 
-    pub fn get_profiler_enabled(&mut self) -> bool {
-        self.enable_profiler
+    pub fn get_debug_flags(&self) -> DebugFlags {
+        self.debug_flags
     }
 
-    pub fn set_profiler_enabled(&mut self, enabled: bool) {
-        self.enable_profiler = enabled;
+    pub fn set_debug_flags(&mut self, flags: DebugFlags) {
+        self.debug_flags = flags;
     }
 
     pub fn save_cpu_profile(&self, filename: &str) {
@@ -2305,36 +2312,64 @@ impl Renderer {
 
     fn draw_render_target_debug(&mut self,
                                 framebuffer_size: &DeviceUintSize) {
-        if self.render_target_debug {
-            // TODO(gw): Make the layout of the render targets a bit more sophisticated.
-            // Right now, it just draws them in one row at the bottom of the screen,
-            // with a fixed size.
-            let rt_debug_x0 = 16;
-            let rt_debug_y0 = 16;
-            let rt_debug_spacing = 16;
-            let rt_debug_size = 512;
-            let mut current_target = 0;
+        if !self.debug_flags.contains(RENDER_TARGET_DBG) {
+            return;
+        }
 
-            for texture_id in self.color_render_targets.iter().chain(self.alpha_render_targets.iter()) {
-                let layer_count = self.device.get_render_target_layer_count(*texture_id);
-                for layer_index in 0..layer_count {
-                    let x0 = rt_debug_x0 + (rt_debug_spacing + rt_debug_size) * current_target;
-                    let y0 = rt_debug_y0;
+        let mut spacing = 16;
+        let mut size = 512;
+        let fb_width = framebuffer_size.width as i32;
+        let num_textures = self.color_render_targets.iter().chain(self.alpha_render_targets.iter()).count() as i32;
 
-                    // If we have more targets than fit on one row in screen, just early exit.
-                    if x0 > framebuffer_size.width as i32 {
-                        return;
-                    }
+        if num_textures * (size + spacing) > fb_width {
+            let factor = fb_width as f32 / (num_textures * (size + spacing)) as f32;
+            size = (size as f32 * factor) as i32;
+            spacing = (spacing as f32 * factor) as i32;
+        }
 
-                    let dest_rect = DeviceIntRect::new(DeviceIntPoint::new(x0, y0),
-                                                       DeviceIntSize::new(rt_debug_size, rt_debug_size));
-                    self.device.blit_render_target(Some((*texture_id, layer_index as i32)),
-                                                   None,
-                                                   dest_rect);
+        for (i, texture_id) in self.color_render_targets.iter().chain(self.alpha_render_targets.iter()).enumerate() {
+            let layer_count = self.device.get_render_target_layer_count(*texture_id);
+            for layer_index in 0..layer_count {
+                let x = fb_width - (spacing + size) * (i as i32 + 1);
+                let y = spacing;
 
-                    current_target += 1;
-                }
+                let dest_rect = rect(x, y, size, size);
+                self.device.blit_render_target(
+                    Some((*texture_id, layer_index as i32)),
+                    None,
+                    dest_rect
+                );
             }
+        }
+    }
+
+    fn draw_texture_cache_debug(&mut self, framebuffer_size: &DeviceUintSize) {
+        if !self.debug_flags.contains(TEXTURE_CACHE_DBG) {
+            return;
+        }
+
+        let mut spacing = 16;
+        let mut size = 512;
+        let fb_width = framebuffer_size.width as i32;
+        let num_textures = self.cache_texture_id_map.len() as i32;
+
+        if num_textures * (size + spacing) > fb_width {
+            let factor = fb_width as f32 / (num_textures * (size + spacing)) as f32;
+            size = (size as f32 * factor) as i32;
+            spacing = (spacing as f32 * factor) as i32;
+        }
+
+        for (i, texture_id) in self.cache_texture_id_map.iter().enumerate() {
+            let x = fb_width - (spacing + size) * (i as i32 + 1);
+            let y = spacing + if self.debug_flags.contains(RENDER_TARGET_DBG) { 528 } else { 0 };
+
+            // If we have more targets than fit on one row in screen, just early exit.
+            if x > fb_width {
+                return;
+            }
+
+            let dest_rect = rect(x, y, size, size);
+            self.device.blit_render_target(Some((*texture_id, 0)), None, dest_rect);
         }
     }
 
@@ -2415,7 +2450,6 @@ pub struct RendererOptions {
     pub resource_override_path: Option<PathBuf>,
     pub enable_aa: bool,
     pub enable_dithering: bool,
-    pub enable_profiler: bool,
     pub max_recorded_profiles: usize,
     pub debug: bool,
     pub enable_scrollbars: bool,
@@ -2426,13 +2460,13 @@ pub struct RendererOptions {
     pub clear_color: ColorF,
     pub enable_clear_scissor: bool,
     pub enable_batcher: bool,
-    pub render_target_debug: bool,
     pub max_texture_size: Option<u32>,
     pub cache_expiry_frames: u32,
     pub workers: Option<Arc<ThreadPool>>,
     pub blob_image_renderer: Option<Box<BlobImageRenderer>>,
     pub recorder: Option<Box<ApiRecordingReceiver>>,
     pub enable_render_on_scroll: bool,
+    pub debug_flags: DebugFlags,
 }
 
 impl Default for RendererOptions {
@@ -2442,7 +2476,7 @@ impl Default for RendererOptions {
             resource_override_path: None,
             enable_aa: true,
             enable_dithering: true,
-            enable_profiler: false,
+            debug_flags: DebugFlags::empty(),
             max_recorded_profiles: 0,
             debug: false,
             enable_scrollbars: false,
@@ -2453,7 +2487,6 @@ impl Default for RendererOptions {
             clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
             enable_clear_scissor: true,
             enable_batcher: true,
-            render_target_debug: false,
             max_texture_size: None,
             cache_expiry_frames: 600, // roughly, 10 seconds
             workers: None,
