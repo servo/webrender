@@ -2312,58 +2312,64 @@ impl Renderer {
 
     fn draw_render_target_debug(&mut self,
                                 framebuffer_size: &DeviceUintSize) {
-        if self.debug_flags.contains(RENDER_TARGET_DBG) {
-            // TODO(gw): Make the layout of the render targets a bit more sophisticated.
-            // Right now, it just draws them in one row at the bottom of the screen,
-            // with a fixed size.
-            let rt_debug_x0 = 16;
-            let rt_debug_y0 = 16;
-            let rt_debug_spacing = 16;
-            let rt_debug_size = 512;
-            let mut current_target = 0;
+        if !self.debug_flags.contains(RENDER_TARGET_DBG) {
+            return;
+        }
 
-            for texture_id in self.color_render_targets.iter().chain(self.alpha_render_targets.iter()) {
-                let layer_count = self.device.get_render_target_layer_count(*texture_id);
-                for layer_index in 0..layer_count {
-                    let x0 = rt_debug_x0 + (rt_debug_spacing + rt_debug_size) * current_target;
-                    let y0 = rt_debug_y0;
+        let mut spacing = 16;
+        let mut size = 512;
+        let fb_width = framebuffer_size.width as i32;
+        let num_textures = self.color_render_targets.iter().chain(self.alpha_render_targets.iter()).count() as i32;
 
-                    // If we have more targets than fit on one row in screen, just early exit.
-                    if x0 > framebuffer_size.width as i32 {
-                        return;
-                    }
+        if num_textures * (size + spacing) > fb_width {
+            let factor = fb_width as f32 / (num_textures * (size + spacing)) as f32;
+            size = (size as f32 * factor) as i32;
+            spacing = (spacing as f32 * factor) as i32;
+        }
 
-                    let dest_rect = DeviceIntRect::new(DeviceIntPoint::new(x0, y0),
-                                                       DeviceIntSize::new(rt_debug_size, rt_debug_size));
-                    self.device.blit_render_target(Some((*texture_id, layer_index as i32)),
-                                                   None,
-                                                   dest_rect);
+        for (i, texture_id) in self.color_render_targets.iter().chain(self.alpha_render_targets.iter()).enumerate() {
+            let layer_count = self.device.get_render_target_layer_count(*texture_id);
+            for layer_index in 0..layer_count {
+                let x = fb_width - (spacing + size) * (i as i32 + 1);
+                let y = spacing;
 
-                    current_target += 1;
-                }
+                let dest_rect = rect(x, y, size, size);
+                self.device.blit_render_target(
+                    Some((*texture_id, layer_index as i32)),
+                    None,
+                    dest_rect
+                );
             }
         }
     }
 
     fn draw_texture_cache_debug(&mut self, framebuffer_size: &DeviceUintSize) {
-        if self.debug_flags.contains(TEXTURE_CACHE_DBG) {
-            let x_offset = 16;
-            let y_offset = 16;
-            let spacing = 16;
-            let size = 512;
+        if !self.debug_flags.contains(TEXTURE_CACHE_DBG) {
+            return;
+        }
 
-            for (i, texture_id) in self.cache_texture_id_map.iter().enumerate() {
-                let x = x_offset + (spacing + size) * i as i32;
-                let y = y_offset + if self.debug_flags.contains(RENDER_TARGET_DBG) { 528 } else { 0 };
+        let mut spacing = 16;
+        let mut size = 512;
+        let fb_width = framebuffer_size.width as i32;
+        let num_textures = self.cache_texture_id_map.len() as i32;
 
-                // If we have more targets than fit on one row in screen, just early exit.
-                if x > framebuffer_size.width as i32 {
-                    return;
-                }
+        if num_textures * (size + spacing) > fb_width {
+            let factor = fb_width as f32 / (num_textures * (size + spacing)) as f32;
+            size = (size as f32 * factor) as i32;
+            spacing = (spacing as f32 * factor) as i32;
+        }
 
-                let dest_rect = rect(x, y, size, size);
-                self.device.blit_render_target(Some((*texture_id, 0)), None, dest_rect);
+        for (i, texture_id) in self.cache_texture_id_map.iter().enumerate() {
+            let x = fb_width - (spacing + size) * (i as i32 + 1);
+            let y = spacing + if self.debug_flags.contains(RENDER_TARGET_DBG) { 528 } else { 0 };
+
+            // If we have more targets than fit on one row in screen, just early exit.
+            if x > fb_width {
+                return;
             }
+
+            let dest_rect = rect(x, y, size, size);
+            self.device.blit_render_target(Some((*texture_id, 0)), None, dest_rect);
         }
     }
 
