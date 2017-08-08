@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tiling;
 use renderer::BlendMode;
-use api::{ClipId, ColorU, DevicePoint, DeviceUintRect, DocumentId, Epoch};
+use api::{ClipId, DevicePoint, DeviceUintRect, DocumentId, Epoch};
 use api::{ExternalImageData, ExternalImageId};
 use api::{ImageData, ImageFormat, PipelineId};
 
@@ -95,84 +95,6 @@ impl BatchTextures {
 
 // In some places we need to temporarily bind a texture to any slot.
 pub const DEFAULT_TEXTURE: TextureSampler = TextureSampler::Color0;
-
-#[derive(Clone, Copy, Debug)]
-pub enum VertexAttribute {
-    // vertex-frequency basic attributes
-    Position,
-    Color,
-    ColorTexCoord,
-    // instance-frequency primitive attributes
-    Data0,
-    Data1,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum BlurAttribute {
-    // vertex frequency
-    Position,
-    // instance frequency
-    RenderTaskIndex,
-    SourceTaskIndex,
-    Direction,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum ClipAttribute {
-    // vertex frequency
-    Position,
-    // instance frequency
-    RenderTaskIndex,
-    LayerIndex,
-    DataIndex,
-    SegmentIndex,
-    ResourceAddress,
-}
-
-#[derive(Debug, Clone, Copy)]
-#[repr(C)]
-pub struct PackedVertex {
-    pub pos: [f32; 2],
-}
-
-#[derive(Debug)]
-#[repr(C)]
-pub struct DebugFontVertex {
-    pub x: f32,
-    pub y: f32,
-    pub color: ColorU,
-    pub u: f32,
-    pub v: f32,
-}
-
-impl DebugFontVertex {
-    pub fn new(x: f32, y: f32, u: f32, v: f32, color: ColorU) -> DebugFontVertex {
-        DebugFontVertex {
-            x,
-            y,
-            color,
-            u,
-            v,
-        }
-    }
-}
-
-#[repr(C)]
-pub struct DebugColorVertex {
-    pub x: f32,
-    pub y: f32,
-    pub color: ColorU,
-}
-
-impl DebugColorVertex {
-    pub fn new(x: f32, y: f32, color: ColorU) -> DebugColorVertex {
-        DebugColorVertex {
-            x,
-            y,
-            color,
-        }
-    }
-}
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum RenderTargetMode {
