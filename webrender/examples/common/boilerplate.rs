@@ -164,6 +164,10 @@ pub fn main_wrapper(builder_callback: fn(&RenderApi,
                     flags.toggle(TEXTURE_CACHE_DBG);
                     renderer.set_debug_flags(flags);
                 },
+                glutin::Event::KeyboardInput(glutin::ElementState::Pressed,
+                                             _, Some(glutin::VirtualKeyCode::M)) => {
+                    api.notify_memory_pressure();
+                },
 
                 _ => event_handler(&event, document_id, &api),
             }
