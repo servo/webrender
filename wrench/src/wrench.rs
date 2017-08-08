@@ -449,7 +449,10 @@ impl Wrench {
             "Esc, Q - Quit",
             "H - Toggle help",
             "R - Toggle recreating display items each frame",
-            "P - Toggle profiler"
+            "P - Toggle profiler",
+            "O - Toggle showing intermediate targets",
+            "I - Toggle showing texture caches",
+            "M - Trigger memory pressure event",
         ];
 
         let color_and_offset = [ (*BLACK_COLOR, 2.0), (*WHITE_COLOR, 0.0) ];
