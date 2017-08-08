@@ -8,7 +8,7 @@ use api::{GlyphKey};
 use internal_types::FastHashMap;
 
 use freetype::freetype::{FT_Render_Mode, FT_Pixel_Mode, FT_BBox, FT_Outline_Translate};
-use freetype::freetype::{FT_Done_FreeType, FT_Library_SetLcdFilter};
+use freetype::freetype::{FT_Done_FreeType, FT_Library_SetLcdFilter, FT_Pos};
 use freetype::freetype::{FT_Library, FT_Set_Char_Size, FT_Outline_Get_CBox};
 use freetype::freetype::{FT_Face, FT_Long, FT_UInt, FT_F26Dot6, FT_Glyph_Format};
 use freetype::freetype::{FT_Init_FreeType, FT_Load_Glyph, FT_Render_Glyph};
@@ -179,8 +179,8 @@ impl FontContext {
             FontRenderMode::Subpixel => self.lcd_extra_pixels * 64,
             FontRenderMode::Alpha | FontRenderMode::Mono => 0,
         };
-        cbox.xMin -= padding;
-        cbox.xMax += padding;
+        cbox.xMin -= padding as FT_Pos;
+        cbox.xMax += padding as FT_Pos;
 
         // Offset the bounding box by subpixel positioning.
         // Convert to 26.6 fixed point format for FT.
