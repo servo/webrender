@@ -72,7 +72,7 @@ pub struct TexturePage {
 }
 
 impl TexturePage {
-    pub fn new(texture_id: CacheTextureId, texture_size: DeviceUintSize) -> TexturePage {
+    fn new(texture_id: CacheTextureId, texture_size: DeviceUintSize) -> TexturePage {
         let mut page = TexturePage {
             texture_id,
             texture_size,
@@ -117,7 +117,7 @@ impl TexturePage {
         None
     }
 
-    pub fn can_allocate(&self, requested_dimensions: &DeviceUintSize) -> bool {
+    fn can_allocate(&self, requested_dimensions: &DeviceUintSize) -> bool {
         self.find_index_of_best_rect(requested_dimensions).is_some()
     }
 
@@ -280,7 +280,7 @@ impl TexturePage {
         changed
     }
 
-    pub fn clear(&mut self) {
+    fn clear(&mut self) {
         self.free_list = FreeRectList::new();
         self.free_list.push(&DeviceUintRect::new(
             DeviceUintPoint::zero(),
