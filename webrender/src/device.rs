@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use std::ptr;
 use std::rc::Rc;
 //use std::sync::mpsc::{channel, Sender};
-//use std::thread;
+use std::thread;
 use api::{ColorF, ImageFormat};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintSize};
 
@@ -271,12 +271,6 @@ impl TextureId {
     pub fn is_valid(&self) -> bool { *self != TextureId::invalid() }
 }
 
-impl ProgramId {
-    fn bind(&self, gl: &gl::Gl) {
-        gl.use_program(self.0);
-    }
-}
-
 impl VBOId {
     fn bind(&self, gl: &gl::Gl) {
         gl.bind_buffer(gl::ARRAY_BUFFER, self.0);
@@ -322,8 +316,7 @@ impl Drop for Texture {
     }
 }
 
-struct Program {
-    gl: Rc<gl::Gl>,
+pub struct Program {
     id: gl::GLuint,
     u_transform: gl::GLint,
     u_device_pixel_ratio: gl::GLint,
@@ -339,25 +332,26 @@ impl Program {
     fn attach_and_bind_shaders(&mut self,
                                vs_id: gl::GLuint,
                                fs_id: gl::GLuint,
-                               descriptor: &VertexDescriptor) -> Result<(), ShaderError> {
-        self.gl.attach_shader(self.id, vs_id);
-        self.gl.attach_shader(self.id, fs_id);
+                               descriptor: &VertexDescriptor,
+                               gl: &gl::Gl) -> Result<(), ShaderError> {
+        gl.attach_shader(self.id, vs_id);
+        gl.attach_shader(self.id, fs_id);
 
         for (i, attr) in descriptor.vertex_attributes
                                    .iter()
                                    .chain(descriptor.instance_attributes.iter())
                                    .enumerate() {
-            self.gl.bind_attrib_location(self.id,
-                                         i as gl::GLuint,
-                                         attr.name);
+            gl.bind_attrib_location(self.id,
+                                    i as gl::GLuint,
+                                    attr.name);
         }
 
-        self.gl.link_program(self.id);
-        if self.gl.get_program_iv(self.id, gl::LINK_STATUS) == (0 as gl::GLint) {
-            let error_log = self.gl.get_program_info_log(self.id);
+        gl.link_program(self.id);
+        if gl.get_program_iv(self.id, gl::LINK_STATUS) == (0 as gl::GLint) {
+            let error_log = gl.get_program_info_log(self.id);
             println!("Failed to link shader program: {:?}\n{}", self.name, error_log);
-            self.gl.detach_shader(self.id, vs_id);
-            self.gl.detach_shader(self.id, fs_id);
+            gl.detach_shader(self.id, vs_id);
+            gl.detach_shader(self.id, fs_id);
             return Err(ShaderError::Link(self.name.clone(), error_log));
         }
 
@@ -367,7 +361,7 @@ impl Program {
 
 impl Drop for Program {
     fn drop(&mut self) {
-        self.gl.delete_program(self.id);
+        debug_assert!(thread::panicking() || self.id == 0);
     }
 }
 
@@ -405,9 +399,6 @@ pub struct TextureId {
     name: gl::GLuint,
     target: gl::GLuint,
 }
-
-#[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
-pub struct ProgramId(pub gl::GLuint);
 
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 pub struct VAOId(gl::GLuint);
@@ -782,7 +773,7 @@ pub struct Device {
     gl: Rc<gl::Gl>,
     // device state
     bound_textures: [TextureId; 16],
-    bound_program: ProgramId,
+    bound_program: gl::GLuint,
     bound_vao: VAOId,
     bound_pbo: PBOId,
     bound_read_fbo: FBOId,
@@ -800,7 +791,6 @@ pub struct Device {
     // resources
     resource_override_path: Option<PathBuf>,
     textures: FastHashMap<TextureId, Texture>,
-    programs: FastHashMap<ProgramId, Program>,
     vaos: FastHashMap<VAOId, VAO>,
 
     // misc.
@@ -842,7 +832,7 @@ impl Device {
             },
 
             bound_textures: [ TextureId::invalid(); 16 ],
-            bound_program: ProgramId(0),
+            bound_program: 0,
             bound_vao: VAOId(0),
             bound_pbo: PBOId(0),
             bound_read_fbo: FBOId(0),
@@ -851,7 +841,6 @@ impl Device {
             default_draw_fbo: 0,
 
             textures: FastHashMap::default(),
-            programs: FastHashMap::default(),
             vaos: FastHashMap::default(),
 
             shader_preamble,
@@ -931,7 +920,7 @@ impl Device {
         }
 
         // Shader state
-        self.bound_program = ProgramId(0);
+        self.bound_program = 0;
         self.gl.use_program(0);
 
         // Vertex state
@@ -999,20 +988,13 @@ impl Device {
         }
     }
 
-    pub fn bind_program(&mut self,
-                        program_id: ProgramId,
-                        projection: &Transform3D<f32>) {
+    pub fn bind_program(&mut self, program: &Program) {
         debug_assert!(self.inside_frame);
 
-        if self.bound_program != program_id {
-            self.bound_program = program_id;
-            program_id.bind(&*self.gl);
+        if self.bound_program != program.id {
+            self.gl.use_program(program.id);
+            self.bound_program = program.id;
         }
-
-        let program = self.programs.get(&program_id).unwrap();
-        self.set_uniforms(program,
-                          projection,
-                          self.device_pixel_ratio);
     }
 
     pub fn create_texture_ids(&mut self,
@@ -1363,18 +1345,23 @@ impl Device {
     pub fn create_program(&mut self,
                           base_filename: &str,
                           include_filename: &str,
-                          descriptor: &VertexDescriptor) -> Result<ProgramId, ShaderError> {
+                          descriptor: &VertexDescriptor) -> Result<Program, ShaderError> {
         self.create_program_with_prefix(base_filename,
                                         &[include_filename],
                                         None,
                                         descriptor)
     }
 
+    pub fn delete_program(&mut self, program: &mut Program) {
+        self.gl.delete_program(program.id);
+        program.id = 0;
+    }
+
     pub fn create_program_with_prefix(&mut self,
                                       base_filename: &str,
                                       include_filenames: &[&str],
                                       prefix: Option<String>,
-                                      descriptor: &VertexDescriptor) -> Result<ProgramId, ShaderError> {
+                                      descriptor: &VertexDescriptor) -> Result<Program, ShaderError> {
         debug_assert!(self.inside_frame);
 
         let pid = self.gl.create_program();
@@ -1394,8 +1381,7 @@ impl Device {
             include.push_str(&shared_src);
         }
 
-        let program = Program {
-            gl: Rc::clone(&self.gl),
+        let mut program = Program {
             name: base_filename.to_owned(),
             id: pid,
             u_transform: -1,
@@ -1407,23 +1393,16 @@ impl Device {
             fs_id: None,
         };
 
-        let program_id = ProgramId(pid);
+        try!{ self.load_program(&mut program, include, descriptor) };
 
-        debug_assert!(self.programs.contains_key(&program_id) == false);
-        self.programs.insert(program_id, program);
-
-        try!{ self.load_program(program_id, include, descriptor) };
-
-        Ok(program_id)
+        Ok(program)
     }
 
     fn load_program(&mut self,
-                    program_id: ProgramId,
+                    program: &mut Program,
                     include: String,
                     descriptor: &VertexDescriptor) -> Result<(), ShaderError> {
         debug_assert!(self.inside_frame);
-
-        let program = self.programs.get_mut(&program_id).unwrap();
 
         let mut vs_preamble = Vec::new();
         let mut fs_preamble = Vec::new();
@@ -1462,9 +1441,9 @@ impl Device {
             self.gl.detach_shader(program.id, fs_id);
         }
 
-        if let Err(bind_error) = program.attach_and_bind_shaders(vs_id, fs_id, descriptor) {
+        if let Err(bind_error) = program.attach_and_bind_shaders(vs_id, fs_id, descriptor, &*self.gl) {
             if let (Some(vs_id), Some(fs_id)) = (program.vs_id, program.fs_id) {
-                try! { program.attach_and_bind_shaders(vs_id, fs_id, descriptor) };
+                try! { program.attach_and_bind_shaders(vs_id, fs_id, descriptor, &*self.gl) };
             } else {
                return Err(bind_error);
             }
@@ -1484,7 +1463,7 @@ impl Device {
         program.u_transform = self.gl.get_uniform_location(program.id, "uTransform");
         program.u_device_pixel_ratio = self.gl.get_uniform_location(program.id, "uDevicePixelRatio");
 
-        program_id.bind(&*self.gl);
+        self.bind_program(program);
         let u_color_0 = self.gl.get_uniform_location(program.id, "sColor0");
         if u_color_0 != -1 {
             self.gl.uniform_1i(u_color_0, TextureSampler::Color0 as i32);
@@ -1565,9 +1544,8 @@ impl Device {
         }
     }*/
 
-    pub fn get_uniform_location(&self, program_id: ProgramId, name: &str) -> UniformLocation {
-        let ProgramId(program_id) = program_id;
-        UniformLocation(self.gl.get_uniform_location(program_id, name))
+    pub fn get_uniform_location(&self, program: &Program, name: &str) -> UniformLocation {
+        UniformLocation(self.gl.get_uniform_location(program.id, name))
     }
 
     pub fn set_uniform_2f(&self, uniform: UniformLocation, x: f32, y: f32) {
@@ -1576,15 +1554,14 @@ impl Device {
         self.gl.uniform_2f(location, x, y);
     }
 
-    fn set_uniforms(&self,
-                    program: &Program,
-                    transform: &Transform3D<f32>,
-                    device_pixel_ratio: f32) {
+    pub fn set_uniforms(&self,
+                        program: &Program,
+                        transform: &Transform3D<f32>) {
         debug_assert!(self.inside_frame);
         self.gl.uniform_matrix_4fv(program.u_transform,
-                               false,
-                               &transform.to_row_major_array());
-        self.gl.uniform_1f(program.u_device_pixel_ratio, device_pixel_ratio);
+                                   false,
+                                   &transform.to_row_major_array());
+        self.gl.uniform_1f(program.u_device_pixel_ratio, self.device_pixel_ratio);
     }
 
     pub fn create_pbo(&mut self) -> PBOId {

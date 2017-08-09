@@ -554,4 +554,6 @@ fn main() {
 
         save_flipped("screenshot.png", &pixels, size);
     }
+
+    wrench.renderer.deinit();
 }

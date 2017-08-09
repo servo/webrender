@@ -173,4 +173,6 @@ pub fn main_wrapper(builder_callback: fn(&RenderApi,
         renderer.render(DeviceUintSize::new(width, height));
         window.swap_buffers().ok();
     }
+
+    renderer.deinit();
 }

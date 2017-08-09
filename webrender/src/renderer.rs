@@ -11,7 +11,7 @@
 
 use debug_colors;
 use debug_render::DebugRenderer;
-use device::{DepthFunction, Device, FrameId, ProgramId, TextureId, VertexDescriptor, GpuMarker, GpuProfiler, PBOId};
+use device::{DepthFunction, Device, FrameId, Program, TextureId, VertexDescriptor, GpuMarker, GpuProfiler, PBOId};
 use device::{GpuSample, TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
 use device::{get_gl_format_bgra, VertexAttribute, VertexAttributeKind};
 use euclid::{Transform3D, rect};
@@ -489,7 +489,7 @@ enum ShaderKind {
 }
 
 struct LazilyCompiledShader {
-    id: Option<ProgramId>,
+    program: Option<Program>,
     name: &'static str,
     kind: ShaderKind,
     features: Vec<&'static str>,
@@ -502,7 +502,7 @@ impl LazilyCompiledShader {
            device: &mut Device,
            precache: bool) -> Result<LazilyCompiledShader, ShaderError> {
         let mut shader = LazilyCompiledShader {
-            id: None,
+            program: None,
             name,
             kind,
             features: features.to_vec(),
@@ -515,9 +515,16 @@ impl LazilyCompiledShader {
         Ok(shader)
     }
 
-    fn get(&mut self, device: &mut Device) -> Result<ProgramId, ShaderError> {
-        if self.id.is_none() {
-            let id = try!{
+    fn bind(&mut self, device: &mut Device, projection: &Transform3D<f32>) {
+        let program = self.get(device)
+                          .expect("Unable to get shader!");
+        device.bind_program(program);
+        device.set_uniforms(program, projection);
+    }
+
+    fn get(&mut self, device: &mut Device) -> Result<&Program, ShaderError> {
+        if self.program.is_none() {
+            let program = try!{
                 match self.kind {
                     ShaderKind::Primitive => {
                         create_prim_shader(self.name,
@@ -536,10 +543,16 @@ impl LazilyCompiledShader {
                     }
                 }
             };
-            self.id = Some(id);
+            self.program = Some(program);
         }
 
-        Ok(self.id.unwrap())
+        Ok(self.program.as_ref().unwrap())
+    }
+
+    fn deinit(&mut self, device: &mut Device) {
+        if let &mut Some(ref mut program) = &mut self.program {
+            device.delete_program(program);
+        }
     }
 }
 
@@ -591,20 +604,26 @@ impl PrimitiveShader {
         })
     }
 
-    fn get(&mut self,
-           device: &mut Device,
-           transform_kind: TransformedRectKind) -> Result<ProgramId, ShaderError> {
+    fn bind(&mut self,
+            device: &mut Device,
+            transform_kind: TransformedRectKind,
+            projection: &Transform3D<f32>) {
         match transform_kind {
-            TransformedRectKind::AxisAligned => self.simple.get(device),
-            TransformedRectKind::Complex => self.transform.get(device),
+            TransformedRectKind::AxisAligned => self.simple.bind(device, projection),
+            TransformedRectKind::Complex => self.transform.bind(device, projection),
         }
+    }
+
+    fn deinit(&mut self, device: &mut Device) {
+        self.simple.deinit(device);
+        self.transform.deinit(device);
     }
 }
 
 fn create_prim_shader(name: &'static str,
                       device: &mut Device,
                       features: &[&'static str],
-                      vertex_format: VertexFormat) -> Result<ProgramId, ShaderError> {
+                      vertex_format: VertexFormat) -> Result<Program, ShaderError> {
     let mut prefix = format!("#define WR_MAX_VERTEX_TEXTURE_WIDTH {}\n",
                               MAX_VERTEX_TEXTURE_WIDTH);
 
@@ -628,7 +647,7 @@ fn create_prim_shader(name: &'static str,
                                       &vertex_descriptor)
 }
 
-fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<ProgramId, ShaderError> {
+fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program, ShaderError> {
     let prefix = format!("#define WR_MAX_VERTEX_TEXTURE_WIDTH {}\n
                           #define WR_FEATURE_TRANSFORM",
                           MAX_VERTEX_TEXTURE_WIDTH);
@@ -1675,11 +1694,8 @@ impl Renderer {
     fn draw_instanced_batch<T>(&mut self,
                                data: &[T],
                                vao: VAOId,
-                               shader: ProgramId,
-                               textures: &BatchTextures,
-                               projection: &Transform3D<f32>) {
+                               textures: &BatchTextures) {
         self.device.bind_vao(vao);
-        self.device.bind_program(shader, projection);
 
         for i in 0..textures.colors.len() {
             let texture_id = self.resolve_source_texture(&textures.colors[i]);
@@ -1723,80 +1739,92 @@ impl Renderer {
                           BlendMode::None => false,
                       });
 
-        let (marker, shader) = match batch.key.kind {
+        let marker = match batch.key.kind {
             AlphaBatchKind::Composite => {
-                let shader = self.ps_composite.get(&mut self.device);
-                (GPU_TAG_PRIM_COMPOSITE, shader)
+                self.ps_composite.bind(&mut self.device, projection);
+                GPU_TAG_PRIM_COMPOSITE
             }
             AlphaBatchKind::HardwareComposite => {
-                let shader = self.ps_hw_composite.get(&mut self.device);
-                (GPU_TAG_PRIM_HW_COMPOSITE, shader)
+                self.ps_hw_composite.bind(&mut self.device, projection);
+                GPU_TAG_PRIM_HW_COMPOSITE
             }
             AlphaBatchKind::SplitComposite => {
-                let shader = self.ps_split_composite.get(&mut self.device);
-                (GPU_TAG_PRIM_SPLIT_COMPOSITE, shader)
+                self.ps_split_composite.bind(&mut self.device, projection);
+                GPU_TAG_PRIM_SPLIT_COMPOSITE
             }
             AlphaBatchKind::Blend => {
-                let shader = self.ps_blend.get(&mut self.device);
-                (GPU_TAG_PRIM_BLEND, shader)
+                self.ps_blend.bind(&mut self.device, projection);
+                GPU_TAG_PRIM_BLEND
             }
             AlphaBatchKind::Rectangle => {
-                let shader = if needs_clipping {
-                    self.ps_rectangle_clip.get(&mut self.device, transform_kind)
+                if needs_clipping {
+                    self.ps_rectangle_clip.bind(&mut self.device, transform_kind, projection);
                 } else {
-                    self.ps_rectangle.get(&mut self.device, transform_kind)
-                };
-                (GPU_TAG_PRIM_RECT, shader)
+                    self.ps_rectangle.bind(&mut self.device, transform_kind, projection);
+                }
+                GPU_TAG_PRIM_RECT
             }
             AlphaBatchKind::Line => {
-                let shader = self.ps_line.get(&mut self.device, transform_kind);
-                (GPU_TAG_PRIM_LINE, shader)
+                self.ps_line.bind(&mut self.device, transform_kind, projection);
+                GPU_TAG_PRIM_LINE
             }
             AlphaBatchKind::TextRun => {
-                let shader = match batch.key.blend_mode {
-                    BlendMode::Subpixel(..) => self.ps_text_run_subpixel.get(&mut self.device, transform_kind),
-                    BlendMode::Alpha | BlendMode::PremultipliedAlpha | BlendMode::None => self.ps_text_run.get(&mut self.device, transform_kind),
+                match batch.key.blend_mode {
+                    BlendMode::Subpixel(..) => {
+                        self.ps_text_run_subpixel.bind(&mut self.device, transform_kind, projection);
+                    }
+                    BlendMode::Alpha |
+                    BlendMode::PremultipliedAlpha |
+                    BlendMode::None => {
+                        self.ps_text_run.bind(&mut self.device, transform_kind, projection);
+                    }
                 };
-                (GPU_TAG_PRIM_TEXT_RUN, shader)
+                GPU_TAG_PRIM_TEXT_RUN
             }
             AlphaBatchKind::Image(image_buffer_kind) => {
-                let shader = self.ps_image[image_buffer_kind as usize].as_mut().unwrap().get(&mut self.device, transform_kind);
-                (GPU_TAG_PRIM_IMAGE, shader)
+                self.ps_image[image_buffer_kind as usize]
+                    .as_mut()
+                    .expect("Unsupported image shader kind")
+                    .bind(&mut self.device, transform_kind, projection);
+                GPU_TAG_PRIM_IMAGE
             }
             AlphaBatchKind::YuvImage(image_buffer_kind, format, color_space) => {
                 let shader_index = Renderer::get_yuv_shader_index(image_buffer_kind,
                                                                   format,
                                                                   color_space);
-                let shader = self.ps_yuv_image[shader_index].as_mut().unwrap().get(&mut self.device, transform_kind);
-                (GPU_TAG_PRIM_YUV_IMAGE, shader)
+                self.ps_yuv_image[shader_index]
+                    .as_mut()
+                    .expect("Unsupported YUV shader kind")
+                    .bind(&mut self.device, transform_kind, projection);
+                GPU_TAG_PRIM_YUV_IMAGE
             }
             AlphaBatchKind::BorderCorner => {
-                let shader = self.ps_border_corner.get(&mut self.device, transform_kind);
-                (GPU_TAG_PRIM_BORDER_CORNER, shader)
+                self.ps_border_corner.bind(&mut self.device, transform_kind, projection);
+                GPU_TAG_PRIM_BORDER_CORNER
             }
             AlphaBatchKind::BorderEdge => {
-                let shader = self.ps_border_edge.get(&mut self.device, transform_kind);
-                (GPU_TAG_PRIM_BORDER_EDGE, shader)
+                self.ps_border_edge.bind(&mut self.device, transform_kind, projection);
+                GPU_TAG_PRIM_BORDER_EDGE
             }
             AlphaBatchKind::AlignedGradient => {
-                let shader = self.ps_gradient.get(&mut self.device, transform_kind);
-                (GPU_TAG_PRIM_GRADIENT, shader)
+                self.ps_gradient.bind(&mut self.device, transform_kind, projection);
+                GPU_TAG_PRIM_GRADIENT
             }
             AlphaBatchKind::AngleGradient => {
-                let shader = self.ps_angle_gradient.get(&mut self.device, transform_kind);
-                (GPU_TAG_PRIM_ANGLE_GRADIENT, shader)
+                self.ps_angle_gradient.bind(&mut self.device, transform_kind, projection);
+                GPU_TAG_PRIM_ANGLE_GRADIENT
             }
             AlphaBatchKind::RadialGradient => {
-                let shader = self.ps_radial_gradient.get(&mut self.device, transform_kind);
-                (GPU_TAG_PRIM_RADIAL_GRADIENT, shader)
+                self.ps_radial_gradient.bind(&mut self.device, transform_kind, projection);
+                GPU_TAG_PRIM_RADIAL_GRADIENT
             }
             AlphaBatchKind::BoxShadow => {
-                let shader = self.ps_box_shadow.get(&mut self.device, transform_kind);
-                (GPU_TAG_PRIM_BOX_SHADOW, shader)
+                self.ps_box_shadow.bind(&mut self.device, transform_kind, projection);
+                GPU_TAG_PRIM_BOX_SHADOW
             }
             AlphaBatchKind::CacheImage => {
-                let shader = self.ps_cache_image.get(&mut self.device, transform_kind);
-                (GPU_TAG_PRIM_CACHE_IMAGE, shader)
+                self.ps_cache_image.bind(&mut self.device, transform_kind, projection);
+                GPU_TAG_PRIM_CACHE_IMAGE
             }
         };
 
@@ -1859,14 +1887,11 @@ impl Renderer {
             self.device.bind_draw_target(render_target, Some(target_dimensions));
         }
 
-        let shader = shader.unwrap();
         let _gm = self.gpu_profile.add_marker(marker);
         let vao = self.prim_vao_id;
         self.draw_instanced_batch(&batch.instances,
                                   vao,
-                                  shader,
-                                  &batch.key.textures,
-                                  projection);
+                                  &batch.key.textures);
     }
 
     fn draw_color_target(&mut self,
@@ -1914,22 +1939,18 @@ impl Renderer {
             let vao = self.blur_vao_id;
 
             self.device.set_blend(false);
-            let shader = self.cs_blur.get(&mut self.device).unwrap();
+            self.cs_blur.bind(&mut self.device, projection);
 
             if !target.vertical_blurs.is_empty() {
                 self.draw_instanced_batch(&target.vertical_blurs,
                                           vao,
-                                          shader,
-                                          &BatchTextures::no_texture(),
-                                          &projection);
+                                          &BatchTextures::no_texture());
             }
 
             if !target.horizontal_blurs.is_empty() {
                 self.draw_instanced_batch(&target.horizontal_blurs,
                                           vao,
-                                          shader,
-                                          &BatchTextures::no_texture(),
-                                          &projection);
+                                          &BatchTextures::no_texture());
             }
         }
 
@@ -1938,12 +1959,10 @@ impl Renderer {
             self.device.set_blend(false);
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_BOX_SHADOW);
             let vao = self.prim_vao_id;
-            let shader = self.cs_box_shadow.get(&mut self.device).unwrap();
+            self.cs_box_shadow.bind(&mut self.device, projection);
             self.draw_instanced_batch(&target.box_shadow_cache_prims,
                                       vao,
-                                      shader,
-                                      &BatchTextures::no_texture(),
-                                      &projection);
+                                      &BatchTextures::no_texture());
         }
 
         // Draw any textrun caches for this target. For now, this
@@ -1958,13 +1977,10 @@ impl Renderer {
 
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_TEXT_RUN);
             let vao = self.prim_vao_id;
-            let shader = self.cs_text_run.get(&mut self.device).unwrap();
-
+            self.cs_text_run.bind(&mut self.device, projection);
             self.draw_instanced_batch(&target.text_run_cache_prims,
                                       vao,
-                                      shader,
-                                      &target.text_run_textures,
-                                      &projection);
+                                      &target.text_run_textures);
         }
         if !target.line_cache_prims.is_empty() {
             // TODO(gw): Technically, we don't need blend for solid
@@ -1974,13 +1990,10 @@ impl Renderer {
 
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_LINE);
             let vao = self.prim_vao_id;
-            let shader = self.cs_line.get(&mut self.device).unwrap();
-
+            self.cs_line.bind(&mut self.device, projection);
             self.draw_instanced_batch(&target.line_cache_prims,
                                       vao,
-                                      shader,
-                                      &BatchTextures::no_texture(),
-                                      &projection);
+                                      &BatchTextures::no_texture());
         }
 
         if !target.alpha_batcher.is_empty() {
@@ -2078,12 +2091,10 @@ impl Renderer {
             if !target.clip_batcher.border_clears.is_empty() {
                 let _gm2 = GpuMarker::new(self.device.rc_gl(), "clip borders [clear]");
                 self.device.set_blend(false);
-                let shader = self.cs_clip_border.get(&mut self.device).unwrap();
+                self.cs_clip_border.bind(&mut self.device, projection);
                 self.draw_instanced_batch(&target.clip_batcher.border_clears,
                                           vao,
-                                          shader,
-                                          &BatchTextures::no_texture(),
-                                          &projection);
+                                          &BatchTextures::no_texture());
             }
 
             // Draw any dots or dashes for border corners.
@@ -2095,12 +2106,10 @@ impl Renderer {
                 // a max blend mode here is fine.
                 self.device.set_blend(true);
                 self.device.set_blend_mode_max();
-                let shader = self.cs_clip_border.get(&mut self.device).unwrap();
+                self.cs_clip_border.bind(&mut self.device, projection);
                 self.draw_instanced_batch(&target.clip_batcher.borders,
                                           vao,
-                                          shader,
-                                          &BatchTextures::no_texture(),
-                                          &projection);
+                                          &BatchTextures::no_texture());
             }
 
             // switch to multiplicative blending
@@ -2110,12 +2119,10 @@ impl Renderer {
             // draw rounded cornered rectangles
             if !target.clip_batcher.rectangles.is_empty() {
                 let _gm2 = GpuMarker::new(self.device.rc_gl(), "clip rectangles");
-                let shader = self.cs_clip_rectangle.get(&mut self.device).unwrap();
+                self.cs_clip_rectangle.bind(&mut self.device, projection);
                 self.draw_instanced_batch(&target.clip_batcher.rectangles,
                                           vao,
-                                          shader,
-                                          &BatchTextures::no_texture(),
-                                          &projection);
+                                          &BatchTextures::no_texture());
             }
             // draw image masks
             for (mask_texture_id, items) in target.clip_batcher.images.iter() {
@@ -2127,12 +2134,10 @@ impl Renderer {
                         SourceTexture::Invalid,
                     ]
                 };
-                let shader = self.cs_clip_image.get(&mut self.device).unwrap();
+                self.cs_clip_image.bind(&mut self.device, projection);
                 self.draw_instanced_batch(items,
                                           vao,
-                                          shader,
-                                          &textures,
-                                          &projection);
+                                          &textures);
             }
         }
     }
@@ -2461,6 +2466,40 @@ impl Renderer {
         //Note: this is a fake frame, only needed because texture deletion is require to happen inside a frame
         self.device.begin_frame(1.0);
         self.device.deinit_texture(self.dummy_cache_texture_id);
+        self.debug.deinit(&mut self.device);
+        self.cs_box_shadow.deinit(&mut self.device);
+        self.cs_text_run.deinit(&mut self.device);
+        self.cs_line.deinit(&mut self.device);
+        self.cs_blur.deinit(&mut self.device);
+        self.cs_clip_rectangle.deinit(&mut self.device);
+        self.cs_clip_image.deinit(&mut self.device);
+        self.cs_clip_border.deinit(&mut self.device);
+        self.ps_rectangle.deinit(&mut self.device);
+        self.ps_rectangle_clip.deinit(&mut self.device);
+        self.ps_text_run.deinit(&mut self.device);
+        self.ps_text_run_subpixel.deinit(&mut self.device);
+        for shader in &mut self.ps_image {
+            if let &mut Some(ref mut shader) = shader {
+                shader.deinit(&mut self.device);
+            }
+        }
+        for shader in &mut self.ps_yuv_image {
+            if let &mut Some(ref mut shader) = shader {
+                shader.deinit(&mut self.device);
+            }
+        }
+        self.ps_border_corner.deinit(&mut self.device);
+        self.ps_border_edge.deinit(&mut self.device);
+        self.ps_gradient.deinit(&mut self.device);
+        self.ps_angle_gradient.deinit(&mut self.device);
+        self.ps_radial_gradient.deinit(&mut self.device);
+        self.ps_box_shadow.deinit(&mut self.device);
+        self.ps_cache_image.deinit(&mut self.device);
+        self.ps_line.deinit(&mut self.device);
+        self.ps_blend.deinit(&mut self.device);
+        self.ps_hw_composite.deinit(&mut self.device);
+        self.ps_split_composite.deinit(&mut self.device);
+        self.ps_composite.deinit(&mut self.device);
         self.device.end_frame();
     }
 }
