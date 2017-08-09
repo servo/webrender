@@ -89,6 +89,15 @@ impl GlyphCache {
         }
     }
 
+    pub fn clear(&mut self, texture_cache: &mut TextureCache) {
+        for (_, glyph_key_cache) in &mut self.glyph_key_caches {
+            glyph_key_cache.clear(texture_cache)
+        }
+        // We use this in on_memory_pressure where retaining memory allocations
+        // isn't desirable, so we completely remove the hash map instead of clearing it.
+        self.glyph_key_caches = FastHashMap::default();
+    }
+
     pub fn clear_fonts<F>(&mut self, texture_cache: &mut TextureCache, key_fun: F)
     where for<'r> F: Fn(&'r &FontInstanceKey) -> bool
     {

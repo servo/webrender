@@ -527,6 +527,9 @@ fn main() {
                         flags.toggle(TEXTURE_CACHE_DBG);
                         wrench.renderer.set_debug_flags(flags);
                     },
+                    VirtualKeyCode::M => {
+                        wrench.api.notify_memory_pressure();
+                    },
                     VirtualKeyCode::L => {
                         do_loop = !do_loop;
                     },
