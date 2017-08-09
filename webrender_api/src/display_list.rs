@@ -9,11 +9,11 @@ use serde::ser::{SerializeSeq, SerializeMap};
 use time::precise_time_ns;
 use {BorderDetails, BorderDisplayItem, BorderWidths, BoxShadowClipMode, BoxShadowDisplayItem};
 use {ClipAndScrollInfo, ClipDisplayItem, ClipId, ColorF, ComplexClipRegion, DisplayItem};
-use {ExtendMode, FilterOp, FontKey, GlyphInstance, GlyphOptions, Gradient, GradientDisplayItem};
-use {GradientStop, IframeDisplayItem, ImageDisplayItem, ImageKey, ImageMask, ImageRendering};
-use {LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D, LineDisplayItem};
-use {LineOrientation, LineStyle, LocalClip, MixBlendMode, PipelineId, PropertyBinding};
-use {PushStackingContextDisplayItem, RadialGradient, RadialGradientDisplayItem};
+use {ExtendMode, FilterOp, FontKey, GlyphIndex, GlyphInstance, GlyphOptions, Gradient};
+use {GradientDisplayItem, GradientStop, IframeDisplayItem, ImageDisplayItem, ImageKey, ImageMask};
+use {ImageRendering, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D};
+use {LineDisplayItem, LineOrientation, LineStyle, LocalClip, MixBlendMode, PipelineId};
+use {PropertyBinding, PushStackingContextDisplayItem, RadialGradient, RadialGradientDisplayItem};
 use {RectangleDisplayItem, ScrollFrameDisplayItem, ScrollPolicy, ScrollSensitivity};
 use {SpecificDisplayItem, StackingContext, TextDisplayItem, TextShadow, TransformStyle};
 use {WebGLContextId, WebGLDisplayItem, YuvColorSpace, YuvData, YuvImageDisplayItem};
@@ -121,6 +121,14 @@ impl BuiltDisplayList {
         &self.data[..]
     }
 
+    pub fn item_slice(&self) -> &[u8] {
+        &self.data[..self.descriptor.glyph_offset]
+    }
+
+    pub fn glyph_slice(&self) -> &[u8] {
+        &self.data[self.descriptor.glyph_offset..]
+    }
+
     pub fn descriptor(&self) -> &BuiltDisplayListDescriptor {
         &self.descriptor
     }
@@ -138,7 +146,7 @@ impl BuiltDisplayList {
     pub fn glyphs(&self) -> GlyphsIter {
         GlyphsIter {
             list: self,
-            data: &self.data[self.descriptor.glyph_offset..],
+            data: self.glyph_slice(),
         }
     }
 
@@ -168,7 +176,7 @@ fn skip_slice<T: for<'de> Deserialize<'de>>(list: &BuiltDisplayList, data: &mut 
 
 impl<'a> BuiltDisplayListIter<'a> {
     pub fn new(list: &'a BuiltDisplayList) -> Self {
-        Self::new_with_list_and_data(list, &list.data[..list.descriptor.glyph_offset])
+        Self::new_with_list_and_data(list, list.item_slice())
     }
 
     pub fn new_with_list_and_data(list: &'a BuiltDisplayList, data: &'a [u8]) -> Self {
@@ -289,15 +297,15 @@ impl<'a> BuiltDisplayListIter<'a> {
 }
 
 impl<'a> Iterator for GlyphsIter<'a> {
-    type Item = (FontKey, ColorF, ItemRange<GlyphInstance>);
+    type Item = (FontKey, ColorF, ItemRange<GlyphIndex>);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.data.len() == 0 { return None; }
 
         let (font_key, color) = bincode::deserialize_from(&mut self.data, bincode::Infinite)
                                         .expect("MEH: malicious process?");
-        let glyphs = skip_slice::<GlyphInstance>(self.list, &mut self.data).0;
-        Some((font_key, color, glyphs))
+        let glyph_indices = skip_slice::<GlyphIndex>(self.list, &mut self.data).0;
+        Some((font_key, color, glyph_indices))
     }
 }
 
@@ -445,7 +453,7 @@ pub struct DisplayListBuilder {
     pub pipeline_id: PipelineId,
     clip_stack: Vec<ClipAndScrollInfo>,
     // FIXME: audit whether fast hashers (FNV?) are safe here
-    glyphs: FastHashMap<(FontKey, ColorF), FastHashSet<u32>>,
+    glyphs: FastHashMap<(FontKey, ColorF), FastHashSet<GlyphIndex>>,
     next_clip_id: u64,
     builder_start_time: u64,
 
@@ -625,11 +633,18 @@ impl DisplayListBuilder {
             self.push_iter(glyphs);
 
             // Remember that we've seen these glyphs
-            let mut font_glyphs = self.glyphs.entry((font_key, color))
-                                             .or_insert(FastHashSet::default());
-
-            font_glyphs.extend(glyphs.iter().map(|glyph| glyph.index));
+            self.cache_glyphs(font_key, color, glyphs.iter().map(|glyph| glyph.index));
         }
+    }
+
+    fn cache_glyphs<I: Iterator<Item=GlyphIndex>>(&mut self,
+                                                     font_key: FontKey,
+                                                     color: ColorF,
+                                                     glyphs: I) {
+        let mut font_glyphs = self.glyphs.entry((font_key, color))
+                                         .or_insert(FastHashSet::default());
+
+        font_glyphs.extend(glyphs);
     }
 
     // Gradients can be defined with stops outside the range of [0, 1]
@@ -982,7 +997,14 @@ impl DisplayListBuilder {
     // id.
     pub fn push_nested_display_list(&mut self, built_display_list: &BuiltDisplayList) {
         self.push_new_empty_item(SpecificDisplayItem::PushNestedDisplayList);
-        self.data.extend_from_slice(&built_display_list.data);
+
+        // Need to read out all the glyph data to update the cache
+        for (font_key, color, glyphs) in built_display_list.glyphs() {
+            self.cache_glyphs(font_key, color, built_display_list.get(glyphs));
+        }
+
+        // Only append the actual items, not any caches
+        self.data.extend_from_slice(built_display_list.item_slice());
         self.push_new_empty_item(SpecificDisplayItem::PopNestedDisplayList);
     }
 

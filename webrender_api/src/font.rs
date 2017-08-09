@@ -216,9 +216,11 @@ impl GlyphKey {
     }
 }
 
+pub type GlyphIndex = u32;
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct GlyphInstance {
-    pub index: u32,
+    pub index: GlyphIndex,
     pub point: LayoutPoint,
 }
