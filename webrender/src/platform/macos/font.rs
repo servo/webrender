@@ -20,6 +20,7 @@ use api::{GlyphKey, SubpixelDirection};
 use api::{FontInstanceKey, NativeFontHandle};
 use gamma_lut::{GammaLut, Color as ColorLut};
 use std::ptr;
+use std::sync::Arc;
 
 pub struct FontContext {
     cg_fonts: FastHashMap<FontKey, CGFont>,
@@ -163,13 +164,13 @@ impl FontContext {
         self.cg_fonts.contains_key(font_key)
     }
 
-    pub fn add_raw_font(&mut self, font_key: &FontKey, bytes: &[u8], index: u32) {
+    pub fn add_raw_font(&mut self, font_key: &FontKey, bytes: Arc<Vec<u8>>, index: u32) {
         if self.cg_fonts.contains_key(font_key) {
             return
         }
 
         assert_eq!(index, 0);
-        let data_provider = CGDataProvider::from_buffer(bytes);
+        let data_provider = CGDataProvider::from_buffer(&**bytes);
         let cg_font = match CGFont::from_data_provider(data_provider) {
             Err(_) => return,
             Ok(cg_font) => cg_font,
