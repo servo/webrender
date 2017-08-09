@@ -492,6 +492,28 @@ impl YamlFrameWriter {
         Yaml::Hash(t)
     }
 
+    fn make_sticky_info_node(&mut self, sticky_info: &StickySideConstraint) -> Yaml {
+        Yaml::Array(vec![Yaml::Real(sticky_info.margin.to_string()),
+                         Yaml::Real(sticky_info.max_offset.to_string())])
+    }
+
+    fn make_sticky_frame_info_node(&mut self, sticky_frame_info: &StickyFrameInfo) -> Yaml {
+        let mut table = new_table();
+        if let Some(ref info) = sticky_frame_info.left {
+            yaml_node(&mut table, "left", self.make_sticky_info_node(info));
+        }
+        if let Some(ref info) = sticky_frame_info.top {
+            yaml_node(&mut table, "top", self.make_sticky_info_node(info));
+        }
+        if let Some(ref info) = sticky_frame_info.right {
+            yaml_node(&mut table, "right", self.make_sticky_info_node(info));
+        }
+        if let Some(ref info) = sticky_frame_info.bottom {
+            yaml_node(&mut table, "bottom", self.make_sticky_info_node(info));
+        }
+        Yaml::Hash(table)
+    }
+
     fn make_complex_clips_node(&mut self,
                               complex_clip_count: usize,
                               complex_clips: ItemRange<ComplexClipRegion>,
@@ -847,8 +869,15 @@ impl YamlFrameWriter {
                     if let Some(mask_yaml) = self.make_clip_mask_image_node(&item.image_mask) {
                         yaml_node(&mut v, "image-mask", mask_yaml);
                     }
-
                 }
+                StickyFrame(item) => {
+                    str_node(&mut v, "type", "sticky-frame");
+                    usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
+                    rect_node(&mut v, "bounds", &base.local_clip().clip_rect());
+                    yaml_node(&mut v, "sticky-info",
+                              self.make_sticky_frame_info_node(&item.sticky_frame_info));
+                }
+
                 PushNestedDisplayList =>
                     clip_id_mapper.push_nested_display_list_ids(clip_and_scroll_info),
                 PopNestedDisplayList => clip_id_mapper.pop_nested_display_list_ids(),
