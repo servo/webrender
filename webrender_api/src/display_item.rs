@@ -50,6 +50,7 @@ pub struct DisplayItem {
 pub enum SpecificDisplayItem {
     Clip(ClipDisplayItem),
     ScrollFrame(ScrollFrameDisplayItem),
+    StickyFrame(StickyFrameDisplayItem),
     Rectangle(RectangleDisplayItem),
     Line(LineDisplayItem),
     Text(TextDisplayItem),
@@ -75,6 +76,26 @@ pub struct ClipDisplayItem {
     pub id: ClipId,
     pub parent_id: ClipId,
     pub image_mask: Option<ImageMask>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct StickyFrameDisplayItem {
+    pub id: ClipId,
+    pub sticky_frame_info: StickyFrameInfo,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct StickyFrameInfo {
+    pub left: Option<StickyInfo>,
+    pub right: Option< StickyInfo>,
+    pub top: Option<StickyInfo>,
+    pub bottom: Option<StickyInfo>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct StickyInfo {
+    pub margin: f32,
+    pub max_offset: f32,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -671,3 +692,4 @@ define_empty_heap_size_of!(TransformStyle);
 define_empty_heap_size_of!(LocalClip);
 define_empty_heap_size_of!(ScrollSensitivity);
 define_empty_heap_size_of!(ClipAndScrollInfo);
+define_empty_heap_size_of!(StickyFrameInfo);
