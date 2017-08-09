@@ -410,11 +410,9 @@ impl Frame {
             let transform = context.scene.properties.resolve_layout_transform(transform);
             let perspective =
                 stacking_context.perspective.unwrap_or_else(LayoutTransform::identity);
+            let origin = reference_frame_relative_offset + bounds.origin.to_vector();
             let transform =
-                LayerToScrollTransform::create_translation(reference_frame_relative_offset.x,
-                                                           reference_frame_relative_offset.y,
-                                                           0.0)
-                                        .pre_translate(bounds.origin.to_vector().to_3d())
+                LayerToScrollTransform::create_translation(origin.x, origin.y, 0.0)
                                         .pre_mul(&transform)
                                         .pre_mul(&perspective);
 
@@ -424,6 +422,7 @@ impl Frame {
                                                            pipeline_id,
                                                            &reference_frame_bounds,
                                                            &transform,
+                                                           origin,
                                                            &mut self.clip_scroll_tree);
             context.replacements.push((context_scroll_node_id, clip_id));
             reference_frame_relative_offset = LayerVector2D::zero();
@@ -451,6 +450,10 @@ impl Frame {
             context.replacements.pop();
             context.builder.pop_reference_frame();
         }
+
+        //if let ScrollPolicy::Sticky(..) = stacking_context.scroll_policy {
+        //    context.replacements.pop();
+        //}
 
         context.builder.pop_stacking_context();
     }
@@ -485,16 +488,14 @@ impl Frame {
         self.pipeline_epoch_map.insert(pipeline_id, pipeline.epoch);
 
         let iframe_rect = LayerRect::new(LayerPoint::zero(), bounds.size);
-        let transform = LayerToScrollTransform::create_translation(
-            reference_frame_relative_offset.x + bounds.origin.x,
-            reference_frame_relative_offset.y + bounds.origin.y,
-            0.0);
-
+        let origin = reference_frame_relative_offset + bounds.origin.to_vector();
+        let transform = LayerToScrollTransform::create_translation(origin.x, origin.y, 0.0);
         let iframe_reference_frame_id =
             context.builder.push_reference_frame(Some(clip_id),
                                                  pipeline_id,
                                                  &iframe_rect,
                                                  &transform,
+                                                 origin,
                                                  &mut self.clip_scroll_tree);
 
         context.builder.add_scroll_frame(
@@ -693,8 +694,9 @@ impl Frame {
                 clip_region.origin += reference_frame_relative_offset;
 
                 // Just use clip rectangle as the frame rect for this scroll frame.
-                // This is only interesting when calculating scroll extents for the
-                // ClipScrollNode::scroll(..) API
+                // This is useful when calculating scroll extents for the
+                // ClipScrollNode::scroll(..) API as well as for properly setting sticky
+                // positioning offsets.
                 let frame_rect = item.local_clip()
                                      .clip_rect()
                                      .translate(&reference_frame_relative_offset);
@@ -707,6 +709,16 @@ impl Frame {
                                           &content_rect,
                                           clip_region,
                                           info.scroll_sensitivity);
+            }
+            SpecificDisplayItem::StickyFrame(ref info) => {
+                let frame_rect = item.rect().translate(&reference_frame_relative_offset);
+                let new_clip_id = context.convert_new_id_to_nested(&info.id);
+                self.clip_scroll_tree.add_sticky_frame(
+                    new_clip_id,
+                    clip_and_scroll.scroll_node_id, /* parent id */
+                    frame_rect,
+                    info.sticky_frame_info);
+
             }
             SpecificDisplayItem::PushNestedDisplayList => {
                 // Using the clip and scroll already processed for nesting here

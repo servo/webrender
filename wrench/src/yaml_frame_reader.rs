@@ -164,7 +164,22 @@ impl YamlFrameReader {
                 vec![]
             }
         }
+    }
 
+    fn to_sticky_info(&mut self, item: &Yaml) -> Option<StickyInfo> {
+        match item.as_vec_f32() {
+            Some(v) => Some(StickyInfo { margin: v[0], max_offset: v[1] }),
+            None => None,
+        }
+    }
+
+    fn to_sticky_frame_info(&mut self, item: &Yaml) -> StickyFrameInfo {
+        StickyFrameInfo {
+            left: self.to_sticky_info(&item["left"]),
+            top: self.to_sticky_info(&item["top"]),
+            right: self.to_sticky_info(&item["right"]),
+            bottom: self.to_sticky_info(&item["bottom"]),
+        }
     }
 
     fn get_or_create_font(&mut self, desc: FontDescriptor, wrench: &mut Wrench) -> FontKey {
@@ -601,6 +616,7 @@ impl YamlFrameReader {
                 "image" => self.handle_image(dl, wrench, item, local_clip),
                 "text" | "glyphs" => self.handle_text(dl, wrench, item, local_clip),
                 "scroll-frame" => self.handle_scroll_frame(dl, wrench, item),
+                "sticky-frame" => self.handle_sticky_frame(dl, wrench, item),
                 "clip" => self.handle_clip(dl, wrench, item),
                 "border" => self.handle_border(dl, wrench, item, local_clip),
                 "gradient" => self.handle_gradient(dl, item, local_clip),
@@ -620,7 +636,7 @@ impl YamlFrameReader {
     }
 
     pub fn handle_scroll_frame(&mut self, dl: &mut DisplayListBuilder, wrench: &mut Wrench, yaml: &Yaml) {
-        let clip_rect = yaml["bounds"].as_rect().expect("clip must have a bounds");
+        let clip_rect = yaml["bounds"].as_rect().expect("scroll frame must have a bounds");
         let content_size = yaml["content-size"].as_size().unwrap_or(clip_rect.size);
         let content_rect = LayerRect::new(clip_rect.origin, content_size);
 
@@ -638,6 +654,19 @@ impl YamlFrameReader {
         if let Some(size) = yaml["scroll-offset"].as_point() {
             self.scroll_offsets.insert(id, LayerPoint::new(size.x, size.y));
         }
+
+        dl.push_clip_id(id);
+        if !yaml["items"].is_badvalue() {
+            self.add_display_list_items_from_yaml(dl, wrench, &yaml["items"]);
+        }
+        dl.pop_clip_id();
+    }
+
+    pub fn handle_sticky_frame(&mut self, dl: &mut DisplayListBuilder, wrench: &mut Wrench, yaml: &Yaml) {
+        let bounds = yaml["bounds"].as_rect().expect("sticky frame must have a bounds");
+        let id = yaml["id"].as_i64().map(|id| ClipId::new(id as u64, dl.pipeline_id));
+        let sticky_frame_info = self.to_sticky_frame_info(&yaml["sticky-info"]);
+        let id = dl.define_sticky_frame(id, bounds, sticky_frame_info);
 
         dl.push_clip_id(id);
         if !yaml["items"].is_badvalue() {
