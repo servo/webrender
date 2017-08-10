@@ -33,7 +33,7 @@ struct Face {
     face: FT_Face,
     // Raw byte data has to live until the font is deleted, according to
     // https://www.freetype.org/freetype2/docs/reference/ft2-base_interface.html#FT_New_Memory_Face
-    bytes: Arc<Vec<u8>>,
+    _bytes: Arc<Vec<u8>>,
 }
 
 pub struct FontContext {
@@ -101,7 +101,7 @@ impl FontContext {
             if result.succeeded() && !face.is_null() {
                 self.faces.insert(*font_key, Face {
                     face,
-                    bytes,
+                    _bytes: bytes,
                 });
             } else {
                 println!("WARN: webrender failed to load font {:?}", font_key);
