@@ -868,7 +868,7 @@ impl Renderer {
             println!("Device reporting insufficient max texture size ({})", device_max_size);
             return Err(InitError::MaxTextureSize);
         }
-        let max_texture_size = cmp::max(
+        let max_device_size = cmp::max(
             cmp::min(device_max_size, options.max_texture_size.unwrap_or(device_max_size)),
             min_texture_size
         );
@@ -1131,7 +1131,9 @@ impl Renderer {
                                      options.precache_shaders)
         };
 
-        let texture_cache = TextureCache::new(max_texture_size);
+        let texture_cache = TextureCache::new(max_device_size);
+        let max_texture_size = texture_cache.max_texture_size();
+
         let backend_profile_counters = BackendProfileCounters::new();
 
         let dummy_cache_texture_id = device.create_texture_ids(1, TextureTarget::Array)[0];
