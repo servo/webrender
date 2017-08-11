@@ -16,7 +16,7 @@ use core_text;
 use internal_types::FastHashMap;
 use std::collections::hash_map::Entry;
 use api::{ColorU, FontKey, FontRenderMode, GlyphDimensions};
-use api::{GlyphKey, SubpixelDirection};
+use api::{GlyphKey};
 use api::{FontInstanceKey, NativeFontHandle};
 use gamma_lut::{GammaLut, Color as ColorLut};
 use std::ptr;
