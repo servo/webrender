@@ -80,9 +80,6 @@ mod texture_cache;
 mod tiling;
 mod util;
 
-#[doc(hidden)] // for benchmarks
-pub use texture_cache::TexturePage;
-
 #[cfg(feature = "webgl")]
 mod webgl_types;
 
