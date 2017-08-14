@@ -19,7 +19,7 @@ use frame_builder::FrameBuilderConfig;
 use gleam::gl;
 use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
 use internal_types::{FastHashMap, CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
-use internal_types::{TextureUpdateList, RenderTargetMode};
+use internal_types::{TextureUpdateList, RenderTargetMode, TextureUpdateSource};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, SourceTexture};
 use internal_types::{BatchTextures, TextureSampler};
 use profiler::{Profiler, BackendProfileCounters};
@@ -48,7 +48,7 @@ use thread_profiler::{register_thread_with_profiler, write_profile};
 use util::TransformedRectKind;
 use webgl_types::GLContextHandleWrapper;
 use api::{ColorF, Epoch, PipelineId, RenderApiSender, RenderNotifier, RenderDispatcher};
-use api::{ExternalImageId, ExternalImageType, ImageData, ImageFormat};
+use api::{ExternalImageId, ExternalImageType, ImageFormat};
 use api::{DeviceIntRect, DeviceUintRect, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
 use api::{BlobImageRenderer, channel, FontRenderMode};
 use api::VRCompositorHandler;
@@ -324,6 +324,7 @@ impl CacheTexture {
                                 ImageFormat::RGBAF32,
                                 TextureFilter::Nearest,
                                 RenderTargetMode::None,
+                                1,
                                 None);
 
             // Copy the current texture into the newly resized texture.
@@ -361,6 +362,8 @@ impl CacheTexture {
                                                row_index as u32,
                                                MAX_VERTEX_TEXTURE_WIDTH as u32,
                                                1,
+                                               0,
+                                               None,
                                                0);
 
                 // Orphan the PBO. This is the recommended way to hint to the
@@ -456,6 +459,7 @@ impl<L: GpuStoreLayout> GpuDataTexture<L> {
                             L::image_format(),
                             L::texture_filter(),
                             RenderTargetMode::None,
+                            1,
                             Some(unsafe { mem::transmute(data.as_slice()) } ));
     }
 }
@@ -781,6 +785,7 @@ pub struct Renderer {
     /// list reuses the texture cache ID. This saves having to
     /// use a hashmap, and allows a flat vector for performance.
     cache_texture_id_map: Vec<TextureId>,
+    texture_cache_upload_pbo: PBOId,
 
     /// A special 1x1 dummy cache texture used for shaders that expect to work
     /// with the cache but are actually running in the first pass
@@ -1142,7 +1147,8 @@ impl Renderer {
                             1,
                             ImageFormat::BGRA8,
                             TextureFilter::Linear,
-                            RenderTargetMode::LayerRenderTarget(1),
+                            RenderTargetMode::RenderTarget,
+                            1,
                             None);
 
         let dither_matrix_texture_id = if options.enable_dithering {
@@ -1164,6 +1170,7 @@ impl Renderer {
                                 ImageFormat::A8,
                                 TextureFilter::Nearest,
                                 RenderTargetMode::None,
+                                1,
                                 Some(&dither_matrix));
 
             Some(id)
@@ -1210,6 +1217,8 @@ impl Renderer {
         let blur_vao_id = device.create_vao_with_new_instances(&DESC_BLUR, mem::size_of::<BlurCommand>() as i32, prim_vao_id);
         let clip_vao_id = device.create_vao_with_new_instances(&DESC_CLIP, mem::size_of::<CacheClipInstance>() as i32, prim_vao_id);
 
+        let texture_cache_upload_pbo = device.create_pbo();
+
         device.end_frame();
 
         let main_thread_dispatcher = Arc::new(Mutex::new(None));
@@ -1236,7 +1245,6 @@ impl Renderer {
             enable_scrollbars: options.enable_scrollbars,
             default_font_render_mode,
             debug: options.debug,
-            cache_expiry_frames: options.cache_expiry_frames,
         };
 
         let device_pixel_ratio = options.device_pixel_ratio;
@@ -1339,6 +1347,7 @@ impl Renderer {
             cpu_profiles: VecDeque::new(),
             gpu_profiles: VecDeque::new(),
             gpu_cache_texture,
+            texture_cache_upload_pbo,
         };
 
         let sender = RenderApiSender::new(api_tx, payload_tx);
@@ -1607,109 +1616,65 @@ impl Renderer {
     fn update_texture_cache(&mut self) {
         let _gm = GpuMarker::new(self.device.rc_gl(), "texture cache update");
         let mut pending_texture_updates = mem::replace(&mut self.pending_texture_updates, vec![]);
+
         for update_list in pending_texture_updates.drain(..) {
             for update in update_list.updates {
                 match update.op {
-                    TextureUpdateOp::Create { width, height, format, filter, mode, data } => {
+                    TextureUpdateOp::Create { width, height, layer_count, format, filter, mode } => {
                         let CacheTextureId(cache_texture_index) = update.id;
                         if self.cache_texture_id_map.len() == cache_texture_index {
                             // Create a new native texture, as requested by the texture cache.
                             let texture_id = self.device
-                                                 .create_texture_ids(1, TextureTarget::Default)[0];
+                                                 .create_texture_ids(1, TextureTarget::Array)[0];
                             self.cache_texture_id_map.push(texture_id);
                         }
                         let texture_id = self.cache_texture_id_map[cache_texture_index];
 
-                        if let Some(image) = data {
-                            match image {
-                                ImageData::Raw(raw) => {
-                                    self.device.init_texture(texture_id,
-                                                             width,
-                                                             height,
-                                                             format,
-                                                             filter,
-                                                             mode,
-                                                             Some(raw.as_slice()));
-                                }
-                                ImageData::External(ext_image) => {
-                                    match ext_image.image_type {
-                                        ExternalImageType::ExternalBuffer => {
-                                            let handler = self.external_image_handler
-                                                              .as_mut()
-                                                              .expect("Found external image, but no handler set!");
+                        // Ensure no PBO is bound when creating the texture storage,
+                        // or GL will attempt to read data from there.
+                        self.device.bind_pbo(None);
+                        self.device.init_texture(texture_id,
+                                                 width,
+                                                 height,
+                                                 format,
+                                                 filter,
+                                                 mode,
+                                                 layer_count,
+                                                 None);
+                    }
+                    TextureUpdateOp::Update { rect, source, stride, layer_index, offset } => {
+                        let texture_id = self.cache_texture_id_map[update.id.0];
 
-                                            match handler.lock(ext_image.id, ext_image.channel_index).source {
-                                                ExternalImageSource::RawData(raw) => {
-                                                    self.device.init_texture(texture_id,
-                                                                             width,
-                                                                             height,
-                                                                             format,
-                                                                             filter,
-                                                                             mode,
-                                                                             Some(raw));
-                                                }
-                                                _ => panic!("No external buffer found"),
-                                            };
-                                            handler.unlock(ext_image.id, ext_image.channel_index);
-                                        }
-                                        ExternalImageType::Texture2DHandle |
-                                        ExternalImageType::TextureRectHandle |
-                                        ExternalImageType::TextureExternalHandle => {
-                                            panic!("External texture handle should not use TextureUpdateOp::Create.");
-                                        }
+                        // Bind a PBO to do the texture upload.
+                        // Updating the texture via PBO avoids CPU-side driver stalls.
+                        self.device.bind_pbo(Some(self.texture_cache_upload_pbo));
+
+                        match source {
+                            TextureUpdateSource::Bytes { data }  => {
+                                self.device.update_pbo_data(&data[offset as usize..]);
+                            }
+                            TextureUpdateSource::External { id, channel_index } => {
+                                let handler = self.external_image_handler
+                                                  .as_mut()
+                                                  .expect("Found external image, but no handler set!");
+                                match handler.lock(id, channel_index).source {
+                                    ExternalImageSource::RawData(data) => {
+                                        self.device.update_pbo_data(&data[offset as usize..]);
                                     }
-                                }
-                                _ => {
-                                    panic!("No suitable image buffer for TextureUpdateOp::Create.");
-                                }
+                                    _ => panic!("No external buffer found"),
+                                };
+                                handler.unlock(id, channel_index);
                             }
-                        } else {
-                            self.device.init_texture(texture_id,
-                                                     width,
-                                                     height,
-                                                     format,
-                                                     filter,
-                                                     mode,
-                                                     None);
                         }
-                    }
-                    TextureUpdateOp::Grow { width, height, format, filter, mode } => {
-                        let texture_id = self.cache_texture_id_map[update.id.0];
-                        self.device.resize_texture(texture_id,
-                                                   width,
-                                                   height,
-                                                   format,
-                                                   filter,
-                                                   mode);
-                    }
-                    TextureUpdateOp::Update { page_pos_x, page_pos_y, width, height, data, stride, offset } => {
-                        let texture_id = self.cache_texture_id_map[update.id.0];
-                        self.device.update_texture(texture_id,
-                                                   page_pos_x,
-                                                   page_pos_y,
-                                                   width, height, stride,
-                                                   &data[offset as usize..]);
-                    }
-                    TextureUpdateOp::UpdateForExternalBuffer { rect, id, channel_index, stride, offset } => {
-                        let handler = self.external_image_handler
-                                          .as_mut()
-                                          .expect("Found external image, but no handler set!");
-                        let device = &mut self.device;
-                        let cached_id = self.cache_texture_id_map[update.id.0];
 
-                        match handler.lock(id, channel_index).source {
-                            ExternalImageSource::RawData(data) => {
-                                device.update_texture(cached_id,
-                                                      rect.origin.x,
-                                                      rect.origin.y,
-                                                      rect.size.width,
-                                                      rect.size.height,
-                                                      stride,
-                                                      &data[offset as usize..]);
-                            }
-                            _ => panic!("No external buffer found"),
-                        };
-                        handler.unlock(id, channel_index);
+                        self.device.update_texture_from_pbo(texture_id,
+                                                            rect.origin.x,
+                                                            rect.origin.y,
+                                                            rect.size.width,
+                                                            rect.size.height,
+                                                            layer_index,
+                                                            stride,
+                                                            0);
                     }
                     TextureUpdateOp::Free => {
                         let texture_id = self.cache_texture_id_map[update.id.0];
@@ -1718,6 +1683,9 @@ impl Renderer {
                 }
             }
         }
+
+        // Ensure that other texture updates won't read from this PBO.
+        self.device.bind_pbo(None);
     }
 
     fn draw_instanced_batch<T>(&mut self,
@@ -2209,7 +2177,8 @@ impl Renderer {
                     block_count: 1,
                     address: deferred_resolve.address,
                 };
-                let blocks = [ [image.u0, image.v0, image.u1, image.v1].into() ];
+
+                let blocks = [ [image.u0, image.v0, image.u1, image.v1].into(), [0.0; 4].into() ];
                 self.gpu_cache_texture.apply_patch(&update, &blocks);
             }
         }
@@ -2264,7 +2233,8 @@ impl Renderer {
                                          frame.cache_size.height as u32,
                                          ImageFormat::BGRA8,
                                          TextureFilter::Linear,
-                                         RenderTargetMode::LayerRenderTarget(target_count as i32),
+                                         RenderTargetMode::RenderTarget,
+                                         target_count as i32,
                                          None);
             }
             if let Some(texture_id) = pass.alpha_texture_id {
@@ -2274,7 +2244,8 @@ impl Renderer {
                                          frame.cache_size.height as u32,
                                          ImageFormat::A8,
                                          TextureFilter::Nearest,
-                                         RenderTargetMode::LayerRenderTarget(target_count as i32),
+                                         RenderTargetMode::RenderTarget,
+                                         target_count as i32,
                                          None);
             }
         }
@@ -2443,7 +2414,12 @@ impl Renderer {
         let mut spacing = 16;
         let mut size = 512;
         let fb_width = framebuffer_size.width as i32;
-        let num_textures = self.cache_texture_id_map.len() as i32;
+        let num_textures: i32 = self.cache_texture_id_map
+                                    .iter()
+                                    .map(|id| {
+                                         self.device.get_texture_layer_count(*id)
+                                     })
+                                    .sum();
 
         if num_textures * (size + spacing) > fb_width {
             let factor = fb_width as f32 / (num_textures * (size + spacing)) as f32;
@@ -2451,17 +2427,23 @@ impl Renderer {
             spacing = (spacing as f32 * factor) as i32;
         }
 
-        for (i, texture_id) in self.cache_texture_id_map.iter().enumerate() {
-            let x = fb_width - (spacing + size) * (i as i32 + 1);
+        let mut i = 0;
+        for texture_id in &self.cache_texture_id_map {
             let y = spacing + if self.debug_flags.contains(RENDER_TARGET_DBG) { 528 } else { 0 };
 
-            // If we have more targets than fit on one row in screen, just early exit.
-            if x > fb_width {
-                return;
-            }
+            let layer_count = self.device.get_texture_layer_count(*texture_id);
+            for layer_index in 0..layer_count {
+                let x = fb_width - (spacing + size) * (i as i32 + 1);
 
-            let dest_rect = rect(x, y, size, size);
-            self.device.blit_render_target(Some((*texture_id, 0)), None, dest_rect);
+                // If we have more targets than fit on one row in screen, just early exit.
+                if x > fb_width {
+                    return;
+                }
+
+                let dest_rect = rect(x, y, size, size);
+                self.device.blit_render_target(Some((*texture_id, layer_index)), None, dest_rect);
+                i += 1;
+            }
         }
     }
 
@@ -2587,7 +2569,6 @@ pub struct RendererOptions {
     pub enable_clear_scissor: bool,
     pub enable_batcher: bool,
     pub max_texture_size: Option<u32>,
-    pub cache_expiry_frames: u32,
     pub workers: Option<Arc<ThreadPool>>,
     pub blob_image_renderer: Option<Box<BlobImageRenderer>>,
     pub recorder: Option<Box<ApiRecordingReceiver>>,
@@ -2614,7 +2595,6 @@ impl Default for RendererOptions {
             enable_clear_scissor: true,
             enable_batcher: true,
             max_texture_size: None,
-            cache_expiry_frames: 600, // roughly, 10 seconds
             workers: None,
             blob_image_renderer: None,
             recorder: None,
