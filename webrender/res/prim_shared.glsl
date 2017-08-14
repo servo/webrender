@@ -771,21 +771,23 @@ TransformVertexInfo write_transform_vertex(RectWithSize instance_rect,
 
 struct GlyphResource {
     vec4 uv_rect;
+    float layer;
     vec2 offset;
 };
 
 GlyphResource fetch_glyph_resource(int address) {
     vec4 data[2] = fetch_from_resource_cache_2(address);
-    return GlyphResource(data[0], data[1].xy);
+    return GlyphResource(data[0], data[1].x, data[1].yz);
 }
 
 struct ImageResource {
     vec4 uv_rect;
+    float layer;
 };
 
 ImageResource fetch_image_resource(int address) {
-    vec4 data = fetch_from_resource_cache_1(address);
-    return ImageResource(data);
+    vec4 data[2] = fetch_from_resource_cache_2(address);
+    return ImageResource(data[0], data[1].x);
 }
 
 struct Rectangle {
