@@ -91,6 +91,10 @@ impl<T> FreeList<T> {
         }
     }
 
+    // Perform a database style UPSERT operation. If the provided
+    // handle is a valid entry, update the value and return the
+    // previous data. If the provided handle is invalid, then
+    // insert the data into a new slot and return the new handle.
     pub fn upsert(&mut self,
                   id: &WeakFreeListHandle<T>,
                   data: T) -> UpsertResult<T> {

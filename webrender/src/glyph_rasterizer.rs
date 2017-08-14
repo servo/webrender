@@ -19,7 +19,7 @@ use std::mem;
 use texture_cache::{TextureCache, TextureCacheHandle};
 #[cfg(test)]
 use api::{ColorF, LayoutPoint, FontRenderMode, IdNamespace, SubpixelDirection};
-use api::{FontInstanceKey};
+use api::{DevicePoint, DeviceUintSize, FontInstanceKey};
 use api::{FontKey, FontTemplate};
 use api::{ImageData, ImageDescriptor, ImageFormat};
 use api::{GlyphKey, GlyphDimensions};
@@ -158,7 +158,7 @@ impl GlyphRasterizer {
         for key in glyph_keys {
             match glyph_key_cache.entry(key.clone()) {
                 Entry::Occupied(mut entry) => {
-                    if let &mut Some(ref mut glyph_info) = entry.get_mut() {
+                    if let Some(ref mut glyph_info) = *entry.get_mut() {
                         if texture_cache.request(&mut glyph_info.texture_cache_handle, gpu_cache) {
                             // This case gets hit when we have already rasterized
                             // the glyph and stored it in CPU memory, the the glyph
@@ -166,8 +166,8 @@ impl GlyphRasterizer {
                             // we need to re-upload it to the GPU.
                             texture_cache.update(&mut glyph_info.texture_cache_handle,
                                                  ImageDescriptor {
-                                                    width: glyph_info.width,
-                                                    height: glyph_info.height,
+                                                    width: glyph_info.size.width,
+                                                    height: glyph_info.size.height,
                                                     stride: None,
                                                     format: ImageFormat::BGRA8,
                                                     is_opaque: false,
@@ -175,7 +175,7 @@ impl GlyphRasterizer {
                                                  },
                                                  TextureFilter::Linear,
                                                  ImageData::Raw(glyph_info.glyph_bytes.clone()),
-                                                 [glyph_info.left, glyph_info.top],
+                                                 [glyph_info.offset.x, glyph_info.offset.y],
                                                  None,
                                                  gpu_cache);
                         }
@@ -290,10 +290,8 @@ impl GlyphRasterizer {
                     Some(CachedGlyphInfo {
                         texture_cache_handle,
                         glyph_bytes,
-                        width: glyph.width,
-                        height: glyph.height,
-                        left: glyph.left,
-                        top: glyph.top,
+                        size: DeviceUintSize::new(glyph.width, glyph.height),
+                        offset: DevicePoint::new(glyph.left, glyph.top),
                     })
                 } else {
                     None

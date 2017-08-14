@@ -474,10 +474,8 @@ impl TextureCache {
             } else {
                 let entry = self.entries.free(handle);
                 if let Some(region) = self.free(entry) {
-                    found_matching_slab = found_matching_slab ||
-                                          region.slab_size == needed_slab_size;
-                    freed_complete_page = freed_complete_page ||
-                                          region.is_empty();
+                    found_matching_slab |= region.slab_size == needed_slab_size;
+                    freed_complete_page |= region.is_empty();
                 }
                 evicted_items += 1;
             }
@@ -867,7 +865,7 @@ impl TextureArray {
         // Quantize the size of the allocation to select a region to
         // allocate from.
         let slab_size = SlabSize::new(width, height);
-        let slab_size_bytes = slab_size.get_size();
+        let slab_size_dim = slab_size.get_size();
 
         // TODO(gw): For simplicity, the initial implementation just
         //           has a single vec<> of regions. We could easily
@@ -885,7 +883,7 @@ impl TextureArray {
         for (i, region) in self.regions.iter_mut().enumerate() {
             if region.slab_size == 0 {
                 empty_region_index = Some(i);
-            } else if region.slab_size == slab_size_bytes {
+            } else if region.slab_size == slab_size_dim {
                 if let Some(location) = region.alloc() {
                     entry_kind = Some(EntryKind::Cache {
                         layer_index: region.layer_index as u16,
@@ -902,13 +900,13 @@ impl TextureArray {
             if let Some(empty_region_index) = empty_region_index {
                 let region = &mut self.regions[empty_region_index];
                 region.init(slab_size);
-                if let Some(location) = region.alloc() {
-                    entry_kind = Some(EntryKind::Cache {
+                entry_kind = region.alloc().map(|location| {
+                    EntryKind::Cache {
                         layer_index: region.layer_index as u16,
                         region_index: empty_region_index as u16,
                         origin: location,
-                    });
-                }
+                    }
+                });
             }
         }
 

@@ -2414,15 +2414,15 @@ impl Renderer {
         let mut spacing = 16;
         let mut size = 512;
         let fb_width = framebuffer_size.width as i32;
-        let num_textures: i32 = self.cache_texture_id_map
+        let num_layers: i32 = self.cache_texture_id_map
                                     .iter()
                                     .map(|id| {
                                          self.device.get_texture_layer_count(*id)
                                      })
                                     .sum();
 
-        if num_textures * (size + spacing) > fb_width {
-            let factor = fb_width as f32 / (num_textures * (size + spacing)) as f32;
+        if num_layers * (size + spacing) > fb_width {
+            let factor = fb_width as f32 / (num_layers * (size + spacing)) as f32;
             size = (size as f32 * factor) as i32;
             spacing = (spacing as f32 * factor) as i32;
         }

@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{FontInstanceKey, GlyphKey};
+use api::{DevicePoint, DeviceUintSize, FontInstanceKey, GlyphKey};
 use internal_types::FastHashMap;
 use resource_cache::ResourceClassCache;
 use std::sync::Arc;
@@ -11,10 +11,8 @@ use texture_cache::TextureCacheHandle;
 pub struct CachedGlyphInfo {
     pub texture_cache_handle: TextureCacheHandle,
     pub glyph_bytes: Arc<Vec<u8>>,
-    pub width: u32,
-    pub height: u32,
-    pub left: f32,
-    pub top: f32,
+    pub size: DeviceUintSize,
+    pub offset: DevicePoint,
 }
 
 pub type GlyphKeyCache = ResourceClassCache<GlyphKey, Option<CachedGlyphInfo>>;
