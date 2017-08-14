@@ -52,6 +52,25 @@
 //======================================================================================
 // Shared shader uniforms
 //======================================================================================
+#if defined(GL_ES)
+    #if GL_ES == 1
+        #ifdef GL_FRAGMENT_PRECISION_HIGH
+        precision highp sampler2DArray;
+        #else
+        precision mediump sampler2DArray;
+        #endif
+
+        // Sampler default precision is lowp on mobile GPUs.
+        // This causes RGBA32F texture data to be clamped to 16 bit floats on some GPUs (e.g. Mali-T880).
+        // Define highp precision macro to allow lossless FLOAT texture sampling.
+        #define HIGHP_SAMPLER_FLOAT highp
+    #else
+        #define HIGHP_SAMPLER_FLOAT
+    #endif
+#else
+    #define HIGHP_SAMPLER_FLOAT
+#endif
+
 #ifdef WR_FEATURE_TEXTURE_RECT
 uniform sampler2DRect sColor0;
 uniform sampler2DRect sColor1;

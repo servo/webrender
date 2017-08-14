@@ -3,25 +3,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#if defined(GL_ES)
-    #if GL_ES == 1
-        #ifdef GL_FRAGMENT_PRECISION_HIGH
-        precision highp sampler2DArray;
-        #else
-        precision mediump sampler2DArray;
-        #endif
-
-        // Sampler default precision is lowp on mobile GPUs.
-        // This causes RGBA32F texture data to be clamped to 16 bit floats on some GPUs (e.g. Mali-T880).
-        // Define highp precision macro to allow lossless FLOAT texture sampling.
-        #define HIGHP_SAMPLER_FLOAT highp
-    #else
-        #define HIGHP_SAMPLER_FLOAT
-    #endif
-#else
-    #define HIGHP_SAMPLER_FLOAT
-#endif
-
 #define PST_TOP_LEFT     0
 #define PST_TOP          1
 #define PST_TOP_RIGHT    2
