@@ -90,13 +90,14 @@ impl DebugRenderer {
         let line_vao = device.create_vao(&DESC_COLOR, 32);
         let tri_vao = device.create_vao(&DESC_COLOR, 32);
 
-        let font_texture_id = device.create_texture_ids(1, TextureTarget::Default)[0];
+        let font_texture_id = device.create_texture_ids(1, TextureTarget::Array)[0];
         device.init_texture(font_texture_id,
                             debug_font_data::BMP_WIDTH,
                             debug_font_data::BMP_HEIGHT,
                             ImageFormat::A8,
                             TextureFilter::Linear,
                             RenderTargetMode::None,
+                            1,
                             Some(&debug_font_data::FONT_BITMAP));
 
         DebugRenderer {
