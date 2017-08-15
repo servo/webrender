@@ -538,7 +538,8 @@ impl TextRunPrimitiveCpu {
                           resource_cache: &mut ResourceCache,
                           device_pixel_ratio: f32,
                           display_list: &BuiltDisplayList,
-                          run_mode: TextRunMode) {
+                          run_mode: TextRunMode,
+                          gpu_cache: &mut GpuCache) {
         let font_size_dp = self.logical_font_size.scale_by(device_pixel_ratio);
         let render_mode = match run_mode {
             TextRunMode::Normal => self.normal_render_mode,
@@ -590,7 +591,7 @@ impl TextRunPrimitiveCpu {
             }
         }
 
-        resource_cache.request_glyphs(font, &self.glyph_keys);
+        resource_cache.request_glyphs(font, &self.glyph_keys, gpu_cache);
     }
 
     fn write_gpu_blocks(&self,
@@ -1130,7 +1131,10 @@ impl PrimitiveStore {
 
             for clip in &metadata.clips {
                 if let ClipSource::Region(ClipRegion{ image_mask: Some(ref mask), .. }, ..) = *clip {
-                    resource_cache.request_image(mask.image, ImageRendering::Auto, None);
+                    resource_cache.request_image(mask.image,
+                                                 ImageRendering::Auto,
+                                                 None,
+                                                 gpu_cache);
                 }
             }
         }
@@ -1177,14 +1181,18 @@ impl PrimitiveStore {
                 text.prepare_for_render(resource_cache,
                                         device_pixel_ratio,
                                         display_list,
-                                        text_run_mode);
+                                        text_run_mode,
+                                        gpu_cache);
             }
             PrimitiveKind::Image => {
                 let image_cpu = &mut self.cpu_images[cpu_prim_index.0];
 
                 match image_cpu.kind {
                     ImagePrimitiveKind::Image(image_key, image_rendering, tile_offset, tile_spacing) => {
-                        resource_cache.request_image(image_key, image_rendering, tile_offset);
+                        resource_cache.request_image(image_key,
+                                                     image_rendering,
+                                                     tile_offset,
+                                                     gpu_cache);
 
                         // TODO(gw): This doesn't actually need to be calculated each frame.
                         // It's cheap enough that it's not worth introducing a cache for images
@@ -1204,7 +1212,10 @@ impl PrimitiveStore {
                 let channel_num = image_cpu.format.get_plane_num();
                 debug_assert!(channel_num <= 3);
                 for channel in 0..channel_num {
-                    resource_cache.request_image(image_cpu.yuv_key[channel], image_cpu.image_rendering, None);
+                    resource_cache.request_image(image_cpu.yuv_key[channel],
+                                                 image_cpu.image_rendering,
+                                                 None,
+                                                 gpu_cache);
                 }
             }
             PrimitiveKind::AlignedGradient |

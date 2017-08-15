@@ -296,6 +296,7 @@ impl FBOId {
 struct Texture {
     gl: Rc<gl::Gl>,
     id: gl::GLuint,
+    layer_count: i32,
     format: ImageFormat,
     width: u32,
     height: u32,
@@ -1014,6 +1015,7 @@ impl Device {
                 id,
                 width: 0,
                 height: 0,
+                layer_count: 0,
                 format: ImageFormat::Invalid,
                 filter: TextureFilter::Nearest,
                 mode: RenderTargetMode::None,
@@ -1028,6 +1030,11 @@ impl Device {
         }
 
         texture_ids
+    }
+
+    pub fn get_texture_layer_count(&self, texture_id: TextureId) -> i32 {
+        let texture = &self.textures[&texture_id];
+        texture.layer_count
     }
 
     pub fn get_texture_dimensions(&self, texture_id: TextureId) -> DeviceUintSize {
@@ -1052,24 +1059,6 @@ impl Device {
         self.gl.tex_parameter_i(target, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as gl::GLint);
     }
 
-    fn upload_texture_image(&mut self,
-                            target: gl::GLuint,
-                            width: u32,
-                            height: u32,
-                            internal_format: u32,
-                            format: u32,
-                            type_: u32,
-                            pixels: Option<&[u8]>) {
-        self.gl.tex_image_2d(target,
-                              0,
-                              internal_format as gl::GLint,
-                              width as gl::GLint, height as gl::GLint,
-                              0,
-                              format,
-                              type_,
-                              pixels);
-    }
-
     pub fn init_texture(&mut self,
                         texture_id: TextureId,
                         width: u32,
@@ -1077,6 +1066,7 @@ impl Device {
                         format: ImageFormat,
                         filter: TextureFilter,
                         mode: RenderTargetMode,
+                        layer_count: i32,
                         pixels: Option<&[u8]>) {
         debug_assert!(self.inside_frame);
 
@@ -1088,6 +1078,7 @@ impl Device {
             texture.width = width;
             texture.height = height;
             texture.filter = filter;
+            texture.layer_count = layer_count;
             texture.mode = mode;
         }
 
@@ -1095,22 +1086,10 @@ impl Device {
         let type_ = gl_type_for_texture_format(format);
 
         match mode {
-            RenderTargetMode::SimpleRenderTarget => {
+            RenderTargetMode::RenderTarget => {
                 self.bind_texture(DEFAULT_TEXTURE, texture_id);
                 self.set_texture_parameters(texture_id.target, filter);
-                self.upload_texture_image(texture_id.target,
-                                          width,
-                                          height,
-                                          internal_format as u32,
-                                          gl_format,
-                                          type_,
-                                          None);
-                self.update_texture_storage(texture_id, None, resized);
-            }
-            RenderTargetMode::LayerRenderTarget(layer_count) => {
-                self.bind_texture(DEFAULT_TEXTURE, texture_id);
-                self.set_texture_parameters(texture_id.target, filter);
-                self.update_texture_storage(texture_id, Some(layer_count), resized);
+                self.update_texture_storage(texture_id, layer_count, resized);
             }
             RenderTargetMode::None => {
                 self.bind_texture(DEFAULT_TEXTURE, texture_id);
@@ -1124,13 +1103,34 @@ impl Device {
                 } else {
                     pixels
                 };
-                self.upload_texture_image(texture_id.target,
-                                          width,
-                                          height,
-                                          internal_format as u32,
-                                          gl_format,
-                                          type_,
-                                          actual_pixels);
+
+                match texture_id.target {
+                    gl::TEXTURE_2D_ARRAY => {
+                        self.gl.tex_image_3d(gl::TEXTURE_2D_ARRAY,
+                                             0,
+                                             internal_format as gl::GLint,
+                                             width as gl::GLint,
+                                             height as gl::GLint,
+                                             layer_count,
+                                             0,
+                                             gl_format,
+                                             type_,
+                                             actual_pixels);
+                    }
+                    gl::TEXTURE_2D |
+                    gl::TEXTURE_RECTANGLE |
+                    gl::TEXTURE_EXTERNAL_OES => {
+                        self.gl.tex_image_2d(texture_id.target,
+                                             0,
+                                             internal_format as gl::GLint,
+                                             width as gl::GLint, height as gl::GLint,
+                                             0,
+                                             gl_format,
+                                             type_,
+                                             actual_pixels);
+                    }
+                    _ => panic!("BUG: Unexpected texture target!"),
+                }
             }
         }
     }
@@ -1143,92 +1143,70 @@ impl Device {
     /// FBOs as required.
     pub fn update_texture_storage(&mut self,
                                   texture_id: TextureId,
-                                  layer_count: Option<i32>,
+                                  layer_count: i32,
                                   resized: bool) {
         let texture = self.textures.get_mut(&texture_id).unwrap();
 
-        match layer_count {
-            Some(layer_count) => {
-                assert!(layer_count > 0);
-                assert_eq!(texture_id.target, gl::TEXTURE_2D_ARRAY);
+        assert!(layer_count > 0);
+        assert_eq!(texture_id.target, gl::TEXTURE_2D_ARRAY);
 
-                let current_layer_count = texture.fbo_ids.len() as i32;
-                // If the texture is already the required size skip.
-                if current_layer_count == layer_count && !resized {
-                    return;
-                }
+        let current_layer_count = texture.fbo_ids.len() as i32;
+        // If the texture is already the required size skip.
+        if current_layer_count == layer_count && !resized {
+            return;
+        }
 
-                let (internal_format, gl_format) = gl_texture_formats_for_image_format(&*self.gl, texture.format);
-                let type_ = gl_type_for_texture_format(texture.format);
+        let (internal_format, gl_format) = gl_texture_formats_for_image_format(&*self.gl, texture.format);
+        let type_ = gl_type_for_texture_format(texture.format);
 
-                self.gl.tex_image_3d(texture_id.target,
-                                     0,
-                                     internal_format as gl::GLint,
-                                     texture.width as gl::GLint,
-                                     texture.height as gl::GLint,
-                                     layer_count,
-                                     0,
-                                     gl_format,
-                                     type_,
-                                     None);
+        self.gl.tex_image_3d(texture_id.target,
+                             0,
+                             internal_format as gl::GLint,
+                             texture.width as gl::GLint,
+                             texture.height as gl::GLint,
+                             layer_count,
+                             0,
+                             gl_format,
+                             type_,
+                             None);
 
-                let needed_layer_count = layer_count - current_layer_count;
-                if needed_layer_count > 0 {
-                    // Create more framebuffers to fill the gap
-                    let new_fbos = self.gl.gen_framebuffers(needed_layer_count);
-                    texture.fbo_ids.extend(new_fbos.into_iter().map(|id| FBOId(id)));
-                } else if needed_layer_count < 0 {
-                    // Remove extra framebuffers
-                    for old in texture.fbo_ids.drain(layer_count as usize ..) {
-                        self.gl.delete_framebuffers(&[old.0]);
-                    }
-                }
-
-                let depth_rb = if let Some(rbo) = texture.depth_rb {
-                    rbo.0
-                } else {
-                    let renderbuffer_ids = self.gl.gen_renderbuffers(1);
-                    let depth_rb = renderbuffer_ids[0];
-                    texture.depth_rb = Some(RBOId(depth_rb));
-                    depth_rb
-                };
-                self.gl.bind_renderbuffer(gl::RENDERBUFFER, depth_rb);
-                self.gl.renderbuffer_storage(gl::RENDERBUFFER,
-                                             gl::DEPTH_COMPONENT24,
-                                             texture.width as gl::GLsizei,
-                                             texture.height as gl::GLsizei);
-
-                for (fbo_index, fbo_id) in texture.fbo_ids.iter().enumerate() {
-                    self.gl.bind_framebuffer(gl::FRAMEBUFFER, fbo_id.0);
-                    self.gl.framebuffer_texture_layer(gl::FRAMEBUFFER,
-                                                      gl::COLOR_ATTACHMENT0,
-                                                      texture_id.name,
-                                                      0,
-                                                      fbo_index as gl::GLint);
-                    self.gl.framebuffer_renderbuffer(gl::FRAMEBUFFER,
-                                                     gl::DEPTH_ATTACHMENT,
-                                                     gl::RENDERBUFFER,
-                                                     depth_rb);
-                }
+        let needed_layer_count = layer_count - current_layer_count;
+        if needed_layer_count > 0 {
+            // Create more framebuffers to fill the gap
+            let new_fbos = self.gl.gen_framebuffers(needed_layer_count);
+            texture.fbo_ids.extend(new_fbos.into_iter().map(|id| FBOId(id)));
+        } else if needed_layer_count < 0 {
+            // Remove extra framebuffers
+            for old in texture.fbo_ids.drain(layer_count as usize ..) {
+                self.gl.delete_framebuffers(&[old.0]);
             }
-            None => {
-                if texture.fbo_ids.is_empty() {
-                    assert!(texture_id.target != gl::TEXTURE_2D_ARRAY);
+        }
 
-                    let new_fbo = self.gl.gen_framebuffers(1)[0];
-                    self.gl.bind_framebuffer(gl::FRAMEBUFFER, new_fbo);
+        let depth_rb = if let Some(rbo) = texture.depth_rb {
+            rbo.0
+        } else {
+            let renderbuffer_ids = self.gl.gen_renderbuffers(1);
+            let depth_rb = renderbuffer_ids[0];
+            texture.depth_rb = Some(RBOId(depth_rb));
+            depth_rb
+        };
+        self.gl.bind_renderbuffer(gl::RENDERBUFFER, depth_rb);
+        self.gl.renderbuffer_storage(gl::RENDERBUFFER,
+                                     gl::DEPTH_COMPONENT24,
+                                     texture.width as gl::GLsizei,
+                                     texture.height as gl::GLsizei);
 
-                    self.gl.framebuffer_texture_2d(gl::FRAMEBUFFER,
-                                                   gl::COLOR_ATTACHMENT0,
-                                                   texture_id.target,
-                                                   texture_id.name,
-                                                   0);
-
-                    texture.fbo_ids.push(FBOId(new_fbo));
-                } else {
-                    assert_eq!(texture.fbo_ids.len(), 1);
-                }
-            }
+        for (fbo_index, fbo_id) in texture.fbo_ids.iter().enumerate() {
+            self.gl.bind_framebuffer(gl::FRAMEBUFFER, fbo_id.0);
+            self.gl.framebuffer_texture_layer(gl::FRAMEBUFFER,
+                                              gl::COLOR_ATTACHMENT0,
+                                              texture_id.name,
+                                              0,
+                                              fbo_index as gl::GLint);
+            self.gl.framebuffer_renderbuffer(gl::FRAMEBUFFER,
+                                             gl::DEPTH_ATTACHMENT,
+                                             gl::RENDERBUFFER,
+                                             depth_rb);
         }
 
         // TODO(gw): Hack! Modify the code above to use the normal binding interfaces the device exposes.
@@ -1263,52 +1241,6 @@ impl Device {
                                   gl::LINEAR);
     }
 
-    pub fn resize_texture(&mut self,
-                          texture_id: TextureId,
-                          new_width: u32,
-                          new_height: u32,
-                          format: ImageFormat,
-                          filter: TextureFilter,
-                          mode: RenderTargetMode) {
-        debug_assert!(self.inside_frame);
-
-        let old_size = self.get_texture_dimensions(texture_id);
-
-        let temp_texture_id = self.create_texture_ids(1, TextureTarget::Default)[0];
-        self.init_texture(temp_texture_id, old_size.width, old_size.height, format, filter, mode, None);
-        self.update_texture_storage(temp_texture_id, None, true);
-
-        self.bind_read_target(Some((texture_id, 0)));
-        self.bind_texture(DEFAULT_TEXTURE, temp_texture_id);
-
-        self.gl.copy_tex_sub_image_2d(temp_texture_id.target,
-                                       0,
-                                       0,
-                                       0,
-                                       0,
-                                       0,
-                                       old_size.width as i32,
-                                       old_size.height as i32);
-
-        self.deinit_texture(texture_id);
-        self.init_texture(texture_id, new_width, new_height, format, filter, mode, None);
-        self.update_texture_storage(texture_id, None, true);
-        self.bind_read_target(Some((temp_texture_id, 0)));
-        self.bind_texture(DEFAULT_TEXTURE, texture_id);
-
-        self.gl.copy_tex_sub_image_2d(texture_id.target,
-                                       0,
-                                       0,
-                                       0,
-                                       0,
-                                       0,
-                                       old_size.width as i32,
-                                       old_size.height as i32);
-
-        self.bind_read_target(None);
-        self.deinit_texture(temp_texture_id);
-    }
-
     pub fn deinit_texture(&mut self, texture_id: TextureId) {
         debug_assert!(self.inside_frame);
 
@@ -1340,6 +1272,7 @@ impl Device {
         texture.format = ImageFormat::Invalid;
         texture.width = 0;
         texture.height = 0;
+        texture.layer_count = 0;
     }
 
     pub fn create_program(&mut self,
@@ -1610,48 +1543,17 @@ impl Device {
                                    y0: u32,
                                    width: u32,
                                    height: u32,
+                                   layer_index: i32,
+                                   stride: Option<u32>,
                                    offset: usize) {
         debug_assert!(self.inside_frame);
-        debug_assert_eq!(self.textures.get(&texture_id).unwrap().format, ImageFormat::RGBAF32);
 
-        self.bind_texture(DEFAULT_TEXTURE, texture_id);
-
-        self.gl.tex_sub_image_2d_pbo(texture_id.target,
-                                     0,
-                                     x0 as gl::GLint,
-                                     y0 as gl::GLint,
-                                     width as gl::GLint,
-                                     height as gl::GLint,
-                                     gl::RGBA,
-                                     gl::FLOAT,
-                                     offset);
-    }
-
-    pub fn update_texture(&mut self,
-                          texture_id: TextureId,
-                          x0: u32,
-                          y0: u32,
-                          width: u32,
-                          height: u32,
-                          stride: Option<u32>,
-                          data: &[u8]) {
-        debug_assert!(self.inside_frame);
-
-        let mut expanded_data = Vec::new();
-
-        let (gl_format, bpp, data, data_type) = match self.textures.get(&texture_id).unwrap().format {
-            ImageFormat::A8 => {
-                if cfg!(any(target_arch="arm", target_arch="aarch64")) {
-                    expanded_data.extend(data.iter().flat_map(|byte| repeat(*byte).take(4)));
-                    (get_gl_format_bgra(self.gl()), 4, expanded_data.as_slice(), gl::UNSIGNED_BYTE)
-                } else {
-                    (GL_FORMAT_A, 1, data, gl::UNSIGNED_BYTE)
-                }
-            }
-            ImageFormat::RGB8 => (gl::RGB, 3, data, gl::UNSIGNED_BYTE),
-            ImageFormat::BGRA8 => (get_gl_format_bgra(self.gl()), 4, data, gl::UNSIGNED_BYTE),
-            ImageFormat::RG8 => (gl::RG, 2, data, gl::UNSIGNED_BYTE),
-            ImageFormat::RGBAF32 => (gl::RGBA, 16, data, gl::FLOAT),
+        let (gl_format, bpp, data_type) = match self.textures.get(&texture_id).unwrap().format {
+            ImageFormat::A8 => (GL_FORMAT_A, 1, gl::UNSIGNED_BYTE),
+            ImageFormat::RGB8 => (gl::RGB, 3, gl::UNSIGNED_BYTE),
+            ImageFormat::BGRA8 => (get_gl_format_bgra(self.gl()), 4, gl::UNSIGNED_BYTE),
+            ImageFormat::RG8 => (gl::RG, 2, gl::UNSIGNED_BYTE),
+            ImageFormat::RGBAF32 => (gl::RGBA, 16, gl::FLOAT),
             ImageFormat::Invalid => unreachable!(),
         };
 
@@ -1660,26 +1562,41 @@ impl Device {
             None => width,
         };
 
-        // Take the stride into account for all rows, except the last one.
-        let len = bpp * row_length * (height - 1)
-                + width * bpp;
-        let data = &data[0..len as usize];
-
         if let Some(..) = stride {
             self.gl.pixel_store_i(gl::UNPACK_ROW_LENGTH, row_length as gl::GLint);
         }
 
         self.bind_texture(DEFAULT_TEXTURE, texture_id);
 
-        self.gl.tex_sub_image_2d(texture_id.target,
-                                 0,
-                                 x0 as gl::GLint,
-                                 y0 as gl::GLint,
-                                 width as gl::GLint,
-                                 height as gl::GLint,
-                                 gl_format,
-                                 data_type,
-                                 data);
+        match texture_id.target {
+            gl::TEXTURE_2D_ARRAY => {
+                self.gl.tex_sub_image_3d_pbo(texture_id.target,
+                                             0,
+                                             x0 as gl::GLint,
+                                             y0 as gl::GLint,
+                                             layer_index,
+                                             width as gl::GLint,
+                                             height as gl::GLint,
+                                             1,
+                                             gl_format,
+                                             data_type,
+                                             offset);
+            }
+            gl::TEXTURE_2D |
+            gl::TEXTURE_RECTANGLE |
+            gl::TEXTURE_EXTERNAL_OES => {
+                self.gl.tex_sub_image_2d_pbo(texture_id.target,
+                                             0,
+                                             x0 as gl::GLint,
+                                             y0 as gl::GLint,
+                                             width as gl::GLint,
+                                             height as gl::GLint,
+                                             gl_format,
+                                             data_type,
+                                             offset);
+            }
+            _ => panic!("BUG: Unexpected texture target!"),
+        }
 
         // Reset row length to 0, otherwise the stride would apply to all texture uploads.
         if let Some(..) = stride {

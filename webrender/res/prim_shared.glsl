@@ -3,25 +3,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#if defined(GL_ES)
-    #if GL_ES == 1
-        #ifdef GL_FRAGMENT_PRECISION_HIGH
-        precision highp sampler2DArray;
-        #else
-        precision mediump sampler2DArray;
-        #endif
-
-        // Sampler default precision is lowp on mobile GPUs.
-        // This causes RGBA32F texture data to be clamped to 16 bit floats on some GPUs (e.g. Mali-T880).
-        // Define highp precision macro to allow lossless FLOAT texture sampling.
-        #define HIGHP_SAMPLER_FLOAT highp
-    #else
-        #define HIGHP_SAMPLER_FLOAT
-    #endif
-#else
-    #define HIGHP_SAMPLER_FLOAT
-#endif
-
 #define PST_TOP_LEFT     0
 #define PST_TOP          1
 #define PST_TOP_RIGHT    2
@@ -771,21 +752,23 @@ TransformVertexInfo write_transform_vertex(RectWithSize instance_rect,
 
 struct GlyphResource {
     vec4 uv_rect;
+    float layer;
     vec2 offset;
 };
 
 GlyphResource fetch_glyph_resource(int address) {
     vec4 data[2] = fetch_from_resource_cache_2(address);
-    return GlyphResource(data[0], data[1].xy);
+    return GlyphResource(data[0], data[1].x, data[1].yz);
 }
 
 struct ImageResource {
     vec4 uv_rect;
+    float layer;
 };
 
 ImageResource fetch_image_resource(int address) {
-    vec4 data = fetch_from_resource_cache_1(address);
-    return ImageResource(data);
+    vec4 data[2] = fetch_from_resource_cache_2(address);
+    return ImageResource(data[0], data[1].x);
 }
 
 struct Rectangle {

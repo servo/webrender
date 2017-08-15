@@ -103,7 +103,6 @@ pub struct FrameBuilderConfig {
     pub enable_scrollbars: bool,
     pub default_font_render_mode: FontRenderMode,
     pub debug: bool,
-    pub cache_expiry_frames: u32,
 }
 
 pub struct FrameBuilder {
@@ -1773,7 +1772,10 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                 if let Some(mask) = clip_source.image_mask() {
                     // We don't add the image mask for resolution, because
                     // layer masks are resolved later.
-                    self.resource_cache.request_image(mask.image, ImageRendering::Auto, None);
+                    self.resource_cache.request_image(mask.image,
+                                                      ImageRendering::Auto,
+                                                      None,
+                                                      self.gpu_cache);
                 }
             }
         }

@@ -215,8 +215,7 @@ impl RenderBackend {
 
         let resource_cache = ResourceCache::new(texture_cache,
                                                 workers,
-                                                blob_image_renderer,
-                                                frame_config.cache_expiry_frames);
+                                                blob_image_renderer);
 
         register_thread_with_profiler("Backend".to_string());
 

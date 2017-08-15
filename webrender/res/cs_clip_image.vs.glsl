@@ -26,6 +26,7 @@ void main(void) {
                                                cci.segment_index);
 
     vPos = vi.local_pos;
+    vLayer = res.layer;
 
     vClipMaskUv = vec3((vPos.xy / vPos.z - local_rect.p0) / local_rect.size, 0.0);
     vec2 texture_size = vec2(textureSize(sColor0, 0));
