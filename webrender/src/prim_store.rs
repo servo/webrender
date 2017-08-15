@@ -1198,10 +1198,11 @@ impl PrimitiveStore {
                         // It's cheap enough that it's not worth introducing a cache for images
                         // right now, but if we introduce a cache for images for some other
                         // reason then we might as well cache this with it.
-                        let image_properties = resource_cache.get_image_properties(image_key);
-                        metadata.opacity.is_opaque = image_properties.descriptor.is_opaque &&
-                                                     tile_spacing.width == 0.0 &&
-                                                     tile_spacing.height == 0.0;
+                        if let Some(image_properties) = resource_cache.get_image_properties(image_key) {
+                            metadata.opacity.is_opaque = image_properties.descriptor.is_opaque &&
+                                                         tile_spacing.width == 0.0 &&
+                                                         tile_spacing.height == 0.0;
+                        }
                     }
                     ImagePrimitiveKind::WebGL(..) => {}
                 }

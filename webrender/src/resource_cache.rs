@@ -421,71 +421,76 @@ impl ResourceCache {
             tile,
         };
 
-        let template = self.resources.image_templates.get(key).unwrap();
-
-        // Images that don't use the texture cache can early out.
-        if !template.data.uses_texture_cache() {
-            return;
-        }
-
-        // If this image exists in the texture cache, *and* the epoch
-        // in the cache matches that of the template, then it is
-        // valid to use as-is.
-        let (entry, needs_update) = match self.cached_images.entry(request) {
-            Occupied(entry) => {
-                let needs_update = entry.get().epoch != template.epoch;
-                (entry.into_mut(), needs_update)
-            }
-            Vacant(entry) => {
-                (entry.insert(CachedImageInfo {
-                    epoch: template.epoch,
-                    texture_cache_handle: TextureCacheHandle::new(),
-                }), true)
-            }
-        };
-
-        let needs_upload = self.texture_cache
-                               .request(&mut entry.texture_cache_handle,
-                                        gpu_cache);
-
-        if !needs_upload && !needs_update {
-            return;
-        }
-
-        // We can start a worker thread rasterizing right now, if:
-        //  - The image is a blob.
-        //  - The blob hasn't already been requested this frame.
-        if self.pending_image_requests.insert(request) {
-            if template.data.is_blob() {
-                if let Some(ref mut renderer) = self.blob_image_renderer {
-                    let (offset, w, h) = match template.tiling {
-                        Some(tile_size) => {
-                            let tile_offset = request.tile.unwrap();
-                            let (w, h) = compute_tile_size(&template.descriptor, tile_size, tile_offset);
-                            let offset = DevicePoint::new(
-                                tile_offset.x as f32 * tile_size as f32,
-                                tile_offset.y as f32 * tile_size as f32,
-                            );
-
-                            (offset, w, h)
-                        }
-                        None => {
-                            (DevicePoint::zero(), template.descriptor.width, template.descriptor.height)
-                        }
-                    };
-
-                    renderer.request(
-                        &self.resources,
-                        request.into(),
-                        &BlobImageDescriptor {
-                            width: w,
-                            height: h,
-                            offset,
-                            format: template.descriptor.format,
-                        },
-                        template.dirty_rect,
-                    );
+        match self.resources.image_templates.get(key) {
+            Some(template) => {
+                // Images that don't use the texture cache can early out.
+                if !template.data.uses_texture_cache() {
+                    return;
                 }
+
+                // If this image exists in the texture cache, *and* the epoch
+                // in the cache matches that of the template, then it is
+                // valid to use as-is.
+                let (entry, needs_update) = match self.cached_images.entry(request) {
+                    Occupied(entry) => {
+                        let needs_update = entry.get().epoch != template.epoch;
+                        (entry.into_mut(), needs_update)
+                    }
+                    Vacant(entry) => {
+                        (entry.insert(CachedImageInfo {
+                            epoch: template.epoch,
+                            texture_cache_handle: TextureCacheHandle::new(),
+                        }), true)
+                    }
+                };
+
+                let needs_upload = self.texture_cache
+                                       .request(&mut entry.texture_cache_handle,
+                                                gpu_cache);
+
+                if !needs_upload && !needs_update {
+                    return;
+                }
+
+                // We can start a worker thread rasterizing right now, if:
+                //  - The image is a blob.
+                //  - The blob hasn't already been requested this frame.
+                if self.pending_image_requests.insert(request) {
+                    if template.data.is_blob() {
+                        if let Some(ref mut renderer) = self.blob_image_renderer {
+                            let (offset, w, h) = match template.tiling {
+                                Some(tile_size) => {
+                                    let tile_offset = request.tile.unwrap();
+                                    let (w, h) = compute_tile_size(&template.descriptor, tile_size, tile_offset);
+                                    let offset = DevicePoint::new(
+                                        tile_offset.x as f32 * tile_size as f32,
+                                        tile_offset.y as f32 * tile_size as f32,
+                                    );
+
+                                    (offset, w, h)
+                                }
+                                None => {
+                                    (DevicePoint::zero(), template.descriptor.width, template.descriptor.height)
+                                }
+                            };
+
+                            renderer.request(
+                                &self.resources,
+                                request.into(),
+                                &BlobImageDescriptor {
+                                    width: w,
+                                    height: h,
+                                    offset,
+                                    format: template.descriptor.format,
+                                },
+                                template.dirty_rect,
+                            );
+                        }
+                    }
+                }
+            }
+            None => {
+                warn!("ERROR: Trying to render deleted / non-existent key {:?}", key);
             }
         }
     }
@@ -564,30 +569,32 @@ impl ResourceCache {
         self.texture_cache.get(&image_info.texture_cache_handle)
     }
 
-    pub fn get_image_properties(&self, image_key: ImageKey) -> ImageProperties {
-        let image_template = &self.resources.image_templates.get(image_key).unwrap();
+    pub fn get_image_properties(&self, image_key: ImageKey) -> Option<ImageProperties> {
+        let image_template = &self.resources.image_templates.get(image_key);
 
-        let external_image = match image_template.data {
-            ImageData::External(ext_image) => {
-                match ext_image.image_type {
-                    ExternalImageType::Texture2DHandle |
-                    ExternalImageType::TextureRectHandle |
-                    ExternalImageType::TextureExternalHandle => {
-                        Some(ext_image)
-                    },
-                    // external buffer uses resource_cache.
-                    ExternalImageType::ExternalBuffer => None,
-                }
-            },
-            // raw and blob image are all using resource_cache.
-            ImageData::Raw(..) | ImageData::Blob(..) => None,
-        };
+        image_template.map(|image_template| {
+            let external_image = match image_template.data {
+                ImageData::External(ext_image) => {
+                    match ext_image.image_type {
+                        ExternalImageType::Texture2DHandle |
+                        ExternalImageType::TextureRectHandle |
+                        ExternalImageType::TextureExternalHandle => {
+                            Some(ext_image)
+                        },
+                        // external buffer uses resource_cache.
+                        ExternalImageType::ExternalBuffer => None,
+                    }
+                },
+                // raw and blob image are all using resource_cache.
+                ImageData::Raw(..) | ImageData::Blob(..) => None,
+            };
 
-        ImageProperties {
-            descriptor: image_template.descriptor,
-            external_image,
-            tiling: image_template.tiling,
-        }
+            ImageProperties {
+                descriptor: image_template.descriptor,
+                external_image,
+                tiling: image_template.tiling,
+            }
+        })
     }
 
     pub fn get_tiled_image_map(&self) -> TiledImageMap {
