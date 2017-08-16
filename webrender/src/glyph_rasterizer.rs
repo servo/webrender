@@ -19,7 +19,7 @@ use std::mem;
 use texture_cache::{TextureCache, TextureCacheHandle};
 #[cfg(test)]
 use api::{ColorF, LayoutPoint, FontRenderMode, IdNamespace, SubpixelDirection};
-use api::{DevicePoint, DeviceUintSize, FontInstanceKey};
+use api::{DevicePoint, DeviceUintSize, FontInstance};
 use api::{FontKey, FontTemplate};
 use api::{ImageData, ImageDescriptor, ImageFormat};
 use api::{GlyphKey, GlyphDimensions};
@@ -145,7 +145,7 @@ impl GlyphRasterizer {
     pub fn request_glyphs(
         &mut self,
         glyph_cache: &mut GlyphCache,
-        font: FontInstanceKey,
+        font: FontInstance,
         glyph_keys: &[GlyphKey],
         texture_cache: &mut TextureCache,
         gpu_cache: &mut GpuCache) {
@@ -222,7 +222,7 @@ impl GlyphRasterizer {
     }
 
     pub fn get_glyph_dimensions(&mut self,
-                                font: &FontInstanceKey,
+                                font: &FontInstance,
                                 glyph_key: &GlyphKey) -> Option<GlyphDimensions> {
         self.font_contexts.lock_shared_context().get_glyph_dimensions(font, glyph_key)
     }
@@ -339,11 +339,11 @@ impl FontContext {
 #[derive(Clone, Hash, PartialEq, Eq, Debug, Ord, PartialOrd)]
 pub struct GlyphRequest {
     pub key: GlyphKey,
-    pub font: FontInstanceKey,
+    pub font: FontInstance,
 }
 
 impl GlyphRequest {
-    pub fn new(font: &FontInstanceKey, key: &GlyphKey) -> Self {
+    pub fn new(font: &FontInstance, key: &GlyphKey) -> Self {
         GlyphRequest {
             key: key.clone(),
             font: font.clone(),
@@ -378,7 +378,7 @@ fn raterize_200_glyphs() {
     let font_key = FontKey::new(IdNamespace(0), 0);
     glyph_rasterizer.add_font(font_key, FontTemplate::Raw(Arc::new(font_data), 0));
 
-    let font = FontInstanceKey {
+    let font = FontInstance {
         font_key,
         color: ColorF::new(0.0, 0.0, 0.0, 1.0).into(),
         size: Au::from_px(32),

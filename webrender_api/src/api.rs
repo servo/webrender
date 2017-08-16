@@ -11,7 +11,7 @@ use std::marker::PhantomData;
 use {BuiltDisplayList, BuiltDisplayListDescriptor, ClipId, ColorF, DeviceIntPoint, DeviceIntSize};
 use {DeviceUintRect, DeviceUintSize, FontKey, GlyphDimensions, GlyphKey};
 use {ImageData, ImageDescriptor, ImageKey, LayoutPoint, LayoutVector2D, LayoutSize, LayoutTransform};
-use {FontInstanceKey, NativeFontHandle, WorldPoint};
+use {FontInstance, NativeFontHandle, WorldPoint};
 #[cfg(feature = "webgl")]
 use {WebGLCommand, WebGLContextId};
 
@@ -148,7 +148,7 @@ pub enum ApiMsg {
     /// Add/remove/update images and fonts.
     UpdateResources(ResourceUpdates),
     /// Gets the glyph dimensions
-    GetGlyphDimensions(FontInstanceKey, Vec<GlyphKey>, MsgSender<Vec<Option<GlyphDimensions>>>),
+    GetGlyphDimensions(FontInstance, Vec<GlyphKey>, MsgSender<Vec<Option<GlyphDimensions>>>),
     /// Gets the glyph indices from a string
     GetGlyphIndices(FontKey, String, MsgSender<Vec<Option<u32>>>),
     /// Adds a new document namespace.
@@ -343,7 +343,7 @@ impl RenderApi {
     /// 'empty' textures (height or width = 0)
     /// This means that glyph dimensions e.g. for spaces (' ') will mostly be None.
     pub fn get_glyph_dimensions(&self,
-                                font: FontInstanceKey,
+                                font: FontInstance,
                                 glyph_keys: Vec<GlyphKey>)
                                 -> Vec<Option<GlyphDimensions>> {
         let (tx, rx) = channel::msg_channel().unwrap();
