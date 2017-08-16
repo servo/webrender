@@ -5,10 +5,10 @@
 use api::{BorderDetails, BorderDisplayItem, BoxShadowClipMode, ClipAndScrollInfo, ClipId, ColorF};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
 use api::{ExtendMode, FontKey, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop};
-use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize, SubpixelDirection};
+use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize};
 use api::{LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation, LineStyle};
-use api::{LocalClip, PipelineId, RepeatMode, ScrollSensitivity, TextShadow, TileOffset};
-use api::{TransformStyle, WebGLContextId, WorldPixel, YuvColorSpace, YuvData};
+use api::{LocalClip, PipelineId, RepeatMode, ScrollSensitivity, SubpixelDirection, TextShadow};
+use api::{TileOffset, TransformStyle, WebGLContextId, WorldPixel, YuvColorSpace, YuvData};
 use app_units::Au;
 use frame::FrameId;
 use gpu_cache::GpuCache;
@@ -322,9 +322,14 @@ impl FrameBuilder {
                                 pipeline_id: PipelineId,
                                 rect: &LayerRect,
                                 transform: &LayerToScrollTransform,
+                                origin_in_parent_reference_frame: LayerVector2D,
                                 clip_scroll_tree: &mut ClipScrollTree)
                                 -> ClipId {
-        let new_id = clip_scroll_tree.add_reference_frame(rect, transform, pipeline_id, parent_id);
+        let new_id = clip_scroll_tree.add_reference_frame(rect,
+                                                          transform,
+                                                          origin_in_parent_reference_frame,
+                                                          pipeline_id,
+                                                          parent_id);
         self.reference_frame_stack.push(new_id);
         new_id
     }
@@ -352,10 +357,10 @@ impl FrameBuilder {
 
         let root_id = clip_scroll_tree.root_reference_frame_id();
         if let Some(root_node) = clip_scroll_tree.nodes.get_mut(&root_id) {
-            if let NodeType::ReferenceFrame(ref mut transform) = root_node.node_type {
-                *transform = LayerToScrollTransform::create_translation(viewport_offset.x,
-                                                                        viewport_offset.y,
-                                                                        0.0);
+            if let NodeType::ReferenceFrame(ref mut info) = root_node.node_type {
+                info.transform = LayerToScrollTransform::create_translation(viewport_offset.x,
+                                                                            viewport_offset.y,
+                                                                            0.0);
             }
             root_node.local_clip_rect = viewport_clip;
         }
@@ -374,7 +379,12 @@ impl FrameBuilder {
                      -> ClipId {
         let viewport_rect = LayerRect::new(LayerPoint::zero(), *viewport_size);
         let identity = &LayerToScrollTransform::identity();
-        self.push_reference_frame(None, pipeline_id, &viewport_rect, identity, clip_scroll_tree);
+        self.push_reference_frame(None,
+                                  pipeline_id,
+                                  &viewport_rect,
+                                  identity,
+                                  LayerVector2D::zero(),
+                                  clip_scroll_tree);
 
         let topmost_scrolling_node_id = ClipId::root_scroll_node(pipeline_id);
         clip_scroll_tree.topmost_scrolling_node_id = topmost_scrolling_node_id;
@@ -1881,9 +1891,9 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             current_id = node.parent;
 
             let clip = match node.node_type {
-                NodeType::ReferenceFrame(transform) => {
+                NodeType::ReferenceFrame(ref info) => {
                     // if the transform is non-aligned, bake the next LCCR into the clip mask
-                    next_node_needs_region_mask |= !transform.preserves_2d_axis_alignment();
+                    next_node_needs_region_mask |= !info.transform.preserves_2d_axis_alignment();
                     continue
                 },
                 NodeType::Clip(ref clip) if clip.mask_cache_info.is_masking() => clip,

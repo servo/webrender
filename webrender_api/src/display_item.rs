@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use euclid::SideOffsets2D;
+use euclid::{SideOffsets2D, TypedSideOffsets2D};
 use {ColorF, FontKey, ImageKey, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform};
 use {GlyphOptions, LayoutVector2D, PipelineId, PropertyBinding, WebGLContextId};
 
@@ -50,6 +50,7 @@ pub struct DisplayItem {
 pub enum SpecificDisplayItem {
     Clip(ClipDisplayItem),
     ScrollFrame(ScrollFrameDisplayItem),
+    StickyFrame(StickyFrameDisplayItem),
     Rectangle(RectangleDisplayItem),
     Line(LineDisplayItem),
     Text(TextDisplayItem),
@@ -75,6 +76,20 @@ pub struct ClipDisplayItem {
     pub id: ClipId,
     pub parent_id: ClipId,
     pub image_mask: Option<ImageMask>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct StickyFrameDisplayItem {
+    pub id: ClipId,
+    pub sticky_frame_info: StickyFrameInfo,
+}
+
+pub type StickyFrameInfo = TypedSideOffsets2D<Option<StickySideConstraint>, LayoutPoint>;
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct StickySideConstraint {
+    pub margin: f32,
+    pub max_offset: f32,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -663,11 +678,12 @@ macro_rules! define_empty_heap_size_of {
     }
 }
 
-define_empty_heap_size_of!(ClipId);
-define_empty_heap_size_of!(RepeatMode);
-define_empty_heap_size_of!(ImageKey);
-define_empty_heap_size_of!(MixBlendMode);
-define_empty_heap_size_of!(TransformStyle);
-define_empty_heap_size_of!(LocalClip);
-define_empty_heap_size_of!(ScrollSensitivity);
 define_empty_heap_size_of!(ClipAndScrollInfo);
+define_empty_heap_size_of!(ClipId);
+define_empty_heap_size_of!(ImageKey);
+define_empty_heap_size_of!(LocalClip);
+define_empty_heap_size_of!(MixBlendMode);
+define_empty_heap_size_of!(RepeatMode);
+define_empty_heap_size_of!(ScrollSensitivity);
+define_empty_heap_size_of!(StickySideConstraint);
+define_empty_heap_size_of!(TransformStyle);
