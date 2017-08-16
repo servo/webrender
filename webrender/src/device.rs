@@ -5,7 +5,6 @@
 use euclid::Transform3D;
 use gleam::gl;
 use internal_types::{RenderTargetMode, TextureSampler, DEFAULT_TEXTURE, FastHashMap};
-//use notify::{self, Watcher};
 use super::shader_source;
 use std::fs::File;
 use std::io::Read;
@@ -15,7 +14,6 @@ use std::ops::Add;
 use std::path::PathBuf;
 use std::ptr;
 use std::rc::Rc;
-//use std::sync::mpsc::{channel, Sender};
 use std::thread;
 use api::{ColorF, ImageFormat};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintSize};
@@ -366,32 +364,18 @@ impl Drop for Program {
     }
 }
 
-struct VAO {
-    gl: Rc<gl::Gl>,
+pub struct VAO {
     id: gl::GLuint,
     ibo_id: IBOId,
     main_vbo_id: VBOId,
     instance_vbo_id: VBOId,
     instance_stride: gl::GLint,
-    owns_indices: bool,
-    owns_vertices: bool,
-    owns_instances: bool,
+    owns_vertices_and_indices: bool,
 }
 
 impl Drop for VAO {
     fn drop(&mut self) {
-        self.gl.delete_vertex_arrays(&[self.id]);
-
-        if self.owns_indices {
-            // todo(gw): maybe make these their own type with hashmap?
-            self.gl.delete_buffers(&[self.ibo_id.0]);
-        }
-        if self.owns_vertices {
-            self.gl.delete_buffers(&[self.main_vbo_id.0]);
-        }
-        if self.owns_instances {
-            self.gl.delete_buffers(&[self.instance_vbo_id.0])
-        }
+        debug_assert!(thread::panicking() || self.id == 0);
     }
 }
 
@@ -400,9 +384,6 @@ pub struct TextureId {
     name: gl::GLuint,
     target: gl::GLuint,
 }
-
-#[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
-pub struct VAOId(gl::GLuint);
 
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 pub struct FBOId(gl::GLuint);
@@ -691,75 +672,6 @@ impl UniformLocation {
     }
 }
 
-// TODO(gw): Fix up notify cargo deps and re-enable this!
-/*
-enum FileWatcherCmd {
-    AddWatch(PathBuf),
-    Exit,
-}
-
-struct FileWatcherThread {
-    api_tx: Sender<FileWatcherCmd>,
-}
-
-impl FileWatcherThread {
-    fn new(handler: Box<FileWatcherHandler>) -> FileWatcherThread {
-        let (api_tx, api_rx) = channel();
-
-        thread::spawn(move || {
-
-            let (watch_tx, watch_rx) = channel();
-
-            enum Request {
-                Watcher(notify::Event),
-                Command(FileWatcherCmd),
-            }
-
-            let mut file_watcher: notify::RecommendedWatcher = notify::Watcher::new(watch_tx).unwrap();
-
-            loop {
-                let request = {
-                    let receiver_from_api = &api_rx;
-                    let receiver_from_watcher = &watch_rx;
-                    select! {
-                        msg = receiver_from_api.recv() => Request::Command(msg.unwrap()),
-                        msg = receiver_from_watcher.recv() => Request::Watcher(msg.unwrap())
-                    }
-                };
-
-                match request {
-                    Request::Watcher(event) => {
-                        handler.file_changed(event.path.unwrap());
-                    }
-                    Request::Command(cmd) => {
-                        match cmd {
-                            FileWatcherCmd::AddWatch(path) => {
-                                file_watcher.watch(path).ok();
-                            }
-                            FileWatcherCmd::Exit => {
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        });
-
-        FileWatcherThread {
-            api_tx,
-        }
-    }
-
-    fn exit(&self) {
-        self.api_tx.send(FileWatcherCmd::Exit).ok();
-    }
-
-    fn add_watch(&self, path: PathBuf) {
-        self.api_tx.send(FileWatcherCmd::AddWatch(path)).ok();
-    }
-}
-*/
-
 pub struct Capabilities {
     pub supports_multisampling: bool,
 }
@@ -775,7 +687,7 @@ pub struct Device {
     // device state
     bound_textures: [TextureId; 16],
     bound_program: gl::GLuint,
-    bound_vao: VAOId,
+    bound_vao: gl::GLuint,
     bound_pbo: PBOId,
     bound_read_fbo: FBOId,
     bound_draw_fbo: FBOId,
@@ -792,15 +704,9 @@ pub struct Device {
     // resources
     resource_override_path: Option<PathBuf>,
     textures: FastHashMap<TextureId, Texture>,
-    vaos: FastHashMap<VAOId, VAO>,
 
     // misc.
     shader_preamble: String,
-    //file_watcher: FileWatcherThread,
-
-    // Used on android only
-    #[allow(dead_code)]
-    next_vao_id: gl::GLuint,
 
     max_texture_size: u32,
 
@@ -813,11 +719,7 @@ impl Device {
     pub fn new(gl: Rc<gl::Gl>,
                resource_override_path: Option<PathBuf>,
                _file_changed_handler: Box<FileWatcherHandler>) -> Device {
-        //let file_watcher = FileWatcherThread::new(file_changed_handler);
-
         let shader_preamble = get_shader_source(SHADER_PREAMBLE, &resource_override_path);
-        //file_watcher.add_watch(resource_path);
-
         let max_texture_size = gl.get_integer_v(gl::MAX_TEXTURE_SIZE) as u32;
 
         Device {
@@ -834,7 +736,7 @@ impl Device {
 
             bound_textures: [ TextureId::invalid(); 16 ],
             bound_program: 0,
-            bound_vao: VAOId(0),
+            bound_vao: 0,
             bound_pbo: PBOId(0),
             bound_read_fbo: FBOId(0),
             bound_draw_fbo: FBOId(0),
@@ -842,12 +744,8 @@ impl Device {
             default_draw_fbo: 0,
 
             textures: FastHashMap::default(),
-            vaos: FastHashMap::default(),
 
             shader_preamble,
-
-            next_vao_id: 1,
-            //file_watcher: file_watcher,
 
             max_texture_size,
             frame_id: FrameId(0),
@@ -925,8 +823,8 @@ impl Device {
         self.gl.use_program(0);
 
         // Vertex state
-        self.bound_vao = VAOId(0);
-        self.clear_vertex_array();
+        self.bound_vao = 0;
+        self.gl.bind_vertex_array(0);
 
         // FBO state
         self.bound_read_fbo = FBOId(self.default_read_fbo);
@@ -1302,7 +1200,7 @@ impl Device {
                                         descriptor)
     }
 
-    pub fn delete_program(&mut self, program: &mut Program) {
+    pub fn delete_program(&mut self, mut program: Program) {
         self.gl.delete_program(program.id);
         program.id = 0;
     }
@@ -1457,43 +1355,6 @@ impl Device {
         Ok(())
     }
 
-/*
-    pub fn refresh_shader(&mut self, path: PathBuf) {
-        let mut vs_preamble_path = self.resource_path.clone();
-        vs_preamble_path.push(VERTEX_SHADER_PREAMBLE);
-
-        let mut fs_preamble_path = self.resource_path.clone();
-        fs_preamble_path.push(FRAGMENT_SHADER_PREAMBLE);
-
-        let mut refresh_all = false;
-
-        if path == vs_preamble_path {
-            let mut f = File::open(&vs_preamble_path).unwrap();
-            self.vertex_shader_preamble = String::new();
-            f.read_to_string(&mut self.vertex_shader_preamble).unwrap();
-            refresh_all = true;
-        }
-
-        if path == fs_preamble_path {
-            let mut f = File::open(&fs_preamble_path).unwrap();
-            self.fragment_shader_preamble = String::new();
-            f.read_to_string(&mut self.fragment_shader_preamble).unwrap();
-            refresh_all = true;
-        }
-
-        let mut programs_to_update = Vec::new();
-
-        for (program_id, program) in &mut self.programs {
-            if refresh_all || program.vs_path == path || program.fs_path == path {
-                programs_to_update.push(*program_id)
-            }
-        }
-
-        for program_id in programs_to_update {
-            self.load_program(program_id, false);
-        }
-    }*/
-
     pub fn get_uniform_location(&self, program: &Program, name: &str) -> UniformLocation {
         UniformLocation(self.gl.get_uniform_location(program.id, name))
     }
@@ -1621,19 +1482,12 @@ impl Device {
         }
     }
 
-    fn clear_vertex_array(&mut self) {
-        debug_assert!(self.inside_frame);
-        self.gl.bind_vertex_array(0);
-    }
-
-    pub fn bind_vao(&mut self, vao_id: VAOId) {
+    pub fn bind_vao(&mut self, vao: &VAO) {
         debug_assert!(self.inside_frame);
 
-        if self.bound_vao != vao_id {
-            self.bound_vao = vao_id;
-
-            let VAOId(id) = vao_id;
-            self.gl.bind_vertex_array(id);
+        if self.bound_vao != vao.id {
+            self.bound_vao = vao.id;
+            self.gl.bind_vertex_array(vao.id);
         }
     }
 
@@ -1643,14 +1497,11 @@ impl Device {
                             instance_vbo_id: VBOId,
                             ibo_id: IBOId,
                             instance_stride: gl::GLint,
-                            owns_vertices: bool,
-                            owns_instances: bool,
-                            owns_indices: bool)
-                            -> VAOId {
+                            owns_vertices_and_indices: bool)
+                            -> VAO {
         debug_assert!(self.inside_frame);
 
-        let vao_ids = self.gl.gen_vertex_arrays(1);
-        let vao_id = vao_ids[0];
+        let vao_id = self.gl.gen_vertex_arrays(1)[0];
 
         self.gl.bind_vertex_array(vao_id);
 
@@ -1658,30 +1509,22 @@ impl Device {
         ibo_id.bind(self.gl()); // force it to be a part of VAO
 
         let vao = VAO {
-            gl: Rc::clone(&self.gl),
             id: vao_id,
             ibo_id,
             main_vbo_id,
             instance_vbo_id,
             instance_stride,
-            owns_indices,
-            owns_vertices,
-            owns_instances,
+            owns_vertices_and_indices,
         };
 
         self.gl.bind_vertex_array(0);
 
-        let vao_id = VAOId(vao_id);
-
-        debug_assert!(!self.vaos.contains_key(&vao_id));
-        self.vaos.insert(vao_id, vao);
-
-        vao_id
+        vao
     }
 
     pub fn create_vao(&mut self,
                       descriptor: &VertexDescriptor,
-                      inst_stride: gl::GLint) -> VAOId {
+                      inst_stride: gl::GLint) -> VAO {
         debug_assert!(self.inside_frame);
 
         let buffer_ids = self.gl.gen_buffers(3);
@@ -1694,55 +1537,55 @@ impl Device {
                                   intance_vbo_id,
                                   ibo_id,
                                   inst_stride,
-                                  true,
-                                  true,
                                   true)
+    }
+
+    pub fn delete_vao(&mut self, mut vao: VAO) {
+        self.gl.delete_vertex_arrays(&[vao.id]);
+        vao.id = 0;
+
+        if vao.owns_vertices_and_indices {
+            self.gl.delete_buffers(&[vao.ibo_id.0]);
+            self.gl.delete_buffers(&[vao.main_vbo_id.0]);
+        }
+
+        self.gl.delete_buffers(&[vao.instance_vbo_id.0])
     }
 
     pub fn create_vao_with_new_instances(&mut self,
                                          descriptor: &VertexDescriptor,
                                          inst_stride: gl::GLint,
-                                         base_vao: VAOId) -> VAOId {
+                                         base_vao: &VAO) -> VAO {
         debug_assert!(self.inside_frame);
 
         let buffer_ids = self.gl.gen_buffers(1);
         let intance_vbo_id = VBOId(buffer_ids[0]);
-        let (main_vbo_id, ibo_id) = {
-            let vao = self.vaos.get(&base_vao).unwrap();
-            (vao.main_vbo_id, vao.ibo_id)
-        };
 
         self.create_vao_with_vbos(descriptor,
-                                  main_vbo_id,
+                                  base_vao.main_vbo_id,
                                   intance_vbo_id,
-                                  ibo_id,
+                                  base_vao.ibo_id,
                                   inst_stride,
-                                  false,
-                                  true,
                                   false)
     }
 
     pub fn update_vao_main_vertices<V>(&mut self,
-                                       vao_id: VAOId,
+                                       vao: &VAO,
                                        vertices: &[V],
                                        usage_hint: VertexUsageHint) {
         debug_assert!(self.inside_frame);
-
-        let vao = self.vaos.get(&vao_id).unwrap();
-        debug_assert_eq!(self.bound_vao, vao_id);
+        debug_assert_eq!(self.bound_vao, vao.id);
 
         vao.main_vbo_id.bind(self.gl());
         gl::buffer_data(self.gl(), gl::ARRAY_BUFFER, vertices, usage_hint.to_gl());
     }
 
     pub fn update_vao_instances<V>(&mut self,
-                                   vao_id: VAOId,
+                                   vao: &VAO,
                                    instances: &[V],
                                    usage_hint: VertexUsageHint) {
         debug_assert!(self.inside_frame);
-
-        let vao = self.vaos.get(&vao_id).unwrap();
-        debug_assert_eq!(self.bound_vao, vao_id);
+        debug_assert_eq!(self.bound_vao, vao.id);
         debug_assert_eq!(vao.instance_stride as usize, mem::size_of::<V>());
 
         vao.instance_vbo_id.bind(self.gl());
@@ -1750,13 +1593,11 @@ impl Device {
     }
 
     pub fn update_vao_indices<I>(&mut self,
-                                 vao_id: VAOId,
+                                 vao: &VAO,
                                  indices: &[I],
                                  usage_hint: VertexUsageHint) {
         debug_assert!(self.inside_frame);
-
-        let vao = self.vaos.get(&vao_id).unwrap();
-        debug_assert_eq!(self.bound_vao, vao_id);
+        debug_assert_eq!(self.bound_vao, vao.id);
 
         vao.ibo_id.bind(self.gl());
         gl::buffer_data(self.gl(), gl::ELEMENT_ARRAY_BUFFER, indices, usage_hint.to_gl());
@@ -1922,12 +1763,6 @@ impl Device {
         self.gl.blend_func_separate(gl::ONE, gl::ONE,
                                      gl::ONE, gl::ONE);
         self.gl.blend_equation_separate(gl::MIN, gl::FUNC_ADD);
-    }
-}
-
-impl Drop for Device {
-    fn drop(&mut self) {
-        //self.file_watcher.exit();
     }
 }
 

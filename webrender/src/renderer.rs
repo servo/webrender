@@ -12,7 +12,7 @@
 use debug_colors;
 use debug_render::DebugRenderer;
 use device::{DepthFunction, Device, FrameId, Program, TextureId, VertexDescriptor, GpuMarker, GpuProfiler, PBOId};
-use device::{GpuSample, TextureFilter, VAOId, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
+use device::{GpuSample, TextureFilter, VAO, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
 use device::{get_gl_format_bgra, VertexAttribute, VertexAttributeKind};
 use euclid::{Transform3D, rect};
 use frame_builder::FrameBuilderConfig;
@@ -130,6 +130,12 @@ const DESC_CLIP: VertexDescriptor = VertexDescriptor {
         VertexAttribute { name: "aClipResourceAddress", count: 1, kind: VertexAttributeKind::I32 },
     ]
 };
+
+enum VertexArrayKind {
+    Primitive,
+    Blur,
+    Clip,
+}
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum VertexFormat {
@@ -553,8 +559,8 @@ impl LazilyCompiledShader {
         Ok(self.program.as_ref().unwrap())
     }
 
-    fn deinit(&mut self, device: &mut Device) {
-        if let &mut Some(ref mut program) = &mut self.program {
+    fn deinit(self, device: &mut Device) {
+        if let Some(program) = self.program {
             device.delete_program(program);
         }
     }
@@ -618,7 +624,7 @@ impl PrimitiveShader {
         }
     }
 
-    fn deinit(&mut self, device: &mut Device) {
+    fn deinit(self, device: &mut Device) {
         self.simple.deinit(device);
         self.transform.deinit(device);
     }
@@ -762,9 +768,9 @@ pub struct Renderer {
     alpha_render_targets: Vec<TextureId>,
 
     gpu_profile: GpuProfiler<GpuProfileTag>,
-    prim_vao_id: VAOId,
-    blur_vao_id: VAOId,
-    clip_vao_id: VAOId,
+    prim_vao: VAO,
+    blur_vao: VAO,
+    clip_vao: VAO,
 
     gdt_index: usize,
     gpu_data_textures: [GpuDataTextures; GPU_DATA_TEXTURE_POOL],
@@ -1209,13 +1215,22 @@ impl Renderer {
             },
         ];
 
-        let prim_vao_id = device.create_vao(&DESC_PRIM_INSTANCES, mem::size_of::<PrimitiveInstance>() as i32);
-        device.bind_vao(prim_vao_id);
-        device.update_vao_indices(prim_vao_id, &quad_indices, VertexUsageHint::Static);
-        device.update_vao_main_vertices(prim_vao_id, &quad_vertices, VertexUsageHint::Static);
+        let prim_vao = device.create_vao(&DESC_PRIM_INSTANCES,
+                                         mem::size_of::<PrimitiveInstance>() as i32);
+        device.bind_vao(&prim_vao);
+        device.update_vao_indices(&prim_vao,
+                                  &quad_indices,
+                                  VertexUsageHint::Static);
+        device.update_vao_main_vertices(&prim_vao,
+                                        &quad_vertices,
+                                        VertexUsageHint::Static);
 
-        let blur_vao_id = device.create_vao_with_new_instances(&DESC_BLUR, mem::size_of::<BlurCommand>() as i32, prim_vao_id);
-        let clip_vao_id = device.create_vao_with_new_instances(&DESC_CLIP, mem::size_of::<CacheClipInstance>() as i32, prim_vao_id);
+        let blur_vao = device.create_vao_with_new_instances(&DESC_BLUR,
+                                                            mem::size_of::<BlurCommand>() as i32,
+                                                            &prim_vao);
+        let clip_vao = device.create_vao_with_new_instances(&DESC_CLIP,
+                                                            mem::size_of::<CacheClipInstance>() as i32,
+                                                            &prim_vao);
 
         let texture_cache_upload_pbo = device.create_pbo();
 
@@ -1331,9 +1346,9 @@ impl Renderer {
             color_render_targets: Vec::new(),
             alpha_render_targets: Vec::new(),
             gpu_profile,
-            prim_vao_id,
-            blur_vao_id,
-            clip_vao_id,
+            prim_vao,
+            blur_vao,
+            clip_vao,
             gdt_index: 0,
             gpu_data_textures,
             pipeline_epoch_map: FastHashMap::default(),
@@ -1690,10 +1705,8 @@ impl Renderer {
 
     fn draw_instanced_batch<T>(&mut self,
                                data: &[T],
-                               vao: VAOId,
+                               vertex_array_kind: VertexArrayKind,
                                textures: &BatchTextures) {
-        self.device.bind_vao(vao);
-
         for i in 0..textures.colors.len() {
             let texture_id = self.resolve_source_texture(&textures.colors[i]);
             self.device.bind_texture(TextureSampler::color(i), texture_id);
@@ -1703,6 +1716,14 @@ impl Renderer {
         if let Some(id) = self.dither_matrix_texture_id {
             self.device.bind_texture(TextureSampler::Dither, id);
         }
+
+        let vao = match vertex_array_kind {
+            VertexArrayKind::Primitive => &self.prim_vao,
+            VertexArrayKind::Clip => &self.clip_vao,
+            VertexArrayKind::Blur => &self.blur_vao,
+        };
+
+        self.device.bind_vao(vao);
 
         if self.enable_batcher {
             self.device.update_vao_instances(vao, data, VertexUsageHint::Stream);
@@ -1885,9 +1906,8 @@ impl Renderer {
         }
 
         let _gm = self.gpu_profile.add_marker(marker);
-        let vao = self.prim_vao_id;
         self.draw_instanced_batch(&batch.instances,
-                                  vao,
+                                  VertexArrayKind::Primitive,
                                   &batch.key.textures);
     }
 
@@ -1933,20 +1953,19 @@ impl Renderer {
         //           blur radii with fixed weights.
         if !target.vertical_blurs.is_empty() || !target.horizontal_blurs.is_empty() {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_BLUR);
-            let vao = self.blur_vao_id;
 
             self.device.set_blend(false);
             self.cs_blur.bind(&mut self.device, projection);
 
             if !target.vertical_blurs.is_empty() {
                 self.draw_instanced_batch(&target.vertical_blurs,
-                                          vao,
+                                          VertexArrayKind::Blur,
                                           &BatchTextures::no_texture());
             }
 
             if !target.horizontal_blurs.is_empty() {
                 self.draw_instanced_batch(&target.horizontal_blurs,
-                                          vao,
+                                          VertexArrayKind::Blur,
                                           &BatchTextures::no_texture());
             }
         }
@@ -1955,10 +1974,9 @@ impl Renderer {
         if !target.box_shadow_cache_prims.is_empty() {
             self.device.set_blend(false);
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_BOX_SHADOW);
-            let vao = self.prim_vao_id;
             self.cs_box_shadow.bind(&mut self.device, projection);
             self.draw_instanced_batch(&target.box_shadow_cache_prims,
-                                      vao,
+                                      VertexArrayKind::Primitive,
                                       &BatchTextures::no_texture());
         }
 
@@ -1973,10 +1991,9 @@ impl Renderer {
             self.device.set_blend_mode_alpha();
 
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_TEXT_RUN);
-            let vao = self.prim_vao_id;
             self.cs_text_run.bind(&mut self.device, projection);
             self.draw_instanced_batch(&target.text_run_cache_prims,
-                                      vao,
+                                      VertexArrayKind::Primitive,
                                       &target.text_run_textures);
         }
         if !target.line_cache_prims.is_empty() {
@@ -1986,10 +2003,9 @@ impl Renderer {
             self.device.set_blend_mode_alpha();
 
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_LINE);
-            let vao = self.prim_vao_id;
             self.cs_line.bind(&mut self.device, projection);
             self.draw_instanced_batch(&target.line_cache_prims,
-                                      vao,
+                                      VertexArrayKind::Primitive,
                                       &BatchTextures::no_texture());
         }
 
@@ -2080,7 +2096,6 @@ impl Renderer {
         // Draw the clip items into the tiled alpha mask.
         {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_CLIP);
-            let vao = self.clip_vao_id;
 
             // If we have border corner clips, the first step is to clear out the
             // area in the clip mask. This allows drawing multiple invididual clip
@@ -2090,7 +2105,7 @@ impl Renderer {
                 self.device.set_blend(false);
                 self.cs_clip_border.bind(&mut self.device, projection);
                 self.draw_instanced_batch(&target.clip_batcher.border_clears,
-                                          vao,
+                                          VertexArrayKind::Clip,
                                           &BatchTextures::no_texture());
             }
 
@@ -2105,7 +2120,7 @@ impl Renderer {
                 self.device.set_blend_mode_max();
                 self.cs_clip_border.bind(&mut self.device, projection);
                 self.draw_instanced_batch(&target.clip_batcher.borders,
-                                          vao,
+                                          VertexArrayKind::Clip,
                                           &BatchTextures::no_texture());
             }
 
@@ -2118,7 +2133,7 @@ impl Renderer {
                 let _gm2 = GpuMarker::new(self.device.rc_gl(), "clip rectangles");
                 self.cs_clip_rectangle.bind(&mut self.device, projection);
                 self.draw_instanced_batch(&target.clip_batcher.rectangles,
-                                          vao,
+                                          VertexArrayKind::Clip,
                                           &BatchTextures::no_texture());
             }
             // draw image masks
@@ -2133,7 +2148,7 @@ impl Renderer {
                 };
                 self.cs_clip_image.bind(&mut self.device, projection);
                 self.draw_instanced_batch(items,
-                                          vao,
+                                          VertexArrayKind::Clip,
                                           &textures);
             }
         }
@@ -2477,6 +2492,9 @@ impl Renderer {
         //Note: this is a fake frame, only needed because texture deletion is require to happen inside a frame
         self.device.begin_frame(1.0);
         self.device.deinit_texture(self.dummy_cache_texture_id);
+        self.device.delete_vao(self.prim_vao);
+        self.device.delete_vao(self.clip_vao);
+        self.device.delete_vao(self.blur_vao);
         self.debug.deinit(&mut self.device);
         self.cs_box_shadow.deinit(&mut self.device);
         self.cs_text_run.deinit(&mut self.device);
@@ -2489,13 +2507,13 @@ impl Renderer {
         self.ps_rectangle_clip.deinit(&mut self.device);
         self.ps_text_run.deinit(&mut self.device);
         self.ps_text_run_subpixel.deinit(&mut self.device);
-        for shader in &mut self.ps_image {
-            if let &mut Some(ref mut shader) = shader {
+        for shader in self.ps_image {
+            if let Some(shader) = shader {
                 shader.deinit(&mut self.device);
             }
         }
-        for shader in &mut self.ps_yuv_image {
-            if let &mut Some(ref mut shader) = shader {
+        for shader in self.ps_yuv_image {
+            if let Some(shader) = shader {
                 shader.deinit(&mut self.device);
             }
         }
