@@ -371,6 +371,9 @@ impl RenderApi {
 
     /// Adds an image identified by the `ImageKey`.
     pub fn update_resources(&self, resources: ResourceUpdates) {
+        if resources.updates.is_empty() {
+            return;
+        }
         self.api_sender.send(ApiMsg::UpdateResources(resources)).unwrap();
     }
 
