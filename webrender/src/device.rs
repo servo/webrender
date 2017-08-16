@@ -1250,15 +1250,32 @@ impl Device {
         let (internal_format, gl_format) = gl_texture_formats_for_image_format(&*self.gl, texture.format);
         let type_ = gl_type_for_texture_format(texture.format);
 
-        self.gl.tex_image_2d(texture_id.target,
-                              0,
-                              internal_format,
-                              0,
-                              0,
-                              0,
-                              gl_format,
-                              type_,
-                              None);
+        match texture_id.target {
+            gl::TEXTURE_2D_ARRAY => {
+                self.gl.tex_image_3d(gl::TEXTURE_2D_ARRAY,
+                                     0,
+                                     internal_format as gl::GLint,
+                                     0,
+                                     0,
+                                     0,
+                                     0,
+                                     gl_format,
+                                     type_,
+                                     None);
+            }
+            _ => {
+                self.gl.tex_image_2d(texture_id.target,
+                                     0,
+                                     internal_format,
+                                     0,
+                                     0,
+                                     0,
+                                     gl_format,
+                                     type_,
+                                     None);
+            }
+        }
+
 
         if let Some(RBOId(depth_rb)) = texture.depth_rb.take() {
             self.gl.delete_renderbuffers(&[depth_rb]);
