@@ -451,6 +451,10 @@ impl AlphaRenderItem {
                             }
                         };
 
+                        if color_texture_id == SourceTexture::Invalid {
+                            return;
+                        }
+
                         let batch_kind = match color_texture_id {
                             SourceTexture::External(ext_image) => {
                                 match ext_image.image_type {
@@ -552,6 +556,11 @@ impl AlphaRenderItem {
                                                                    ctx.resource_cache,
                                                                    gpu_cache,
                                                                    deferred_resolves);
+
+                            if texture == SourceTexture::Invalid {
+                                return;
+                            }
+
                             textures.colors[channel] = texture;
                             uv_rect_addresses[channel] = address.as_int(gpu_cache);
                         }
@@ -1721,30 +1730,33 @@ fn resolve_image(image_key: ImageKey,
                  resource_cache: &ResourceCache,
                  gpu_cache: &mut GpuCache,
                  deferred_resolves: &mut Vec<DeferredResolve>) -> (SourceTexture, GpuCacheHandle) {
-    let image_properties = resource_cache.get_image_properties(image_key);
+    match resource_cache.get_image_properties(image_key) {
+        Some(image_properties) => {
+            // Check if an external image that needs to be resolved
+            // by the render thread.
+            match image_properties.external_image {
+                Some(external_image) => {
+                    // This is an external texture - we will add it to
+                    // the deferred resolves list to be patched by
+                    // the render thread...
+                    let cache_handle = gpu_cache.push_deferred_per_frame_blocks(1);
+                    deferred_resolves.push(DeferredResolve {
+                        image_properties,
+                        address: gpu_cache.get_address(&cache_handle),
+                    });
 
-    // Check if an external image that needs to be resolved
-    // by the render thread.
-    match image_properties.external_image {
-        Some(external_image) => {
-            // This is an external texture - we will add it to
-            // the deferred resolves list to be patched by
-            // the render thread...
-            let cache_handle = gpu_cache.push_deferred_per_frame_blocks(1);
-            deferred_resolves.push(DeferredResolve {
-                image_properties,
-                address: gpu_cache.get_address(&cache_handle),
-            });
+                    (SourceTexture::External(external_image), cache_handle)
+                }
+                None => {
+                    let cache_item = resource_cache.get_cached_image(image_key,
+                                                                     image_rendering,
+                                                                     tile_offset);
 
-            (SourceTexture::External(external_image), cache_handle)
+                    (cache_item.texture_id, cache_item.uv_rect_handle)
+                }
+            }
         }
-        None => {
-            let cache_item = resource_cache.get_cached_image(image_key,
-                                                             image_rendering,
-                                                             tile_offset);
-
-            (cache_item.texture_id, cache_item.uv_rect_handle)
-        }
+        None => (SourceTexture::Invalid, GpuCacheHandle::new()),
     }
 }
 
