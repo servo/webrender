@@ -155,18 +155,21 @@ pub enum ImageBufferKind {
     Texture2D = 0,
     TextureRect = 1,
     TextureExternal = 2,
+    Texture2DArray = 3,
 }
 
-pub const IMAGE_BUFFER_KINDS: [ImageBufferKind; 3] = [
+pub const IMAGE_BUFFER_KINDS: [ImageBufferKind; 4] = [
     ImageBufferKind::Texture2D,
     ImageBufferKind::TextureRect,
-    ImageBufferKind::TextureExternal
+    ImageBufferKind::TextureExternal,
+    ImageBufferKind::Texture2DArray,
 ];
 
 impl ImageBufferKind {
     pub fn get_feature_string(&self) -> &'static str {
         match *self {
-            ImageBufferKind::Texture2D => "",
+            ImageBufferKind::Texture2D => "TEXTURE_2D",
+            ImageBufferKind::Texture2DArray => "",
             ImageBufferKind::TextureRect => "TEXTURE_RECT",
             ImageBufferKind::TextureExternal => "TEXTURE_EXTERNAL",
         }
@@ -177,6 +180,7 @@ impl ImageBufferKind {
             gl::GlType::Gles => {
                 match *self {
                     ImageBufferKind::Texture2D => true,
+                    ImageBufferKind::Texture2DArray => true,
                     ImageBufferKind::TextureRect => true,
                     ImageBufferKind::TextureExternal => true,
                 }
@@ -184,6 +188,7 @@ impl ImageBufferKind {
             gl::GlType::Gl => {
                 match *self {
                     ImageBufferKind::Texture2D => true,
+                    ImageBufferKind::Texture2DArray => true,
                     ImageBufferKind::TextureRect => true,
                     ImageBufferKind::TextureExternal => false,
                 }
@@ -2157,6 +2162,7 @@ impl Renderer {
                 let image = handler.lock(ext_image.id, ext_image.channel_index);
                 let texture_target = match ext_image.image_type {
                     ExternalImageType::Texture2DHandle => TextureTarget::Default,
+                    ExternalImageType::Texture2DArrayHandle => TextureTarget::Array,
                     ExternalImageType::TextureRectHandle => TextureTarget::Rect,
                     ExternalImageType::TextureExternalHandle => TextureTarget::External,
                     ExternalImageType::ExternalBuffer => {

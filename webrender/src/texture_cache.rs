@@ -942,6 +942,7 @@ impl TextureUpdate {
             ImageData::External(ext_image) => {
                 match ext_image.image_type {
                     ExternalImageType::Texture2DHandle |
+                    ExternalImageType::Texture2DArrayHandle |
                     ExternalImageType::TextureRectHandle |
                     ExternalImageType::TextureExternalHandle => {
                         panic!("External texture handle should not go through texture_cache.");

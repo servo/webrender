@@ -459,6 +459,7 @@ impl AlphaRenderItem {
                             SourceTexture::External(ext_image) => {
                                 match ext_image.image_type {
                                     ExternalImageType::Texture2DHandle => AlphaBatchKind::Image(ImageBufferKind::Texture2D),
+                                    ExternalImageType::Texture2DArrayHandle => AlphaBatchKind::Image(ImageBufferKind::Texture2DArray),
                                     ExternalImageType::TextureRectHandle => AlphaBatchKind::Image(ImageBufferKind::TextureRect),
                                     ExternalImageType::TextureExternalHandle => AlphaBatchKind::Image(ImageBufferKind::TextureExternal),
                                     ExternalImageType::ExternalBuffer => {
@@ -469,7 +470,7 @@ impl AlphaRenderItem {
                                 }
                             }
                             _ => {
-                                AlphaBatchKind::Image(ImageBufferKind::Texture2D)
+                                AlphaBatchKind::Image(ImageBufferKind::Texture2DArray)
                             }
                         };
 
@@ -570,6 +571,7 @@ impl AlphaRenderItem {
                                 SourceTexture::External(ext_image) => {
                                     match ext_image.image_type {
                                         ExternalImageType::Texture2DHandle => ImageBufferKind::Texture2D,
+                                        ExternalImageType::Texture2DArrayHandle => ImageBufferKind::Texture2DArray,
                                         ExternalImageType::TextureRectHandle => ImageBufferKind::TextureRect,
                                         ExternalImageType::TextureExternalHandle => ImageBufferKind::TextureExternal,
                                         ExternalImageType::ExternalBuffer => {
@@ -580,7 +582,7 @@ impl AlphaRenderItem {
                                     }
                                 }
                                 _ => {
-                                    ImageBufferKind::Texture2D
+                                    ImageBufferKind::Texture2DArray
                                 }
                             }
                         };
