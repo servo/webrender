@@ -6,7 +6,7 @@ use api::{BuiltDisplayList, ColorF, ComplexClipRegion, DeviceIntRect, DeviceIntS
 use api::{ExtendMode, FontKey, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop};
 use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize, TextShadow};
 use api::{GlyphKey, LayerToWorldTransform, TileOffset, WebGLContextId, YuvColorSpace, YuvFormat};
-use api::{device_length, FontInstanceKey, LayerVector2D, LineOrientation, LineStyle, SubpixelDirection};
+use api::{device_length, FontInstance, LayerVector2D, LineOrientation, LineStyle, SubpixelDirection};
 use app_units::Au;
 use border::BorderCornerInstance;
 use euclid::{Size2D};
@@ -546,12 +546,12 @@ impl TextRunPrimitiveCpu {
             TextRunMode::Shadow => self.shadow_render_mode,
         };
 
-        let font = FontInstanceKey::new(self.font_key,
-                                        font_size_dp,
-                                        self.color,
-                                        render_mode,
-                                        self.glyph_options,
-                                        self.subpx_dir);
+        let font = FontInstance::new(self.font_key,
+                                     font_size_dp,
+                                     self.color,
+                                     render_mode,
+                                     self.glyph_options,
+                                     self.subpx_dir);
 
         // Cache the glyph positions, if not in the cache already.
         // TODO(gw): In the future, remove `glyph_instances`

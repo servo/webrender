@@ -21,7 +21,7 @@ use std::{f32, i32, mem, usize};
 use texture_allocator::GuillotineAllocator;
 use util::{TransformedRect, TransformedRectKind};
 use api::{BuiltDisplayList, ClipAndScrollInfo, ClipId, ColorF, DeviceIntPoint, ImageKey};
-use api::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintSize, FontInstanceKey};
+use api::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintSize, FontInstance};
 use api::{ExternalImageType, FilterOp, FontRenderMode, ImageRendering, LayerRect};
 use api::{LayerToWorldTransform, MixBlendMode, PipelineId, PropertyBinding, TransformStyle};
 use api::{TileOffset, WorldToLayerTransform, YuvColorSpace, YuvFormat, LayerVector2D};
@@ -488,12 +488,12 @@ impl AlphaRenderItem {
                         // TODO(gw): avoid / recycle this allocation in the future.
                         let mut instances = Vec::new();
 
-                        let font = FontInstanceKey::new(text_cpu.font_key,
-                                                        font_size_dp,
-                                                        text_cpu.color,
-                                                        text_cpu.normal_render_mode,
-                                                        text_cpu.glyph_options,
-                                                        text_cpu.subpx_dir);
+                        let font = FontInstance::new(text_cpu.font_key,
+                                                     font_size_dp,
+                                                     text_cpu.color,
+                                                     text_cpu.normal_render_mode,
+                                                     text_cpu.glyph_options,
+                                                     text_cpu.subpx_dir);
 
                         let texture_id = ctx.resource_cache.get_glyphs(font,
                                                                        &text_cpu.glyph_keys,
@@ -1067,12 +1067,12 @@ impl RenderTarget for ColorRenderTarget {
                                     let text = &ctx.prim_store.cpu_text_runs[sub_metadata.cpu_prim_index.0];
                                     let font_size_dp = text.logical_font_size.scale_by(ctx.device_pixel_ratio);
 
-                                    let font = FontInstanceKey::new(text.font_key,
-                                                                    font_size_dp,
-                                                                    text.color,
-                                                                    text.shadow_render_mode,
-                                                                    text.glyph_options,
-                                                                    text.subpx_dir);
+                                    let font = FontInstance::new(text.font_key,
+                                                                 font_size_dp,
+                                                                 text.color,
+                                                                 text.shadow_render_mode,
+                                                                 text.glyph_options,
+                                                                 text.subpx_dir);
 
                                     let texture_id = ctx.resource_cache.get_glyphs(font,
                                                                                    &text.glyph_keys,

@@ -17,7 +17,7 @@ use texture_cache::{TextureCache, TextureCacheHandle};
 use api::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, BlobImageRequest};
 use api::{BlobImageResources, BlobImageData, ResourceUpdates, ResourceUpdate, AddFont};
 use api::{DevicePoint, DeviceIntSize, DeviceUintRect, DeviceUintSize};
-use api::{Epoch, FontInstanceKey, FontKey, FontTemplate};
+use api::{Epoch, FontInstance, FontKey, FontTemplate};
 use api::{GlyphDimensions, GlyphKey, IdNamespace};
 use api::{ImageData, ImageDescriptor, ImageKey, ImageRendering};
 use api::{TileOffset, TileSize};
@@ -496,7 +496,7 @@ impl ResourceCache {
     }
 
     pub fn request_glyphs(&mut self,
-                          font: FontInstanceKey,
+                          font: FontInstance,
                           glyph_keys: &[GlyphKey],
                           gpu_cache: &mut GpuCache) {
         debug_assert_eq!(self.state, State::AddResources);
@@ -515,7 +515,7 @@ impl ResourceCache {
     }
 
     pub fn get_glyphs<F>(&self,
-                         font: FontInstanceKey,
+                         font: FontInstance,
                          glyph_keys: &[GlyphKey],
                          mut f: F) -> SourceTexture where F: FnMut(usize, &GpuCacheHandle) {
         debug_assert_eq!(self.state, State::QueryResources);
@@ -538,7 +538,7 @@ impl ResourceCache {
     }
 
     pub fn get_glyph_dimensions(&mut self,
-                                font: &FontInstanceKey,
+                                font: &FontInstance,
                                 key: &GlyphKey) -> Option<GlyphDimensions> {
         let key = GlyphRequest::new(font, key);
 

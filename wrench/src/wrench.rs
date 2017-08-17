@@ -224,12 +224,12 @@ impl Wrench {
                                     .collect();
 
         // Retrieve the metrics for each glyph.
-        let font = FontInstanceKey::new(font_key,
-                                        size,
-                                        ColorF::new(0.0, 0.0, 0.0, 1.0),
-                                        FontRenderMode::Alpha,
-                                        None,
-                                        SubpixelDirection::Horizontal);
+        let font = FontInstance::new(font_key,
+                                     size,
+                                     ColorF::new(0.0, 0.0, 0.0, 1.0),
+                                     FontRenderMode::Alpha,
+                                     None,
+                                     SubpixelDirection::Horizontal);
         let mut keys = Vec::new();
         for glyph_index in &indices {
             keys.push(GlyphKey::new(*glyph_index,

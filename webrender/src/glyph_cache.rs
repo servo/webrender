@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{DevicePoint, DeviceUintSize, FontInstanceKey, GlyphKey};
+use api::{DevicePoint, DeviceUintSize, FontInstance, GlyphKey};
 use internal_types::FastHashMap;
 use resource_cache::ResourceClassCache;
 use std::sync::Arc;
@@ -18,7 +18,7 @@ pub struct CachedGlyphInfo {
 pub type GlyphKeyCache = ResourceClassCache<GlyphKey, Option<CachedGlyphInfo>>;
 
 pub struct GlyphCache {
-    pub glyph_key_caches: FastHashMap<FontInstanceKey, GlyphKeyCache>,
+    pub glyph_key_caches: FastHashMap<FontInstance, GlyphKeyCache>,
 }
 
 impl GlyphCache {
@@ -29,14 +29,14 @@ impl GlyphCache {
     }
 
     pub fn get_glyph_key_cache_for_font_mut(&mut self,
-                                            font: FontInstanceKey) -> &mut GlyphKeyCache {
+                                            font: FontInstance) -> &mut GlyphKeyCache {
         self.glyph_key_caches
             .entry(font)
             .or_insert(ResourceClassCache::new())
     }
 
     pub fn get_glyph_key_cache_for_font(&self,
-                                        font: &FontInstanceKey) -> &GlyphKeyCache {
+                                        font: &FontInstance) -> &GlyphKeyCache {
         self.glyph_key_caches
             .get(font)
             .expect("BUG: Unable to find glyph key cache!")
@@ -52,7 +52,7 @@ impl GlyphCache {
     }
 
     pub fn clear_fonts<F>(&mut self, key_fun: F)
-    where for<'r> F: Fn(&'r &FontInstanceKey) -> bool
+    where for<'r> F: Fn(&'r &FontInstance) -> bool
     {
         let caches_to_destroy = self.glyph_key_caches.keys()
             .filter(&key_fun)
