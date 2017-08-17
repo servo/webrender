@@ -125,9 +125,8 @@ const DESC_CLIP: VertexDescriptor = VertexDescriptor {
     instance_attributes: &[
         VertexAttribute { name: "aClipRenderTaskIndex", count: 1, kind: VertexAttributeKind::I32 },
         VertexAttribute { name: "aClipLayerIndex", count: 1, kind: VertexAttributeKind::I32 },
-        VertexAttribute { name: "aClipDataIndex", count: 1, kind: VertexAttributeKind::I32 },
-        VertexAttribute { name: "aClipSegmentIndex", count: 1, kind: VertexAttributeKind::I32 },
-        VertexAttribute { name: "aClipResourceAddress", count: 1, kind: VertexAttributeKind::I32 },
+        VertexAttribute { name: "aClipSegment", count: 1, kind: VertexAttributeKind::I32 },
+        VertexAttribute { name: "aClipDataResourceAddress", count: 4, kind: VertexAttributeKind::U16 },
     ]
 };
 

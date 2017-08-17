@@ -89,6 +89,7 @@ pub enum VertexAttributeKind {
     F32,
     U8Norm,
     I32,
+    U16,
 }
 
 #[derive(Debug)]
@@ -159,6 +160,7 @@ impl VertexAttributeKind {
             VertexAttributeKind::F32 => 4,
             VertexAttributeKind::U8Norm => 1,
             VertexAttributeKind::I32 => 4,
+            VertexAttributeKind::U16 => 2,
         }
     }
 }
@@ -198,6 +200,13 @@ impl VertexAttribute {
                 gl.vertex_attrib_i_pointer(attr_index,
                                            self.count as gl::GLint,
                                            gl::INT,
+                                           stride,
+                                           offset);
+            }
+            VertexAttributeKind::U16 => {
+                gl.vertex_attrib_i_pointer(attr_index,
+                                           self.count as gl::GLint,
+                                           gl::UNSIGNED_SHORT,
                                            stride,
                                            offset);
             }
