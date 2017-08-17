@@ -239,6 +239,94 @@ impl CpuProfile {
     }
 }
 
+struct SourceTextureResolver {
+    /// A vector for fast resolves of texture cache IDs to
+    /// native texture IDs. This maps to a free-list managed
+    /// by the backend thread / texture cache. We free the
+    /// texture memory associated with a TextureId when its
+    /// texture cache ID is freed by the texture cache, but
+    /// reuse the TextureId when the texture caches's free
+    /// list reuses the texture cache ID. This saves having to
+    /// use a hashmap, and allows a flat vector for performance.
+    cache_texture_id_map: Vec<TextureId>,
+
+    /// Map of external image IDs to native textures.
+    external_images: FastHashMap<(ExternalImageId, u8), TextureId>,
+
+    /// A special 1x1 dummy cache texture used for shaders that expect to work
+    /// with the cache but are actually running in the first pass
+    /// when no target is yet provided as a cache texture input.
+    dummy_cache_texture_id: TextureId,
+
+    /// The current cache textures.
+    cache_rgba8_texture: Option<TextureId>,
+    cache_a8_texture: Option<TextureId>,
+}
+
+impl SourceTextureResolver {
+    fn new(device: &mut Device) -> SourceTextureResolver {
+        let dummy_cache_texture_id = device.create_texture_ids(1, TextureTarget::Array)[0];
+        device.init_texture(dummy_cache_texture_id,
+                            1,
+                            1,
+                            ImageFormat::BGRA8,
+                            TextureFilter::Linear,
+                            RenderTargetMode::RenderTarget,
+                            1,
+                            None);
+
+        SourceTextureResolver {
+            cache_texture_id_map: Vec::new(),
+            external_images: FastHashMap::default(),
+            dummy_cache_texture_id,
+            cache_a8_texture: None,
+            cache_rgba8_texture: None,
+        }
+    }
+
+    fn deinit(self, device: &mut Device) {
+        device.deinit_texture(self.dummy_cache_texture_id);
+    }
+
+    fn set_cache_textures(&mut self,
+                          a8_texture: Option<TextureId>,
+                          rgba8_texture: Option<TextureId>) {
+        self.cache_a8_texture = a8_texture;
+        self.cache_rgba8_texture = rgba8_texture;
+    }
+
+    // Get the real (OpenGL) texture ID for a given source texture.
+    // For a texture cache texture, the IDs are stored in a vector
+    // map for fast access. For WebGL textures, the native texture ID
+    // is stored inline. When we add support for external textures,
+    // we will add a callback here that is able to ask the caller
+    // for the image data.
+    fn resolve(&self, texture_id: &SourceTexture) -> TextureId {
+        match *texture_id {
+            SourceTexture::Invalid => {
+                TextureId::invalid()
+            }
+            SourceTexture::WebGL(id) => {
+                TextureId::new(id, TextureTarget::Default)
+            }
+            SourceTexture::CacheA8 => {
+                self.cache_a8_texture.unwrap_or(self.dummy_cache_texture_id)
+            }
+            SourceTexture::CacheRGBA8 => {
+                self.cache_rgba8_texture.unwrap_or(self.dummy_cache_texture_id)
+            }
+            SourceTexture::External(external_image) => {
+                *self.external_images
+                     .get(&(external_image.id, external_image.channel_index))
+                     .expect("BUG: External image should be resolved by now!")
+            }
+            SourceTexture::TextureCache(index) => {
+                self.cache_texture_id_map[index.0]
+            }
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum BlendMode {
     None,
@@ -776,30 +864,17 @@ pub struct Renderer {
     /// Required to allow GLContext sharing in some implementations like WGL.
     main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
 
-    /// A vector for fast resolves of texture cache IDs to
-    /// native texture IDs. This maps to a free-list managed
-    /// by the backend thread / texture cache. We free the
-    /// texture memory associated with a TextureId when its
-    /// texture cache ID is freed by the texture cache, but
-    /// reuse the TextureId when the texture caches's free
-    /// list reuses the texture cache ID. This saves having to
-    /// use a hashmap, and allows a flat vector for performance.
-    cache_texture_id_map: Vec<TextureId>,
-    texture_cache_upload_pbo: PBOId,
+    // Manages and resolves source textures IDs to real texture IDs.
+    texture_resolver: SourceTextureResolver,
 
-    /// A special 1x1 dummy cache texture used for shaders that expect to work
-    /// with the cache but are actually running in the first pass
-    /// when no target is yet provided as a cache texture input.
-    dummy_cache_texture_id: TextureId,
+    // A PBO used to do asynchronous texture cache uploads.
+    texture_cache_upload_pbo: PBOId,
 
     dither_matrix_texture_id: Option<TextureId>,
 
     /// Optional trait object that allows the client
     /// application to provide external buffers for image data.
     external_image_handler: Option<Box<ExternalImageHandler>>,
-
-    /// Map of external image IDs to native textures.
-    external_images: FastHashMap<(ExternalImageId, u8), TextureId>,
 
     // Optional trait object that handles WebVR commands.
     // Some WebVR commands such as SubmitFrame must be synced with the WebGL render thread.
@@ -1141,16 +1216,6 @@ impl Renderer {
 
         let backend_profile_counters = BackendProfileCounters::new();
 
-        let dummy_cache_texture_id = device.create_texture_ids(1, TextureTarget::Array)[0];
-        device.init_texture(dummy_cache_texture_id,
-                            1,
-                            1,
-                            ImageFormat::BGRA8,
-                            TextureFilter::Linear,
-                            RenderTargetMode::RenderTarget,
-                            1,
-                            None);
-
         let dither_matrix_texture_id = if options.enable_dithering {
             let dither_matrix: [u8; 64] = [
                 00, 48, 12, 60, 03, 51, 15, 63,
@@ -1218,6 +1283,8 @@ impl Renderer {
         let clip_vao_id = device.create_vao_with_new_instances(&DESC_CLIP, mem::size_of::<CacheClipInstance>() as i32, prim_vao_id);
 
         let texture_cache_upload_pbo = device.create_pbo();
+
+        let texture_resolver = SourceTextureResolver::new(&mut device);
 
         device.end_frame();
 
@@ -1338,16 +1405,14 @@ impl Renderer {
             gpu_data_textures,
             pipeline_epoch_map: FastHashMap::default(),
             main_thread_dispatcher,
-            cache_texture_id_map: Vec::new(),
-            dummy_cache_texture_id,
             dither_matrix_texture_id,
             external_image_handler: None,
-            external_images: FastHashMap::default(),
             vr_compositor_handler: vr_compositor,
             cpu_profiles: VecDeque::new(),
             gpu_profiles: VecDeque::new(),
             gpu_cache_texture,
             texture_cache_upload_pbo,
+            texture_resolver,
         };
 
         let sender = RenderApiSender::new(api_tx, payload_tx);
@@ -1450,27 +1515,6 @@ impl Renderer {
                 ResultMsg::RefreshShader(path) => {
                     self.pending_shader_updates.push(path);
                 }
-            }
-        }
-    }
-
-    // Get the real (OpenGL) texture ID for a given source texture.
-    // For a texture cache texture, the IDs are stored in a vector
-    // map for fast access. For WebGL textures, the native texture ID
-    // is stored inline. When we add support for external textures,
-    // we will add a callback here that is able to ask the caller
-    // for the image data.
-    fn resolve_source_texture(&mut self, texture_id: &SourceTexture) -> TextureId {
-        match *texture_id {
-            SourceTexture::Invalid => TextureId::invalid(),
-            SourceTexture::WebGL(id) => TextureId::new(id, TextureTarget::Default),
-            SourceTexture::External(external_image) => {
-                *self.external_images
-                     .get(&(external_image.id, external_image.channel_index))
-                     .expect("BUG: External image should be resolved by now!")
-            }
-            SourceTexture::TextureCache(index) => {
-                self.cache_texture_id_map[index.0]
             }
         }
     }
@@ -1622,13 +1666,13 @@ impl Renderer {
                 match update.op {
                     TextureUpdateOp::Create { width, height, layer_count, format, filter, mode } => {
                         let CacheTextureId(cache_texture_index) = update.id;
-                        if self.cache_texture_id_map.len() == cache_texture_index {
+                        if self.texture_resolver.cache_texture_id_map.len() == cache_texture_index {
                             // Create a new native texture, as requested by the texture cache.
                             let texture_id = self.device
                                                  .create_texture_ids(1, TextureTarget::Array)[0];
-                            self.cache_texture_id_map.push(texture_id);
+                            self.texture_resolver.cache_texture_id_map.push(texture_id);
                         }
-                        let texture_id = self.cache_texture_id_map[cache_texture_index];
+                        let texture_id = self.texture_resolver.cache_texture_id_map[cache_texture_index];
 
                         // Ensure no PBO is bound when creating the texture storage,
                         // or GL will attempt to read data from there.
@@ -1643,7 +1687,7 @@ impl Renderer {
                                                  None);
                     }
                     TextureUpdateOp::Update { rect, source, stride, layer_index, offset } => {
-                        let texture_id = self.cache_texture_id_map[update.id.0];
+                        let texture_id = self.texture_resolver.cache_texture_id_map[update.id.0];
 
                         // Bind a PBO to do the texture upload.
                         // Updating the texture via PBO avoids CPU-side driver stalls.
@@ -1677,7 +1721,7 @@ impl Renderer {
                                                             0);
                     }
                     TextureUpdateOp::Free => {
-                        let texture_id = self.cache_texture_id_map[update.id.0];
+                        let texture_id = self.texture_resolver.cache_texture_id_map[update.id.0];
                         self.device.deinit_texture(texture_id);
                     }
                 }
@@ -1695,7 +1739,7 @@ impl Renderer {
         self.device.bind_vao(vao);
 
         for i in 0..textures.colors.len() {
-            let texture_id = self.resolve_source_texture(&textures.colors[i]);
+            let texture_id = self.texture_resolver.resolve(&textures.colors[i]);
             self.device.bind_texture(TextureSampler::color(i), texture_id);
         }
 
@@ -1723,7 +1767,6 @@ impl Renderer {
                     batch: &PrimitiveBatch,
                     projection: &Transform3D<f32>,
                     render_task_data: &[RenderTaskData],
-                    cache_texture: TextureId,
                     render_target: Option<(TextureId, i32)>,
                     target_dimensions: DeviceUintSize) {
         let transform_kind = batch.key.flags.transform_kind();
@@ -1831,6 +1874,7 @@ impl Renderer {
             // they may overlap and affect each other.
             debug_assert!(batch.instances.len() == 1);
             let instance = CompositePrimitiveInstance::from(&batch.instances[0]);
+            let cache_texture = self.texture_resolver.resolve(&SourceTexture::CacheRGBA8);
 
             // TODO(gw): This code branch is all a bit hacky. We rely
             // on pulling specific values from the render target data
@@ -1895,7 +1939,6 @@ impl Renderer {
                          render_target: Option<(TextureId, i32)>,
                          target: &ColorRenderTarget,
                          target_size: DeviceUintSize,
-                         color_cache_texture: TextureId,
                          clear_color: Option<[f32; 4]>,
                          render_task_data: &[RenderTaskData],
                          projection: &Transform3D<f32>) {
@@ -2013,7 +2056,6 @@ impl Renderer {
                 self.submit_batch(batch,
                                   &projection,
                                   render_task_data,
-                                  color_cache_texture,
                                   render_target,
                                   target_size);
             }
@@ -2045,7 +2087,6 @@ impl Renderer {
                 self.submit_batch(batch,
                                   &projection,
                                   render_task_data,
-                                  color_cache_texture,
                                   render_target,
                                   target_size);
             }
@@ -2170,7 +2211,9 @@ impl Renderer {
                     _ => panic!("No native texture found."),
                 };
 
-                self.external_images.insert((ext_image.id, ext_image.channel_index), texture_id);
+                self.texture_resolver
+                    .external_images
+                    .insert((ext_image.id, ext_image.channel_index), texture_id);
 
                 let update = GpuCacheUpdate::Copy {
                     block_index: 0,
@@ -2185,12 +2228,12 @@ impl Renderer {
     }
 
     fn unlock_external_images(&mut self) {
-        if !self.external_images.is_empty() {
+        if !self.texture_resolver.external_images.is_empty() {
             let handler = self.external_image_handler
                               .as_mut()
                               .expect("Found external image, but no handler set!");
 
-            for (ext_data, _) in self.external_images.drain() {
+            for (ext_data, _) in self.texture_resolver.external_images.drain() {
                 handler.unlock(ext_data.0, ext_data.1);
             }
         }
@@ -2256,6 +2299,7 @@ impl Renderer {
         // number of driver stalls.
         self.gpu_data_textures[self.gdt_index].init_frame(&mut self.device, frame);
         self.gdt_index = (self.gdt_index + 1) % GPU_DATA_TEXTURE_POOL;
+        self.texture_resolver.set_cache_textures(None, None);
     }
 
     fn draw_tile_frame(&mut self,
@@ -2277,9 +2321,6 @@ impl Renderer {
             self.device.clear_target(Some(self.clear_color.to_array()), Some(1.0));
         } else {
             self.start_frame(frame);
-
-            let mut src_color_id = self.dummy_cache_texture_id;
-            let mut src_alpha_id = self.dummy_cache_texture_id;
 
             for pass in &mut frame.passes {
                 let size;
@@ -2312,8 +2353,10 @@ impl Renderer {
                                                  ORTHO_FAR_PLANE);
                 }
 
-                self.device.bind_texture(TextureSampler::CacheA8, src_alpha_id);
-                self.device.bind_texture(TextureSampler::CacheRGBA8, src_color_id);
+                let cache_a8_texture = self.texture_resolver.resolve(&SourceTexture::CacheA8);
+                let cache_rgba8_texture = self.texture_resolver.resolve(&SourceTexture::CacheRGBA8);
+                self.device.bind_texture(TextureSampler::CacheA8, cache_a8_texture);
+                self.device.bind_texture(TextureSampler::CacheRGBA8, cache_rgba8_texture);
 
                 for (target_index, target) in pass.alpha_targets.targets.iter().enumerate() {
                     self.draw_alpha_target((pass.alpha_texture_id.unwrap(), target_index as i32),
@@ -2329,15 +2372,13 @@ impl Renderer {
                     self.draw_color_target(render_target,
                                            target,
                                            *size,
-                                           src_color_id,
                                            clear_color,
                                            &frame.render_task_data,
                                            &projection);
 
                 }
 
-                src_color_id = pass.color_texture_id.unwrap_or(self.dummy_cache_texture_id);
-                src_alpha_id = pass.alpha_texture_id.unwrap_or(self.dummy_cache_texture_id);
+                self.texture_resolver.set_cache_textures(pass.alpha_texture_id, pass.color_texture_id);
 
                 // Return the texture IDs to the pool for next frame.
                 if let Some(texture_id) = pass.color_texture_id.take() {
@@ -2414,12 +2455,13 @@ impl Renderer {
         let mut spacing = 16;
         let mut size = 512;
         let fb_width = framebuffer_size.width as i32;
-        let num_layers: i32 = self.cache_texture_id_map
-                                    .iter()
-                                    .map(|id| {
-                                         self.device.get_texture_layer_count(*id)
-                                     })
-                                    .sum();
+        let num_layers: i32 = self.texture_resolver
+                                  .cache_texture_id_map
+                                  .iter()
+                                  .map(|id| {
+                                      self.device.get_texture_layer_count(*id)
+                                  })
+                                  .sum();
 
         if num_layers * (size + spacing) > fb_width {
             let factor = fb_width as f32 / (num_layers * (size + spacing)) as f32;
@@ -2428,7 +2470,7 @@ impl Renderer {
         }
 
         let mut i = 0;
-        for texture_id in &self.cache_texture_id_map {
+        for texture_id in &self.texture_resolver.cache_texture_id_map {
             let y = spacing + if self.debug_flags.contains(RENDER_TARGET_DBG) { 528 } else { 0 };
 
             let layer_count = self.device.get_texture_layer_count(*texture_id);
@@ -2476,7 +2518,7 @@ impl Renderer {
     pub fn deinit(mut self) {
         //Note: this is a fake frame, only needed because texture deletion is require to happen inside a frame
         self.device.begin_frame(1.0);
-        self.device.deinit_texture(self.dummy_cache_texture_id);
+        self.texture_resolver.deinit(&mut self.device);
         self.debug.deinit(&mut self.device);
         self.cs_box_shadow.deinit(&mut self.device);
         self.cs_text_run.deinit(&mut self.device);
