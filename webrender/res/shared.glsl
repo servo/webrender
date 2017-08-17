@@ -14,7 +14,7 @@
 // The textureLod() doesn't support sampler2DRect for WR_FEATURE_TEXTURE_RECT, too.
 //
 // Use texture() instead.
-#if defined(WR_FEATURE_TEXTURE_EXTERNAL) || defined(WR_FEATURE_TEXTURE_RECT)
+#if defined(WR_FEATURE_TEXTURE_EXTERNAL) || defined(WR_FEATURE_TEXTURE_RECT) || defined(WR_FEATURE_TEXTURE_2D)
 #define TEX_SAMPLE(sampler, tex_coord) texture(sampler, tex_coord.xy)
 #else
 // In normal case, we use textureLod(). We haven't used the lod yet. So, we always pass 0.0 now.
@@ -71,7 +71,11 @@
     #define HIGHP_SAMPLER_FLOAT
 #endif
 
-#ifdef WR_FEATURE_TEXTURE_RECT
+#ifdef WR_FEATURE_TEXTURE_2D
+uniform sampler2D sColor0;
+uniform sampler2D sColor1;
+uniform sampler2D sColor2;
+#elif defined WR_FEATURE_TEXTURE_RECT
 uniform sampler2DRect sColor0;
 uniform sampler2DRect sColor1;
 uniform sampler2DRect sColor2;
