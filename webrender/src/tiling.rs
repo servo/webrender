@@ -518,7 +518,8 @@ impl AlphaRenderItem {
                         let cache_task_id = prim_metadata.render_task.as_ref().expect("no render task!").id;
                         let cache_task_index = render_tasks.get_task_index(&cache_task_id,
                                                                            child_pass_index);
-                        let key = AlphaBatchKey::new(AlphaBatchKind::CacheImage, flags, blend_mode, no_textures);
+                        let textures = BatchTextures::render_target_cache();
+                        let key = AlphaBatchKey::new(AlphaBatchKind::CacheImage, flags, blend_mode, textures);
                         let batch = batch_list.get_suitable_batch(&key, item_bounding_rect);
                         batch.add_instance(base_instance.build(0, cache_task_index.0 as i32, 0));
                     }

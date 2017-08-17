@@ -43,6 +43,8 @@ pub enum SourceTexture {
     Invalid,
     TextureCache(CacheTextureId),
     External(ExternalImageData),
+    CacheA8,
+    CacheRGBA8,
     #[cfg_attr(not(feature = "webgl"), allow(dead_code))]
     /// This is actually a gl::GLuint, with the shared texture id between the
     /// main context and the WebGL context.
@@ -89,6 +91,16 @@ impl BatchTextures {
     pub fn no_texture() -> Self {
         BatchTextures {
             colors: [SourceTexture::Invalid; 3],
+        }
+    }
+
+    pub fn render_target_cache() -> Self {
+        BatchTextures {
+            colors: [
+                SourceTexture::CacheRGBA8,
+                SourceTexture::Invalid,
+                SourceTexture::Invalid,
+            ]
         }
     }
 }
