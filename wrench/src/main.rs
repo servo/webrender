@@ -315,11 +315,13 @@ fn main() {
                                  args.is_present("vsync"),
                                  is_headless);
     let dp_ratio = dp_ratio.unwrap_or(window.hidpi_factor());
+    let (width, height) = window.get_inner_size_pixels();
+    let dim = DeviceUintSize::new(width, height);
     let mut wrench = Wrench::new(&mut window,
                                  res_path,
                                  dp_ratio,
                                  save_type,
-                                 size,
+                                 dim,
                                  args.is_present("rebuild"),
                                  args.is_present("no_subpixel_aa"),
                                  args.is_present("debug"),
