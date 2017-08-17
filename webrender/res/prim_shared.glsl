@@ -110,6 +110,13 @@ ivec2 get_resource_cache_uv(int address) {
 
 uniform HIGHP_SAMPLER_FLOAT sampler2D sResourceCache;
 
+vec4[2] fetch_from_resource_cache_2_direct(ivec2 address) {
+    return vec4[2](
+        texelFetchOffset(sResourceCache, address, 0, ivec2(0, 0)),
+        texelFetchOffset(sResourceCache, address, 0, ivec2(1, 0))
+    );
+}
+
 vec4[2] fetch_from_resource_cache_2(int address) {
     ivec2 uv = get_resource_cache_uv(address);
     return vec4[2](
@@ -172,6 +179,10 @@ vec4[4] fetch_from_resource_cache_4(int address) {
         texelFetchOffset(sResourceCache, uv, 0, ivec2(2, 0)),
         texelFetchOffset(sResourceCache, uv, 0, ivec2(3, 0))
     );
+}
+
+vec4 fetch_from_resource_cache_1_direct(ivec2 address) {
+    return texelFetch(sResourceCache, address, 0);
 }
 
 vec4 fetch_from_resource_cache_1(int address) {
@@ -768,6 +779,11 @@ struct ImageResource {
 
 ImageResource fetch_image_resource(int address) {
     vec4 data[2] = fetch_from_resource_cache_2(address);
+    return ImageResource(data[0], data[1].x);
+}
+
+ImageResource fetch_image_resource_direct(ivec2 address) {
+    vec4 data[2] = fetch_from_resource_cache_2_direct(address);
     return ImageResource(data[0], data[1].x);
 }
 
