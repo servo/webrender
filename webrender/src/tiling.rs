@@ -421,6 +421,7 @@ impl AlphaRenderItem {
                                                                            deferred_resolves);
 
                         if color_texture_id == SourceTexture::Invalid {
+                            warn!("Warnings: skip a PrimitiveKind::Image at {:?}.\n", item_bounding_rect);
                             return;
                         }
 
@@ -476,6 +477,8 @@ impl AlphaRenderItem {
                             let batch = batch_list.get_suitable_batch(&key, item_bounding_rect);
 
                             batch.extend_from_slice(&instances);
+                        } else {
+                            warn!("Warnings: skip a PrimitiveKind::TextRun at {:?}.\n", item_bounding_rect);
                         }
                     }
                     PrimitiveKind::TextShadow => {
@@ -523,6 +526,7 @@ impl AlphaRenderItem {
                                                                    deferred_resolves);
 
                             if texture == SourceTexture::Invalid {
+                                warn!("Warnings: skip a PrimitiveKind::YuvImage at {:?}.\n", item_bounding_rect);
                                 return;
                             }
 
