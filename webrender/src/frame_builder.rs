@@ -8,7 +8,7 @@ use api::{ExtendMode, FontKey, FontRenderMode, GlyphInstance, GlyphOptions, Grad
 use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize};
 use api::{LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation, LineStyle};
 use api::{LocalClip, PipelineId, RepeatMode, ScrollSensitivity, SubpixelDirection, TextShadow};
-use api::{TileOffset, TransformStyle, WebGLContextId, WorldPixel, YuvColorSpace, YuvData};
+use api::{TileOffset, TransformStyle, WorldPixel, YuvColorSpace, YuvData};
 use app_units::Au;
 use frame::FrameId;
 use gpu_cache::GpuCache;
@@ -16,7 +16,7 @@ use internal_types::{FastHashMap, HardwareCompositeOp};
 use mask_cache::{ClipMode, ClipRegion, ClipSource, MaskCacheInfo};
 use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, LinePrimitive, PrimitiveKind};
-use prim_store::{ImagePrimitiveKind, PrimitiveContainer, PrimitiveIndex};
+use prim_store::{PrimitiveContainer, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, TextRunMode};
 use prim_store::{RectanglePrimitive, TextRunPrimitiveCpu, TextShadowPrimitiveCpu};
 use prim_store::{BoxShadowPrimitiveCpu, TexelRect, YuvImagePrimitiveCpu};
@@ -1205,24 +1205,6 @@ impl FrameBuilder {
         }
     }
 
-    pub fn add_webgl_rectangle(&mut self,
-                               clip_and_scroll: ClipAndScrollInfo,
-                               rect: LayerRect,
-                               local_clip: &LocalClip,
-                               context_id: WebGLContextId) {
-        let prim_cpu = ImagePrimitiveCpu {
-            kind: ImagePrimitiveKind::WebGL(context_id),
-            gpu_blocks: [ [rect.size.width, rect.size.height, 0.0, 0.0].into(),
-                          TexelRect::invalid().into() ],
-        };
-
-        self.add_primitive(clip_and_scroll,
-                           &rect,
-                           local_clip,
-                           &[],
-                           PrimitiveContainer::Image(prim_cpu));
-    }
-
     pub fn add_image(&mut self,
                      clip_and_scroll: ClipAndScrollInfo,
                      rect: LayerRect,
@@ -1236,10 +1218,10 @@ impl FrameBuilder {
         let sub_rect_block = sub_rect.unwrap_or(TexelRect::invalid()).into();
 
         let prim_cpu = ImagePrimitiveCpu {
-            kind: ImagePrimitiveKind::Image(image_key,
-                                            image_rendering,
-                                            tile,
-                                            *tile_spacing),
+            image_key,
+            image_rendering,
+            tile_offset: tile,
+            tile_spacing: *tile_spacing,
             gpu_blocks: [ [ stretch_size.width,
                             stretch_size.height,
                             tile_spacing.width,

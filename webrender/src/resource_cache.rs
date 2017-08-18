@@ -16,12 +16,12 @@ use std::sync::Arc;
 use texture_cache::{TextureCache, TextureCacheHandle};
 use api::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, BlobImageRequest};
 use api::{BlobImageResources, BlobImageData, ResourceUpdates, ResourceUpdate, AddFont};
-use api::{DevicePoint, DeviceIntSize, DeviceUintRect, DeviceUintSize};
+use api::{DevicePoint, DeviceUintRect, DeviceUintSize};
 use api::{Epoch, FontInstance, FontKey, FontTemplate};
 use api::{GlyphDimensions, GlyphKey, IdNamespace};
 use api::{ImageData, ImageDescriptor, ImageKey, ImageRendering};
 use api::{TileOffset, TileSize};
-use api::{ExternalImageData, ExternalImageType, WebGLContextId};
+use api::{ExternalImageData, ExternalImageType};
 use rayon::ThreadPool;
 use glyph_rasterizer::{GlyphRasterizer, GlyphRequest};
 
@@ -168,11 +168,6 @@ impl Into<BlobImageRequest> for ImageRequest {
     }
 }
 
-pub struct WebGLTexture {
-    pub id: SourceTexture,
-    pub size: DeviceIntSize,
-}
-
 struct Resources {
     font_templates: FastHashMap<FontKey, FontTemplate>,
     image_templates: ImageTemplates,
@@ -190,9 +185,6 @@ impl BlobImageResources for Resources {
 pub struct ResourceCache {
     cached_glyphs: GlyphCache,
     cached_images: ResourceClassCache<ImageRequest, CachedImageInfo>,
-
-    // TODO(pcwalton): Figure out the lifecycle of these.
-    webgl_textures: FastHashMap<WebGLContextId, WebGLTexture>,
 
     resources: Resources,
     state: State,
@@ -219,7 +211,6 @@ impl ResourceCache {
         ResourceCache {
             cached_glyphs: GlyphCache::new(),
             cached_images: ResourceClassCache::new(),
-            webgl_textures: FastHashMap::default(),
             resources: Resources {
                 font_templates: FastHashMap::default(),
                 image_templates: ImageTemplates::new(),
@@ -391,21 +382,6 @@ impl ResourceCache {
                 println!("Delete the non-exist key:{:?}", image_key);
             }
         }
-    }
-
-    pub fn add_webgl_texture(&mut self, id: WebGLContextId, texture_id: SourceTexture, size: DeviceIntSize) {
-        self.webgl_textures.insert(id, WebGLTexture {
-            id: texture_id,
-            size,
-        });
-    }
-
-    pub fn update_webgl_texture(&mut self, id: WebGLContextId, texture_id: SourceTexture, size: DeviceIntSize) {
-        let webgl_texture = self.webgl_textures.get_mut(&id).unwrap();
-
-        // Update new texture id and size
-        webgl_texture.id = texture_id;
-        webgl_texture.size = size;
     }
 
     pub fn request_image(&mut self,
@@ -606,14 +582,6 @@ impl ResourceCache {
                 tile_size,
             }))
         ).collect()
-    }
-
-    pub fn get_webgl_texture(&self, context_id: &WebGLContextId) -> &WebGLTexture {
-        &self.webgl_textures[context_id]
-    }
-
-    pub fn get_webgl_texture_size(&self, context_id: &WebGLContextId) -> DeviceIntSize {
-        self.webgl_textures[context_id].size
     }
 
     pub fn begin_frame(&mut self, frame_id: FrameId) {

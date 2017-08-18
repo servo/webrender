@@ -5,7 +5,7 @@
 use app_units::Au;
 use euclid::{SideOffsets2D, TypedSideOffsets2D};
 use {ColorF, FontKey, ImageKey, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform};
-use {GlyphOptions, LayoutVector2D, PipelineId, PropertyBinding, WebGLContextId};
+use {GlyphOptions, LayoutVector2D, PipelineId, PropertyBinding};
 
 // NOTE: some of these structs have an "IMPLICIT" comment.
 // This indicates that the BuiltDisplayList will have serialized
@@ -56,7 +56,6 @@ pub enum SpecificDisplayItem {
     Text(TextDisplayItem),
     Image(ImageDisplayItem),
     YuvImage(YuvImageDisplayItem),
-    WebGL(WebGLDisplayItem),
     Border(BorderDisplayItem),
     BoxShadow(BoxShadowDisplayItem),
     Gradient(GradientDisplayItem),
@@ -145,11 +144,6 @@ pub struct TextDisplayItem {
     pub color: ColorF,
     pub glyph_options: Option<GlyphOptions>,
 } // IMPLICIT: glyphs: Vec<GlyphInstance>
-
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
-pub struct WebGLDisplayItem {
-    pub context_id: WebGLContextId,
-}
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct NormalBorder {

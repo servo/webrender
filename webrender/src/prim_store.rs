@@ -5,7 +5,7 @@
 use api::{BuiltDisplayList, ColorF, ComplexClipRegion, DeviceIntRect, DeviceIntSize, DevicePoint};
 use api::{ExtendMode, FontKey, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop};
 use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize, TextShadow};
-use api::{GlyphKey, LayerToWorldTransform, TileOffset, WebGLContextId, YuvColorSpace, YuvFormat};
+use api::{GlyphKey, LayerToWorldTransform, TileOffset, YuvColorSpace, YuvFormat};
 use api::{device_length, FontInstance, LayerVector2D, LineOrientation, LineStyle, SubpixelDirection};
 use app_units::Au;
 use border::BorderCornerInstance;
@@ -200,14 +200,11 @@ impl ToGpuBlocks for LinePrimitive {
 }
 
 #[derive(Debug)]
-pub enum ImagePrimitiveKind {
-    Image(ImageKey, ImageRendering, Option<TileOffset>, LayerSize),
-    WebGL(WebGLContextId),
-}
-
-#[derive(Debug)]
 pub struct ImagePrimitiveCpu {
-    pub kind: ImagePrimitiveKind,
+    pub image_key: ImageKey,
+    pub image_rendering: ImageRendering,
+    pub tile_offset: Option<TileOffset>,
+    pub tile_spacing: LayerSize,
     // TODO(gw): Build on demand
     pub gpu_blocks: [GpuBlockData; 2],
 }
@@ -1187,24 +1184,19 @@ impl PrimitiveStore {
             PrimitiveKind::Image => {
                 let image_cpu = &mut self.cpu_images[cpu_prim_index.0];
 
-                match image_cpu.kind {
-                    ImagePrimitiveKind::Image(image_key, image_rendering, tile_offset, tile_spacing) => {
-                        resource_cache.request_image(image_key,
-                                                     image_rendering,
-                                                     tile_offset,
-                                                     gpu_cache);
+                resource_cache.request_image(image_cpu.image_key,
+                                             image_cpu.image_rendering,
+                                             image_cpu.tile_offset,
+                                             gpu_cache);
 
-                        // TODO(gw): This doesn't actually need to be calculated each frame.
-                        // It's cheap enough that it's not worth introducing a cache for images
-                        // right now, but if we introduce a cache for images for some other
-                        // reason then we might as well cache this with it.
-                        if let Some(image_properties) = resource_cache.get_image_properties(image_key) {
-                            metadata.opacity.is_opaque = image_properties.descriptor.is_opaque &&
-                                                         tile_spacing.width == 0.0 &&
-                                                         tile_spacing.height == 0.0;
-                        }
-                    }
-                    ImagePrimitiveKind::WebGL(..) => {}
+                // TODO(gw): This doesn't actually need to be calculated each frame.
+                // It's cheap enough that it's not worth introducing a cache for images
+                // right now, but if we introduce a cache for images for some other
+                // reason then we might as well cache this with it.
+                if let Some(image_properties) = resource_cache.get_image_properties(image_cpu.image_key) {
+                    metadata.opacity.is_opaque = image_properties.descriptor.is_opaque &&
+                                                 image_cpu.tile_spacing.width == 0.0 &&
+                                                 image_cpu.tile_spacing.height == 0.0;
                 }
             }
             PrimitiveKind::YuvImage => {

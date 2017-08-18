@@ -658,11 +658,6 @@ impl YamlFrameWriter {
                     // TODO
                     println!("TODO YAML YuvImage");
                 },
-                WebGL(_) => {
-                    str_node(&mut v, "type", "webgl");
-                    // TODO
-                    println!("TODO YAML WebGL");
-                },
                 Border(item) => {
                     str_node(&mut v, "type", "border");
                     match item.details {
@@ -937,9 +932,7 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                                                            viewport_size,
                                                            list_descriptor);
             }
-            ApiMsg::UpdateDocument(..) |
-            ApiMsg::WebGLCommand(..) => {
-            }
+            ApiMsg::UpdateDocument(..) => {}
             _ => {}
         }
     }

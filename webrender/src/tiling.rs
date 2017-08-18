@@ -8,7 +8,7 @@ use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle, GpuCacheUpdateList};
 use internal_types::BatchTextures;
 use internal_types::{FastHashMap, SourceTexture};
 use mask_cache::MaskCacheInfo;
-use prim_store::{CLIP_DATA_GPU_BLOCKS, DeferredResolve, ImagePrimitiveKind, PrimitiveCacheKey};
+use prim_store::{CLIP_DATA_GPU_BLOCKS, DeferredResolve, PrimitiveCacheKey};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
 use profiler::FrameProfileCounters;
 use render_task::{AlphaRenderItem, MaskGeometryKind, MaskSegment, RenderTask, RenderTaskData};
@@ -431,25 +431,12 @@ impl AlphaRenderItem {
                     PrimitiveKind::Image => {
                         let image_cpu = &ctx.prim_store.cpu_images[prim_metadata.cpu_prim_index.0];
 
-                        let (color_texture_id, uv_address) = match image_cpu.kind {
-                            ImagePrimitiveKind::Image(image_key, image_rendering, tile_offset, _) => {
-                                resolve_image(image_key,
-                                              image_rendering,
-                                              tile_offset,
-                                              ctx.resource_cache,
-                                              gpu_cache,
-                                              deferred_resolves)
-                            }
-                            ImagePrimitiveKind::WebGL(context_id) => {
-                                let webgl_texture = ctx.resource_cache.get_webgl_texture(&context_id);
-                                let uv_rect = [ 0.0,
-                                                webgl_texture.size.height as f32,
-                                                webgl_texture.size.width as f32,
-                                                0.0];
-                                let cache_handle = gpu_cache.push_per_frame_blocks(&[uv_rect.into()]);
-                                (webgl_texture.id, cache_handle)
-                            }
-                        };
+                        let (color_texture_id, uv_address) = resolve_image(image_cpu.image_key,
+                                                                           image_cpu.image_rendering,
+                                                                           image_cpu.tile_offset,
+                                                                           ctx.resource_cache,
+                                                                           gpu_cache,
+                                                                           deferred_resolves);
 
                         if color_texture_id == SourceTexture::Invalid {
                             return;
