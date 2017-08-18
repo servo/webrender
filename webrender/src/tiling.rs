@@ -4,7 +4,7 @@
 
 use border::{BorderCornerInstance, BorderCornerSide};
 use device::TextureId;
-use gpu_cache::{GpuCache, GpuCacheHandle, GpuCacheUpdateList};
+use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle, GpuCacheUpdateList};
 use internal_types::BatchTextures;
 use internal_types::{FastHashMap, SourceTexture};
 use mask_cache::MaskCacheInfo;
@@ -714,82 +714,88 @@ impl ClipBatcher {
 
         for &(packed_layer_index, ref info) in clips.iter() {
             let instance = CacheClipInstance {
-                task_id: task_index.0 as i32,
+                render_task_index: task_index.0 as i32,
                 layer_index: packed_layer_index.0 as i32,
-                address: 0,
                 segment: 0,
-                resource_address: 0,
+                clip_data_address: GpuCacheAddress::invalid(),
+                resource_address: GpuCacheAddress::invalid(),
             };
 
-            for clip_index in 0 .. info.complex_clip_range.get_count() {
-                let gpu_address = info.complex_clip_range.location.as_int(gpu_cache) +
-                                  (CLIP_DATA_GPU_BLOCKS * clip_index) as i32;
-                match geometry_kind {
-                    MaskGeometryKind::Default => {
-                        self.rectangles.push(CacheClipInstance {
-                            address: gpu_address,
-                            segment: MaskSegment::All as i32,
-                            ..instance
-                        });
-                    }
-                    MaskGeometryKind::CornersOnly => {
-                        self.rectangles.extend_from_slice(&[
-                            CacheClipInstance {
-                                address: gpu_address,
-                                segment: MaskSegment::TopLeftCorner as i32,
+            if !info.complex_clip_range.is_empty() {
+                let base_gpu_address = gpu_cache.get_address(&info.complex_clip_range.location);
+
+                for clip_index in 0 .. info.complex_clip_range.get_count() {
+                    let gpu_address = base_gpu_address + CLIP_DATA_GPU_BLOCKS * clip_index;
+                    match geometry_kind {
+                        MaskGeometryKind::Default => {
+                            self.rectangles.push(CacheClipInstance {
+                                clip_data_address: gpu_address,
+                                segment: MaskSegment::All as i32,
                                 ..instance
-                            },
-                            CacheClipInstance {
-                                address: gpu_address,
-                                segment: MaskSegment::TopRightCorner as i32,
-                                ..instance
-                            },
-                            CacheClipInstance {
-                                address: gpu_address,
-                                segment: MaskSegment::BottomLeftCorner as i32,
-                                ..instance
-                            },
-                            CacheClipInstance {
-                                address: gpu_address,
-                                segment: MaskSegment::BottomRightCorner as i32,
-                                ..instance
-                            },
-                        ]);
+                            });
+                        }
+                        MaskGeometryKind::CornersOnly => {
+                            self.rectangles.extend_from_slice(&[
+                                CacheClipInstance {
+                                    clip_data_address: gpu_address,
+                                    segment: MaskSegment::TopLeftCorner as i32,
+                                    ..instance
+                                },
+                                CacheClipInstance {
+                                    clip_data_address: gpu_address,
+                                    segment: MaskSegment::TopRightCorner as i32,
+                                    ..instance
+                                },
+                                CacheClipInstance {
+                                    clip_data_address: gpu_address,
+                                    segment: MaskSegment::BottomLeftCorner as i32,
+                                    ..instance
+                                },
+                                CacheClipInstance {
+                                    clip_data_address: gpu_address,
+                                    segment: MaskSegment::BottomRightCorner as i32,
+                                    ..instance
+                                },
+                            ]);
+                        }
                     }
                 }
             }
 
-            for clip_index in 0 .. info.layer_clip_range.get_count() {
-                let gpu_address = info.layer_clip_range.location.as_int(gpu_cache) +
-                                  (CLIP_DATA_GPU_BLOCKS * clip_index) as i32;
-                self.rectangles.push(CacheClipInstance {
-                    address: gpu_address,
-                    segment: MaskSegment::All as i32,
-                    ..instance
-                });
+            if !info.layer_clip_range.is_empty() {
+                let base_gpu_address = gpu_cache.get_address(&info.layer_clip_range.location);
+
+                for clip_index in 0 .. info.layer_clip_range.get_count() {
+                    let gpu_address = base_gpu_address + CLIP_DATA_GPU_BLOCKS * clip_index;
+                    self.rectangles.push(CacheClipInstance {
+                        clip_data_address: gpu_address,
+                        segment: MaskSegment::All as i32,
+                        ..instance
+                    });
+                }
             }
 
-            if let Some((ref mask, gpu_location)) = info.image {
+            if let Some((ref mask, ref gpu_location)) = info.image {
                 let cache_item = resource_cache.get_cached_image(mask.image, ImageRendering::Auto, None);
                 self.images.entry(cache_item.texture_id)
                            .or_insert(Vec::new())
                            .push(CacheClipInstance {
-                    address: gpu_location.as_int(gpu_cache),
-                    resource_address: cache_item.uv_rect_handle.as_int(gpu_cache),
+                    clip_data_address: gpu_cache.get_address(gpu_location),
+                    resource_address: gpu_cache.get_address(&cache_item.uv_rect_handle),
                     ..instance
                 })
             }
 
-            for &(ref source, gpu_location) in &info.border_corners {
-                let gpu_address = gpu_location.as_int(gpu_cache);
+            for &(ref source, ref gpu_location) in &info.border_corners {
+                let gpu_address = gpu_cache.get_address(gpu_location);
                 self.border_clears.push(CacheClipInstance {
-                    address: gpu_address,
+                    clip_data_address: gpu_address,
                     segment: 0,
                     ..instance
                 });
                 for clip_index in 0..source.actual_clip_count {
                     self.borders.push(CacheClipInstance {
-                        address: gpu_address,
+                        clip_data_address: gpu_address,
                         segment: 1 + clip_index as i32,
                         ..instance
                     })
@@ -1387,12 +1393,13 @@ pub struct BlurCommand {
 /// Could be an image or a rectangle, which defines the
 /// way `address` is treated.
 #[derive(Clone, Copy, Debug)]
+#[repr(C)]
 pub struct CacheClipInstance {
-    task_id: i32,
+    render_task_index: i32,
     layer_index: i32,
-    address: i32,
     segment: i32,
-    resource_address: i32,
+    clip_data_address: GpuCacheAddress,
+    resource_address: GpuCacheAddress,
 }
 
 // 32 bytes per instance should be enough for anyone!
