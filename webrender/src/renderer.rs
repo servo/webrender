@@ -46,12 +46,10 @@ use tiling::{AlphaRenderTarget, CacheClipInstance, PrimitiveInstance, ColorRende
 use time::precise_time_ns;
 use thread_profiler::{register_thread_with_profiler, write_profile};
 use util::TransformedRectKind;
-use webgl_types::GLContextHandleWrapper;
-use api::{ColorF, Epoch, PipelineId, RenderApiSender, RenderNotifier, RenderDispatcher};
+use api::{ColorF, Epoch, PipelineId, RenderApiSender, RenderNotifier};
 use api::{ExternalImageId, ExternalImageType, ImageFormat};
 use api::{DeviceIntRect, DeviceUintRect, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
 use api::{BlobImageRenderer, channel, FontRenderMode};
-use api::VRCompositorHandler;
 use api::{YuvColorSpace, YuvFormat};
 use api::{YUV_COLOR_SPACES, YUV_FORMATS};
 
@@ -302,17 +300,11 @@ impl SourceTextureResolver {
 
     // Get the real (OpenGL) texture ID for a given source texture.
     // For a texture cache texture, the IDs are stored in a vector
-    // map for fast access. For WebGL textures, the native texture ID
-    // is stored inline. When we add support for external textures,
-    // we will add a callback here that is able to ask the caller
-    // for the image data.
+    // map for fast access.
     fn resolve(&self, texture_id: &SourceTexture) -> TextureId {
         match *texture_id {
             SourceTexture::Invalid => {
                 TextureId::invalid()
-            }
-            SourceTexture::WebGL(id) => {
-                TextureId::new(id, TextureTarget::Default)
             }
             SourceTexture::CacheA8 => {
                 self.cache_a8_texture.unwrap_or(self.dummy_cache_texture_id)
@@ -865,9 +857,6 @@ pub struct Renderer {
     gpu_cache_texture: CacheTexture,
 
     pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
-    /// Used to dispatch functions to the main thread's event loop.
-    /// Required to allow GLContext sharing in some implementations like WGL.
-    main_thread_dispatcher: Arc<Mutex<Option<Box<RenderDispatcher>>>>,
 
     // Manages and resolves source textures IDs to real texture IDs.
     texture_resolver: SourceTextureResolver,
@@ -880,10 +869,6 @@ pub struct Renderer {
     /// Optional trait object that allows the client
     /// application to provide external buffers for image data.
     external_image_handler: Option<Box<ExternalImageHandler>>,
-
-    // Optional trait object that handles WebVR commands.
-    // Some WebVR commands such as SubmitFrame must be synced with the WebGL render thread.
-    vr_compositor_handler: Arc<Mutex<Option<Box<VRCompositorHandler>>>>,
 
     /// List of profile results from previous frames. Can be retrieved
     /// via get_frame_profiles().
@@ -1293,19 +1278,7 @@ impl Renderer {
 
         device.end_frame();
 
-        let main_thread_dispatcher = Arc::new(Mutex::new(None));
         let backend_notifier = Arc::clone(&notifier);
-        let backend_main_thread_dispatcher = Arc::clone(&main_thread_dispatcher);
-
-        let vr_compositor = Arc::new(Mutex::new(None));
-        let backend_vr_compositor = Arc::clone(&vr_compositor);
-
-        // We need a reference to the webrender context from the render backend in order to share
-        // texture ids
-        let context_handle = match options.renderer_kind {
-            RendererKind::Native => GLContextHandleWrapper::current_native_handle(),
-            RendererKind::OSMesa => GLContextHandleWrapper::current_osmesa_handle(),
-        };
 
         let default_font_render_mode = match (options.enable_aa, options.enable_subpixel_aa) {
             (true, true) => FontRenderMode::Subpixel,
@@ -1341,12 +1314,9 @@ impl Renderer {
                                                  texture_cache,
                                                  workers,
                                                  backend_notifier,
-                                                 context_handle,
                                                  config,
                                                  recorder,
-                                                 backend_main_thread_dispatcher,
                                                  blob_image_renderer,
-                                                 backend_vr_compositor,
                                                  enable_render_on_scroll);
             backend.run(backend_profile_counters);
         })};
@@ -1409,10 +1379,8 @@ impl Renderer {
             gdt_index: 0,
             gpu_data_textures,
             pipeline_epoch_map: FastHashMap::default(),
-            main_thread_dispatcher,
             dither_matrix_texture_id,
             external_image_handler: None,
-            vr_compositor_handler: vr_compositor,
             cpu_profiles: VecDeque::new(),
             gpu_profiles: VecDeque::new(),
             gpu_cache_texture,
@@ -1447,23 +1415,6 @@ impl Renderer {
     pub fn set_render_notifier(&self, notifier: Box<RenderNotifier>) {
         let mut notifier_arc = self.notifier.lock().unwrap();
         *notifier_arc = Some(notifier);
-    }
-
-    /// Sets the new main thread dispatcher.
-    ///
-    /// Allows to dispatch functions to the main thread's event loop.
-    pub fn set_main_thread_dispatcher(&self, dispatcher: Box<RenderDispatcher>) {
-        let mut dispatcher_arc = self.main_thread_dispatcher.lock().unwrap();
-        *dispatcher_arc = Some(dispatcher);
-    }
-
-    /// Sets the VRCompositorHandler.
-    ///
-    /// It's used to handle WebVR render commands.
-    /// Some WebVR commands such as Vsync and SubmitFrame must be called in the WebGL render thread.
-    pub fn set_vr_compositor_handler(&self, creator: Box<VRCompositorHandler>) {
-        let mut handler_arc = self.vr_compositor_handler.lock().unwrap();
-        *handler_arc = Some(creator);
     }
 
     /// Returns the Epoch of the current frame in a pipeline.

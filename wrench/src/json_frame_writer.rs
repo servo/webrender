@@ -261,9 +261,7 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
                                               viewport_size,
                                               list_descriptor);
             }
-            ApiMsg::CloneApi(..) |
-            ApiMsg::WebGLCommand(..) => {
-            }
+            ApiMsg::CloneApi(..) => {}
             _ => {}
         }
     }

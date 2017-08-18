@@ -525,12 +525,6 @@ impl Frame {
         let item_rect_with_offset = item.rect().translate(&reference_frame_relative_offset);
         let clip_with_offset = item.local_clip_with_offset(&reference_frame_relative_offset);
         match *item.item() {
-            SpecificDisplayItem::WebGL(ref info) => {
-                context.builder.add_webgl_rectangle(clip_and_scroll,
-                                                    item_rect_with_offset,
-                                                    &clip_with_offset,
-                                                    info.context_id);
-            }
             SpecificDisplayItem::Image(ref info) => {
                 if let Some(tiling) = context.tiled_image_map.get(&info.image_key) {
                     // The image resource is tiled. We have to generate an image primitive

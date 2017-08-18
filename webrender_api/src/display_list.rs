@@ -16,8 +16,8 @@ use {LayoutTransform, LayoutVector2D, LineDisplayItem, LineOrientation, LineStyl
 use {MixBlendMode, PipelineId, PropertyBinding, PushStackingContextDisplayItem, RadialGradient};
 use {RadialGradientDisplayItem, RectangleDisplayItem, ScrollFrameDisplayItem, ScrollPolicy};
 use {ScrollSensitivity, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem};
-use {StickyFrameInfo, TextDisplayItem, TextShadow, TransformStyle, WebGLContextId};
-use {WebGLDisplayItem, YuvColorSpace, YuvData, YuvImageDisplayItem};
+use {StickyFrameInfo, TextDisplayItem, TextShadow, TransformStyle};
+use {YuvColorSpace, YuvData, YuvImageDisplayItem};
 use std::marker::PhantomData;
 
 #[repr(C)]
@@ -593,16 +593,6 @@ impl DisplayListBuilder {
             yuv_data,
             color_space,
             image_rendering,
-        });
-        self.push_item(item, rect, local_clip);
-    }
-
-    pub fn push_webgl_canvas(&mut self,
-                             rect: LayoutRect,
-                             local_clip: Option<LocalClip>,
-                             context_id: WebGLContextId) {
-        let item = SpecificDisplayItem::WebGL(WebGLDisplayItem {
-            context_id,
         });
         self.push_item(item, rect, local_clip);
     }

@@ -45,10 +45,6 @@ pub enum SourceTexture {
     External(ExternalImageData),
     CacheA8,
     CacheRGBA8,
-    #[cfg_attr(not(feature = "webgl"), allow(dead_code))]
-    /// This is actually a gl::GLuint, with the shared texture id between the
-    /// main context and the WebGL context.
-    WebGL(u32),
 }
 
 pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;
