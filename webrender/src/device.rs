@@ -50,7 +50,7 @@ const SHADER_VERSION_GLES: &str = "#version 300 es\n";
 
 const SHADER_KIND_VERTEX: &str = "#define WR_VERTEX_SHADER\n";
 const SHADER_KIND_FRAGMENT: &str = "#define WR_FRAGMENT_SHADER\n";
-const SHADER_IMPORT: &str = "//import ";
+const SHADER_IMPORT: &str = "#include ";
 const SHADER_LINE_MARKER: &str = "#line 1\n";
 
 #[repr(u32)]
@@ -149,24 +149,74 @@ fn get_shader_source(shader_name: &str, base_path: &Option<PathBuf>) -> Option<S
 
 // Parse a shader string for imports. Imports are recursively processed, and
 // prepended to the list of outputs.
-fn parse_shader_source(source: String, base_path: &Option<PathBuf>, outputs: &mut Vec<String>) {
-    // See if the first line is an import
-    if source.starts_with(SHADER_IMPORT) {
-        // Get the first line, and extract the list of imports
-        let line = source.lines()
-                         .next()
-                         .expect("unable to parse line");
-        let imports = line[SHADER_IMPORT.len()..].split(",");
+fn parse_shader_source(source: String, base_path: &Option<PathBuf>, output: &mut String) {
+    for line in source.lines() {
+        if line.starts_with(SHADER_IMPORT) {
+            let imports = line[SHADER_IMPORT.len()..].split(",");
 
-        // For each import, get the source, and recurse.
-        for import in imports {
-            if let Some(include) = get_shader_source(import, base_path) {
-                parse_shader_source(include, base_path, outputs);
+            // For each import, get the source, and recurse.
+            for import in imports {
+                if let Some(include) = get_shader_source(import, base_path) {
+                    parse_shader_source(include, base_path, output);
+                }
             }
+        } else {
+            output.push_str(line);
+            output.push_str("\n");
         }
     }
+}
 
-    outputs.push(source);
+pub fn build_shader_strings(gl_version_string: &str,
+                            features: &str,
+                            base_filename: &str,
+                            override_path: &Option<PathBuf>) -> (String, String) {
+    // Construct a list of strings to be passed to the shader compiler.
+    let mut vs_source = String::new();
+    let mut fs_source = String::new();
+
+    // GLSL requires that the version number comes first.
+    vs_source.push_str(gl_version_string);
+    fs_source.push_str(gl_version_string);
+
+    // Define a constant depending on whether we are compiling VS or FS.
+    vs_source.push_str(SHADER_KIND_VERTEX);
+    fs_source.push_str(SHADER_KIND_FRAGMENT);
+
+    // Add any defines that were passed by the caller.
+    vs_source.push_str(features);
+    fs_source.push_str(features);
+
+    // Parse the main .glsl file, including any imports
+    // and append them to the list of sources.
+    let mut shared_result = String::new();
+    if let Some(shared_source) = get_shader_source(base_filename, override_path) {
+        parse_shader_source(shared_source,
+            override_path,
+            &mut shared_result);
+    }
+
+    vs_source.push_str(SHADER_LINE_MARKER);
+    vs_source.push_str(&shared_result);
+    fs_source.push_str(SHADER_LINE_MARKER);
+    fs_source.push_str(&shared_result);
+
+    // Append legacy (.vs and .fs) files if they exist.
+    // TODO(gw): Once all shaders are ported to just use the
+    //           .glsl file, we can remove this code.
+    let vs_name = format!("{}.vs", base_filename);
+    if let Some(old_vs_source) = get_shader_source(&vs_name, override_path) {
+        vs_source.push_str(SHADER_LINE_MARKER);
+        vs_source.push_str(&old_vs_source);
+    }
+
+    let fs_name = format!("{}.fs", base_filename);
+    if let Some(old_fs_source) = get_shader_source(&fs_name, override_path) {
+        fs_source.push_str(SHADER_LINE_MARKER);
+        fs_source.push_str(&old_fs_source);
+    }
+
+    (vs_source, fs_source)
 }
 
 pub trait FileWatcherHandler : Send {
@@ -758,12 +808,11 @@ impl Device {
     pub fn compile_shader(gl: &gl::Gl,
                           name: &str,
                           shader_type: gl::GLenum,
-                          sources: &[String])
+                          source: String)
                           -> Result<gl::GLuint, ShaderError> {
         debug!("compile {:?}", name);
         let id = gl.create_shader(shader_type);
-        let sources: Vec<&[u8]> = sources.iter().map(|s| s.as_bytes()).collect();
-        gl.shader_source(id, &sources);
+        gl.shader_source(id, &[source.as_bytes()]);
         gl.compile_shader(id);
         let log = gl.get_shader_info_log(id);
         if gl.get_shader_iv(id, gl::COMPILE_STATUS) == (0 as gl::GLint) {
@@ -1178,65 +1227,18 @@ impl Device {
                           descriptor: &VertexDescriptor) -> Result<Program, ShaderError> {
         debug_assert!(self.inside_frame);
 
-        // Construct a list of strings to be passed to the shader compiler.
-        let mut vs_sources = Vec::new();
-        let mut fs_sources = Vec::new();
-
-        // GLSL requires that the version number comes first.
         let gl_version_string = get_shader_version(&*self.gl);
-        vs_sources.push(gl_version_string.to_owned());
-        fs_sources.push(gl_version_string.to_owned());
 
-        // Define a constant depending on whether we are compiling VS or FS.
-        vs_sources.push(SHADER_KIND_VERTEX.to_owned());
-        fs_sources.push(SHADER_KIND_FRAGMENT.to_owned());
-
-        // Add any defines that were passed by the caller.
-        if !features.is_empty() {
-            vs_sources.push(features.to_owned());
-            fs_sources.push(features.to_owned());
-        }
-
-        // Parse the main .glsl file, including any imports
-        // and append them to the list of sources.
-        let mut shared_strings = Vec::new();
-        if let Some(shared_source) = get_shader_source(base_filename, &self.resource_override_path) {
-            parse_shader_source(shared_source,
-                                &self.resource_override_path,
-                                &mut shared_strings);
-        }
-
-        for string in shared_strings {
-            vs_sources.push(SHADER_LINE_MARKER.to_string());
-            vs_sources.push(string.to_owned());
-            fs_sources.push(SHADER_LINE_MARKER.to_string());
-            fs_sources.push(string);
-        }
-
-        // Append legacy (.vs and .fs) files if they exist.
-        // TODO(gw): Once all shaders are ported to just use the
-        //           .glsl file, we can remove this code.
-        let vs_name = format!("{}.vs", base_filename);
-        let vs_source = get_shader_source(&vs_name, &self.resource_override_path);
-
-        if let Some(vs_source) = vs_source {
-            vs_sources.push(SHADER_LINE_MARKER.to_string());
-            vs_sources.push(vs_source);
-        }
-
-        let fs_name = format!("{}.fs", base_filename);
-        let fs_source = get_shader_source(&fs_name, &self.resource_override_path);
-
-        if let Some(fs_source) = fs_source {
-            fs_sources.push(SHADER_LINE_MARKER.to_string());
-            fs_sources.push(fs_source);
-        }
+        let (vs_source, fs_source) = build_shader_strings(gl_version_string,
+                                                          features,
+                                                          base_filename,
+                                                          &self.resource_override_path);
 
         // Compile the vertex shader
         let vs_id = match Device::compile_shader(&*self.gl,
                                                  base_filename,
                                                  gl::VERTEX_SHADER,
-                                                 vs_sources.as_slice()) {
+                                                 vs_source) {
             Ok(vs_id) => vs_id,
             Err(err) => return Err(err),
         };
@@ -1245,7 +1247,7 @@ impl Device {
         let fs_id = match Device::compile_shader(&*self.gl,
                                                  base_filename,
                                                  gl::FRAGMENT_SHADER,
-                                                 fs_sources.as_slice()) {
+                                                 fs_source) {
             Ok(fs_id) => fs_id,
             Err(err) => {
                 self.gl.delete_shader(vs_id);
