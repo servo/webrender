@@ -12,7 +12,7 @@
 use debug_colors;
 use debug_render::DebugRenderer;
 use device::{DepthFunction, Device, FrameId, Program, TextureId, VertexDescriptor, GpuMarker, GpuProfiler, PBOId};
-use device::{GpuSample, TextureFilter, VAO, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
+use device::{GpuTimer, TextureFilter, VAO, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
 use device::{get_gl_format_bgra, VertexAttribute, VertexAttributeKind};
 use euclid::{Transform3D, rect};
 use frame_builder::FrameBuilderConfig;
@@ -79,6 +79,10 @@ const GPU_TAG_PRIM_BORDER_CORNER: GpuProfileTag = GpuProfileTag { label: "Border
 const GPU_TAG_PRIM_BORDER_EDGE: GpuProfileTag = GpuProfileTag { label: "BorderEdge", color: debug_colors::LAVENDER };
 const GPU_TAG_PRIM_CACHE_IMAGE: GpuProfileTag = GpuProfileTag { label: "CacheImage", color: debug_colors::SILVER };
 const GPU_TAG_BLUR: GpuProfileTag = GpuProfileTag { label: "Blur", color: debug_colors::VIOLET };
+
+const GPU_SAMPLER_TAG_ALPHA: GpuProfileTag = GpuProfileTag { label: "Alpha Targets", color: debug_colors::BLACK };
+const GPU_SAMPLER_TAG_OPAQUE: GpuProfileTag = GpuProfileTag { label: "Opaque Pass", color: debug_colors::BLACK };
+const GPU_SAMPLER_TAG_TRANSPARENT: GpuProfileTag = GpuProfileTag { label: "Transparent Pass", color: debug_colors::BLACK };
 
 bitflags! {
     #[derive(Default)]
@@ -213,10 +217,10 @@ pub struct GpuProfile {
 }
 
 impl GpuProfile {
-    fn new<T>(frame_id: FrameId, samples: &[GpuSample<T>]) -> GpuProfile {
+    fn new<T>(frame_id: FrameId, timers: &[GpuTimer<T>]) -> GpuProfile {
         let mut paint_time_ns = 0;
-        for sample in samples {
-            paint_time_ns += sample.time_ns;
+        for timer in timers {
+            paint_time_ns += timer.time_ns;
         }
         GpuProfile {
             frame_id,
@@ -1507,20 +1511,22 @@ impl Renderer {
         if let Some(mut frame) = self.current_frame.take() {
             if let Some(ref mut frame) = frame.frame {
                 let mut profile_timers = RendererProfileTimers::new();
+                let mut profile_samplers = Vec::new();
 
                 {
                     //Note: avoiding `self.gpu_profile.add_marker` - it would block here
                     let _gm = GpuMarker::new(self.device.rc_gl(), "build samples");
                     // Block CPU waiting for last frame's GPU profiles to arrive.
                     // In general this shouldn't block unless heavily GPU limited.
-                    if let Some((gpu_frame_id, samples)) = self.gpu_profile.build_samples() {
+                    if let Some((gpu_frame_id, timers, samplers)) = self.gpu_profile.build_samples() {
                         if self.max_recorded_profiles > 0 {
                             while self.gpu_profiles.len() >= self.max_recorded_profiles {
                                 self.gpu_profiles.pop_front();
                             }
-                            self.gpu_profiles.push_back(GpuProfile::new(gpu_frame_id, &samples));
+                            self.gpu_profiles.push_back(GpuProfile::new(gpu_frame_id, &timers));
                         }
-                        profile_timers.gpu_samples = samples;
+                        profile_timers.gpu_samples = timers;
+                        profile_samplers = samplers;
                     }
                 }
 
@@ -1566,11 +1572,15 @@ impl Renderer {
                 }
 
                 if self.debug_flags.contains(PROFILER_DBG) {
+                    let screen_fraction = 1.0 / //TODO: take device/pixel ratio into equation?
+                        (framebuffer_size.width as f32 * framebuffer_size.height as f32);
                     self.profiler.draw_profile(&mut self.device,
                                                &frame.profile_counters,
                                                &self.backend_profile_counters,
                                                &self.profile_counters,
                                                &mut profile_timers,
+                                               &profile_samplers,
+                                               screen_fraction,
                                                &mut self.debug);
                 }
 
@@ -1893,12 +1903,13 @@ impl Renderer {
     }
 
     fn draw_color_target(&mut self,
-                         render_target: Option<(TextureId, i32)>,
-                         target: &ColorRenderTarget,
-                         target_size: DeviceUintSize,
-                         clear_color: Option<[f32; 4]>,
-                         render_tasks: &RenderTaskTree,
-                         projection: &Transform3D<f32>) {
+        render_target: Option<(TextureId, i32)>,
+        target: &ColorRenderTarget,
+        target_size: DeviceUintSize,
+        clear_color: Option<[f32; 4]>,
+        render_tasks: &RenderTaskTree,
+        projection: &Transform3D<f32>,
+    ) {
         {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
             self.device.bind_draw_target(render_target, Some(target_size));
@@ -1989,10 +2000,14 @@ impl Renderer {
                                       &BatchTextures::no_texture());
         }
 
+        //TODO: record the pixel count for cached primitives
+
         if !target.alpha_batcher.is_empty() {
             let _gm2 = GpuMarker::new(self.device.rc_gl(), "alpha batches");
             self.device.set_blend(false);
             let mut prev_blend_mode = BlendMode::None;
+
+            self.gpu_profile.add_sampler(GPU_SAMPLER_TAG_OPAQUE);
 
             //Note: depth equality is needed for split planes
             self.device.set_depth_func(DepthFunction::LessEqual);
@@ -2006,6 +2021,7 @@ impl Renderer {
                                .opaque_batches
                                .iter()
                                .rev() {
+
                 self.submit_batch(batch,
                                   &projection,
                                   render_tasks,
@@ -2014,6 +2030,7 @@ impl Renderer {
             }
 
             self.device.disable_depth_write();
+            self.gpu_profile.add_sampler(GPU_SAMPLER_TAG_TRANSPARENT);
 
             for batch in &target.alpha_batcher.batch_list.alpha_batches {
                 if batch.key.blend_mode != prev_blend_mode {
@@ -2046,14 +2063,18 @@ impl Renderer {
 
             self.device.disable_depth();
             self.device.set_blend(false);
+            self.gpu_profile.done_sampler();
         }
     }
 
     fn draw_alpha_target(&mut self,
-                         render_target: (TextureId, i32),
-                         target: &AlphaRenderTarget,
-                         target_size: DeviceUintSize,
-                         projection: &Transform3D<f32>) {
+        render_target: (TextureId, i32),
+        target: &AlphaRenderTarget,
+        target_size: DeviceUintSize,
+        projection: &Transform3D<f32>,
+    ) {
+        self.gpu_profile.add_sampler(GPU_SAMPLER_TAG_ALPHA);
+
         {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
             self.device.bind_draw_target(Some(render_target), Some(target_size));
@@ -2130,6 +2151,8 @@ impl Renderer {
                                           &textures);
             }
         }
+
+        self.gpu_profile.done_sampler();
     }
 
     fn update_deferred_resolves(&mut self, frame: &mut Frame) {
