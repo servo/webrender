@@ -727,29 +727,25 @@ fn create_prim_shader(name: &'static str,
 
     debug!("PrimShader {}", name);
 
-    let includes = &["prim_shared"];
-
     let vertex_descriptor = match vertex_format {
         VertexFormat::PrimitiveInstances => DESC_PRIM_INSTANCES,
         VertexFormat::Blur => DESC_BLUR,
         VertexFormat::Clip => DESC_CLIP,
     };
 
-    device.create_program_with_prefix(name,
-                                      includes,
-                                      Some(prefix),
-                                      &vertex_descriptor)
+    device.create_program(name,
+                          &prefix,
+                          &vertex_descriptor)
 }
 
 fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program, ShaderError> {
     let prefix = format!("#define WR_MAX_VERTEX_TEXTURE_WIDTH {}\n
-                          #define WR_FEATURE_TRANSFORM",
+                          #define WR_FEATURE_TRANSFORM\n",
                           MAX_VERTEX_TEXTURE_WIDTH);
 
     debug!("ClipShader {}", name);
 
-    let includes = &["prim_shared", "clip_shared"];
-    device.create_program_with_prefix(name, includes, Some(prefix), &DESC_CLIP)
+    device.create_program(name, &prefix, &DESC_CLIP)
 }
 
 struct GpuDataTextures {
