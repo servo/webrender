@@ -1603,21 +1603,6 @@ impl Renderer {
         }
     }
 
-/*
-    fn update_shaders(&mut self) {
-        let update_uniforms = !self.pending_shader_updates.is_empty();
-
-        for path in self.pending_shader_updates.drain(..) {
-            panic!("todo");
-            //self.device.refresh_shader(path);
-        }
-
-        if update_uniforms {
-            self.update_uniform_locations();
-        }
-    }
-*/
-
     fn update_gpu_cache(&mut self, frame: &mut Frame) {
         let _gm = GpuMarker::new(self.device.rc_gl(), "gpu cache update");
         for update_list in self.pending_gpu_cache_updates.drain(..) {
