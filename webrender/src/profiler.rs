@@ -43,7 +43,7 @@ pub struct IntProfileCounter {
 }
 
 impl IntProfileCounter {
-    fn new(description: &'static str) -> IntProfileCounter {
+    fn new(description: &'static str) -> Self {
         IntProfileCounter {
             description,
             value: 0,
@@ -85,6 +85,41 @@ impl ProfileCounter for IntProfileCounter {
 }
 
 #[derive(Clone)]
+pub struct FloatProfileCounter {
+    description: &'static str,
+    value: f32,
+}
+
+impl FloatProfileCounter {
+    fn new(description: &'static str) -> Self {
+        FloatProfileCounter {
+            description,
+            value: 0.,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.value = 0.;
+    }
+
+    #[inline(always)]
+    pub fn add(&mut self, amount: f32) {
+        self.value += amount;
+    }
+}
+
+impl ProfileCounter for FloatProfileCounter {
+    fn description(&self) -> &'static str {
+        self.description
+    }
+
+    fn value(&self) -> String {
+        format!("{:2}", self.value)
+    }
+}
+
+
+#[derive(Clone)]
 pub struct ResourceProfileCounter {
     description: &'static str,
     value: usize,
@@ -92,7 +127,7 @@ pub struct ResourceProfileCounter {
 }
 
 impl ResourceProfileCounter {
-    fn new(description: &'static str) -> ResourceProfileCounter {
+    fn new(description: &'static str) -> Self {
         ResourceProfileCounter {
             description,
             value: 0,
@@ -144,7 +179,7 @@ impl<'a> Drop for Timer<'a> {
 }
 
 impl TimeProfileCounter {
-    pub fn new(description: &'static str, invert: bool) -> TimeProfileCounter {
+    pub fn new(description: &'static str, invert: bool) -> Self {
         TimeProfileCounter {
             description,
             nanoseconds: 0,
@@ -212,7 +247,7 @@ pub struct AverageTimeProfileCounter {
 }
 
 impl AverageTimeProfileCounter {
-    pub fn new(description: &'static str, invert: bool, average_over_ns: u64) -> AverageTimeProfileCounter {
+    pub fn new(description: &'static str, invert: bool, average_over_ns: u64) -> Self {
         AverageTimeProfileCounter {
             description,
             average_over_ns,
@@ -278,7 +313,7 @@ pub struct FrameProfileCounters {
 }
 
 impl FrameProfileCounters {
-    pub fn new() -> FrameProfileCounters {
+    pub fn new() -> Self {
         FrameProfileCounters {
             total_primitives: IntProfileCounter::new("Total Primitives"),
             visible_primitives: IntProfileCounter::new("Visible Primitives"),
@@ -298,7 +333,7 @@ pub struct TextureCacheProfileCounters {
 }
 
 impl TextureCacheProfileCounters {
-    pub fn new() -> TextureCacheProfileCounters {
+    pub fn new() -> Self {
         TextureCacheProfileCounters {
             pages_a8: ResourceProfileCounter::new("Texture A8 cached pages"),
             pages_rgb8: ResourceProfileCounter::new("Texture RGB8 cached pages"),
@@ -315,7 +350,7 @@ pub struct GpuCacheProfileCounters {
 }
 
 impl GpuCacheProfileCounters {
-    pub fn new() -> GpuCacheProfileCounters {
+    pub fn new() -> Self {
         GpuCacheProfileCounters {
             allocated_rows: IntProfileCounter::new("GPU cache rows"),
             allocated_blocks: IntProfileCounter::new("GPU cache blocks"),
@@ -349,12 +384,13 @@ pub struct IpcProfileCounters {
 
 impl IpcProfileCounters {
     pub fn set(&mut self,
-               build_start: u64,
-               build_end: u64,
-               send_start: u64,
-               consume_start: u64,
-               consume_end: u64,
-               display_len: usize) {
+        build_start: u64,
+        build_end: u64,
+        send_start: u64,
+        consume_start: u64,
+        consume_end: u64,
+        display_len: usize,
+    ) {
         let build_time = build_end - build_start;
         let consume_time = consume_end - consume_start;
         let send_time = consume_start - send_start;
@@ -367,7 +403,7 @@ impl IpcProfileCounters {
 }
 
 impl BackendProfileCounters {
-    pub fn new() -> BackendProfileCounters {
+    pub fn new() -> Self {
         BackendProfileCounters {
             total_time: TimeProfileCounter::new("Backend CPU Time", false),
             resources: ResourceProfileCounters {
@@ -402,6 +438,9 @@ pub struct RendererProfileCounters {
     pub draw_calls: IntProfileCounter,
     pub vertices: IntProfileCounter,
     pub vao_count_and_size: ResourceProfileCounter,
+    pub alpha_target_coverage: FloatProfileCounter,
+    pub opaque_coverage: FloatProfileCounter,
+    pub transparent_coverage: FloatProfileCounter,
 }
 
 pub struct RendererProfileTimers {
@@ -411,24 +450,30 @@ pub struct RendererProfileTimers {
 }
 
 impl RendererProfileCounters {
-    pub fn new() -> RendererProfileCounters {
+    pub fn new() -> Self {
         RendererProfileCounters {
             frame_counter: IntProfileCounter::new("Frame"),
             frame_time: AverageTimeProfileCounter::new("FPS", true, ONE_SECOND_NS / 2),
             draw_calls: IntProfileCounter::new("Draw Calls"),
             vertices: IntProfileCounter::new("Vertices"),
             vao_count_and_size: ResourceProfileCounter::new("VAO"),
+            alpha_target_coverage: FloatProfileCounter::new("Alpha Target Coverage"),
+            opaque_coverage: FloatProfileCounter::new("Opaque Draw Coverage"),
+            transparent_coverage: FloatProfileCounter::new("Transparent Draw Coverage"),
         }
     }
 
     pub fn reset(&mut self) {
         self.draw_calls.reset();
         self.vertices.reset();
+        self.alpha_target_coverage.reset();
+        self.opaque_coverage.reset();
+        self.transparent_coverage.reset();
     }
 }
 
 impl RendererProfileTimers {
-    pub fn new() -> RendererProfileTimers {
+    pub fn new() -> Self {
         RendererProfileTimers {
             cpu_time: TimeProfileCounter::new("Compositor CPU Time", false),
             gpu_samples: Vec::new(),
@@ -449,7 +494,7 @@ struct ProfileGraph {
 }
 
 impl ProfileGraph {
-    fn new(max_samples: usize) -> ProfileGraph {
+    fn new(max_samples: usize) -> Self {
         ProfileGraph {
             max_samples,
             values: VecDeque::new(),
@@ -485,10 +530,12 @@ impl ProfileGraph {
     }
 
     fn draw_graph(&self,
-                  x: f32,
-                  y: f32,
-                  description: &'static str,
-                  debug_renderer: &mut DebugRenderer) -> Rect<f32> {
+        x: f32,
+        y: f32,
+        description: &'static str,
+        debug_renderer: &mut DebugRenderer,
+    ) -> Rect<f32>
+    {
         let size = Size2D::new(600.0, 120.0);
         let line_height = debug_renderer.line_height();
         let mut rect = Rect::new(Point2D::new(x, y), size);
@@ -571,7 +618,7 @@ struct GpuFrameCollection {
 }
 
 impl GpuFrameCollection {
-    fn new() -> GpuFrameCollection {
+    fn new() -> Self {
         GpuFrameCollection {
             frames: VecDeque::new(),
         }
@@ -590,9 +637,11 @@ impl GpuFrameCollection {
 
 impl GpuFrameCollection {
     fn draw(&self,
-            x: f32,
-            y: f32,
-            debug_renderer: &mut DebugRenderer) -> Rect<f32> {
+        x: f32,
+        y: f32,
+        debug_renderer: &mut DebugRenderer,
+    ) -> Rect<f32>
+    {
         let bounding_rect = Rect::new(Point2D::new(x, y),
                                       Size2D::new(GRAPH_WIDTH + 2.0 * GRAPH_PADDING,
                                                   GRAPH_HEIGHT + 2.0 * GRAPH_PADDING));
@@ -654,7 +703,7 @@ pub struct Profiler {
 }
 
 impl Profiler {
-    pub fn new() -> Profiler {
+    pub fn new() -> Self {
         Profiler {
             x_left: 0.0,
             y_left: 0.0,
@@ -669,9 +718,10 @@ impl Profiler {
     }
 
     fn draw_counters(&mut self,
-                     counters: &[&ProfileCounter],
-                     debug_renderer: &mut DebugRenderer,
-                     left: bool) {
+        counters: &[&ProfileCounter],
+        debug_renderer: &mut DebugRenderer,
+        left: bool,
+    ) {
         let mut label_rect = Rect::zero();
         let mut value_rect = Rect::zero();
         let (mut current_x, mut current_y) = if left {
@@ -733,13 +783,13 @@ impl Profiler {
     }
 
     pub fn draw_profile(&mut self,
-                        device: &mut Device,
-                        frame_profile: &FrameProfileCounters,
-                        backend_profile: &BackendProfileCounters,
-                        renderer_profile: &RendererProfileCounters,
-                        renderer_timers: &mut RendererProfileTimers,
-                        debug_renderer: &mut DebugRenderer) {
-
+        device: &mut Device,
+        frame_profile: &FrameProfileCounters,
+        backend_profile: &BackendProfileCounters,
+        renderer_profile: &RendererProfileCounters,
+        renderer_timers: &mut RendererProfileTimers,
+        debug_renderer: &mut DebugRenderer,
+    ) {
         let _gm = GpuMarker::new(device.rc_gl(), "profile");
         self.x_left = 20.0;
         self.y_left = 40.0;
@@ -791,6 +841,9 @@ impl Profiler {
         self.draw_counters(&[
             &renderer_profile.draw_calls,
             &renderer_profile.vertices,
+            &renderer_profile.alpha_target_coverage,
+            &renderer_profile.opaque_coverage,
+            &renderer_profile.transparent_coverage,
         ], debug_renderer, true);
 
         self.draw_counters(&[

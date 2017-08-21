@@ -59,7 +59,6 @@ use std::path::{Path, PathBuf};
 use std::ptr;
 use std::rc::Rc;
 use webrender::api::*;
-use webrender::renderer::{PROFILER_DBG, RENDER_TARGET_DBG, TEXTURE_CACHE_DBG};
 use wrench::{Wrench, WrenchThing};
 use yaml_frame_reader::YamlFrameReader;
 
@@ -516,17 +515,17 @@ fn main() {
                     },
                     VirtualKeyCode::P => {
                         let mut flags = wrench.renderer.get_debug_flags();
-                        flags.toggle(PROFILER_DBG);
+                        flags.toggle(webrender::PROFILER_DBG);
                         wrench.renderer.set_debug_flags(flags);
                     },
                     VirtualKeyCode::O => {
                         let mut flags = wrench.renderer.get_debug_flags();
-                        flags.toggle(RENDER_TARGET_DBG);
+                        flags.toggle(webrender::RENDER_TARGET_DBG);
                         wrench.renderer.set_debug_flags(flags);
                     },
                     VirtualKeyCode::I => {
                         let mut flags = wrench.renderer.get_debug_flags();
-                        flags.toggle(TEXTURE_CACHE_DBG);
+                        flags.toggle(webrender::TEXTURE_CACHE_DBG);
                         wrench.renderer.set_debug_flags(flags);
                     },
                     VirtualKeyCode::M => {

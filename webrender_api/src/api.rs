@@ -419,7 +419,7 @@ impl RenderApi {
     /// Supplies a new frame to WebRender.
     ///
     /// Non-blocking, it notifies a worker process which processes the display list.
-    /// When it's done and a RenderNotifier has been set in `webrender::renderer::Renderer`,
+    /// When it's done and a RenderNotifier has been set in `webrender::Renderer`,
     /// [new_frame_ready()][notifier] gets called.
     ///
     /// Note: Scrolling doesn't require an own Frame.

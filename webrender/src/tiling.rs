@@ -683,7 +683,7 @@ pub struct ClipBatcher {
 }
 
 impl ClipBatcher {
-    fn new() -> ClipBatcher {
+    fn new() -> Self {
         ClipBatcher {
             rectangles: Vec::new(),
             images: FastHashMap::default(),
@@ -693,12 +693,12 @@ impl ClipBatcher {
     }
 
     fn add<'a>(&mut self,
-               task_index: RenderTaskIndex,
-               clips: &[(PackedLayerIndex, MaskCacheInfo)],
-               resource_cache: &ResourceCache,
-               gpu_cache: &GpuCache,
-               geometry_kind: MaskGeometryKind) {
-
+       task_index: RenderTaskIndex,
+       clips: &[(PackedLayerIndex, MaskCacheInfo)],
+       resource_cache: &ResourceCache,
+       gpu_cache: &GpuCache,
+       geometry_kind: MaskGeometryKind,
+    ) {
         for &(packed_layer_index, ref info) in clips.iter() {
             let instance = CacheClipInstance {
                 render_task_index: task_index.0 as i32,
@@ -1519,6 +1519,13 @@ impl PrimitiveBatch {
 
     fn add_instances(&mut self, instances: &[PrimitiveInstance]) {
         self.instances.extend_from_slice(instances);
+    }
+
+    pub fn get_area_sum(&self) -> usize {
+        self.item_rects
+            .iter()
+            .map(|r| r.size.width as usize * r.size.height as usize)
+            .sum()
     }
 }
 

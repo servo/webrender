@@ -35,7 +35,7 @@ fn validate_shaders() {
         let mut shader_prefix = format!("#version 300 es\n
             // Base shader: {}\n
             #define WR_MAX_VERTEX_TEXTURE_WIDTH {}\n",
-            base_filename, webrender::renderer::MAX_VERTEX_TEXTURE_WIDTH);
+            base_filename, webrender::MAX_VERTEX_TEXTURE_WIDTH);
 
         if is_vert {
             shader_prefix.push_str("#define WR_VERTEX_SHADER\n");

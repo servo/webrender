@@ -1896,12 +1896,14 @@ impl Renderer {
     }
 
     fn draw_color_target(&mut self,
-                         render_target: Option<(TextureId, i32)>,
-                         target: &ColorRenderTarget,
-                         target_size: DeviceUintSize,
-                         clear_color: Option<[f32; 4]>,
-                         render_task_data: &[RenderTaskData],
-                         projection: &Transform3D<f32>) {
+        render_target: Option<(TextureId, i32)>,
+        target: &ColorRenderTarget,
+        target_size: DeviceUintSize,
+        clear_color: Option<[f32; 4]>,
+        render_task_data: &[RenderTaskData],
+        projection: &Transform3D<f32>,
+        denumerator: f32,
+    ) {
         {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
             self.device.bind_draw_target(render_target, Some(target_size));
@@ -1992,6 +1994,8 @@ impl Renderer {
                                       &BatchTextures::no_texture());
         }
 
+        //TODO: record the pixel count for cached primitives
+
         if !target.alpha_batcher.is_empty() {
             let _gm2 = GpuMarker::new(self.device.rc_gl(), "alpha batches");
             self.device.set_blend(false);
@@ -2009,11 +2013,15 @@ impl Renderer {
                                .opaque_batches
                                .iter()
                                .rev() {
+
                 self.submit_batch(batch,
                                   &projection,
                                   render_task_data,
                                   render_target,
                                   target_size);
+
+                let coverage = batch.get_area_sum() as f32 * denumerator;
+                self.profile_counters.opaque_coverage.add(coverage);
             }
 
             self.device.disable_depth_write();
@@ -2045,6 +2053,9 @@ impl Renderer {
                                   render_task_data,
                                   render_target,
                                   target_size);
+
+                let coverage = batch.get_area_sum() as f32 * denumerator;
+                self.profile_counters.transparent_coverage.add(coverage);
             }
 
             self.device.disable_depth();
@@ -2053,10 +2064,14 @@ impl Renderer {
     }
 
     fn draw_alpha_target(&mut self,
-                         render_target: (TextureId, i32),
-                         target: &AlphaRenderTarget,
-                         target_size: DeviceUintSize,
-                         projection: &Transform3D<f32>) {
+        render_target: (TextureId, i32),
+        target: &AlphaRenderTarget,
+        target_size: DeviceUintSize,
+        projection: &Transform3D<f32>,
+        denumerator: f32,
+    ) {
+        let pixel_count = 0usize; //TODO
+
         {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
             self.device.bind_draw_target(Some(render_target), Some(target_size));
@@ -2133,6 +2148,8 @@ impl Renderer {
                                           &textures);
             }
         }
+
+        self.profile_counters.alpha_target_coverage.add(pixel_count as f32 * denumerator);
     }
 
     fn update_deferred_resolves(&mut self, frame: &mut Frame) {
@@ -2268,6 +2285,7 @@ impl Renderer {
         // TODO(gw): Find a better solution for this?
         let needs_clear = frame.window_size.width < framebuffer_size.width ||
                           frame.window_size.height < framebuffer_size.height;
+        let denumerator = 1f32 / (framebuffer_size.width * framebuffer_size.height) as f32;
 
         self.device.disable_depth_write();
         self.device.disable_stencil();
@@ -2318,7 +2336,8 @@ impl Renderer {
                     self.draw_alpha_target((pass.alpha_texture_id.unwrap(), target_index as i32),
                                            target,
                                            *size,
-                                           &projection);
+                                           &projection,
+                                           denumerator);
                 }
 
                 for (target_index, target) in pass.color_targets.targets.iter().enumerate() {
@@ -2330,7 +2349,8 @@ impl Renderer {
                                            *size,
                                            clear_color,
                                            &frame.render_task_data,
-                                           &projection);
+                                           &projection,
+                                           denumerator);
 
                 }
 
