@@ -3,7 +3,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use euclid::Point2D;
+use {BlobImageDescriptor, BlobImageResources, BlobImageResult};
 use ColorU;
+use FontKey;
 use {IdNamespace};
 
 #[repr(C)]
@@ -37,7 +39,7 @@ pub enum Command {
 }
 
 pub trait SvgRenderer: Send {
-    fn update(&mut self, key: ImageKey, data: Geometry);
+    fn update(&mut self, key: GeometryKey, data: Geometry);
 
     fn delete(&mut self, key: GeometryKey);
 

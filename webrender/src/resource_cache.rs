@@ -111,7 +111,7 @@ struct CachedImageInfo {
 }
 
 struct CachedGeometryInfo {
-    texture_cache_id: TextureCacheItemId,
+    texture_cache_id: TextureCacheHandle,
     dimension: DeviceUintSize,
 }
 

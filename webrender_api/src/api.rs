@@ -65,6 +65,15 @@ impl ResourceUpdates {
         self.updates.push(ResourceUpdate::DeleteImage(key));
     }
 
+    pub fn update_geometry(&mut self, key: GeometryKey, data: Geometry) {
+        self.updates.push(ResourceUpdate::UpdateGeometry(key, data));
+    }
+
+    /// Deletes the specific geometry.
+    pub fn delete_geometry(&mut self, key: GeometryKey) {
+        self.updates.push(ResourceUpdate::DeleteGeometry(key));
+    }
+
     pub fn add_raw_font(&mut self, key: FontKey, bytes: Vec<u8>, index: u32) {
         self.updates.push(ResourceUpdate::AddFont(AddFont::Raw(key, bytes, index)));
     }
@@ -465,19 +474,6 @@ impl RenderApi {
     pub fn generate_geometry_key(&self) -> GeometryKey {
         let new_id = self.next_unique_id();
         GeometryKey::new(self.namespace_id, new_id)
-    }
-
-    pub fn update_geometry(&self,
-                           key: GeometryKey,
-                           data: Geometry) {
-        let msg = ApiMsg::UpdateGeometry(key, data);
-        self.api_sender.send(msg).unwrap();
-    }
-
-    /// Deletes the specific geometry.
-    pub fn delete_geometry(&self, key: GeometryKey) {
-        let msg = ApiMsg::DeleteGeometry(key);
-        self.api_sender.send(msg).unwrap();
     }
 
     /// Sets the root pipeline.
