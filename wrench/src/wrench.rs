@@ -21,7 +21,6 @@ use std::path::{Path, PathBuf};
 use time;
 use webrender;
 use webrender::api::*;
-use webrender::renderer::{CpuProfile, GpuProfile, GraphicsApiInfo};
 use yaml_frame_writer::YamlFrameWriterReceiver;
 use {WHITE_COLOR, BLACK_COLOR, WindowWrapper};
 
@@ -113,7 +112,7 @@ pub struct Wrench {
     window_size: DeviceUintSize,
     device_pixel_ratio: f32,
 
-    pub renderer: webrender::renderer::Renderer,
+    pub renderer: webrender::Renderer,
     pub api: RenderApi,
     pub document_id: DocumentId,
     pub root_pipeline_id: PipelineId,
@@ -122,7 +121,7 @@ pub struct Wrench {
 
     image_map: HashMap<(PathBuf, Option<i64>), (ImageKey, LayoutSize)>,
 
-    graphics_api: GraphicsApiInfo,
+    graphics_api: webrender::GraphicsApiInfo,
 
     pub rebuild_display_lists: bool,
     pub verbose: bool,
@@ -173,7 +172,7 @@ impl Wrench {
             .. Default::default()
         };
 
-        let (renderer, sender) = webrender::renderer::Renderer::new(window.clone_gl(), opts).unwrap();
+        let (renderer, sender) = webrender::Renderer::new(window.clone_gl(), opts).unwrap();
         let api = sender.create_api();
         let document_id = api.add_document(size);
 
@@ -432,7 +431,7 @@ impl Wrench {
         self.api.generate_frame(self.document_id, None);
     }
 
-    pub fn get_frame_profiles(&mut self) -> (Vec<CpuProfile>, Vec<GpuProfile>) {
+    pub fn get_frame_profiles(&mut self) -> (Vec<webrender::CpuProfile>, Vec<webrender::GpuProfile>) {
         self.renderer.get_frame_profiles()
     }
 
