@@ -5,6 +5,8 @@
 use WindowWrapper;
 use blob;
 use euclid::{TypedRect, TypedSize2D, TypedPoint2D};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::mpsc::Receiver;
 use webrender::api::*;
 use wrench::Wrench;
@@ -168,8 +170,20 @@ impl<'a> RawtestHarness<'a> {
 
         self.submit_dl(&mut epoch, layout_size, builder, None);
 
+        let called = Arc::new(AtomicIsize::new(0));
+        let called_inner = Arc::clone(&called);
+
+        self.wrench.callbacks.lock().unwrap().request = Box::new(move |_| {
+            called_inner.fetch_add(1, Ordering::SeqCst);
+        });
+
         let pixels_first = self.render_and_get_pixels(window_rect);
+        assert!(called.load(Ordering::SeqCst) == 1);
+
         let pixels_second = self.render_and_get_pixels(window_rect);
+
+        // make sure we only requested once
+        assert!(called.load(Ordering::SeqCst) == 1);
 
         // use png;
         // png::save_flipped("out1.png", &pixels_first, window_rect.size);

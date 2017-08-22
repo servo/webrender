@@ -5,8 +5,9 @@
 // A very basic BlobImageRenderer that can only render a checkerboard pattern.
 
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::Mutex;
 use webrender::api::*;
-
 
 // Serialize/deserialze the blob.
 
@@ -83,16 +84,29 @@ fn render_blob(
     })
 }
 
+pub struct BlobCallbacks {
+    pub request: Box<Fn(&BlobImageRequest) + Send + 'static>,
+    pub resolve: Box<Fn() + Send + 'static>,
+}
+
+impl BlobCallbacks {
+    pub fn new() -> Self {
+        BlobCallbacks { request: Box::new(|_|()), resolve: Box::new(|| (())) }
+    }
+}
+
 pub struct CheckerboardRenderer {
     image_cmds: HashMap<ImageKey, ColorU>,
+    callbacks: Arc<Mutex<BlobCallbacks>>,
 
     // The images rendered in the current frame (not kept here between frames).
     rendered_images: HashMap<BlobImageRequest, BlobImageResult>,
 }
 
 impl CheckerboardRenderer {
-    pub fn new() -> Self {
+    pub fn new(callbacks: Arc<Mutex<BlobCallbacks>>) -> Self {
         CheckerboardRenderer {
+            callbacks,
             image_cmds: HashMap::new(),
             rendered_images: HashMap::new(),
         }
@@ -123,6 +137,7 @@ impl BlobImageRenderer for CheckerboardRenderer {
         descriptor: &BlobImageDescriptor,
         _dirty_rect: Option<DeviceUintRect>,
     ) {
+        (self.callbacks.lock().unwrap().request)(&request);
         assert!(!self.rendered_images.contains_key(&request));
         // This method is where we kick off our rendering jobs.
         // It should avoid doing work on the calling thread as much as possible.
@@ -137,6 +152,7 @@ impl BlobImageRenderer for CheckerboardRenderer {
     }
 
     fn resolve(&mut self, request: BlobImageRequest) -> BlobImageResult {
+        (self.callbacks.lock().unwrap().resolve)();
         self.rendered_images.remove(&request).unwrap()
     }
 
