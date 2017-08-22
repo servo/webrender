@@ -1,4 +1,5 @@
 != text.yaml blank.yaml
+!= long-text.yaml blank.yaml
 != negative-pos.yaml blank.yaml
 != shadow.yaml text.yaml
 != shadow-single.yaml blank.yaml
