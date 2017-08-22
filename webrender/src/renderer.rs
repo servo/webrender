@@ -1827,7 +1827,7 @@ impl Renderer {
 
         // Handle special case readback for composites.
         match batch.key.kind {
-            AlphaBatchKind::Composite { task_id, readback_id, backdrop_id } => {
+            AlphaBatchKind::Composite { task_id, source_id, backdrop_id } => {
                 // composites can't be grouped together because
                 // they may overlap and affect each other.
                 debug_assert!(batch.instances.len() == 1);
@@ -1838,9 +1838,9 @@ impl Renderer {
                 // composite operation in this batch.
                 let cache_texture_dimensions = self.device.get_texture_dimensions(cache_texture);
 
-                let source = render_tasks.get(task_id);
-                let backdrop = render_tasks.get(backdrop_id);
-                let readback = render_tasks.get(readback_id);
+                let source = render_tasks.get(source_id);
+                let backdrop = render_tasks.get(task_id);
+                let readback = render_tasks.get(backdrop_id);
 
                 let (readback_rect, readback_layer) = readback.get_target_rect();
                 let (backdrop_rect, _) = backdrop.get_target_rect();
@@ -1854,8 +1854,8 @@ impl Renderer {
                 let cache_draw_target = (cache_texture, readback_layer.0 as i32);
                 self.device.bind_draw_target(Some(cache_draw_target), Some(cache_texture_dimensions));
 
-                let src_x = backdrop_rect.origin.x + backdrop_screen_origin.x - source_screen_origin.x;
-                let src_y = backdrop_rect.origin.y + backdrop_screen_origin.y - source_screen_origin.y;
+                let src_x = backdrop_rect.origin.x - backdrop_screen_origin.x + source_screen_origin.x;
+                let src_y = backdrop_rect.origin.y - backdrop_screen_origin.y + source_screen_origin.y;
 
                 let dest_x = readback_rect.origin.x;
                 let dest_y = readback_rect.origin.y;
