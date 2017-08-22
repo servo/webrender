@@ -4,6 +4,7 @@
 
 
 use app_units::Au;
+use blob;
 use crossbeam::sync::chase_lev;
 #[cfg(windows)]
 use dwrote;
@@ -114,7 +115,7 @@ pub struct Wrench {
 
     pub renderer: webrender::renderer::Renderer,
     pub api: RenderApi,
-    document_id: DocumentId,
+    pub document_id: DocumentId,
     pub root_pipeline_id: PipelineId,
 
     window_title_to_set: Option<String>,
@@ -168,6 +169,7 @@ impl Wrench {
             enable_clear_scissor: !no_scissor,
             enable_batcher: !no_batch,
             max_recorded_profiles: 16,
+            blob_image_renderer: Some(Box::new(blob::CheckerboardRenderer::new())),
             .. Default::default()
         };
 
