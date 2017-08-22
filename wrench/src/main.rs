@@ -31,11 +31,13 @@ extern crate webrender;
 extern crate yaml_rust;
 
 mod binary_frame_reader;
+mod blob;
 mod json_frame_writer;
 mod parse_function;
 mod perf;
 mod png;
 mod premultiply;
+mod rawtest;
 mod reftest;
 mod scene;
 mod wrench;
@@ -48,6 +50,7 @@ use gleam::gl;
 use glutin::{ElementState, VirtualKeyCode, WindowProxy};
 use perf::PerfHarness;
 use png::save_flipped;
+use rawtest::RawtestHarness;
 use reftest::{ReftestHarness, ReftestOptions};
 use std::cmp::{max, min};
 #[cfg(feature = "headless")]
@@ -349,6 +352,13 @@ fn main() {
                 reftest_options.allow_num_differences = w as usize * h as usize;
             }
             harness.run(base_manifest, specific_reftest, &reftest_options);
+            return;
+        } else if let Some(_) = args.subcommand_matches("rawtest") {
+            {
+                let harness = RawtestHarness::new(&mut wrench, &mut window);
+                harness.run();
+            }
+            wrench.renderer.deinit();
             return;
         } else if let Some(subargs) = args.subcommand_matches("perf") {
             // Perf mode wants to benchmark the total cost of drawing
