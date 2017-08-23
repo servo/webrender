@@ -41,7 +41,7 @@ use std::thread;
 use texture_cache::TextureCache;
 use rayon::ThreadPool;
 use rayon::Configuration as ThreadPoolConfig;
-use tiling::{AlphaBatchKind, BlurCommand, Frame, PrimitiveBatch, RenderTarget};
+use tiling::{AlphaBatchKey, AlphaBatchKind, BlurCommand, Frame, RenderTarget};
 use tiling::{AlphaRenderTarget, CacheClipInstance, PrimitiveInstance, ColorRenderTarget, RenderTargetKind};
 use time::precise_time_ns;
 use thread_profiler::{register_thread_with_profiler, write_profile};
@@ -1731,22 +1731,23 @@ impl Renderer {
     }
 
     fn submit_batch(&mut self,
-                    batch: &PrimitiveBatch,
+                    key: &AlphaBatchKey,
+                    instances: &[PrimitiveInstance],
                     projection: &Transform3D<f32>,
                     render_tasks: &RenderTaskTree,
                     render_target: Option<(TextureId, i32)>,
                     target_dimensions: DeviceUintSize) {
-        let transform_kind = batch.key.flags.transform_kind();
-        let needs_clipping = batch.key.flags.needs_clipping();
+        let transform_kind = key.flags.transform_kind();
+        let needs_clipping = key.flags.needs_clipping();
         debug_assert!(!needs_clipping ||
-                      match batch.key.blend_mode {
+                      match key.blend_mode {
                           BlendMode::Alpha |
                           BlendMode::PremultipliedAlpha |
                           BlendMode::Subpixel(..) => true,
                           BlendMode::None => false,
                       });
 
-        let marker = match batch.key.kind {
+        let marker = match key.kind {
             AlphaBatchKind::Composite { .. } => {
                 self.ps_composite.bind(&mut self.device, projection);
                 GPU_TAG_PRIM_COMPOSITE
@@ -1776,7 +1777,7 @@ impl Renderer {
                 GPU_TAG_PRIM_LINE
             }
             AlphaBatchKind::TextRun => {
-                match batch.key.blend_mode {
+                match key.blend_mode {
                     BlendMode::Subpixel(..) => {
                         self.ps_text_run_subpixel.bind(&mut self.device, transform_kind, projection);
                     }
@@ -1836,11 +1837,11 @@ impl Renderer {
         };
 
         // Handle special case readback for composites.
-        match batch.key.kind {
+        match key.kind {
             AlphaBatchKind::Composite { task_id, source_id, backdrop_id } => {
                 // composites can't be grouped together because
                 // they may overlap and affect each other.
-                debug_assert!(batch.instances.len() == 1);
+                debug_assert!(instances.len() == 1);
                 let cache_texture = self.texture_resolver.resolve(&SourceTexture::CacheRGBA8);
 
                 // Before submitting the composite batch, do the
@@ -1897,9 +1898,9 @@ impl Renderer {
         }
 
         let _gm = self.gpu_profile.add_marker(marker);
-        self.draw_instanced_batch(&batch.instances,
+        self.draw_instanced_batch(instances,
                                   VertexArrayKind::Primitive,
-                                  &batch.key.textures);
+                                  &key.textures);
     }
 
     fn draw_color_target(&mut self,
@@ -2018,11 +2019,12 @@ impl Renderer {
             // z-buffer efficiency!
             for batch in target.alpha_batcher
                                .batch_list
-                               .opaque_batches
+                               .opaque_batch_list
+                               .batches
                                .iter()
                                .rev() {
-
-                self.submit_batch(batch,
+                self.submit_batch(&batch.key,
+                                  &batch.instances,
                                   &projection,
                                   render_tasks,
                                   render_target,
@@ -2032,7 +2034,7 @@ impl Renderer {
             self.device.disable_depth_write();
             self.gpu_profile.add_sampler(GPU_SAMPLER_TAG_TRANSPARENT);
 
-            for batch in &target.alpha_batcher.batch_list.alpha_batches {
+            for batch in &target.alpha_batcher.batch_list.alpha_batch_list.batches {
                 if batch.key.blend_mode != prev_blend_mode {
                     match batch.key.blend_mode {
                         BlendMode::None => {
@@ -2054,7 +2056,8 @@ impl Renderer {
                     prev_blend_mode = batch.key.blend_mode;
                 }
 
-                self.submit_batch(batch,
+                self.submit_batch(&batch.key,
+                                  &batch.instances,
                                   &projection,
                                   render_tasks,
                                   render_target,
