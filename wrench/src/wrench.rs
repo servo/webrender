@@ -273,7 +273,7 @@ impl Wrench {
     #[cfg(target_os = "windows")]
     pub fn font_key_from_native_handle(&mut self, descriptor: &NativeFontHandle) -> FontKey {
         let key = self.api.generate_font_key();
-        let resources = ResourceUpdates::new();
+        let mut resources = ResourceUpdates::new();
         resources.add_native_font(key, descriptor.clone());
         self.api.update_resources(resources);
         key
