@@ -72,7 +72,7 @@ pub enum FontTemplate {
     Native(NativeFontHandle),
 }
 
-#[repr(C)]
+#[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Serialize, Deserialize, Ord, PartialOrd)]
 pub enum FontRenderMode {
     Mono = 0,
@@ -80,7 +80,7 @@ pub enum FontRenderMode {
     Subpixel,
 }
 
-#[repr(C)]
+#[repr(u32)]
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Debug, Deserialize, Serialize, Ord, PartialOrd)]
 pub enum SubpixelDirection {
     None = 0,
@@ -137,8 +137,21 @@ impl Into<f64> for SubpixelOffset {
     }
 }
 
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize)]
 pub struct GlyphOptions {
+    pub render_mode: FontRenderMode,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Deserialize, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize)]
+pub struct FontInstanceOptions {
+    pub render_mode: FontRenderMode,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Deserialize, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize)]
+pub struct FontInstancePlatformOptions {
     // These are currently only used on windows for dwrite fonts.
     pub use_embedded_bitmap: bool,
     pub force_gdi_rendering: bool,
@@ -155,8 +168,8 @@ pub struct FontInstance {
     pub size: Au,
     pub color: ColorU,
     pub render_mode: FontRenderMode,
-    pub glyph_options: Option<GlyphOptions>,
     pub subpx_dir: SubpixelDirection,
+    pub platform_options: Option<FontInstancePlatformOptions>,
 }
 
 impl FontInstance {
@@ -164,8 +177,8 @@ impl FontInstance {
                size: Au,
                mut color: ColorF,
                render_mode: FontRenderMode,
-               glyph_options: Option<GlyphOptions>,
-               subpx_dir: SubpixelDirection) -> FontInstance {
+               subpx_dir: SubpixelDirection,
+               platform_options: Option<FontInstancePlatformOptions>) -> FontInstance {
         // In alpha/mono mode, the color of the font is irrelevant.
         // Forcing it to black in those cases saves rasterizing glyphs
         // of different colors when not needed.
@@ -178,8 +191,8 @@ impl FontInstance {
             size,
             color: color.into(),
             render_mode,
-            glyph_options,
             subpx_dir,
+            platform_options,
         }
     }
 
@@ -189,6 +202,16 @@ impl FontInstance {
             SubpixelDirection::Horizontal => (glyph.subpixel_offset.into(), 0.0),
             SubpixelDirection::Vertical => (0.0, glyph.subpixel_offset.into()),
         }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize, Ord, PartialOrd)]
+pub struct FontInstanceKey(pub IdNamespace, pub u32);
+
+impl FontInstanceKey {
+    pub fn new(namespace: IdNamespace, key: u32) -> FontInstanceKey {
+        FontInstanceKey(namespace, key)
     }
 }
 

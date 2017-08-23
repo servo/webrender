@@ -6,7 +6,7 @@ use std::sync::Arc;
 use {DeviceUintRect, DevicePoint};
 use {IdNamespace};
 use {TileOffset, TileSize};
-use font::{FontKey, FontTemplate};
+use font::{FontKey, FontInstanceKey, FontTemplate};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -165,6 +165,8 @@ pub trait BlobImageRenderer: Send {
     fn resolve(&mut self, key: BlobImageRequest) -> BlobImageResult;
 
     fn delete_font(&mut self, key: FontKey);
+
+    fn delete_font_instance(&mut self, key: FontInstanceKey);
 }
 
 pub type BlobImageData = Vec<u8>;

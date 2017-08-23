@@ -230,8 +230,8 @@ impl Wrench {
                                      size,
                                      ColorF::new(0.0, 0.0, 0.0, 1.0),
                                      FontRenderMode::Alpha,
-                                     None,
-                                     SubpixelDirection::Horizontal);
+                                     SubpixelDirection::Horizontal,
+                                     None);
         let mut keys = Vec::new();
         for glyph_index in &indices {
             keys.push(GlyphKey::new(*glyph_index,
