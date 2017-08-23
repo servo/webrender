@@ -258,22 +258,22 @@ impl AlphaRenderItem {
                 batch.add_instance(PrimitiveInstance::from(instance));
             }
             AlphaRenderItem::Composite(stacking_context_index,
-                                       readback_id,
+                                       source_id,
                                        backdrop_id,
                                        mode,
                                        z) => {
                 let stacking_context = &ctx.stacking_context_store[stacking_context_index.0];
-                let key = AlphaBatchKey::new(AlphaBatchKind::Composite { task_id, readback_id, backdrop_id },
+                let key = AlphaBatchKey::new(AlphaBatchKind::Composite { task_id, source_id, backdrop_id },
                                              AlphaBatchKeyFlags::empty(),
                                              BlendMode::Alpha,
                                              BatchTextures::no_texture());
                 let batch = batch_list.get_suitable_batch(&key, &stacking_context.screen_bounds);
                 let backdrop_task_address = render_tasks.get_task_address(backdrop_id);
-                let readback_task_address = render_tasks.get_task_address(readback_id);
+                let source_task_address = render_tasks.get_task_address(source_id);
 
                 let instance = CompositePrimitiveInstance::new(task_address,
+                                                               source_task_address,
                                                                backdrop_task_address,
-                                                               readback_task_address,
                                                                mode as u32 as i32,
                                                                0,
                                                                z);
@@ -1206,7 +1206,7 @@ impl RenderPass {
 pub enum AlphaBatchKind {
     Composite {
         task_id: RenderTaskId,
-        readback_id: RenderTaskId,
+        source_id: RenderTaskId,
         backdrop_id: RenderTaskId,
     },
     HardwareComposite,

@@ -1449,21 +1449,21 @@ impl FrameBuilder {
                     }
 
                     if let Some(mix_blend_mode) = stacking_context.composite_ops.mix_blend_mode {
-                        let readback_task =
+                        let backdrop_task =
                             RenderTask::new_readback(stacking_context.screen_bounds);
-                        let current_task_id = render_tasks.add(current_task);
-                        let readback_task_id = render_tasks.add(readback_task);
+                        let source_task_id = render_tasks.add(current_task);
+                        let backdrop_task_id = render_tasks.add(backdrop_task);
 
                         let mut prev_task = alpha_task_stack.pop().unwrap();
                         let item = AlphaRenderItem::Composite(stacking_context_index,
-                                                              readback_task_id,
-                                                              current_task_id,
+                                                              source_task_id,
+                                                              backdrop_task_id,
                                                               mix_blend_mode,
                                                               next_z);
                         next_z += 1;
                         prev_task.as_alpha_batch_mut().items.push(item);
-                        prev_task.children.push(current_task_id);
-                        prev_task.children.push(readback_task_id);
+                        prev_task.children.push(source_task_id);
+                        prev_task.children.push(backdrop_task_id);
                         current_task = prev_task;
                     }
 
