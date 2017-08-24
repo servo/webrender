@@ -75,6 +75,7 @@ impl<'a> RawtestHarness<'a> {
         builder.push_image(
             LayoutRect::new(LayoutPoint::new(0.0, 60.0), LayoutSize::new(200.0, 200.0)),
             None,
+            true,
             LayoutSize::new(200.0, 200.0),
             LayoutSize::new(0.0, 0.0),
             ImageRendering::Auto,
@@ -98,6 +99,7 @@ impl<'a> RawtestHarness<'a> {
         builder.push_image(
             LayoutRect::new(LayoutPoint::new(1.0, 60.0), LayoutSize::new(200.0, 200.0)),
             None,
+            true,
             LayoutSize::new(200.0, 200.0),
             LayoutSize::new(0.0, 0.0),
             ImageRendering::Auto,

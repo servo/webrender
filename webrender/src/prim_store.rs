@@ -155,6 +155,7 @@ pub struct PrimitiveMetadata {
     //           storing them here.
     pub local_rect: LayerRect,
     pub local_clip_rect: LayerRect,
+    pub is_backface_visible: bool,
 }
 
 impl PrimitiveMetadata {
@@ -823,6 +824,7 @@ impl PrimitiveStore {
                          local_clip_rect: &LayerRect,
                          clips: Vec<ClipSource>,
                          clip_info: Option<MaskCacheInfo>,
+                         is_backface_visible: bool,
                          container: PrimitiveContainer) -> PrimitiveIndex {
         let prim_index = self.cpu_metadata.len();
         self.cpu_bounding_rects.push(None);
@@ -840,6 +842,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_rectangles.push(rect);
@@ -858,6 +861,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_lines.push(line);
@@ -875,6 +879,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_text_runs.push(text_cpu);
@@ -892,6 +897,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_text_shadows.push(text_shadow);
@@ -909,6 +915,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_images.push(image_cpu);
@@ -926,6 +933,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_yuv_images.push(image_cpu);
@@ -943,6 +951,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_borders.push(border_cpu);
@@ -960,6 +969,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_gradients.push(gradient_cpu);
@@ -978,6 +988,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_gradients.push(gradient_cpu);
@@ -996,6 +1007,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_radial_gradients.push(radial_gradient_cpu);
@@ -1013,6 +1025,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_box_shadows.push(box_shadow);

@@ -374,7 +374,8 @@ impl Frame {
                                     mut reference_frame_relative_offset: LayerVector2D,
                                     bounds: &LayerRect,
                                     stacking_context: &StackingContext,
-                                    filters: ItemRange<FilterOp>) {
+                                    filters: ItemRange<FilterOp>,
+                                    is_backface_visible: bool) {
         // Avoid doing unnecessary work for empty stacking contexts.
         if traversal.current_stacking_context_empty() {
             traversal.skip_current_stacking_context();
@@ -435,7 +436,8 @@ impl Frame {
         context.builder.push_stacking_context(&reference_frame_relative_offset,
                                               pipeline_id,
                                               composition_operations,
-                                              stacking_context.transform_style);
+                                              stacking_context.transform_style,
+                                              is_backface_visible);
 
         self.flatten_items(traversal,
                            pipeline_id,
@@ -533,6 +535,7 @@ impl Frame {
                                          &mut context.builder,
                                          &item_rect_with_offset,
                                          &clip_with_offset,
+                                         item.is_backface_visible(),
                                          info,
                                          tiling.image_size,
                                          tiling.tile_size as u32);
@@ -540,6 +543,7 @@ impl Frame {
                     context.builder.add_image(clip_and_scroll,
                                               item_rect_with_offset,
                                               &clip_with_offset,
+                                              item.is_backface_visible(),
                                               &info.stretch_size,
                                               &info.tile_spacing,
                                               None,
@@ -552,6 +556,7 @@ impl Frame {
                 context.builder.add_yuv_image(clip_and_scroll,
                                               item_rect_with_offset,
                                               &clip_with_offset,
+                                              item.is_backface_visible(),
                                               info.yuv_data,
                                               info.color_space,
                                               info.image_rendering);
@@ -561,6 +566,7 @@ impl Frame {
                                          reference_frame_relative_offset,
                                          item_rect_with_offset,
                                          &clip_with_offset,
+                                         item.is_backface_visible(),
                                          text_info.font_key,
                                          text_info.size,
                                          &text_info.color,
@@ -572,11 +578,13 @@ impl Frame {
                 if !self.try_to_add_rectangle_splitting_on_clip(context,
                                                                 &item_rect_with_offset,
                                                                 &clip_with_offset,
+                                                                item.is_backface_visible(),
                                                                 &info.color,
                                                                 &clip_and_scroll) {
                     context.builder.add_solid_rectangle(clip_and_scroll,
                                                         &item_rect_with_offset,
                                                         &clip_with_offset,
+                                                        item.is_backface_visible(),
                                                         &info.color,
                                                         PrimitiveFlags::None);
 
@@ -585,6 +593,7 @@ impl Frame {
             SpecificDisplayItem::Line(ref info) => {
                 context.builder.add_line(clip_and_scroll,
                                          item.local_clip(),
+                                         item.is_backface_visible(),
                                          info.baseline,
                                          info.start,
                                          info.end,
@@ -597,6 +606,7 @@ impl Frame {
                 context.builder.add_gradient(clip_and_scroll,
                                              item_rect_with_offset,
                                              &clip_with_offset,
+                                             item.is_backface_visible(),
                                              info.gradient.start_point,
                                              info.gradient.end_point,
                                              item.gradient_stops(),
@@ -610,6 +620,7 @@ impl Frame {
                 context.builder.add_radial_gradient(clip_and_scroll,
                                                     item_rect_with_offset,
                                                     &clip_with_offset,
+                                                    item.is_backface_visible(),
                                                     info.gradient.start_center,
                                                     info.gradient.start_radius,
                                                     info.gradient.end_center,
@@ -625,6 +636,7 @@ impl Frame {
                 context.builder.add_box_shadow(clip_and_scroll,
                                                &bounds,
                                                &clip_with_offset,
+                                               item.is_backface_visible(),
                                                &box_shadow_info.offset,
                                                &box_shadow_info.color,
                                                box_shadow_info.blur_radius,
@@ -636,6 +648,7 @@ impl Frame {
                 context.builder.add_border(clip_and_scroll,
                                            item_rect_with_offset,
                                            &clip_with_offset,
+                                           item.is_backface_visible(),
                                            info,
                                            item.gradient_stops(),
                                            item.display_list()
@@ -650,7 +663,8 @@ impl Frame {
                                               reference_frame_relative_offset,
                                               &item.rect(),
                                               &info.stacking_context,
-                                              item.filters());
+                                              item.filters(),
+                                              item.is_backface_visible());
                 return Some(subtraversal);
             }
             SpecificDisplayItem::Iframe(ref info) => {
@@ -727,7 +741,8 @@ impl Frame {
             SpecificDisplayItem::PushTextShadow(shadow) => {
                 context.builder.push_text_shadow(shadow,
                                                  clip_and_scroll,
-                                                 &clip_with_offset);
+                                                 &clip_with_offset,
+                                                 item.is_backface_visible());
             }
             SpecificDisplayItem::PopTextShadow => {
                 context.builder.pop_text_shadow();
@@ -744,6 +759,7 @@ impl Frame {
                                               context: &mut FlattenContext,
                                               rect: &LayerRect,
                                               local_clip: &LocalClip,
+                                              is_backface_visible: bool,
                                               color: &ColorF,
                                               clip_and_scroll: &ClipAndScrollInfo)
                                               -> bool {
@@ -772,6 +788,7 @@ impl Frame {
         context.builder.add_solid_rectangle(*clip_and_scroll,
                                             &inner_unclipped_rect,
                                             &LocalClip::from(*local_clip.clip_rect()),
+                                            is_backface_visible,
                                             color,
                                             PrimitiveFlags::None);
 
@@ -779,6 +796,7 @@ impl Frame {
             context.builder.add_solid_rectangle(*clip_and_scroll,
                                                 clipped_rect,
                                                 local_clip,
+                                                is_backface_visible,
                                                 color,
                                                 PrimitiveFlags::None);
         }
@@ -793,7 +811,8 @@ impl Frame {
         context.builder.push_stacking_context(&LayerVector2D::zero(),
                                               pipeline_id,
                                               CompositeOps::default(),
-                                              TransformStyle::Flat);
+                                              TransformStyle::Flat,
+                                              true);
 
         // We do this here, rather than above because we want any of the top-level
         // stacking contexts in the display list to be treated like root stacking contexts.
@@ -811,6 +830,7 @@ impl Frame {
                     context.builder.add_solid_rectangle(ClipAndScrollInfo::simple(clip_id),
                                                         &root_bounds,
                                                         &LocalClip::from(root_bounds),
+                                                        true,
                                                         &bg_color,
                                                         PrimitiveFlags::None);
                 }
@@ -826,6 +846,7 @@ impl Frame {
                 ClipAndScrollInfo::simple(clip_id),
                 &scrollbar_rect,
                 &LocalClip::from(scrollbar_rect),
+                true,
                 &DEFAULT_SCROLLBAR_COLOR,
                 PrimitiveFlags::Scrollbar(self.clip_scroll_tree.topmost_scrolling_node_id(), 4.0));
         }
@@ -876,6 +897,7 @@ impl Frame {
                        builder: &mut FrameBuilder,
                        item_rect: &LayerRect,
                        item_local_clip: &LocalClip,
+                       is_backface_visible: bool,
                        info: &ImageDisplayItem,
                        image_size: DeviceUintSize,
                        tile_size: u32) {
@@ -886,6 +908,7 @@ impl Frame {
                                      builder,
                                      item_rect,
                                      item_local_clip,
+                                     is_backface_visible,
                                      info,
                                      image_size,
                                      tile_size);
@@ -906,6 +929,7 @@ impl Frame {
                                          builder,
                                          &row_rect,
                                          item_local_clip,
+                                         is_backface_visible,
                                          info,
                                          image_size,
                                          tile_size);
@@ -918,6 +942,7 @@ impl Frame {
                            builder: &mut FrameBuilder,
                            item_rect: &LayerRect,
                            item_local_clip: &LocalClip,
+                           is_backface_visible: bool,
                            info: &ImageDisplayItem,
                            image_size: DeviceUintSize,
                            tile_size: u32) {
@@ -928,6 +953,7 @@ impl Frame {
                                        builder,
                                        item_rect,
                                        item_local_clip,
+                                       is_backface_visible,
                                        info,
                                        image_size,
                                        tile_size);
@@ -948,6 +974,7 @@ impl Frame {
                                            builder,
                                            &decomposed_rect,
                                            item_local_clip,
+                                           is_backface_visible,
                                            info,
                                            image_size,
                                            tile_size);
@@ -960,6 +987,7 @@ impl Frame {
                              builder: &mut FrameBuilder,
                              item_rect: &LayerRect,
                              item_local_clip: &LocalClip,
+                             is_backface_visible: bool,
                              info: &ImageDisplayItem,
                              image_size: DeviceUintSize,
                              tile_size: u32) {
@@ -1039,6 +1067,7 @@ impl Frame {
                                         builder,
                                         item_rect,
                                         item_local_clip,
+                                        is_backface_visible,
                                         info,
                                         TileOffset::new(tx, ty),
                                         stretched_tile_size,
@@ -1051,6 +1080,7 @@ impl Frame {
                                         builder,
                                         item_rect,
                                         item_local_clip,
+                                        is_backface_visible,
                                         info,
                                         TileOffset::new(num_tiles_x, ty),
                                         stretched_tile_size,
@@ -1067,6 +1097,7 @@ impl Frame {
                                         builder,
                                         item_rect,
                                         item_local_clip,
+                                        is_backface_visible,
                                         info,
                                         TileOffset::new(tx, num_tiles_y),
                                         stretched_tile_size,
@@ -1082,6 +1113,7 @@ impl Frame {
                                         builder,
                                         item_rect,
                                         item_local_clip,
+                                        is_backface_visible,
                                         info,
                                         TileOffset::new(num_tiles_x, num_tiles_y),
                                         stretched_tile_size,
@@ -1098,6 +1130,7 @@ impl Frame {
                           builder: &mut FrameBuilder,
                           item_rect: &LayerRect,
                           item_local_clip: &LocalClip,
+                          is_backface_visible: bool,
                           info: &ImageDisplayItem,
                           tile_offset: TileOffset,
                           stretched_tile_size: LayerSize,
@@ -1142,6 +1175,7 @@ impl Frame {
             builder.add_image(clip_and_scroll,
                               prim_rect,
                               item_local_clip,
+                              is_backface_visible,
                               &stretched_size,
                               &info.tile_spacing,
                               None,

@@ -228,7 +228,8 @@ impl FrameBuilder {
                                    clip_and_scroll: ClipAndScrollInfo,
                                    local_clip: &LocalClip,
                                    corner_instances: [BorderCornerInstance; 4],
-                                   extra_clips: &[ClipSource]) {
+                                   extra_clips: &[ClipSource],
+                                   is_backface_visible: bool) {
         let radius = &border.radius;
         let left = &border.left;
         let right = &border.right;
@@ -275,6 +276,7 @@ impl FrameBuilder {
                            &rect,
                            local_clip,
                            extra_clips,
+                           is_backface_visible,
                            PrimitiveContainer::Border(prim_cpu));
     }
 
@@ -287,7 +289,8 @@ impl FrameBuilder {
                              border: &NormalBorder,
                              widths: &BorderWidths,
                              clip_and_scroll: ClipAndScrollInfo,
-                             local_clip: &LocalClip) {
+                             local_clip: &LocalClip,
+                             is_backface_visible: bool) {
         // The border shader is quite expensive. For simple borders, we can just draw
         // the border with a few rectangles. This generally gives better batching, and
         // a GPU win in fragment shader time.
@@ -368,6 +371,7 @@ impl FrameBuilder {
                 self.add_solid_rectangle(clip_and_scroll,
                                          &LayerRect::new(p0, LayerSize::new(rect_width, top_len)),
                                          local_clip,
+                                         is_backface_visible,
                                          &border.top.color,
                                          PrimitiveFlags::None);
             }
@@ -377,6 +381,7 @@ impl FrameBuilder {
                                                          LayerSize::new(left_len,
                                                                         rect_height - top_len - bottom_len)),
                                          local_clip,
+                                         is_backface_visible,
                                          &border.left.color,
                                          PrimitiveFlags::None);
             }
@@ -387,6 +392,7 @@ impl FrameBuilder {
                                                          LayerSize::new(right_len,
                                                                         rect_height - top_len - bottom_len)),
                                          local_clip,
+                                         is_backface_visible,
                                          &border.right.color,
                                          PrimitiveFlags::None);
             }
@@ -395,6 +401,7 @@ impl FrameBuilder {
                                          &LayerRect::new(LayerPoint::new(p0.x, p1.y - bottom_len),
                                                          LayerSize::new(rect_width, bottom_len)),
                                          local_clip,
+                                         is_backface_visible,
                                          &border.bottom.color,
                                          PrimitiveFlags::None);
             }
@@ -425,7 +432,8 @@ impl FrameBuilder {
                                              clip_and_scroll,
                                              local_clip,
                                              corner_instances,
-                                             &extra_clips);
+                                             &extra_clips,
+                                             is_backface_visible);
         }
     }
 }

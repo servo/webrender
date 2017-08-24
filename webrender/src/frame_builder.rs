@@ -198,6 +198,7 @@ impl FrameBuilder {
                         rect: &LayerRect,
                         local_clip: &LocalClip,
                         extra_clips: &[ClipSource],
+                        is_backface_visible: bool,
                         container: PrimitiveContainer) -> PrimitiveIndex {
         self.create_clip_scroll_group_if_necessary(clip_and_scroll);
 
@@ -216,6 +217,7 @@ impl FrameBuilder {
                                                        &local_clip.clip_rect(),
                                                        clip_sources,
                                                        clip_info,
+                                                       is_backface_visible,
                                                        container);
 
         prim_index
@@ -247,11 +249,13 @@ impl FrameBuilder {
                          rect: &LayerRect,
                          local_clip: &LocalClip,
                          extra_clips: &[ClipSource],
+                         is_backface_visible: bool,
                          container: PrimitiveContainer) -> PrimitiveIndex {
         let prim_index = self.create_primitive(clip_and_scroll,
                                                rect,
                                                local_clip,
                                                extra_clips,
+                                               is_backface_visible,
                                                container);
 
         self.add_primitive_to_draw_list(prim_index, clip_and_scroll);
@@ -281,7 +285,8 @@ impl FrameBuilder {
                                  reference_frame_offset: &LayerVector2D,
                                  pipeline_id: PipelineId,
                                  composite_ops: CompositeOps,
-                                 transform_style: TransformStyle) {
+                                 transform_style: TransformStyle,
+                                 is_backface_visible: bool) {
         if let Some(parent_index) = self.stacking_context_stack.last() {
             let parent_is_root = self.stacking_context_store[parent_index.0].is_page_root;
 
@@ -304,7 +309,8 @@ impl FrameBuilder {
                                                               !self.has_root_stacking_context,
                                                               reference_frame_id,
                                                               transform_style,
-                                                              composite_ops));
+                                                              composite_ops,
+                                                              is_backface_visible));
         self.has_root_stacking_context = true;
         self.cmds.push(PrimitiveRunCmd::PushStackingContext(stacking_context_index));
         self.stacking_context_stack.push(stacking_context_index);
@@ -436,7 +442,8 @@ impl FrameBuilder {
     pub fn push_text_shadow(&mut self,
                             shadow: TextShadow,
                             clip_and_scroll: ClipAndScrollInfo,
-                            local_clip: &LocalClip) {
+                            local_clip: &LocalClip,
+                            is_backface_visible: bool) {
         let prim = TextShadowPrimitiveCpu {
             shadow,
             primitives: Vec::new(),
@@ -450,6 +457,7 @@ impl FrameBuilder {
                                             &LayerRect::zero(),
                                             local_clip,
                                             &[],
+                                            is_backface_visible,
                                             PrimitiveContainer::TextShadow(prim));
 
         self.shadow_prim_stack.push(prim_index);
@@ -474,6 +482,7 @@ impl FrameBuilder {
                                clip_and_scroll: ClipAndScrollInfo,
                                rect: &LayerRect,
                                local_clip: &LocalClip,
+                               is_backface_visible: bool,
                                color: &ColorF,
                                flags: PrimitiveFlags) {
         let prim = RectanglePrimitive {
@@ -484,6 +493,7 @@ impl FrameBuilder {
                                             rect,
                                             local_clip,
                                             &[],
+                                            is_backface_visible,
                                             PrimitiveContainer::Rectangle(prim));
 
         match flags {
@@ -501,6 +511,7 @@ impl FrameBuilder {
     pub fn add_line(&mut self,
                     clip_and_scroll: ClipAndScrollInfo,
                     local_clip: &LocalClip,
+                    is_backface_visible: bool,
                     baseline: f32,
                     start: f32,
                     end: f32,
@@ -540,6 +551,7 @@ impl FrameBuilder {
                                &new_rect.translate(&shadow.offset),
                                local_clip,
                                &[],
+                               is_backface_visible,
                                PrimitiveContainer::Line(line));
         }
 
@@ -547,6 +559,7 @@ impl FrameBuilder {
                                                &new_rect,
                                                local_clip,
                                                &[],
+                                               is_backface_visible,
                                                PrimitiveContainer::Line(line));
 
         if color.a > 0.0 {
@@ -572,6 +585,7 @@ impl FrameBuilder {
                       clip_and_scroll: ClipAndScrollInfo,
                       rect: LayerRect,
                       local_clip: &LocalClip,
+                      is_backface_visible: bool,
                       border_item: &BorderDisplayItem,
                       gradient_stops: ItemRange<GradientStop>,
                       gradient_stops_count: usize) {
@@ -719,6 +733,7 @@ impl FrameBuilder {
                     self.add_image(clip_and_scroll,
                                    segment.geom_rect,
                                    local_clip,
+                                   is_backface_visible,
                                    &segment.stretch_size,
                                    &segment.tile_spacing,
                                    Some(segment.sub_rect),
@@ -732,7 +747,8 @@ impl FrameBuilder {
                                        border,
                                        &border_item.widths,
                                        clip_and_scroll,
-                                       local_clip);
+                                       local_clip,
+                                       is_backface_visible);
             }
             BorderDetails::Gradient(ref border) => {
                 for segment in create_segments(border.outset) {
@@ -741,6 +757,7 @@ impl FrameBuilder {
                     self.add_gradient(clip_and_scroll,
                                       segment,
                                       local_clip,
+                                      is_backface_visible,
                                       border.gradient.start_point - segment_rel,
                                       border.gradient.end_point - segment_rel,
                                       gradient_stops,
@@ -757,6 +774,7 @@ impl FrameBuilder {
                     self.add_radial_gradient(clip_and_scroll,
                                              segment,
                                              local_clip,
+                                             is_backface_visible,
                                              border.gradient.start_center - segment_rel,
                                              border.gradient.start_radius,
                                              border.gradient.end_center - segment_rel,
@@ -775,6 +793,7 @@ impl FrameBuilder {
                         clip_and_scroll: ClipAndScrollInfo,
                         rect: LayerRect,
                         local_clip: &LocalClip,
+                        is_backface_visible: bool,
                         start_point: LayerPoint,
                         end_point: LayerPoint,
                         stops: ItemRange<GradientStop>,
@@ -834,13 +853,14 @@ impl FrameBuilder {
             PrimitiveContainer::AngleGradient(gradient_cpu)
         };
 
-        self.add_primitive(clip_and_scroll, &rect, local_clip, &[], prim);
+        self.add_primitive(clip_and_scroll, &rect, local_clip, &[], is_backface_visible, prim);
     }
 
     pub fn add_radial_gradient(&mut self,
                                clip_and_scroll: ClipAndScrollInfo,
                                rect: LayerRect,
                                local_clip: &LocalClip,
+                               is_backface_visible: bool,
                                start_center: LayerPoint,
                                start_radius: f32,
                                end_center: LayerPoint,
@@ -867,6 +887,7 @@ impl FrameBuilder {
                            &rect,
                            local_clip,
                            &[],
+                           is_backface_visible,
                            PrimitiveContainer::RadialGradient(radial_gradient_cpu));
     }
 
@@ -875,6 +896,7 @@ impl FrameBuilder {
                     run_offset: LayoutVector2D,
                     rect: LayerRect,
                     local_clip: &LocalClip,
+                    is_backface_visible: bool,
                     font_key: FontKey,
                     size: Au,
                     color: &ColorF,
@@ -963,6 +985,7 @@ impl FrameBuilder {
                                &rect.translate(&text_prim.offset),
                                local_clip,
                                &[],
+                               is_backface_visible,
                                PrimitiveContainer::TextRun(text_prim));
         }
 
@@ -972,6 +995,7 @@ impl FrameBuilder {
                                                &rect,
                                                local_clip,
                                                &[],
+                                               is_backface_visible,
                                                PrimitiveContainer::TextRun(prim));
 
         // Only add a visual element if it can contribute to the scene.
@@ -1006,6 +1030,7 @@ impl FrameBuilder {
                                 box_bounds: &LayerRect,
                                 bs_rect: LayerRect,
                                 local_clip: &LocalClip,
+                                is_backface_visible: bool,
                                 color: &ColorF,
                                 border_radius: f32,
                                 clip_mode: BoxShadowClipMode) {
@@ -1030,6 +1055,7 @@ impl FrameBuilder {
                            &rect_to_draw,
                            local_clip,
                            &extra_clips,
+                           is_backface_visible,
                            PrimitiveContainer::Rectangle(prim));
     }
 
@@ -1037,6 +1063,7 @@ impl FrameBuilder {
                           clip_and_scroll: ClipAndScrollInfo,
                           box_bounds: &LayerRect,
                           local_clip: &LocalClip,
+                          is_backface_visible: bool,
                           box_offset: &LayerVector2D,
                           color: &ColorF,
                           blur_radius: f32,
@@ -1067,6 +1094,7 @@ impl FrameBuilder {
             self.add_solid_rectangle(clip_and_scroll,
                                      box_bounds,
                                      local_clip,
+                                     is_backface_visible,
                                      color,
                                      PrimitiveFlags::None);
             return;
@@ -1077,6 +1105,7 @@ impl FrameBuilder {
                                       box_bounds,
                                       bs_rect,
                                       local_clip,
+                                      is_backface_visible,
                                       color,
                                       border_radius,
                                       clip_mode);
@@ -1150,6 +1179,7 @@ impl FrameBuilder {
                     self.add_solid_rectangle(clip_and_scroll,
                                              rect,
                                              local_clip,
+                                             is_backface_visible,
                                              color,
                                              PrimitiveFlags::None)
                 }
@@ -1161,6 +1191,7 @@ impl FrameBuilder {
                                               box_bounds,
                                               bs_rect,
                                               local_clip,
+                                              is_backface_visible,
                                               color,
                                               border_radius,
                                               clip_mode);
@@ -1200,6 +1231,7 @@ impl FrameBuilder {
                                    &outer_rect,
                                    local_clip,
                                    extra_clips.as_slice(),
+                                   is_backface_visible,
                                    PrimitiveContainer::BoxShadow(prim_cpu));
             }
         }
@@ -1209,6 +1241,7 @@ impl FrameBuilder {
                      clip_and_scroll: ClipAndScrollInfo,
                      rect: LayerRect,
                      local_clip: &LocalClip,
+                     is_backface_visible: bool,
                      stretch_size: &LayerSize,
                      tile_spacing: &LayerSize,
                      sub_rect: Option<TexelRect>,
@@ -1234,6 +1267,7 @@ impl FrameBuilder {
                            &rect,
                            local_clip,
                            &[],
+                           is_backface_visible,
                            PrimitiveContainer::Image(prim_cpu));
     }
 
@@ -1241,6 +1275,7 @@ impl FrameBuilder {
                          clip_and_scroll: ClipAndScrollInfo,
                          rect: LayerRect,
                          clip_rect: &LocalClip,
+                         is_backface_visible: bool,
                          yuv_data: YuvData,
                          color_space: YuvColorSpace,
                          image_rendering: ImageRendering) {
@@ -1265,6 +1300,7 @@ impl FrameBuilder {
                            &rect,
                            clip_rect,
                            &[],
+                           is_backface_visible,
                            PrimitiveContainer::YuvImage(prim_cpu));
     }
 

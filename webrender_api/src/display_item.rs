@@ -44,6 +44,7 @@ pub struct DisplayItem {
     pub rect: LayoutRect,
     pub local_clip: LocalClip,
     pub clip_and_scroll: ClipAndScrollInfo,
+    pub is_backface_visible: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
