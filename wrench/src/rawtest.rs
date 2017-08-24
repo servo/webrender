@@ -62,10 +62,15 @@ impl<'a> RawtestHarness<'a> {
 
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
 
+        let info = LayoutPrimitiveInfo {
+            rect: LayoutRect::new(LayoutPoint::new(448.899994, 74.0), LayoutSize::new(151.000031, 56.)),
+            local_clip: None,
+            is_backface_visible: true,
+        };
+
         // setup some malicious image size parameters
         builder.push_image(
-            LayoutRect::new(LayoutPoint::new(448.899994, 74.0), LayoutSize::new(151.000031, 56.)),
-            None,
+            &info,
             LayoutSize::new(151., 56.0),
             LayoutSize::new(151.0, 56.0),
             ImageRendering::Auto,
@@ -111,9 +116,14 @@ impl<'a> RawtestHarness<'a> {
 
         // draw the blob the first time
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
+        let info = LayoutPrimitiveInfo {
+            rect: LayoutRect::new(LayoutPoint::new(0.0, 60.0), LayoutSize::new(200.0, 200.0)),
+            local_clip: None,
+            is_backface_visible: true,
+        };
+
         builder.push_image(
-            LayoutRect::new(LayoutPoint::new(0.0, 60.0), LayoutSize::new(200.0, 200.0)),
-            None,
+            &info,
             LayoutSize::new(200.0, 200.0),
             LayoutSize::new(0.0, 0.0),
             ImageRendering::Auto,
@@ -134,9 +144,13 @@ impl<'a> RawtestHarness<'a> {
 
         // make a new display list that refers to the first image
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
+        let info = LayoutPrimitiveInfo {
+            rect: LayoutRect::new(LayoutPoint::new(1.0, 60.0), LayoutSize::new(200.0, 200.0)),
+            local_clip: None,
+            is_backface_visible: true,
+        };
         builder.push_image(
-            LayoutRect::new(LayoutPoint::new(1.0, 60.0), LayoutSize::new(200.0, 200.0)),
-            None,
+            &info,
             LayoutSize::new(200.0, 200.0),
             LayoutSize::new(0.0, 0.0),
             ImageRendering::Auto,

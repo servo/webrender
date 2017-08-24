@@ -137,7 +137,8 @@ impl YamlFrameReader {
                 let content_size = self.get_root_size_from_yaml(wrench, pipeline);
 
                 let mut dl = DisplayListBuilder::new(pipeline_id, content_size);
-                self.add_stacking_context_from_yaml(&mut dl, wrench, pipeline, true);
+                let mut info = LayoutPrimitiveInfo::new(LayoutRect::zero());
+                self.add_stacking_context_from_yaml(&mut dl, wrench, pipeline, true, &mut info);
                 self.display_lists.push(dl.finalize());
             }
         }
@@ -145,7 +146,8 @@ impl YamlFrameReader {
         assert!(!yaml["root"].is_badvalue(), "Missing root stacking context");
         let content_size = self.get_root_size_from_yaml(wrench, &yaml["root"]);
         let mut dl = DisplayListBuilder::new(wrench.root_pipeline_id, content_size);
-        self.add_stacking_context_from_yaml(&mut dl, wrench, &yaml["root"], true);
+        let mut info = LayoutPrimitiveInfo::new(LayoutRect::zero());
+        self.add_stacking_context_from_yaml(&mut dl, wrench, &yaml["root"], true, &mut info);
         self.display_lists.push(dl.finalize());
     }
 
@@ -280,14 +282,14 @@ impl YamlFrameReader {
         }
     }
 
-    fn handle_rect(&mut self, dl: &mut DisplayListBuilder, item: &Yaml, local_clip: LocalClip) {
+    fn handle_rect(&mut self, dl: &mut DisplayListBuilder, item: &Yaml, info: &mut LayoutPrimitiveInfo) {
         let bounds_key = if item["type"].is_badvalue() { "rect" } else { "bounds" };
-        let rect = item[bounds_key].as_rect().expect("rect type must have bounds");
+        info.rect = item[bounds_key].as_rect().expect("rect type must have bounds");
         let color = item["color"].as_colorf().unwrap_or(*WHITE_COLOR);
-        dl.push_rect(rect, Some(local_clip), color);
+        dl.push_rect(&info, color);
     }
 
-    fn handle_line(&mut self, dl: &mut DisplayListBuilder, item: &Yaml, local_clip: LocalClip) {
+    fn handle_line(&mut self, dl: &mut DisplayListBuilder, item: &Yaml, info: &mut LayoutPrimitiveInfo) {
         let color = item["color"].as_colorf().unwrap_or(*BLACK_COLOR);
         let baseline = item["baseline"].as_f32().expect("line must have baseline");
         let start = item["start"].as_f32().expect("line must have start");
@@ -297,32 +299,38 @@ impl YamlFrameReader {
                                              .expect("line must have orientation");
         let style = item["style"].as_str().and_then(LineStyle::from_str)
                                           .expect("line must have style");
-        dl.push_line(Some(local_clip), baseline, start, end, orientation, width, color, style);
+        dl.push_line(&info, baseline, start, end, orientation, width, color, style);
     }
 
-    fn handle_gradient(&mut self, dl: &mut DisplayListBuilder, item: &Yaml, local_clip: LocalClip) {
+    fn handle_gradient(&mut self, dl: &mut DisplayListBuilder, item: &Yaml, info: &mut LayoutPrimitiveInfo) {
         let bounds_key = if item["type"].is_badvalue() { "gradient" } else { "bounds" };
         let bounds = item[bounds_key].as_rect().expect("gradient must have bounds");
+        info.rect = bounds;
         let gradient = self.to_gradient(dl, item);
         let tile_size = item["tile-size"].as_size().unwrap_or(bounds.size);
         let tile_spacing = item["tile-spacing"].as_size().unwrap_or(LayoutSize::zero());
 
-        dl.push_gradient(bounds, Some(local_clip), gradient, tile_size, tile_spacing);
+        dl.push_gradient(&info, gradient, tile_size, tile_spacing);
     }
 
-    fn handle_radial_gradient(&mut self, dl: &mut DisplayListBuilder, item: &Yaml, local_clip: LocalClip) {
+    fn handle_radial_gradient(&mut self, dl: &mut DisplayListBuilder, item: &Yaml, info: &mut LayoutPrimitiveInfo) {
         let bounds_key = if item["type"].is_badvalue() { "radial-gradient" } else { "bounds" };
         let bounds = item[bounds_key].as_rect().expect("radial gradient must have bounds");
+        info.rect = bounds;
         let gradient = self.to_radial_gradient(dl, item);
         let tile_size = item["tile-size"].as_size().unwrap_or(bounds.size);
         let tile_spacing = item["tile-spacing"].as_size().unwrap_or(LayoutSize::zero());
 
-        dl.push_radial_gradient(bounds, Some(local_clip), gradient, tile_size, tile_spacing);
+        dl.push_radial_gradient(&info, gradient, tile_size, tile_spacing);
     }
 
-    fn handle_border(&mut self, dl: &mut DisplayListBuilder, wrench: &mut Wrench, item: &Yaml, local_clip: LocalClip) {
+    fn handle_border(&mut self,
+                     dl: &mut DisplayListBuilder,
+                     wrench: &mut Wrench,
+                     item: &Yaml,
+                     info: &mut LayoutPrimitiveInfo) {
         let bounds_key = if item["type"].is_badvalue() { "border" } else { "bounds" };
-        let bounds = item[bounds_key].as_rect().expect("borders must have bounds");
+        info.rect = item[bounds_key].as_rect().expect("borders must have bounds");
         let widths = item["width"].as_vec_f32().expect("borders must have width(s)");
         let widths = broadcast(&widths, 4);
         let widths = BorderWidths { top: widths[0], left: widths[1], bottom: widths[2], right: widths[3] };
@@ -430,13 +438,14 @@ impl YamlFrameReader {
             None
         };
         if let Some(details) = border_details {
-            dl.push_border(bounds, Some(local_clip), widths, details);
+            dl.push_border(&info, widths, details);
         }
     }
 
-    fn handle_box_shadow(&mut self, dl: &mut DisplayListBuilder, item: &Yaml, local_clip: LocalClip) {
+    fn handle_box_shadow(&mut self, dl: &mut DisplayListBuilder, item: &Yaml, info: &mut LayoutPrimitiveInfo) {
         let bounds_key = if item["type"].is_badvalue() { "box-shadow" } else { "bounds" };
         let bounds = item[bounds_key].as_rect().expect("box shadow must have bounds");
+        info.rect = bounds;
         let box_bounds = item["box-bounds"].as_rect().unwrap_or(bounds);
         let offset = item["offset"].as_vector().unwrap_or(LayoutVector2D::zero());
         let color = item["color"].as_colorf().unwrap_or(ColorF::new(0.0, 0.0, 0.0, 1.0));
@@ -454,8 +463,7 @@ impl YamlFrameReader {
             BoxShadowClipMode::None
         };
 
-        dl.push_box_shadow(bounds,
-                           Some(local_clip),
+        dl.push_box_shadow(&info,
                            box_bounds,
                            offset,
                            color,
@@ -465,13 +473,17 @@ impl YamlFrameReader {
                            clip_mode);
     }
 
-    fn handle_image(&mut self, dl: &mut DisplayListBuilder, wrench: &mut Wrench, item: &Yaml, local_clip: LocalClip) {
+    fn handle_image(&mut self,
+                    dl: &mut DisplayListBuilder,
+                    wrench: &mut Wrench,
+                    item: &Yaml,
+                    info: &mut LayoutPrimitiveInfo) {
         let filename = &item[if item["type"].is_badvalue() { "image" } else { "src" }];
         let tiling = item["tile-size"].as_i64();
         let (image_key, image_dims) = wrench.add_or_get_image(&rsrc_path(filename, &self.aux_dir), tiling);
 
         let bounds_raws = item["bounds"].as_vec_f32().unwrap();
-        let bounds = if bounds_raws.len() == 2 {
+        info.rect = if bounds_raws.len() == 2 {
             LayoutRect::new(LayoutPoint::new(bounds_raws[0], bounds_raws[1]),
                             image_dims)
         } else if bounds_raws.len() == 4 {
@@ -491,15 +503,18 @@ impl YamlFrameReader {
             Some("pixelated") => ImageRendering::Pixelated,
             Some(_) => panic!("ImageRendering can be auto, crisp-edges, or pixelated -- got {:?}", item),
         };
-        dl.push_image(bounds,
-                      Some(local_clip),
+        dl.push_image(&info,
                       stretch_size,
                       tile_spacing,
                       rendering,
                       image_key);
     }
 
-    fn handle_text(&mut self, dl: &mut DisplayListBuilder, wrench: &mut Wrench, item: &Yaml, local_clip: LocalClip) {
+    fn handle_text(&mut self,
+                   dl: &mut DisplayListBuilder,
+                   wrench: &mut Wrench,
+                   item: &Yaml,
+                   info: &mut LayoutPrimitiveInfo) {
         let size = item["size"].as_pt_to_au().unwrap_or(Au::from_f32_px(16.0));
         let color = item["color"].as_colorf().unwrap_or(*BLACK_COLOR);
 
@@ -552,19 +567,19 @@ impl YamlFrameReader {
             let rect = LayoutRect::new(LayoutPoint::new(0.0, 0.0), wrench.window_size_f32());
             (glyphs, rect)
         };
+        info.rect = rect;
 
-        dl.push_text(rect,
-                     Some(local_clip),
+        dl.push_text(&info,
                      &glyphs,
                      font_instance_key,
                      color,
                      None);
     }
 
-    fn handle_iframe(&mut self, dl: &mut DisplayListBuilder, item: &Yaml, local_clip: LocalClip) {
-        let bounds = item["bounds"].as_rect().expect("iframe must have bounds");
+    fn handle_iframe(&mut self, dl: &mut DisplayListBuilder, item: &Yaml, info: &mut LayoutPrimitiveInfo) {
+        info.rect = item["bounds"].as_rect().expect("iframe must have bounds");
         let pipeline_id = item["id"].as_pipeline_id().unwrap();
-        dl.push_iframe(bounds, Some(local_clip), pipeline_id);
+        dl.push_iframe(&info, pipeline_id);
     }
 
     pub fn get_local_clip_for_item(&mut self, yaml: &Yaml, full_clip: LayoutRect) -> LocalClip {
@@ -616,23 +631,28 @@ impl YamlFrameReader {
             if let Some(clip_scroll_info) = clip_scroll_info {
                 dl.push_clip_and_scroll_info(clip_scroll_info);
             }
-
             let local_clip = self.get_local_clip_for_item(item, full_clip);
+            let backface_visible = item["backface-visible"].as_bool().unwrap_or(true);
+            let mut info = LayoutPrimitiveInfo {
+                rect: LayoutRect::zero(),
+                local_clip: Some(local_clip),
+                is_backface_visible: backface_visible,
+            };
             match item_type {
-                "rect" => self.handle_rect(dl, item, local_clip),
-                "line" => self.handle_line(dl, item, local_clip),
-                "image" => self.handle_image(dl, wrench, item, local_clip),
-                "text" | "glyphs" => self.handle_text(dl, wrench, item, local_clip),
+                "rect" => self.handle_rect(dl, item, &mut info),
+                "line" => self.handle_line(dl, item, &mut info),
+                "image" => self.handle_image(dl, wrench, item, &mut info),
+                "text" | "glyphs" => self.handle_text(dl, wrench, item, &mut info),
                 "scroll-frame" => self.handle_scroll_frame(dl, wrench, item),
                 "sticky-frame" => self.handle_sticky_frame(dl, wrench, item),
                 "clip" => self.handle_clip(dl, wrench, item),
-                "border" => self.handle_border(dl, wrench, item, local_clip),
-                "gradient" => self.handle_gradient(dl, item, local_clip),
-                "radial-gradient" => self.handle_radial_gradient(dl, item, local_clip),
-                "box-shadow" => self.handle_box_shadow(dl, item, local_clip),
-                "iframe" => self.handle_iframe(dl, item, local_clip),
-                "stacking-context" => self.add_stacking_context_from_yaml(dl, wrench, item, false),
-                "text-shadow" => self.handle_push_text_shadow(dl, item),
+                "border" => self.handle_border(dl, wrench, item, &mut info),
+                "gradient" => self.handle_gradient(dl, item, &mut info),
+                "radial-gradient" => self.handle_radial_gradient(dl, item, &mut info),
+                "box-shadow" => self.handle_box_shadow(dl, item, &mut info),
+                "iframe" => self.handle_iframe(dl, item, &mut info),
+                "stacking-context" => self.add_stacking_context_from_yaml(dl, wrench, item, false, &mut info),
+                "text-shadow" => self.handle_push_text_shadow(dl, item, &mut info),
                 "pop-text-shadow" => self.handle_pop_text_shadow(dl),
                 _ => println!("Skipping unknown item type: {:?}", item),
             }
@@ -683,15 +703,19 @@ impl YamlFrameReader {
         dl.pop_clip_id();
     }
 
-    pub fn handle_push_text_shadow(&mut self, dl: &mut DisplayListBuilder, yaml: &Yaml) {
+    pub fn handle_push_text_shadow(&mut self,
+                                   dl: &mut DisplayListBuilder,
+                                   yaml: &Yaml,
+                                   info: &mut LayoutPrimitiveInfo) {
         let rect = yaml["bounds"].as_rect()
                                  .expect("Text shadows require bounds");
+        info.rect = rect;
+        info.local_clip = None;
         let blur_radius = yaml["blur-radius"].as_f32().unwrap_or(0.0);
         let offset = yaml["offset"].as_vector().unwrap_or(LayoutVector2D::zero());
         let color = yaml["color"].as_colorf().unwrap_or(*BLACK_COLOR);
 
-        dl.push_text_shadow(rect,
-                            None,
+        dl.push_text_shadow(&info,
                             TextShadow {
                                 blur_radius, offset, color
                             });
@@ -728,7 +752,8 @@ impl YamlFrameReader {
                                           dl: &mut DisplayListBuilder,
                                           wrench: &mut Wrench,
                                           yaml: &Yaml,
-                                          is_root: bool) {
+                                          is_root: bool,
+                                          info: &mut LayoutPrimitiveInfo) {
         let default_bounds = LayoutRect::new(LayoutPoint::zero(), wrench.window_size_f32());
         let bounds = yaml["bounds"].as_rect().unwrap_or(default_bounds);
 
@@ -761,9 +786,11 @@ impl YamlFrameReader {
         }
 
         let filters = yaml["filters"].as_vec_filter_op().unwrap_or(vec![]);
+        info.rect = bounds;
+        info.local_clip = None;
 
-        dl.push_stacking_context(scroll_policy,
-                                 bounds,
+        dl.push_stacking_context(&info,
+                                 scroll_policy,
                                  transform.into(),
                                  transform_style,
                                  perspective,

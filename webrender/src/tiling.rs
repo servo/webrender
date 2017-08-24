@@ -1552,6 +1552,9 @@ pub struct StackingContext {
     /// Whether or not this stacking context has any visible components, calculated
     /// based on the size and position of all children and how they are clipped.
     pub is_visible: bool,
+
+    /// Current stacking context visibility of backface.
+    pub is_backface_visible: bool,
 }
 
 impl StackingContext {
@@ -1560,7 +1563,8 @@ impl StackingContext {
                is_page_root: bool,
                reference_frame_id: ClipId,
                transform_style: TransformStyle,
-               composite_ops: CompositeOps)
+               composite_ops: CompositeOps,
+               is_backface_visible: bool)
                -> StackingContext {
         let isolation = match transform_style {
             TransformStyle::Flat => ContextIsolation::None,
@@ -1576,6 +1580,7 @@ impl StackingContext {
             isolation,
             is_page_root,
             is_visible: false,
+            is_backface_visible,
         }
     }
 

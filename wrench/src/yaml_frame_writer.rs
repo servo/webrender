@@ -594,6 +594,7 @@ impl YamlFrameWriter {
                 (scroll_id, None) => Yaml::Integer(scroll_id),
             };
             yaml_node(&mut v, "clip-and-scroll", clip_and_scroll_yaml);
+            bool_node(&mut v, "backface-visible", base.is_backface_visible());
 
             match *base.item() {
                 Rectangle(item) => {
