@@ -9,8 +9,15 @@
 //!
 //! [renderer]: struct.Renderer.html
 
+#[cfg(not(feature = "debugger"))]
+use api::ApiMsg;
+#[cfg(not(feature = "debugger"))]
+use api::channel::MsgSender;
+use api::DebugCommand;
 use debug_colors;
 use debug_render::DebugRenderer;
+#[cfg(feature = "debugger")]
+use debug_server::{BatchList, DebugMsg, DebugServer};
 use device::{DepthFunction, Device, FrameId, Program, TextureId, VertexDescriptor, GpuMarker, GpuProfiler, PBOId};
 use device::{GpuTimer, TextureFilter, VAO, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
 use device::{get_gl_format_bgra, VertexAttribute, VertexAttributeKind};
@@ -27,6 +34,8 @@ use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
 use record::ApiRecordingReceiver;
 use render_backend::RenderBackend;
 use render_task::RenderTaskTree;
+#[cfg(feature = "debugger")]
+use serde_json;
 use std;
 use std::cmp;
 use std::collections::VecDeque;
@@ -83,6 +92,30 @@ const GPU_TAG_BLUR: GpuProfileTag = GpuProfileTag { label: "Blur", color: debug_
 const GPU_SAMPLER_TAG_ALPHA: GpuProfileTag = GpuProfileTag { label: "Alpha Targets", color: debug_colors::BLACK };
 const GPU_SAMPLER_TAG_OPAQUE: GpuProfileTag = GpuProfileTag { label: "Opaque Pass", color: debug_colors::BLACK };
 const GPU_SAMPLER_TAG_TRANSPARENT: GpuProfileTag = GpuProfileTag { label: "Transparent Pass", color: debug_colors::BLACK };
+
+#[cfg(feature = "debugger")]
+impl AlphaBatchKind {
+    fn debug_name(&self) -> &'static str {
+        match *self {
+            AlphaBatchKind::Composite { .. } => "Composite",
+            AlphaBatchKind::HardwareComposite => "HardwareComposite",
+            AlphaBatchKind::SplitComposite => "SplitComposite",
+            AlphaBatchKind::Blend => "Blend",
+            AlphaBatchKind::Rectangle => "Rectangle",
+            AlphaBatchKind::TextRun => "TextRun",
+            AlphaBatchKind::Image(..) => "Image",
+            AlphaBatchKind::YuvImage(..) => "YuvImage",
+            AlphaBatchKind::AlignedGradient => "AlignedGradient",
+            AlphaBatchKind::AngleGradient => "AngleGradient",
+            AlphaBatchKind::RadialGradient => "RadialGradient",
+            AlphaBatchKind::BoxShadow => "BoxShadow",
+            AlphaBatchKind::CacheImage => "CacheImage",
+            AlphaBatchKind::BorderCorner => "BorderCorner",
+            AlphaBatchKind::BorderEdge => "BorderEdge",
+            AlphaBatchKind::Line => "Line",
+        }
+    }
+}
 
 bitflags! {
     #[derive(Default)]
@@ -782,6 +815,7 @@ pub enum ReadPixelsFormat {
 /// RenderBackend.
 pub struct Renderer {
     result_rx: Receiver<ResultMsg>,
+    debug_server: DebugServer,
     device: Device,
     pending_texture_updates: Vec<TextureUpdateList>,
     pending_gpu_cache_updates: Vec<GpuCacheUpdateList>,
@@ -920,6 +954,7 @@ impl Renderer {
         let gl_type = gl.get_type();
 
         let notifier = Arc::new(Mutex::new(None));
+        let debug_server = DebugServer::new(api_tx.clone());
 
         let file_watch_handler = FileWatcher {
             result_tx: result_tx.clone(),
@@ -1339,6 +1374,7 @@ impl Renderer {
 
         let renderer = Renderer {
             result_rx,
+            debug_server,
             device,
             current_frame: None,
             pending_texture_updates: Vec::new(),
@@ -1483,6 +1519,95 @@ impl Renderer {
                 ResultMsg::RefreshShader(path) => {
                     self.pending_shader_updates.push(path);
                 }
+                ResultMsg::DebugCommand(command) => {
+                    self.handle_debug_command(command);
+                }
+            }
+        }
+    }
+
+    #[cfg(not(feature = "debugger"))]
+    fn update_debug_server(&self) {
+        // Avoid unused param warning.
+        let _ = &self.debug_server;
+    }
+
+    #[cfg(feature = "debugger")]
+    fn update_debug_server(&self) {
+        while let Ok(msg) = self.debug_server.debug_rx.try_recv() {
+            match msg {
+                DebugMsg::FetchBatches(sender) => {
+                    let mut batch_list = BatchList::new();
+
+                    if let Some(frame) = self.current_frame.as_ref().and_then(|frame| frame.frame.as_ref()) {
+                        for pass in &frame.passes {
+                            for target in &pass.alpha_targets.targets {
+                                batch_list.push("[Clip] Clear", target.clip_batcher.border_clears.len());
+                                batch_list.push("[Clip] Borders", target.clip_batcher.borders.len());
+                                batch_list.push("[Clip] Rectangles", target.clip_batcher.rectangles.len());
+                                for (_, items) in target.clip_batcher.images.iter() {
+                                    batch_list.push("[Clip] Image mask", items.len());
+                                }
+                            }
+
+                            for target in &pass.color_targets.targets {
+                                batch_list.push("[Cache] Vertical Blur", target.vertical_blurs.len());
+                                batch_list.push("[Cache] Horizontal Blur", target.horizontal_blurs.len());
+                                batch_list.push("[Cache] Box Shadow", target.box_shadow_cache_prims.len());
+                                batch_list.push("[Cache] Text Shadow", target.text_run_cache_prims.len());
+                                batch_list.push("[Cache] Lines", target.line_cache_prims.len());
+
+                                for batch in target.alpha_batcher
+                                                   .batch_list
+                                                   .opaque_batch_list
+                                                   .batches
+                                                   .iter()
+                                                   .rev() {
+                                    batch_list.push(batch.key.kind.debug_name(), batch.instances.len());
+                                }
+
+                                for batch in &target.alpha_batcher
+                                                    .batch_list
+                                                    .alpha_batch_list
+                                                    .batches {
+                                    batch_list.push(batch.key.kind.debug_name(), batch.instances.len());
+                                }
+                            }
+                        }
+                    }
+
+                    let json = serde_json::to_string(&batch_list).unwrap();
+                    sender.send(json).ok();
+                }
+            }
+        }
+    }
+
+    fn handle_debug_command(&mut self, command: DebugCommand) {
+        match command {
+            DebugCommand::EnableProfiler(enable) => {
+                if enable {
+                    self.debug_flags.insert(PROFILER_DBG);
+                } else {
+                    self.debug_flags.remove(PROFILER_DBG);
+                }
+            }
+            DebugCommand::EnableTextureCacheDebug(enable) => {
+                if enable {
+                    self.debug_flags.insert(TEXTURE_CACHE_DBG);
+                } else {
+                    self.debug_flags.remove(TEXTURE_CACHE_DBG);
+                }
+            }
+            DebugCommand::EnableRenderTargetDebug(enable) => {
+                if enable {
+                    self.debug_flags.insert(RENDER_TARGET_DBG);
+                } else {
+                    self.debug_flags.remove(RENDER_TARGET_DBG);
+                }
+            }
+            DebugCommand::Flush => {
+                self.update_debug_server();
             }
         }
     }
@@ -2626,5 +2751,15 @@ impl Default for RendererOptions {
             recorder: None,
             enable_render_on_scroll: true,
         }
+    }
+}
+
+#[cfg(not(feature = "debugger"))]
+pub struct DebugServer;
+
+#[cfg(not(feature = "debugger"))]
+impl DebugServer {
+    pub fn new(_: MsgSender<ApiMsg>) -> DebugServer {
+        DebugServer
     }
 }

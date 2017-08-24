@@ -55,6 +55,8 @@ mod clip_scroll_tree;
 mod debug_colors;
 mod debug_font_data;
 mod debug_render;
+#[cfg(feature = "debugger")]
+mod debug_server;
 mod device;
 mod ellipse;
 mod frame;
@@ -132,6 +134,13 @@ pub extern crate webrender_api;
 extern crate byteorder;
 extern crate rayon;
 extern crate plane_split;
+#[cfg(feature = "debugger")]
+extern crate ws;
+#[cfg(feature = "debugger")]
+extern crate serde_json;
+#[cfg(feature = "debugger")]
+#[macro_use]
+extern crate serde_derive;
 
 #[cfg(any(target_os="macos", target_os="windows"))]
 extern crate gamma_lut;

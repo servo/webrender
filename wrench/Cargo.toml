@@ -29,6 +29,7 @@ serde = {version = "1.0", features = ["derive"] }
 [features]
 headless = [ "osmesa-sys", "osmesa-src" ]
 logging = [ "env_logger" ]
+debugger = [ "webrender/debugger"]
 
 [target.'cfg(target_os = "windows")'.dependencies]
 dwrote = "0.4"
