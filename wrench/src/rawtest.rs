@@ -38,12 +38,51 @@ impl<'a> RawtestHarness<'a> {
 
     pub fn run(mut self) {
         self.retained_blob_images_test();
+        self.tile_decomposition();
     }
 
     fn render_and_get_pixels(&mut self, window_rect: DeviceUintRect) -> Vec<u8> {
         self.rx.recv().unwrap();
         self.wrench.render();
         self.wrench.renderer.read_pixels_rgba8(window_rect)
+    }
+
+    fn tile_decomposition(&mut self) {
+        // This exposes a crash in tile decomposition
+        let layout_size = LayoutSize::new(800., 800.);
+        let mut resources = ResourceUpdates::new();
+
+        let blob_img = self.wrench.api.generate_image_key();
+        resources.add_image(blob_img,
+                            ImageDescriptor::new(151, 56, ImageFormat::BGRA8, true),
+                            ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
+                            Some(128));
+
+        let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
+
+        let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
+
+        // setup some malicious image size parameters
+        builder.push_image(
+            LayoutRect::new(LayoutPoint::new(448.899994, 74.0), LayoutSize::new(151.000031, 56.)),
+            None,
+            LayoutSize::new(151., 56.0),
+            LayoutSize::new(151.0, 56.0),
+            ImageRendering::Auto,
+            blob_img,
+        );
+
+        self.wrench.api.set_display_list(self.wrench.document_id,
+                                         Epoch(0),
+                                         root_background_color,
+                                         layout_size,
+                                         builder.finalize(),
+                                         false,
+                                         resources);
+        self.wrench.api.generate_frame(self.wrench.document_id, None);
+
+        self.rx.recv().unwrap();
+        self.wrench.render();
     }
 
     fn retained_blob_images_test(&mut self) {
