@@ -582,8 +582,8 @@ impl YamlFrameWriter {
             let mut v = new_table();
             rect_node(&mut v, "bounds", &base.rect());
 
-            rect_node(&mut v, "clip-rect", base.local_clip().clip_rect());
-            if let &LocalClip::RoundedRect(_, ref region) = base.local_clip() {
+            rect_node(&mut v, "clip-rect", base.local_clip().unwrap().clip_rect());
+            if let &LocalClip::RoundedRect(_, ref region) = &base.local_clip().unwrap() {
                 yaml_node(&mut v, "complex-clip", self.make_complex_clip_node(region));
             }
 
@@ -594,6 +594,7 @@ impl YamlFrameWriter {
                 (scroll_id, None) => Yaml::Integer(scroll_id),
             };
             yaml_node(&mut v, "clip-and-scroll", clip_and_scroll_yaml);
+            bool_node(&mut v, "backface-visible", base.is_backface_visible());
 
             match *base.item() {
                 Rectangle(item) => {
@@ -873,7 +874,7 @@ impl YamlFrameWriter {
                     str_node(&mut v, "type", "scroll-frame");
                     usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
                     size_node(&mut v, "content-size", &base.rect().size);
-                    rect_node(&mut v, "bounds", &base.local_clip().clip_rect());
+                    rect_node(&mut v, "bounds", &base.local_clip().unwrap().clip_rect());
 
                     let &(complex_clips, complex_clip_count) = base.complex_clip();
                     if let Some(complex) = self.make_complex_clips_node(complex_clip_count,
@@ -889,7 +890,7 @@ impl YamlFrameWriter {
                 StickyFrame(item) => {
                     str_node(&mut v, "type", "sticky-frame");
                     usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
-                    rect_node(&mut v, "bounds", &base.local_clip().clip_rect());
+                    rect_node(&mut v, "bounds", &base.local_clip().unwrap().clip_rect());
                     yaml_node(&mut v, "sticky-info",
                               self.make_sticky_frame_info_node(&item.sticky_frame_info));
                 }
