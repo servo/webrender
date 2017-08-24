@@ -331,6 +331,11 @@ impl RenderApi {
         FontKey::new(self.namespace_id, new_id)
     }
 
+    pub fn generate_font_instance_key(&self) -> FontInstanceKey {
+        let new_id = self.next_unique_id();
+        FontInstanceKey::new(self.namespace_id, new_id)
+    }
+
     /// Gets the dimensions for the supplied glyph keys
     ///
     /// Note: Internally, the internal texture cache doesn't store

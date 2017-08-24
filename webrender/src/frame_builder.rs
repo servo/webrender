@@ -899,10 +899,9 @@ impl FrameBuilder {
         // TODO(gw): Use a proper algorithm to select
         // whether this item should be rendered with
         // subpixel AA!
-        let mut default_render_mode = cmp::min(self.config.default_font_render_mode,
-                                               font.render_mode);
+        let mut default_render_mode = self.config.default_font_render_mode.limit_by(font.render_mode);
         if let Some(options) = glyph_options {
-            default_render_mode = cmp::min(default_render_mode, options.render_mode);
+            default_render_mode = default_render_mode.limit_by(options.render_mode);
         }
 
         // There are some conditions under which we can't use

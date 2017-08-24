@@ -379,8 +379,8 @@ fn raterize_200_glyphs() {
     glyph_rasterizer.add_font(font_key, FontTemplate::Raw(Arc::new(font_data), 0));
 
     let font = FontInstance::new(font_key,
-                                 ColorF::new(0.0, 0.0, 0.0, 1.0),
                                  Au::from_px(32),
+                                 ColorF::new(0.0, 0.0, 0.0, 1.0),
                                  FontRenderMode::Subpixel,
                                  SubpixelDirection::Horizontal,
                                  None);

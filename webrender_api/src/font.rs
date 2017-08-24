@@ -115,6 +115,20 @@ impl FontRenderMode {
             _ => panic!("Should only be given the fractional part"),
         }
     }
+
+    // Combine two font render modes such that the lesser amount of AA limits the AA of the result.
+    pub fn limit_by(self, other: FontRenderMode) -> FontRenderMode {
+        match self {
+            FontRenderMode::Subpixel => other,
+            FontRenderMode::Alpha => {
+                match other {
+                    FontRenderMode::Subpixel | FontRenderMode::Alpha => self,
+                    FontRenderMode::Mono => other,
+                }
+            }
+            FontRenderMode::Mono => self,
+        }
+    }
 }
 
 #[repr(u8)]

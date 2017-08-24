@@ -4,6 +4,7 @@
 
 extern crate yaml_rust;
 
+use app_units::Au;
 use euclid::{TypedTransform3D, TypedPoint2D, TypedVector2D, TypedRect, TypedSize2D};
 use image::{ColorType, save_buffer};
 use premultiply::unpremultiply;
@@ -204,6 +205,11 @@ enum CachedFont {
     Raw(Option<Vec<u8>>, u32, Option<PathBuf>),
 }
 
+struct CachedFontInstance {
+    font_key: FontKey,
+    glyph_size: Au,
+}
+
 struct CachedImage {
     width: u32,
     height: u32,
@@ -221,6 +227,7 @@ pub struct YamlFrameWriter {
     rsrc_prefix: String,
     images: HashMap<ImageKey, CachedImage>,
     fonts: HashMap<FontKey, CachedFont>,
+    font_instances: HashMap<FontInstanceKey, CachedFontInstance>,
 
     last_frame_written: u32,
     pipeline_id: Option<PipelineId>,
@@ -263,6 +270,7 @@ impl YamlFrameWriter {
             next_rsrc_num: 1,
             images: HashMap::new(),
             fonts: HashMap::new(),
+            font_instances: HashMap::new(),
 
             dl_descriptor: None,
 
@@ -408,6 +416,13 @@ impl YamlFrameWriter {
                     }
                 }
                 ResourceUpdate::DeleteFont(_) => {}
+                ResourceUpdate::AddFontInstance(ref instance) => {
+                    self.font_instances.insert(instance.key, CachedFontInstance {
+                        font_key: instance.font_key,
+                        glyph_size: instance.glyph_size,
+                    });
+                }
+                ResourceUpdate::DeleteFontInstance(_) => {}
             }
         }
     }
@@ -606,10 +621,16 @@ impl YamlFrameWriter {
                     }
                     u32_vec_node(&mut v, "glyphs", &indices);
                     f32_vec_node(&mut v, "offsets", &offsets);
-                    f32_node(&mut v, "size", item.size.to_f32_px() * 12.0 / 16.0);
+
+                    let instance = self.font_instances.entry(item.font_key).or_insert_with(|| {
+                        println!("Warning: font instance key not found in font instances table!");
+                        CachedFontInstance { font_key: FontKey::new(IdNamespace(0), 0), glyph_size: Au::from_px(16) }
+                    });
+
+                    f32_node(&mut v, "size", instance.glyph_size.to_f32_px() * 12.0 / 16.0);
                     color_node(&mut v, "color", item.color);
 
-                    let entry = self.fonts.entry(item.font_key).or_insert_with(|| {
+                    let entry = self.fonts.entry(instance.font_key).or_insert_with(|| {
                         println!("Warning: font key not found in fonts table!");
                         CachedFont::Raw(Some(vec![]), 0, None)
                     });

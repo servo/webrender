@@ -529,6 +529,13 @@ impl TextRunPrimitiveCpu {
                           gpu_cache: &mut GpuCache) {
         let mut font = self.font.clone();
         font.size = font.size.scale_by(device_pixel_ratio);
+        match run_mode {
+            TextRunMode::Shadow => {
+                font.render_mode = self.shadow_render_mode;
+            }
+            TextRunMode::Normal => {}
+        }
+
         if run_mode == TextRunMode::Shadow {
             font.render_mode = self.shadow_render_mode;
         }

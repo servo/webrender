@@ -6,6 +6,7 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
+use app_units::Au;
 use image::{ColorType, save_buffer};
 use premultiply::unpremultiply;
 use serde_json;
@@ -25,6 +26,11 @@ enum CachedFont {
     Raw(Option<Vec<u8>>, u32, Option<PathBuf>),
 }
 
+struct CachedFontInstance {
+    font_key: FontKey,
+    glyph_size: Au,
+}
+
 struct CachedImage {
     width: u32,
     height: u32,
@@ -41,6 +47,7 @@ pub struct JsonFrameWriter {
     next_rsrc_num: u32,
     images: HashMap<ImageKey, CachedImage>,
     fonts: HashMap<FontKey, CachedFont>,
+    font_instances: HashMap<FontInstanceKey, CachedFontInstance>,
 
     last_frame_written: u32,
 
@@ -62,6 +69,7 @@ impl JsonFrameWriter {
             next_rsrc_num: 1,
             images: HashMap::new(),
             fonts: HashMap::new(),
+            font_instances: HashMap::new(),
 
             dl_descriptor: None,
 
@@ -155,6 +163,13 @@ impl JsonFrameWriter {
                     }
                 }
                 ResourceUpdate::DeleteFont(_) => {}
+                ResourceUpdate::AddFontInstance(ref instance) => {
+                    self.font_instances.insert(instance.key, CachedFontInstance {
+                        font_key: instance.font_key,
+                        glyph_size: instance.glyph_size,
+                    });
+                }
+                ResourceUpdate::DeleteFontInstance(_) => {}
             }
         }
     }

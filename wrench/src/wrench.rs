@@ -332,6 +332,14 @@ impl Wrench {
         key
     }
 
+    pub fn add_font_instance(&mut self, font_key: FontKey, size: Au) -> FontInstanceKey {
+        let key = self.api.generate_font_instance_key();
+        let mut update = ResourceUpdates::new();
+        update.add_font_instance(key, font_key, size, None, None);
+        self.api.update_resources(update);
+        key
+    }
+
     pub fn add_or_get_image(&mut self, file: &Path, tiling: Option<i64>) -> (ImageKey, LayoutSize) {
         let key = (file.to_owned(), tiling);
         if let Some(k) = self.image_map.get(&key) {

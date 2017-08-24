@@ -80,6 +80,7 @@ pub struct YamlFrameReader {
     scroll_offsets: HashMap<ClipId, LayerPoint>,
 
     fonts: HashMap<FontDescriptor, FontKey>,
+    font_instances: HashMap<(FontKey, Au), FontInstanceKey>,
 }
 
 impl YamlFrameReader {
@@ -95,6 +96,7 @@ impl YamlFrameReader {
             include_only: vec![],
             scroll_offsets: HashMap::new(),
             fonts: HashMap::new(),
+            font_instances: HashMap::new(),
         }
     }
 
@@ -198,6 +200,14 @@ impl YamlFrameReader {
                         wrench.font_key_from_properties(family, weight, style, stretch)
                     }
                 }
+            })
+    }
+
+    fn get_or_create_font_instance(&mut self, font_key: FontKey, size: Au, wrench: &mut Wrench) -> FontInstanceKey {
+        *self.font_instances
+            .entry((font_key, size))
+            .or_insert_with(|| {
+                wrench.add_font_instance(font_key, size)
             })
     }
 
@@ -498,6 +508,7 @@ impl YamlFrameReader {
 
         let desc = FontDescriptor::from_yaml(item, &self.aux_dir);
         let font_key = self.get_or_create_font(desc, wrench);
+        let font_instance_key = self.get_or_create_font_instance(font_key, size, wrench);
 
         assert!(!(item["glyphs"].is_badvalue() && item["text"].is_badvalue()),
                "text item had neither text nor glyphs!");
@@ -545,9 +556,8 @@ impl YamlFrameReader {
         dl.push_text(rect,
                      Some(local_clip),
                      &glyphs,
-                     font_key,
+                     font_instance_key,
                      color,
-                     size,
                      None);
     }
 
