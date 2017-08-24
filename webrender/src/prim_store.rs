@@ -1038,6 +1038,11 @@ impl PrimitiveStore {
                                layer_combined_local_clip_rect: &LayerRect,
                                device_pixel_ratio: f32) -> Option<(LayerRect, DeviceIntRect)> {
         let metadata = &self.cpu_metadata[prim_index.0];
+
+        if !metadata.is_backface_visible && layer_transform.is_backface_visible() {
+            return None;
+        }
+
         let local_rect = metadata.local_rect
                                  .intersection(&metadata.local_clip_rect)
                                  .and_then(|rect| rect.intersection(layer_combined_local_clip_rect));

@@ -1944,6 +1944,10 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                                              .expect("No display list?");
         debug!("\tclip_bounds {:?}, layer_local_clip {:?}", clip_bounds, packed_layer.local_clip_rect);
 
+        if !stacking_context.is_backface_visible && packed_layer.transform.is_backface_visible() {
+            return;
+        }
+
         for i in 0..prim_count {
             let prim_index = PrimitiveIndex(base_prim_index.0 + i);
             let prim_store = &mut self.frame_builder.prim_store;
