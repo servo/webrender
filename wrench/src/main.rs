@@ -340,6 +340,7 @@ fn main() {
         } else if let Some(subargs) = args.subcommand_matches("png") {
             let reader = YamlFrameReader::new_from_args(subargs);
             png::png(&mut wrench, &mut window, reader);
+            wrench.renderer.deinit();
             return;
         } else if let Some(subargs) = args.subcommand_matches("reftest") {
             let (w, h) = window.get_inner_size_pixels();
