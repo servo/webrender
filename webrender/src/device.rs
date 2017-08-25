@@ -824,6 +824,14 @@ impl Device {
         &self.capabilities
     }
 
+    pub fn reset_state(&mut self) {
+        self.bound_textures = [ TextureId::invalid(); 16 ];
+        self.bound_vao = 0;
+        self.bound_pbo = PBOId(0);
+        self.bound_read_fbo = FBOId(0);
+        self.bound_draw_fbo = FBOId(0);
+    }
+
     pub fn compile_shader(gl: &gl::Gl,
                           name: &str,
                           shader_type: gl::GLenum,

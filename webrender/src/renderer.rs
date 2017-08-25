@@ -2185,6 +2185,10 @@ impl Renderer {
                     }
                 };
 
+                // In order to produce the handle, the external image handler may call into
+                // the GL context and change some states.
+                self.device.reset_state();
+
                 let texture_id = match image.source {
                     ExternalImageSource::NativeTexture(texture_id) => TextureId::new(texture_id, texture_target),
                     _ => panic!("No native texture found."),
