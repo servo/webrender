@@ -142,7 +142,6 @@ enum VertexArrayKind {
 pub enum VertexFormat {
     PrimitiveInstances,
     Blur,
-    Clip,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -734,7 +733,6 @@ fn create_prim_shader(name: &'static str,
     let vertex_descriptor = match vertex_format {
         VertexFormat::PrimitiveInstances => DESC_PRIM_INSTANCES,
         VertexFormat::Blur => DESC_BLUR,
-        VertexFormat::Clip => DESC_CLIP,
     };
 
     device.create_program(name,
