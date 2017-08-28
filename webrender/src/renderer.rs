@@ -50,8 +50,8 @@ use std::thread;
 use texture_cache::TextureCache;
 use rayon::ThreadPool;
 use rayon::Configuration as ThreadPoolConfig;
-use tiling::{AlphaBatchKey, AlphaBatchKind, BlurCommand, Frame, RenderTarget};
-use tiling::{AlphaRenderTarget, CacheClipInstance, PrimitiveInstance, ColorRenderTarget, RenderTargetKind};
+use tiling::{AlphaBatchKey, AlphaBatchKind, Frame, RenderTarget};
+use tiling::{AlphaRenderTarget, PrimitiveInstance, ColorRenderTarget, RenderTargetKind};
 use time::precise_time_ns;
 use thread_profiler::{register_thread_with_profiler, write_profile};
 use util::TransformedRectKind;
@@ -1302,8 +1302,7 @@ impl Renderer {
             },
         ];
 
-        let prim_vao = device.create_vao(&DESC_PRIM_INSTANCES,
-                                         mem::size_of::<PrimitiveInstance>() as i32);
+        let prim_vao = device.create_vao(&DESC_PRIM_INSTANCES);
         device.bind_vao(&prim_vao);
         device.update_vao_indices(&prim_vao,
                                   &quad_indices,
@@ -1312,12 +1311,8 @@ impl Renderer {
                                         &quad_vertices,
                                         VertexUsageHint::Static);
 
-        let blur_vao = device.create_vao_with_new_instances(&DESC_BLUR,
-                                                            mem::size_of::<BlurCommand>() as i32,
-                                                            &prim_vao);
-        let clip_vao = device.create_vao_with_new_instances(&DESC_CLIP,
-                                                            mem::size_of::<CacheClipInstance>() as i32,
-                                                            &prim_vao);
+        let blur_vao = device.create_vao_with_new_instances(&DESC_BLUR, &prim_vao);
+        let clip_vao = device.create_vao_with_new_instances(&DESC_CLIP, &prim_vao);
 
         let texture_cache_upload_pbo = device.create_pbo();
 

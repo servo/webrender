@@ -90,9 +90,9 @@ impl DebugRenderer {
                                                   "",
                                                   &DESC_COLOR).unwrap();
 
-        let font_vao = device.create_vao(&DESC_FONT, 32);
-        let line_vao = device.create_vao(&DESC_COLOR, 32);
-        let tri_vao = device.create_vao(&DESC_COLOR, 32);
+        let font_vao = device.create_vao(&DESC_FONT);
+        let line_vao = device.create_vao(&DESC_COLOR);
+        let tri_vao = device.create_vao(&DESC_COLOR);
 
         let font_texture_id = device.create_texture_ids(1, TextureTarget::Array)[0];
         device.init_texture(font_texture_id,
