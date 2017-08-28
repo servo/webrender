@@ -92,7 +92,9 @@ impl DebugServer {
         let broadcaster = socket.broadcaster();
 
         let join_handle = Some(thread::spawn(move || {
-            socket.listen("127.0.0.1:3583").unwrap();
+            if let Err(..) = socket.listen("127.0.0.1:3583") {
+                println!("ERROR: Unable to bind debugger websocket (port may be in use).");
+            }
         }));
 
         DebugServer {
@@ -105,8 +107,8 @@ impl DebugServer {
 
 impl Drop for DebugServer {
     fn drop(&mut self) {
-        self.broadcaster.shutdown().unwrap();
-        self.join_handle.take().unwrap().join().unwrap();
+        self.broadcaster.shutdown().ok();
+        self.join_handle.take().unwrap().join().ok();
     }
 }
 
