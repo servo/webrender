@@ -20,15 +20,14 @@ use debug_render::DebugRenderer;
 use debug_server::{BatchList, DebugMsg, DebugServer};
 use device::{DepthFunction, Device, FrameId, Program, TextureId, VertexDescriptor, GpuMarker, GpuProfiler, PBOId};
 use device::{GpuTimer, TextureFilter, VAO, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
-use device::{get_gl_format_bgra, VertexAttribute, VertexAttributeKind};
+use device::{get_gl_format_bgra, TextureSlot, VertexAttribute, VertexAttributeKind};
 use euclid::{Transform3D, rect};
 use frame_builder::FrameBuilderConfig;
 use gleam::gl;
 use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
 use internal_types::{FastHashMap, CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{TextureUpdateList, RenderTargetMode, TextureUpdateSource};
-use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, SourceTexture};
-use internal_types::{BatchTextures, TextureSampler};
+use internal_types::{BatchTextures, ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, SourceTexture};
 use profiler::{Profiler, BackendProfileCounters};
 use profiler::{GpuProfileTag, RendererProfileTimers, RendererProfileCounters};
 use record::ApiRecordingReceiver;
@@ -123,6 +122,48 @@ bitflags! {
         const PROFILER_DBG      = 1 << 0;
         const RENDER_TARGET_DBG = 1 << 1;
         const TEXTURE_CACHE_DBG = 1 << 2;
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum TextureSampler {
+    Color0,
+    Color1,
+    Color2,
+    CacheA8,
+    CacheRGBA8,
+    ResourceCache,
+    Layers,
+    RenderTasks,
+    Dither,
+}
+
+impl TextureSampler {
+    fn color(n: usize) -> TextureSampler {
+        match n {
+            0 => TextureSampler::Color0,
+            1 => TextureSampler::Color1,
+            2 => TextureSampler::Color2,
+            _ => {
+                panic!("There are only 3 color samplers.");
+            }
+        }
+    }
+}
+
+impl Into<TextureSlot> for TextureSampler {
+    fn into(self) -> TextureSlot {
+        match self {
+            TextureSampler::Color0 => TextureSlot(0),
+            TextureSampler::Color1 => TextureSlot(1),
+            TextureSampler::Color2 => TextureSlot(2),
+            TextureSampler::CacheA8 => TextureSlot(3),
+            TextureSampler::CacheRGBA8 => TextureSlot(4),
+            TextureSampler::ResourceCache => TextureSlot(5),
+            TextureSampler::Layers => TextureSlot(6),
+            TextureSampler::RenderTasks => TextureSlot(7),
+            TextureSampler::Dither => TextureSlot(8),
+        }
     }
 }
 
@@ -768,9 +809,23 @@ fn create_prim_shader(name: &'static str,
         VertexFormat::Blur => DESC_BLUR,
     };
 
-    device.create_program(name,
-                          &prefix,
-                          &vertex_descriptor)
+    let program = device.create_program(name,
+                                        &prefix,
+                                        &vertex_descriptor);
+
+    if let Ok(ref program) = program {
+        device.bind_shader_sampler(program, "sColor0", TextureSampler::Color0);
+        device.bind_shader_sampler(program, "sColor1", TextureSampler::Color1);
+        device.bind_shader_sampler(program, "sColor2", TextureSampler::Color2);
+        device.bind_shader_sampler(program, "sDither", TextureSampler::Dither);
+        device.bind_shader_sampler(program, "sCacheA8", TextureSampler::CacheA8);
+        device.bind_shader_sampler(program, "sCacheRGBA8", TextureSampler::CacheRGBA8);
+        device.bind_shader_sampler(program, "sLayers", TextureSampler::Layers);
+        device.bind_shader_sampler(program, "sRenderTasks", TextureSampler::RenderTasks);
+        device.bind_shader_sampler(program, "sResourceCache", TextureSampler::ResourceCache);
+    }
+
+    program
 }
 
 fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program, ShaderError> {
@@ -780,7 +835,16 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program
 
     debug!("ClipShader {}", name);
 
-    device.create_program(name, &prefix, &DESC_CLIP)
+    let program = device.create_program(name, &prefix, &DESC_CLIP);
+
+    if let Ok(ref program) = program {
+        device.bind_shader_sampler(program, "sColor0", TextureSampler::Color0);
+        device.bind_shader_sampler(program, "sLayers", TextureSampler::Layers);
+        device.bind_shader_sampler(program, "sRenderTasks", TextureSampler::RenderTasks);
+        device.bind_shader_sampler(program, "sResourceCache", TextureSampler::ResourceCache);
+    }
+
+    program
 }
 
 struct GpuDataTextures {
