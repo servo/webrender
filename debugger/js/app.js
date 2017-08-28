@@ -1,7 +1,7 @@
 var state = {
     connected: false,
     page: "options",
-    batches: [],
+    passes: [],
 }
 
 class Connection {
@@ -19,8 +19,8 @@ class Connection {
 
         ws.onmessage = function(evt) {
             var json = JSON.parse(evt.data);
-            if (json['kind'] == "batches") {
-                state.batches = json['batches'];
+            if (json['kind'] == "passes") {
+                state.passes = json['passes'];
             }
         }
 
@@ -62,7 +62,7 @@ Vue.component('app', {
                         </div>
                         <div class="column">
                             <options v-if="state.page == 'options'"></options>
-                            <batchview v-if="state.page == 'batches'" :batches=state.batches></batchview>
+                            <passview v-if="state.page == 'passes'" :passes=state.passes></passview>
                         </div>
                     </div>
                 </div>
@@ -155,33 +155,29 @@ Vue.component('options', {
     `
 })
 
-Vue.component('batchview', {
+Vue.component('passview', {
     props: [
-        'batches'
+        'passes'
     ],
     methods: {
         fetch: function() {
-            connection.send("fetch_batches");
+            connection.send("fetch_passes");
         }
     },
     template: `
         <div class="box">
-            <h1 class="title">Batches <a v-on:click="fetch" class="button is-info">Refresh</a></h1>
+            <h1 class="title">Passes <a v-on:click="fetch" class="button is-info">Refresh</a></h1>
             <hr/>
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>Batch Kind</th>
-                        <th>Instances</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr v-for="batch in batches">
-                        <td>{{ batch.kind }}</td>
-                        <td>{{ batch.count }}</td>
-                    </tr>
-                </tbody>
-            </table>
+            <div v-for="(pass, pass_index) in passes">
+                <p class="has-text-black-bis">Pass {{pass_index}}</p>
+                <div v-for="(target, target_index) in pass.targets">
+                    <p style="text-indent: 2em;" class="has-text-grey-dark">Target {{target_index}} ({{target.kind}})</p>
+                    <div v-for="(batch, batch_index) in target.batches">
+                        <p style="text-indent: 4em;" class="has-text-grey">Batch {{batch_index}} ({{batch.description}}, {{batch.kind}}, {{batch.count}} instances)</p>
+                    </div>
+                </div>
+                <hr/>
+            </div>
         </div>
     `
 })
@@ -202,7 +198,7 @@ Vue.component('mainmenu', {
             </p>
             <ul class="menu-list">
                 <li><a v-on:click="setPage('options')" v-bind:class="{ 'is-active': page == 'options' }">Debug Options</a></li>
-                <li><a v-on:click="setPage('batches')" v-bind:class="{ 'is-active': page == 'batches' }">Batches</a></li>
+                <li><a v-on:click="setPage('passes')" v-bind:class="{ 'is-active': page == 'passes' }">Passes</a></li>
             </ul>
         </aside>
     `
