@@ -1,6 +1,7 @@
 var state = {
     connected: false,
-    batches: [],
+    page: "options",
+    passes: [],
 }
 
 class Connection {
@@ -13,12 +14,13 @@ class Connection {
 
         ws.onopen = function() {
             state.connected = true;
+            state.page = "options";
         }
 
         ws.onmessage = function(evt) {
             var json = JSON.parse(evt.data);
-            if (json['kind'] == "batches") {
-                state.batches = json['batches'];
+            if (json['kind'] == "passes") {
+                state.passes = json['passes'];
             }
         }
 
@@ -52,8 +54,19 @@ Vue.component('app', {
     template: `
         <div>
             <navbar :connected=state.connected></navbar>
-            <options v-if="state.connected"></options>
-            <batchview v-if="state.connected" :batches=state.batches></batchview>
+            <div v-if="state.connected" class="section">
+                <div class="container">
+                    <div class="columns">
+                        <div class="column is-3">
+                            <mainmenu :page=state.page></mainmenu>
+                        </div>
+                        <div class="column">
+                            <options v-if="state.page == 'options'"></options>
+                            <passview v-if="state.page == 'passes'" :passes=state.passes></passview>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     `
 })
@@ -119,63 +132,75 @@ Vue.component('options', {
         }
     },
     template: `
-        <div class="section">
-            <div class="container">
-                <div class="box">
-                    <div class="field">
-                        <label class="checkbox">
-                            <input type="checkbox" v-on:click="setProfiler($event.target.checked)">
-                            Profiler
-                        </label>
-                    </div>
-                    <div class="field">
-                        <label class="checkbox">
-                            <input type="checkbox" v-on:click="setTextureCacheDebugger($event.target.checked)">
-                            Texture cache debugger
-                        </label>
-                    </div>
-                    <div class="field">
-                        <label class="checkbox">
-                            <input type="checkbox" v-on:click="setRenderTargetDebugger($event.target.checked)">
-                            Render target debugger
-                        </label>
-                    </div>
-                </div>
+        <div class="box">
+            <div class="field">
+                <label class="checkbox">
+                    <input type="checkbox" v-on:click="setProfiler($event.target.checked)">
+                    Profiler
+                </label>
+            </div>
+            <div class="field">
+                <label class="checkbox">
+                    <input type="checkbox" v-on:click="setTextureCacheDebugger($event.target.checked)">
+                    Texture cache debugger
+                </label>
+            </div>
+            <div class="field">
+                <label class="checkbox">
+                    <input type="checkbox" v-on:click="setRenderTargetDebugger($event.target.checked)">
+                    Render target debugger
+                </label>
             </div>
         </div>
     `
 })
 
-Vue.component('batchview', {
+Vue.component('passview', {
     props: [
-        'batches'
+        'passes'
     ],
     methods: {
         fetch: function() {
-            connection.send("fetch_batches");
+            connection.send("fetch_passes");
         }
     },
     template: `
-        <div class="container">
-            <div class="box">
-                <h1 class="title">Batches <a v-on:click="fetch" class="button is-info">Refresh</a></h1>
+        <div class="box">
+            <h1 class="title">Passes <a v-on:click="fetch" class="button is-info">Refresh</a></h1>
+            <hr/>
+            <div v-for="(pass, pass_index) in passes">
+                <p class="has-text-black-bis">Pass {{pass_index}}</p>
+                <div v-for="(target, target_index) in pass.targets">
+                    <p style="text-indent: 2em;" class="has-text-grey-dark">Target {{target_index}} ({{target.kind}})</p>
+                    <div v-for="(batch, batch_index) in target.batches">
+                        <p style="text-indent: 4em;" class="has-text-grey">Batch {{batch_index}} ({{batch.description}}, {{batch.kind}}, {{batch.count}} instances)</p>
+                    </div>
+                </div>
                 <hr/>
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Batch Kind</th>
-                            <th>Instances</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-for="batch in batches">
-                            <td>{{ batch.kind }}</td>
-                            <td>{{ batch.count }}</td>
-                        </tr>
-                    </tbody>
-                </table>
             </div>
         </div>
+    `
+})
+
+Vue.component('mainmenu', {
+    props: [
+        'page',
+    ],
+    methods: {
+        setPage: function(id) {
+            state.page = id;
+        }
+    },
+    template: `
+        <aside class="menu">
+            <p class="menu-label">
+                Pages
+            </p>
+            <ul class="menu-list">
+                <li><a v-on:click="setPage('options')" v-bind:class="{ 'is-active': page == 'options' }">Debug Options</a></li>
+                <li><a v-on:click="setPage('passes')" v-bind:class="{ 'is-active': page == 'passes' }">Passes</a></li>
+            </ul>
+        </aside>
     `
 })
 

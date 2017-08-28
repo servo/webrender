@@ -17,7 +17,7 @@ use api::DebugCommand;
 use debug_colors;
 use debug_render::DebugRenderer;
 #[cfg(feature = "debugger")]
-use debug_server::{BatchList, DebugMsg, DebugServer};
+use debug_server::{self, DebugMsg, DebugServer};
 use device::{DepthFunction, Device, FrameId, Program, TextureId, VertexDescriptor, GpuMarker, GpuProfiler, PBOId};
 use device::{GpuTimer, TextureFilter, VAO, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
 use device::{get_gl_format_bgra, VertexAttribute, VertexAttributeKind};
@@ -103,7 +103,14 @@ impl AlphaBatchKind {
             AlphaBatchKind::Blend => "Blend",
             AlphaBatchKind::Rectangle => "Rectangle",
             AlphaBatchKind::TextRun => "TextRun",
-            AlphaBatchKind::Image(..) => "Image",
+            AlphaBatchKind::Image(image_buffer_kind, ..) => {
+                match image_buffer_kind {
+                    ImageBufferKind::Texture2D => "Image (2D)",
+                    ImageBufferKind::TextureRect => "Image (Rect)",
+                    ImageBufferKind::TextureExternal => "Image (External)",
+                    ImageBufferKind::Texture2DArray => "Image (Array)",
+                }
+            },
             AlphaBatchKind::YuvImage(..) => "YuvImage",
             AlphaBatchKind::AlignedGradient => "AlignedGradient",
             AlphaBatchKind::AngleGradient => "AngleGradient",
@@ -1536,26 +1543,34 @@ impl Renderer {
     fn update_debug_server(&self) {
         while let Ok(msg) = self.debug_server.debug_rx.try_recv() {
             match msg {
-                DebugMsg::FetchBatches(sender) => {
-                    let mut batch_list = BatchList::new();
+                DebugMsg::FetchPasses(sender) => {
+                    let mut debug_passes = debug_server::PassList::new();
 
                     if let Some(frame) = self.current_frame.as_ref().and_then(|frame| frame.frame.as_ref()) {
                         for pass in &frame.passes {
+                            let mut debug_pass = debug_server::Pass::new();
+
                             for target in &pass.alpha_targets.targets {
-                                batch_list.push("[Clip] Clear", target.clip_batcher.border_clears.len());
-                                batch_list.push("[Clip] Borders", target.clip_batcher.borders.len());
-                                batch_list.push("[Clip] Rectangles", target.clip_batcher.rectangles.len());
+                                let mut debug_target = debug_server::Target::new("A8");
+
+                                debug_target.add(debug_server::BatchKind::Clip, "Clear", target.clip_batcher.border_clears.len());
+                                debug_target.add(debug_server::BatchKind::Clip, "Borders", target.clip_batcher.borders.len());
+                                debug_target.add(debug_server::BatchKind::Clip, "Rectangles", target.clip_batcher.rectangles.len());
                                 for (_, items) in target.clip_batcher.images.iter() {
-                                    batch_list.push("[Clip] Image mask", items.len());
+                                    debug_target.add(debug_server::BatchKind::Clip, "Image mask", items.len());
                                 }
+
+                                debug_pass.add(debug_target);
                             }
 
                             for target in &pass.color_targets.targets {
-                                batch_list.push("[Cache] Vertical Blur", target.vertical_blurs.len());
-                                batch_list.push("[Cache] Horizontal Blur", target.horizontal_blurs.len());
-                                batch_list.push("[Cache] Box Shadow", target.box_shadow_cache_prims.len());
-                                batch_list.push("[Cache] Text Shadow", target.text_run_cache_prims.len());
-                                batch_list.push("[Cache] Lines", target.line_cache_prims.len());
+                                let mut debug_target = debug_server::Target::new("RGBA8");
+
+                                debug_target.add(debug_server::BatchKind::Cache, "Vertical Blur", target.vertical_blurs.len());
+                                debug_target.add(debug_server::BatchKind::Cache, "Horizontal Blur", target.horizontal_blurs.len());
+                                debug_target.add(debug_server::BatchKind::Cache, "Box Shadow", target.box_shadow_cache_prims.len());
+                                debug_target.add(debug_server::BatchKind::Cache, "Text Shadow", target.text_run_cache_prims.len());
+                                debug_target.add(debug_server::BatchKind::Cache, "Lines", target.line_cache_prims.len());
 
                                 for batch in target.alpha_batcher
                                                    .batch_list
@@ -1563,20 +1578,24 @@ impl Renderer {
                                                    .batches
                                                    .iter()
                                                    .rev() {
-                                    batch_list.push(batch.key.kind.debug_name(), batch.instances.len());
+                                    debug_target.add(debug_server::BatchKind::Opaque, batch.key.kind.debug_name(), batch.instances.len());
                                 }
 
                                 for batch in &target.alpha_batcher
                                                     .batch_list
                                                     .alpha_batch_list
                                                     .batches {
-                                    batch_list.push(batch.key.kind.debug_name(), batch.instances.len());
+                                    debug_target.add(debug_server::BatchKind::Alpha, batch.key.kind.debug_name(), batch.instances.len());
                                 }
+
+                                debug_pass.add(debug_target);
                             }
+
+                            debug_passes.add(debug_pass);
                         }
                     }
 
-                    let json = serde_json::to_string(&batch_list).unwrap();
+                    let json = serde_json::to_string(&debug_passes).unwrap();
                     sender.send(json).ok();
                 }
             }
