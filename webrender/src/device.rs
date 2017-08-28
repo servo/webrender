@@ -284,6 +284,12 @@ impl VertexAttribute {
 }
 
 impl VertexDescriptor {
+    fn instance_stride(&self) -> u32 {
+        self.instance_attributes
+            .iter()
+            .map(|attr| attr.size_in_bytes()).sum()
+    }
+
     fn bind(&self,
             gl: &gl::Gl,
             main: VBOId,
@@ -307,9 +313,7 @@ impl VertexDescriptor {
 
         if !self.instance_attributes.is_empty() {
             instance.bind(gl);
-            let instance_stride: u32 = self.instance_attributes
-                                           .iter()
-                                           .map(|attr| attr.size_in_bytes()).sum();
+            let instance_stride = self.instance_stride();
             let mut instance_offset = 0;
 
             let base_attr = self.vertex_attributes.len() as u32;
@@ -412,7 +416,7 @@ pub struct VAO {
     ibo_id: IBOId,
     main_vbo_id: VBOId,
     instance_vbo_id: VBOId,
-    instance_stride: gl::GLint,
+    instance_stride: usize,
     owns_vertices_and_indices: bool,
 }
 
@@ -1511,11 +1515,11 @@ impl Device {
                             main_vbo_id: VBOId,
                             instance_vbo_id: VBOId,
                             ibo_id: IBOId,
-                            instance_stride: gl::GLint,
                             owns_vertices_and_indices: bool)
                             -> VAO {
         debug_assert!(self.inside_frame);
 
+        let instance_stride = descriptor.instance_stride();
         let vao_id = self.gl.gen_vertex_arrays(1)[0];
 
         self.gl.bind_vertex_array(vao_id);
@@ -1528,7 +1532,7 @@ impl Device {
             ibo_id,
             main_vbo_id,
             instance_vbo_id,
-            instance_stride,
+            instance_stride: instance_stride as usize,
             owns_vertices_and_indices,
         };
 
@@ -1538,8 +1542,7 @@ impl Device {
     }
 
     pub fn create_vao(&mut self,
-                      descriptor: &VertexDescriptor,
-                      inst_stride: gl::GLint) -> VAO {
+                      descriptor: &VertexDescriptor) -> VAO {
         debug_assert!(self.inside_frame);
 
         let buffer_ids = self.gl.gen_buffers(3);
@@ -1551,7 +1554,6 @@ impl Device {
                                   main_vbo_id,
                                   intance_vbo_id,
                                   ibo_id,
-                                  inst_stride,
                                   true)
     }
 
@@ -1569,7 +1571,6 @@ impl Device {
 
     pub fn create_vao_with_new_instances(&mut self,
                                          descriptor: &VertexDescriptor,
-                                         inst_stride: gl::GLint,
                                          base_vao: &VAO) -> VAO {
         debug_assert!(self.inside_frame);
 
@@ -1580,7 +1581,6 @@ impl Device {
                                   base_vao.main_vbo_id,
                                   intance_vbo_id,
                                   base_vao.ibo_id,
-                                  inst_stride,
                                   false)
     }
 
