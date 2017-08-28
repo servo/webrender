@@ -4,7 +4,7 @@
 
 use euclid::Transform3D;
 use gleam::gl;
-use internal_types::{RenderTargetMode, TextureSampler, DEFAULT_TEXTURE, FastHashMap};
+use internal_types::{RenderTargetMode, FastHashMap};
 use super::shader_source;
 use std::fs::File;
 use std::io::Read;
@@ -52,6 +52,11 @@ const SHADER_KIND_VERTEX: &str = "#define WR_VERTEX_SHADER\n";
 const SHADER_KIND_FRAGMENT: &str = "#define WR_FRAGMENT_SHADER\n";
 const SHADER_IMPORT: &str = "#include ";
 const SHADER_LINE_MARKER: &str = "#line 1\n";
+
+pub struct TextureSlot(pub usize);
+
+// In some places we need to temporarily bind a texture to any slot.
+const DEFAULT_TEXTURE: TextureSlot = TextureSlot(0);
 
 #[repr(u32)]
 pub enum DepthFunction {
@@ -894,12 +899,12 @@ impl Device {
         self.frame_id
     }
 
-    pub fn bind_texture(&mut self,
-                        sampler: TextureSampler,
-                        texture_id: TextureId) {
+    pub fn bind_texture<S>(&mut self,
+                           sampler: S,
+                           texture_id: TextureId) where S: Into<TextureSlot> {
         debug_assert!(self.inside_frame);
 
-        let sampler_index = sampler as usize;
+        let sampler_index = sampler.into().0;
         if self.bound_textures[sampler_index] != texture_id {
             self.bound_textures[sampler_index] = texture_id;
             self.gl.active_texture(gl::TEXTURE0 + sampler_index as gl::GLuint);
@@ -1326,48 +1331,19 @@ impl Device {
 
         self.bind_program(&program);
 
-        // TODO(gw): Abstract these to not be part of the device code!
-        let u_color_0 = self.gl.get_uniform_location(program.id, "sColor0");
-        if u_color_0 != -1 {
-            self.gl.uniform_1i(u_color_0, TextureSampler::Color0 as i32);
-        }
-        let u_color1 = self.gl.get_uniform_location(program.id, "sColor1");
-        if u_color1 != -1 {
-            self.gl.uniform_1i(u_color1, TextureSampler::Color1 as i32);
-        }
-        let u_color_2 = self.gl.get_uniform_location(program.id, "sColor2");
-        if u_color_2 != -1 {
-            self.gl.uniform_1i(u_color_2, TextureSampler::Color2 as i32);
-        }
-        let u_noise = self.gl.get_uniform_location(program.id, "sDither");
-        if u_noise != -1 {
-            self.gl.uniform_1i(u_noise, TextureSampler::Dither as i32);
-        }
-        let u_cache_a8 = self.gl.get_uniform_location(program.id, "sCacheA8");
-        if u_cache_a8 != -1 {
-            self.gl.uniform_1i(u_cache_a8, TextureSampler::CacheA8 as i32);
-        }
-        let u_cache_rgba8 = self.gl.get_uniform_location(program.id, "sCacheRGBA8");
-        if u_cache_rgba8 != -1 {
-            self.gl.uniform_1i(u_cache_rgba8, TextureSampler::CacheRGBA8 as i32);
-        }
-
-        let u_layers = self.gl.get_uniform_location(program.id, "sLayers");
-        if u_layers != -1 {
-            self.gl.uniform_1i(u_layers, TextureSampler::Layers as i32);
-        }
-
-        let u_tasks = self.gl.get_uniform_location(program.id, "sRenderTasks");
-        if u_tasks != -1 {
-            self.gl.uniform_1i(u_tasks, TextureSampler::RenderTasks as i32);
-        }
-
-        let u_resource_cache = self.gl.get_uniform_location(program.id, "sResourceCache");
-        if u_resource_cache != -1 {
-            self.gl.uniform_1i(u_resource_cache, TextureSampler::ResourceCache as i32);
-        }
-
         Ok(program)
+    }
+
+    pub fn bind_shader_samplers<S>(&mut self,
+                                   program: &Program,
+                                   bindings: &[(&'static str, S)]) where S: Into<TextureSlot> + Copy {
+        for binding in bindings {
+            let u_location = self.gl.get_uniform_location(program.id, binding.0);
+            if u_location != -1 {
+                self.bind_program(program);
+                self.gl.uniform_1i(u_location, binding.1.into().0 as gl::GLint);
+            }
+        }
     }
 
     pub fn get_uniform_location(&self, program: &Program, name: &str) -> UniformLocation {
