@@ -5,6 +5,7 @@
 use border::{BorderCornerInstance, BorderCornerSide};
 use device::TextureId;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle, GpuCacheUpdateList};
+use gpu_types::BoxShadowCacheInstance;
 use internal_types::BatchTextures;
 use internal_types::{FastHashMap, SourceTexture};
 use mask_cache::MaskCacheInfo;
@@ -905,7 +906,7 @@ impl<T: RenderTarget> RenderTargetList<T> {
 /// A render target represents a number of rendering operations on a surface.
 pub struct ColorRenderTarget {
     pub alpha_batcher: AlphaBatcher,
-    pub box_shadow_cache_prims: Vec<PrimitiveInstance>,
+    pub box_shadow_cache_prims: Vec<BoxShadowCacheInstance>,
     // List of text runs to be cached to this render target.
     // TODO(gw): For now, assume that these all come from
     //           the same source texture id. This is almost
@@ -997,12 +998,10 @@ impl RenderTarget for ColorRenderTarget {
 
                 match prim_metadata.prim_kind {
                     PrimitiveKind::BoxShadow => {
-                        let instance = SimplePrimitiveInstance::new(prim_address,
-                                                                    render_tasks.get_task_address(task_id),
-                                                                    RenderTaskAddress(0),
-                                                                    PackedLayerIndex(0),
-                                                                    0);     // z is disabled for rendering cache primitives
-                        self.box_shadow_cache_prims.push(instance.build(0, 0, 0));
+                        self.box_shadow_cache_prims.push(BoxShadowCacheInstance {
+                            prim_address: gpu_cache.get_address(&prim_metadata.gpu_location),
+                            task_index: render_tasks.get_task_address(task_id),
+                        });
                     }
                     PrimitiveKind::TextShadow => {
                         let prim = &ctx.prim_store.cpu_text_shadows[prim_metadata.cpu_prim_index.0];
