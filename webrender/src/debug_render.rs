@@ -3,13 +3,26 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use debug_font_data;
-use device::{Device, GpuMarker, Program, VAO, TextureId, VertexDescriptor};
+use device::{Device, GpuMarker, Program, VAO, TextureId, TextureSlot, VertexDescriptor};
 use device::{TextureFilter, VertexAttribute, VertexUsageHint, VertexAttributeKind, TextureTarget};
 use euclid::{Transform3D, Point2D, Size2D, Rect};
-use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, TextureSampler};
+use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE};
 use internal_types::RenderTargetMode;
 use std::f32;
 use api::{ColorU, ImageFormat, DeviceUintSize};
+
+#[derive(Debug, Copy, Clone)]
+enum DebugSampler {
+    Font,
+}
+
+impl Into<TextureSlot> for DebugSampler {
+    fn into(self) -> TextureSlot {
+        match self {
+            DebugSampler::Font => TextureSlot(0),
+        }
+    }
+}
 
 const DESC_FONT: VertexDescriptor = VertexDescriptor {
     vertex_attributes: &[
@@ -86,6 +99,10 @@ impl DebugRenderer {
         let font_program = device.create_program("debug_font",
                                                  "",
                                                  &DESC_FONT).unwrap();
+        device.bind_shader_samplers(&font_program, &[
+            ("sColor0", DebugSampler::Font)
+        ]);
+
         let color_program = device.create_program("debug_color",
                                                   "",
                                                   &DESC_COLOR).unwrap();
@@ -265,7 +282,7 @@ impl DebugRenderer {
         if !self.font_indices.is_empty() {
             device.bind_program(&self.font_program);
             device.set_uniforms(&self.font_program, &projection);
-            device.bind_texture(TextureSampler::Color0, self.font_texture_id);
+            device.bind_texture(DebugSampler::Font, self.font_texture_id);
             device.bind_vao(&self.font_vao);
             device.update_vao_indices(&self.font_vao,
                                       &self.font_indices,
