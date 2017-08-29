@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use border::{BorderCornerInstance, BorderCornerSide};
-use device::TextureId;
+use device::Texture;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle, GpuCacheUpdateList};
 use internal_types::BatchTextures;
 use internal_types::{FastHashMap, SourceTexture};
@@ -1144,8 +1144,8 @@ pub struct RenderPass {
     tasks: Vec<RenderTaskId>,
     pub color_targets: RenderTargetList<ColorRenderTarget>,
     pub alpha_targets: RenderTargetList<AlphaRenderTarget>,
-    pub color_texture_id: Option<TextureId>,
-    pub alpha_texture_id: Option<TextureId>,
+    pub color_texture: Option<Texture>,
+    pub alpha_texture: Option<Texture>,
     dynamic_tasks: FastHashMap<RenderTaskKey, DynamicTaskInfo>,
 }
 
@@ -1156,8 +1156,8 @@ impl RenderPass {
             color_targets: RenderTargetList::new(size, is_framebuffer),
             alpha_targets: RenderTargetList::new(size, false),
             tasks: vec![],
-            color_texture_id: None,
-            alpha_texture_id: None,
+            color_texture: None,
+            alpha_texture: None,
             dynamic_tasks: FastHashMap::default(),
         }
     }
@@ -1175,7 +1175,6 @@ impl RenderPass {
     }
 
     pub fn required_target_count(&self, kind: RenderTargetKind) -> usize {
-        debug_assert!(!self.is_framebuffer);        // framebuffer never needs targets
         match kind {
             RenderTargetKind::Color => self.color_targets.target_count(),
             RenderTargetKind::Alpha => self.alpha_targets.target_count(),
