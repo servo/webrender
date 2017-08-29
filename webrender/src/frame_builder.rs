@@ -1374,7 +1374,7 @@ impl FrameBuilder {
         // The stacking contexts that fall into this category are
         //  - ones with `ContextIsolation::Items`, for their actual items to be backed
         //  - immediate children of `ContextIsolation::Items`
-        let mut preserve_3d_map: FastHashMap<StackingContextIndex, RenderTaskId> = FastHashMap::default();
+        let mut preserve_3d_map_stack: Vec<FastHashMap<StackingContextIndex, RenderTaskId>> = Vec::new();
         // The plane splitter stack, using a simple BSP tree.
         let mut splitter_stack = Vec::new();
 
@@ -1406,6 +1406,7 @@ impl FrameBuilder {
                        stacking_context.isolation == ContextIsolation::Items {
                         if parent_isolation != Some(ContextIsolation::Items) {
                             splitter_stack.push(BspSplitter::new());
+                            preserve_3d_map_stack.push(FastHashMap::default());
                         }
                         alpha_task_stack.push(current_task);
                         current_task = RenderTask::new_dynamic_alpha_batch(stacking_context_rect);
@@ -1490,7 +1491,7 @@ impl FrameBuilder {
                         // when we are out of the `preserve-3d` branch (see the code below),
                         // since this is only where the parent task is known.
                         let current_task_id = render_tasks.add(current_task);
-                        preserve_3d_map.insert(stacking_context_index, current_task_id);
+                        preserve_3d_map_stack.last_mut().unwrap().insert(stacking_context_index, current_task_id);
                         current_task = alpha_task_stack.pop().unwrap();
                     }
 
@@ -1500,11 +1501,11 @@ impl FrameBuilder {
                         let mut splitter = splitter_stack.pop().unwrap();
                         // Flush the accumulated plane splits onto the task tree.
                         // Notice how this is done before splitting in order to avoid duplicate tasks.
-                        current_task.children.extend(preserve_3d_map.values().cloned());
+                        current_task.children.extend(preserve_3d_map_stack.last().unwrap().values().cloned());
                         // Z axis is directed at the screen, `sort` is ascending, and we need back-to-front order.
                         for poly in splitter.sort(vec3(0.0, 0.0, 1.0)) {
                             let sc_index = StackingContextIndex(poly.anchor);
-                            let task_id = preserve_3d_map[&sc_index];
+                            let task_id = preserve_3d_map_stack.last().unwrap()[&sc_index];
                             debug!("\t\tproduce {:?} -> {:?} for {:?}", sc_index, poly, task_id);
                             let pp = &poly.points;
                             let gpu_blocks = [
@@ -1516,7 +1517,7 @@ impl FrameBuilder {
                             let item = AlphaRenderItem::SplitComposite(sc_index, task_id, handle, next_z);
                             current_task.as_alpha_batch_mut().items.push(item);
                         }
-                        preserve_3d_map.clear();
+                        preserve_3d_map_stack.pop();
                         next_z += 1;
                     }
                 }
@@ -1558,7 +1559,7 @@ impl FrameBuilder {
         }
 
         debug_assert!(alpha_task_stack.is_empty());
-        debug_assert!(preserve_3d_map.is_empty());
+        debug_assert!(preserve_3d_map_stack.is_empty());
         render_tasks.add(current_task)
     }
 
