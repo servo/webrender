@@ -1594,19 +1594,13 @@ pub struct PackedLayer {
     pub local_clip_rect: LayerRect,
 }
 
-impl Default for PackedLayer {
-    fn default() -> PackedLayer {
+impl PackedLayer {
+    pub fn empty() -> PackedLayer {
         PackedLayer {
             transform: LayerToWorldTransform::identity(),
             inv_transform: WorldToLayerTransform::identity(),
             local_clip_rect: LayerRect::zero(),
         }
-    }
-}
-
-impl PackedLayer {
-    pub fn empty() -> PackedLayer {
-        Default::default()
     }
 
     pub fn set_transform(&mut self, transform: LayerToWorldTransform) -> bool {

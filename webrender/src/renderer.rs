@@ -40,7 +40,6 @@ use std;
 use std::cmp;
 use std::collections::VecDeque;
 use std::f32;
-use std::marker::PhantomData;
 use std::mem;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -62,7 +61,6 @@ use api::{BlobImageRenderer, channel, FontRenderMode};
 use api::{YuvColorSpace, YuvFormat};
 use api::{YUV_COLOR_SPACES, YUV_FORMATS};
 
-pub const GPU_DATA_TEXTURE_POOL: usize = 5;
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 
 const GPU_TAG_CACHE_BOX_SHADOW: GpuProfileTag = GpuProfileTag { label: "C_BoxShadow", color: debug_colors::BLACK };
@@ -514,106 +512,78 @@ impl CacheTexture {
     }
 }
 
-
-trait GpuStoreLayout {
-    fn image_format() -> ImageFormat;
-
-    fn texture_width<T>() -> usize;
-
-    fn texture_filter() -> TextureFilter;
-
-    fn texel_size() -> usize {
-        match Self::image_format() {
-            ImageFormat::BGRA8 => 4,
-            ImageFormat::RGBAF32 => 16,
-            _ => unreachable!(),
-        }
-    }
-
-    fn texels_per_item<T>() -> usize {
-        let item_size = mem::size_of::<T>();
-        let texel_size = Self::texel_size();
-        debug_assert!(item_size % texel_size == 0);
-        item_size / texel_size
-    }
-
-    fn items_per_row<T>() -> usize {
-        Self::texture_width::<T>() / Self::texels_per_item::<T>()
-    }
-
-    fn rows_per_item<T>() -> usize {
-        Self::texels_per_item::<T>() / Self::texture_width::<T>()
-    }
-}
-
-struct GpuDataTexture<L> {
+struct VertexDataTexture {
     id: TextureId,
-    layout: PhantomData<L>,
+    pbo: PBOId,
 }
 
-impl<L: GpuStoreLayout> GpuDataTexture<L> {
-    fn new(device: &mut Device) -> GpuDataTexture<L> {
+impl VertexDataTexture {
+    fn new(device: &mut Device) -> VertexDataTexture {
         let id = device.create_texture_ids(1, TextureTarget::Default)[0];
+        let pbo = device.create_pbo();
 
-        GpuDataTexture {
+        VertexDataTexture {
             id,
-            layout: PhantomData,
+            pbo,
         }
     }
 
-    fn init<T: Default>(&mut self,
-                        device: &mut Device,
-                        data: &mut Vec<T>) {
+    fn update<T>(&mut self,
+                 device: &mut Device,
+                 data: &mut Vec<T>) {
         if data.is_empty() {
             return;
         }
 
-        let items_per_row = L::items_per_row::<T>();
-        let rows_per_item = L::rows_per_item::<T>();
+        debug_assert!(mem::size_of::<T>() % 16 == 0);
+        let texels_per_item = mem::size_of::<T>() / 16;
+        let items_per_row = MAX_VERTEX_TEXTURE_WIDTH / texels_per_item;
 
         // Extend the data array to be a multiple of the row size.
         // This ensures memory safety when the array is passed to
         // OpenGL to upload to the GPU.
         if items_per_row != 0 {
             while data.len() % items_per_row != 0 {
-                data.push(T::default());
+                data.push(unsafe { mem::uninitialized() });
             }
         }
 
-        let height = if items_per_row != 0 {
-            data.len() / items_per_row
-        } else {
-            data.len() * rows_per_item
-        };
+        let width = (MAX_VERTEX_TEXTURE_WIDTH - (MAX_VERTEX_TEXTURE_WIDTH % texels_per_item)) as u32;
+        let needed_height = (data.len() / items_per_row) as u32;
 
-        device.init_texture(self.id,
-                            L::texture_width::<T>() as u32,
-                            height as u32,
-                            L::image_format(),
-                            L::texture_filter(),
-                            RenderTargetMode::None,
-                            1,
-                            Some(unsafe { mem::transmute(data.as_slice()) } ));
+        // Determine if the texture needs to be resized.
+        let texture_size = device.get_texture_dimensions(self.id);
+
+        if needed_height > texture_size.height {
+            let new_height = (needed_height + 127) & !127;
+
+            device.init_texture(self.id,
+                                width,
+                                new_height,
+                                ImageFormat::RGBAF32,
+                                TextureFilter::Nearest,
+                                RenderTargetMode::None,
+                                1,
+                                None);
+        }
+
+        // Bind a PBO to do the texture upload.
+        // Updating the texture via PBO avoids CPU-side driver stalls.
+        device.bind_pbo(Some(self.pbo));
+        device.update_pbo_data(data);
+        device.update_texture_from_pbo(self.id,
+                                       0,
+                                       0,
+                                       width,
+                                       needed_height,
+                                       0,
+                                       None,
+                                       0);
+
+        // Ensure that other texture updates won't read from this PBO.
+        device.bind_pbo(None);
     }
 }
-
-pub struct VertexDataTextureLayout {}
-
-impl GpuStoreLayout for VertexDataTextureLayout {
-    fn image_format() -> ImageFormat {
-        ImageFormat::RGBAF32
-    }
-
-    fn texture_width<T>() -> usize {
-        MAX_VERTEX_TEXTURE_WIDTH - (MAX_VERTEX_TEXTURE_WIDTH % Self::texels_per_item::<T>())
-    }
-
-    fn texture_filter() -> TextureFilter {
-        TextureFilter::Nearest
-    }
-}
-
-type VertexDataTexture = GpuDataTexture<VertexDataTextureLayout>;
 
 const TRANSFORM_FEATURE: &str = "TRANSFORM";
 const SUBPIXEL_AA_FEATURE: &str = "SUBPIXEL_AA";
@@ -790,28 +760,6 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program
     device.create_program(name, &prefix, &DESC_CLIP)
 }
 
-struct GpuDataTextures {
-    layer_texture: VertexDataTexture,
-    render_task_texture: VertexDataTexture,
-}
-
-impl GpuDataTextures {
-    fn new(device: &mut Device) -> GpuDataTextures {
-        GpuDataTextures {
-            layer_texture: VertexDataTexture::new(device),
-            render_task_texture: VertexDataTexture::new(device),
-        }
-    }
-
-    fn init_frame(&mut self, device: &mut Device, frame: &mut Frame) {
-        self.layer_texture.init(device, &mut frame.layer_texture_data);
-        self.render_task_texture.init(device, &mut frame.render_tasks.task_data);
-
-        device.bind_texture(TextureSampler::Layers, self.layer_texture.id);
-        device.bind_texture(TextureSampler::RenderTasks, self.render_task_texture.id);
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum ReadPixelsFormat {
     Rgba8,
@@ -895,9 +843,8 @@ pub struct Renderer {
     blur_vao: VAO,
     clip_vao: VAO,
 
-    gdt_index: usize,
-    gpu_data_textures: [GpuDataTextures; GPU_DATA_TEXTURE_POOL],
-
+    layer_texture: VertexDataTexture,
+    render_task_texture: VertexDataTexture,
     gpu_cache_texture: CacheTexture,
 
     pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
@@ -1280,14 +1227,6 @@ impl Renderer {
 
         let debug_renderer = DebugRenderer::new(&mut device);
 
-        let gpu_data_textures = [
-            GpuDataTextures::new(&mut device),
-            GpuDataTextures::new(&mut device),
-            GpuDataTextures::new(&mut device),
-            GpuDataTextures::new(&mut device),
-            GpuDataTextures::new(&mut device),
-        ];
-
         let x0 = 0.0;
         let y0 = 0.0;
         let x1 = 1.0;
@@ -1324,6 +1263,9 @@ impl Renderer {
         let texture_cache_upload_pbo = device.create_pbo();
 
         let texture_resolver = SourceTextureResolver::new(&mut device);
+
+        let layer_texture = VertexDataTexture::new(&mut device);
+        let render_task_texture = VertexDataTexture::new(&mut device);
 
         device.end_frame();
 
@@ -1426,8 +1368,8 @@ impl Renderer {
             prim_vao,
             blur_vao,
             clip_vao,
-            gdt_index: 0,
-            gpu_data_textures,
+            layer_texture,
+            render_task_texture,
             pipeline_epoch_map: FastHashMap::default(),
             dither_matrix_texture_id,
             external_image_handler: None,
@@ -2413,12 +2355,12 @@ impl Renderer {
             }
         }
 
-        // TODO(gw): This is a hack / workaround for #728.
-        // We should find a better way to implement these updates rather
-        // than wasting this extra memory, but for now it removes a large
-        // number of driver stalls.
-        self.gpu_data_textures[self.gdt_index].init_frame(&mut self.device, frame);
-        self.gdt_index = (self.gdt_index + 1) % GPU_DATA_TEXTURE_POOL;
+        self.layer_texture.update(&mut self.device, &mut frame.layer_texture_data);
+        self.render_task_texture.update(&mut self.device, &mut frame.render_tasks.task_data);
+
+        self.device.bind_texture(TextureSampler::Layers, self.layer_texture.id);
+        self.device.bind_texture(TextureSampler::RenderTasks, self.render_task_texture.id);
+
         self.texture_resolver.set_cache_textures(None, None);
     }
 
