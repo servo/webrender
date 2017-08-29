@@ -275,6 +275,12 @@ impl RenderBackend {
                     DocumentOp::Nop
                 }
             }
+            DocumentMsg::RemovePipeline(pipeline_id) => {
+                profile_scope!("RemovePipeline");
+
+                doc.scene.remove_pipeline(pipeline_id);
+                DocumentOp::Nop
+            }
             DocumentMsg::Scroll(delta, cursor, move_phase) => {
                 profile_scope!("Scroll");
                 let _timer = profile_counters.total_time.timer();

@@ -110,6 +110,7 @@ pub enum DocumentMsg {
     SetPinchZoom(ZoomFactor),
     SetPan(DeviceIntPoint),
     SetRootPipeline(PipelineId),
+    RemovePipeline(PipelineId),
     SetWindowParameters {
         window_size: DeviceUintSize,
         inner_rect: DeviceUintRect,
@@ -129,6 +130,7 @@ impl fmt::Debug for DocumentMsg {
             DocumentMsg::SetPinchZoom(..) => "DocumentMsg::SetPinchZoom",
             DocumentMsg::SetPan(..) => "DocumentMsg::SetPan",
             DocumentMsg::SetRootPipeline(..) => "DocumentMsg::SetRootPipeline",
+            DocumentMsg::RemovePipeline(..) => "DocumentMsg::RemovePipeline",
             DocumentMsg::SetWindowParameters{..} => "DocumentMsg::SetWindowParameters",
             DocumentMsg::Scroll(..) => "DocumentMsg::Scroll",
             DocumentMsg::ScrollNodeWithId(..) => "DocumentMsg::ScrollNodeWithId",
@@ -414,7 +416,7 @@ impl RenderApi {
         self.api_sender.send(ApiMsg::UpdateDocument(document_id, msg)).unwrap()
     }
 
-        /// Sets the root pipeline.
+    /// Sets the root pipeline.
     ///
     /// # Examples
     ///
@@ -429,6 +431,13 @@ impl RenderApi {
     /// ```
     pub fn set_root_pipeline(&self, document_id: DocumentId, pipeline_id: PipelineId) {
         self.send(document_id, DocumentMsg::SetRootPipeline(pipeline_id));
+    }
+
+    /// Removes data associated with a pipeline from the internal data structures.
+    /// If the specified `pipeline_id` is for the root pipeline, the root pipeline
+    /// is reset back to `None`.
+    pub fn remove_pipeline(&self, document_id: DocumentId, pipeline_id: PipelineId) {
+        self.send(document_id, DocumentMsg::RemovePipeline(pipeline_id));
     }
 
     /// Supplies a new frame to WebRender.

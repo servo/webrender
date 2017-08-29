@@ -932,6 +932,9 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                                                            viewport_size,
                                                            list_descriptor);
             }
+            ApiMsg::UpdateDocument(_, DocumentMsg::RemovePipeline(ref pipeline_id)) => {
+                self.scene.remove_pipeline(pipeline_id);
+            }
             ApiMsg::UpdateDocument(..) => {}
             _ => {}
         }
