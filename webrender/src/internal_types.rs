@@ -156,8 +156,13 @@ impl RendererFrame {
     }
 }
 
+pub enum DebugOutput {
+    FetchDocuments(String),
+}
+
 pub enum ResultMsg {
     DebugCommand(DebugCommand),
+    DebugOutput(DebugOutput),
     RefreshShader(PathBuf),
     NewFrame(DocumentId, RendererFrame, TextureUpdateList, BackendProfileCounters),
     UpdateResources { updates: TextureUpdateList, cancel_rendering: bool },
