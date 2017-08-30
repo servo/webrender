@@ -34,6 +34,14 @@ impl Scene {
         self.root_pipeline_id = Some(pipeline_id);
     }
 
+    pub fn remove_pipeline(&mut self, pipeline_id: &PipelineId) {
+        if self.root_pipeline_id == Some(*pipeline_id) {
+            self.root_pipeline_id = None;
+        }
+        self.pipeline_map.remove(pipeline_id);
+        self.display_lists.remove(pipeline_id);
+    }
+
     pub fn begin_display_list(&mut self,
                               pipeline_id: &PipelineId,
                               epoch: &Epoch,
