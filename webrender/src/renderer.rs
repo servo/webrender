@@ -1620,6 +1620,7 @@ impl Renderer {
                                 for (_, items) in target.clip_batcher.images.iter() {
                                     debug_target.add(debug_server::BatchKind::Clip, "Image mask", items.len());
                                 }
+                                debug_target.add(debug_server::BatchKind::Cache, "Box Shadow", target.box_shadow_cache_prims.len());
 
                                 debug_pass.add(debug_target);
                             }
@@ -1629,7 +1630,6 @@ impl Renderer {
 
                                 debug_target.add(debug_server::BatchKind::Cache, "Vertical Blur", target.vertical_blurs.len());
                                 debug_target.add(debug_server::BatchKind::Cache, "Horizontal Blur", target.horizontal_blurs.len());
-                                debug_target.add(debug_server::BatchKind::Cache, "Box Shadow", target.box_shadow_cache_prims.len());
                                 debug_target.add(debug_server::BatchKind::Cache, "Text Shadow", target.text_run_cache_prims.len());
                                 debug_target.add(debug_server::BatchKind::Cache, "Lines", target.line_cache_prims.len());
 
@@ -2164,16 +2164,6 @@ impl Renderer {
             }
         }
 
-        // Draw any box-shadow caches for this target.
-        if !target.box_shadow_cache_prims.is_empty() {
-            self.device.set_blend(false);
-            let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_BOX_SHADOW);
-            self.cs_box_shadow.bind(&mut self.device, projection);
-            self.draw_instanced_batch(&target.box_shadow_cache_prims,
-                                      VertexArrayKind::CacheBoxShadow,
-                                      &BatchTextures::no_texture());
-        }
-
         // Draw any textrun caches for this target. For now, this
         // is only used to cache text runs that are to be blurred
         // for text-shadow support. In the future it may be worth
@@ -2295,6 +2285,16 @@ impl Renderer {
             self.device.clear_target_rect(Some(clear_color),
                                           None,
                                           target.used_rect());
+        }
+
+        // Draw any box-shadow caches for this target.
+        if !target.box_shadow_cache_prims.is_empty() {
+            self.device.set_blend(false);
+            let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_BOX_SHADOW);
+            self.cs_box_shadow.bind(&mut self.device, projection);
+            self.draw_instanced_batch(&target.box_shadow_cache_prims,
+                                      VertexArrayKind::CacheBoxShadow,
+                                      &BatchTextures::no_texture());
         }
 
         // Draw the clip items into the tiled alpha mask.

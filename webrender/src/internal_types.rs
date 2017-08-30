@@ -69,7 +69,7 @@ impl BatchTextures {
         BatchTextures {
             colors: [
                 SourceTexture::CacheRGBA8,
-                SourceTexture::Invalid,
+                SourceTexture::CacheA8,
                 SourceTexture::Invalid,
             ]
         }
