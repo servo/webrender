@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use debug_font_data;
-use device::{Device, GpuMarker, Program, VAO, TextureId, TextureSlot, VertexDescriptor};
+use device::{Device, GpuMarker, Program, VAO, Texture, TextureSlot, VertexDescriptor};
 use device::{TextureFilter, VertexAttribute, VertexUsageHint, VertexAttributeKind, TextureTarget};
 use euclid::{Transform3D, Point2D, Size2D, Rect};
 use internal_types::{ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE};
@@ -84,7 +84,7 @@ pub struct DebugRenderer {
     font_indices: Vec<u32>,
     font_program: Program,
     font_vao: VAO,
-    font_texture_id: TextureId,
+    font_texture: Texture,
 
     tri_vertices: Vec<DebugColorVertex>,
     tri_indices: Vec<u32>,
@@ -111,8 +111,8 @@ impl DebugRenderer {
         let line_vao = device.create_vao(&DESC_COLOR);
         let tri_vao = device.create_vao(&DESC_COLOR);
 
-        let font_texture_id = device.create_texture_ids(1, TextureTarget::Array)[0];
-        device.init_texture(font_texture_id,
+        let mut font_texture = device.create_texture(TextureTarget::Array);
+        device.init_texture(&mut font_texture,
                             debug_font_data::BMP_WIDTH,
                             debug_font_data::BMP_HEIGHT,
                             ImageFormat::A8,
@@ -132,11 +132,12 @@ impl DebugRenderer {
             color_program,
             font_vao,
             line_vao,
-            font_texture_id,
+            font_texture,
         }
     }
 
     pub fn deinit(self, device: &mut Device) {
+        device.delete_texture(self.font_texture);
         device.delete_program(self.font_program);
         device.delete_program(self.color_program);
         device.delete_vao(self.tri_vao);
@@ -282,7 +283,7 @@ impl DebugRenderer {
         if !self.font_indices.is_empty() {
             device.bind_program(&self.font_program);
             device.set_uniforms(&self.font_program, &projection);
-            device.bind_texture(DebugSampler::Font, self.font_texture_id);
+            device.bind_texture(DebugSampler::Font, &self.font_texture);
             device.bind_vao(&self.font_vao);
             device.update_vao_indices(&self.font_vao,
                                       &self.font_indices,
