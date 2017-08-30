@@ -155,8 +155,10 @@ pub enum DebugCommand {
     EnableTextureCacheDebug(bool),
     // Display intermediate render targets on screen.
     EnableRenderTargetDebug(bool),
-    // Flush any pending debug commands.
-    Flush,
+    // Fetch current documents and display lists.
+    FetchDocuments,
+    // Fetch current passes and batches.
+    FetchPasses,
 }
 
 #[derive(Clone, Deserialize, Serialize)]

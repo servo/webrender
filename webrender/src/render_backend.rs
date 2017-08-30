@@ -2,14 +2,18 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#[cfg(feature = "debugger")]
+use debug_server;
 use frame::Frame;
 use frame_builder::FrameBuilderConfig;
 use gpu_cache::GpuCache;
-use internal_types::{FastHashMap, ResultMsg, RendererFrame};
+use internal_types::{DebugOutput, FastHashMap, ResultMsg, RendererFrame};
 use profiler::{BackendProfileCounters, ResourceProfileCounters};
 use record::ApiRecordingReceiver;
 use resource_cache::ResourceCache;
 use scene::Scene;
+#[cfg(feature = "debugger")]
+use serde_json;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use std::u32;
@@ -19,9 +23,11 @@ use thread_profiler::register_thread_with_profiler;
 use rayon::ThreadPool;
 use api::channel::{MsgReceiver, PayloadReceiver, PayloadReceiverHelperMethods};
 use api::channel::{PayloadSender, PayloadSenderHelperMethods};
-use api::{ApiMsg, BlobImageRenderer, BuiltDisplayList, DeviceIntPoint};
+use api::{ApiMsg, DebugCommand, BlobImageRenderer, BuiltDisplayList, DeviceIntPoint};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentId, DocumentMsg};
 use api::{IdNamespace, LayerPoint, RenderNotifier};
+#[cfg(feature = "debugger")]
+use api::{BuiltDisplayListIter, SpecificDisplayItem, DisplayItemRef};
 
 struct Document {
     scene: Scene,
@@ -462,7 +468,15 @@ impl RenderBackend {
                     self.notifier.lock().unwrap().as_mut().unwrap().new_frame_ready();
                 }
                 ApiMsg::DebugCommand(option) => {
-                    let msg = ResultMsg::DebugCommand(option);
+                    let msg = match option {
+                        DebugCommand::FetchDocuments => {
+                            let json = self.get_docs_for_debugger();
+                            ResultMsg::DebugOutput(DebugOutput::FetchDocuments(json))
+                        }
+                        _ => {
+                            ResultMsg::DebugCommand(option)
+                        }
+                    };
                     self.result_tx.send(msg).unwrap();
                     let notifier = self.notifier.lock();
                     notifier.unwrap()
@@ -513,5 +527,135 @@ impl RenderBackend {
         //           cleaner way to do this, or use the OnceMutex on crates.io?
         let mut notifier = self.notifier.lock();
         notifier.as_mut().unwrap().as_mut().unwrap().new_scroll_frame_ready(composite_needed);
+    }
+
+
+    #[cfg(not(feature = "debugger"))]
+    fn get_docs_for_debugger(&self) -> String {
+        String::new()
+    }
+
+    // TODO(gw): The display list traversal below is a copy of the skeleton
+    //           from frame.rs. We might like to try and unify the traversal
+    //           functions so that this code could be shared, and invoke
+    //           a callback as items are encountered?
+
+    #[cfg(feature = "debugger")]
+    fn traverse_item<'a, 'b>(&self,
+                             item: DisplayItemRef<'a, 'b>,
+                             node: &mut debug_server::TreeNode)
+                             -> Option<BuiltDisplayListIter<'a>> {
+        match *item.item() {
+            SpecificDisplayItem::Image(..) => {
+                node.add_item("image");
+            }
+            SpecificDisplayItem::YuvImage(..) => {
+                node.add_item("yuv_image");
+            }
+            SpecificDisplayItem::Text(..) => {
+                node.add_item("text");
+            }
+            SpecificDisplayItem::Rectangle(..) => {
+                node.add_item("rectangle");
+            }
+            SpecificDisplayItem::Line(..) => {
+                node.add_item("line");
+            }
+            SpecificDisplayItem::Gradient(..) => {
+                node.add_item("gradient");
+            }
+            SpecificDisplayItem::RadialGradient(..) => {
+                node.add_item("radial_gradient");
+            }
+            SpecificDisplayItem::BoxShadow(..) => {
+                node.add_item("box_shadow");
+            }
+            SpecificDisplayItem::Border(..) => {
+                node.add_item("border");
+            }
+            SpecificDisplayItem::PushStackingContext(..) => {
+                let mut subtraversal = item.sub_iter();
+                let mut child_node = debug_server::TreeNode::new("stacking context");
+                self.traverse_items(&mut subtraversal, &mut child_node);
+                node.add_child(child_node);
+                return Some(subtraversal);
+            }
+            SpecificDisplayItem::Iframe(..) => {
+                node.add_item("iframe");
+            }
+            SpecificDisplayItem::Clip(..) => {
+                node.add_item("clip");
+            }
+            SpecificDisplayItem::ScrollFrame(..) => {
+                node.add_item("scroll_frame");
+            }
+            SpecificDisplayItem::StickyFrame(..) => {
+                node.add_item("sticky_frame");
+            }
+            SpecificDisplayItem::PushNestedDisplayList => {
+                node.add_item("push_nested_display_list");
+            }
+            SpecificDisplayItem::PopNestedDisplayList => {
+                node.add_item("pop_nested_display_list");
+            }
+            SpecificDisplayItem::SetGradientStops => {
+                node.add_item("set_gradient_stops");
+            }
+            SpecificDisplayItem::PopStackingContext => {
+                unreachable!("Should have returned in parent method.");
+            }
+            SpecificDisplayItem::PushTextShadow(..) => {
+                node.add_item("push_text_shadow");
+            }
+            SpecificDisplayItem::PopTextShadow => {
+                node.add_item("pop_text_shadow");
+            }
+        }
+        None
+    }
+
+    #[cfg(feature = "debugger")]
+    fn traverse_items<'a>(&self,
+                          traversal: &mut BuiltDisplayListIter<'a>,
+                          node: &mut debug_server::TreeNode) {
+        loop {
+            let subtraversal = {
+                let item = match traversal.next() {
+                    Some(item) => item,
+                    None => break,
+                };
+
+                if SpecificDisplayItem::PopStackingContext == *item.item() {
+                    return;
+                }
+
+                self.traverse_item(item, node)
+            };
+
+            // If flatten_item created a sub-traversal, we need `traversal` to have the
+            // same state as the completed subtraversal, so we reinitialize it here.
+            if let Some(subtraversal) = subtraversal {
+                *traversal = subtraversal;
+            }
+        }
+    }
+
+    #[cfg(feature = "debugger")]
+    fn get_docs_for_debugger(&self) -> String {
+        let mut docs = debug_server::DocumentList::new();
+
+        for (_, doc) in &self.documents {
+            let mut debug_doc = debug_server::TreeNode::new("document");
+
+            for (_, display_list) in &doc.scene.display_lists {
+                let mut debug_dl = debug_server::TreeNode::new("display_list");
+                self.traverse_items(&mut display_list.iter(), &mut debug_dl);
+                debug_doc.add_child(debug_dl);
+            }
+
+            docs.add(debug_doc);
+        }
+
+        serde_json::to_string(&docs).unwrap()
     }
 }
