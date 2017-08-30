@@ -211,10 +211,22 @@ const DESC_CLIP: VertexDescriptor = VertexDescriptor {
     ]
 };
 
+const DESC_CACHE_BOX_SHADOW: VertexDescriptor = VertexDescriptor {
+    vertex_attributes: &[
+        VertexAttribute { name: "aPosition", count: 2, kind: VertexAttributeKind::F32 },
+    ],
+    instance_attributes: &[
+        VertexAttribute { name: "aPrimAddress", count: 2, kind: VertexAttributeKind::U16 },
+        VertexAttribute { name: "aTaskIndex", count: 1, kind: VertexAttributeKind::I32 },
+    ]
+};
+
 enum VertexArrayKind {
     Primitive,
     Blur,
     Clip,
+
+    CacheBoxShadow,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -951,6 +963,7 @@ pub struct Renderer {
     prim_vao: VAO,
     blur_vao: VAO,
     clip_vao: VAO,
+    box_shadow_vao: VAO,
 
     layer_texture: VertexDataTexture,
     render_task_texture: VertexDataTexture,
@@ -1368,6 +1381,7 @@ impl Renderer {
 
         let blur_vao = device.create_vao_with_new_instances(&DESC_BLUR, &prim_vao);
         let clip_vao = device.create_vao_with_new_instances(&DESC_CLIP, &prim_vao);
+        let box_shadow_vao = device.create_vao_with_new_instances(&DESC_CACHE_BOX_SHADOW, &prim_vao);
 
         let texture_cache_upload_pbo = device.create_pbo();
 
@@ -1476,6 +1490,7 @@ impl Renderer {
             gpu_profile,
             prim_vao,
             blur_vao,
+            box_shadow_vao,
             clip_vao,
             layer_texture,
             render_task_texture,
@@ -1897,6 +1912,7 @@ impl Renderer {
             VertexArrayKind::Primitive => &self.prim_vao,
             VertexArrayKind::Clip => &self.clip_vao,
             VertexArrayKind::Blur => &self.blur_vao,
+            VertexArrayKind::CacheBoxShadow => &self.box_shadow_vao,
         };
 
         self.device.bind_vao(vao);
@@ -2154,7 +2170,7 @@ impl Renderer {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_BOX_SHADOW);
             self.cs_box_shadow.bind(&mut self.device, projection);
             self.draw_instanced_batch(&target.box_shadow_cache_prims,
-                                      VertexArrayKind::Primitive,
+                                      VertexArrayKind::CacheBoxShadow,
                                       &BatchTextures::no_texture());
         }
 
@@ -2712,6 +2728,7 @@ impl Renderer {
         self.device.delete_vao(self.prim_vao);
         self.device.delete_vao(self.clip_vao);
         self.device.delete_vao(self.blur_vao);
+        self.device.delete_vao(self.box_shadow_vao);
         self.debug.deinit(&mut self.device);
         self.cs_box_shadow.deinit(&mut self.device);
         self.cs_text_run.deinit(&mut self.device);
