@@ -4,7 +4,7 @@
 
 use api::{BorderDetails, BorderDisplayItem, BoxShadowClipMode, ClipAndScrollInfo, ClipId, ColorF};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
-use api::{ExtendMode, FontInstance, FontInstanceKey, FontKey, FontRenderMode};
+use api::{ExtendMode, FontInstance, FontRenderMode};
 use api::{GlyphInstance, GlyphOptions, GradientStop};
 use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize};
 use api::{LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation, LineStyle};

@@ -2,7 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use app_units::Au;
 use euclid::{SideOffsets2D, TypedSideOffsets2D};
 use {ColorF, FontInstanceKey, ImageKey, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform};
 use {GlyphOptions, LayoutVector2D, PipelineId, PropertyBinding};
