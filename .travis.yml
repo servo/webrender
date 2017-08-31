@@ -1,7 +1,7 @@
 dist: trusty
 language: rust
 rust:
-  - 1.17.0
+  - stable
   - nightly
 matrix:
   allow_failures:
