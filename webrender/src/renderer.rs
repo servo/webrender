@@ -141,6 +141,10 @@ enum TextureSampler {
     Layers,
     RenderTasks,
     Dither,
+    // A special sampler that is bound to the A8 output of
+    // the *first* pass. Items rendered in this target are
+    // available as inputs to tasks in any subsequent pass.
+    SharedCacheA8,
 }
 
 impl TextureSampler {
@@ -168,6 +172,7 @@ impl Into<TextureSlot> for TextureSampler {
             TextureSampler::Layers => TextureSlot(6),
             TextureSampler::RenderTasks => TextureSlot(7),
             TextureSampler::Dither => TextureSlot(8),
+            TextureSampler::SharedCacheA8 => TextureSlot(9),
         }
     }
 }
@@ -875,6 +880,7 @@ fn create_prim_shader(name: &'static str,
             ("sLayers", TextureSampler::Layers),
             ("sRenderTasks", TextureSampler::RenderTasks),
             ("sResourceCache", TextureSampler::ResourceCache),
+            ("sSharedCacheA8", TextureSampler::SharedCacheA8),
         ]);
     }
 
@@ -896,6 +902,7 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program
             ("sLayers", TextureSampler::Layers),
             ("sRenderTasks", TextureSampler::RenderTasks),
             ("sResourceCache", TextureSampler::ResourceCache),
+            ("sSharedCacheA8", TextureSampler::SharedCacheA8),
         ]);
     }
 
@@ -2590,6 +2597,14 @@ impl Renderer {
                                                pass.color_texture.take(),
                                                &mut self.alpha_render_targets,
                                                &mut self.color_render_targets);
+
+                // After completing the first pass, make the A8 target available as an
+                // input to any subsequent passes.
+                if pass_index == 0 {
+                    if let Some(shared_alpha_texture) = self.texture_resolver.resolve(&SourceTexture::CacheA8) {
+                        self.device.bind_texture(TextureSampler::SharedCacheA8, shared_alpha_texture);
+                    }
+                }
             }
 
             self.color_render_targets.reverse();
