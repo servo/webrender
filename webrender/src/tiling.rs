@@ -44,7 +44,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
         match metadata.prim_kind {
             PrimitiveKind::TextRun => {
                 let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
-                match text_run_cpu.normal_render_mode {
+                match text_run_cpu.font.render_mode {
                     FontRenderMode::Subpixel => BlendMode::Subpixel(text_run_cpu.color),
                     FontRenderMode::Alpha | FontRenderMode::Mono => BlendMode::Alpha,
                 }
@@ -453,17 +453,12 @@ impl AlphaRenderItem {
                     }
                     PrimitiveKind::TextRun => {
                         let text_cpu = &ctx.prim_store.cpu_text_runs[prim_metadata.cpu_prim_index.0];
-                        let font_size_dp = text_cpu.logical_font_size.scale_by(ctx.device_pixel_ratio);
 
                         // TODO(gw): avoid / recycle this allocation in the future.
                         let mut instances = Vec::new();
 
-                        let font = FontInstance::new(text_cpu.font_key,
-                                                     font_size_dp,
-                                                     text_cpu.color,
-                                                     text_cpu.normal_render_mode,
-                                                     text_cpu.glyph_options,
-                                                     text_cpu.subpx_dir);
+                        let mut font = text_cpu.font.clone();
+                        font.size = font.size.scale_by(ctx.device_pixel_ratio);
 
                         let texture_id = ctx.resource_cache.get_glyphs(font,
                                                                        &text_cpu.glyph_keys,
@@ -1018,14 +1013,9 @@ impl RenderTarget for ColorRenderTarget {
                                     // the parent text-shadow prim address as a user data field, allowing
                                     // the shader to fetch the text-shadow parameters.
                                     let text = &ctx.prim_store.cpu_text_runs[sub_metadata.cpu_prim_index.0];
-                                    let font_size_dp = text.logical_font_size.scale_by(ctx.device_pixel_ratio);
 
-                                    let font = FontInstance::new(text.font_key,
-                                                                 font_size_dp,
-                                                                 text.color,
-                                                                 text.shadow_render_mode,
-                                                                 text.glyph_options,
-                                                                 text.subpx_dir);
+                                    let mut font = text.font.clone();
+                                    font.size = font.size.scale_by(ctx.device_pixel_ratio);
 
                                     let texture_id = ctx.resource_cache.get_glyphs(font,
                                                                                    &text.glyph_keys,
