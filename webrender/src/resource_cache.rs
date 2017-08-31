@@ -653,13 +653,11 @@ impl ResourceCache {
         );
 
         // Apply any updates of new / updated images (incl. blobs) to the texture cache.
-        self.update_texture_cache(gpu_cache, texture_cache_profile);
-        self.texture_cache.end_frame();
+        self.update_texture_cache(gpu_cache);
+        self.texture_cache.end_frame(texture_cache_profile);
     }
 
-    fn update_texture_cache(&mut self,
-                            gpu_cache: &mut GpuCache,
-                            _texture_cache_profile: &mut TextureCacheProfileCounters) {
+    fn update_texture_cache(&mut self, gpu_cache: &mut GpuCache) {
         for request in self.pending_image_requests.drain() {
             let image_template = self.resources.image_templates.get_mut(request.key).unwrap();
             debug_assert!(image_template.data.uses_texture_cache());
@@ -713,7 +711,7 @@ impl ResourceCache {
                 let (stride, offset) = if tiled_on_cpu {
                     (image_descriptor.stride, 0)
                 } else {
-                    let bpp = image_descriptor.format.bytes_per_pixel().unwrap();
+                    let bpp = image_descriptor.format.bytes_per_pixel();
                     let stride = image_descriptor.compute_stride();
                     let offset = image_descriptor.offset + tile.y as u32 * tile_size as u32 * stride
                                                          + tile.x as u32 * tile_size as u32 * bpp;
