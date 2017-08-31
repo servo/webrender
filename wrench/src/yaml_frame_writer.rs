@@ -363,7 +363,7 @@ impl YamlFrameWriter {
             match *update {
                 ResourceUpdate::AddImage(ref img) => {
                     let stride = img.descriptor.stride.unwrap_or(
-                        img.descriptor.width * img.descriptor.format.bytes_per_pixel().unwrap()
+                        img.descriptor.width * img.descriptor.format.bytes_per_pixel()
                     );
                     let bytes = match img.data {
                         ImageData::Raw(ref v) => { (**v).clone() }
