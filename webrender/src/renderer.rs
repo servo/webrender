@@ -1839,7 +1839,6 @@ impl Renderer {
 
                         // Ensure no PBO is bound when creating the texture storage,
                         // or GL will attempt to read data from there.
-                        self.device.bind_pbo(None);
                         self.device.init_texture(texture,
                                                  width,
                                                  height,
@@ -1882,6 +1881,9 @@ impl Renderer {
                                                             layer_index,
                                                             stride,
                                                             0);
+
+                        // Ensure that other texture updates won't read from this PBO.
+                        self.device.bind_pbo(None);
                     }
                     TextureUpdateOp::Free => {
                         let texture = &mut self.texture_resolver.cache_texture_map[update.id.0];
@@ -1890,9 +1892,6 @@ impl Renderer {
                 }
             }
         }
-
-        // Ensure that other texture updates won't read from this PBO.
-        self.device.bind_pbo(None);
     }
 
     fn draw_instanced_batch<T>(&mut self,
