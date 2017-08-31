@@ -445,7 +445,7 @@ impl Wrench {
 
     pub fn render(&mut self) {
         self.renderer.update();
-        self.renderer.render(self.window_size);
+        self.renderer.render(self.window_size).unwrap();
     }
 
     pub fn refresh(&mut self) {

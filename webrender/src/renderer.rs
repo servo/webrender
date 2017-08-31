@@ -716,9 +716,14 @@ impl LazilyCompiledShader {
         Ok(shader)
     }
 
-    fn bind(&mut self, device: &mut Device, projection: &Transform3D<f32>) {
-        let program = self.get(device)
-                          .expect("Unable to get shader!");
+    fn bind(&mut self, device: &mut Device, projection: &Transform3D<f32>, renderer_errors: &mut Vec<RendererError>) {
+        let program = match self.get(device) {
+            Ok(program) => program,
+            Err(e) => {
+                renderer_errors.push(RendererError::from(e));
+                return;
+            }
+        };
         device.bind_program(program);
         device.set_uniforms(program, projection);
     }
@@ -808,10 +813,11 @@ impl PrimitiveShader {
     fn bind(&mut self,
             device: &mut Device,
             transform_kind: TransformedRectKind,
-            projection: &Transform3D<f32>) {
+            projection: &Transform3D<f32>,
+            renderer_errors: &mut Vec<RendererError>) {
         match transform_kind {
-            TransformedRectKind::AxisAligned => self.simple.bind(device, projection),
-            TransformedRectKind::Complex => self.transform.bind(device, projection),
+            TransformedRectKind::AxisAligned => self.simple.bind(device, projection, renderer_errors),
+            TransformedRectKind::Complex => self.transform.bind(device, projection, renderer_errors),
         }
     }
 
@@ -983,6 +989,8 @@ pub struct Renderer {
     /// application to provide external buffers for image data.
     external_image_handler: Option<Box<ExternalImageHandler>>,
 
+    renderer_errors: Vec<RendererError>,
+
     /// List of profile results from previous frames. Can be retrieved
     /// via get_frame_profiles().
     cpu_profiles: VecDeque<CpuProfile>,
@@ -990,18 +998,18 @@ pub struct Renderer {
 }
 
 #[derive(Debug)]
-pub enum InitError {
+pub enum RendererError {
     Shader(ShaderError),
     Thread(std::io::Error),
     MaxTextureSize,
 }
 
-impl From<ShaderError> for InitError {
-    fn from(err: ShaderError) -> Self { InitError::Shader(err) }
+impl From<ShaderError> for RendererError {
+    fn from(err: ShaderError) -> Self { RendererError::Shader(err) }
 }
 
-impl From<std::io::Error> for InitError {
-    fn from(err: std::io::Error) -> Self { InitError::Thread(err) }
+impl From<std::io::Error> for RendererError {
+    fn from(err: std::io::Error) -> Self { RendererError::Thread(err) }
 }
 
 impl Renderer {
@@ -1022,7 +1030,7 @@ impl Renderer {
     /// let (renderer, sender) = Renderer::new(opts);
     /// ```
     /// [rendereroptions]: struct.RendererOptions.html
-    pub fn new(gl: Rc<gl::Gl>, mut options: RendererOptions) -> Result<(Renderer, RenderApiSender), InitError> {
+    pub fn new(gl: Rc<gl::Gl>, mut options: RendererOptions) -> Result<(Renderer, RenderApiSender), RendererError> {
 
         let (api_tx, api_rx) = try!{ channel::msg_channel() };
         let (payload_tx, payload_rx) = try!{ channel::payload_channel() };
@@ -1050,7 +1058,7 @@ impl Renderer {
         let min_texture_size = 512;
         if device_max_size < min_texture_size {
             println!("Device reporting insufficient max texture size ({})", device_max_size);
-            return Err(InitError::MaxTextureSize);
+            return Err(RendererError::MaxTextureSize);
         }
         let max_device_size = cmp::max(
             cmp::min(device_max_size, options.max_texture_size.unwrap_or(device_max_size)),
@@ -1502,6 +1510,7 @@ impl Renderer {
             gpu_cache_texture,
             texture_cache_upload_pbo,
             texture_resolver,
+            renderer_errors: Vec::new(),
         };
 
         let sender = RenderApiSender::new(api_tx, payload_tx);
@@ -1711,7 +1720,7 @@ impl Renderer {
     ///
     /// A Frame is supplied by calling [`generate_frame()`][genframe].
     /// [genframe]: ../../webrender_api/struct.DocumentApi.html#method.generate_frame
-    pub fn render(&mut self, framebuffer_size: DeviceUintSize) {
+    pub fn render(&mut self, framebuffer_size: DeviceUintSize) -> Result<(), Vec<RendererError>> {
         profile_scope!("render");
 
         if let Some(mut frame) = self.current_frame.take() {
@@ -1806,6 +1815,11 @@ impl Renderer {
             // Restore frame - avoid borrow checker!
             self.current_frame = Some(frame);
         }
+        if !self.renderer_errors.is_empty() {
+            let errors = mem::replace(&mut self.renderer_errors, Vec::new());
+            return Err(errors);
+        }
+        Ok(())
     }
 
     pub fn layers_are_bouncing_back(&self) -> bool {
@@ -1953,42 +1967,42 @@ impl Renderer {
 
         let marker = match key.kind {
             AlphaBatchKind::Composite { .. } => {
-                self.ps_composite.bind(&mut self.device, projection);
+                self.ps_composite.bind(&mut self.device, projection, &mut self.renderer_errors);
                 GPU_TAG_PRIM_COMPOSITE
             }
             AlphaBatchKind::HardwareComposite => {
-                self.ps_hw_composite.bind(&mut self.device, projection);
+                self.ps_hw_composite.bind(&mut self.device, projection, &mut self.renderer_errors);
                 GPU_TAG_PRIM_HW_COMPOSITE
             }
             AlphaBatchKind::SplitComposite => {
-                self.ps_split_composite.bind(&mut self.device, projection);
+                self.ps_split_composite.bind(&mut self.device, projection, &mut self.renderer_errors);
                 GPU_TAG_PRIM_SPLIT_COMPOSITE
             }
             AlphaBatchKind::Blend => {
-                self.ps_blend.bind(&mut self.device, projection);
+                self.ps_blend.bind(&mut self.device, projection, &mut self.renderer_errors);
                 GPU_TAG_PRIM_BLEND
             }
             AlphaBatchKind::Rectangle => {
                 if needs_clipping {
-                    self.ps_rectangle_clip.bind(&mut self.device, transform_kind, projection);
+                    self.ps_rectangle_clip.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
                 } else {
-                    self.ps_rectangle.bind(&mut self.device, transform_kind, projection);
+                    self.ps_rectangle.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
                 }
                 GPU_TAG_PRIM_RECT
             }
             AlphaBatchKind::Line => {
-                self.ps_line.bind(&mut self.device, transform_kind, projection);
+                self.ps_line.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
                 GPU_TAG_PRIM_LINE
             }
             AlphaBatchKind::TextRun => {
                 match key.blend_mode {
                     BlendMode::Subpixel(..) => {
-                        self.ps_text_run_subpixel.bind(&mut self.device, transform_kind, projection);
+                        self.ps_text_run_subpixel.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
                     }
                     BlendMode::Alpha |
                     BlendMode::PremultipliedAlpha |
                     BlendMode::None => {
-                        self.ps_text_run.bind(&mut self.device, transform_kind, projection);
+                        self.ps_text_run.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
                     }
                 };
                 GPU_TAG_PRIM_TEXT_RUN
@@ -1997,7 +2011,7 @@ impl Renderer {
                 self.ps_image[image_buffer_kind as usize]
                     .as_mut()
                     .expect("Unsupported image shader kind")
-                    .bind(&mut self.device, transform_kind, projection);
+                    .bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
                 GPU_TAG_PRIM_IMAGE
             }
             AlphaBatchKind::YuvImage(image_buffer_kind, format, color_space) => {
@@ -2007,35 +2021,35 @@ impl Renderer {
                 self.ps_yuv_image[shader_index]
                     .as_mut()
                     .expect("Unsupported YUV shader kind")
-                    .bind(&mut self.device, transform_kind, projection);
+                    .bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
                 GPU_TAG_PRIM_YUV_IMAGE
             }
             AlphaBatchKind::BorderCorner => {
-                self.ps_border_corner.bind(&mut self.device, transform_kind, projection);
+                self.ps_border_corner.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
                 GPU_TAG_PRIM_BORDER_CORNER
             }
             AlphaBatchKind::BorderEdge => {
-                self.ps_border_edge.bind(&mut self.device, transform_kind, projection);
+                self.ps_border_edge.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
                 GPU_TAG_PRIM_BORDER_EDGE
             }
             AlphaBatchKind::AlignedGradient => {
-                self.ps_gradient.bind(&mut self.device, transform_kind, projection);
+                self.ps_gradient.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
                 GPU_TAG_PRIM_GRADIENT
             }
             AlphaBatchKind::AngleGradient => {
-                self.ps_angle_gradient.bind(&mut self.device, transform_kind, projection);
+                self.ps_angle_gradient.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
                 GPU_TAG_PRIM_ANGLE_GRADIENT
             }
             AlphaBatchKind::RadialGradient => {
-                self.ps_radial_gradient.bind(&mut self.device, transform_kind, projection);
+                self.ps_radial_gradient.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
                 GPU_TAG_PRIM_RADIAL_GRADIENT
             }
             AlphaBatchKind::BoxShadow => {
-                self.ps_box_shadow.bind(&mut self.device, transform_kind, projection);
+                self.ps_box_shadow.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
                 GPU_TAG_PRIM_BOX_SHADOW
             }
             AlphaBatchKind::CacheImage => {
-                self.ps_cache_image.bind(&mut self.device, transform_kind, projection);
+                self.ps_cache_image.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
                 GPU_TAG_PRIM_CACHE_IMAGE
             }
         };
@@ -2151,7 +2165,7 @@ impl Renderer {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_BLUR);
 
             self.device.set_blend(false);
-            self.cs_blur.bind(&mut self.device, projection);
+            self.cs_blur.bind(&mut self.device, projection, &mut self.renderer_errors);
 
             if !target.vertical_blurs.is_empty() {
                 self.draw_instanced_batch(&target.vertical_blurs,
@@ -2177,7 +2191,7 @@ impl Renderer {
             self.device.set_blend_mode_alpha();
 
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_TEXT_RUN);
-            self.cs_text_run.bind(&mut self.device, projection);
+            self.cs_text_run.bind(&mut self.device, projection, &mut self.renderer_errors);
             self.draw_instanced_batch(&target.text_run_cache_prims,
                                       VertexArrayKind::Primitive,
                                       &target.text_run_textures);
@@ -2189,7 +2203,7 @@ impl Renderer {
             self.device.set_blend_mode_alpha();
 
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_LINE);
-            self.cs_line.bind(&mut self.device, projection);
+            self.cs_line.bind(&mut self.device, projection, &mut self.renderer_errors);
             self.draw_instanced_batch(&target.line_cache_prims,
                                       VertexArrayKind::Primitive,
                                       &BatchTextures::no_texture());
@@ -2293,7 +2307,7 @@ impl Renderer {
         if !target.box_shadow_cache_prims.is_empty() {
             self.device.set_blend(false);
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_BOX_SHADOW);
-            self.cs_box_shadow.bind(&mut self.device, projection);
+            self.cs_box_shadow.bind(&mut self.device, projection, &mut self.renderer_errors);
             self.draw_instanced_batch(&target.box_shadow_cache_prims,
                                       VertexArrayKind::CacheBoxShadow,
                                       &BatchTextures::no_texture());
@@ -2309,7 +2323,7 @@ impl Renderer {
             if !target.clip_batcher.border_clears.is_empty() {
                 let _gm2 = GpuMarker::new(self.device.rc_gl(), "clip borders [clear]");
                 self.device.set_blend(false);
-                self.cs_clip_border.bind(&mut self.device, projection);
+                self.cs_clip_border.bind(&mut self.device, projection, &mut self.renderer_errors);
                 self.draw_instanced_batch(&target.clip_batcher.border_clears,
                                           VertexArrayKind::Clip,
                                           &BatchTextures::no_texture());
@@ -2324,7 +2338,7 @@ impl Renderer {
                 // a max blend mode here is fine.
                 self.device.set_blend(true);
                 self.device.set_blend_mode_max();
-                self.cs_clip_border.bind(&mut self.device, projection);
+                self.cs_clip_border.bind(&mut self.device, projection, &mut self.renderer_errors);
                 self.draw_instanced_batch(&target.clip_batcher.borders,
                                           VertexArrayKind::Clip,
                                           &BatchTextures::no_texture());
@@ -2337,7 +2351,7 @@ impl Renderer {
             // draw rounded cornered rectangles
             if !target.clip_batcher.rectangles.is_empty() {
                 let _gm2 = GpuMarker::new(self.device.rc_gl(), "clip rectangles");
-                self.cs_clip_rectangle.bind(&mut self.device, projection);
+                self.cs_clip_rectangle.bind(&mut self.device, projection, &mut self.renderer_errors);
                 self.draw_instanced_batch(&target.clip_batcher.rectangles,
                                           VertexArrayKind::Clip,
                                           &BatchTextures::no_texture());
@@ -2352,7 +2366,7 @@ impl Renderer {
                         SourceTexture::Invalid,
                     ]
                 };
-                self.cs_clip_image.bind(&mut self.device, projection);
+                self.cs_clip_image.bind(&mut self.device, projection, &mut self.renderer_errors);
                 self.draw_instanced_batch(items,
                                           VertexArrayKind::Clip,
                                           &textures);
