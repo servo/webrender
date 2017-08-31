@@ -2,6 +2,7 @@ var state = {
     connected: false,
     page: "options",
     passes: [],
+    documents: [],
 }
 
 class Connection {
@@ -21,6 +22,8 @@ class Connection {
             var json = JSON.parse(evt.data);
             if (json['kind'] == "passes") {
                 state.passes = json['passes'];
+            } else if (json['kind'] == "documents") {
+                state.documents = json['root'];
             }
         }
 
@@ -63,6 +66,7 @@ Vue.component('app', {
                         <div class="column">
                             <options v-if="state.page == 'options'"></options>
                             <passview v-if="state.page == 'passes'" :passes=state.passes></passview>
+                            <documentview v-if="state.page == 'documents'" :documents=state.documents></documentview>
                         </div>
                     </div>
                 </div>
@@ -182,6 +186,62 @@ Vue.component('passview', {
     `
 })
 
+Vue.component('treeview', {
+    props: {
+        model: Object
+    },
+    data: function () {
+        return {
+            open: false
+        }
+    },
+    computed: {
+        isFolder: function () {
+            return this.model.children && this.model.children.length
+        }
+    },
+    methods: {
+        toggle: function () {
+            if (this.isFolder) {
+                this.open = !this.open
+            }
+        },
+    },
+    template: `
+        <li>
+            <div v-on:click="toggle">
+                <span v-if="isFolder">[{{open ? '-' : '+'}}]</span>
+                {{model.description}}
+            </div>
+            <ul style="padding-left: 1em; line-height: 1.5em;" v-show="open" v-if="isFolder">
+                <treeview v-for="model in model.children" :model="model"></treeview>
+            </ul>
+        </li>
+    `
+})
+
+Vue.component('documentview', {
+    props: [
+        'documents'
+    ],
+    methods: {
+        fetch: function() {
+            connection.send("fetch_documents");
+        }
+    },
+    template: `
+        <div class="box">
+            <h1 class="title">Documents <a v-on:click="fetch" class="button is-info">Refresh</a></h1>
+            <hr/>
+            <div>
+                <ul>
+                    <treeview :model=documents></treeview>
+                </ul>
+            </div>
+        </div>
+    `
+})
+
 Vue.component('mainmenu', {
     props: [
         'page',
@@ -199,6 +259,7 @@ Vue.component('mainmenu', {
             <ul class="menu-list">
                 <li><a v-on:click="setPage('options')" v-bind:class="{ 'is-active': page == 'options' }">Debug Options</a></li>
                 <li><a v-on:click="setPage('passes')" v-bind:class="{ 'is-active': page == 'passes' }">Passes</a></li>
+                <li><a v-on:click="setPage('documents')" v-bind:class="{ 'is-active': page == 'documents' }">Documents</a></li>
             </ul>
         </aside>
     `
