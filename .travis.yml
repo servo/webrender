@@ -39,13 +39,7 @@ script:
   - if [ $BUILD_KIND = DEBUG ]; then (cargo test --all --verbose); fi
   - if [ $BUILD_KIND = RELEASE ]; then (cargo test --all --verbose); fi
   - if [ $BUILD_KIND = DEBUG ]; then (wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
-                                        tar xzf master.tar.gz &&
-                                        cd kcov-master &&
-                                        mkdir build &&
-                                        cd build &&
-                                        cmake .. &&
-                                        make &&
-                                        sudo make install); fi
+                                        sudo make install); fi  
   - if [ $BUILD_KIND = DEBUG ]; then (cd wrench && mkdir cov && python headless.py --subpixel-aa reftest); fi
   - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && cargo build --release --features=debugger); fi
   - if [ $TRAVIS_RUST_VERSION == "nightly" ]; then (cd webrender && cargo bench --verbose); fi
