@@ -231,10 +231,11 @@ impl RenderTask {
         }
     }
 
-    pub fn new_mask(key: Option<ClipId>,
+    pub fn new_mask(mut key: Option<ClipId>,
                     task_rect: DeviceIntRect,
                     raw_clips: &[ClipWorkItem],
-                    extra_clip: Option<ClipWorkItem>)
+                    extra_clip: Option<ClipWorkItem>,
+                    prim_rect: DeviceIntRect)
                     -> Option<RenderTask> {
         // Filter out all the clip instances that don't contribute to the result
         let mut inner_rect = Some(task_rect);
@@ -252,6 +253,20 @@ impl RenderTask {
 
             match clip_info.bounds.inner {
                 Some(ref inner) if !inner.device_rect.is_empty() => {
+                    // If this clip item has an inner rect that completely
+                    // encloses the screen rect of the primitive, it can't
+                    // possibly affect the result, so remove it during
+                    // this filtering pass.
+                    if inner.device_rect.contains_rect(&prim_rect) {
+                        // If we modify this mask based on the contents of the prim
+                        // rect, it's not valid to be cached. This should affect
+                        // almost no cases, since we:
+                        //  (a) skip non-masking clips above
+                        //  (b) the most common case will result in no clips when this
+                        //      occurs, which will skip the mask generation completely.
+                        key = None;
+                        return false;
+                    }
                     inner_rect = inner_rect.and_then(|r| r.intersection(&inner.device_rect));
                     !inner.device_rect.contains_rect(&task_rect)
                 }
