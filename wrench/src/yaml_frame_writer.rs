@@ -319,7 +319,7 @@ impl YamlFrameWriter {
 
         let mut root = new_table();
         if let Some(root_pipeline_id) = scene.root_pipeline_id {
-            u32_node(&mut root_dl_table, "id", root_pipeline_id.0);
+            u32_vec_node(&mut root_dl_table, "id", &[root_pipeline_id.0, root_pipeline_id.1]);
 
             let mut referenced_pipeline_ids = vec![];
             let mut traversal = dl.iter();
@@ -335,7 +335,7 @@ impl YamlFrameWriter {
                     continue;
                 }
                 let mut pipeline = new_table();
-                u32_node(&mut pipeline, "id", pipeline_id.0);
+                u32_vec_node(&mut pipeline, "id", &[pipeline_id.0, pipeline_id.1]);
 
                 let dl = scene.display_lists.get(&pipeline_id).unwrap();
                 let mut iter = dl.iter();
@@ -843,7 +843,7 @@ impl YamlFrameWriter {
                 },
                 Iframe(item) => {
                     str_node(&mut v, "type", "iframe");
-                    u32_node(&mut v, "id", item.pipeline_id.0);
+                    u32_vec_node(&mut v, "id", &[item.pipeline_id.0, item.pipeline_id.1]);
                 },
                 PushStackingContext(item) => {
                     str_node(&mut v, "type", "stacking-context");
