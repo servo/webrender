@@ -141,6 +141,10 @@ enum TextureSampler {
     Layers,
     RenderTasks,
     Dither,
+    // A special sampler that is bound to the A8 output of
+    // the *first* pass. Items rendered in this target are
+    // available as inputs to tasks in any subsequent pass.
+    SharedCacheA8,
 }
 
 impl TextureSampler {
@@ -168,6 +172,7 @@ impl Into<TextureSlot> for TextureSampler {
             TextureSampler::Layers => TextureSlot(6),
             TextureSampler::RenderTasks => TextureSlot(7),
             TextureSampler::Dither => TextureSlot(8),
+            TextureSampler::SharedCacheA8 => TextureSlot(9),
         }
     }
 }
@@ -394,14 +399,31 @@ impl SourceTextureResolver {
         }
     }
 
-    fn set_cache_textures(&mut self,
-                          a8_texture: Option<Texture>,
-                          rgba8_texture: Option<Texture>) {
-        // todo(gw): make the texture recycling cleaner...
-        debug_assert!(self.cache_a8_texture.is_none());
-        debug_assert!(self.cache_rgba8_texture.is_none());
-        self.cache_a8_texture = a8_texture;
-        self.cache_rgba8_texture = rgba8_texture;
+    fn end_pass(&mut self,
+                pass_index: usize,
+                pass_count: usize,
+                mut a8_texture: Option<Texture>,
+                mut rgba8_texture: Option<Texture>,
+                a8_pool: &mut Vec<Texture>,
+                rgba8_pool: &mut Vec<Texture>) {
+        // If we have cache textures from previous pass, return them to the pool.
+        rgba8_pool.extend(self.cache_rgba8_texture.take());
+        a8_pool.extend(self.cache_a8_texture.take());
+
+        if pass_index == pass_count-1 {
+            // On the last pass, return the textures from this pass to the pool.
+            if let Some(texture) = rgba8_texture.take() {
+                rgba8_pool.push(texture);
+            }
+            if let Some(texture) = a8_texture.take() {
+                a8_pool.push(texture);
+            }
+        } else {
+            // We have another pass to process, make these textures available
+            // as inputs to the next pass.
+            self.cache_rgba8_texture = rgba8_texture.take();
+            self.cache_a8_texture = a8_texture.take();
+        }
     }
 
     // Bind a source texture to the device.
@@ -860,6 +882,7 @@ fn create_prim_shader(name: &'static str,
             ("sLayers", TextureSampler::Layers),
             ("sRenderTasks", TextureSampler::RenderTasks),
             ("sResourceCache", TextureSampler::ResourceCache),
+            ("sSharedCacheA8", TextureSampler::SharedCacheA8),
         ]);
     }
 
@@ -881,6 +904,7 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program
             ("sLayers", TextureSampler::Layers),
             ("sRenderTasks", TextureSampler::RenderTasks),
             ("sResourceCache", TextureSampler::ResourceCache),
+            ("sSharedCacheA8", TextureSampler::SharedCacheA8),
         ]);
     }
 
@@ -2501,7 +2525,8 @@ impl Renderer {
         self.device.bind_texture(TextureSampler::Layers, &self.layer_texture.texture);
         self.device.bind_texture(TextureSampler::RenderTasks, &self.render_task_texture.texture);
 
-        self.texture_resolver.set_cache_textures(None, None);
+        debug_assert!(self.texture_resolver.cache_a8_texture.is_none());
+        debug_assert!(self.texture_resolver.cache_rgba8_texture.is_none());
     }
 
     fn draw_tile_frame(&mut self,
@@ -2523,8 +2548,9 @@ impl Renderer {
             self.device.clear_target(Some(self.clear_color.to_array()), Some(1.0));
         } else {
             self.start_frame(frame);
+            let pass_count = frame.passes.len();
 
-            for pass in &mut frame.passes {
+            for (pass_index, pass) in frame.passes.iter_mut().enumerate() {
                 let size;
                 let clear_color;
                 let projection;
@@ -2578,25 +2604,20 @@ impl Renderer {
 
                 }
 
-                // Return the texture IDs to the pool for next frame.
-                if let Some(texture) = self.texture_resolver.cache_rgba8_texture.take() {
-                    self.color_render_targets.push(texture);
+                self.texture_resolver.end_pass(pass_index,
+                                               pass_count,
+                                               pass.alpha_texture.take(),
+                                               pass.color_texture.take(),
+                                               &mut self.alpha_render_targets,
+                                               &mut self.color_render_targets);
+
+                // After completing the first pass, make the A8 target available as an
+                // input to any subsequent passes.
+                if pass_index == 0 {
+                    if let Some(shared_alpha_texture) = self.texture_resolver.resolve(&SourceTexture::CacheA8) {
+                        self.device.bind_texture(TextureSampler::SharedCacheA8, shared_alpha_texture);
+                    }
                 }
-                if let Some(texture) = self.texture_resolver.cache_a8_texture.take() {
-                    self.alpha_render_targets.push(texture);
-                }
-
-                self.texture_resolver.set_cache_textures(pass.alpha_texture.take(),
-                                                         pass.color_texture.take());
-
-            }
-
-            // Return the texture IDs to the pool for next frame.
-            if let Some(texture) = self.texture_resolver.cache_rgba8_texture.take() {
-                self.color_render_targets.push(texture);
-            }
-            if let Some(texture) = self.texture_resolver.cache_a8_texture.take() {
-                self.alpha_render_targets.push(texture);
             }
 
             self.color_render_targets.reverse();
