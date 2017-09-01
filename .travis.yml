@@ -1,7 +1,7 @@
 dist: trusty
 language: rust
 rust:
-  - 1.17.0
+  - 1.19.0
   - nightly
 matrix:
   allow_failures:
@@ -21,8 +21,8 @@ addons:
       - llvm-3.8-dev
       - libedit-dev
 env:
-  - BUILD_KIND=DEBUG RUST_BACKTRACE=1
-  - BUILD_KIND=RELEASE RUST_BACKTRACE=1
+  - BUILD_KIND=DEBUG RUST_BACKTRACE=1 RUSTFLAGS='--deny warnings'
+  - BUILD_KIND=RELEASE RUST_BACKTRACE=1 RUSTFLAGS='--deny warnings'
 before_install:
   - pip install mako servo-tidy
 script:
