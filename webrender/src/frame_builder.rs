@@ -2037,7 +2037,8 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                 let clip_task = RenderTask::new_mask(cache_key,
                                                      mask_rect,
                                                      &self.current_clip_stack,
-                                                     extra);
+                                                     extra,
+                                                     prim_screen_rect);
                 let render_tasks = &mut self.render_tasks;
                 prim_metadata.clip_task_id = clip_task.map(|clip_task| {
                     render_tasks.add(clip_task)
