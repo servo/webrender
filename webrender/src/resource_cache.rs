@@ -49,6 +49,15 @@ pub struct CacheItem {
     pub uv_rect_handle: GpuCacheHandle,
 }
 
+impl CacheItem {
+    fn invalid() -> CacheItem {
+        CacheItem {
+            texture_id: SourceTexture::Invalid,
+            uv_rect_handle: GpuCacheHandle::new(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct ImageProperties {
     pub descriptor: ImageDescriptor,
@@ -127,10 +136,11 @@ where
         }
     }
 
-    fn get(&self, key: &K) -> &V {
-        self.resources
-            .get(key)
-            .expect("Didn't find a cached resource with that ID!")
+    /// In some cases, we can't handle the resource request(e.g. the user
+    /// might request a very big size texture). Then, we will not put that
+    /// corresponding key in self.resources. So, we return an Option here.
+    fn get(&self, key: &K) -> Option<&V> {
+        self.resources.get(key)
     }
 
     pub fn insert(&mut self, key: K, value: V) {
@@ -483,6 +493,23 @@ impl ResourceCache {
                     return;
                 }
 
+                if let Some(tile_size) = template.tiling {
+                    // If the tiling size is too big for hardware texture size then
+                    // just early out and drop the image.
+                    if tile_size as u32 > self.texture_cache.max_texture_size() {
+                        warn!("Dropping image, tile size:{} is too big for hardware!", tile_size);
+                        return;
+                    }
+                } else {
+                    // The image is too big for hardware texture size.
+                    if template.descriptor.width > self.texture_cache.max_texture_size() ||
+                       template.descriptor.height > self.texture_cache.max_texture_size() {
+                        warn!("Dropping image, image:({},{}) is too big for hardware!",
+                              template.descriptor.width, template.descriptor.height);
+                        return;
+                    }
+                }
+
                 // If this image exists in the texture cache, *and* the epoch
                 // in the cache matches that of the template, then it is
                 // valid to use as-is.
@@ -600,19 +627,21 @@ impl ResourceCache {
         debug_assert!(fetch_buffer.is_empty());
 
         for (loop_index, key) in glyph_keys.iter().enumerate() {
-            if let Some(ref glyph) = *glyph_key_cache.get(key) {
-                let cache_item = self.texture_cache.get(&glyph.texture_cache_handle);
-                if current_texture_id != cache_item.texture_id {
-                    if !fetch_buffer.is_empty() {
-                        f(current_texture_id, fetch_buffer);
-                        fetch_buffer.clear();
+            if let Some(glyph_cache) = glyph_key_cache.get(key) {
+                if let Some(ref glyph) = *glyph_cache {
+                    let cache_item = self.texture_cache.get(&glyph.texture_cache_handle);
+                    if current_texture_id != cache_item.texture_id {
+                        if !fetch_buffer.is_empty() {
+                            f(current_texture_id, fetch_buffer);
+                            fetch_buffer.clear();
+                        }
+                        current_texture_id = cache_item.texture_id;
                     }
-                    current_texture_id = cache_item.texture_id;
+                    fetch_buffer.push(GlyphFetchResult {
+                        index_in_text_run: loop_index as i32,
+                        uv_rect_address: gpu_cache.get_address(&cache_item.uv_rect_handle),
+                    });
                 }
-                fetch_buffer.push(GlyphFetchResult {
-                    index_in_text_run: loop_index as i32,
-                    uv_rect_address: gpu_cache.get_address(&cache_item.uv_rect_handle),
-                });
             }
         }
 
@@ -656,7 +685,15 @@ impl ResourceCache {
             tile,
         };
         let image_info = &self.cached_images.get(&key);
-        self.texture_cache.get(&image_info.texture_cache_handle)
+
+        // If an image is not in cached_images, just return an invalid CacheItem
+        // for that request. That invalid item will be skipped during the rendering.
+        //
+        // TODO(Jerry): add a debug option to fill the corresponding area for
+        // that invalid CacheItem.
+        image_info.map_or(CacheItem::invalid(), |image_info| {
+            self.texture_cache.get(&image_info.texture_cache_handle)
+        })
     }
 
     pub fn get_image_properties(&self, image_key: ImageKey) -> Option<ImageProperties> {
