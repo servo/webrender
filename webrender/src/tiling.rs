@@ -482,6 +482,7 @@ impl AlphaRenderItem {
                         );
 
                         if color_texture_id == SourceTexture::Invalid {
+                            warn!("Warnings: skip a PrimitiveKind::Image at {:?}.\n", item_bounding_rect);
                             return;
                         }
 
@@ -540,6 +541,8 @@ impl AlphaRenderItem {
                             glyph_fetch_buffer,
                             gpu_cache,
                             |texture_id, glyphs| {
+                                debug_assert_ne!(texture_id, SourceTexture::Invalid);
+
                                 let textures = BatchTextures {
                                     colors: [
                                         texture_id,
@@ -633,6 +636,7 @@ impl AlphaRenderItem {
                             );
 
                             if texture == SourceTexture::Invalid {
+                                warn!("Warnings: skip a PrimitiveKind::YuvImage at {:?}.\n", item_bounding_rect);
                                 return;
                             }
 
@@ -837,16 +841,19 @@ impl ClipBatcher {
 
                 match *source {
                     ClipSource::Image(ref mask) => {
-                        let cache_item =
-                            resource_cache.get_cached_image(mask.image, ImageRendering::Auto, None);
-                        self.images
-                            .entry(cache_item.texture_id)
-                            .or_insert(Vec::new())
-                            .push(ClipMaskInstance {
-                                clip_data_address: gpu_address,
-                                resource_address: gpu_cache.get_address(&cache_item.uv_rect_handle),
-                                ..instance
-                            });
+                        if let Ok(cache_item) = resource_cache.get_cached_image(mask.image, ImageRendering::Auto, None) {
+                            self.images
+                                .entry(cache_item.texture_id)
+                                .or_insert(Vec::new())
+                                .push(ClipMaskInstance {
+                                    clip_data_address: gpu_address,
+                                    resource_address: gpu_cache.get_address(&cache_item.uv_rect_handle),
+                                    ..instance
+                                });
+                        } else {
+                            warn!("Warnings: skip a image mask. Key:{:?} Rect::{:?}.\n", mask.image, mask.rect);
+                            continue;
+                        }
                     }
                     ClipSource::Rectangle(..) => {
                         if work_item.coordinate_system_id != coordinate_system_id {
@@ -1832,10 +1839,12 @@ fn resolve_image(
                     (SourceTexture::External(external_image), cache_handle)
                 }
                 None => {
-                    let cache_item =
-                        resource_cache.get_cached_image(image_key, image_rendering, tile_offset);
-
-                    (cache_item.texture_id, cache_item.uv_rect_handle)
+                    if let Ok(cache_item) = resource_cache.get_cached_image(image_key, image_rendering, tile_offset) {
+                        (cache_item.texture_id, cache_item.uv_rect_handle)
+                    } else {
+                        // There is no usable texture entry for the image key. Just return an invalid texture here.
+                        (SourceTexture::Invalid, GpuCacheHandle::new())
+                    }
                 }
             }
         }
