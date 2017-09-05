@@ -37,10 +37,6 @@ pub struct ClipInfo {
     /// the parents.
     pub screen_bounding_rect: Option<(TransformedRectKind, DeviceIntRect)>,
 
-    /// The biggest final transformed rectangle that is completely inside the
-    /// clipping region for this node.
-    pub screen_inner_rect: DeviceIntRect,
-
     /// A rectangle which defines the rough boundaries of this clip in reference
     /// frame relative coordinates (with no scroll offsets).
     pub clip_rect: LayerRect,
@@ -55,7 +51,6 @@ impl ClipInfo {
             clip_sources,
             packed_layer_index,
             screen_bounding_rect: None,
-            screen_inner_rect: DeviceIntRect::zero(),
             clip_rect: clip_rect,
         }
     }

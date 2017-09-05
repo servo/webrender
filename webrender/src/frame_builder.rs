@@ -1767,20 +1767,10 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                 None
             };
 
-            let inner_rect = match node_clip_info.screen_bounding_rect {
-                Some((_, rect)) => rect,
-                None => DeviceIntRect::zero(),
-            };
-            node_clip_info.screen_inner_rect = inner_rect;
-
-            let bounds = node_clip_info.mask_cache_info.update(&node_clip_info.clip_sources,
-                                                               &transform,
-                                                               self.gpu_cache,
-                                                               self.device_pixel_ratio);
-
-            node_clip_info.screen_inner_rect = bounds.inner.as_ref()
-               .and_then(|inner| inner.device_rect.intersection(&inner_rect))
-               .unwrap_or(DeviceIntRect::zero());
+            node_clip_info.mask_cache_info.update(&node_clip_info.clip_sources,
+                                                  &transform,
+                                                  self.gpu_cache,
+                                                  self.device_pixel_ratio);
 
             for clip_source in &node_clip_info.clip_sources {
                 if let Some(mask) = clip_source.image_mask() {
