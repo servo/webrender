@@ -481,6 +481,7 @@ impl AlphaRenderItem {
                         );
 
                         if color_texture_id == SourceTexture::Invalid {
+                            warn!("Warnings: skip a PrimitiveKind::Image at {:?}.\n", item_bounding_rect);
                             return;
                         }
 
@@ -539,6 +540,8 @@ impl AlphaRenderItem {
                             glyph_fetch_buffer,
                             gpu_cache,
                             |texture_id, glyphs| {
+                                debug_assert!(texture_id != SourceTexture::Invalid);
+
                                 let textures = BatchTextures {
                                     colors: [
                                         texture_id,
@@ -632,6 +635,7 @@ impl AlphaRenderItem {
                             );
 
                             if texture == SourceTexture::Invalid {
+                                warn!("Warnings: skip a PrimitiveKind::YuvImage at {:?}.\n", item_bounding_rect);
                                 return;
                             }
 
@@ -836,6 +840,11 @@ impl ClipBatcher {
                     ClipSource::Image(ref mask) => {
                         let cache_item =
                             resource_cache.get_cached_image(mask.image, ImageRendering::Auto, None);
+                        // Skip the invalid image mask.
+                        if cache_item.texture_id == SourceTexture::Invalid {
+                            warn!("Warnings: skip a image mask. Key:{:?} Rect::{:?}.\n", mask.image, mask.rect);
+                            continue;
+                        }
                         self.images
                             .entry(cache_item.texture_id)
                             .or_insert(Vec::new())

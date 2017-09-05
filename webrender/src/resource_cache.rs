@@ -49,6 +49,15 @@ pub struct CacheItem {
     pub uv_rect_handle: GpuCacheHandle,
 }
 
+impl CacheItem {
+    fn invalid() -> CacheItem {
+        CacheItem {
+            texture_id: SourceTexture::Invalid,
+            uv_rect_handle: GpuCacheHandle::new(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct ImageProperties {
     pub descriptor: ImageDescriptor,
@@ -113,8 +122,14 @@ struct CachedImageInfo {
     epoch: Epoch,
 }
 
+pub enum ResourceClassCacheError {
+    OverLimitSize,
+}
+
+pub type ResourceCacheCacheResult<V> = Result<V, ResourceClassCacheError>;
+
 pub struct ResourceClassCache<K, V> {
-    resources: FastHashMap<K, V>,
+    resources: FastHashMap<K, ResourceCacheCacheResult<V>>,
 }
 
 impl<K, V> ResourceClassCache<K, V>
@@ -127,21 +142,21 @@ where
         }
     }
 
-    fn get(&self, key: &K) -> &V {
-        self.resources
-            .get(key)
+    fn get(&self, key: &K) -> &ResourceCacheCacheResult<V> {
+        self.resources.get(key)
             .expect("Didn't find a cached resource with that ID!")
     }
 
-    pub fn insert(&mut self, key: K, value: V) {
+    pub fn insert(&mut self, key: K, value: ResourceCacheCacheResult<V>) {
         self.resources.insert(key, value);
     }
 
-    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+    pub fn get_mut(&mut self, key: &K) -> &mut ResourceCacheCacheResult<V> {
         self.resources.get_mut(key)
+            .expect("Didn't find a cached resource with that ID!")
     }
 
-    pub fn entry(&mut self, key: K) -> Entry<K, V> {
+    pub fn entry(&mut self, key: K) -> Entry<K, ResourceCacheCacheResult<V>> {
         self.resources.entry(key)
     }
 
@@ -159,7 +174,7 @@ where
             .cloned()
             .collect::<Vec<_>>();
         for key in resources_to_destroy {
-            self.resources.remove(&key).unwrap();
+            self.resources.remove(&key);
         }
     }
 }
@@ -483,25 +498,46 @@ impl ResourceCache {
                     return;
                 }
 
+                if let Some(tile_size) = template.tiling {
+                    // If the tiling size is too big for hardware texture size then
+                    // just early out and drop the image.
+                    if tile_size as u32 > self.texture_cache.max_texture_size() {
+                        warn!("Dropping image, tile size:{} is too big for hardware!", tile_size);
+                        self.cached_images.insert(request, Err(ResourceClassCacheError::OverLimitSize));
+                        return;
+                    }
+                } else {
+                    // The image is too big for hardware texture size.
+                    if template.descriptor.width > self.texture_cache.max_texture_size() ||
+                       template.descriptor.height > self.texture_cache.max_texture_size() {
+                        warn!("Dropping image, image:({},{}) is too big for hardware!",
+                              template.descriptor.width, template.descriptor.height);
+                        self.cached_images.insert(request, Err(ResourceClassCacheError::OverLimitSize));
+                        return;
+                    }
+                }
+
                 // If this image exists in the texture cache, *and* the epoch
                 // in the cache matches that of the template, then it is
                 // valid to use as-is.
                 let (entry, needs_update) = match self.cached_images.entry(request) {
                     Occupied(entry) => {
-                        let needs_update = entry.get().epoch != template.epoch;
+                        let needs_update = entry.get().as_ref().ok().unwrap().epoch != template.epoch;
                         (entry.into_mut(), needs_update)
                     }
                     Vacant(entry) => (
-                        entry.insert(CachedImageInfo {
-                            epoch: template.epoch,
-                            texture_cache_handle: TextureCacheHandle::new(),
-                        }),
+                        entry.insert(Ok(
+                            CachedImageInfo {
+                                epoch: template.epoch,
+                                texture_cache_handle: TextureCacheHandle::new(),
+                            }
+                        )),
                         true,
                     ),
                 };
 
                 let needs_upload = self.texture_cache
-                    .request(&mut entry.texture_cache_handle, gpu_cache);
+                    .request(&mut entry.as_mut().ok().unwrap().texture_cache_handle, gpu_cache);
 
                 if !needs_upload && !needs_update {
                     return;
@@ -600,7 +636,7 @@ impl ResourceCache {
         debug_assert!(fetch_buffer.is_empty());
 
         for (loop_index, key) in glyph_keys.iter().enumerate() {
-            if let Some(ref glyph) = *glyph_key_cache.get(key) {
+            if let Ok(Some(ref glyph)) = *glyph_key_cache.get(key) {
                 let cache_item = self.texture_cache.get(&glyph.texture_cache_handle);
                 if current_texture_id != cache_item.texture_id {
                     if !fetch_buffer.is_empty() {
@@ -656,7 +692,15 @@ impl ResourceCache {
             tile,
         };
         let image_info = &self.cached_images.get(&key);
-        self.texture_cache.get(&image_info.texture_cache_handle)
+
+        // If an image is not in cached_images, just return an invalid CacheItem
+        // for that request. That invalid item will be skipped during the rendering.
+        //
+        // TODO(Jerry): add a debug option to fill the corresponding area for
+        // that invalid CacheItem.
+        image_info.as_ref().ok().map_or(CacheItem::invalid(), |image_info| {
+            self.texture_cache.get(&image_info.texture_cache_handle)
+        })
     }
 
     pub fn get_image_properties(&self, image_key: ImageKey) -> Option<ImageProperties> {
@@ -816,7 +860,7 @@ impl ResourceCache {
                 image_template.descriptor.clone()
             };
 
-            let entry = self.cached_images.get_mut(&request).unwrap();
+            let entry = self.cached_images.get_mut(&request).as_mut().ok().unwrap();
             self.texture_cache.update(
                 &mut entry.texture_cache_handle,
                 descriptor,
