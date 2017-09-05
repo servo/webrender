@@ -567,16 +567,22 @@ impl Frame {
                                               info.image_rendering);
             }
             SpecificDisplayItem::Text(ref text_info) => {
-                let instance = context.resource_cache.get_font_instance(text_info.font_key).unwrap();
-                context.builder.add_text(clip_and_scroll,
-                                         reference_frame_relative_offset,
-                                         item_rect_with_offset,
-                                         &clip_with_offset,
-                                         instance,
-                                         &text_info.color,
-                                         item.glyphs(),
-                                         item.display_list().get(item.glyphs()).count(),
-                                         text_info.glyph_options);
+                match context.resource_cache.get_font_instance(text_info.font_key) {
+                    Some(instance) => {
+                        context.builder.add_text(clip_and_scroll,
+                                                 reference_frame_relative_offset,
+                                                 item_rect_with_offset,
+                                                 &clip_with_offset,
+                                                 instance,
+                                                 &text_info.color,
+                                                 item.glyphs(),
+                                                 item.display_list().get(item.glyphs()).count(),
+                                                 text_info.glyph_options);
+                    }
+                    None => {
+                        warn!("Unknown font instance key: {:?}", text_info.font_key);
+                    }
+                }
             }
             SpecificDisplayItem::Rectangle(ref info) => {
                 if !self.try_to_add_rectangle_splitting_on_clip(context,
