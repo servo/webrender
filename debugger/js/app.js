@@ -3,6 +3,7 @@ var state = {
     page: "options",
     passes: [],
     documents: [],
+    clipscrolltree: [],
 }
 
 class Connection {
@@ -24,6 +25,10 @@ class Connection {
                 state.passes = json['passes'];
             } else if (json['kind'] == "documents") {
                 state.documents = json['root'];
+            } else if (json['kind'] == "clipscrolltree") {
+                state.clipscrolltree = json['root'];
+            } else {
+                console.warn("unknown message kind: " + json['kind']);
             }
         }
 
@@ -67,6 +72,7 @@ Vue.component('app', {
                             <options v-if="state.page == 'options'"></options>
                             <passview v-if="state.page == 'passes'" :passes=state.passes></passview>
                             <documentview v-if="state.page == 'documents'" :documents=state.documents></documentview>
+                            <clipscrolltreeview v-if="state.page == 'clipscrolltree'" :clipscrolltree=state.clipscrolltree></documentview>
                         </div>
                     </div>
                 </div>
@@ -242,6 +248,28 @@ Vue.component('documentview', {
     `
 })
 
+Vue.component('clipscrolltreeview', {
+    props: [
+        'clipscrolltree'
+    ],
+    methods: {
+        fetch: function() {
+            connection.send("fetch_clipscrolltree");
+        }
+    },
+    template: `
+        <div class="box">
+            <h1 class="title">Clip-scroll Tree <a v-on:click="fetch" class="button is-info">Refresh</a></h1>
+            <hr/>
+            <div>
+                <ul>
+                    <treeview :model=clipscrolltree></treeview>
+                </ul>
+            </div>
+        </div>
+    `
+})
+
 Vue.component('mainmenu', {
     props: [
         'page',
@@ -260,6 +288,7 @@ Vue.component('mainmenu', {
                 <li><a v-on:click="setPage('options')" v-bind:class="{ 'is-active': page == 'options' }">Debug Options</a></li>
                 <li><a v-on:click="setPage('passes')" v-bind:class="{ 'is-active': page == 'passes' }">Passes</a></li>
                 <li><a v-on:click="setPage('documents')" v-bind:class="{ 'is-active': page == 'documents' }">Documents</a></li>
+                <li><a v-on:click="setPage('clipscrolltree')" v-bind:class="{ 'is-active': page == 'clipscrolltree' }">Clip-scroll Tree</a></li>
             </ul>
         </aside>
     `
