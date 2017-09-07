@@ -1619,7 +1619,8 @@ impl Renderer {
                 }
                 ResultMsg::DebugOutput(output) => {
                     match output {
-                        DebugOutput::FetchDocuments(string) => {
+                        DebugOutput::FetchDocuments(string) |
+                        DebugOutput::FetchClipScrollTree(string) => {
                             self.debug_server.send(string);
                         }
                     }
@@ -1718,6 +1719,7 @@ impl Renderer {
                 }
             }
             DebugCommand::FetchDocuments => {}
+            DebugCommand::FetchClipScrollTree => {}
             DebugCommand::FetchPasses => {
                 let json = self.get_passes_for_debugger();
                 self.debug_server.send(json);
