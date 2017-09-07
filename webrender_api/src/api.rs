@@ -288,6 +288,12 @@ impl ExternalEvent {
     pub fn unwrap(self) -> usize { self.raw }
 }
 
+/// An integer id that associates external image data with external image handlers
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Deserialize, Hash, PartialEq, Eq, Serialize)]
+pub struct ExternalHandlerId(pub u32);
+
+
 #[derive(Clone, Deserialize, Serialize)]
 pub enum ScrollClamping {
     ToContentBounds,

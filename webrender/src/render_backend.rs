@@ -615,7 +615,7 @@ impl RenderBackend {
             let mut builder = debug_server::TreeNodeBuilder::new(debug_node);
             doc.frame.clip_scroll_tree.print_with(&mut builder);
 
-            debug_root.add(builder.build());            
+            debug_root.add(builder.build());
         }
 
         serde_json::to_string(&debug_root).unwrap()

@@ -967,6 +967,7 @@ impl TextureUpdate {
                     }
                     ExternalImageType::ExternalBuffer => {
                         TextureUpdateSource::External {
+                            handler_id: ext_image.handler_id,
                             id: ext_image.id,
                             channel_index: ext_image.channel_index,
                         }

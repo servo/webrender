@@ -15,7 +15,7 @@ use std::sync::Arc;
 use tiling;
 use renderer::BlendMode;
 use api::{ClipId, DevicePoint, DeviceUintRect, DocumentId, Epoch};
-use api::{ExternalImageData, ExternalImageId};
+use api::{ExternalHandlerId, ExternalImageData, ExternalImageId};
 use api::{ImageFormat, PipelineId};
 
 pub type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
@@ -84,8 +84,14 @@ pub enum RenderTargetMode {
 
 #[derive(Debug)]
 pub enum TextureUpdateSource {
-    External { id: ExternalImageId, channel_index: u8 },
-    Bytes { data: Arc<Vec<u8>> },
+    External {
+        handler_id: ExternalHandlerId,
+        id: ExternalImageId,
+        channel_index: u8,
+    },
+    Bytes {
+        data: Arc<Vec<u8>>,
+    },
 }
 
 #[derive(Debug)]

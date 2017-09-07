@@ -77,6 +77,7 @@ struct App {
     image_generator: ImageGenerator,
     swap_keys: Vec<ImageKey>,
     swap_index: usize,
+    external_handler_id: ExternalHandlerId,
 }
 
 impl Example for App {
@@ -225,6 +226,7 @@ impl Example for App {
                         let image_key = api.generate_image_key();
 
                         let image_data = ExternalImageData {
+                            handler_id: self.external_handler_id,
                             id: ExternalImageId(0),
                             channel_index: size as u8,
                             image_type: ExternalImageType::ExternalBuffer,
@@ -269,8 +271,9 @@ impl Example for App {
         false
     }
 
-    fn get_external_image_handler(&self) -> Option<Box<webrender::ExternalImageHandler>> {
-        Some(Box::new(ImageGenerator::new()))
+    fn get_external_image_handler(&self) -> Option<(ExternalHandlerId, Box<webrender::ExternalImageHandler>)> {
+        let handler = Box::new(ImageGenerator::new());
+        Some((self.external_handler_id, handler))
     }
 }
 
@@ -281,6 +284,7 @@ fn main() {
         image_generator: ImageGenerator::new(),
         swap_keys: Vec::new(),
         swap_index: 0,
+        external_handler_id: ExternalHandlerId(0),
     };
     boilerplate::main_wrapper(&mut app, None);
 }
