@@ -186,7 +186,7 @@ pub struct Frame {
     pub pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
     id: FrameId,
     frame_builder_config: FrameBuilderConfig,
-    frame_builder: Option<FrameBuilder>,
+    pub frame_builder: Option<FrameBuilder>,
 }
 
 trait FilterOpHelpers {

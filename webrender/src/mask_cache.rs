@@ -255,12 +255,4 @@ impl MaskCacheInfo {
         self.layer_clip_range.item_count != 0 ||
         !self.border_corners.is_empty()
     }
-
-    /// Return a clone of this object without any layer-aligned clip items
-    pub fn strip_aligned(&self) -> Self {
-        MaskCacheInfo {
-            layer_clip_range: ClipAddressRange::new(0),
-            .. self.clone()
-        }
-    }
 }

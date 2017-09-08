@@ -613,9 +613,12 @@ impl RenderBackend {
         for (_, doc) in &self.documents {
             let debug_node = debug_server::TreeNode::new("document clip_scroll tree");
             let mut builder = debug_server::TreeNodeBuilder::new(debug_node);
-            doc.frame.clip_scroll_tree.print_with(&mut builder);
+            // TODO(gw): Restructure the storage of clip-scroll tree, clip store
+            //           etc so this isn't so untidy.
+            let clip_store = &doc.frame.frame_builder.as_ref().unwrap().clip_store;
+            doc.frame.clip_scroll_tree.print_with(clip_store, &mut builder);
 
-            debug_root.add(builder.build());            
+            debug_root.add(builder.build());
         }
 
         serde_json::to_string(&debug_root).unwrap()

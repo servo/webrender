@@ -11,7 +11,7 @@ use api::{LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation
 use api::{LocalClip, PipelineId, RepeatMode, ScrollSensitivity, SubpixelDirection, TextShadow};
 use api::{TileOffset, TransformStyle, WorldPixel, YuvColorSpace, YuvData};
 use app_units::Au;
-use clip::{ClipMode, ClipRegion, ClipSource, ClipSources};
+use clip::{ClipMode, ClipRegion, ClipSource, ClipSources, ClipStore};
 use frame::FrameId;
 use gpu_cache::GpuCache;
 use internal_types::{FastHashMap, HardwareCompositeOp};
@@ -110,6 +110,7 @@ pub struct FrameBuilder {
     screen_size: DeviceUintSize,
     background_color: Option<ColorF>,
     prim_store: PrimitiveStore,
+    pub clip_store: ClipStore,
     cmds: Vec<PrimitiveRunCmd>,
     config: FrameBuilderConfig,
 
@@ -155,6 +156,7 @@ impl FrameBuilder {
                     reference_frame_stack: recycle_vec(prev.reference_frame_stack),
                     stacking_context_stack: recycle_vec(prev.stacking_context_stack),
                     prim_store: prev.prim_store.recycle(),
+                    clip_store: prev.clip_store.recycle(),
                     screen_size,
                     background_color,
                     config,
@@ -173,6 +175,7 @@ impl FrameBuilder {
                     reference_frame_stack: Vec::new(),
                     stacking_context_stack: Vec::new(),
                     prim_store: PrimitiveStore::new(),
+                    clip_store: ClipStore::new(),
                     screen_size,
                     background_color,
                     config,
@@ -207,7 +210,7 @@ impl FrameBuilder {
             clip_sources.push(ClipSource::RoundedRectangle(region.rect, region.radii, ClipMode::Clip));
         }
 
-        let clip_sources = ClipSources::new(clip_sources);
+        let clip_sources = self.clip_store.insert(ClipSources::new(clip_sources));
 
         let prim_index = self.prim_store.add_primitive(rect,
                                                        &local_clip.clip_rect(),
@@ -402,7 +405,9 @@ impl FrameBuilder {
                          pipeline_id: PipelineId,
                          clip_region: ClipRegion,
                          clip_scroll_tree: &mut ClipScrollTree) {
-        let clip_info = ClipInfo::new(clip_region, PackedLayerIndex(self.packed_layers.len()));
+        let clip_info = ClipInfo::new(clip_region,
+                                      PackedLayerIndex(self.packed_layers.len()),
+                                      &mut self.clip_store);
         let node = ClipScrollNode::new(pipeline_id, parent_id, clip_info);
         clip_scroll_tree.add_node(node, new_node_id);
         self.packed_layers.push(PackedLayer::empty());
@@ -1631,7 +1636,7 @@ impl FrameBuilder {
                 resource_cache,
             };
 
-            pass.build(&ctx, gpu_cache, &mut render_tasks, &mut deferred_resolves);
+            pass.build(&ctx, gpu_cache, &mut render_tasks, &mut deferred_resolves, &self.clip_store);
 
             profile_counters.passes.inc();
             profile_counters.color_targets.add(pass.color_targets.target_count());
@@ -1764,10 +1769,11 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                 None
             };
 
-            node_clip_info.clip_sources.update(&transform,
-                                               self.gpu_cache,
-                                               self.resource_cache,
-                                               self.device_pixel_ratio);
+            let clip_sources = self.frame_builder.clip_store.get_mut(&node_clip_info.clip_sources);
+            clip_sources.update(&transform,
+                                self.gpu_cache,
+                                self.resource_cache,
+                                self.device_pixel_ratio);
         }
     }
 
@@ -1876,9 +1882,18 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                     next_node_needs_region_mask |= !info.transform.preserves_2d_axis_alignment();
                     continue
                 },
-                NodeType::Clip(ref clip) if clip.clip_sources.is_masking() => clip,
-                _ => continue,
+                NodeType::Clip(ref clip) => {
+                    clip
+                }
+                NodeType::StickyFrame(..) | NodeType::ScrollFrame(..) => {
+                    continue;
+                }
             };
+
+            let clip_sources = self.frame_builder.clip_store.get(&clip.clip_sources);
+            if !clip_sources.is_masking() {
+                continue;
+            }
 
             // apply the screen bounds of the clip node
             //Note: these are based on the local combined viewport, so can be tighter
@@ -1889,10 +1904,8 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                 }
             }
 
-            let clip_info = clip.clip_sources.clone_mask_cache_info(next_node_needs_region_mask);
-
             // apply the outer device bounds of the clip stack
-            if let Some(ref outer) = clip_info.bounds.outer {
+            if let Some(ref outer) = clip_sources.mask_cache_info.bounds.outer {
                 bounding_rect = match bounding_rect.intersection(&outer.device_rect) {
                     Some(rect) => rect,
                     None => return None,
@@ -1900,7 +1913,11 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             }
 
             //TODO-LCCR: bake a single LCCR instead of all aligned rects?
-            self.current_clip_stack.push((clip.packed_layer_index, clip_info));
+            self.current_clip_stack.push(ClipWorkItem {
+                layer_index: clip.packed_layer_index,
+                clip_sources: self.frame_builder.clip_store.create_weak_handle(&clip.clip_sources),
+                apply_rectangles: next_node_needs_region_mask,
+            });
             next_node_needs_region_mask = false;
         }
 
@@ -1972,18 +1989,18 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                                                                    self.device_pixel_ratio,
                                                                    display_list,
                                                                    TextRunMode::Normal,
-                                                                   &mut self.render_tasks);
+                                                                   &mut self.render_tasks,
+                                                                   &mut self.frame_builder.clip_store);
 
             stacking_context.screen_bounds = stacking_context.screen_bounds.union(&prim_screen_rect);
             stacking_context.isolated_items_bounds = stacking_context.isolated_items_bounds.union(&prim_local_rect);
 
             // Try to create a mask if we may need to.
-            let clip_task = if prim_metadata.clips.is_masking() {
-                let info = prim_metadata.clips.clone_mask_cache_info(false);
-
+            let prim_clips = self.frame_builder.clip_store.get(&prim_metadata.clip_sources);
+            let clip_task = if prim_clips.is_masking() {
                 // Take into account the actual clip info of the primitive, and
                 // mutate the current bounds accordingly.
-                let mask_rect = match info.bounds.outer {
+                let mask_rect = match prim_clips.mask_cache_info.bounds.outer {
                     Some(ref outer) => {
                         match prim_screen_rect.intersection(&outer.device_rect) {
                             Some(rect) => rect,
@@ -1993,13 +2010,18 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                     _ => prim_screen_rect,
                 };
 
-                let extra = (packed_layer_index, info);
+                let extra = ClipWorkItem {
+                    layer_index: packed_layer_index,
+                    clip_sources: self.frame_builder.clip_store.create_weak_handle(&prim_metadata.clip_sources),
+                    apply_rectangles: false,
+                };
 
                 RenderTask::new_mask(None,
                                      mask_rect,
                                      &self.current_clip_stack,
                                      Some(extra),
-                                     prim_screen_rect)
+                                     prim_screen_rect,
+                                     &self.frame_builder.clip_store)
             } else if !self.current_clip_stack.is_empty() {
                 // If the primitive doesn't have a specific clip, key the task ID off the
                 // stacking context. This means that two primitives which are only clipped
@@ -2009,7 +2031,8 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
                                      clip_bounds,
                                      &self.current_clip_stack,
                                      None,
-                                     prim_screen_rect)
+                                     prim_screen_rect,
+                                     &self.frame_builder.clip_store)
             } else {
                 None
             };

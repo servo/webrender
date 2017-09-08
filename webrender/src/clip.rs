@@ -5,10 +5,15 @@
 use api::{BorderRadius, ComplexClipRegion, ImageMask, ImageRendering};
 use api::{LayerPoint, LayerRect, LayerToWorldTransform, LocalClip};
 use border::BorderCornerClipSource;
+use freelist::{FreeList, FreeListHandle, WeakFreeListHandle};
 use gpu_cache::GpuCache;
 use mask_cache::MaskCacheInfo;
 use resource_cache::ResourceCache;
 use std::ops::Not;
+
+pub type ClipStore = FreeList<ClipSources>;
+pub type ClipSourcesHandle = FreeListHandle<ClipSources>;
+pub type ClipSourcesWeakHandle = WeakFreeListHandle<ClipSources>;
 
 #[derive(Clone, Debug)]
 pub struct ClipRegion {
@@ -102,7 +107,7 @@ impl From<ClipRegion> for ClipSources {
 #[derive(Debug)]
 pub struct ClipSources {
     clips: Vec<ClipSource>,
-    mask_cache_info: MaskCacheInfo,
+    pub mask_cache_info: MaskCacheInfo,
 }
 
 impl ClipSources {
@@ -146,13 +151,5 @@ impl ClipSources {
 
     pub fn is_masking(&self) -> bool {
         self.mask_cache_info.is_masking()
-    }
-
-    pub fn clone_mask_cache_info(&self, keep_aligned: bool) -> MaskCacheInfo {
-        if keep_aligned {
-            self.mask_cache_info.clone()
-        } else {
-            self.mask_cache_info.strip_aligned()
-        }
     }
 }
