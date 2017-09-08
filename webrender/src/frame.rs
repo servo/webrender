@@ -189,6 +189,46 @@ pub struct Frame {
     frame_builder: Option<FrameBuilder>,
 }
 
+trait FilterOpHelpers {
+    fn resolve(self, properties: &SceneProperties) -> FilterOp;
+    fn is_noop(&self) -> bool;
+}
+
+impl FilterOpHelpers for FilterOp {
+    fn resolve(self, properties: &SceneProperties) -> FilterOp {
+        match self {
+            FilterOp::Opacity(ref value) => {
+                let amount = properties.resolve_float(value, 1.0);
+                FilterOp::Opacity(PropertyBinding::Value(amount))
+            }
+            _ => self
+        }
+    }
+
+    fn is_noop(&self) -> bool {
+        match *self {
+            FilterOp::Blur(length) => length == 0.0,
+            FilterOp::Brightness(amount) => amount == 1.0,
+            FilterOp::Contrast(amount) => amount == 1.0,
+            FilterOp::Grayscale(amount) => amount == 0.0,
+            FilterOp::HueRotate(amount) => amount == 0.0,
+            FilterOp::Invert(amount) => amount == 0.0,
+            FilterOp::Opacity(value) => {
+                match value {
+                    PropertyBinding::Value(amount) => {
+                        amount == 1.0
+                    }
+                    PropertyBinding::Binding(..) => {
+                        panic!("bug: binding value should be resolved");
+                    }
+                }
+            }
+            FilterOp::Saturate(amount) => amount == 1.0,
+            FilterOp::Sepia(amount) => amount == 0.0,
+        }
+    }
+}
+
 trait StackingContextHelpers {
     fn mix_blend_mode_for_compositing(&self) -> Option<MixBlendMode>;
     fn filter_ops_for_compositing(&self,
@@ -211,15 +251,11 @@ impl StackingContextHelpers for StackingContext {
                                   properties: &SceneProperties) -> Vec<FilterOp> {
         let mut filters = vec![];
         for filter in display_list.get(input_filters) {
+            let filter = filter.resolve(properties);
             if filter.is_noop() {
                 continue;
             }
-            if let FilterOp::Opacity(ref value) = filter {
-                let amount = properties.resolve_float(value, 1.0);
-                filters.push(FilterOp::Opacity(PropertyBinding::Value(amount)));
-            } else {
-                filters.push(filter);
-            }
+            filters.push(filter);
         }
         filters
     }
