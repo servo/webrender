@@ -6,8 +6,8 @@ use api::{BorderRadius, ComplexClipRegion, ImageMask, ImageRendering};
 use api::{DeviceIntRect, LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LocalClip};
 use border::BorderCornerClipSource;
 use freelist::{FreeList, FreeListHandle, WeakFreeListHandle};
-use gpu_cache::GpuCache;
-use mask_cache::MaskCacheInfo;
+use gpu_cache::{GpuCache, GpuCacheHandle, ToGpuBlocks};
+use prim_store::{ClipData, ImageMaskData};
 use resource_cache::ResourceCache;
 use std::ops::Not;
 use util::{extract_inner_rect_safe, TransformedRect};
@@ -109,18 +109,16 @@ impl From<ClipRegion> for ClipSources {
 
 #[derive(Debug)]
 pub struct ClipSources {
-    clips: Vec<ClipSource>,
-    pub mask_cache_info: MaskCacheInfo,
+    pub clips: Vec<ClipSource>,
+    pub handles: Vec<GpuCacheHandle>,
     pub bounds: MaskBounds,
 }
 
 impl ClipSources {
     pub fn new(clips: Vec<ClipSource>) -> ClipSources {
-        let mask_cache_info = MaskCacheInfo::new(&clips);
-
         ClipSources {
+            handles: Vec::with_capacity(clips.len()),
             clips,
-            mask_cache_info,
             bounds: MaskBounds {
                 inner: None,
                 outer: None,
@@ -150,6 +148,8 @@ impl ClipSources {
             let mut has_border_clip = false;
 
             for source in &self.clips {
+                self.handles.push(GpuCacheHandle::new());
+
                 match *source {
                     ClipSource::Image(ref mask) => {
                         if !mask.repeat {
@@ -166,7 +166,6 @@ impl ClipSources {
                         // case clip mask size, for now.
                         if mode == ClipMode::ClipOut {
                             has_clip_out = true;
-                            break;
                         }
 
                         local_rect = local_rect.and_then(|r| r.intersection(rect));
@@ -199,7 +198,29 @@ impl ClipSources {
         // update the screen bounds
         self.bounds.update(layer_transform, device_pixel_ratio);
 
-        self.mask_cache_info.update(&self.clips, gpu_cache);
+        for (source, handle) in self.clips.iter_mut().zip(self.handles.iter_mut()) {
+            if let Some(mut request) = gpu_cache.request(handle) {
+                match *source {
+                    ClipSource::Image(ref mask) => {
+                        let data = ImageMaskData {
+                            local_rect: mask.rect,
+                        };
+                        data.write_gpu_blocks(request);
+                    }
+                    ClipSource::Rectangle(rect) => {
+                        let data = ClipData::uniform(rect, 0.0, ClipMode::Clip);
+                        data.write(&mut request);
+                    }
+                    ClipSource::RoundedRectangle(ref rect, ref radius, mode) => {
+                        let data = ClipData::rounded_rect(rect, radius, mode);
+                        data.write(&mut request);
+                    }
+                    ClipSource::BorderCorner(ref mut source) => {
+                        source.write(request);
+                    }
+                }
+            }
+        }
 
         for clip in &self.clips {
             if let ClipSource::Image(ref mask) = *clip {
@@ -212,7 +233,7 @@ impl ClipSources {
     }
 
     pub fn is_masking(&self) -> bool {
-        self.mask_cache_info.is_masking()
+        !self.clips.is_empty()
     }
 }
 

@@ -18,9 +18,6 @@ use resource_cache::{ImageProperties, ResourceCache};
 use std::{mem, usize};
 use util::{pack_as_float, TransformedRect, recycle_vec};
 
-
-pub const CLIP_DATA_GPU_BLOCKS: usize = 10;
-
 #[derive(Debug, Copy, Clone)]
 pub struct PrimitiveOpacity {
     pub is_opaque: bool,

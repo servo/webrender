@@ -3,13 +3,13 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use border::{BorderCornerInstance, BorderCornerSide};
-use clip::ClipStore;
+use clip::{ClipSource, ClipStore};
 use device::Texture;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle, GpuCacheUpdateList};
 use gpu_types::BoxShadowCacheInstance;
 use internal_types::BatchTextures;
 use internal_types::{FastHashMap, SourceTexture};
-use prim_store::{CLIP_DATA_GPU_BLOCKS, DeferredResolve};
+use prim_store::{DeferredResolve};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
 use profiler::FrameProfileCounters;
 use render_task::{AlphaRenderItem, ClipWorkItem, MaskGeometryKind, MaskSegment};
@@ -687,84 +687,78 @@ impl ClipBatcher {
             let info = clip_store.get_opt(&work_item.clip_sources)
                                  .expect("bug: clip handle should be valid");
 
-            if !info.mask_cache_info.complex_clip_range.is_empty() {
-                let base_gpu_address = gpu_cache.get_address(&info.mask_cache_info.complex_clip_range.location);
+            for (source, handle) in info.clips.iter().zip(info.handles.iter()) {
+                let gpu_address = gpu_cache.get_address(handle);
 
-                for clip_index in 0 .. info.mask_cache_info.complex_clip_range.get_count() {
-                    let gpu_address = base_gpu_address + CLIP_DATA_GPU_BLOCKS * clip_index;
-                    match geometry_kind {
-                        MaskGeometryKind::Default => {
+                match *source {
+                    ClipSource::Image(ref mask) => {
+                        let cache_item = resource_cache.get_cached_image(mask.image, ImageRendering::Auto, None);
+                        self.images.entry(cache_item.texture_id)
+                                   .or_insert(Vec::new())
+                                   .push(CacheClipInstance {
+                            clip_data_address: gpu_address,
+                            resource_address: gpu_cache.get_address(&cache_item.uv_rect_handle),
+                            ..instance
+                        });
+                    }
+                    ClipSource::Rectangle(..) => {
+                        if work_item.apply_rectangles {
                             self.rectangles.push(CacheClipInstance {
                                 clip_data_address: gpu_address,
                                 segment: MaskSegment::All as i32,
                                 ..instance
                             });
                         }
-                        MaskGeometryKind::CornersOnly => {
-                            self.rectangles.extend_from_slice(&[
-                                CacheClipInstance {
+                    }
+                    ClipSource::RoundedRectangle(..) => {
+                        match geometry_kind {
+                            MaskGeometryKind::Default => {
+                                self.rectangles.push(CacheClipInstance {
                                     clip_data_address: gpu_address,
-                                    segment: MaskSegment::TopLeftCorner as i32,
+                                    segment: MaskSegment::All as i32,
                                     ..instance
-                                },
-                                CacheClipInstance {
-                                    clip_data_address: gpu_address,
-                                    segment: MaskSegment::TopRightCorner as i32,
-                                    ..instance
-                                },
-                                CacheClipInstance {
-                                    clip_data_address: gpu_address,
-                                    segment: MaskSegment::BottomLeftCorner as i32,
-                                    ..instance
-                                },
-                                CacheClipInstance {
-                                    clip_data_address: gpu_address,
-                                    segment: MaskSegment::BottomRightCorner as i32,
-                                    ..instance
-                                },
-                            ]);
+                                });
+                            }
+                            MaskGeometryKind::CornersOnly => {
+                                self.rectangles.extend_from_slice(&[
+                                    CacheClipInstance {
+                                        clip_data_address: gpu_address,
+                                        segment: MaskSegment::TopLeftCorner as i32,
+                                        ..instance
+                                    },
+                                    CacheClipInstance {
+                                        clip_data_address: gpu_address,
+                                        segment: MaskSegment::TopRightCorner as i32,
+                                        ..instance
+                                    },
+                                    CacheClipInstance {
+                                        clip_data_address: gpu_address,
+                                        segment: MaskSegment::BottomLeftCorner as i32,
+                                        ..instance
+                                    },
+                                    CacheClipInstance {
+                                        clip_data_address: gpu_address,
+                                        segment: MaskSegment::BottomRightCorner as i32,
+                                        ..instance
+                                    },
+                                ]);
+                            }
                         }
                     }
-                }
-            }
-
-            if work_item.apply_rectangles && !info.mask_cache_info.layer_clip_range.is_empty() {
-                let base_gpu_address = gpu_cache.get_address(&info.mask_cache_info.layer_clip_range.location);
-
-                for clip_index in 0 .. info.mask_cache_info.layer_clip_range.get_count() {
-                    let gpu_address = base_gpu_address + CLIP_DATA_GPU_BLOCKS * clip_index;
-                    self.rectangles.push(CacheClipInstance {
-                        clip_data_address: gpu_address,
-                        segment: MaskSegment::All as i32,
-                        ..instance
-                    });
-                }
-            }
-
-            if let Some((ref mask, ref gpu_location)) = info.mask_cache_info.image {
-                let cache_item = resource_cache.get_cached_image(mask.image, ImageRendering::Auto, None);
-                self.images.entry(cache_item.texture_id)
-                           .or_insert(Vec::new())
-                           .push(CacheClipInstance {
-                    clip_data_address: gpu_cache.get_address(gpu_location),
-                    resource_address: gpu_cache.get_address(&cache_item.uv_rect_handle),
-                    ..instance
-                })
-            }
-
-            for &(ref source, ref gpu_location) in &info.mask_cache_info.border_corners {
-                let gpu_address = gpu_cache.get_address(gpu_location);
-                self.border_clears.push(CacheClipInstance {
-                    clip_data_address: gpu_address,
-                    segment: 0,
-                    ..instance
-                });
-                for clip_index in 0..source.actual_clip_count {
-                    self.borders.push(CacheClipInstance {
-                        clip_data_address: gpu_address,
-                        segment: 1 + clip_index as i32,
-                        ..instance
-                    })
+                    ClipSource::BorderCorner(ref source) => {
+                        self.border_clears.push(CacheClipInstance {
+                            clip_data_address: gpu_address,
+                            segment: 0,
+                            ..instance
+                        });
+                        for clip_index in 0..source.actual_clip_count {
+                            self.borders.push(CacheClipInstance {
+                                clip_data_address: gpu_address,
+                                segment: 1 + clip_index as i32,
+                                ..instance
+                            })
+                        }
+                    }
                 }
             }
         }

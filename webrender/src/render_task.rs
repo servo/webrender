@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use clip::{ClipSourcesWeakHandle, ClipStore};
+use clip::{ClipSource, ClipSourcesWeakHandle, ClipStore};
 use gpu_cache::GpuCacheHandle;
 use internal_types::HardwareCompositeOp;
 use prim_store::{BoxShadowPrimitiveCacheKey, PrimitiveIndex};
@@ -166,13 +166,29 @@ pub struct ClipWorkItem {
 
 impl ClipWorkItem {
     fn get_geometry_kind(&self, clip_store: &ClipStore) -> MaskGeometryKind {
-        let info = &clip_store.get_opt(&self.clip_sources)
+        let clips = clip_store.get_opt(&self.clip_sources)
                               .expect("bug: clip handle should be valid")
-                              .mask_cache_info;
-        if info.border_corners.is_empty() &&
-           info.image.is_none() &&
-           info.complex_clip_range.get_count() == 1 &&
-           (info.layer_clip_range.get_count() == 0 || !self.apply_rectangles) {
+                              .clips();
+        let mut rounded_rect_count = 0;
+
+        for clip in clips {
+            match *clip {
+                ClipSource::Rectangle(..) => {
+                    if self.apply_rectangles {
+                        return MaskGeometryKind::Default;
+                    }
+                }
+                ClipSource::RoundedRectangle(..) => {
+                    rounded_rect_count += 1;
+                }
+                ClipSource::Image(..) |
+                ClipSource::BorderCorner(..) => {
+                    return MaskGeometryKind::Default;
+                }
+            }
+        }
+
+        if rounded_rect_count == 1 {
             MaskGeometryKind::CornersOnly
         } else {
             MaskGeometryKind::Default
