@@ -1905,7 +1905,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             }
 
             // apply the outer device bounds of the clip stack
-            if let Some(ref outer) = clip_sources.mask_cache_info.bounds.outer {
+            if let Some(ref outer) = clip_sources.bounds.outer {
                 bounding_rect = match bounding_rect.intersection(&outer.device_rect) {
                     Some(rect) => rect,
                     None => return None,
@@ -2000,7 +2000,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             let clip_task = if prim_clips.is_masking() {
                 // Take into account the actual clip info of the primitive, and
                 // mutate the current bounds accordingly.
-                let mask_rect = match prim_clips.mask_cache_info.bounds.outer {
+                let mask_rect = match prim_clips.bounds.outer {
                     Some(ref outer) => {
                         match prim_screen_rect.intersection(&outer.device_rect) {
                             Some(rect) => rect,
