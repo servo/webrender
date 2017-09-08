@@ -398,6 +398,17 @@ impl Texture {
     pub fn get_layer_count(&self) -> i32 {
         self.layer_count
     }
+
+    pub fn get_bpp(&self) -> u32 {
+        match self.format {
+            ImageFormat::A8 => 1,
+            ImageFormat::RGB8 => 3,
+            ImageFormat::BGRA8 => 4,
+            ImageFormat::RG8 => 2,
+            ImageFormat::RGBAF32 => 16,
+            ImageFormat::Invalid => unreachable!(),
+        }
+    }
 }
 
 impl Drop for Texture {

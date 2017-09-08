@@ -1907,6 +1907,16 @@ impl Renderer {
                                     ExternalImageSource::RawData(data) => {
                                         self.device.update_pbo_data(&data[offset as usize..]);
                                     }
+                                    ExternalImageSource::Invalid => {
+                                        // Create a local buffer to fill the pbo.
+                                        let bpp = texture.get_bpp();
+                                        let width = stride.unwrap_or(rect.size.width * bpp);
+                                        let total_size = width * rect.size.height;
+                                        // WR haven't support RGBAF32 format in texture_cache, so
+                                        // we use u8 type here.
+                                        let dummy_data: Vec<u8> = vec![255; total_size as usize];
+                                        self.device.update_pbo_data(&dummy_data);
+                                    }
                                     _ => panic!("No external buffer found"),
                                 };
                                 handler.unlock(id, channel_index);
@@ -2432,6 +2442,11 @@ impl Renderer {
 
                 let texture = match image.source {
                     ExternalImageSource::NativeTexture(texture_id) => ExternalTexture::new(texture_id, texture_target),
+                    ExternalImageSource::Invalid => {
+                        warn!("Invalid ext-image for ext_id:{:?}, channel:{}.", ext_image.id, ext_image.channel_index);
+                        // Just use 0 as the gl handle for this failed case.
+                        ExternalTexture::new(0, texture_target)
+                    }
                     _ => panic!("No native texture found."),
                 };
 
@@ -2805,7 +2820,8 @@ impl Renderer {
 
 pub enum ExternalImageSource<'a> {
     RawData(&'a [u8]),      // raw buffers.
-    NativeTexture(u32),     // Is a gl::GLuint texture handle
+    NativeTexture(u32),     // It's a gl::GLuint texture handle
+    Invalid,
 }
 
 /// The data that an external client should provide about
