@@ -1,0 +1,22 @@
+---
+root:
+  items:
+    -
+      bounds: [0, 0, 200, 200]
+      "clip-and-scroll": 0
+      type: "stacking-context"
+      "scroll-policy": scrollable
+      filters: [opacity(0.0)]
+      items:
+        -
+          bounds: [0, 0, 50, 80]
+          "clip-and-scroll": 0
+          type: clip
+          id: 1
+    - type: rect
+      bounds: [10, 10, 100, 100]
+      color: red
+      "clip-and-scroll": 1
+
+  id: [0, 0]
+pipelines: []
