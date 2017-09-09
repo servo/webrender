@@ -882,12 +882,11 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
                     clips,
-                    clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::Geometry,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_geometries.len()),
                     gpu_location: GpuCacheHandle::new(),
-                    render_task: None,
-                    clip_task: None,
+                    render_task_id: None,
+                    clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                 };
@@ -1169,7 +1168,9 @@ impl PrimitiveStore {
                 let width = (geometry_cpu.dimensions.width * device_pixel_ratio) as u32;
                 let height = (geometry_cpu.dimensions.height * device_pixel_ratio) as u32;
                 let dimensions = DeviceUintSize::new(width, height);
-                resource_cache.request_geometry(geometry_cpu.geometry_key, dimensions);
+                resource_cache.request_geometry(geometry_cpu.geometry_key,
+                                                dimensions,
+                                                gpu_cache);
             }
             PrimitiveKind::Image => {
                 let image_cpu = &mut self.cpu_images[cpu_prim_index.0];

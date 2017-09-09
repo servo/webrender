@@ -22,9 +22,9 @@ use api::{DevicePoint, DeviceUintRect, DeviceUintSize};
 use api::{Epoch, FontInstance, FontInstanceKey, FontKey, FontTemplate};
 use api::{FontInstanceOptions, FontInstancePlatformOptions};
 use api::{ColorF, FontRenderMode, SubpixelDirection};
-use api::{GeometryKey, Geometry};
+use api::{GeometryKey, Geometry, VectorRasterizer};
 use api::{GlyphDimensions, GlyphKey, IdNamespace};
-use api::{ImageData, ImageDescriptor, ImageKey, ImageRendering};
+use api::{ImageData, ImageDescriptor, ImageFormat, ImageKey, ImageRendering};
 use api::{TileOffset, TileSize};
 use api::{ExternalImageData, ExternalImageType};
 use rayon::ThreadPool;
@@ -111,8 +111,10 @@ struct CachedImageInfo {
 }
 
 struct CachedGeometryInfo {
-    texture_cache_id: TextureCacheHandle,
-    dimension: DeviceUintSize,
+    pub texture_cache_handle: TextureCacheHandle,
+    pub data: Arc<Vec<u8>>,
+    pub size: DeviceUintSize,
+    // pub offset: DevicePoint,
 }
 
 pub struct ResourceClassCache<K,V> {
@@ -193,6 +195,11 @@ impl BlobImageResources for Resources {
     }
 }
 
+pub struct GeometryRequest {
+    key: GeometryKey,
+    size: DeviceUintSize
+}
+
 pub struct ResourceCache {
     cached_glyphs: GlyphCache,
     cached_images: ResourceClassCache<ImageRequest, CachedImageInfo>,
@@ -208,23 +215,26 @@ pub struct ResourceCache {
     // TODO(gw): We should expire (parts of) this cache semi-regularly!
     cached_glyph_dimensions: FastHashMap<GlyphRequest, Option<GlyphDimensions>>,
     glyph_rasterizer: GlyphRasterizer,
-    geometry_tx: Sender<GeometryRequestMsg>,
-    geometry_result_rx: Receiver<GeometryResultMsg>,
+    // geometry_tx: Sender<GeometryRequestMsg>,
+    // geometry_result_rx: Receiver<GeometryResultMsg>,
 
     // The set of images that aren't present or valid in the texture cache,
     // and need to be rasterized and/or uploaded this frame. This includes
     // both blobs and regular images.
     pending_image_requests: FastHashSet<ImageRequest>,
 
+    pending_geometry_requests: FastHashSet<GeometryKey>,
+
     blob_image_renderer: Option<Box<BlobImageRenderer>>,
+    vector_rasterizer: Option<Box<VectorRasterizer>>,
 }
 
 impl ResourceCache {
     pub fn new(texture_cache: TextureCache,
                workers: Arc<ThreadPool>,
                blob_image_renderer: Option<Box<BlobImageRenderer>>,
+               vector_rasterizer: Option<Box<VectorRasterizer>>,
                device_pixel_ratio: f32) -> ResourceCache {
-        let (geometry_tx, geometry_result_rx) = spawn_svg_renderer(device_pixel_ratio);
 
         ResourceCache {
             cached_glyphs: GlyphCache::new(),
@@ -240,9 +250,9 @@ impl ResourceCache {
             state: State::Idle,
             current_frame_id: FrameId(0),
             pending_image_requests: FastHashSet::default(),
+            pending_geometry_requests: FastHashSet::default(),
             glyph_rasterizer: GlyphRasterizer::new(workers),
-            geometry_tx: geometry_tx,
-            geometry_result_rx: geometry_result_rx,
+            vector_rasterizer,
             blob_image_renderer,
         }
     }
@@ -287,10 +297,10 @@ impl ResourceCache {
                 ResourceUpdate::DeleteImage(img) => {
                     self.delete_image_template(img);
                 }
-                ApiMsg::UpdateGeometry(id, data) => {
+                ResourceUpdate::UpdateGeometry(id, data) => {
                     self.update_geometry(id, data);
                 }
-                ApiMsg::DeleteGeometry(id) => {
+                ResourceUpdate::DeleteGeometry(id) => {
                     self.delete_geometry(id);
                 }
                 ResourceUpdate::AddFont(font) => {
@@ -453,13 +463,12 @@ impl ResourceCache {
         }
     }
 
-    pub fn update_geometry(&self, geometry_key: GeometryKey, data: Geometry) {
-        let msg = GeometryRequestMsg::Update(geometry_key, data);
-        self.geometry_tx.send(msg).unwrap();
+    pub fn update_geometry(&mut self, geometry_key: GeometryKey, data: Geometry) {
+        self.vector_rasterizer.as_mut().unwrap().update(geometry_key, data);
     }
 
-    pub fn delete_geometry(&self, geometry_key: GeometryKey) {
-        self.geometry_tx.send(GeometryRequestMsg::Delete(geometry_key)).unwrap();
+    pub fn delete_geometry(&mut self, geometry_key: GeometryKey) {
+        self.vector_rasterizer.as_mut().unwrap().delete(geometry_key);
     }
 
     pub fn request_image(&mut self,
@@ -551,21 +560,36 @@ impl ResourceCache {
 
     pub fn request_geometry(&mut self,
                             key: GeometryKey,
-                            dimensions: DeviceUintSize) {
-        match self.cached_geometries.entry(key, self.current_frame_id) {
+                            dimensions: DeviceUintSize,
+                            gpu_cache: &mut GpuCache) {
+        match self.cached_geometries.entry(key) {
             Occupied(entry) => {
-                if entry.get().dimension == dimensions {
-                    let image_id = entry.get().texture_cache_id;
-                    self.requested_images.insert(image_id);
+                if entry.get().size == dimensions {
                     return
+                    // let image_id = entry.get().texture_cache_id;
+                    // self.requested_images.insert(image_id);
                 } else {
-                    self.texture_cache.free(entry.get().texture_cache_id);
+                    // self.texture_cache.free(entry.get().texture_cache_id);
                 }
             }
-            Vacant(_) => {}
+            Vacant(entry) => {}
         }
-        let msg = GeometryRequestMsg::Request(key, dimensions);
-        self.geometry_tx.send(msg).unwrap();
+        // let msg = GeometryRequestMsg::Request(key, dimensions);
+        // self.geometry_tx.send(msg).unwrap();
+
+        // let needs_upload = self.texture_cache.request(&mut entry.texture_cache_handle,
+        //                                               gpu_cache);
+
+        // if !needs_upload {
+        //     return;
+        // }
+
+        if self.pending_geometry_requests.insert(key) {
+            self.vector_rasterizer.as_mut().unwrap().request(
+                &self.resources,
+                key,
+                &dimensions);
+        }
     }
 
     pub fn request_glyphs(&mut self,
@@ -630,12 +654,8 @@ impl ResourceCache {
     pub fn get_cached_geometry(&self,
                                geometry_key: GeometryKey) -> CacheItem {
         debug_assert_eq!(self.state, State::QueryResources);
-        let image_info = &self.cached_geometries.get(&geometry_key, self.current_frame_id);
-        let item = self.texture_cache.get(image_info.texture_cache_id);
-        CacheItem {
-            texture_id: SourceTexture::TextureCache(item.texture_id),
-            uv_rect_handle: item.uv_rect_handle
-        }
+        let geometry_info = &self.cached_geometries.get(&geometry_key);
+        self.texture_cache.get(&geometry_info.texture_cache_handle)
     }
 
     #[inline]
@@ -713,52 +733,6 @@ impl ResourceCache {
             gpu_cache,
             texture_cache_profile,
         );
-
-        self.geometry_tx.send(GeometryRequestMsg::EndFrame).unwrap();
-        while let Ok(result) = self.geometry_result_rx.recv() {
-            match result {
-                GeometryResultMsg::EndFrame => {
-                    break
-                }
-                GeometryResultMsg::Image(key, data, descriptor) => {
-                    let image_id = match self.cached_geometries.entry(key, self.current_frame_id) {
-                        Occupied(entry) => {
-                            let image_id = entry.get().texture_cache_id;
-                            self.texture_cache.update(
-                                image_id,
-                                descriptor,
-                                TextureFilter::Linear,
-                                data,
-                                None
-                            );
-                            image_id
-                        }
-                        Vacant(entry) => {
-                            let image_id = self.texture_cache.insert(
-                                descriptor,
-                                TextureFilter::Linear,
-                                data,
-                                [0.0; 2],
-                                texture_cache_profile
-                            );
-                            entry.insert(CachedGeometryInfo {
-                                texture_cache_id: image_id,
-                                dimension: DeviceUintSize::new(descriptor.width,
-                                                               descriptor.height)
-                            });
-                            image_id
-                        }
-                    };
-                    self.requested_images.insert(image_id);
-                    // self.texture_cache.insert()
-                }
-            }
-        }
-
-        let mut image_requests = mem::replace(&mut self.pending_image_requests, Vec::new());
-        for request in image_requests.drain(..) {
-            self.finalize_image_request(request, None, texture_cache_profile);
-        }
 
         // Apply any updates of new / updated images (incl. blobs) to the texture cache.
         self.update_texture_cache(gpu_cache);
@@ -839,6 +813,7 @@ impl ResourceCache {
             };
 
             let entry = self.cached_images.get_mut(&request).unwrap();
+
             self.texture_cache.update(&mut entry.texture_cache_handle,
                                       descriptor,
                                       filter,
@@ -848,6 +823,56 @@ impl ResourceCache {
                                       gpu_cache);
             image_template.dirty_rect = None;
         }
+
+        
+        for key in self.pending_geometry_requests.drain() {
+            let (image_data, width, height) = match self.vector_rasterizer.as_mut().unwrap().resolve(key) {
+                Ok(image) => (Arc::new(image.data), image.width, image.height),
+                // TODO(nical): I think that we should handle these somewhat gracefully,
+                // at least in the out-of-memory scenario.
+                Err(BlobImageError::Oom) => {
+                    // This one should be recoverable-ish.
+                    panic!("Failed to render a vector image (OOM)");
+                }
+                Err(BlobImageError::InvalidKey) => {
+                    panic!("Invalid vector image key");
+                }
+                Err(BlobImageError::InvalidData) => {
+                    // TODO(nical): If we run into this we should kill the content process.
+                    panic!("Invalid vector image data");
+                }
+                Err(BlobImageError::Other(msg)) => {
+                    panic!("Vector image error {}", msg);
+                }
+            };
+            let descriptor = ImageDescriptor {
+                width: width,
+                height: height,
+                stride: None,
+                offset: 0,
+                format: ImageFormat::BGRA8,
+                is_opaque: false
+            };
+
+            if let Vacant(mut entry) = self.cached_geometries.entry(key) {
+                let mut texture_cache_handle = TextureCacheHandle::new();
+                self.texture_cache.request(&mut texture_cache_handle, gpu_cache);
+                entry.insert(CachedGeometryInfo {
+                    texture_cache_handle: texture_cache_handle,
+                    data: image_data.clone(),
+                    size: DeviceUintSize::new(width, height)
+                });
+            };
+            let mut entry = self.cached_geometries.get_mut(&key).unwrap();
+            self.texture_cache.update(&mut entry.texture_cache_handle,
+                                      descriptor,
+                                      TextureFilter::Linear,
+                                      ImageData::Raw(image_data),
+                                      [0.0; 2],
+                                      None,
+                                      gpu_cache);
+        }
+        
     }
 
     pub fn end_frame(&mut self) {

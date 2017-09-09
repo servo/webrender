@@ -57,6 +57,7 @@ use api::{ColorF, Epoch, PipelineId, RenderApiSender, RenderNotifier};
 use api::{ExternalImageId, ExternalImageType, ImageFormat};
 use api::{DeviceIntRect, DeviceUintRect, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
 use api::{BlobImageRenderer, channel, FontRenderMode};
+use api::VectorRasterizer;
 use api::{YuvColorSpace, YuvFormat};
 use api::{YUV_COLOR_SPACES, YUV_FORMATS};
 
@@ -1450,6 +1451,7 @@ impl Renderer {
         let enable_render_on_scroll = options.enable_render_on_scroll;
 
         let blob_image_renderer = options.blob_image_renderer.take();
+        let vector_rasterizer = options.vector_rasterizer.take();
         try!{ thread::Builder::new().name("RenderBackend".to_string()).spawn(move || {
             let mut backend = RenderBackend::new(api_rx,
                                                  payload_rx,
@@ -1462,6 +1464,7 @@ impl Renderer {
                                                  config,
                                                  recorder,
                                                  blob_image_renderer,
+                                                 vector_rasterizer,
                                                  enable_render_on_scroll);
             backend.run(backend_profile_counters);
         })};
@@ -2905,6 +2908,7 @@ impl Default for RendererOptions {
             max_texture_size: None,
             workers: None,
             blob_image_renderer: None,
+            vector_rasterizer: None,
             recorder: None,
             enable_render_on_scroll: true,
         }

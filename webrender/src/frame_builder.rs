@@ -1231,7 +1231,7 @@ impl FrameBuilder {
         self.add_primitive(clip_and_scroll,
                            &rect,
                            local_clip,
-                           &[],
+                           Vec::new(),
                            PrimitiveContainer::Geometry(prim_cpu));
     }
 

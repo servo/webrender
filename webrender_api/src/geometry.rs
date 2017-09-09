@@ -5,6 +5,7 @@
 use euclid::Point2D;
 use {BlobImageDescriptor, BlobImageResources, BlobImageResult};
 use ColorU;
+use DeviceUintSize;
 use FontKey;
 use {IdNamespace};
 
@@ -38,7 +39,7 @@ pub enum Command {
     Arc(Point2D<f32>, f32, f32, f32),
 }
 
-pub trait SvgRenderer: Send {
+pub trait VectorRasterizer: Send {
     fn update(&mut self, key: GeometryKey, data: Geometry);
 
     fn delete(&mut self, key: GeometryKey);
@@ -46,7 +47,7 @@ pub trait SvgRenderer: Send {
     fn request(&mut self,
                services: &BlobImageResources,
                key: GeometryKey,
-               descriptor: &BlobImageDescriptor);
+               dimensions: &DeviceUintSize);
 
     fn resolve(&mut self, key: GeometryKey) -> BlobImageResult;
 

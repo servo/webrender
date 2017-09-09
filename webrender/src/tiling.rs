@@ -461,7 +461,7 @@ impl AlphaRenderItem {
                         };
                         let key = AlphaBatchKey::new(batch_kind, flags, blend_mode, textures);
                         let batch = batch_list.get_suitable_batch(&key, item_bounding_rect);
-                        batch.add_instance(base_instance.build(cache_item.uv_rect_handle.as_int(gpu_cache), 0, 0));
+                        batch.push(base_instance.build(cache_item.uv_rect_handle.as_int(gpu_cache), 0, 0));
                     }
 
                     PrimitiveKind::TextRun => {
