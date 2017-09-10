@@ -391,7 +391,8 @@ impl ResourceCache {
             if let ImageData::Blob(ref mut blob) = data {
                 self.blob_image_renderer.as_mut().unwrap().update(
                     image_key,
-                    mem::replace(blob, BlobImageData::new())
+                    mem::replace(blob, BlobImageData::new()),
+                    dirty_rect
                 );
             }
 
