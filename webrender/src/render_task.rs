@@ -171,7 +171,7 @@ impl ClipWorkItem {
                               .clips();
         let mut rounded_rect_count = 0;
 
-        for clip in clips {
+        for &(ref clip, _) in clips {
             match *clip {
                 ClipSource::Rectangle(..) => {
                     if self.apply_rectangles {

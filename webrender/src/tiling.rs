@@ -687,7 +687,7 @@ impl ClipBatcher {
             let info = clip_store.get_opt(&work_item.clip_sources)
                                  .expect("bug: clip handle should be valid");
 
-            for (source, handle) in info.clips.iter().zip(info.handles.iter()) {
+            for &(ref source, ref handle) in &info.clips {
                 let gpu_address = gpu_cache.get_address(handle);
 
                 match *source {

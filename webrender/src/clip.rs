@@ -109,15 +109,17 @@ impl From<ClipRegion> for ClipSources {
 
 #[derive(Debug)]
 pub struct ClipSources {
-    pub clips: Vec<ClipSource>,
-    pub handles: Vec<GpuCacheHandle>,
+    pub clips: Vec<(ClipSource, GpuCacheHandle)>,
     pub bounds: MaskBounds,
 }
 
 impl ClipSources {
     pub fn new(clips: Vec<ClipSource>) -> ClipSources {
+        let clips = clips.into_iter()
+                         .map(|clip| (clip, GpuCacheHandle::new()))
+                         .collect();
+
         ClipSources {
-            handles: Vec::with_capacity(clips.len()),
             clips,
             bounds: MaskBounds {
                 inner: None,
@@ -126,7 +128,7 @@ impl ClipSources {
         }
     }
 
-    pub fn clips(&self) -> &[ClipSource] {
+    pub fn clips(&self) -> &[(ClipSource, GpuCacheHandle)] {
         &self.clips
     }
 
@@ -147,9 +149,7 @@ impl ClipSources {
             let mut has_clip_out = false;
             let mut has_border_clip = false;
 
-            for source in &self.clips {
-                self.handles.push(GpuCacheHandle::new());
-
+            for &(ref source, _) in &self.clips {
                 match *source {
                     ClipSource::Image(ref mask) => {
                         if !mask.repeat {
@@ -198,7 +198,7 @@ impl ClipSources {
         // update the screen bounds
         self.bounds.update(layer_transform, device_pixel_ratio);
 
-        for (source, handle) in self.clips.iter_mut().zip(self.handles.iter_mut()) {
+        for &mut (ref mut source, ref mut handle) in &mut self.clips {
             if let Some(mut request) = gpu_cache.request(handle) {
                 match *source {
                     ClipSource::Image(ref mask) => {
@@ -222,7 +222,7 @@ impl ClipSources {
             }
         }
 
-        for clip in &self.clips {
+        for &(ref clip, _) in &self.clips {
             if let ClipSource::Image(ref mask) = *clip {
                 resource_cache.request_image(mask.image,
                                              ImageRendering::Auto,
