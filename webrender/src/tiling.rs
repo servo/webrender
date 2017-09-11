@@ -479,7 +479,8 @@ impl AlphaRenderItem {
                         }
                     }
                     PrimitiveKind::TextShadow => {
-                        let cache_task_id = prim_metadata.render_task_id.expect("no render task!");
+                        let text_shadow = &ctx.prim_store.cpu_text_shadows[prim_metadata.cpu_prim_index.0];
+                        let cache_task_id = text_shadow.render_task_id.expect("no render task!");
                         let cache_task_address = render_tasks.get_task_address(cache_task_id);
                         let textures = BatchTextures::render_target_cache();
                         let key = AlphaBatchKey::new(AlphaBatchKind::CacheImage, flags, blend_mode, textures);
@@ -569,7 +570,7 @@ impl AlphaRenderItem {
                     }
                     PrimitiveKind::BoxShadow => {
                         let box_shadow = &ctx.prim_store.cpu_box_shadows[prim_metadata.cpu_prim_index.0];
-                        let cache_task_id = prim_metadata.render_task_id.unwrap();
+                        let cache_task_id = box_shadow.render_task_id.unwrap();
                         let cache_task_address = render_tasks.get_task_address(cache_task_id);
                         let textures = BatchTextures::render_target_cache();
 

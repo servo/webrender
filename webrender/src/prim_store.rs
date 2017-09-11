@@ -138,15 +138,6 @@ pub struct PrimitiveMetadata {
     pub prim_kind: PrimitiveKind,
     pub cpu_prim_index: SpecificPrimitiveIndex,
     pub gpu_location: GpuCacheHandle,
-    // An optional render task that is a dependency of
-    // drawing this primitive. For instance, box shadows
-    // use this to draw a portion of the box shadow to
-    // a render target to reduce the number of pixels
-    // that the box-shadow shader needs to run on. For
-    // text-shadow, this creates a render task chain
-    // that implements a 2-pass separable blur on a
-    // text run.
-    pub render_task_id: Option<RenderTaskId>,
     pub clip_task_id: Option<RenderTaskId>,
 
     // TODO(gw): In the future, we should just pull these
@@ -258,6 +249,7 @@ pub struct BoxShadowPrimitiveCpu {
     pub blur_radius: f32,
     pub inverted: f32,
     pub rects: Vec<LayerRect>,
+    pub render_task_id: Option<RenderTaskId>,
 }
 
 impl ToGpuBlocks for BoxShadowPrimitiveCpu {
@@ -493,6 +485,7 @@ impl RadialGradientPrimitiveCpu {
 pub struct TextShadowPrimitiveCpu {
     pub shadow: TextShadow,
     pub primitives: Vec<PrimitiveIndex>,
+    pub render_task_id: Option<RenderTaskId>,
 }
 
 #[derive(Debug, Clone)]
@@ -817,7 +810,6 @@ impl PrimitiveStore {
                     prim_kind: PrimitiveKind::Rectangle,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_rectangles.len()),
                     gpu_location: GpuCacheHandle::new(),
-                    render_task_id: None,
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
@@ -834,7 +826,6 @@ impl PrimitiveStore {
                     prim_kind: PrimitiveKind::Line,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_lines.len()),
                     gpu_location: GpuCacheHandle::new(),
-                    render_task_id: None,
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
@@ -850,7 +841,6 @@ impl PrimitiveStore {
                     prim_kind: PrimitiveKind::TextRun,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_text_runs.len()),
                     gpu_location: GpuCacheHandle::new(),
-                    render_task_id: None,
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
@@ -866,7 +856,6 @@ impl PrimitiveStore {
                     prim_kind: PrimitiveKind::TextShadow,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_text_shadows.len()),
                     gpu_location: GpuCacheHandle::new(),
-                    render_task_id: None,
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
@@ -882,7 +871,6 @@ impl PrimitiveStore {
                     prim_kind: PrimitiveKind::Image,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_images.len()),
                     gpu_location: GpuCacheHandle::new(),
-                    render_task_id: None,
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
@@ -898,7 +886,6 @@ impl PrimitiveStore {
                     prim_kind: PrimitiveKind::YuvImage,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_yuv_images.len()),
                     gpu_location: GpuCacheHandle::new(),
-                    render_task_id: None,
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
@@ -914,7 +901,6 @@ impl PrimitiveStore {
                     prim_kind: PrimitiveKind::Border,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_borders.len()),
                     gpu_location: GpuCacheHandle::new(),
-                    render_task_id: None,
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
@@ -930,7 +916,6 @@ impl PrimitiveStore {
                     prim_kind: PrimitiveKind::AlignedGradient,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_gradients.len()),
                     gpu_location: GpuCacheHandle::new(),
-                    render_task_id: None,
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
@@ -947,7 +932,6 @@ impl PrimitiveStore {
                     prim_kind: PrimitiveKind::AngleGradient,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_gradients.len()),
                     gpu_location: GpuCacheHandle::new(),
-                    render_task_id: None,
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
@@ -964,7 +948,6 @@ impl PrimitiveStore {
                     prim_kind: PrimitiveKind::RadialGradient,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_radial_gradients.len()),
                     gpu_location: GpuCacheHandle::new(),
-                    render_task_id: None,
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
@@ -980,7 +963,6 @@ impl PrimitiveStore {
                     prim_kind: PrimitiveKind::BoxShadow,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_box_shadows.len()),
                     gpu_location: GpuCacheHandle::new(),
-                    render_task_id: None,
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
@@ -1024,6 +1006,44 @@ impl PrimitiveStore {
 
         self.cpu_bounding_rects[prim_index.0] = bounding_rect;
         bounding_rect.map(|screen_bound| (local_rect.unwrap(), screen_bound))
+    }
+
+    /// Add any task dependencies for this primitive to the provided task.
+    pub fn add_render_tasks_for_prim(&self,
+                                     prim_index: PrimitiveIndex,
+                                     task: &mut RenderTask) {
+        // Add any dynamic render tasks needed to render this primitive
+        let metadata = &self.cpu_metadata[prim_index.0];
+
+        let render_task_id = match metadata.prim_kind {
+            PrimitiveKind::BoxShadow => {
+                let box_shadow = &self.cpu_box_shadows[metadata.cpu_prim_index.0];
+                box_shadow.render_task_id
+            }
+            PrimitiveKind::TextShadow => {
+                let text_shadow = &self.cpu_text_shadows[metadata.cpu_prim_index.0];
+                text_shadow.render_task_id
+            }
+            PrimitiveKind::Rectangle |
+            PrimitiveKind::TextRun |
+            PrimitiveKind::Image |
+            PrimitiveKind::AlignedGradient |
+            PrimitiveKind::YuvImage |
+            PrimitiveKind::Border |
+            PrimitiveKind::AngleGradient |
+            PrimitiveKind::RadialGradient |
+            PrimitiveKind::Line => {
+                None
+            }
+        };
+
+        if let Some(render_task_id) = render_task_id {
+            task.children.push(render_task_id);
+        }
+
+        if let Some(clip_task_id) = metadata.clip_task_id {
+            task.children.push(clip_task_id);
+        }
     }
 
     /// Returns true if the bounding box needs to be updated.
@@ -1078,7 +1098,7 @@ impl PrimitiveStore {
                 // in device space. The shader adds a 1-pixel border around
                 // the patch, in order to prevent bilinear filter artifacts as
                 // the patch is clamped / mirrored across the box shadow rect.
-                let box_shadow = &self.cpu_box_shadows[cpu_prim_index.0];
+                let box_shadow = &mut self.cpu_box_shadows[cpu_prim_index.0];
                 let edge_size = box_shadow.edge_size.ceil() * device_pixel_ratio;
                 let edge_size = edge_size as i32 + 2;   // Account for bilinear filtering
                 let cache_size = DeviceIntSize::new(edge_size, edge_size);
@@ -1101,7 +1121,7 @@ impl PrimitiveStore {
                 let render_task = RenderTask::new_box_shadow(cache_key, cache_size, prim_index);
                 let render_task_id = render_tasks.add(render_task);
 
-                metadata.render_task_id = Some(render_task_id);
+                box_shadow.render_task_id = Some(render_task_id);
             }
             PrimitiveKind::TextShadow => {
                 let shadow = &mut self.cpu_text_shadows[cpu_prim_index.0];
@@ -1119,7 +1139,7 @@ impl PrimitiveStore {
                                                        blur_radius,
                                                        prim_index,
                                                        render_tasks);
-                metadata.render_task_id = Some(render_tasks.add(render_task));
+                shadow.render_task_id = Some(render_tasks.add(render_task));
             }
             PrimitiveKind::TextRun => {
                 let text = &mut self.cpu_text_runs[cpu_prim_index.0];

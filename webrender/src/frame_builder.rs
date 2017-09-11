@@ -436,6 +436,7 @@ impl FrameBuilder {
         let prim = TextShadowPrimitiveCpu {
             shadow,
             primitives: Vec::new(),
+            render_task_id: None,
         };
 
         // Create an empty text-shadow primitive. Insert it into
@@ -1207,6 +1208,7 @@ impl FrameBuilder {
                     edge_size,
                     inverted,
                     rects,
+                    render_task_id: None,
                 };
 
                 self.add_primitive(clip_and_scroll,
@@ -1535,16 +1537,7 @@ impl FrameBuilder {
                         let prim_index = PrimitiveIndex(first_prim_index.0 + i);
 
                         if self.prim_store.cpu_bounding_rects[prim_index.0].is_some() {
-                            let prim_metadata = self.prim_store.get_metadata(prim_index);
-
-                            // Add any dynamic render tasks needed to render this primitive
-                            if let Some(render_task_id) = prim_metadata.render_task_id {
-                                current_task.children.push(render_task_id);
-                            }
-                            if let Some(clip_task_id) = prim_metadata.clip_task_id {
-                                current_task.children.push(clip_task_id);
-                            }
-
+                            self.prim_store.add_render_tasks_for_prim(prim_index, &mut current_task);
                             let item = AlphaRenderItem::Primitive(Some(group_index), prim_index, next_z);
                             current_task.as_alpha_batch_mut().items.push(item);
                             next_z += 1;
