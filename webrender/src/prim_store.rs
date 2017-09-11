@@ -121,12 +121,16 @@ pub enum PrimitiveKind {
 
 impl GpuCacheHandle {
     pub fn as_int(&self, gpu_cache: &GpuCache) -> i32 {
-        let address = gpu_cache.get_address(self);
+        gpu_cache.get_address(self).as_int()
+    }
+}
 
+impl GpuCacheAddress {
+    pub fn as_int(&self) -> i32 {
         // TODO(gw): Temporarily encode GPU Cache addresses as a single int.
         //           In the future, we can change the PrimitiveInstance struct
         //           to use 2x u16 for the vertex attribute instead of an i32.
-        address.v as i32 * MAX_VERTEX_TEXTURE_WIDTH as i32 + address.u as i32
+        self.v as i32 * MAX_VERTEX_TEXTURE_WIDTH as i32 + self.u as i32
     }
 }
 
