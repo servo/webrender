@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use api::PipelineId;
 use gpu_cache::GpuCacheHandle;
 use internal_types::HardwareCompositeOp;
 use mask_cache::MaskCacheInfo;
@@ -136,6 +137,9 @@ pub enum AlphaRenderItem {
 pub struct AlphaRenderTask {
     pub screen_origin: DeviceIntPoint,
     pub items: Vec<AlphaRenderItem>,
+    // If this render task is a registered frame output, this
+    // contains the pipeline ID it maps to.
+    pub frame_output_pipeline_id: Option<PipelineId>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -194,7 +198,8 @@ pub struct RenderTask {
 
 impl RenderTask {
     pub fn new_alpha_batch(screen_origin: DeviceIntPoint,
-                           location: RenderTaskLocation) -> RenderTask {
+                           location: RenderTaskLocation,
+                           frame_output_pipeline_id: Option<PipelineId>) -> RenderTask {
         RenderTask {
             cache_key: None,
             children: Vec::new(),
@@ -202,13 +207,15 @@ impl RenderTask {
             kind: RenderTaskKind::Alpha(AlphaRenderTask {
                 screen_origin,
                 items: Vec::new(),
+                frame_output_pipeline_id,
             }),
         }
     }
 
-    pub fn new_dynamic_alpha_batch(rect: &DeviceIntRect) -> RenderTask {
+    pub fn new_dynamic_alpha_batch(rect: &DeviceIntRect,
+                                   frame_output_pipeline_id: Option<PipelineId>) -> RenderTask {
         let location = RenderTaskLocation::Dynamic(None, rect.size);
-        Self::new_alpha_batch(rect.origin, location)
+        Self::new_alpha_batch(rect.origin, location, frame_output_pipeline_id)
     }
 
     pub fn new_prim_cache(size: DeviceIntSize,

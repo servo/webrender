@@ -20,7 +20,7 @@ use debug_render::DebugRenderer;
 use debug_server::{self, DebugServer};
 use device::{DepthFunction, Device, FrameId, Program, Texture, VertexDescriptor, GpuMarker, GpuProfiler, PBO};
 use device::{GpuTimer, TextureFilter, VAO, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
-use device::{ExternalTexture, get_gl_format_bgra, TextureSlot, VertexAttribute, VertexAttributeKind};
+use device::{ExternalTexture, FBOId, get_gl_format_bgra, TextureSlot, VertexAttribute, VertexAttributeKind};
 use euclid::{Transform3D, rect};
 use frame_builder::FrameBuilderConfig;
 use gleam::gl;
@@ -37,6 +37,7 @@ use render_task::RenderTaskTree;
 use serde_json;
 use std;
 use std::cmp;
+use std::collections::hash_map::Entry;
 use std::collections::VecDeque;
 use std::f32;
 use std::mem;
@@ -916,6 +917,11 @@ pub enum ReadPixelsFormat {
     Bgra8,
 }
 
+struct FrameOutput {
+    last_access: FrameId,
+    fbo_id: FBOId,
+}
+
 /// The renderer is responsible for submitting to the GPU the work prepared by the
 /// RenderBackend.
 pub struct Renderer {
@@ -1011,6 +1017,14 @@ pub struct Renderer {
     /// Optional trait object that allows the client
     /// application to provide external buffers for image data.
     external_image_handler: Option<Box<ExternalImageHandler>>,
+
+    /// Optional trait object that allows the client
+    /// application to provide a texture handle to
+    /// copy the WR output to.
+    output_image_handler: Option<Box<OutputImageHandler>>,
+
+    // Currently allocated FBOs for output frames.
+    output_targets: FastHashMap<u32, FrameOutput>,
 
     renderer_errors: Vec<RendererError>,
 
@@ -1528,6 +1542,8 @@ impl Renderer {
             pipeline_epoch_map: FastHashMap::default(),
             dither_matrix_texture,
             external_image_handler: None,
+            output_image_handler: None,
+            output_targets: FastHashMap::default(),
             cpu_profiles: VecDeque::new(),
             gpu_profiles: VecDeque::new(),
             gpu_cache_texture,
@@ -1734,6 +1750,11 @@ impl Renderer {
         self.external_image_handler = Some(handler);
     }
 
+    /// Set a callback for handling external outputs.
+    pub fn set_output_image_handler(&mut self, handler: Box<OutputImageHandler>) {
+        self.output_image_handler = Some(handler);
+    }
+
     /// Retrieve (and clear) the current list of recorded frame profiles.
     pub fn get_frame_profiles(&mut self) -> (Vec<CpuProfile>, Vec<GpuProfile>) {
         let cpu_profiles = self.cpu_profiles.drain(..).collect();
@@ -1790,7 +1811,7 @@ impl Renderer {
                         frame_id
                     };
 
-                    self.draw_tile_frame(frame, &framebuffer_size);
+                    self.draw_tile_frame(frame, &framebuffer_size, cpu_frame_id);
 
                     self.gpu_profile.end_frame();
                     cpu_frame_id
@@ -2140,9 +2161,8 @@ impl Renderer {
                     dest.size.height = -dest.size.height;
                 }
 
-                self.device.blit_render_target(render_target,
-                                               Some(src),
-                                               dest);
+                self.device.bind_read_target(render_target);
+                self.device.blit_render_target(src, dest);
 
                 // Restore draw target to current pass render target + layer.
                 self.device.bind_draw_target(render_target, Some(target_dimensions));
@@ -2163,6 +2183,7 @@ impl Renderer {
         clear_color: Option<[f32; 4]>,
         render_tasks: &RenderTaskTree,
         projection: &Transform3D<f32>,
+        frame_id: FrameId,
     ) {
         {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_SETUP_TARGET);
@@ -2310,6 +2331,39 @@ impl Renderer {
             self.device.disable_depth();
             self.device.set_blend(false);
             self.gpu_profile.done_sampler();
+        }
+
+        // For any registered image outputs on this render target,
+        // get the texture from caller and blit it.
+        for output in &target.outputs {
+            let handler = self.output_image_handler
+                              .as_mut()
+                              .expect("Found output image, but no handler set!");
+            if let Some((texture_id, output_size)) = handler.lock(output.pipeline_id) {
+                let device = &mut self.device;
+                let fbo_id = match self.output_targets.entry(texture_id) {
+                    Entry::Vacant(entry) => {
+                        let fbo_id = device.create_fbo_for_external_texture(texture_id);
+                        entry.insert(FrameOutput {
+                            fbo_id,
+                            last_access: frame_id,
+                        });
+                        fbo_id
+                    }
+                    Entry::Occupied(mut entry) => {
+                        let target = entry.get_mut();
+                        target.last_access = frame_id;
+                        target.fbo_id
+                    }
+                };
+                let task = render_tasks.get(output.task_id);
+                let (src_rect, _) = task.get_target_rect();
+                let dest_rect = DeviceIntRect::new(DeviceIntPoint::zero(), output_size);
+                device.bind_read_target(render_target);
+                device.bind_external_draw_target(fbo_id);
+                device.blit_render_target(src_rect, dest_rect);
+                handler.unlock(output.pipeline_id);
+            }
         }
     }
 
@@ -2547,7 +2601,8 @@ impl Renderer {
 
     fn draw_tile_frame(&mut self,
                        frame: &mut Frame,
-                       framebuffer_size: &DeviceUintSize) {
+                       framebuffer_size: &DeviceUintSize,
+                       frame_id: FrameId) {
         let _gm = GpuMarker::new(self.device.rc_gl(), "tile frame draw");
 
         // Some tests use a restricted viewport smaller than the main screen size.
@@ -2616,7 +2671,8 @@ impl Renderer {
                                            *size,
                                            clear_color,
                                            &frame.render_tasks,
-                                           &projection);
+                                           &projection,
+                                           frame_id);
 
                 }
 
@@ -2640,6 +2696,17 @@ impl Renderer {
             self.alpha_render_targets.reverse();
             self.draw_render_target_debug(framebuffer_size);
             self.draw_texture_cache_debug(framebuffer_size);
+
+            // Garbage collect any frame outputs that weren't used this frame.
+            let device = &mut self.device;
+            self.output_targets.retain(|_, target| {
+                if target.last_access != frame_id {
+                    device.delete_fbo(target.fbo_id);
+                    true
+                } else {
+                    false
+                }
+            });
         }
 
         self.unlock_external_images();
@@ -2679,17 +2746,19 @@ impl Renderer {
         }
 
         for (i, texture) in self.color_render_targets.iter().chain(self.alpha_render_targets.iter()).enumerate() {
+            let dimensions = texture.get_dimensions();
+            let src_rect = DeviceIntRect::new(DeviceIntPoint::zero(),
+                                              DeviceIntSize::new(dimensions.width as i32,
+                                                                 dimensions.height as i32));
+
             let layer_count = texture.get_render_target_layer_count();
             for layer_index in 0..layer_count {
+                self.device.bind_read_target(Some((texture, layer_index as i32)));
                 let x = fb_width - (spacing + size) * (i as i32 + 1);
                 let y = spacing;
 
                 let dest_rect = rect(x, y, size, size);
-                self.device.blit_render_target(
-                    Some((texture, layer_index as i32)),
-                    None,
-                    dest_rect
-                );
+                self.device.blit_render_target(src_rect, dest_rect);
             }
         }
     }
@@ -2719,9 +2788,15 @@ impl Renderer {
         let mut i = 0;
         for texture in &self.texture_resolver.cache_texture_map {
             let y = spacing + if self.debug_flags.contains(RENDER_TARGET_DBG) { 528 } else { 0 };
+            let dimensions = texture.get_dimensions();
+            let src_rect = DeviceIntRect::new(DeviceIntPoint::zero(),
+                                              DeviceIntSize::new(dimensions.width as i32,
+                                                                 dimensions.height as i32));
 
             let layer_count = texture.get_layer_count();
             for layer_index in 0..layer_count {
+                self.device.bind_read_target(Some((texture, layer_index)));
+
                 let x = fb_width - (spacing + size) * (i as i32 + 1);
 
                 // If we have more targets than fit on one row in screen, just early exit.
@@ -2730,7 +2805,7 @@ impl Renderer {
                 }
 
                 let dest_rect = rect(x, y, size, size);
-                self.device.blit_render_target(Some((texture, layer_index)), None, dest_rect);
+                self.device.blit_render_target(src_rect, dest_rect);
                 i += 1;
             }
         }
@@ -2805,6 +2880,9 @@ impl Renderer {
                 shader.deinit(&mut self.device);
             }
         }
+        for (_, target) in self.output_targets {
+            self.device.delete_fbo(target.fbo_id);
+        }
         self.ps_border_corner.deinit(&mut self.device);
         self.ps_border_edge.deinit(&mut self.device);
         self.ps_gradient.deinit(&mut self.device);
@@ -2858,6 +2936,16 @@ pub trait ExternalImageHandler {
     /// Unlock the external image. The WR should not read the image content
     /// after this call.
     fn unlock(&mut self, key: ExternalImageId, channel_index: u8);
+}
+
+/// Allows callers to receive a texture with the contents of a specific
+/// pipeline copied to it. Lock should return the native texture handle
+/// and the size of the texture. Unlock will only be called if the lock()
+/// call succeeds, when WR has issued the GL commands to copy the output
+/// to the texture handle.
+pub trait OutputImageHandler {
+    fn lock(&mut self, pipeline_id: PipelineId) -> Option<(u32, DeviceIntSize)>;
+    fn unlock(&mut self, pipeline_id: PipelineId);
 }
 
 pub struct RendererOptions {

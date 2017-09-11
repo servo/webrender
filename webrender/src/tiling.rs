@@ -899,6 +899,15 @@ impl<T: RenderTarget> RenderTargetList<T> {
     }
 }
 
+/// Frame output information for a given pipeline ID.
+/// Storing the task ID allows the renderer to find
+/// the target rect within the render target that this
+/// pipeline exists at.
+pub struct FrameOutput {
+    pub task_id: RenderTaskId,
+    pub pipeline_id: PipelineId,
+}
+
 /// A render target represents a number of rendering operations on a surface.
 pub struct ColorRenderTarget {
     pub alpha_batcher: AlphaBatcher,
@@ -917,6 +926,8 @@ pub struct ColorRenderTarget {
     pub vertical_blurs: Vec<BlurCommand>,
     pub horizontal_blurs: Vec<BlurCommand>,
     pub readbacks: Vec<DeviceIntRect>,
+    // List of frame buffer outputs for this render target.
+    pub outputs: Vec<FrameOutput>,
     allocator: TextureAllocator,
 }
 
@@ -935,6 +946,7 @@ impl RenderTarget for ColorRenderTarget {
             horizontal_blurs: Vec::new(),
             readbacks: Vec::new(),
             allocator: TextureAllocator::new(size),
+            outputs: Vec::new(),
         }
     }
 
@@ -964,8 +976,17 @@ impl RenderTarget for ColorRenderTarget {
             RenderTaskKind::Alias(..) => {
                 panic!("BUG: add_task() called on invalidated task");
             }
-            RenderTaskKind::Alpha(..) => {
+            RenderTaskKind::Alpha(ref info) => {
                 self.alpha_batcher.add_task(task_id);
+
+                // If this pipeline is registered as a frame output
+                // store the information necessary to do the copy.
+                if let Some(pipeline_id) = info.frame_output_pipeline_id {
+                    self.outputs.push(FrameOutput {
+                        pipeline_id,
+                        task_id,
+                    });
+                }
             }
             RenderTaskKind::VerticalBlur(..) => {
                 // Find the child render task that we are applying
@@ -1533,6 +1554,9 @@ pub struct StackingContext {
     /// when to isolate a mix-blend-mode composite.
     pub is_page_root: bool,
 
+    /// Set to true if this is the root stacking context for a pipeline.
+    pub is_pipeline_root: bool,
+
     /// Whether or not this stacking context has any visible components, calculated
     /// based on the size and position of all children and how they are clipped.
     pub is_visible: bool,
@@ -1542,6 +1566,7 @@ impl StackingContext {
     pub fn new(pipeline_id: PipelineId,
                reference_frame_offset: LayerVector2D,
                is_page_root: bool,
+               is_pipeline_root: bool,
                reference_frame_id: ClipId,
                transform_style: TransformStyle,
                composite_ops: CompositeOps)
@@ -1559,6 +1584,7 @@ impl StackingContext {
             composite_ops,
             isolation,
             is_page_root,
+            is_pipeline_root,
             is_visible: false,
         }
     }
