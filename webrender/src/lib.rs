@@ -148,7 +148,7 @@ extern crate gamma_lut;
 
 pub use renderer::{ExternalImage, ExternalImageSource, ExternalImageHandler};
 pub use renderer::{GraphicsApi, GraphicsApiInfo, ReadPixelsFormat, Renderer, RendererOptions};
-pub use renderer::{CpuProfile, GpuProfile, DebugFlags, RendererKind};
+pub use renderer::{CpuProfile, GpuProfile, DebugFlags, OutputImageHandler, RendererKind};
 pub use renderer::{MAX_VERTEX_TEXTURE_WIDTH, PROFILER_DBG, RENDER_TARGET_DBG, TEXTURE_CACHE_DBG};
 
 pub use webrender_api as api;
