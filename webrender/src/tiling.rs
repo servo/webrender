@@ -6,7 +6,8 @@ use border::{BorderCornerInstance, BorderCornerSide};
 use clip::{ClipSource, ClipStore};
 use device::Texture;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle, GpuCacheUpdateList};
-use gpu_types::{BlurDirection, BlurInstance, BoxShadowCacheInstance};
+use gpu_types::{BlurDirection, BlurInstance, BoxShadowCacheInstance, ClipMaskInstance};
+use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
 use internal_types::BatchTextures;
 use internal_types::{FastHashMap, SourceTexture};
 use prim_store::{DeferredResolve};
@@ -359,13 +360,12 @@ impl AlphaRenderItem {
                                      transform_kind == TransformedRectKind::Complex;
                 let blend_mode = ctx.prim_store.get_blend_mode(needs_blending, prim_metadata);
 
-                let prim_cache_address = prim_metadata.gpu_location
-                                                      .as_int(gpu_cache);
+                let prim_cache_address = gpu_cache.get_address(&prim_metadata.gpu_location);
 
                 let base_instance = SimplePrimitiveInstance::new(prim_cache_address,
                                                                  task_address,
                                                                  clip_task_address,
-                                                                 packed_layer_index,
+                                                                 packed_layer_index.into(),
                                                                  z);
 
                 let no_textures = BatchTextures::no_texture();
@@ -655,11 +655,11 @@ impl AlphaBatcher {
 #[derive(Debug)]
 pub struct ClipBatcher {
     /// Rectangle draws fill up the rectangles with rounded corners.
-    pub rectangles: Vec<CacheClipInstance>,
+    pub rectangles: Vec<ClipMaskInstance>,
     /// Image draws apply the image masking.
-    pub images: FastHashMap<SourceTexture, Vec<CacheClipInstance>>,
-    pub border_clears: Vec<CacheClipInstance>,
-    pub borders: Vec<CacheClipInstance>,
+    pub images: FastHashMap<SourceTexture, Vec<ClipMaskInstance>>,
+    pub border_clears: Vec<ClipMaskInstance>,
+    pub borders: Vec<ClipMaskInstance>,
 }
 
 impl ClipBatcher {
@@ -680,9 +680,9 @@ impl ClipBatcher {
            geometry_kind: MaskGeometryKind,
            clip_store: &ClipStore) {
         for work_item in clips.iter() {
-            let instance = CacheClipInstance {
-                render_task_address: task_address.0 as i32,
-                layer_index: work_item.layer_index.0 as i32,
+            let instance = ClipMaskInstance {
+                render_task_address: task_address,
+                layer_address: work_item.layer_index.into(),
                 segment: 0,
                 clip_data_address: GpuCacheAddress::invalid(),
                 resource_address: GpuCacheAddress::invalid(),
@@ -698,7 +698,7 @@ impl ClipBatcher {
                         let cache_item = resource_cache.get_cached_image(mask.image, ImageRendering::Auto, None);
                         self.images.entry(cache_item.texture_id)
                                    .or_insert(Vec::new())
-                                   .push(CacheClipInstance {
+                                   .push(ClipMaskInstance {
                             clip_data_address: gpu_address,
                             resource_address: gpu_cache.get_address(&cache_item.uv_rect_handle),
                             ..instance
@@ -706,7 +706,7 @@ impl ClipBatcher {
                     }
                     ClipSource::Rectangle(..) => {
                         if work_item.apply_rectangles {
-                            self.rectangles.push(CacheClipInstance {
+                            self.rectangles.push(ClipMaskInstance {
                                 clip_data_address: gpu_address,
                                 segment: MaskSegment::All as i32,
                                 ..instance
@@ -716,46 +716,44 @@ impl ClipBatcher {
                     ClipSource::RoundedRectangle(..) => {
                         match geometry_kind {
                             MaskGeometryKind::Default => {
-                                self.rectangles.push(CacheClipInstance {
+                                self.rectangles.push(ClipMaskInstance {
                                     clip_data_address: gpu_address,
                                     segment: MaskSegment::All as i32,
                                     ..instance
                                 });
                             }
                             MaskGeometryKind::CornersOnly => {
-                                self.rectangles.extend_from_slice(&[
-                                    CacheClipInstance {
-                                        clip_data_address: gpu_address,
-                                        segment: MaskSegment::TopLeftCorner as i32,
-                                        ..instance
-                                    },
-                                    CacheClipInstance {
-                                        clip_data_address: gpu_address,
-                                        segment: MaskSegment::TopRightCorner as i32,
-                                        ..instance
-                                    },
-                                    CacheClipInstance {
-                                        clip_data_address: gpu_address,
-                                        segment: MaskSegment::BottomLeftCorner as i32,
-                                        ..instance
-                                    },
-                                    CacheClipInstance {
-                                        clip_data_address: gpu_address,
-                                        segment: MaskSegment::BottomRightCorner as i32,
-                                        ..instance
-                                    },
-                                ]);
+                                self.rectangles.push(ClipMaskInstance {
+                                    clip_data_address: gpu_address,
+                                    segment: MaskSegment::TopLeftCorner as i32,
+                                    ..instance
+                                });
+                                self.rectangles.push(ClipMaskInstance {
+                                    clip_data_address: gpu_address,
+                                    segment: MaskSegment::TopRightCorner as i32,
+                                    ..instance
+                                });
+                                self.rectangles.push(ClipMaskInstance {
+                                    clip_data_address: gpu_address,
+                                    segment: MaskSegment::BottomLeftCorner as i32,
+                                    ..instance
+                                });
+                                self.rectangles.push(ClipMaskInstance {
+                                    clip_data_address: gpu_address,
+                                    segment: MaskSegment::BottomRightCorner as i32,
+                                    ..instance
+                                });
                             }
                         }
                     }
                     ClipSource::BorderCorner(ref source) => {
-                        self.border_clears.push(CacheClipInstance {
+                        self.border_clears.push(ClipMaskInstance {
                             clip_data_address: gpu_address,
                             segment: 0,
                             ..instance
                         });
                         for clip_index in 0..source.actual_clip_count {
-                            self.borders.push(CacheClipInstance {
+                            self.borders.push(ClipMaskInstance {
                                 clip_data_address: gpu_address,
                                 segment: 1 + clip_index as i32,
                                 ..instance
@@ -995,11 +993,11 @@ impl RenderTarget for ColorRenderTarget {
 
                         for sub_prim_index in &prim.primitives {
                             let sub_metadata = ctx.prim_store.get_metadata(*sub_prim_index);
-                            let sub_prim_address = sub_metadata.gpu_location.as_int(gpu_cache);
+                            let sub_prim_address = gpu_cache.get_address(&sub_metadata.gpu_location);
                             let instance = SimplePrimitiveInstance::new(sub_prim_address,
                                                                         task_index,
                                                                         RenderTaskAddress(0),
-                                                                        PackedLayerIndex(0),
+                                                                        PackedLayerIndex(0).into(),
                                                                         0);     // z is disabled for rendering cache primitives
 
                             match sub_metadata.prim_kind {
@@ -1331,114 +1329,6 @@ impl AlphaBatchKey {
 #[inline]
 fn textures_compatible(t1: SourceTexture, t2: SourceTexture) -> bool {
     t1 == SourceTexture::Invalid || t2 == SourceTexture::Invalid || t1 == t2
-}
-
-/// A clipping primitive drawn into the clipping mask.
-/// Could be an image or a rectangle, which defines the
-/// way `address` is treated.
-#[derive(Clone, Copy, Debug)]
-#[repr(C)]
-pub struct CacheClipInstance {
-    render_task_address: i32,
-    layer_index: i32,
-    segment: i32,
-    clip_data_address: GpuCacheAddress,
-    resource_address: GpuCacheAddress,
-}
-
-// 32 bytes per instance should be enough for anyone!
-#[derive(Debug, Clone)]
-pub struct PrimitiveInstance {
-    data: [i32; 8],
-}
-
-struct SimplePrimitiveInstance {
-    // TODO(gw): specific_prim_address is encoded as an i32, since
-    //           some primitives use GPU Cache and some still use
-    //           GPU Store. Once everything is converted to use the
-    //           on-demand GPU cache, then we change change this to
-    //           be an ivec2 of u16 - and encode the UV directly
-    //           so that the vertex shader can fetch directly.
-    pub specific_prim_address: i32,
-    pub task_index: i32,
-    pub clip_task_index: i32,
-    pub layer_index: i32,
-    pub z_sort_index: i32,
-}
-
-impl SimplePrimitiveInstance {
-    fn new(specific_prim_address: i32,
-           task_index: RenderTaskAddress,
-           clip_task_index: RenderTaskAddress,
-           layer_index: PackedLayerIndex,
-           z_sort_index: i32) -> SimplePrimitiveInstance {
-        SimplePrimitiveInstance {
-            specific_prim_address,
-            task_index: task_index.0 as i32,
-            clip_task_index: clip_task_index.0 as i32,
-            layer_index: layer_index.0 as i32,
-            z_sort_index,
-        }
-    }
-
-    fn build(&self, data0: i32, data1: i32, data2: i32) -> PrimitiveInstance {
-        PrimitiveInstance {
-            data: [
-                self.specific_prim_address,
-                self.task_index,
-                self.clip_task_index,
-                self.layer_index,
-                self.z_sort_index,
-                data0,
-                data1,
-                data2,
-            ]
-        }
-    }
-}
-
-pub struct CompositePrimitiveInstance {
-    pub task_address: RenderTaskAddress,
-    pub src_task_address: RenderTaskAddress,
-    pub backdrop_task_address: RenderTaskAddress,
-    pub data0: i32,
-    pub data1: i32,
-    pub z: i32,
-}
-
-impl CompositePrimitiveInstance {
-    fn new(task_address: RenderTaskAddress,
-           src_task_address: RenderTaskAddress,
-           backdrop_task_address: RenderTaskAddress,
-           data0: i32,
-           data1: i32,
-           z: i32) -> CompositePrimitiveInstance {
-        CompositePrimitiveInstance {
-            task_address,
-            src_task_address,
-            backdrop_task_address,
-            data0,
-            data1,
-            z,
-        }
-    }
-}
-
-impl From<CompositePrimitiveInstance> for PrimitiveInstance {
-    fn from(instance: CompositePrimitiveInstance) -> PrimitiveInstance {
-        PrimitiveInstance {
-            data: [
-                instance.task_address.0 as i32,
-                instance.src_task_address.0 as i32,
-                instance.backdrop_task_address.0 as i32,
-                instance.z,
-                instance.data0,
-                instance.data1,
-                0,
-                0,
-            ]
-        }
-    }
 }
 
 #[derive(Debug)]
