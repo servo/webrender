@@ -2,9 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use clip::{ClipSource, ClipSourcesWeakHandle, ClipStore};
 use gpu_cache::GpuCacheHandle;
 use internal_types::HardwareCompositeOp;
-use mask_cache::MaskCacheInfo;
 use prim_store::{BoxShadowPrimitiveCacheKey, PrimitiveIndex};
 use std::{cmp, f32, i32, usize};
 use tiling::{ClipScrollGroupIndex, PackedLayerIndex, RenderPass, RenderTargetIndex};
@@ -157,7 +157,44 @@ pub enum MaskGeometryKind {
     // TODO(gw): Add more types here (e.g. 4 rectangles outside the inner rect)
 }
 
-pub type ClipWorkItem = (PackedLayerIndex, MaskCacheInfo);
+#[derive(Debug, Clone)]
+pub struct ClipWorkItem {
+    pub layer_index: PackedLayerIndex,
+    pub clip_sources: ClipSourcesWeakHandle,
+    pub apply_rectangles: bool,
+}
+
+impl ClipWorkItem {
+    fn get_geometry_kind(&self, clip_store: &ClipStore) -> MaskGeometryKind {
+        let clips = clip_store.get_opt(&self.clip_sources)
+                              .expect("bug: clip handle should be valid")
+                              .clips();
+        let mut rounded_rect_count = 0;
+
+        for &(ref clip, _) in clips {
+            match *clip {
+                ClipSource::Rectangle(..) => {
+                    if self.apply_rectangles {
+                        return MaskGeometryKind::Default;
+                    }
+                }
+                ClipSource::RoundedRectangle(..) => {
+                    rounded_rect_count += 1;
+                }
+                ClipSource::Image(..) |
+                ClipSource::BorderCorner(..) => {
+                    return MaskGeometryKind::Default;
+                }
+            }
+        }
+
+        if rounded_rect_count == 1 {
+            MaskGeometryKind::CornersOnly
+        } else {
+            MaskGeometryKind::Default
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct CacheMaskTask {
@@ -245,13 +282,17 @@ impl RenderTask {
                     task_rect: DeviceIntRect,
                     raw_clips: &[ClipWorkItem],
                     extra_clip: Option<ClipWorkItem>,
-                    prim_rect: DeviceIntRect)
+                    prim_rect: DeviceIntRect,
+                    clip_store: &ClipStore)
                     -> Option<RenderTask> {
         // Filter out all the clip instances that don't contribute to the result
         let mut inner_rect = Some(task_rect);
         let clips: Vec<_> = raw_clips.iter()
                                      .chain(extra_clip.iter())
-                                     .filter(|&&(_, ref clip_info)| {
+                                     .filter(|work_item| {
+            let clip_info = clip_store.get_opt(&work_item.clip_sources)
+                                      .expect("bug: clip item should exist");
+
             // If this clip does not contribute to a mask, then ensure
             // it gets filtered out here. Otherwise, if a mask is
             // created (by a different clip in the list), the allocated
@@ -291,13 +332,7 @@ impl RenderTask {
                 return None;
             }
             if clips.len() == 1 {
-                let (_, ref info) = clips[0];
-                if info.border_corners.is_empty() &&
-                   info.image.is_none() &&
-                   info.complex_clip_range.get_count() == 1 &&
-                   info.layer_clip_range.get_count() == 0 {
-                    geometry_kind = MaskGeometryKind::CornersOnly;
-                }
+                geometry_kind = clips[0].get_geometry_kind(clip_store);
             }
         }
 

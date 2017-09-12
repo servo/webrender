@@ -3,16 +3,16 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use border::{BorderCornerInstance, BorderCornerSide};
+use clip::{ClipSource, ClipStore};
 use device::Texture;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle, GpuCacheUpdateList};
 use gpu_types::BoxShadowCacheInstance;
 use internal_types::BatchTextures;
 use internal_types::{FastHashMap, SourceTexture};
-use mask_cache::MaskCacheInfo;
-use prim_store::{CLIP_DATA_GPU_BLOCKS, DeferredResolve};
+use prim_store::{DeferredResolve};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
 use profiler::FrameProfileCounters;
-use render_task::{AlphaRenderItem, MaskGeometryKind, MaskSegment};
+use render_task::{AlphaRenderItem, ClipWorkItem, MaskGeometryKind, MaskSegment};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKey, RenderTaskKind};
 use render_task::{RenderTaskLocation, RenderTaskTree};
 use renderer::BlendMode;
@@ -670,100 +670,96 @@ impl ClipBatcher {
         }
     }
 
-    fn add<'a>(&mut self,
-               task_address: RenderTaskAddress,
-               clips: &[(PackedLayerIndex, MaskCacheInfo)],
-               resource_cache: &ResourceCache,
-               gpu_cache: &GpuCache,
-               geometry_kind: MaskGeometryKind) {
-
-        for &(packed_layer_index, ref info) in clips.iter() {
+    fn add(&mut self,
+           task_address: RenderTaskAddress,
+           clips: &[ClipWorkItem],
+           resource_cache: &ResourceCache,
+           gpu_cache: &GpuCache,
+           geometry_kind: MaskGeometryKind,
+           clip_store: &ClipStore) {
+        for work_item in clips.iter() {
             let instance = CacheClipInstance {
                 render_task_address: task_address.0 as i32,
-                layer_index: packed_layer_index.0 as i32,
+                layer_index: work_item.layer_index.0 as i32,
                 segment: 0,
                 clip_data_address: GpuCacheAddress::invalid(),
                 resource_address: GpuCacheAddress::invalid(),
             };
+            let info = clip_store.get_opt(&work_item.clip_sources)
+                                 .expect("bug: clip handle should be valid");
 
-            if !info.complex_clip_range.is_empty() {
-                let base_gpu_address = gpu_cache.get_address(&info.complex_clip_range.location);
+            for &(ref source, ref handle) in &info.clips {
+                let gpu_address = gpu_cache.get_address(handle);
 
-                for clip_index in 0 .. info.complex_clip_range.get_count() {
-                    let gpu_address = base_gpu_address + CLIP_DATA_GPU_BLOCKS * clip_index;
-                    match geometry_kind {
-                        MaskGeometryKind::Default => {
+                match *source {
+                    ClipSource::Image(ref mask) => {
+                        let cache_item = resource_cache.get_cached_image(mask.image, ImageRendering::Auto, None);
+                        self.images.entry(cache_item.texture_id)
+                                   .or_insert(Vec::new())
+                                   .push(CacheClipInstance {
+                            clip_data_address: gpu_address,
+                            resource_address: gpu_cache.get_address(&cache_item.uv_rect_handle),
+                            ..instance
+                        });
+                    }
+                    ClipSource::Rectangle(..) => {
+                        if work_item.apply_rectangles {
                             self.rectangles.push(CacheClipInstance {
                                 clip_data_address: gpu_address,
                                 segment: MaskSegment::All as i32,
                                 ..instance
                             });
                         }
-                        MaskGeometryKind::CornersOnly => {
-                            self.rectangles.extend_from_slice(&[
-                                CacheClipInstance {
+                    }
+                    ClipSource::RoundedRectangle(..) => {
+                        match geometry_kind {
+                            MaskGeometryKind::Default => {
+                                self.rectangles.push(CacheClipInstance {
                                     clip_data_address: gpu_address,
-                                    segment: MaskSegment::TopLeftCorner as i32,
+                                    segment: MaskSegment::All as i32,
                                     ..instance
-                                },
-                                CacheClipInstance {
-                                    clip_data_address: gpu_address,
-                                    segment: MaskSegment::TopRightCorner as i32,
-                                    ..instance
-                                },
-                                CacheClipInstance {
-                                    clip_data_address: gpu_address,
-                                    segment: MaskSegment::BottomLeftCorner as i32,
-                                    ..instance
-                                },
-                                CacheClipInstance {
-                                    clip_data_address: gpu_address,
-                                    segment: MaskSegment::BottomRightCorner as i32,
-                                    ..instance
-                                },
-                            ]);
+                                });
+                            }
+                            MaskGeometryKind::CornersOnly => {
+                                self.rectangles.extend_from_slice(&[
+                                    CacheClipInstance {
+                                        clip_data_address: gpu_address,
+                                        segment: MaskSegment::TopLeftCorner as i32,
+                                        ..instance
+                                    },
+                                    CacheClipInstance {
+                                        clip_data_address: gpu_address,
+                                        segment: MaskSegment::TopRightCorner as i32,
+                                        ..instance
+                                    },
+                                    CacheClipInstance {
+                                        clip_data_address: gpu_address,
+                                        segment: MaskSegment::BottomLeftCorner as i32,
+                                        ..instance
+                                    },
+                                    CacheClipInstance {
+                                        clip_data_address: gpu_address,
+                                        segment: MaskSegment::BottomRightCorner as i32,
+                                        ..instance
+                                    },
+                                ]);
+                            }
                         }
                     }
-                }
-            }
-
-            if !info.layer_clip_range.is_empty() {
-                let base_gpu_address = gpu_cache.get_address(&info.layer_clip_range.location);
-
-                for clip_index in 0 .. info.layer_clip_range.get_count() {
-                    let gpu_address = base_gpu_address + CLIP_DATA_GPU_BLOCKS * clip_index;
-                    self.rectangles.push(CacheClipInstance {
-                        clip_data_address: gpu_address,
-                        segment: MaskSegment::All as i32,
-                        ..instance
-                    });
-                }
-            }
-
-            if let Some((ref mask, ref gpu_location)) = info.image {
-                let cache_item = resource_cache.get_cached_image(mask.image, ImageRendering::Auto, None);
-                self.images.entry(cache_item.texture_id)
-                           .or_insert(Vec::new())
-                           .push(CacheClipInstance {
-                    clip_data_address: gpu_cache.get_address(gpu_location),
-                    resource_address: gpu_cache.get_address(&cache_item.uv_rect_handle),
-                    ..instance
-                })
-            }
-
-            for &(ref source, ref gpu_location) in &info.border_corners {
-                let gpu_address = gpu_cache.get_address(gpu_location);
-                self.border_clears.push(CacheClipInstance {
-                    clip_data_address: gpu_address,
-                    segment: 0,
-                    ..instance
-                });
-                for clip_index in 0..source.actual_clip_count {
-                    self.borders.push(CacheClipInstance {
-                        clip_data_address: gpu_address,
-                        segment: 1 + clip_index as i32,
-                        ..instance
-                    })
+                    ClipSource::BorderCorner(ref source) => {
+                        self.border_clears.push(CacheClipInstance {
+                            clip_data_address: gpu_address,
+                            segment: 0,
+                            ..instance
+                        });
+                        for clip_index in 0..source.actual_clip_count {
+                            self.borders.push(CacheClipInstance {
+                                clip_data_address: gpu_address,
+                                segment: 1 + clip_index as i32,
+                                ..instance
+                            })
+                        }
+                    }
                 }
             }
         }
@@ -830,7 +826,8 @@ pub trait RenderTarget {
                 task_id: RenderTaskId,
                 ctx: &RenderTargetContext,
                 gpu_cache: &GpuCache,
-                render_tasks: &RenderTaskTree);
+                render_tasks: &RenderTaskTree,
+                clip_store: &ClipStore);
     fn used_rect(&self) -> DeviceIntRect;
 }
 
@@ -876,8 +873,12 @@ impl<T: RenderTarget> RenderTargetList<T> {
                 task_id: RenderTaskId,
                 ctx: &RenderTargetContext,
                 gpu_cache: &GpuCache,
-                render_tasks: &mut RenderTaskTree) {
-        self.targets.last_mut().unwrap().add_task(task_id, ctx, gpu_cache, render_tasks);
+                render_tasks: &mut RenderTaskTree,
+                clip_store: &ClipStore) {
+        self.targets
+            .last_mut()
+            .unwrap()
+            .add_task(task_id, ctx, gpu_cache, render_tasks, clip_store);
     }
 
     fn allocate(&mut self, alloc_size: DeviceUintSize) -> (DeviceUintPoint, RenderTargetIndex) {
@@ -958,7 +959,8 @@ impl RenderTarget for ColorRenderTarget {
                 task_id: RenderTaskId,
                 ctx: &RenderTargetContext,
                 gpu_cache: &GpuCache,
-                render_tasks: &RenderTaskTree) {
+                render_tasks: &RenderTaskTree,
+                _: &ClipStore) {
         let task = render_tasks.get(task_id);
 
         match task.kind {
@@ -1095,7 +1097,8 @@ impl RenderTarget for AlphaRenderTarget {
                 task_id: RenderTaskId,
                 ctx: &RenderTargetContext,
                 gpu_cache: &GpuCache,
-                render_tasks: &RenderTaskTree) {
+                render_tasks: &RenderTaskTree,
+                clip_store: &ClipStore) {
         let task = render_tasks.get(task_id);
         match task.kind {
             RenderTaskKind::Alias(..) => {
@@ -1129,7 +1132,8 @@ impl RenderTarget for AlphaRenderTarget {
                                       &task_info.clips,
                                       &ctx.resource_cache,
                                       gpu_cache,
-                                      task_info.geometry_kind);
+                                      task_info.geometry_kind,
+                                      clip_store);
             }
         }
     }
@@ -1186,7 +1190,8 @@ impl RenderPass {
                  ctx: &RenderTargetContext,
                  gpu_cache: &mut GpuCache,
                  render_tasks: &mut RenderTaskTree,
-                 deferred_resolves: &mut Vec<DeferredResolve>) {
+                 deferred_resolves: &mut Vec<DeferredResolve>,
+                 clip_store: &ClipStore) {
         profile_scope!("RenderPass::build");
 
         // Step through each task, adding to batches as appropriate.
@@ -1242,8 +1247,18 @@ impl RenderPass {
             };
 
             match target_kind {
-                RenderTargetKind::Color => self.color_targets.add_task(task_id, ctx, gpu_cache, render_tasks),
-                RenderTargetKind::Alpha => self.alpha_targets.add_task(task_id, ctx, gpu_cache, render_tasks),
+                RenderTargetKind::Color => self.color_targets
+                                               .add_task(task_id,
+                                                         ctx,
+                                                         gpu_cache,
+                                                         render_tasks,
+                                                         clip_store),
+                RenderTargetKind::Alpha => self.alpha_targets
+                                               .add_task(task_id,
+                                                         ctx,
+                                                         gpu_cache,
+                                                         render_tasks,
+                                                         clip_store),
             }
         }
 

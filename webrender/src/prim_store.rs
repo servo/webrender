@@ -9,7 +9,7 @@ use api::{GlyphKey, LayerToWorldTransform, TileOffset, YuvColorSpace, YuvFormat}
 use api::{device_length, FontInstance, LayerVector2D, LineOrientation, LineStyle};
 use app_units::Au;
 use border::BorderCornerInstance;
-use clip::{ClipMode, ClipSources};
+use clip::{ClipMode, ClipSourcesHandle, ClipStore};
 use euclid::{Size2D};
 use gpu_cache::{GpuCacheAddress, GpuBlockData, GpuCache, GpuCacheHandle, GpuDataRequest, ToGpuBlocks};
 use renderer::MAX_VERTEX_TEXTURE_WIDTH;
@@ -17,9 +17,6 @@ use render_task::{RenderTask, RenderTaskId, RenderTaskTree};
 use resource_cache::{ImageProperties, ResourceCache};
 use std::{mem, usize};
 use util::{pack_as_float, TransformedRect, recycle_vec};
-
-
-pub const CLIP_DATA_GPU_BLOCKS: usize = 10;
 
 #[derive(Debug, Copy, Clone)]
 pub struct PrimitiveOpacity {
@@ -134,7 +131,7 @@ impl GpuCacheHandle {
 #[derive(Debug)]
 pub struct PrimitiveMetadata {
     pub opacity: PrimitiveOpacity,
-    pub clips: ClipSources,
+    pub clip_sources: ClipSourcesHandle,
     pub prim_kind: PrimitiveKind,
     pub cpu_prim_index: SpecificPrimitiveIndex,
     pub gpu_location: GpuCacheHandle,
@@ -797,7 +794,7 @@ impl PrimitiveStore {
     pub fn add_primitive(&mut self,
                          local_rect: &LayerRect,
                          local_clip_rect: &LayerRect,
-                         clips: ClipSources,
+                         clip_sources: ClipSourcesHandle,
                          container: PrimitiveContainer) -> PrimitiveIndex {
         let prim_index = self.cpu_metadata.len();
         self.cpu_bounding_rects.push(None);
@@ -806,7 +803,7 @@ impl PrimitiveStore {
             PrimitiveContainer::Rectangle(rect) => {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::from_alpha(rect.color.a),
-                    clips,
+                    clip_sources,
                     prim_kind: PrimitiveKind::Rectangle,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_rectangles.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -822,7 +819,7 @@ impl PrimitiveStore {
             PrimitiveContainer::Line(line) => {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
-                    clips,
+                    clip_sources,
                     prim_kind: PrimitiveKind::Line,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_lines.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -837,7 +834,7 @@ impl PrimitiveStore {
             PrimitiveContainer::TextRun(text_cpu) => {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
-                    clips,
+                    clip_sources,
                     prim_kind: PrimitiveKind::TextRun,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_text_runs.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -852,7 +849,7 @@ impl PrimitiveStore {
             PrimitiveContainer::TextShadow(text_shadow) => {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
-                    clips,
+                    clip_sources,
                     prim_kind: PrimitiveKind::TextShadow,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_text_shadows.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -867,7 +864,7 @@ impl PrimitiveStore {
             PrimitiveContainer::Image(image_cpu) => {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
-                    clips,
+                    clip_sources,
                     prim_kind: PrimitiveKind::Image,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_images.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -882,7 +879,7 @@ impl PrimitiveStore {
             PrimitiveContainer::YuvImage(image_cpu) => {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::opaque(),
-                    clips,
+                    clip_sources,
                     prim_kind: PrimitiveKind::YuvImage,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_yuv_images.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -897,7 +894,7 @@ impl PrimitiveStore {
             PrimitiveContainer::Border(border_cpu) => {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
-                    clips,
+                    clip_sources,
                     prim_kind: PrimitiveKind::Border,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_borders.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -912,7 +909,7 @@ impl PrimitiveStore {
             PrimitiveContainer::AlignedGradient(gradient_cpu) => {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
-                    clips,
+                    clip_sources,
                     prim_kind: PrimitiveKind::AlignedGradient,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_gradients.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -928,7 +925,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     // TODO: calculate if the gradient is actually opaque
                     opacity: PrimitiveOpacity::translucent(),
-                    clips,
+                    clip_sources,
                     prim_kind: PrimitiveKind::AngleGradient,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_gradients.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -944,7 +941,7 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     // TODO: calculate if the gradient is actually opaque
                     opacity: PrimitiveOpacity::translucent(),
-                    clips,
+                    clip_sources,
                     prim_kind: PrimitiveKind::RadialGradient,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_radial_gradients.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -959,7 +956,7 @@ impl PrimitiveStore {
             PrimitiveContainer::BoxShadow(box_shadow) => {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
-                    clips,
+                    clip_sources,
                     prim_kind: PrimitiveKind::BoxShadow,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_box_shadows.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -1055,7 +1052,8 @@ impl PrimitiveStore {
                                    device_pixel_ratio: f32,
                                    display_list: &BuiltDisplayList,
                                    text_run_mode: TextRunMode,
-                                   render_tasks: &mut RenderTaskTree)
+                                   render_tasks: &mut RenderTaskTree,
+                                   clip_store: &mut ClipStore)
                                    -> &mut PrimitiveMetadata {
         let (prim_kind, cpu_prim_index) = {
             let metadata = &self.cpu_metadata[prim_index.0];
@@ -1076,15 +1074,16 @@ impl PrimitiveStore {
                                              device_pixel_ratio,
                                              display_list,
                                              TextRunMode::Shadow,
-                                             render_tasks);
+                                             render_tasks,
+                                             clip_store);
             }
         }
 
         let metadata = &mut self.cpu_metadata[prim_index.0];
-        metadata.clips.update(layer_transform,
-                              gpu_cache,
-                              resource_cache,
-                              device_pixel_ratio);
+        clip_store.get_mut(&metadata.clip_sources).update(layer_transform,
+                                                          gpu_cache,
+                                                          resource_cache,
+                                                          device_pixel_ratio);
 
         match metadata.prim_kind {
             PrimitiveKind::Rectangle |
