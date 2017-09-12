@@ -1668,7 +1668,9 @@ impl Renderer {
 
                     debug_target.add(debug_server::BatchKind::Cache, "Vertical Blur", target.vertical_blurs.len());
                     debug_target.add(debug_server::BatchKind::Cache, "Horizontal Blur", target.horizontal_blurs.len());
-                    debug_target.add(debug_server::BatchKind::Cache, "Text Shadow", target.text_run_cache_prims.len());
+                    for (_, batch) in &target.text_run_cache_prims {
+                        debug_target.add(debug_server::BatchKind::Cache, "Text Shadow", batch.len());
+                    }
                     debug_target.add(debug_server::BatchKind::Cache, "Lines", target.line_cache_prims.len());
 
                     for batch in target.alpha_batcher
@@ -2227,9 +2229,11 @@ impl Renderer {
 
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_TEXT_RUN);
             self.cs_text_run.bind(&mut self.device, projection, &mut self.renderer_errors);
-            self.draw_instanced_batch(&target.text_run_cache_prims,
-                                      VertexArrayKind::Primitive,
-                                      &target.text_run_textures);
+            for (texture_id, instances) in &target.text_run_cache_prims {
+                self.draw_instanced_batch(instances,
+                                          VertexArrayKind::Primitive,
+                                          &BatchTextures::color(*texture_id));
+            }
         }
         if !target.line_cache_prims.is_empty() {
             // TODO(gw): Technically, we don't need blend for solid

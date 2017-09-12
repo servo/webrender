@@ -17,7 +17,7 @@ use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKey, RenderTaskKind
 use render_task::{RenderTaskLocation, RenderTaskTree};
 use renderer::BlendMode;
 use renderer::ImageBufferKind;
-use resource_cache::ResourceCache;
+use resource_cache::{GlyphFetchResult, ResourceCache};
 use std::{f32, i32, usize};
 use texture_allocator::GuillotineAllocator;
 use util::{TransformedRect, TransformedRectKind};
@@ -243,6 +243,7 @@ impl BatchList {
 pub struct AlphaBatcher {
     pub batch_list: BatchList,
     tasks: Vec<RenderTaskId>,
+    glyph_fetch_buffer: Vec<GlyphFetchResult>,
 }
 
 impl AlphaRenderItem {
@@ -253,7 +254,8 @@ impl AlphaRenderItem {
                     render_tasks: &RenderTaskTree,
                     task_id: RenderTaskId,
                     task_address: RenderTaskAddress,
-                    deferred_resolves: &mut Vec<DeferredResolve>) {
+                    deferred_resolves: &mut Vec<DeferredResolve>,
+                    glyph_fetch_buffer: &mut Vec<GlyphFetchResult>) {
         match *self {
             AlphaRenderItem::Blend(stacking_context_index, src_id, filter, z) => {
                 let stacking_context = &ctx.stacking_context_store[stacking_context_index.0];
@@ -454,20 +456,14 @@ impl AlphaRenderItem {
                     PrimitiveKind::TextRun => {
                         let text_cpu = &ctx.prim_store.cpu_text_runs[prim_metadata.cpu_prim_index.0];
 
-                        // TODO(gw): avoid / recycle this allocation in the future.
-                        let mut instances = Vec::new();
-
                         let mut font = text_cpu.font.clone();
                         font.size = font.size.scale_by(ctx.device_pixel_ratio);
 
-                        let texture_id = ctx.resource_cache.get_glyphs(font,
-                                                                       &text_cpu.glyph_keys,
-                                                                       |index, handle| {
-                            let uv_address = handle.as_int(gpu_cache);
-                            instances.push(base_instance.build(index as i32, uv_address, 0));
-                        });
-
-                        if texture_id != SourceTexture::Invalid {
+                        ctx.resource_cache.fetch_glyphs(font,
+                                                        &text_cpu.glyph_keys,
+                                                        glyph_fetch_buffer,
+                                                        gpu_cache,
+                                                        |texture_id, glyphs| {
                             let textures = BatchTextures {
                                 colors: [texture_id, SourceTexture::Invalid, SourceTexture::Invalid],
                             };
@@ -475,8 +471,12 @@ impl AlphaRenderItem {
                             let key = AlphaBatchKey::new(AlphaBatchKind::TextRun, flags, blend_mode, textures);
                             let batch = batch_list.get_suitable_batch(&key, item_bounding_rect);
 
-                            batch.extend_from_slice(&instances);
-                        }
+                            for glyph in glyphs {
+                                batch.push(base_instance.build(glyph.index_in_text_run,
+                                                               glyph.uv_rect_address.as_int(),
+                                                               0));
+                            }
+                        });
                     }
                     PrimitiveKind::TextShadow => {
                         let text_shadow = &ctx.prim_store.cpu_text_shadows[prim_metadata.cpu_prim_index.0];
@@ -612,6 +612,7 @@ impl AlphaBatcher {
         AlphaBatcher {
             tasks: Vec::new(),
             batch_list: BatchList::new(),
+            glyph_fetch_buffer: Vec::new(),
         }
     }
 
@@ -636,7 +637,8 @@ impl AlphaBatcher {
                                   render_tasks,
                                   task_id,
                                   task_address,
-                                  deferred_resolves);
+                                  deferred_resolves,
+                                  &mut self.glyph_fetch_buffer);
             }
         }
 
@@ -905,21 +907,14 @@ impl<T: RenderTarget> RenderTargetList<T> {
 pub struct ColorRenderTarget {
     pub alpha_batcher: AlphaBatcher,
     // List of text runs to be cached to this render target.
-    // TODO(gw): For now, assume that these all come from
-    //           the same source texture id. This is almost
-    //           always true except for pathological test
-    //           cases with more than 4k x 4k of unique
-    //           glyphs visible. Once the future glyph / texture
-    //           cache changes land, this restriction will
-    //           be removed anyway.
-    pub text_run_cache_prims: Vec<PrimitiveInstance>,
+    pub text_run_cache_prims: FastHashMap<SourceTexture, Vec<PrimitiveInstance>>,
     pub line_cache_prims: Vec<PrimitiveInstance>,
-    pub text_run_textures: BatchTextures,
     // List of blur operations to apply for this render target.
     pub vertical_blurs: Vec<BlurCommand>,
     pub horizontal_blurs: Vec<BlurCommand>,
     pub readbacks: Vec<DeviceIntRect>,
     allocator: TextureAllocator,
+    glyph_fetch_buffer: Vec<GlyphFetchResult>,
 }
 
 impl RenderTarget for ColorRenderTarget {
@@ -930,13 +925,13 @@ impl RenderTarget for ColorRenderTarget {
     fn new(size: DeviceUintSize) -> ColorRenderTarget {
         ColorRenderTarget {
             alpha_batcher: AlphaBatcher::new(),
-            text_run_cache_prims: Vec::new(),
+            text_run_cache_prims: FastHashMap::default(),
             line_cache_prims: Vec::new(),
-            text_run_textures: BatchTextures::no_texture(),
             vertical_blurs: Vec::new(),
             horizontal_blurs: Vec::new(),
             readbacks: Vec::new(),
             allocator: TextureAllocator::new(size),
+            glyph_fetch_buffer: Vec::new(),
         }
     }
 
@@ -996,9 +991,6 @@ impl RenderTarget for ColorRenderTarget {
                     PrimitiveKind::TextShadow => {
                         let prim = &ctx.prim_store.cpu_text_shadows[prim_metadata.cpu_prim_index.0];
 
-                        // todo(gw): avoid / recycle this allocation...
-                        let mut instances = Vec::new();
-
                         let task_index = render_tasks.get_task_address(task_id);
 
                         for sub_prim_index in &prim.primitives {
@@ -1016,33 +1008,26 @@ impl RenderTarget for ColorRenderTarget {
                                     // the parent text-shadow prim address as a user data field, allowing
                                     // the shader to fetch the text-shadow parameters.
                                     let text = &ctx.prim_store.cpu_text_runs[sub_metadata.cpu_prim_index.0];
+                                    let text_run_cache_prims = &mut self.text_run_cache_prims;
 
                                     let mut font = text.font.clone();
                                     font.size = font.size.scale_by(ctx.device_pixel_ratio);
                                     font.render_mode = text.shadow_render_mode;
 
-                                    let texture_id = ctx.resource_cache.get_glyphs(font,
-                                                                                   &text.glyph_keys,
-                                                                                   |index, handle| {
-                                        let uv_address = handle.as_int(gpu_cache);
-                                        instances.push(instance.build(index as i32,
-                                                                      uv_address,
+                                    ctx.resource_cache.fetch_glyphs(font,
+                                                                    &text.glyph_keys,
+                                                                    &mut self.glyph_fetch_buffer,
+                                                                    gpu_cache,
+                                                                    |texture_id, glyphs| {
+                                        let batch = text_run_cache_prims.entry(texture_id)
+                                                                        .or_insert(Vec::new());
+
+                                        for glyph in glyphs {
+                                            batch.push(instance.build(glyph.index_in_text_run,
+                                                                      glyph.uv_rect_address.as_int(),
                                                                       prim_address));
+                                        }
                                     });
-
-                                    if texture_id != SourceTexture::Invalid {
-                                        let textures = BatchTextures {
-                                            colors: [texture_id, SourceTexture::Invalid, SourceTexture::Invalid],
-                                        };
-
-                                        self.text_run_cache_prims.extend_from_slice(&instances);
-                                        instances.clear();
-
-                                        debug_assert!(textures.colors[0] != SourceTexture::Invalid);
-                                        debug_assert!(self.text_run_textures.colors[0] == SourceTexture::Invalid ||
-                                                      self.text_run_textures.colors[0] == textures.colors[0]);
-                                        self.text_run_textures = textures;
-                                    }
                                 }
                                 PrimitiveKind::Line => {
                                     self.line_cache_prims.push(instance.build(prim_address, 0, 0));
