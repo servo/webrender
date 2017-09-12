@@ -6,7 +6,7 @@ use border::{BorderCornerInstance, BorderCornerSide};
 use clip::{ClipSource, ClipStore};
 use device::Texture;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle, GpuCacheUpdateList};
-use gpu_types::BoxShadowCacheInstance;
+use gpu_types::{BlurDirection, BlurInstance, BoxShadowCacheInstance};
 use internal_types::BatchTextures;
 use internal_types::{FastHashMap, SourceTexture};
 use prim_store::{DeferredResolve};
@@ -910,8 +910,8 @@ pub struct ColorRenderTarget {
     pub text_run_cache_prims: FastHashMap<SourceTexture, Vec<PrimitiveInstance>>,
     pub line_cache_prims: Vec<PrimitiveInstance>,
     // List of blur operations to apply for this render target.
-    pub vertical_blurs: Vec<BlurCommand>,
-    pub horizontal_blurs: Vec<BlurCommand>,
+    pub vertical_blurs: Vec<BlurInstance>,
+    pub horizontal_blurs: Vec<BlurInstance>,
     pub readbacks: Vec<DeviceIntRect>,
     allocator: TextureAllocator,
     glyph_fetch_buffer: Vec<GlyphFetchResult>,
@@ -968,19 +968,19 @@ impl RenderTarget for ColorRenderTarget {
             RenderTaskKind::VerticalBlur(..) => {
                 // Find the child render task that we are applying
                 // a vertical blur on.
-                self.vertical_blurs.push(BlurCommand {
-                    task_id: task_id.0 as i32,
-                    src_task_id: task.children[0].0 as i32,
-                    blur_direction: BlurDirection::Vertical as i32,
+                self.vertical_blurs.push(BlurInstance {
+                    task_address: render_tasks.get_task_address(task_id),
+                    src_task_address: render_tasks.get_task_address(task.children[0]),
+                    blur_direction: BlurDirection::Vertical,
                 });
             }
             RenderTaskKind::HorizontalBlur(..) => {
                 // Find the child render task that we are applying
                 // a horizontal blur on.
-                self.horizontal_blurs.push(BlurCommand {
-                    task_id: task_id.0 as i32,
-                    src_task_id: task.children[0].0 as i32,
-                    blur_direction: BlurDirection::Horizontal as i32,
+                self.horizontal_blurs.push(BlurInstance {
+                    task_address: render_tasks.get_task_address(task_id),
+                    src_task_address: render_tasks.get_task_address(task.children[0]),
+                    blur_direction: BlurDirection::Horizontal,
                 });
             }
             RenderTaskKind::CachePrimitive(prim_index) => {
@@ -1328,24 +1328,9 @@ impl AlphaBatchKey {
     }
 }
 
-#[repr(C)]
-#[derive(Debug)]
-pub enum BlurDirection {
-    Horizontal = 0,
-    Vertical,
-}
-
 #[inline]
 fn textures_compatible(t1: SourceTexture, t2: SourceTexture) -> bool {
     t1 == SourceTexture::Invalid || t2 == SourceTexture::Invalid || t1 == t2
-}
-
-// All Packed Primitives below must be 16 byte aligned.
-#[derive(Debug)]
-pub struct BlurCommand {
-    task_id: i32,
-    src_task_id: i32,
-    blur_direction: i32,
 }
 
 /// A clipping primitive drawn into the clipping mask.

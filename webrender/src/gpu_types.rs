@@ -14,3 +14,18 @@ pub struct BoxShadowCacheInstance {
     pub prim_address: GpuCacheAddress,
     pub task_index: RenderTaskAddress,
 }
+
+#[repr(i32)]
+#[derive(Debug)]
+pub enum BlurDirection {
+    Horizontal = 0,
+    Vertical,
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct BlurInstance {
+    pub task_address: RenderTaskAddress,
+    pub src_task_address: RenderTaskAddress,
+    pub blur_direction: BlurDirection,
+}

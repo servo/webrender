@@ -198,8 +198,8 @@ const DESC_BLUR: VertexDescriptor = VertexDescriptor {
         VertexAttribute { name: "aPosition", count: 2, kind: VertexAttributeKind::F32 },
     ],
     instance_attributes: &[
-        VertexAttribute { name: "aBlurRenderTaskIndex", count: 1, kind: VertexAttributeKind::I32 },
-        VertexAttribute { name: "aBlurSourceTaskIndex", count: 1, kind: VertexAttributeKind::I32 },
+        VertexAttribute { name: "aBlurRenderTaskAddress", count: 1, kind: VertexAttributeKind::I32 },
+        VertexAttribute { name: "aBlurSourceTaskAddress", count: 1, kind: VertexAttributeKind::I32 },
         VertexAttribute { name: "aBlurDirection", count: 1, kind: VertexAttributeKind::I32 },
     ]
 };
