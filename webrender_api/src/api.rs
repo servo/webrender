@@ -11,6 +11,7 @@ use {BuiltDisplayList, BuiltDisplayListDescriptor, ClipId, ColorF, DeviceIntPoin
 use {DeviceUintRect, DeviceUintSize, FontInstanceKey, FontKey, GlyphDimensions, GlyphKey};
 use {ImageData, ImageDescriptor, ImageKey, LayoutPoint, LayoutVector2D, LayoutSize, LayoutTransform};
 use {FontInstance, FontInstanceOptions, FontInstancePlatformOptions, NativeFontHandle, WorldPoint};
+use {Geometry, GeometryKey};
 
 pub type TileSize = u16;
 
@@ -29,6 +30,8 @@ pub enum ResourceUpdate {
     DeleteFont(FontKey),
     AddFontInstance(AddFontInstance),
     DeleteFontInstance(FontInstanceKey),
+    UpdateGeometry(GeometryKey, Geometry),
+    DeleteGeometry(GeometryKey),
 }
 
 impl ResourceUpdates {
@@ -60,6 +63,15 @@ impl ResourceUpdates {
 
     pub fn delete_image(&mut self, key: ImageKey) {
         self.updates.push(ResourceUpdate::DeleteImage(key));
+    }
+
+    pub fn update_geometry(&mut self, key: GeometryKey, data: Geometry) {
+        self.updates.push(ResourceUpdate::UpdateGeometry(key, data));
+    }
+
+    /// Deletes the specific geometry.
+    pub fn delete_geometry(&mut self, key: GeometryKey) {
+        self.updates.push(ResourceUpdate::DeleteGeometry(key));
     }
 
     pub fn add_raw_font(&mut self, key: FontKey, bytes: Vec<u8>, index: u32) {
@@ -456,6 +468,12 @@ impl RenderApi {
         // `RenderApi` instances for layout and compositor.
         //assert_eq!(document_id.0, self.namespace_id);
         self.api_sender.send(ApiMsg::UpdateDocument(document_id, msg)).unwrap()
+    }
+
+    /// Creates an `ImageKey`.
+    pub fn generate_geometry_key(&self) -> GeometryKey {
+        let new_id = self.next_unique_id();
+        GeometryKey::new(self.namespace_id, new_id)
     }
 
     /// Sets the root pipeline.

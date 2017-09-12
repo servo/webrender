@@ -589,6 +589,12 @@ impl Frame {
                                               None);
                 }
             }
+            SpecificDisplayItem::Geometry(ref info) => {
+                context.builder.add_geometry(clip_and_scroll,
+                                             item.rect(),
+                                             item.local_clip(),
+                                             info.geometry_key);
+            }
             SpecificDisplayItem::YuvImage(ref info) => {
                 context.builder.add_yuv_image(clip_and_scroll,
                                               item_rect_with_offset,

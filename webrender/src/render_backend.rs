@@ -28,6 +28,7 @@ use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentId, DocumentM
 use api::{IdNamespace, LayerPoint, RenderNotifier};
 #[cfg(feature = "debugger")]
 use api::{BuiltDisplayListIter, SpecificDisplayItem};
+use api::VectorRasterizer;
 
 struct Document {
     scene: Scene,
@@ -147,12 +148,15 @@ impl RenderBackend {
         frame_config: FrameBuilderConfig,
         recorder: Option<Box<ApiRecordingReceiver>>,
         blob_image_renderer: Option<Box<BlobImageRenderer>>,
+        vector_rasterizer: Option<Box<VectorRasterizer>>,
         enable_render_on_scroll: bool,
     ) -> RenderBackend {
 
         let resource_cache = ResourceCache::new(texture_cache,
                                                 workers,
-                                                blob_image_renderer);
+                                                blob_image_renderer,
+                                                vector_rasterizer,
+                                                hidpi_factor);
 
         register_thread_with_profiler("Backend".to_string());
 
