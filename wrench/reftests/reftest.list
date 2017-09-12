@@ -1,4 +1,5 @@
 include aa/reftest.list
+include backface/reftest.list
 include blend/reftest.list
 include border/reftest.list
 include boxshadow/reftest.list

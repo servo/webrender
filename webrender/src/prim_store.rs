@@ -146,6 +146,7 @@ pub struct PrimitiveMetadata {
     //           storing them here.
     pub local_rect: LayerRect,
     pub local_clip_rect: LayerRect,
+    pub is_backface_visible: bool,
 }
 
 impl PrimitiveMetadata {
@@ -798,6 +799,7 @@ impl PrimitiveStore {
     pub fn add_primitive(&mut self,
                          local_rect: &LayerRect,
                          local_clip_rect: &LayerRect,
+                         is_backface_visible: bool,
                          clip_sources: ClipSourcesHandle,
                          container: PrimitiveContainer) -> PrimitiveIndex {
         let prim_index = self.cpu_metadata.len();
@@ -814,6 +816,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_rectangles.push(rect);
@@ -830,6 +833,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_lines.push(line);
@@ -845,6 +849,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_text_runs.push(text_cpu);
@@ -860,6 +865,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_text_shadows.push(text_shadow);
@@ -875,6 +881,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_images.push(image_cpu);
@@ -890,6 +897,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_yuv_images.push(image_cpu);
@@ -905,6 +913,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_borders.push(border_cpu);
@@ -920,6 +929,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_gradients.push(gradient_cpu);
@@ -936,6 +946,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_gradients.push(gradient_cpu);
@@ -952,6 +963,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_radial_gradients.push(radial_gradient_cpu);
@@ -967,6 +979,7 @@ impl PrimitiveStore {
                     clip_task_id: None,
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
+                    is_backface_visible: is_backface_visible,
                 };
 
                 self.cpu_box_shadows.push(box_shadow);
@@ -994,6 +1007,11 @@ impl PrimitiveStore {
                                layer_combined_local_clip_rect: &LayerRect,
                                device_pixel_ratio: f32) -> Option<(LayerRect, DeviceIntRect)> {
         let metadata = &self.cpu_metadata[prim_index.0];
+
+        if !metadata.is_backface_visible && layer_transform.is_backface_visible() {
+            return None;
+        }
+
         let local_rect = metadata.local_rect
                                  .intersection(&metadata.local_clip_rect)
                                  .and_then(|rect| rect.intersection(layer_combined_local_clip_rect));
