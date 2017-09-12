@@ -127,6 +127,7 @@ bitflags! {
         const PROFILER_DBG      = 1 << 0;
         const RENDER_TARGET_DBG = 1 << 1;
         const TEXTURE_CACHE_DBG = 1 << 2;
+        const ALPHA_PRIM_DBG    = 1 << 3;
     }
 }
 
@@ -2301,6 +2302,13 @@ impl Renderer {
                         }
                     }
                     prev_blend_mode = batch.key.blend_mode;
+                }
+
+                if self.debug_flags.contains(ALPHA_PRIM_DBG) {
+                    let color = ColorF::new(1.0, 0.0, 0.0, 1.0).into();
+                    for item_rect in &batch.item_rects {
+                        self.debug.add_rect(item_rect, color);
+                    }
                 }
 
                 self.submit_batch(&batch.key,
