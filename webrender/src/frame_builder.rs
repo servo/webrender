@@ -14,7 +14,7 @@ use app_units::Au;
 use clip::{ClipMode, ClipRegion, ClipSource, ClipSources, ClipStore};
 use frame::FrameId;
 use gpu_cache::GpuCache;
-use internal_types::{FastHashMap, HardwareCompositeOp};
+use internal_types::{FastHashMap, FastHashSet, HardwareCompositeOp};
 use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, LinePrimitive, PrimitiveKind};
 use prim_store::{PrimitiveContainer, PrimitiveIndex};
@@ -135,7 +135,6 @@ pub struct FrameBuilder {
 
     /// Whether or not we've pushed a root stacking context for the current pipeline.
     has_root_stacking_context: bool,
-
 }
 
 impl FrameBuilder {
@@ -280,7 +279,8 @@ impl FrameBuilder {
                                  pipeline_id: PipelineId,
                                  composite_ops: CompositeOps,
                                  transform_style: TransformStyle,
-                                 is_backface_visible: bool) {
+                                 is_backface_visible: bool,
+                                 is_pipeline_root: bool) {
         if let Some(parent_index) = self.stacking_context_stack.last() {
             let parent_is_root = self.stacking_context_store[parent_index.0].is_page_root;
 
@@ -301,6 +301,7 @@ impl FrameBuilder {
         self.stacking_context_store.push(StackingContext::new(pipeline_id,
                                                               *reference_frame_offset,
                                                               !self.has_root_stacking_context,
+                                                              is_pipeline_root,
                                                               reference_frame_id,
                                                               transform_style,
                                                               composite_ops,
@@ -1356,14 +1357,16 @@ impl FrameBuilder {
     fn build_render_task(&mut self,
                          clip_scroll_tree: &ClipScrollTree,
                          gpu_cache: &mut GpuCache,
-                         render_tasks: &mut RenderTaskTree)
+                         render_tasks: &mut RenderTaskTree,
+                         output_pipelines: &FastHashSet<PipelineId>)
                          -> RenderTaskId {
         profile_scope!("build_render_task");
 
         let mut next_z = 0;
         let mut sc_stack: Vec<StackingContextIndex> = Vec::new();
         let mut current_task = RenderTask::new_alpha_batch(DeviceIntPoint::zero(),
-                                                           RenderTaskLocation::Fixed);
+                                                           RenderTaskLocation::Fixed,
+                                                           None);
         // A stack of the alpha batcher tasks. We create them on the way down,
         // and then actually populate with items and dependencies on the way up.
         let mut alpha_task_stack = Vec::new();
@@ -1395,9 +1398,17 @@ impl FrameBuilder {
                     let stacking_context_rect = &stacking_context.screen_bounds;
                     let composite_count = stacking_context.composite_ops.count();
 
+                    // If this stacking context if the root of a pipeline, and the caller
+                    // has requested it as an output frame, create a render task to isolate it.
+                    if stacking_context.is_pipeline_root && output_pipelines.contains(&stacking_context.pipeline_id) {
+                        alpha_task_stack.push(current_task);
+                        current_task = RenderTask::new_dynamic_alpha_batch(stacking_context_rect,
+                                                                           Some(stacking_context.pipeline_id));
+                    }
+
                     if stacking_context.isolation == ContextIsolation::Full && composite_count == 0 {
                         alpha_task_stack.push(current_task);
-                        current_task = RenderTask::new_dynamic_alpha_batch(stacking_context_rect);
+                        current_task = RenderTask::new_dynamic_alpha_batch(stacking_context_rect, None);
                     }
 
                     if parent_isolation == Some(ContextIsolation::Items) ||
@@ -1407,7 +1418,7 @@ impl FrameBuilder {
                             preserve_3d_map_stack.push(FastHashMap::default());
                         }
                         alpha_task_stack.push(current_task);
-                        current_task = RenderTask::new_dynamic_alpha_batch(stacking_context_rect);
+                        current_task = RenderTask::new_dynamic_alpha_batch(stacking_context_rect, None);
                         //Note: technically, we shouldn't make a new alpha task for "preserve-3d" contexts
                         // that have no child items (only other stacking contexts). However, we don't know if
                         // there are any items at this time (in `PushStackingContext`).
@@ -1422,7 +1433,7 @@ impl FrameBuilder {
 
                     for _ in 0..composite_count {
                         alpha_task_stack.push(current_task);
-                        current_task = RenderTask::new_dynamic_alpha_batch(stacking_context_rect);
+                        current_task = RenderTask::new_dynamic_alpha_batch(stacking_context_rect, None);
                     }
                 }
                 PrimitiveRunCmd::PopStackingContext => {
@@ -1518,6 +1529,19 @@ impl FrameBuilder {
                         preserve_3d_map_stack.pop();
                         next_z += 1;
                     }
+
+                    if stacking_context.is_pipeline_root && output_pipelines.contains(&stacking_context.pipeline_id) {
+                        let mut prev_task = alpha_task_stack.pop().unwrap();
+                        let current_task_id = render_tasks.add(current_task);
+                        let item = AlphaRenderItem::HardwareComposite(stacking_context_index,
+                                                                      current_task_id,
+                                                                      HardwareCompositeOp::PremultipliedAlpha,
+                                                                      next_z);
+                        next_z += 1;
+                        prev_task.as_alpha_batch_mut().items.push(item);
+                        prev_task.children.push(current_task_id);
+                        current_task = prev_task;
+                    }
                 }
                 PrimitiveRunCmd::PrimitiveRun(first_prim_index, prim_count, clip_and_scroll) => {
                     let stacking_context_index = *sc_stack.last().unwrap();
@@ -1559,6 +1583,7 @@ impl FrameBuilder {
                  clip_scroll_tree: &mut ClipScrollTree,
                  display_lists: &DisplayListMap,
                  device_pixel_ratio: f32,
+                 output_pipelines: &FastHashSet<PipelineId>,
                  texture_cache_profile: &mut TextureCacheProfileCounters,
                  gpu_cache_profile: &mut GpuCacheProfileCounters)
                  -> Frame {
@@ -1595,7 +1620,10 @@ impl FrameBuilder {
                                                       &mut profile_counters,
                                                       device_pixel_ratio);
 
-        let main_render_task_id = self.build_render_task(clip_scroll_tree, gpu_cache, &mut render_tasks);
+        let main_render_task_id = self.build_render_task(clip_scroll_tree,
+                                                         gpu_cache,
+                                                         &mut render_tasks,
+                                                         output_pipelines);
 
         let mut required_pass_count = 0;
         render_tasks.max_depth(main_render_task_id, 0, &mut required_pass_count);

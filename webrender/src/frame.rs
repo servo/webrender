@@ -13,7 +13,7 @@ use clip::ClipRegion;
 use clip_scroll_tree::{ClipScrollTree, ScrollStates};
 use euclid::rect;
 use gpu_cache::GpuCache;
-use internal_types::{FastHashMap, RendererFrame};
+use internal_types::{FastHashMap, FastHashSet, RendererFrame};
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
 use resource_cache::{ResourceCache, TiledImageMap};
@@ -478,7 +478,8 @@ impl Frame {
                                               pipeline_id,
                                               composition_operations,
                                               stacking_context.transform_style,
-                                              is_backface_visible);
+                                              is_backface_visible,
+                                              false);
 
         self.flatten_items(traversal,
                            pipeline_id,
@@ -848,6 +849,7 @@ impl Frame {
                                               pipeline_id,
                                               CompositeOps::default(),
                                               TransformStyle::Flat,
+                                              true,
                                               true);
 
         // We do this here, rather than above because we want any of the top-level
@@ -1202,6 +1204,7 @@ impl Frame {
                  display_lists: &DisplayListMap,
                  device_pixel_ratio: f32,
                  pan: LayerPoint,
+                 output_pipelines: &FastHashSet<PipelineId>,
                  texture_cache_profile: &mut TextureCacheProfileCounters,
                  gpu_cache_profile: &mut GpuCacheProfileCounters)
                  -> RendererFrame {
@@ -1210,6 +1213,7 @@ impl Frame {
                                      gpu_cache,
                                      display_lists,
                                      device_pixel_ratio,
+                                     output_pipelines,
                                      texture_cache_profile,
                                      gpu_cache_profile);
         frame
@@ -1220,6 +1224,7 @@ impl Frame {
                    gpu_cache: &mut GpuCache,
                    display_lists: &DisplayListMap,
                    device_pixel_ratio: f32,
+                   output_pipelines: &FastHashSet<PipelineId>,
                    texture_cache_profile: &mut TextureCacheProfileCounters,
                    gpu_cache_profile: &mut GpuCacheProfileCounters)
                    -> RendererFrame {
@@ -1231,6 +1236,7 @@ impl Frame {
                           &mut self.clip_scroll_tree,
                           display_lists,
                           device_pixel_ratio,
+                          output_pipelines,
                           texture_cache_profile,
                           gpu_cache_profile)
         );
