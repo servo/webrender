@@ -268,7 +268,6 @@ impl AlphaRenderItem {
                 let src_task_address = render_tasks.get_task_address(src_id);
 
                 let (filter_mode, amount) = match filter {
-                    // TODO: Implement blur filter #1351
                     FilterOp::Blur(..) => (0, 0.0),
                     FilterOp::Contrast(amount) => (1, amount),
                     FilterOp::Grayscale(amount) => (2, amount),
@@ -293,7 +292,7 @@ impl AlphaRenderItem {
 
                 batch.push(PrimitiveInstance::from(instance));
             }
-            AlphaRenderItem::HardwareComposite(stacking_context_index, src_id, composite_op, z) => {
+            AlphaRenderItem::HardwareComposite(stacking_context_index, src_id, composite_op, screen_origin, z) => {
                 let stacking_context = &ctx.stacking_context_store[stacking_context_index.0];
                 let src_task_address = render_tasks.get_task_address(src_id);
                 let key = AlphaBatchKey::new(AlphaBatchKind::HardwareComposite,
@@ -305,8 +304,8 @@ impl AlphaRenderItem {
                 let instance = CompositePrimitiveInstance::new(task_address,
                                                                src_task_address,
                                                                RenderTaskAddress(0),
-                                                               0,
-                                                               0,
+                                                               screen_origin.x,
+                                                               screen_origin.y,
                                                                z);
 
                 batch.push(PrimitiveInstance::from(instance));

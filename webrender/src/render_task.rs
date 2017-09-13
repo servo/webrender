@@ -131,7 +131,7 @@ pub enum AlphaRenderItem {
     Blend(StackingContextIndex, RenderTaskId, FilterOp, i32),
     Composite(StackingContextIndex, RenderTaskId, RenderTaskId, MixBlendMode, i32),
     SplitComposite(StackingContextIndex, RenderTaskId, GpuCacheHandle, i32),
-    HardwareComposite(StackingContextIndex, RenderTaskId, HardwareCompositeOp, i32),
+    HardwareComposite(StackingContextIndex, RenderTaskId, HardwareCompositeOp, DeviceIntPoint, i32),
 }
 
 #[derive(Debug)]
@@ -372,20 +372,17 @@ impl RenderTask {
     //           |
     //           +---- This is stored as the input task to the primitive shader.
     //
-    pub fn new_blur(size: DeviceIntSize,
-                    blur_radius: DeviceIntLength,
-                    prim_index: PrimitiveIndex,
+    pub fn new_blur(blur_radius: DeviceIntLength,
+                    src_task_id: RenderTaskId,
                     render_tasks: &mut RenderTaskTree) -> RenderTask {
-        let prim_cache_task = RenderTask::new_prim_cache(size,
-                                                         prim_index);
-        let prim_cache_task_id = render_tasks.add(prim_cache_task);
+        let src_size = render_tasks.get(src_task_id).get_dynamic_size();
 
-        let blur_target_size = size + DeviceIntSize::new(2 * blur_radius.0,
-                                                         2 * blur_radius.0);
+        let blur_target_size = src_size + DeviceIntSize::new(2 * blur_radius.0,
+                                                             2 * blur_radius.0);
 
         let blur_task_v = RenderTask {
             cache_key: None,
-            children: vec![prim_cache_task_id],
+            children: vec![src_task_id],
             location: RenderTaskLocation::Dynamic(None, blur_target_size),
             kind: RenderTaskKind::VerticalBlur(blur_radius),
         };

@@ -4,7 +4,7 @@
 
 use api::{BorderDetails, BorderDisplayItem, BorderRadius, BoxShadowClipMode, ClipAndScrollInfo, ClipId, ColorF};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
-use api::{ExtendMode, FontInstance, FontRenderMode};
+use api::{device_length, ExtendMode, FilterOp, FontInstance, FontRenderMode};
 use api::{GlyphInstance, GlyphOptions, GradientStop};
 use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect, LayerSize};
 use api::{LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation, LineStyle};
@@ -1358,7 +1358,8 @@ impl FrameBuilder {
                          clip_scroll_tree: &ClipScrollTree,
                          gpu_cache: &mut GpuCache,
                          render_tasks: &mut RenderTaskTree,
-                         output_pipelines: &FastHashSet<PipelineId>)
+                         output_pipelines: &FastHashSet<PipelineId>,
+                         device_pixel_ratio: f32)
                          -> RenderTaskId {
         profile_scope!("build_render_task");
 
@@ -1451,10 +1452,12 @@ impl FrameBuilder {
 
                     if stacking_context.isolation == ContextIsolation::Full && composite_count == 0 {
                         let mut prev_task = alpha_task_stack.pop().unwrap();
+                        let screen_origin = current_task.as_alpha_batch().screen_origin;
                         let current_task_id = render_tasks.add(current_task);
                         let item = AlphaRenderItem::HardwareComposite(stacking_context_index,
                                                                       current_task_id,
                                                                       HardwareCompositeOp::PremultipliedAlpha,
+                                                                      screen_origin,
                                                                       next_z);
                         next_z += 1;
                         prev_task.as_alpha_batch_mut().items.push(item);
@@ -1464,15 +1467,36 @@ impl FrameBuilder {
 
                     for filter in &stacking_context.composite_ops.filters {
                         let mut prev_task = alpha_task_stack.pop().unwrap();
+                        let screen_origin = current_task.as_alpha_batch().screen_origin;
                         let current_task_id = render_tasks.add(current_task);
-                        let item = AlphaRenderItem::Blend(stacking_context_index,
-                                                          current_task_id,
-                                                          *filter,
-                                                          next_z);
+                        match *filter {
+                            FilterOp::Blur(blur_radius) => {
+                                let blur_radius = device_length(blur_radius, device_pixel_ratio);
+                                let blur_render_task = RenderTask::new_blur(blur_radius,
+                                                                            current_task_id,
+                                                                            render_tasks);
+                                let blur_render_task_id = render_tasks.add(blur_render_task);
+                                let item = AlphaRenderItem::HardwareComposite(stacking_context_index,
+                                                                              blur_render_task_id,
+                                                                              HardwareCompositeOp::PremultipliedAlpha,
+                                                                              DeviceIntPoint::new(screen_origin.x - blur_radius.0,
+                                                                                                  screen_origin.y - blur_radius.0),
+                                                                              next_z);
+                                prev_task.as_alpha_batch_mut().items.push(item);
+                                prev_task.children.push(blur_render_task_id);
+                                current_task = prev_task;
+                            }
+                            _ => {
+                                let item = AlphaRenderItem::Blend(stacking_context_index,
+                                                                  current_task_id,
+                                                                  *filter,
+                                                                  next_z);
+                                prev_task.as_alpha_batch_mut().items.push(item);
+                                prev_task.children.push(current_task_id);
+                                current_task = prev_task;
+                            }
+                        }
                         next_z += 1;
-                        prev_task.as_alpha_batch_mut().items.push(item);
-                        prev_task.children.push(current_task_id);
-                        current_task = prev_task;
                     }
 
                     if let Some(mix_blend_mode) = stacking_context.composite_ops.mix_blend_mode {
@@ -1532,10 +1556,12 @@ impl FrameBuilder {
 
                     if stacking_context.is_pipeline_root && output_pipelines.contains(&stacking_context.pipeline_id) {
                         let mut prev_task = alpha_task_stack.pop().unwrap();
+                        let screen_origin = current_task.as_alpha_batch().screen_origin;
                         let current_task_id = render_tasks.add(current_task);
                         let item = AlphaRenderItem::HardwareComposite(stacking_context_index,
                                                                       current_task_id,
                                                                       HardwareCompositeOp::PremultipliedAlpha,
+                                                                      screen_origin,
                                                                       next_z);
                         next_z += 1;
                         prev_task.as_alpha_batch_mut().items.push(item);
@@ -1616,7 +1642,8 @@ impl FrameBuilder {
         let main_render_task_id = self.build_render_task(clip_scroll_tree,
                                                          gpu_cache,
                                                          &mut render_tasks,
-                                                         output_pipelines);
+                                                         output_pipelines,
+                                                         device_pixel_ratio);
 
         let mut required_pass_count = 0;
         render_tasks.max_depth(main_render_task_id, 0, &mut required_pass_count);

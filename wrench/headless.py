@@ -67,4 +67,9 @@ def set_osmesa_env(bin_path):
 
 subprocess.check_call(['cargo', 'build', '--release', '--verbose', '--features', 'headless'])
 set_osmesa_env('../target/release/')
-subprocess.check_call(['../target/release/wrench', '-h'] + sys.argv[1:])
+# TODO(gw): We have an occasional accuracy issue or bug (could be WR or OSMesa)
+#           where the output of a previous test that uses intermediate targets can
+#           cause 1.0 / 255.0 pixel differences in a subsequent test. For now, we
+#           run tests with no-scissor mode, which ensures a complete target clear
+#           between test runs. But we should investigate this further...
+subprocess.check_call(['../target/release/wrench', '--no-scissor', '-h'] + sys.argv[1:])
