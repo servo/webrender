@@ -3,9 +3,6 @@ language: rust
 rust:
   - 1.19.0
   - nightly
-matrix:
-  allow_failures:
-  - rust: nightly
 os:
   - linux
   - osx
