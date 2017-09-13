@@ -52,18 +52,24 @@ impl HandyDandyRectBuilder for (i32, i32) {
 }
 
 pub trait Example {
-    fn render(&mut self,
-              api: &RenderApi,
-              builder: &mut DisplayListBuilder,
-              resources: &mut ResourceUpdates,
-              layout_size: LayoutSize,
-              pipeline_id: PipelineId,
-              document_id: DocumentId);
-    fn on_event(&mut self,
-                event: glutin::Event,
-                api: &RenderApi,
-                document_id: DocumentId) -> bool;
-    fn get_external_image_handler(&self) -> Option<Box<webrender::ExternalImageHandler>> {
+    fn render(
+        &mut self,
+        api: &RenderApi,
+        builder: &mut DisplayListBuilder,
+        resources: &mut ResourceUpdates,
+        layout_size: LayoutSize,
+        pipeline_id: PipelineId,
+        document_id: DocumentId,
+    );
+    fn on_event(
+        &mut self,
+        event: glutin::Event,
+        api: &RenderApi,
+        document_id: DocumentId,
+    ) -> bool;
+    fn get_external_image_handler(
+        &self,
+    ) -> Option<(ExternalHandlerId, Box<webrender::ExternalImageHandler>)> {
         None
     }
 }
@@ -118,8 +124,8 @@ pub fn main_wrapper(example: &mut Example,
     let notifier = Box::new(Notifier::new(window.create_window_proxy()));
     renderer.set_render_notifier(notifier);
 
-    if let Some(external_image_handler) = example.get_external_image_handler() {
-        renderer.set_external_image_handler(external_image_handler);
+    if let Some((external_handler_id, external_image_handler)) = example.get_external_image_handler() {
+        renderer.set_external_image_handler(external_handler_id, external_image_handler);
     }
 
     let epoch = Epoch(0);

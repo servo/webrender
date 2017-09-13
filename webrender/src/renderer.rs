@@ -54,7 +54,7 @@ use time::precise_time_ns;
 use thread_profiler::{register_thread_with_profiler, write_profile};
 use util::TransformedRectKind;
 use api::{ColorF, Epoch, PipelineId, RenderApiSender, RenderNotifier};
-use api::{ExternalImageId, ExternalImageType, ImageFormat};
+use api::{ExternalHandlerId, ExternalImageData, ExternalImageId, ExternalImageType, ImageFormat};
 use api::{DeviceIntRect, DeviceUintRect, DeviceIntPoint, DeviceIntSize, DeviceUintSize};
 use api::{BlobImageRenderer, channel, FontRenderMode};
 use api::{YuvColorSpace, YuvFormat};
@@ -354,7 +354,7 @@ struct SourceTextureResolver {
     cache_texture_map: Vec<Texture>,
 
     /// Map of external image IDs to native textures.
-    external_images: FastHashMap<(ExternalImageId, u8), ExternalTexture>,
+    external_images: FastHashMap<ExternalImageData, ExternalTexture>,
 
     /// A special 1x1 dummy cache texture used for shaders that expect to work
     /// with the cache but are actually running in the first pass
@@ -437,10 +437,8 @@ impl SourceTextureResolver {
                 let texture = self.cache_rgba8_texture.as_ref().unwrap_or(&self.dummy_cache_texture);
                 device.bind_texture(sampler, texture);
             }
-            SourceTexture::External(external_image) => {
-                let texture = self.external_images
-                                  .get(&(external_image.id, external_image.channel_index))
-                                  .expect("BUG: External image should be resolved by now!");
+            SourceTexture::External(ref external_image) => {
+                let texture = &self.external_images[external_image];
                 device.bind_external_texture(sampler, texture);
             }
             SourceTexture::TextureCache(index) => {
@@ -1009,9 +1007,8 @@ pub struct Renderer {
 
     dither_matrix_texture: Option<Texture>,
 
-    /// Optional trait object that allows the client
-    /// application to provide external buffers for image data.
-    external_image_handler: Option<Box<ExternalImageHandler>>,
+    /// Map of external image handers.
+    external_image_handlers: FastHashMap<ExternalHandlerId, Box<ExternalImageHandler>>,
 
     renderer_errors: Vec<RendererError>,
 
@@ -1528,7 +1525,7 @@ impl Renderer {
             render_task_texture,
             pipeline_epoch_map: FastHashMap::default(),
             dither_matrix_texture,
-            external_image_handler: None,
+            external_image_handlers: FastHashMap::default(),
             cpu_profiles: VecDeque::new(),
             gpu_profiles: VecDeque::new(),
             gpu_cache_texture,
@@ -1733,8 +1730,22 @@ impl Renderer {
     }
 
     /// Set a callback for handling external images.
-    pub fn set_external_image_handler(&mut self, handler: Box<ExternalImageHandler>) {
-        self.external_image_handler = Some(handler);
+    pub fn set_external_image_handler(
+        &mut self,
+        id: ExternalHandlerId,
+        handler: Box<ExternalImageHandler>,
+    ) {
+        self.external_image_handlers.insert(id, handler);
+    }
+
+    /// Remove a callback for handling external images.
+    pub fn remove_external_image_handler(
+        &mut self,
+        id: ExternalHandlerId,
+    ) {
+        if self.external_image_handlers.remove(&id).is_none() {
+            error!("External image handler for {:?} is already removed", id);
+        }
     }
 
     /// Retrieve (and clear) the current list of recorded frame profiles.
@@ -1904,10 +1915,10 @@ impl Renderer {
                             TextureUpdateSource::Bytes { data }  => {
                                 self.device.update_pbo_data(&data[offset as usize..]);
                             }
-                            TextureUpdateSource::External { id, channel_index } => {
-                                let handler = self.external_image_handler
-                                                  .as_mut()
-                                                  .expect("Found external image, but no handler set!");
+                            TextureUpdateSource::External { ref handler_id, id, channel_index } => {
+                                let handler = self.external_image_handlers
+                                    .get_mut(handler_id)
+                                    .expect("Found external image, but no handler set!");
                                 match handler.lock(id, channel_index).source {
                                     ExternalImageSource::RawData(data) => {
                                         self.device.update_pbo_data(&data[offset as usize..]);
@@ -2429,16 +2440,16 @@ impl Renderer {
         // custom item. Then we patch the resource_rects structure
         // here before it's uploaded to the GPU.
         if !frame.deferred_resolves.is_empty() {
-            let handler = self.external_image_handler
-                              .as_mut()
-                              .expect("Found external image, but no handler set!");
-
             for deferred_resolve in &frame.deferred_resolves {
                 GpuMarker::fire(self.device.gl(), "deferred resolve");
                 let props = &deferred_resolve.image_properties;
                 let ext_image = props.external_image
-                                     .expect("BUG: Deferred resolves must be external images!");
-                let image = handler.lock(ext_image.id, ext_image.channel_index);
+                    .expect("BUG: Deferred resolves must be external images!");
+                let image = self.external_image_handlers
+                    .get_mut(&ext_image.handler_id)
+                    .expect("Found external image, but no handler set!")
+                    .lock(ext_image.id, ext_image.channel_index);
+
                 let texture_target = match ext_image.image_type {
                     ExternalImageType::Texture2DHandle => TextureTarget::Default,
                     ExternalImageType::Texture2DArrayHandle => TextureTarget::Array,
@@ -2464,9 +2475,7 @@ impl Renderer {
                     _ => panic!("No native texture found."),
                 };
 
-                self.texture_resolver
-                    .external_images
-                    .insert((ext_image.id, ext_image.channel_index), texture);
+                self.texture_resolver.external_images.insert(ext_image, texture);
 
                 let update = GpuCacheUpdate::Copy {
                     block_index: 0,
@@ -2481,14 +2490,11 @@ impl Renderer {
     }
 
     fn unlock_external_images(&mut self) {
-        if !self.texture_resolver.external_images.is_empty() {
-            let handler = self.external_image_handler
-                              .as_mut()
-                              .expect("Found external image, but no handler set!");
-
-            for (ext_data, _) in self.texture_resolver.external_images.drain() {
-                handler.unlock(ext_data.0, ext_data.1);
-            }
+        for (ext_data, _) in self.texture_resolver.external_images.drain() {
+            self.external_image_handlers
+                .get_mut(&ext_data.handler_id)
+                .expect("Found external image, but no handler set!")
+                .unlock(ext_data.id, ext_data.channel_index)
         }
     }
 

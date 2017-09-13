@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 use {DeviceUintRect, DevicePoint};
-use {IdNamespace};
+use {ExternalHandlerId, IdNamespace};
 use {TileOffset, TileSize};
 use font::{FontKey, FontInstanceKey, FontTemplate};
 
@@ -42,6 +42,7 @@ pub enum ExternalImageType {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct ExternalImageData {
+    pub handler_id: ExternalHandlerId,
     pub id: ExternalImageId,
     pub channel_index: u8,
     pub image_type: ExternalImageType,

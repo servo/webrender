@@ -1687,12 +1687,14 @@ pub struct Frame {
     pub deferred_resolves: Vec<DeferredResolve>,
 }
 
-fn resolve_image(image_key: ImageKey,
-                 image_rendering: ImageRendering,
-                 tile_offset: Option<TileOffset>,
-                 resource_cache: &ResourceCache,
-                 gpu_cache: &mut GpuCache,
-                 deferred_resolves: &mut Vec<DeferredResolve>) -> (SourceTexture, GpuCacheHandle) {
+fn resolve_image(
+    image_key: ImageKey,
+    image_rendering: ImageRendering,
+    tile_offset: Option<TileOffset>,
+    resource_cache: &ResourceCache,
+    gpu_cache: &mut GpuCache,
+    deferred_resolves: &mut Vec<DeferredResolve>,
+) -> (SourceTexture, GpuCacheHandle) {
     match resource_cache.get_image_properties(image_key) {
         Some(image_properties) => {
             // Check if an external image that needs to be resolved
