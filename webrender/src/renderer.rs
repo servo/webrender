@@ -2327,7 +2327,12 @@ impl Renderer {
                 }
 
                 if self.debug_flags.contains(ALPHA_PRIM_DBG) {
-                    let color = ColorF::new(1.0, 0.0, 0.0, 1.0).into();
+                    let color = match batch.key.blend_mode {
+                        BlendMode::None => ColorF::new(0.3, 0.3, 0.3, 1.0),
+                        BlendMode::Alpha => ColorF::new(0.0, 0.9, 0.1, 1.0),
+                        BlendMode::PremultipliedAlpha => ColorF::new(0.0, 0.3, 0.7, 1.0),
+                        BlendMode::Subpixel(_) => ColorF::new(0.5, 0.0, 0.4, 1.0),
+                    }.into();
                     for item_rect in &batch.item_rects {
                         self.debug.add_rect(item_rect, color);
                     }

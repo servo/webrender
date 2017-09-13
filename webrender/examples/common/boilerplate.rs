@@ -184,6 +184,12 @@ pub fn main_wrapper(example: &mut Example,
                     renderer.set_debug_flags(flags);
                 }
                 glutin::Event::KeyboardInput(glutin::ElementState::Pressed,
+                                             _, Some(glutin::VirtualKeyCode::B)) => {
+                    let mut flags = renderer.get_debug_flags();
+                    flags.toggle(webrender::ALPHA_PRIM_DBG);
+                    renderer.set_debug_flags(flags);
+                }
+                glutin::Event::KeyboardInput(glutin::ElementState::Pressed,
                                              _, Some(glutin::VirtualKeyCode::M)) => {
                     api.notify_memory_pressure();
                 }
