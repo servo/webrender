@@ -1,4 +1,5 @@
 == filter-grayscale.yaml filter-grayscale-ref.yaml
+== filter-blur.yaml filter-blur.png
 == isolated.yaml isolated-ref.yaml
 == invisible.yaml invisible-ref.yaml
 == opacity.yaml opacity-ref.yaml

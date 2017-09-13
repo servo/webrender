@@ -6,9 +6,9 @@
 pub fn premultiply(data: &mut [u8]) {
     for pixel in data.chunks_mut(4) {
         let a = pixel[3] as u32;
-        let r = pixel[2] as u32;
+        let b = pixel[2] as u32;
         let g = pixel[1] as u32;
-        let b = pixel[0] as u32;
+        let r = pixel[0] as u32;
 
         pixel[3] = a as u8;
         pixel[2] = ((r * a + 128) / 255) as u8;
@@ -20,9 +20,9 @@ pub fn premultiply(data: &mut [u8]) {
 pub fn unpremultiply(data: &mut [u8]) {
     for pixel in data.chunks_mut(4) {
         let a = pixel[3] as u32;
-        let mut r = pixel[2] as u32;
+        let mut b = pixel[2] as u32;
         let mut g = pixel[1] as u32;
-        let mut b = pixel[0] as u32;
+        let mut r = pixel[0] as u32;
 
         if a > 0 {
             r = r * 255 / a;
