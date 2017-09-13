@@ -27,7 +27,7 @@ use render_task::{RenderTaskTree, RenderTaskId, RenderTaskLocation};
 use resource_cache::ResourceCache;
 use clip_scroll_node::{ClipInfo, ClipScrollNode, NodeType};
 use clip_scroll_tree::ClipScrollTree;
-use std::{cmp, f32, i32, mem, usize};
+use std::{f32, i32, mem, usize};
 use euclid::{SideOffsets2D, vec2, vec3};
 use tiling::{ContextIsolation, StackingContextIndex};
 use tiling::{ClipScrollGroup, ClipScrollGroupIndex, CompositeOps, DisplayListMap, Frame};
@@ -1600,13 +1600,6 @@ impl FrameBuilder {
             DeviceIntSize::new(self.screen_size.width as i32,
                                self.screen_size.height as i32));
 
-        // Pick a size for the cache render targets to be. The main requirement is that it
-        // has to be at least as large as the framebuffer size. This ensures that it will
-        // always be able to allocate the worst case render task (such as a clip mask that
-        // covers the entire screen).
-        let cache_size = DeviceUintSize::new(cmp::max(1024, screen_rect.size.width as u32),
-                                             cmp::max(1024, screen_rect.size.height as u32));
-
         self.update_scroll_bars(clip_scroll_tree, gpu_cache);
 
         let mut render_tasks = RenderTaskTree::new();
@@ -1637,8 +1630,7 @@ impl FrameBuilder {
         // Do the allocations now, assigning each tile's tasks to a render
         // pass and target as required.
         for index in 0..required_pass_count {
-            passes.push(RenderPass::new(index == required_pass_count-1,
-                                        cache_size));
+            passes.push(RenderPass::new(index == required_pass_count-1));
         }
 
         render_tasks.assign_to_passes(main_render_task_id, passes.len() - 1, &mut passes);
@@ -1671,7 +1663,6 @@ impl FrameBuilder {
             window_size: self.screen_size,
             profile_counters,
             passes,
-            cache_size,
             layer_texture_data: self.packed_layers.clone(),
             render_tasks,
             deferred_resolves,

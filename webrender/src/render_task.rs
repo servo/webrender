@@ -81,7 +81,7 @@ impl RenderTaskTree {
         };
 
         let pass = &mut passes[pass_index];
-        pass.add_render_task(id);
+        pass.add_render_task(id, task.get_dynamic_size(), task.target_kind());
     }
 
     pub fn get(&self, id: RenderTaskId) -> &RenderTask {
@@ -546,11 +546,22 @@ impl RenderTask {
         }
     }
 
+    pub fn get_dynamic_size(&self) -> DeviceIntSize {
+        match self.location {
+            RenderTaskLocation::Fixed => {
+                DeviceIntSize::zero()
+            }
+            RenderTaskLocation::Dynamic(_, size) => {
+                size
+            }
+        }
+    }
+
     pub fn get_target_rect(&self) -> (DeviceIntRect, RenderTargetIndex) {
         match self.location {
             RenderTaskLocation::Fixed => {
                 (DeviceIntRect::zero(), RenderTargetIndex(0))
-            },
+            }
             RenderTaskLocation::Dynamic(origin_and_target_index, size) => {
                 let (origin, target_index) = origin_and_target_index.expect("Should have been allocated by now!");
                 (DeviceIntRect::new(origin, size), target_index)

@@ -19,7 +19,7 @@ use render_task::{RenderTaskLocation, RenderTaskTree};
 use renderer::BlendMode;
 use renderer::ImageBufferKind;
 use resource_cache::{GlyphFetchResult, ResourceCache};
-use std::{f32, i32, usize};
+use std::{cmp, f32, i32, usize};
 use texture_allocator::GuillotineAllocator;
 use util::{TransformedRect, TransformedRectKind};
 use api::{BuiltDisplayList, ClipAndScrollInfo, ClipId, ColorF, DeviceIntPoint, ImageKey};
@@ -31,6 +31,7 @@ use api::{TileOffset, WorldToLayerTransform, YuvColorSpace, YuvFormat, LayerVect
 // Special sentinel value recognized by the shader. It is considered to be
 // a dummy task that doesn't mask out anything.
 const OPAQUE_TASK_ADDRESS: RenderTaskAddress = RenderTaskAddress(i32::MAX as u32);
+const MIN_TARGET_SIZE: u32 = 2048;
 
 pub type DisplayListMap = FastHashMap<PipelineId, BuiltDisplayList>;
 
@@ -815,7 +816,7 @@ impl TextureAllocator {
 }
 
 pub trait RenderTarget {
-    fn new(size: DeviceUintSize) -> Self;
+    fn new(size: Option<DeviceUintSize>) -> Self;
     fn allocate(&mut self, size: DeviceUintSize) -> Option<DeviceUintPoint>;
     fn build(&mut self,
              _ctx: &RenderTargetContext,
@@ -838,20 +839,18 @@ pub enum RenderTargetKind {
 }
 
 pub struct RenderTargetList<T> {
-    target_size: DeviceUintSize,
     pub targets: Vec<T>,
 }
 
 impl<T: RenderTarget> RenderTargetList<T> {
-    fn new(target_size: DeviceUintSize, create_initial_target: bool) -> RenderTargetList<T> {
+    fn new(create_initial_target: bool) -> RenderTargetList<T> {
         let mut targets = Vec::new();
         if create_initial_target {
-            targets.push(T::new(target_size));
+            targets.push(T::new(None));
         }
 
         RenderTargetList {
             targets,
-            target_size,
         }
     }
 
@@ -881,7 +880,9 @@ impl<T: RenderTarget> RenderTargetList<T> {
             .add_task(task_id, ctx, gpu_cache, render_tasks, clip_store);
     }
 
-    fn allocate(&mut self, alloc_size: DeviceUintSize) -> (DeviceUintPoint, RenderTargetIndex) {
+    fn allocate(&mut self,
+                alloc_size: DeviceUintSize,
+                target_size: DeviceUintSize) -> (DeviceUintPoint, RenderTargetIndex) {
         let existing_origin = self.targets
                                   .last_mut()
                                   .and_then(|target| target.allocate(alloc_size));
@@ -889,7 +890,7 @@ impl<T: RenderTarget> RenderTargetList<T> {
         let origin = match existing_origin {
             Some(origin) => origin,
             None => {
-                let mut new_target = T::new(self.target_size);
+                let mut new_target = T::new(Some(target_size));
                 let origin = new_target.allocate(alloc_size)
                                        .expect(&format!("Each render task must allocate <= size of one target! ({:?})", alloc_size));
                 self.targets.push(new_target);
@@ -922,16 +923,19 @@ pub struct ColorRenderTarget {
     pub readbacks: Vec<DeviceIntRect>,
     // List of frame buffer outputs for this render target.
     pub outputs: Vec<FrameOutput>,
-    allocator: TextureAllocator,
+    allocator: Option<TextureAllocator>,
     glyph_fetch_buffer: Vec<GlyphFetchResult>,
 }
 
 impl RenderTarget for ColorRenderTarget {
     fn allocate(&mut self, size: DeviceUintSize) -> Option<DeviceUintPoint> {
-        self.allocator.allocate(&size)
+        self.allocator
+            .as_mut()
+            .expect("bug: calling allocate on framebuffer")
+            .allocate(&size)
     }
 
-    fn new(size: DeviceUintSize) -> ColorRenderTarget {
+    fn new(size: Option<DeviceUintSize>) -> ColorRenderTarget {
         ColorRenderTarget {
             alpha_batcher: AlphaBatcher::new(),
             text_run_cache_prims: FastHashMap::default(),
@@ -939,14 +943,17 @@ impl RenderTarget for ColorRenderTarget {
             vertical_blurs: Vec::new(),
             horizontal_blurs: Vec::new(),
             readbacks: Vec::new(),
-            allocator: TextureAllocator::new(size),
+            allocator: size.map(|size| TextureAllocator::new(size)),
             glyph_fetch_buffer: Vec::new(),
             outputs: Vec::new(),
         }
     }
 
     fn used_rect(&self) -> DeviceIntRect {
-        self.allocator.used_rect
+        self.allocator
+            .as_ref()
+            .expect("bug: used_rect called on framebuffer")
+            .used_rect
     }
 
     fn build(&mut self,
@@ -1085,11 +1092,11 @@ impl RenderTarget for AlphaRenderTarget {
         self.allocator.allocate(&size)
     }
 
-    fn new(size: DeviceUintSize) -> AlphaRenderTarget {
+    fn new(size: Option<DeviceUintSize>) -> AlphaRenderTarget {
         AlphaRenderTarget {
             clip_batcher: ClipBatcher::new(),
             box_shadow_cache_prims: Vec::new(),
-            allocator: TextureAllocator::new(size),
+            allocator: TextureAllocator::new(size.expect("bug: alpha targets need size")),
         }
     }
 
@@ -1156,22 +1163,44 @@ pub struct RenderPass {
     pub color_texture: Option<Texture>,
     pub alpha_texture: Option<Texture>,
     dynamic_tasks: FastHashMap<RenderTaskKey, DynamicTaskInfo>,
+    pub max_color_target_size: DeviceUintSize,
+    pub max_alpha_target_size: DeviceUintSize,
 }
 
 impl RenderPass {
-    pub fn new(is_framebuffer: bool, size: DeviceUintSize) -> RenderPass {
+    pub fn new(is_framebuffer: bool) -> RenderPass {
         RenderPass {
             is_framebuffer,
-            color_targets: RenderTargetList::new(size, is_framebuffer),
-            alpha_targets: RenderTargetList::new(size, false),
+            color_targets: RenderTargetList::new(is_framebuffer),
+            alpha_targets: RenderTargetList::new(false),
             tasks: vec![],
             color_texture: None,
             alpha_texture: None,
             dynamic_tasks: FastHashMap::default(),
+            max_color_target_size: DeviceUintSize::new(MIN_TARGET_SIZE, MIN_TARGET_SIZE),
+            max_alpha_target_size: DeviceUintSize::new(MIN_TARGET_SIZE, MIN_TARGET_SIZE),
         }
     }
 
-    pub fn add_render_task(&mut self, task_id: RenderTaskId) {
+    pub fn add_render_task(&mut self,
+                           task_id: RenderTaskId,
+                           size: DeviceIntSize,
+                           target_kind: RenderTargetKind) {
+        match target_kind {
+            RenderTargetKind::Color => {
+                self.max_color_target_size.width = cmp::max(self.max_color_target_size.width,
+                                                            size.width as u32);
+                self.max_color_target_size.height = cmp::max(self.max_color_target_size.height,
+                                                             size.height as u32);
+            }
+            RenderTargetKind::Alpha => {
+                self.max_alpha_target_size.width = cmp::max(self.max_alpha_target_size.width,
+                                                            size.width as u32);
+                self.max_alpha_target_size.height = cmp::max(self.max_alpha_target_size.height,
+                                                             size.height as u32);
+            }
+        }
+
         self.tasks.push(task_id);
     }
 
@@ -1223,8 +1252,8 @@ impl RenderPass {
 
                         let alloc_size = DeviceUintSize::new(size.width as u32, size.height as u32);
                         let (alloc_origin, target_index) = match target_kind {
-                            RenderTargetKind::Color => self.color_targets.allocate(alloc_size),
-                            RenderTargetKind::Alpha => self.alpha_targets.allocate(alloc_size),
+                            RenderTargetKind::Color => self.color_targets.allocate(alloc_size, self.max_color_target_size),
+                            RenderTargetKind::Alpha => self.alpha_targets.allocate(alloc_size, self.max_alpha_target_size),
                         };
 
                         let origin = Some((DeviceIntPoint::new(alloc_origin.x as i32,
@@ -1569,7 +1598,6 @@ pub struct Frame {
     pub window_size: DeviceUintSize,
     pub background_color: Option<ColorF>,
     pub device_pixel_ratio: f32,
-    pub cache_size: DeviceUintSize,
     pub passes: Vec<RenderPass>,
     pub profile_counters: FrameProfileCounters,
 
