@@ -1740,6 +1740,13 @@ impl Renderer {
                     self.debug_flags.remove(RENDER_TARGET_DBG);
                 }
             }
+            DebugCommand::EnableAlphaRectsDebug(enable) => {
+                if enable {
+                    self.debug_flags.insert(ALPHA_PRIM_DBG);
+                } else {
+                    self.debug_flags.remove(ALPHA_PRIM_DBG);
+                }
+            }
             DebugCommand::FetchDocuments => {}
             DebugCommand::FetchClipScrollTree => {}
             DebugCommand::FetchPasses => {

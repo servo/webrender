@@ -140,6 +140,13 @@ Vue.component('options', {
                 connection.send("disable_render_target_debug");
             }
         }
+        setAlphaRectsDebugger(enabled) {
+            if (enabled) {
+                connection.send("enable_alpha_rects_debug");
+            } else {
+                connection.send("disable_alpha_rects_debug");
+            }
+        }
     },
     template: `
         <div class="box">
@@ -159,6 +166,12 @@ Vue.component('options', {
                 <label class="checkbox">
                     <input type="checkbox" v-on:click="setRenderTargetDebugger($event.target.checked)">
                     Render target debugger
+                </label>
+            </div>
+            <div class="field">
+                <label class="checkbox">
+                    <input type="checkbox" v-on:click="setAlphaRectsDebugger($event.target.checked)">
+                    Alpha primitive rects debugger
                 </label>
             </div>
         </div>
