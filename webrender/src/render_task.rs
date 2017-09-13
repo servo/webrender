@@ -19,6 +19,7 @@ const FLOATS_PER_RENDER_TASK_INFO: usize = 12;
 pub struct RenderTaskId(pub u32);       // TODO(gw): Make private when using GPU cache!
 
 #[derive(Debug, Copy, Clone)]
+#[repr(C)]
 pub struct RenderTaskAddress(pub u32);
 
 #[derive(Debug)]

@@ -25,6 +25,7 @@ use euclid::{Transform3D, rect};
 use frame_builder::FrameBuilderConfig;
 use gleam::gl;
 use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
+use gpu_types::{PrimitiveInstance};
 use internal_types::{FastHashMap, CacheTextureId, RendererFrame, ResultMsg, TextureUpdateOp};
 use internal_types::{DebugOutput, TextureUpdateList, RenderTargetMode, TextureUpdateSource};
 use internal_types::{BatchTextures, ORTHO_NEAR_PLANE, ORTHO_FAR_PLANE, SourceTexture};
@@ -50,7 +51,7 @@ use texture_cache::TextureCache;
 use rayon::ThreadPool;
 use rayon::Configuration as ThreadPoolConfig;
 use tiling::{AlphaBatchKey, AlphaBatchKind, Frame, RenderTarget};
-use tiling::{AlphaRenderTarget, PrimitiveInstance, ColorRenderTarget, RenderTargetKind};
+use tiling::{AlphaRenderTarget, ColorRenderTarget, RenderTargetKind};
 use time::precise_time_ns;
 use thread_profiler::{register_thread_with_profiler, write_profile};
 use util::TransformedRectKind;
@@ -200,8 +201,8 @@ const DESC_BLUR: VertexDescriptor = VertexDescriptor {
         VertexAttribute { name: "aPosition", count: 2, kind: VertexAttributeKind::F32 },
     ],
     instance_attributes: &[
-        VertexAttribute { name: "aBlurRenderTaskIndex", count: 1, kind: VertexAttributeKind::I32 },
-        VertexAttribute { name: "aBlurSourceTaskIndex", count: 1, kind: VertexAttributeKind::I32 },
+        VertexAttribute { name: "aBlurRenderTaskAddress", count: 1, kind: VertexAttributeKind::I32 },
+        VertexAttribute { name: "aBlurSourceTaskAddress", count: 1, kind: VertexAttributeKind::I32 },
         VertexAttribute { name: "aBlurDirection", count: 1, kind: VertexAttributeKind::I32 },
     ]
 };
@@ -211,8 +212,8 @@ const DESC_CLIP: VertexDescriptor = VertexDescriptor {
         VertexAttribute { name: "aPosition", count: 2, kind: VertexAttributeKind::F32 },
     ],
     instance_attributes: &[
-        VertexAttribute { name: "aClipRenderTaskIndex", count: 1, kind: VertexAttributeKind::I32 },
-        VertexAttribute { name: "aClipLayerIndex", count: 1, kind: VertexAttributeKind::I32 },
+        VertexAttribute { name: "aClipRenderTaskAddress", count: 1, kind: VertexAttributeKind::I32 },
+        VertexAttribute { name: "aClipLayerAddress", count: 1, kind: VertexAttributeKind::I32 },
         VertexAttribute { name: "aClipSegment", count: 1, kind: VertexAttributeKind::I32 },
         VertexAttribute { name: "aClipDataResourceAddress", count: 4, kind: VertexAttributeKind::U16 },
     ]
