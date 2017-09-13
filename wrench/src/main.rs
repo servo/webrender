@@ -539,6 +539,11 @@ fn main() {
                         flags.toggle(webrender::TEXTURE_CACHE_DBG);
                         wrench.renderer.set_debug_flags(flags);
                     },
+                    VirtualKeyCode::B => {
+                        let mut flags = wrench.renderer.get_debug_flags();
+                        flags.toggle(webrender::ALPHA_PRIM_DBG);
+                        wrench.renderer.set_debug_flags(flags);
+                    },
                     VirtualKeyCode::M => {
                         wrench.api.notify_memory_pressure();
                     },

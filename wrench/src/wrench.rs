@@ -461,6 +461,7 @@ impl Wrench {
             "P - Toggle profiler",
             "O - Toggle showing intermediate targets",
             "I - Toggle showing texture caches",
+            "B - Toggle showing alpha primitive rects",
             "M - Trigger memory pressure event",
         ];
 
