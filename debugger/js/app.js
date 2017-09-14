@@ -139,7 +139,7 @@ Vue.component('options', {
             } else {
                 connection.send("disable_render_target_debug");
             }
-        }
+        },
         setAlphaRectsDebugger(enabled) {
             if (enabled) {
                 connection.send("enable_alpha_rects_debug");
