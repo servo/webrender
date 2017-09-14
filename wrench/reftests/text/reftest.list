@@ -16,3 +16,5 @@
 fuzzy(1,100) == decorations-suite.yaml decorations-suite.png
 == 1658.yaml 1658-ref.yaml
 == split-batch.yaml split-batch-ref.yaml
+== shadow-red.yaml shadow-red-ref.yaml
+
