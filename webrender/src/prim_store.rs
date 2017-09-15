@@ -1156,9 +1156,10 @@ impl PrimitiveStore {
                 let cache_size = DeviceIntSize::new(cache_width, cache_height);
                 let blur_radius = device_length(shadow.shadow.blur_radius,
                                                 device_pixel_ratio);
-                let render_task = RenderTask::new_blur(cache_size,
-                                                       blur_radius,
-                                                       prim_index,
+                let prim_cache_task = RenderTask::new_prim_cache(cache_size, prim_index);
+                let prim_cache_task_id = render_tasks.add(prim_cache_task);
+                let render_task = RenderTask::new_blur(blur_radius,
+                                                       prim_cache_task_id,
                                                        render_tasks);
                 shadow.render_task_id = Some(render_tasks.add(render_task));
             }

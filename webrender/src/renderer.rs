@@ -1822,7 +1822,7 @@ impl Renderer {
                         frame_id
                     };
 
-                    self.draw_tile_frame(frame, &framebuffer_size, cpu_frame_id);
+                    self.draw_tile_frame(frame, framebuffer_size, cpu_frame_id);
 
                     self.gpu_profile.end_frame();
                     cpu_frame_id
@@ -2593,9 +2593,11 @@ impl Renderer {
             let alpha_target_count = pass.required_target_count(RenderTargetKind::Alpha);
 
             if let Some(texture) = pass.color_texture.as_mut() {
+                debug_assert!(pass.max_color_target_size.width > 0);
+                debug_assert!(pass.max_color_target_size.height > 0);
                 self.device.init_texture(texture,
-                                         frame.cache_size.width as u32,
-                                         frame.cache_size.height as u32,
+                                         pass.max_color_target_size.width,
+                                         pass.max_color_target_size.height,
                                          ImageFormat::BGRA8,
                                          TextureFilter::Linear,
                                          RenderTargetMode::RenderTarget,
@@ -2603,9 +2605,11 @@ impl Renderer {
                                          None);
             }
             if let Some(texture) = pass.alpha_texture.as_mut() {
+                debug_assert!(pass.max_alpha_target_size.width > 0);
+                debug_assert!(pass.max_alpha_target_size.height > 0);
                 self.device.init_texture(texture,
-                                         frame.cache_size.width as u32,
-                                         frame.cache_size.height as u32,
+                                         pass.max_alpha_target_size.width,
+                                         pass.max_alpha_target_size.height,
                                          ImageFormat::A8,
                                          TextureFilter::Nearest,
                                          RenderTargetMode::RenderTarget,
@@ -2626,7 +2630,7 @@ impl Renderer {
 
     fn draw_tile_frame(&mut self,
                        frame: &mut Frame,
-                       framebuffer_size: &DeviceUintSize,
+                       framebuffer_size: DeviceUintSize,
                        frame_id: FrameId) {
         let _gm = GpuMarker::new(self.device.rc_gl(), "tile frame draw");
 
@@ -2647,53 +2651,60 @@ impl Renderer {
             let pass_count = frame.passes.len();
 
             for (pass_index, pass) in frame.passes.iter_mut().enumerate() {
-                let size;
-                let clear_color;
-                let projection;
-
-                if pass.is_framebuffer {
-                    clear_color = if self.clear_framebuffer || needs_clear {
-                        Some(frame.background_color.map_or(self.clear_color.to_array(), |color| {
-                            color.to_array()
-                        }))
-                    } else {
-                        None
-                    };
-                    size = framebuffer_size;
-                    projection = Transform3D::ortho(0.0,
-                                                 size.width as f32,
-                                                 size.height as f32,
-                                                 0.0,
-                                                 ORTHO_NEAR_PLANE,
-                                                 ORTHO_FAR_PLANE)
-                } else {
-                    size = &frame.cache_size;
-                    clear_color = Some([0.0, 0.0, 0.0, 0.0]);
-                    projection = Transform3D::ortho(0.0,
-                                                 size.width as f32,
-                                                 0.0,
-                                                 size.height as f32,
-                                                 ORTHO_NEAR_PLANE,
-                                                 ORTHO_FAR_PLANE);
-                }
-
                 self.texture_resolver.bind(&SourceTexture::CacheA8, TextureSampler::CacheA8, &mut self.device);
                 self.texture_resolver.bind(&SourceTexture::CacheRGBA8, TextureSampler::CacheRGBA8, &mut self.device);
 
                 for (target_index, target) in pass.alpha_targets.targets.iter().enumerate() {
+                    let projection = Transform3D::ortho(0.0,
+                                                        pass.max_alpha_target_size.width as f32,
+                                                        0.0,
+                                                        pass.max_alpha_target_size.height as f32,
+                                                        ORTHO_NEAR_PLANE,
+                                                        ORTHO_FAR_PLANE);
+
                     self.draw_alpha_target((pass.alpha_texture.as_ref().unwrap(), target_index as i32),
                                            target,
-                                           *size,
+                                           pass.max_alpha_target_size,
                                            &projection);
                 }
 
                 for (target_index, target) in pass.color_targets.targets.iter().enumerate() {
+                    let size;
+                    let clear_color;
+                    let projection;
+
+                    if pass.is_framebuffer {
+                        clear_color = if self.clear_framebuffer || needs_clear {
+                            Some(frame.background_color.map_or(self.clear_color.to_array(), |color| {
+                                color.to_array()
+                            }))
+                        } else {
+                            None
+                        };
+                        size = framebuffer_size;
+                        projection = Transform3D::ortho(0.0,
+                                                        size.width as f32,
+                                                        size.height as f32,
+                                                        0.0,
+                                                        ORTHO_NEAR_PLANE,
+                                                        ORTHO_FAR_PLANE)
+                    } else {
+                        size = pass.max_color_target_size;
+                        clear_color = Some([0.0, 0.0, 0.0, 0.0]);
+                        projection = Transform3D::ortho(0.0,
+                                                        size.width as f32,
+                                                        0.0,
+                                                        size.height as f32,
+                                                        ORTHO_NEAR_PLANE,
+                                                        ORTHO_FAR_PLANE);
+                    }
+
                     let render_target = pass.color_texture.as_ref().map(|texture| {
                         (texture, target_index as i32)
                     });
                     self.draw_color_target(render_target,
                                            target,
-                                           *size,
+                                           size,
                                            clear_color,
                                            &frame.render_tasks,
                                            &projection,
@@ -2754,7 +2765,7 @@ impl Renderer {
     }
 
     fn draw_render_target_debug(&mut self,
-                                framebuffer_size: &DeviceUintSize) {
+                                framebuffer_size: DeviceUintSize) {
         if !self.debug_flags.contains(RENDER_TARGET_DBG) {
             return;
         }
@@ -2787,7 +2798,7 @@ impl Renderer {
         }
     }
 
-    fn draw_texture_cache_debug(&mut self, framebuffer_size: &DeviceUintSize) {
+    fn draw_texture_cache_debug(&mut self, framebuffer_size: DeviceUintSize) {
         if !self.debug_flags.contains(TEXTURE_CACHE_DBG) {
             return;
         }
