@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include rect
+
 #define EXTEND_MODE_CLAMP  0
 #define EXTEND_MODE_REPEAT 1
 
@@ -22,39 +24,8 @@ uniform sampler2DArray sSharedCacheA8;
 
 uniform sampler2D sGradients;
 
-struct RectWithSize {
-    vec2 p0;
-    vec2 size;
-};
-
-struct RectWithEndpoint {
-    vec2 p0;
-    vec2 p1;
-};
-
-RectWithEndpoint to_rect_with_endpoint(RectWithSize rect) {
-    RectWithEndpoint result;
-    result.p0 = rect.p0;
-    result.p1 = rect.p0 + rect.size;
-
-    return result;
-}
-
-RectWithSize to_rect_with_size(RectWithEndpoint rect) {
-    RectWithSize result;
-    result.p0 = rect.p0;
-    result.size = rect.p1 - rect.p0;
-
-    return result;
-}
-
 vec2 clamp_rect(vec2 point, RectWithSize rect) {
     return clamp(point, rect.p0, rect.p0 + rect.size);
-}
-
-RectWithSize intersect_rect(RectWithSize a, RectWithSize b) {
-    vec4 p = clamp(vec4(a.p0, a.p0 + a.size), b.p0.xyxy, b.p0.xyxy + b.size.xyxy);
-    return RectWithSize(p.xy, max(vec2(0.0), p.zw - p.xy));
 }
 
 float distance_to_line(vec2 p0, vec2 perp_dir, vec2 p) {
@@ -238,23 +209,6 @@ AlphaBatchTask fetch_alpha_batch_task(int index) {
     task.size = data.data0.zw;
     task.screen_space_origin = data.data1.xy;
     task.render_target_layer_index = data.data1.z;
-
-    return task;
-}
-
-struct ReadbackTask {
-    vec2 render_target_origin;
-    vec2 size;
-    float render_target_layer_index;
-};
-
-ReadbackTask fetch_readback_task(int index) {
-    RenderTaskData data = fetch_render_task(index);
-
-    ReadbackTask task;
-    task.render_target_origin = data.data0.xy;
-    task.size = data.data0.zw;
-    task.render_target_layer_index = data.data1.x;
 
     return task;
 }
