@@ -50,7 +50,7 @@ use std::thread;
 use texture_cache::TextureCache;
 use rayon::ThreadPool;
 use rayon::Configuration as ThreadPoolConfig;
-use tiling::{AlphaBatchKey, AlphaBatchKind, Frame, RenderTarget};
+use tiling::{BatchKey, BatchKind, Frame, RenderTarget, TransformBatchKind};
 use tiling::{AlphaRenderTarget, ColorRenderTarget, RenderTargetKind};
 use time::precise_time_ns;
 use thread_profiler::{register_thread_with_profiler, write_profile};
@@ -93,32 +93,36 @@ const GPU_SAMPLER_TAG_OPAQUE: GpuProfileTag = GpuProfileTag { label: "Opaque Pas
 const GPU_SAMPLER_TAG_TRANSPARENT: GpuProfileTag = GpuProfileTag { label: "Transparent Pass", color: debug_colors::BLACK };
 
 #[cfg(feature = "debugger")]
-impl AlphaBatchKind {
+impl BatchKind {
     fn debug_name(&self) -> &'static str {
         match *self {
-            AlphaBatchKind::Composite { .. } => "Composite",
-            AlphaBatchKind::HardwareComposite => "HardwareComposite",
-            AlphaBatchKind::SplitComposite => "SplitComposite",
-            AlphaBatchKind::Blend => "Blend",
-            AlphaBatchKind::Rectangle => "Rectangle",
-            AlphaBatchKind::TextRun => "TextRun",
-            AlphaBatchKind::Image(image_buffer_kind, ..) => {
-                match image_buffer_kind {
-                    ImageBufferKind::Texture2D => "Image (2D)",
-                    ImageBufferKind::TextureRect => "Image (Rect)",
-                    ImageBufferKind::TextureExternal => "Image (External)",
-                    ImageBufferKind::Texture2DArray => "Image (Array)",
+            BatchKind::Composite { .. } => "Composite",
+            BatchKind::HardwareComposite => "HardwareComposite",
+            BatchKind::SplitComposite => "SplitComposite",
+            BatchKind::Blend => "Blend",
+            BatchKind::Transformable(_, kind) => {
+                match kind {
+                    TransformBatchKind::Rectangle(..) => "Rectangle",
+                    TransformBatchKind::TextRun => "TextRun",
+                    TransformBatchKind::Image(image_buffer_kind, ..) => {
+                        match image_buffer_kind {
+                            ImageBufferKind::Texture2D => "Image (2D)",
+                            ImageBufferKind::TextureRect => "Image (Rect)",
+                            ImageBufferKind::TextureExternal => "Image (External)",
+                            ImageBufferKind::Texture2DArray => "Image (Array)",
+                        }
+                    },
+                    TransformBatchKind::YuvImage(..) => "YuvImage",
+                    TransformBatchKind::AlignedGradient => "AlignedGradient",
+                    TransformBatchKind::AngleGradient => "AngleGradient",
+                    TransformBatchKind::RadialGradient => "RadialGradient",
+                    TransformBatchKind::BoxShadow => "BoxShadow",
+                    TransformBatchKind::CacheImage => "CacheImage",
+                    TransformBatchKind::BorderCorner => "BorderCorner",
+                    TransformBatchKind::BorderEdge => "BorderEdge",
+                    TransformBatchKind::Line => "Line",
                 }
-            },
-            AlphaBatchKind::YuvImage(..) => "YuvImage",
-            AlphaBatchKind::AlignedGradient => "AlignedGradient",
-            AlphaBatchKind::AngleGradient => "AngleGradient",
-            AlphaBatchKind::RadialGradient => "RadialGradient",
-            AlphaBatchKind::BoxShadow => "BoxShadow",
-            AlphaBatchKind::CacheImage => "CacheImage",
-            AlphaBatchKind::BorderCorner => "BorderCorner",
-            AlphaBatchKind::BorderEdge => "BorderEdge",
-            AlphaBatchKind::Line => "Line",
+            }
         }
     }
 }
@@ -2016,114 +2020,116 @@ impl Renderer {
     }
 
     fn submit_batch(&mut self,
-                    key: &AlphaBatchKey,
+                    key: &BatchKey,
                     instances: &[PrimitiveInstance],
                     projection: &Transform3D<f32>,
                     render_tasks: &RenderTaskTree,
                     render_target: Option<(&Texture, i32)>,
                     target_dimensions: DeviceUintSize) {
-        let transform_kind = key.flags.transform_kind();
-        let needs_clipping = key.flags.needs_clipping();
-        debug_assert!(!needs_clipping ||
-                      match key.blend_mode {
-                          BlendMode::Alpha |
-                          BlendMode::PremultipliedAlpha |
-                          BlendMode::Subpixel(..) => true,
-                          BlendMode::None => false,
-                      });
-
         let marker = match key.kind {
-            AlphaBatchKind::Composite { .. } => {
+            BatchKind::Composite { .. } => {
                 self.ps_composite.bind(&mut self.device, projection, &mut self.renderer_errors);
                 GPU_TAG_PRIM_COMPOSITE
             }
-            AlphaBatchKind::HardwareComposite => {
+            BatchKind::HardwareComposite => {
                 self.ps_hw_composite.bind(&mut self.device, projection, &mut self.renderer_errors);
                 GPU_TAG_PRIM_HW_COMPOSITE
             }
-            AlphaBatchKind::SplitComposite => {
+            BatchKind::SplitComposite => {
                 self.ps_split_composite.bind(&mut self.device, projection, &mut self.renderer_errors);
                 GPU_TAG_PRIM_SPLIT_COMPOSITE
             }
-            AlphaBatchKind::Blend => {
+            BatchKind::Blend => {
                 self.ps_blend.bind(&mut self.device, projection, &mut self.renderer_errors);
                 GPU_TAG_PRIM_BLEND
             }
-            AlphaBatchKind::Rectangle => {
-                if needs_clipping {
-                    self.ps_rectangle_clip.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
-                } else {
-                    self.ps_rectangle.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
+            BatchKind::Transformable(transform_kind, batch_kind) => {
+                match batch_kind {
+                    TransformBatchKind::Rectangle(needs_clipping) => {
+                        debug_assert!(!needs_clipping ||
+                                      match key.blend_mode {
+                                          BlendMode::Alpha |
+                                          BlendMode::PremultipliedAlpha |
+                                          BlendMode::Subpixel(..) => true,
+                                          BlendMode::None => false,
+                                      });
+
+                        if needs_clipping {
+                            self.ps_rectangle_clip.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
+                        } else {
+                            self.ps_rectangle.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
+                        }
+                        GPU_TAG_PRIM_RECT
+                    }
+                    TransformBatchKind::Line => {
+                        self.ps_line.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
+                        GPU_TAG_PRIM_LINE
+                    }
+                    TransformBatchKind::TextRun => {
+                        match key.blend_mode {
+                            BlendMode::Subpixel(..) => {
+                                self.ps_text_run_subpixel.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
+                            }
+                            BlendMode::Alpha |
+                            BlendMode::PremultipliedAlpha |
+                            BlendMode::None => {
+                                self.ps_text_run.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
+                            }
+                        };
+                        GPU_TAG_PRIM_TEXT_RUN
+                    }
+                    TransformBatchKind::Image(image_buffer_kind) => {
+                        self.ps_image[image_buffer_kind as usize]
+                            .as_mut()
+                            .expect("Unsupported image shader kind")
+                            .bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
+                        GPU_TAG_PRIM_IMAGE
+                    }
+                    TransformBatchKind::YuvImage(image_buffer_kind, format, color_space) => {
+                        let shader_index = Renderer::get_yuv_shader_index(image_buffer_kind,
+                                                                          format,
+                                                                          color_space);
+                        self.ps_yuv_image[shader_index]
+                            .as_mut()
+                            .expect("Unsupported YUV shader kind")
+                            .bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
+                        GPU_TAG_PRIM_YUV_IMAGE
+                    }
+                    TransformBatchKind::BorderCorner => {
+                        self.ps_border_corner.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
+                        GPU_TAG_PRIM_BORDER_CORNER
+                    }
+                    TransformBatchKind::BorderEdge => {
+                        self.ps_border_edge.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
+                        GPU_TAG_PRIM_BORDER_EDGE
+                    }
+                    TransformBatchKind::AlignedGradient => {
+                        self.ps_gradient.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
+                        GPU_TAG_PRIM_GRADIENT
+                    }
+                    TransformBatchKind::AngleGradient => {
+                        self.ps_angle_gradient.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
+                        GPU_TAG_PRIM_ANGLE_GRADIENT
+                    }
+                    TransformBatchKind::RadialGradient => {
+                        self.ps_radial_gradient.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
+                        GPU_TAG_PRIM_RADIAL_GRADIENT
+                    }
+                    TransformBatchKind::BoxShadow => {
+                        self.ps_box_shadow.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
+                        GPU_TAG_PRIM_BOX_SHADOW
+                    }
+                    TransformBatchKind::CacheImage => {
+                        self.ps_cache_image.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
+                        GPU_TAG_PRIM_CACHE_IMAGE
+                    }
                 }
-                GPU_TAG_PRIM_RECT
-            }
-            AlphaBatchKind::Line => {
-                self.ps_line.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
-                GPU_TAG_PRIM_LINE
-            }
-            AlphaBatchKind::TextRun => {
-                match key.blend_mode {
-                    BlendMode::Subpixel(..) => {
-                        self.ps_text_run_subpixel.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
-                    }
-                    BlendMode::Alpha |
-                    BlendMode::PremultipliedAlpha |
-                    BlendMode::None => {
-                        self.ps_text_run.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
-                    }
-                };
-                GPU_TAG_PRIM_TEXT_RUN
-            }
-            AlphaBatchKind::Image(image_buffer_kind) => {
-                self.ps_image[image_buffer_kind as usize]
-                    .as_mut()
-                    .expect("Unsupported image shader kind")
-                    .bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
-                GPU_TAG_PRIM_IMAGE
-            }
-            AlphaBatchKind::YuvImage(image_buffer_kind, format, color_space) => {
-                let shader_index = Renderer::get_yuv_shader_index(image_buffer_kind,
-                                                                  format,
-                                                                  color_space);
-                self.ps_yuv_image[shader_index]
-                    .as_mut()
-                    .expect("Unsupported YUV shader kind")
-                    .bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
-                GPU_TAG_PRIM_YUV_IMAGE
-            }
-            AlphaBatchKind::BorderCorner => {
-                self.ps_border_corner.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
-                GPU_TAG_PRIM_BORDER_CORNER
-            }
-            AlphaBatchKind::BorderEdge => {
-                self.ps_border_edge.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
-                GPU_TAG_PRIM_BORDER_EDGE
-            }
-            AlphaBatchKind::AlignedGradient => {
-                self.ps_gradient.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
-                GPU_TAG_PRIM_GRADIENT
-            }
-            AlphaBatchKind::AngleGradient => {
-                self.ps_angle_gradient.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
-                GPU_TAG_PRIM_ANGLE_GRADIENT
-            }
-            AlphaBatchKind::RadialGradient => {
-                self.ps_radial_gradient.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
-                GPU_TAG_PRIM_RADIAL_GRADIENT
-            }
-            AlphaBatchKind::BoxShadow => {
-                self.ps_box_shadow.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
-                GPU_TAG_PRIM_BOX_SHADOW
-            }
-            AlphaBatchKind::CacheImage => {
-                self.ps_cache_image.bind(&mut self.device, transform_kind, projection, &mut self.renderer_errors);
-                GPU_TAG_PRIM_CACHE_IMAGE
             }
         };
 
         // Handle special case readback for composites.
         match key.kind {
-            AlphaBatchKind::Composite { task_id, source_id, backdrop_id } => {
+            BatchKind::Composite { task_id, source_id, backdrop_id } => {
                 // composites can't be grouped together because
                 // they may overlap and affect each other.
                 debug_assert!(instances.len() == 1);
