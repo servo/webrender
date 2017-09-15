@@ -195,11 +195,7 @@ impl Example for App {
         _document_id: DocumentId,
     ) {
         let bounds = LayoutRect::new(LayoutPoint::zero(), layout_size);
-        let info = LayoutPrimitiveInfo {
-            rect: bounds,
-            local_clip: None,
-            is_backface_visible: true,
-        };
+        let info = LayoutPrimitiveInfo::new(bounds);
         builder.push_stacking_context(
             &info,
             ScrollPolicy::Scrollable,
@@ -226,18 +222,10 @@ impl Example for App {
         let id = builder.define_clip(None, bounds, vec![complex], Some(mask));
         builder.push_clip_id(id);
 
-        let info = LayoutPrimitiveInfo {
-            rect: (100, 100).to(200, 200),
-            local_clip: None,
-            is_backface_visible: true,
-        };
+        let info = LayoutPrimitiveInfo::new((100, 100).to(200, 200));
         builder.push_rect(&info, ColorF::new(0.0, 1.0, 0.0, 1.0));
 
-        let info = LayoutPrimitiveInfo {
-            rect: (250, 100).to(350, 200),
-            local_clip: None,
-            is_backface_visible: true,
-        };
+        let info = LayoutPrimitiveInfo::new((250, 100).to(350, 200));
         builder.push_rect(&info, ColorF::new(0.0, 1.0, 0.0, 1.0));
         let border_side = BorderSide {
             color: ColorF::new(0.0, 0.0, 1.0, 1.0),
@@ -257,11 +245,7 @@ impl Example for App {
             radius: BorderRadius::uniform(20.0),
         });
 
-        let info = LayoutPrimitiveInfo {
-            rect: (100, 100).to(200, 200),
-            local_clip: None,
-            is_backface_visible: true,
-        };
+        let info = LayoutPrimitiveInfo::new((100, 100).to(200, 200));
         builder.push_border(&info, border_widths, border_details);
 
 
@@ -325,12 +309,8 @@ impl Example for App {
                     point: LayoutPoint::new(650.0, 100.0),
                 },
             ];
-            let info = LayoutPrimitiveInfo {
-                rect: text_bounds,
-                local_clip: None,
-                is_backface_visible: true,
-            };
 
+            let info = LayoutPrimitiveInfo::new(text_bounds);
             builder.push_text(
                 &info,
                 &glyphs,
@@ -350,11 +330,7 @@ impl Example for App {
             let spread_radius = 0.0;
             let simple_border_radius = 8.0;
             let box_shadow_type = BoxShadowClipMode::Inset;
-            let info = LayoutPrimitiveInfo {
-                rect: rect,
-                local_clip: Some(LocalClip::from(bounds)),
-                is_backface_visible: true,
-            };
+            let info = LayoutPrimitiveInfo::with_clip_rect(rect, bounds);
 
             builder.push_box_shadow(
                 &info,
