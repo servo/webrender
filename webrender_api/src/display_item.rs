@@ -47,15 +47,25 @@ pub struct DisplayItem {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct PrimitiveInfo<T> {
     pub rect: TypedRect<f32, T>,
-    pub local_clip: Option<LocalClip>,
+    pub local_clip: LocalClip,
     pub is_backface_visible: bool,
 }
 
 impl LayerPrimitiveInfo {
     pub fn new(rect: TypedRect<f32, LayerPixel>) -> Self {
+        Self::new_with_clip_rect(rect, rect)
+    }
+
+    pub fn new_with_clip_rect(rect: TypedRect<f32, LayerPixel>,
+                              clip_rect: TypedRect<f32, LayerPixel>)
+                              -> Self {
+        Self::new_with_clip(rect, LocalClip::from(clip_rect))
+    }
+
+    pub fn new_with_clip(rect: TypedRect<f32, LayerPixel>, clip: LocalClip) -> Self {
         PrimitiveInfo {
             rect: rect,
-            local_clip: Some(LocalClip::from(rect)),
+            local_clip: clip,
             is_backface_visible: true,
         }
     }

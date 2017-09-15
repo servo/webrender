@@ -31,12 +31,7 @@ impl Example for App {
         // Note the magic "42" we use as the animation key. That is used to update
         // the transform in the keyboard event handler code.
         let bounds = (0,0).to(100, 100);
-        let info = LayoutPrimitiveInfo {
-            rect: bounds,
-            local_clip: None,
-            is_backface_visible: true,
-        };
-
+        let info = LayoutPrimitiveInfo::new(bounds);
         builder.push_stacking_context(&info,
                                       ScrollPolicy::Scrollable,
                                       Some(PropertyBinding::Binding(PropertyBindingKey::new(42))),

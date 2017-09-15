@@ -165,11 +165,7 @@ impl Example for App {
               _pipeline_id: PipelineId,
               _document_id: DocumentId) {
         let bounds = LayoutRect::new(LayoutPoint::zero(), layout_size);
-        let info = LayoutPrimitiveInfo {
-            rect: bounds,
-            local_clip: None,
-            is_backface_visible: true,
-        };
+        let info = LayoutPrimitiveInfo::new(bounds);
         builder.push_stacking_context(&info,
                                       ScrollPolicy::Scrollable,
                                       None,
@@ -207,11 +203,9 @@ impl Example for App {
             None,
         );
 
-        let info = LayoutPrimitiveInfo {
-            rect: LayoutRect::new(LayoutPoint::new(100.0, 0.0), LayoutSize::new(100.0, 100.0)),
-            local_clip: Some(LocalClip::from(bounds)),
-            is_backface_visible: true,
-        };
+        let info = LayoutPrimitiveInfo::new_with_clip_rect(
+            LayoutRect::new(LayoutPoint::new(100.0, 0.0), LayoutSize::new(100.0, 100.0)),
+            bounds);
         builder.push_yuv_image(
             &info,
             YuvData::NV12(yuv_chanel1, yuv_chanel2),
@@ -219,11 +213,9 @@ impl Example for App {
             ImageRendering::Auto,
         );
 
-        let info = LayoutPrimitiveInfo {
-            rect: LayoutRect::new(LayoutPoint::new(300.0, 0.0), LayoutSize::new(100.0, 100.0)),
-            local_clip: Some(LocalClip::from(bounds)),
-            is_backface_visible: true,
-        };
+        let info = LayoutPrimitiveInfo::new_with_clip_rect(
+            LayoutRect::new(LayoutPoint::new(300.0, 0.0), LayoutSize::new(100.0, 100.0)),
+            bounds);
         builder.push_yuv_image(
             &info,
             YuvData::PlanarYCbCr(yuv_chanel1, yuv_chanel2_1, yuv_chanel3),

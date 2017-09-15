@@ -203,8 +203,7 @@ impl FrameBuilder {
                         container: PrimitiveContainer) -> PrimitiveIndex {
         self.create_clip_scroll_group_if_necessary(clip_and_scroll);
 
-        let local_clip = info.local_clip.unwrap();
-        if let &LocalClip::RoundedRect(main, region) = &local_clip {
+        if let &LocalClip::RoundedRect(main, region) = &info.local_clip {
             clip_sources.push(ClipSource::Rectangle(main));
             clip_sources.push(ClipSource::RoundedRectangle(region.rect, region.radii, ClipMode::Clip));
         }
@@ -212,7 +211,7 @@ impl FrameBuilder {
         let clip_sources = self.clip_store.insert(ClipSources::new(clip_sources));
 
         let prim_index = self.prim_store.add_primitive(&info.rect,
-                                                       &local_clip.clip_rect(),
+                                                       &info.local_clip.clip_rect(),
                                                        info.is_backface_visible,
                                                        clip_sources,
                                                        container);

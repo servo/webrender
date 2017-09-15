@@ -64,11 +64,7 @@ impl Example for App {
             let resources = ResourceUpdates::new();
 
             let bounds = (0,0).to(50, 50);
-            let info = LayoutPrimitiveInfo {
-                rect: bounds,
-                local_clip: None,
-                is_backface_visible: true,
-            };
+            let info = LayoutPrimitiveInfo::new(bounds);
             builder.push_stacking_context(&info,
                                           ScrollPolicy::Scrollable,
                                           None,
@@ -95,11 +91,7 @@ impl Example for App {
         }
 
         let bounds = (100,100).to(200, 200);
-        let info = LayoutPrimitiveInfo {
-            rect: bounds,
-            local_clip: None,
-            is_backface_visible: true,
-        };
+        let info = LayoutPrimitiveInfo::new(bounds);
         builder.push_stacking_context(&info,
                                       ScrollPolicy::Scrollable,
                                       None,

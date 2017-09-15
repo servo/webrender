@@ -240,11 +240,7 @@ impl Example for App {
         );
 
         let bounds = api::LayoutRect::new(api::LayoutPoint::zero(), layout_size);
-        let info = api::LayoutPrimitiveInfo {
-            rect: bounds,
-            local_clip: None,
-            is_backface_visible: true,
-        };
+        let info = api::LayoutPrimitiveInfo::new(bounds);
         builder.push_stacking_context(&info,
                                       api::ScrollPolicy::Scrollable,
                                       None,
@@ -253,11 +249,7 @@ impl Example for App {
                                       api::MixBlendMode::Normal,
                                       Vec::new());
 
-        let info = api::LayoutPrimitiveInfo {
-            rect: (30, 30).by(500, 500),
-            local_clip: Some(api::LocalClip::from(bounds)),
-            is_backface_visible: true,
-        };
+        let info = api::LayoutPrimitiveInfo::new((30, 30).by(500, 500));
         builder.push_image(
             &info,
             api::LayoutSize::new(500.0, 500.0),
@@ -266,11 +258,7 @@ impl Example for App {
             blob_img1,
         );
 
-        let info = api::LayoutPrimitiveInfo {
-            rect: (600, 600).by(200, 200),
-            local_clip: Some(api::LocalClip::from(bounds)),
-            is_backface_visible: true,
-        };
+        let info = api::LayoutPrimitiveInfo::new((600, 600).by(200, 200));
         builder.push_image(
             &info,
             api::LayoutSize::new(200.0, 200.0),

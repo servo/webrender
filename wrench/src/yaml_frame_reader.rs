@@ -632,12 +632,8 @@ impl YamlFrameReader {
                 dl.push_clip_and_scroll_info(clip_scroll_info);
             }
             let local_clip = self.get_local_clip_for_item(item, full_clip);
-            let backface_visible = item["backface-visible"].as_bool().unwrap_or(true);
-            let mut info = LayoutPrimitiveInfo {
-                rect: LayoutRect::zero(),
-                local_clip: Some(local_clip),
-                is_backface_visible: backface_visible,
-            };
+            let mut info = LayoutPrimitiveInfo::new_with_clip(LayoutRect::zero(), local_clip);
+            info.is_backface_visible = item["backface-visible"].as_bool().unwrap_or(true);;
             match item_type {
                 "rect" => self.handle_rect(dl, item, &mut info),
                 "line" => self.handle_line(dl, item, &mut info),
@@ -710,7 +706,7 @@ impl YamlFrameReader {
         let rect = yaml["bounds"].as_rect()
                                  .expect("Text shadows require bounds");
         info.rect = rect;
-        info.local_clip = None;
+        info.local_clip = LocalClip::from(rect);
         let blur_radius = yaml["blur-radius"].as_f32().unwrap_or(0.0);
         let offset = yaml["offset"].as_vector().unwrap_or(LayoutVector2D::zero());
         let color = yaml["color"].as_colorf().unwrap_or(*BLACK_COLOR);
@@ -787,7 +783,7 @@ impl YamlFrameReader {
 
         let filters = yaml["filters"].as_vec_filter_op().unwrap_or(vec![]);
         info.rect = bounds;
-        info.local_clip = None;
+        info.local_clip = LocalClip::from(bounds);
 
         dl.push_stacking_context(&info,
                                  scroll_policy,

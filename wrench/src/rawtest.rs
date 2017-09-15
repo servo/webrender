@@ -62,11 +62,8 @@ impl<'a> RawtestHarness<'a> {
 
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
 
-        let info = LayoutPrimitiveInfo {
-            rect: LayoutRect::new(LayoutPoint::new(448.899994, 74.0), LayoutSize::new(151.000031, 56.)),
-            local_clip: None,
-            is_backface_visible: true,
-        };
+        let info = LayoutPrimitiveInfo::new(
+            LayoutRect::new(LayoutPoint::new(448.899994, 74.0), LayoutSize::new(151.000031, 56.)));
 
         // setup some malicious image size parameters
         builder.push_image(
@@ -116,11 +113,8 @@ impl<'a> RawtestHarness<'a> {
 
         // draw the blob the first time
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
-        let info = LayoutPrimitiveInfo {
-            rect: LayoutRect::new(LayoutPoint::new(0.0, 60.0), LayoutSize::new(200.0, 200.0)),
-            local_clip: None,
-            is_backface_visible: true,
-        };
+        let info = LayoutPrimitiveInfo::new(
+            LayoutRect::new(LayoutPoint::new(0.0, 60.0), LayoutSize::new(200.0, 200.0)));
 
         builder.push_image(
             &info,
@@ -144,11 +138,8 @@ impl<'a> RawtestHarness<'a> {
 
         // make a new display list that refers to the first image
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
-        let info = LayoutPrimitiveInfo {
-            rect: LayoutRect::new(LayoutPoint::new(1.0, 60.0), LayoutSize::new(200.0, 200.0)),
-            local_clip: None,
-            is_backface_visible: true,
-        };
+        let info = LayoutPrimitiveInfo::new(
+            LayoutRect::new(LayoutPoint::new(1.0, 60.0), LayoutSize::new(200.0, 200.0)));
         builder.push_image(
             &info,
             LayoutSize::new(200.0, 200.0),

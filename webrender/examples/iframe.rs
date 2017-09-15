@@ -34,12 +34,7 @@ impl Example for App {
 
         let sub_pipeline_id = PipelineId(pipeline_id.0, 42);
         let mut sub_builder = DisplayListBuilder::new(sub_pipeline_id, sub_bounds.size);
-        let info = LayoutPrimitiveInfo {
-            rect: sub_bounds,
-            local_clip: None,
-            is_backface_visible: true,
-        };
-
+        let info = LayoutPrimitiveInfo::new(sub_bounds);
         sub_builder.push_stacking_context(&info,
                                           ScrollPolicy::Scrollable,
                                           None,

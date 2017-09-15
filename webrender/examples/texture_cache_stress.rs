@@ -88,11 +88,7 @@ impl Example for App {
               _pipeline_id: PipelineId,
               _document_id: DocumentId) {
         let bounds = (0, 0).to(512, 512);
-        let info = LayoutPrimitiveInfo {
-            rect: bounds,
-            local_clip: None,
-            is_backface_visible: true,
-        };
+        let info = LayoutPrimitiveInfo::new(bounds);
         builder.push_stacking_context(&info,
                                       ScrollPolicy::Scrollable,
                                       None,
@@ -132,11 +128,9 @@ impl Example for App {
         for (i, key) in self.stress_keys.iter().enumerate() {
             let x = (i % 128) as f32;
             let y = (i / 128) as f32;
-            let info = LayoutPrimitiveInfo {
-                rect: LayoutRect::new(LayoutPoint::new(x0 + image_size.width * x, y0 + image_size.height * y), image_size),
-                local_clip: Some(LocalClip::from(bounds)),
-                is_backface_visible: true,
-            };
+            let info = LayoutPrimitiveInfo::new_with_clip_rect(
+                LayoutRect::new(LayoutPoint::new(x0 + image_size.width * x, y0 + image_size.height * y), image_size),
+                bounds);
 
             builder.push_image(
                 &info,
@@ -149,12 +143,8 @@ impl Example for App {
 
         if let Some(image_key) = self.image_key {
             let image_size = LayoutSize::new(100.0, 100.0);
-            let info = LayoutPrimitiveInfo {
-                rect: LayoutRect::new(LayoutPoint::new(100.0, 100.0), image_size),
-                local_clip: Some(LocalClip::from(bounds)),
-                is_backface_visible: true,
-            };
-
+            let info = LayoutPrimitiveInfo::new_with_clip_rect(
+                LayoutRect::new(LayoutPoint::new(100.0, 100.0), image_size), bounds);
             builder.push_image(
                 &info,
                 image_size,
@@ -166,12 +156,8 @@ impl Example for App {
 
         let swap_key = self.swap_keys[self.swap_index];
         let image_size = LayoutSize::new(64.0, 64.0);
-        let info = LayoutPrimitiveInfo {
-            rect: LayoutRect::new(LayoutPoint::new(100.0, 400.0), image_size),
-            local_clip: Some(LocalClip::from(bounds)),
-            is_backface_visible: true,
-        };
-
+        let info = LayoutPrimitiveInfo::new_with_clip_rect(
+            LayoutRect::new(LayoutPoint::new(100.0, 400.0), image_size), bounds);
         builder.push_image(
             &info,
             image_size,
