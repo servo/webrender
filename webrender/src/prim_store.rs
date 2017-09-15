@@ -149,12 +149,6 @@ pub struct PrimitiveMetadata {
     pub is_backface_visible: bool,
 }
 
-impl PrimitiveMetadata {
-    pub fn needs_clipping(&self) -> bool {
-        self.clip_task_id.is_some()
-    }
-}
-
 #[derive(Debug)]
 #[repr(C)]
 pub struct RectanglePrimitive {
