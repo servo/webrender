@@ -299,11 +299,6 @@ Glyph fetch_glyph(int specific_prim_address,
     return Glyph(glyph);
 }
 
-RectWithSize fetch_instance_geometry(int address) {
-    vec4 data = fetch_from_resource_cache_1(address);
-    return RectWithSize(data.xy, data.zw);
-}
-
 struct PrimitiveInstance {
     int prim_address;
     int specific_prim_address;
@@ -664,17 +659,6 @@ TextShadow fetch_text_shadow(int address) {
     return TextShadow(data[0], data[1].xy, data[1].z);
 }
 
-struct Line {
-    vec4 color;
-    float style;
-    float orientation;
-};
-
-Line fetch_line(int address) {
-    vec4 data[2] = fetch_from_resource_cache_2(address);
-    return Line(data[0], data[1].x, data[1].y);
-}
-
 struct TextRun {
     vec4 color;
     vec2 offset;
@@ -695,15 +679,6 @@ struct Image {
 Image fetch_image(int address) {
     vec4 data[2] = fetch_from_resource_cache_2(address);
     return Image(data[0], data[1]);
-}
-
-struct YuvImage {
-    vec2 size;
-};
-
-YuvImage fetch_yuv_image(int address) {
-    vec4 data = fetch_from_resource_cache_1(address);
-    return YuvImage(data.xy);
 }
 
 struct BoxShadow {
