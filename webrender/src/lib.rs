@@ -129,7 +129,6 @@ extern crate euclid;
 extern crate fxhash;
 extern crate gleam;
 extern crate num_traits;
-//extern crate notify;
 extern crate time;
 pub extern crate webrender_api;
 extern crate byteorder;
