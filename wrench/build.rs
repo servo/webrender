@@ -14,7 +14,14 @@ fn main() {
     println!("cargo:rerun-if-changed=res/wrench.exe.manifest");
     if target.contains("windows") {
         let src = PathBuf::from("res/wrench.exe.manifest");
-        let mut dst = out_dir.parent().unwrap().parent().unwrap().parent().unwrap().to_owned();
+        let mut dst = out_dir
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_owned();
         dst.push("wrench.exe.manifest");
         fs::copy(&src, &dst).unwrap();
     }

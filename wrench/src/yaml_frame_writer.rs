@@ -5,8 +5,8 @@
 extern crate yaml_rust;
 
 use app_units::Au;
-use euclid::{TypedTransform3D, TypedPoint2D, TypedVector2D, TypedRect, TypedSize2D};
-use image::{ColorType, save_buffer};
+use euclid::{TypedPoint2D, TypedRect, TypedSize2D, TypedTransform3D, TypedVector2D};
+use image::{save_buffer, ColorType};
 use premultiply::unpremultiply;
 use scene::Scene;
 use std::borrow::BorrowMut;
@@ -64,7 +64,13 @@ fn color_to_string(value: ColorF) -> String {
     } else if value.r == 0.0 && value.g == 0.0 && value.b == 0.0 && value.a == 1.0 {
         "black".to_owned()
     } else {
-        format!("{} {} {} {:.4}", value.r * 255.0, value.g * 255.0, value.b * 255.0, value.a)
+        format!(
+            "{} {} {} {:.4}",
+            value.r * 255.0,
+            value.g * 255.0,
+            value.b * 255.0,
+            value.a
+        )
     }
 }
 
@@ -85,7 +91,15 @@ fn size_node<U>(parent: &mut Table, key: &str, value: &TypedSize2D<f32, U>) {
 }
 
 fn rect_yaml<U>(value: &TypedRect<f32, U>) -> Yaml {
-    f32_vec_yaml(&[value.origin.x, value.origin.y, value.size.width, value.size.height], false)
+    f32_vec_yaml(
+        &[
+            value.origin.x,
+            value.origin.y,
+            value.size.width,
+            value.size.height,
+        ],
+        false,
+    )
 }
 
 fn rect_node<U>(parent: &mut Table, key: &str, value: &TypedRect<f32, U>) {
@@ -280,14 +294,15 @@ impl YamlFrameWriter {
         }
     }
 
-    pub fn begin_write_display_list(&mut self,
-                                    scene: &mut Scene,
-                                    epoch: &Epoch,
-                                    pipeline_id: &PipelineId,
-                                    background_color: &Option<ColorF>,
-                                    viewport_size: &LayoutSize,
-                                    display_list: &BuiltDisplayListDescriptor)
-    {
+    pub fn begin_write_display_list(
+        &mut self,
+        scene: &mut Scene,
+        epoch: &Epoch,
+        pipeline_id: &PipelineId,
+        background_color: &Option<ColorF>,
+        viewport_size: &LayoutSize,
+        display_list: &BuiltDisplayListDescriptor,
+    ) {
         unsafe {
             if CURRENT_FRAME_NUMBER == self.last_frame_written {
                 return;
@@ -298,9 +313,7 @@ impl YamlFrameWriter {
         self.dl_descriptor = Some(display_list.clone());
         self.pipeline_id = Some(pipeline_id.clone());
 
-        scene.begin_display_list(pipeline_id, epoch,
-                                 background_color,
-                                 viewport_size);
+        scene.begin_display_list(pipeline_id, epoch, background_color, viewport_size);
     }
 
     pub fn finish_write_display_list(&mut self, scene: &mut Scene, data: &[u8]) {
@@ -319,7 +332,11 @@ impl YamlFrameWriter {
 
         let mut root = new_table();
         if let Some(root_pipeline_id) = scene.root_pipeline_id {
-            u32_vec_node(&mut root_dl_table, "id", &[root_pipeline_id.0, root_pipeline_id.1]);
+            u32_vec_node(
+                &mut root_dl_table,
+                "id",
+                &[root_pipeline_id.0, root_pipeline_id.1],
+            );
 
             let mut referenced_pipeline_ids = vec![];
             let mut traversal = dl.iter();
@@ -360,7 +377,6 @@ impl YamlFrameWriter {
             frame_file_name.push(format!("frame-{}.yaml", current_shown_frame));
             let mut file = fs::File::create(&frame_file_name).unwrap();
             file.write_all(&sb).unwrap();
-
         }
 
         scene.finish_display_list(self.pipeline_id.unwrap(), dl);
@@ -371,21 +387,26 @@ impl YamlFrameWriter {
             match *update {
                 ResourceUpdate::AddImage(ref img) => {
                     let stride = img.descriptor.stride.unwrap_or(
-                        img.descriptor.width * img.descriptor.format.bytes_per_pixel()
+                        img.descriptor.width * img.descriptor.format.bytes_per_pixel(),
                     );
                     let bytes = match img.data {
-                        ImageData::Raw(ref v) => { (**v).clone() }
-                        ImageData::External(_) | ImageData::Blob(_) => { return; }
+                        ImageData::Raw(ref v) => (**v).clone(),
+                        ImageData::External(_) | ImageData::Blob(_) => {
+                            return;
+                        }
                     };
-                    self.images.insert(img.key, CachedImage {
-                        width: img.descriptor.width,
-                        height: img.descriptor.height,
-                        stride,
-                        format: img.descriptor.format,
-                        bytes: Some(bytes),
-                        tiling: img.tiling,
-                        path: None,
-                    });
+                    self.images.insert(
+                        img.key,
+                        CachedImage {
+                            width: img.descriptor.width,
+                            height: img.descriptor.height,
+                            stride,
+                            format: img.descriptor.format,
+                            bytes: Some(bytes),
+                            tiling: img.tiling,
+                            path: None,
+                        },
+                    );
                 }
                 ResourceUpdate::UpdateImage(ref img) => {
                     if let Some(ref mut data) = self.images.get_mut(&img.key) {
@@ -398,36 +419,47 @@ impl YamlFrameWriter {
                             *data.bytes.borrow_mut() = Some((**bytes).clone());
                         } else {
                             // Other existing image types only make sense within the gecko integration.
-                            println!("Wrench only supports updating buffer images (ignoring update command).");
+                            println!(
+                                "Wrench only supports updating buffer images ({}).",
+                                "ignoring update command"
+                            );
                         }
                     }
                 }
                 ResourceUpdate::DeleteImage(img) => {
                     self.images.remove(&img);
                 }
-                ResourceUpdate::AddFont(ref font) => {
-                    match font {
-                        &AddFont::Raw(key, ref bytes, index) => {
-                            self.fonts.insert(key, CachedFont::Raw(Some(bytes.clone()), index, None));
-                        }
-                        &AddFont::Native(key, ref handle) => {
-                            self.fonts.insert(key, CachedFont::Native(handle.clone()));
-                        }
+                ResourceUpdate::AddFont(ref font) => match font {
+                    &AddFont::Raw(key, ref bytes, index) => {
+                        self.fonts
+                            .insert(key, CachedFont::Raw(Some(bytes.clone()), index, None));
                     }
-                }
+                    &AddFont::Native(key, ref handle) => {
+                        self.fonts.insert(key, CachedFont::Native(handle.clone()));
+                    }
+                },
                 ResourceUpdate::DeleteFont(_) => {}
                 ResourceUpdate::AddFontInstance(ref instance) => {
-                    self.font_instances.insert(instance.key, CachedFontInstance {
-                        font_key: instance.font_key,
-                        glyph_size: instance.glyph_size,
-                    });
+                    self.font_instances.insert(
+                        instance.key,
+                        CachedFontInstance {
+                            font_key: instance.font_key,
+                            glyph_size: instance.glyph_size,
+                        },
+                    );
                 }
                 ResourceUpdate::DeleteFontInstance(_) => {}
             }
         }
     }
 
-    fn next_rsrc_paths(prefix: &str, counter: &mut u32, base_path: &Path, base: &str, ext: &str) -> (PathBuf, PathBuf) {
+    fn next_rsrc_paths(
+        prefix: &str,
+        counter: &mut u32,
+        base_path: &Path,
+        base: &str,
+        ext: &str,
+    ) -> (PathBuf, PathBuf) {
         let mut path_file = base_path.to_owned();
         let mut path = PathBuf::from("res");
 
@@ -452,26 +484,27 @@ impl YamlFrameWriter {
         // Remove the data to munge it
         let mut data = self.images.remove(&key).unwrap();
         let mut bytes = data.bytes.take().unwrap();
-        let (path_file, path) = Self::next_rsrc_paths(&self.rsrc_prefix,
-                                                      &mut self.next_rsrc_num,
-                                                      &self.rsrc_base,
-                                                      "img",
-                                                      "png");
+        let (path_file, path) = Self::next_rsrc_paths(
+            &self.rsrc_prefix,
+            &mut self.next_rsrc_num,
+            &self.rsrc_base,
+            "img",
+            "png",
+        );
 
         assert!(data.stride > 0);
         let (color_type, bpp) = match data.format {
-            ImageFormat::RGB8 => {
-                (ColorType::RGB(8), 3)
-            }
-            ImageFormat::BGRA8 => {
-                (ColorType::RGBA(8), 4)
-            }
-            ImageFormat::A8 => {
-                (ColorType::Gray(8), 1)
-            }
+            ImageFormat::RGB8 => (ColorType::RGB(8), 3),
+            ImageFormat::BGRA8 => (ColorType::RGBA(8), 4),
+            ImageFormat::A8 => (ColorType::Gray(8), 1),
             _ => {
-                println!("Failed to write image with format {:?}, dimensions {}x{}, stride {}",
-                         data.format, data.width, data.height, data.stride);
+                println!(
+                    "Failed to write image with format {:?}, dimensions {}x{}, stride {}",
+                    data.format,
+                    data.width,
+                    data.height,
+                    data.stride
+                );
                 return None;
             }
         };
@@ -484,9 +517,12 @@ impl YamlFrameWriter {
         } else {
             // takes a buffer with a stride and copies it into a new buffer that has stride == width
             assert!(data.stride > data.width * bpp);
-            let mut tmp: Vec<_>  = bytes[..].chunks(data.stride as usize)
-                                            .flat_map(|chunk| chunk[..(data.width * bpp) as usize].iter().cloned())
-                                            .collect();
+            let mut tmp: Vec<_> = bytes[..]
+                .chunks(data.stride as usize)
+                .flat_map(|chunk| {
+                    chunk[.. (data.width * bpp) as usize].iter().cloned()
+                })
+                .collect();
             if data.format == ImageFormat::BGRA8 {
                 unpremultiply(tmp.as_mut_slice());
             }
@@ -503,13 +539,19 @@ impl YamlFrameWriter {
     fn make_complex_clip_node(&mut self, complex_clip: &ComplexClipRegion) -> Yaml {
         let mut t = new_table();
         rect_node(&mut t, "rect", &complex_clip.rect);
-        yaml_node(&mut t, "radius", maybe_radius_yaml(&complex_clip.radii).unwrap());
+        yaml_node(
+            &mut t,
+            "radius",
+            maybe_radius_yaml(&complex_clip.radii).unwrap(),
+        );
         Yaml::Hash(t)
     }
 
     fn make_sticky_info_node(&mut self, sticky_info: &StickySideConstraint) -> Yaml {
-        Yaml::Array(vec![Yaml::Real(sticky_info.margin.to_string()),
-                         Yaml::Real(sticky_info.max_offset.to_string())])
+        Yaml::Array(vec![
+            Yaml::Real(sticky_info.margin.to_string()),
+            Yaml::Real(sticky_info.max_offset.to_string()),
+        ])
     }
 
     fn make_sticky_frame_info_node(&mut self, sticky_frame_info: &StickyFrameInfo) -> Yaml {
@@ -529,22 +571,23 @@ impl YamlFrameWriter {
         Yaml::Hash(table)
     }
 
-    fn make_complex_clips_node(&mut self,
-                              complex_clip_count: usize,
-                              complex_clips: ItemRange<ComplexClipRegion>,
-                              list: &BuiltDisplayList)
-                              -> Option<Yaml> {
+    fn make_complex_clips_node(
+        &mut self,
+        complex_clip_count: usize,
+        complex_clips: ItemRange<ComplexClipRegion>,
+        list: &BuiltDisplayList,
+    ) -> Option<Yaml> {
         if complex_clip_count == 0 {
             return None;
         }
 
-        let complex_items = list.get(complex_clips).map(|ccx|
-            if ccx.radii.is_zero() {
+        let complex_items = list.get(complex_clips)
+            .map(|ccx| if ccx.radii.is_zero() {
                 rect_yaml(&ccx.rect)
             } else {
                 self.make_complex_clip_node(&ccx)
-            }
-        ).collect();
+            })
+            .collect();
         Some(Yaml::Array(complex_items))
     }
 
@@ -563,11 +606,13 @@ impl YamlFrameWriter {
         Some(Yaml::Hash(mask_table))
     }
 
-    fn write_display_list_items(&mut self,
-                                list: &mut Vec<Yaml>,
-                                display_list: &BuiltDisplayList,
-                                list_iterator: &mut BuiltDisplayListIter,
-                                clip_id_mapper: &mut ClipIdMapper) {
+    fn write_display_list_items(
+        &mut self,
+        list: &mut Vec<Yaml>,
+        display_list: &BuiltDisplayList,
+        list_iterator: &mut BuiltDisplayListIter,
+        clip_id_mapper: &mut ClipIdMapper,
+    ) {
         // continue_traversal is a big borrowck hack
         let mut continue_traversal = None;
         loop {
@@ -589,8 +634,9 @@ impl YamlFrameWriter {
 
             let clip_and_scroll_info = clip_id_mapper.fix_ids_for_nesting(&base.clip_and_scroll());
             let clip_and_scroll_yaml = match clip_id_mapper.map_info(&clip_and_scroll_info) {
-                (scroll_id, Some(clip_id)) =>
-                    Yaml::Array(vec![Yaml::Integer(scroll_id), Yaml::Integer(clip_id)]),
+                (scroll_id, Some(clip_id)) => {
+                    Yaml::Array(vec![Yaml::Integer(scroll_id), Yaml::Integer(clip_id)])
+                }
                 (scroll_id, None) => Yaml::Integer(scroll_id),
             };
             yaml_node(&mut v, "clip-and-scroll", clip_and_scroll_yaml);
@@ -600,7 +646,7 @@ impl YamlFrameWriter {
                 Rectangle(item) => {
                     str_node(&mut v, "type", "rect");
                     color_node(&mut v, "color", item.color);
-                },
+                }
                 Line(item) => {
                     str_node(&mut v, "type", "line");
                     f32_node(&mut v, "baseline", item.baseline);
@@ -625,10 +671,17 @@ impl YamlFrameWriter {
 
                     let instance = self.font_instances.entry(item.font_key).or_insert_with(|| {
                         println!("Warning: font instance key not found in font instances table!");
-                        CachedFontInstance { font_key: FontKey::new(IdNamespace(0), 0), glyph_size: Au::from_px(16) }
+                        CachedFontInstance {
+                            font_key: FontKey::new(IdNamespace(0), 0),
+                            glyph_size: Au::from_px(16),
+                        }
                     });
 
-                    f32_node(&mut v, "size", instance.glyph_size.to_f32_px() * 12.0 / 16.0);
+                    f32_node(
+                        &mut v,
+                        "size",
+                        instance.glyph_size.to_f32_px() * 12.0 / 16.0,
+                    );
                     color_node(&mut v, "color", item.color);
 
                     let entry = self.fonts.entry(instance.font_key).or_insert_with(|| {
@@ -642,12 +695,13 @@ impl YamlFrameWriter {
                         }
                         &mut CachedFont::Raw(ref mut bytes_opt, index, ref mut path_opt) => {
                             if let Some(bytes) = bytes_opt.take() {
-                                let (path_file, path) =
-                                    Self::next_rsrc_paths(&self.rsrc_prefix,
-                                                          &mut self.next_rsrc_num,
-                                                          &self.rsrc_base,
-                                                          "font",
-                                                          "ttf");
+                                let (path_file, path) = Self::next_rsrc_paths(
+                                    &self.rsrc_prefix,
+                                    &mut self.next_rsrc_num,
+                                    &self.rsrc_base,
+                                    "font",
+                                    "ttf",
+                                );
                                 let mut file = fs::File::create(&path_file).unwrap();
                                 file.write_all(&bytes).unwrap();
                                 *path_opt = Some(path);
@@ -659,12 +713,16 @@ impl YamlFrameWriter {
                             }
                         }
                     }
-                },
+                }
                 Image(item) => {
                     if let Some(path) = self.path_for_image(item.image_key) {
                         path_node(&mut v, "image", &path);
                     }
-                    if let Some(&CachedImage { tiling: Some(tile_size), .. }) = self.images.get(&item.image_key) {
+                    if let Some(&CachedImage {
+                        tiling: Some(tile_size),
+                        ..
+                    }) = self.images.get(&item.image_key)
+                    {
                         u32_node(&mut v, "tile-size", tile_size as u32);
                     }
                     size_node(&mut v, "stretch-size", &item.stretch_size);
@@ -674,36 +732,42 @@ impl YamlFrameWriter {
                         ImageRendering::CrispEdges => str_node(&mut v, "rendering", "crisp-edges"),
                         ImageRendering::Pixelated => str_node(&mut v, "rendering", "pixelated"),
                     };
-                },
+                }
                 YuvImage(_) => {
                     str_node(&mut v, "type", "yuv-image");
                     // TODO
                     println!("TODO YAML YuvImage");
-                },
+                }
                 Border(item) => {
                     str_node(&mut v, "type", "border");
                     match item.details {
                         BorderDetails::Normal(ref details) => {
-                            let trbl = vec![&details.top, &details.right, &details.bottom, &details.left];
-                            let widths: Vec<f32> = vec![ item.widths.top,
-                                                         item.widths.right,
-                                                         item.widths.bottom,
-                                                         item.widths.left ];
-                            let colors: Vec<String> = trbl.iter().map(|x| color_to_string(x.color)).collect();
-                            let styles: Vec<String> = trbl.iter().map(|x| {
-                                match x.style {
-                                    BorderStyle::None => "none",
-                                    BorderStyle::Solid => "solid",
-                                    BorderStyle::Double => "double",
-                                    BorderStyle::Dotted => "dotted",
-                                    BorderStyle::Dashed => "dashed",
-                                    BorderStyle::Hidden => "hidden",
-                                    BorderStyle::Ridge => "ridge",
-                                    BorderStyle::Inset => "inset",
-                                    BorderStyle::Outset => "outset",
-                                    BorderStyle::Groove => "groove",
-                                }.to_owned()
-                            }).collect();
+                            let trbl =
+                                vec![&details.top, &details.right, &details.bottom, &details.left];
+                            let widths: Vec<f32> = vec![
+                                item.widths.top,
+                                item.widths.right,
+                                item.widths.bottom,
+                                item.widths.left,
+                            ];
+                            let colors: Vec<String> =
+                                trbl.iter().map(|x| color_to_string(x.color)).collect();
+                            let styles: Vec<String> = trbl.iter()
+                                .map(|x| {
+                                    match x.style {
+                                        BorderStyle::None => "none",
+                                        BorderStyle::Solid => "solid",
+                                        BorderStyle::Double => "double",
+                                        BorderStyle::Dotted => "dotted",
+                                        BorderStyle::Dashed => "dashed",
+                                        BorderStyle::Hidden => "hidden",
+                                        BorderStyle::Ridge => "ridge",
+                                        BorderStyle::Inset => "inset",
+                                        BorderStyle::Outset => "outset",
+                                        BorderStyle::Groove => "groove",
+                                    }.to_owned()
+                                })
+                                .collect();
                             yaml_node(&mut v, "width", f32_vec_yaml(&widths, true));
                             str_node(&mut v, "border-type", "normal");
                             yaml_node(&mut v, "color", string_vec_yaml(&colors, true));
@@ -713,14 +777,18 @@ impl YamlFrameWriter {
                             }
                         }
                         BorderDetails::Image(ref details) => {
-                            let widths: Vec<f32> = vec![ item.widths.top,
-                                                         item.widths.right,
-                                                         item.widths.bottom,
-                                                         item.widths.left ];
-                            let outset: Vec<f32> = vec![ details.outset.top,
-                                                         details.outset.right,
-                                                         details.outset.bottom,
-                                                         details.outset.left];
+                            let widths: Vec<f32> = vec![
+                                item.widths.top,
+                                item.widths.right,
+                                item.widths.bottom,
+                                item.widths.left,
+                            ];
+                            let outset: Vec<f32> = vec![
+                                details.outset.top,
+                                details.outset.right,
+                                details.outset.bottom,
+                                details.outset.left,
+                            ];
                             yaml_node(&mut v, "width", f32_vec_yaml(&widths, true));
                             str_node(&mut v, "border-type", "image");
                             if let Some(path) = self.path_for_image(details.image_key) {
@@ -728,34 +796,46 @@ impl YamlFrameWriter {
                             }
                             u32_node(&mut v, "image-width", details.patch.width);
                             u32_node(&mut v, "image-height", details.patch.height);
-                            let slice: Vec<u32> = vec![ details.patch.slice.top,
-                                                        details.patch.slice.right,
-                                                        details.patch.slice.bottom,
-                                                        details.patch.slice.left ];
+                            let slice: Vec<u32> = vec![
+                                details.patch.slice.top,
+                                details.patch.slice.right,
+                                details.patch.slice.bottom,
+                                details.patch.slice.left,
+                            ];
                             yaml_node(&mut v, "slice", u32_vec_yaml(&slice, true));
                             yaml_node(&mut v, "outset", f32_vec_yaml(&outset, true));
                             match details.repeat_horizontal {
-                                RepeatMode::Stretch => str_node(&mut v, "repeat-horizontal", "stretch"),
-                                RepeatMode::Repeat => str_node(&mut v, "repeat-horizontal", "repeat"),
+                                RepeatMode::Stretch => {
+                                    str_node(&mut v, "repeat-horizontal", "stretch")
+                                }
+                                RepeatMode::Repeat => {
+                                    str_node(&mut v, "repeat-horizontal", "repeat")
+                                }
                                 RepeatMode::Round => str_node(&mut v, "repeat-horizontal", "round"),
                                 RepeatMode::Space => str_node(&mut v, "repeat-horizontal", "space"),
                             };
                             match details.repeat_vertical {
-                                RepeatMode::Stretch => str_node(&mut v, "repeat-vertical", "stretch"),
+                                RepeatMode::Stretch => {
+                                    str_node(&mut v, "repeat-vertical", "stretch")
+                                }
                                 RepeatMode::Repeat => str_node(&mut v, "repeat-vertical", "repeat"),
                                 RepeatMode::Round => str_node(&mut v, "repeat-vertical", "round"),
                                 RepeatMode::Space => str_node(&mut v, "repeat-vertical", "space"),
                             };
                         }
                         BorderDetails::Gradient(ref details) => {
-                            let widths: Vec<f32> = vec![ item.widths.top,
-                                                         item.widths.right,
-                                                         item.widths.bottom,
-                                                         item.widths.left ];
-                            let outset: Vec<f32> = vec![ details.outset.top,
-                                                         details.outset.right,
-                                                         details.outset.bottom,
-                                                         details.outset.left];
+                            let widths: Vec<f32> = vec![
+                                item.widths.top,
+                                item.widths.right,
+                                item.widths.bottom,
+                                item.widths.left,
+                            ];
+                            let outset: Vec<f32> = vec![
+                                details.outset.top,
+                                details.outset.right,
+                                details.outset.bottom,
+                                details.outset.left,
+                            ];
                             yaml_node(&mut v, "width", f32_vec_yaml(&widths, true));
                             str_node(&mut v, "border-type", "gradient");
                             point_node(&mut v, "start", &details.gradient.start_point);
@@ -766,18 +846,26 @@ impl YamlFrameWriter {
                                 stops.push(Yaml::String(color_to_string(stop.color)));
                             }
                             yaml_node(&mut v, "stops", Yaml::Array(stops));
-                            bool_node(&mut v, "repeat", details.gradient.extend_mode == ExtendMode::Repeat);
+                            bool_node(
+                                &mut v,
+                                "repeat",
+                                details.gradient.extend_mode == ExtendMode::Repeat,
+                            );
                             yaml_node(&mut v, "outset", f32_vec_yaml(&outset, true));
                         }
                         BorderDetails::RadialGradient(ref details) => {
-                            let widths: Vec<f32> = vec![ item.widths.top,
-                                                         item.widths.right,
-                                                         item.widths.bottom,
-                                                         item.widths.left ];
-                            let outset: Vec<f32> = vec![ details.outset.top,
-                                                         details.outset.right,
-                                                         details.outset.bottom,
-                                                         details.outset.left];
+                            let widths: Vec<f32> = vec![
+                                item.widths.top,
+                                item.widths.right,
+                                item.widths.bottom,
+                                item.widths.left,
+                            ];
+                            let outset: Vec<f32> = vec![
+                                details.outset.top,
+                                details.outset.right,
+                                details.outset.bottom,
+                                details.outset.left,
+                            ];
                             yaml_node(&mut v, "width", f32_vec_yaml(&widths, true));
                             str_node(&mut v, "border-type", "radial-gradient");
                             point_node(&mut v, "start-center", &details.gradient.start_center);
@@ -791,11 +879,15 @@ impl YamlFrameWriter {
                                 stops.push(Yaml::String(color_to_string(stop.color)));
                             }
                             yaml_node(&mut v, "stops", Yaml::Array(stops));
-                            bool_node(&mut v, "repeat", details.gradient.extend_mode == ExtendMode::Repeat);
+                            bool_node(
+                                &mut v,
+                                "repeat",
+                                details.gradient.extend_mode == ExtendMode::Repeat,
+                            );
                             yaml_node(&mut v, "outset", f32_vec_yaml(&outset, true));
                         }
                     }
-                },
+                }
                 BoxShadow(item) => {
                     str_node(&mut v, "type", "box-shadow");
                     rect_node(&mut v, "box-bounds", &item.box_bounds);
@@ -807,10 +899,10 @@ impl YamlFrameWriter {
                     let clip_mode = match item.clip_mode {
                         BoxShadowClipMode::None => "none",
                         BoxShadowClipMode::Outset => "outset",
-                        BoxShadowClipMode::Inset => "inset"
+                        BoxShadowClipMode::Inset => "inset",
                     };
                     str_node(&mut v, "clip-mode", clip_mode);
-                },
+                }
                 Gradient(item) => {
                     str_node(&mut v, "type", "gradient");
                     point_node(&mut v, "start", &item.gradient.start_point);
@@ -823,8 +915,12 @@ impl YamlFrameWriter {
                         stops.push(Yaml::String(color_to_string(stop.color)));
                     }
                     yaml_node(&mut v, "stops", Yaml::Array(stops));
-                    bool_node(&mut v, "repeat", item.gradient.extend_mode == ExtendMode::Repeat);
-                },
+                    bool_node(
+                        &mut v,
+                        "repeat",
+                        item.gradient.extend_mode == ExtendMode::Repeat,
+                    );
+                }
                 RadialGradient(item) => {
                     str_node(&mut v, "type", "radial-gradient");
                     point_node(&mut v, "start-center", &item.gradient.start_center);
@@ -840,12 +936,16 @@ impl YamlFrameWriter {
                         stops.push(Yaml::String(color_to_string(stop.color)));
                     }
                     yaml_node(&mut v, "stops", Yaml::Array(stops));
-                    bool_node(&mut v, "repeat", item.gradient.extend_mode == ExtendMode::Repeat);
-                },
+                    bool_node(
+                        &mut v,
+                        "repeat",
+                        item.gradient.extend_mode == ExtendMode::Repeat,
+                    );
+                }
                 Iframe(item) => {
                     str_node(&mut v, "type", "iframe");
                     u32_vec_node(&mut v, "id", &[item.pipeline_id.0, item.pipeline_id.1]);
-                },
+                }
                 PushStackingContext(item) => {
                     str_node(&mut v, "type", "stacking-context");
                     write_sc(&mut v, &item.stacking_context);
@@ -853,16 +953,18 @@ impl YamlFrameWriter {
                     let mut sub_iter = base.sub_iter();
                     self.write_display_list(&mut v, display_list, &mut sub_iter, clip_id_mapper);
                     continue_traversal = Some(sub_iter);
-                },
+                }
                 Clip(item) => {
                     str_node(&mut v, "type", "clip");
                     usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
                     size_node(&mut v, "content-size", &base.rect().size);
 
                     let &(complex_clips, complex_clip_count) = base.complex_clip();
-                    if let Some(complex) = self.make_complex_clips_node(complex_clip_count,
-                                                                        complex_clips,
-                                                                        display_list) {
+                    if let Some(complex) = self.make_complex_clips_node(
+                        complex_clip_count,
+                        complex_clips,
+                        display_list,
+                    ) {
                         yaml_node(&mut v, "complex", complex);
                     }
 
@@ -877,9 +979,11 @@ impl YamlFrameWriter {
                     rect_node(&mut v, "bounds", &base.local_clip().clip_rect());
 
                     let &(complex_clips, complex_clip_count) = base.complex_clip();
-                    if let Some(complex) = self.make_complex_clips_node(complex_clip_count,
-                                                                        complex_clips,
-                                                                        display_list) {
+                    if let Some(complex) = self.make_complex_clips_node(
+                        complex_clip_count,
+                        complex_clips,
+                        display_list,
+                    ) {
                         yaml_node(&mut v, "complex", complex);
                     }
 
@@ -891,15 +995,19 @@ impl YamlFrameWriter {
                     str_node(&mut v, "type", "sticky-frame");
                     usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
                     rect_node(&mut v, "bounds", &base.local_clip().clip_rect());
-                    yaml_node(&mut v, "sticky-info",
-                              self.make_sticky_frame_info_node(&item.sticky_frame_info));
+                    yaml_node(
+                        &mut v,
+                        "sticky-info",
+                        self.make_sticky_frame_info_node(&item.sticky_frame_info),
+                    );
                 }
 
-                PushNestedDisplayList =>
-                    clip_id_mapper.push_nested_display_list_ids(clip_and_scroll_info),
+                PushNestedDisplayList => {
+                    clip_id_mapper.push_nested_display_list_ids(clip_and_scroll_info)
+                }
                 PopNestedDisplayList => clip_id_mapper.pop_nested_display_list_ids(),
                 PopStackingContext => return,
-                SetGradientStops => { panic!("dummy item yielded?") },
+                SetGradientStops => panic!("dummy item yielded?"),
                 PushTextShadow(shadow) => {
                     str_node(&mut v, "type", "text-shadow");
                     vector_node(&mut v, "offset", &shadow.offset);
@@ -908,7 +1016,7 @@ impl YamlFrameWriter {
                 }
                 PopTextShadow => {
                     str_node(&mut v, "type", "pop-text-shadow");
-                },
+                }
             }
             if !v.is_empty() {
                 list.push(Yaml::Hash(v));
@@ -916,11 +1024,13 @@ impl YamlFrameWriter {
         }
     }
 
-    fn write_display_list(&mut self,
-                          parent: &mut Table,
-                          display_list: &BuiltDisplayList,
-                          list_iterator: &mut BuiltDisplayListIter,
-                          clip_id_mapper: &mut ClipIdMapper) {
+    fn write_display_list(
+        &mut self,
+        parent: &mut Table,
+        display_list: &BuiltDisplayList,
+        list_iterator: &mut BuiltDisplayListIter,
+        clip_id_mapper: &mut ClipIdMapper,
+    ) {
         let mut list = vec![];
         self.write_display_list_items(&mut list, display_list, list_iterator, clip_id_mapper);
         parent.insert(Yaml::String("items".to_owned()), Yaml::Array(list));
@@ -937,22 +1047,27 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
             ApiMsg::UpdateDocument(_, DocumentMsg::SetRootPipeline(ref pipeline_id)) => {
                 self.scene.set_root_pipeline_id(pipeline_id.clone());
             }
-            ApiMsg::UpdateDocument(_, DocumentMsg::SetDisplayList {
-                ref epoch,
-                ref pipeline_id,
-                ref background,
-                ref viewport_size,
-                ref list_descriptor,
-                ref resources,
-                ..
-            }) => {
+            ApiMsg::UpdateDocument(
+                _,
+                DocumentMsg::SetDisplayList {
+                    ref epoch,
+                    ref pipeline_id,
+                    ref background,
+                    ref viewport_size,
+                    ref list_descriptor,
+                    ref resources,
+                    ..
+                },
+            ) => {
                 self.frame_writer.update_resources(resources);
-                self.frame_writer.begin_write_display_list(&mut self.scene,
-                                                           epoch,
-                                                           pipeline_id,
-                                                           background,
-                                                           viewport_size,
-                                                           list_descriptor);
+                self.frame_writer.begin_write_display_list(
+                    &mut self.scene,
+                    epoch,
+                    pipeline_id,
+                    background,
+                    viewport_size,
+                    list_descriptor,
+                );
             }
             ApiMsg::UpdateDocument(_, DocumentMsg::RemovePipeline(ref pipeline_id)) => {
                 self.scene.remove_pipeline(pipeline_id);
@@ -964,7 +1079,8 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
 
     fn write_payload(&mut self, _frame: u32, data: &[u8]) {
         if self.frame_writer.dl_descriptor.is_some() {
-            self.frame_writer.finish_write_display_list(&mut self.scene, data);
+            self.frame_writer
+                .finish_write_display_list(&mut self.scene, data);
         }
     }
 }
@@ -994,7 +1110,8 @@ impl ClipIdMapper {
     }
 
     fn push_nested_display_list_ids(&mut self, info: ClipAndScrollInfo) {
-        self.nested_display_list_info.push((info.scroll_node_id, info.clip_node_id()));
+        self.nested_display_list_info
+            .push((info.scroll_node_id, info.clip_node_id()));
     }
 
     fn pop_nested_display_list_ids(&mut self) {
@@ -1025,7 +1142,9 @@ impl ClipIdMapper {
     }
 
     fn map_info(&self, info: &ClipAndScrollInfo) -> (i64, Option<i64>) {
-        (self.map_id(&info.scroll_node_id) as i64,
-         info.clip_node_id.map(|ref id| self.map_id(id) as i64))
+        (
+            self.map_id(&info.scroll_node_id) as i64,
+            info.clip_node_id.map(|ref id| self.map_id(id) as i64),
+        )
     }
 }

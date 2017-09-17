@@ -41,11 +41,14 @@ pub enum ReftestOp {
 
 impl Display for ReftestOp {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        write!(f, "{}",
-               match *self {
-                   ReftestOp::Equal => "==".to_owned(),
-                   ReftestOp::NotEqual => "!=".to_owned(),
-                })
+        write!(
+            f,
+            "{}",
+            match *self {
+                ReftestOp::Equal => "==".to_owned(),
+                ReftestOp::NotEqual => "!=".to_owned(),
+            }
+        )
     }
 }
 
@@ -59,7 +62,13 @@ pub struct Reftest {
 
 impl Display for Reftest {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        write!(f, "{} {} {}", self.test.display(), self.op, self.reference.display())
+        write!(
+            f,
+            "{} {} {}",
+            self.test.display(),
+            self.op,
+            self.reference.display()
+        )
     }
 }
 
@@ -69,7 +78,10 @@ struct ReftestImage {
 }
 enum ReftestImageComparison {
     Equal,
-    NotEqual { max_difference: usize, count_different: usize },
+    NotEqual {
+        max_difference: usize,
+        count_different: usize,
+    },
 }
 
 impl ReftestImage {
@@ -84,9 +96,10 @@ impl ReftestImage {
         for (a, b) in self.data.chunks(4).zip(other.data.chunks(4)) {
             if a != b {
                 let pixel_max = a.iter()
-                                 .zip(b.iter())
-                                 .map(|(x, y)| (*x as isize - *y as isize).abs() as usize)
-                                 .max().unwrap();
+                    .zip(b.iter())
+                    .map(|(x, y)| (*x as isize - *y as isize).abs() as usize)
+                    .max()
+                    .unwrap();
 
                 count += 1;
                 max = cmp::max(max, pixel_max);
@@ -110,20 +123,20 @@ impl ReftestImage {
         // flip image vertically (texture is upside down)
         let orig_pixels = self.data.clone();
         let stride = width as usize * 4;
-        for y in 0..height as usize {
+        for y in 0 .. height as usize {
             let dst_start = y * stride;
             let src_start = (height as usize - y - 1) * stride;
             let src_slice = &orig_pixels[src_start .. src_start + stride];
-            (&mut self.data[dst_start .. dst_start + stride]).clone_from_slice(&src_slice[..stride]);
+            (&mut self.data[dst_start .. dst_start + stride])
+                .clone_from_slice(&src_slice[.. stride]);
         }
 
         let mut png: Vec<u8> = vec![];
         {
             let encoder = PNGEncoder::new(&mut png);
-            encoder.encode(&self.data[..],
-                            width,
-                            height,
-                            ColorType::RGBA(8)).expect("Unable to encode PNG!");
+            encoder
+                .encode(&self.data[..], width, height, ColorType::RGBA(8))
+                .expect("Unable to encode PNG!");
         }
         let png_base64 = base64::encode(&png);
         format!("data:image/png;base64,{}", png_base64)
@@ -136,7 +149,8 @@ struct ReftestManifest {
 impl ReftestManifest {
     fn new(manifest: &Path, options: &ReftestOptions) -> ReftestManifest {
         let dir = manifest.parent().unwrap();
-        let f = File::open(manifest).expect(&format!("couldn't open manifest: {}", manifest.display()));
+        let f =
+            File::open(manifest).expect(&format!("couldn't open manifest: {}", manifest.display()));
         let file = BufReader::new(&f);
 
         let mut reftests = Vec::new();
@@ -145,7 +159,7 @@ impl ReftestManifest {
             let l = line.unwrap();
 
             // strip the comments
-            let s = &l[0..l.find('#').unwrap_or(l.len())];
+            let s = &l[0 .. l.find('#').unwrap_or(l.len())];
             let s = s.trim();
             if s.is_empty() {
                 continue;
@@ -157,16 +171,18 @@ impl ReftestManifest {
                 "include" => {
                     let include = dir.join(items[1]);
 
-                    reftests.append(&mut ReftestManifest::new(include.as_path(), options).reftests);
+                    reftests.append(
+                        &mut ReftestManifest::new(include.as_path(), options).reftests,
+                    );
                 }
                 item_str => {
                     // If the first item is "fuzzy(<val>,<count>)" the positions of the operator
                     // and paths in the array are offset.
                     // TODO: This is simple but not great because it does not support having spaces
                     // in the fuzzy syntax, like between the arguments.
-                    let (max, count, offset) =  if item_str.starts_with("fuzzy(") {
+                    let (max, count, offset) = if item_str.starts_with("fuzzy(") {
                         let (_, args, _) = parse_function(item_str);
-                        (args[0].parse().unwrap(),  args[1].parse().unwrap(), 1)
+                        (args[0].parse().unwrap(), args[1].parse().unwrap(), 1)
                     } else {
                         (0, 0, 0)
                     };
@@ -182,15 +198,16 @@ impl ReftestManifest {
             };
         }
 
-        ReftestManifest {
-            reftests: reftests
-        }
+        ReftestManifest { reftests: reftests }
     }
 
     fn find(&self, prefix: &Path) -> Vec<&Reftest> {
-        self.reftests.iter().filter(|x| {
-            x.test.starts_with(prefix) || x.reference.starts_with(prefix)
-        }).collect()
+        self.reftests
+            .iter()
+            .filter(|x| {
+                x.test.starts_with(prefix) || x.reference.starts_with(prefix)
+            })
+            .collect()
     }
 }
 
@@ -208,9 +225,7 @@ pub struct ReftestHarness<'a> {
     rx: Receiver<()>,
 }
 impl<'a> ReftestHarness<'a> {
-    pub fn new(wrench: &'a mut Wrench,
-               window: &'a mut WindowWrapper) -> ReftestHarness<'a>
-    {
+    pub fn new(wrench: &'a mut Wrench, window: &'a mut WindowWrapper) -> ReftestHarness<'a> {
         // setup a notifier so we can wait for frames to be finished
         struct Notifier {
             tx: Sender<()>,
@@ -222,13 +237,11 @@ impl<'a> ReftestHarness<'a> {
             fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {}
         }
         let (tx, rx) = channel();
-        wrench.renderer.set_render_notifier(Box::new(Notifier { tx: tx }));
+        wrench
+            .renderer
+            .set_render_notifier(Box::new(Notifier { tx: tx }));
 
-        ReftestHarness {
-            wrench,
-            window,
-            rx,
-        }
+        ReftestHarness { wrench, window, rx }
     }
 
     pub fn run(mut self, base_manifest: &Path, reftests: Option<&Path>, options: &ReftestOptions) {
@@ -246,7 +259,11 @@ impl<'a> ReftestHarness<'a> {
             }
         }
 
-        println!("REFTEST INFO | {} passing, {} failing", total_passing, failing.len());
+        println!(
+            "REFTEST INFO | {} passing, {} failing",
+            total_passing,
+            failing.len()
+        );
 
         if !failing.is_empty() {
             println!("\nReftests with unexpected results:");
@@ -263,8 +280,10 @@ impl<'a> ReftestHarness<'a> {
     fn run_reftest(&mut self, t: &Reftest) -> bool {
         println!("REFTEST {}", t);
 
-        let window_size = DeviceUintSize::new(self.window.get_inner_size_pixels().0,
-                                              self.window.get_inner_size_pixels().1);
+        let window_size = DeviceUintSize::new(
+            self.window.get_inner_size_pixels().0,
+            self.window.get_inner_size_pixels().1,
+        );
         let reference = match t.reference.extension().unwrap().to_str().unwrap() {
             "yaml" => self.render_yaml(t.reference.as_path(), window_size),
             "png" => self.load_image(t.reference.as_path(), ImageFormat::PNG),
@@ -277,28 +296,39 @@ impl<'a> ReftestHarness<'a> {
 
         match (&t.op, comparison) {
             (&ReftestOp::Equal, ReftestImageComparison::Equal) => true,
-            (&ReftestOp::Equal,
-              ReftestImageComparison::NotEqual { max_difference, count_different }) => {
-                if max_difference > t.max_difference || count_different > t.num_differences {
-                    println!("{} | {} | {}: {}, {}: {}",
-                             "REFTEST TEST-UNEXPECTED-FAIL", t,
-                             "image comparison, max difference", max_difference,
-                             "number of differing pixels", count_different);
-                    println!("REFTEST   IMAGE 1 (TEST): {}", test.create_data_uri());
-                    println!("REFTEST   IMAGE 2 (REFERENCE): {}", reference.create_data_uri());
-                    println!("REFTEST TEST-END | {}", t);
+            (
+                &ReftestOp::Equal,
+                ReftestImageComparison::NotEqual {
+                    max_difference,
+                    count_different,
+                },
+            ) => if max_difference > t.max_difference || count_different > t.num_differences {
+                println!(
+                    "{} | {} | {}: {}, {}: {}",
+                    "REFTEST TEST-UNEXPECTED-FAIL",
+                    t,
+                    "image comparison, max difference",
+                    max_difference,
+                    "number of differing pixels",
+                    count_different
+                );
+                println!("REFTEST   IMAGE 1 (TEST): {}", test.create_data_uri());
+                println!(
+                    "REFTEST   IMAGE 2 (REFERENCE): {}",
+                    reference.create_data_uri()
+                );
+                println!("REFTEST TEST-END | {}", t);
 
-                    false
-                } else {
-                    true
-                }
+                false
+            } else {
+                true
             },
             (&ReftestOp::NotEqual, ReftestImageComparison::Equal) => {
                 println!("REFTEST TEST-UNEXPECTED-FAIL | {} | image comparison", t);
                 println!("REFTEST TEST-END | {}", t);
 
                 false
-            },
+            }
             (&ReftestOp::NotEqual, ReftestImageComparison::NotEqual { .. }) => true,
         }
     }
@@ -310,7 +340,7 @@ impl<'a> ReftestHarness<'a> {
         let size = img.dimensions();
         ReftestImage {
             data: img.into_raw(),
-            size: DeviceUintSize::new(size.0, size.1)
+            size: DeviceUintSize::new(size.0, size.1),
         }
     }
 
@@ -326,8 +356,7 @@ impl<'a> ReftestHarness<'a> {
         assert!(size.width <= window_size.0 && size.height <= window_size.1);
 
         // taking the bottom left sub-rectangle
-        let rect = DeviceUintRect::new(DeviceUintPoint::new(0, window_size.1 - size.height),
-                                       size);
+        let rect = DeviceUintRect::new(DeviceUintPoint::new(0, window_size.1 - size.height), size);
         let pixels = self.wrench.renderer.read_pixels_rgba8(rect);
         self.window.swap_buffers();
 
@@ -337,9 +366,6 @@ impl<'a> ReftestHarness<'a> {
             save_flipped(debug_path, &pixels, size);
         }
 
-        ReftestImage {
-            data: pixels,
-            size,
-        }
+        ReftestImage { data: pixels, size }
     }
 }

@@ -20,7 +20,7 @@ fn deserialize_blob(blob: &[u8]) -> Result<ColorU, ()> {
         (Some(&r), Some(&g), Some(&b), Some(&a)) => Ok(ColorU::new(r, g, b, a)),
         (Some(&a), None, None, None) => Ok(ColorU::new(a, a, a, a)),
         _ => Err(()),
-    }
+    };
 }
 
 // This is the function that applies the deserialized drawing commands and generates
@@ -41,15 +41,19 @@ fn render_blob(
         None => true,
     };
 
-    for y in 0..descriptor.height {
-        for x in 0..descriptor.width {
+    for y in 0 .. descriptor.height {
+        for x in 0 .. descriptor.width {
             // Apply the tile's offset. This is important: all drawing commands should be
             // translated by this offset to give correct results with tiled blob images.
             let x2 = x + descriptor.offset.x as u32;
             let y2 = y + descriptor.offset.y as u32;
 
             // Render a simple checkerboard pattern
-            let checker = if (x2 % 20 >= 10) != (y2 % 20 >= 10) { 1 } else { 0 };
+            let checker = if (x2 % 20 >= 10) != (y2 % 20 >= 10) {
+                1
+            } else {
+                0
+            };
             // ..nested in the per-tile cherkerboard pattern
             let tc = if tile_checker { 0 } else { (1 - checker) * 40 };
 
@@ -64,10 +68,9 @@ fn render_blob(
                     texels.push(color.a * checker + tc);
                 }
                 _ => {
-                    return Err(BlobImageError::Other(format!(
-                        "Usupported image format {:?}",
-                        descriptor.format
-                    )));
+                    return Err(BlobImageError::Other(
+                        format!("Usupported image format {:?}", descriptor.format),
+                    ));
                 }
             }
         }
@@ -98,24 +101,28 @@ impl CheckerboardRenderer {
 
 impl BlobImageRenderer for CheckerboardRenderer {
     fn add(&mut self, key: ImageKey, cmds: BlobImageData, _: Option<TileSize>) {
-        self.image_cmds.insert(key, deserialize_blob(&cmds[..]).unwrap());
+        self.image_cmds
+            .insert(key, deserialize_blob(&cmds[..]).unwrap());
     }
 
     fn update(&mut self, key: ImageKey, cmds: BlobImageData) {
         // Here, updating is just replacing the current version of the commands with
         // the new one (no incremental updates).
-        self.image_cmds.insert(key, deserialize_blob(&cmds[..]).unwrap());
+        self.image_cmds
+            .insert(key, deserialize_blob(&cmds[..]).unwrap());
     }
 
     fn delete(&mut self, key: ImageKey) {
         self.image_cmds.remove(&key);
     }
 
-    fn request(&mut self,
-               _resources: &BlobImageResources,
-               request: BlobImageRequest,
-               descriptor: &BlobImageDescriptor,
-               _dirty_rect: Option<DeviceUintRect>) {
+    fn request(
+        &mut self,
+        _resources: &BlobImageResources,
+        request: BlobImageRequest,
+        descriptor: &BlobImageDescriptor,
+        _dirty_rect: Option<DeviceUintRect>,
+    ) {
         assert!(!self.rendered_images.contains_key(&request));
         // This method is where we kick off our rendering jobs.
         // It should avoid doing work on the calling thread as much as possible.
@@ -133,9 +140,7 @@ impl BlobImageRenderer for CheckerboardRenderer {
         self.rendered_images.remove(&request).unwrap()
     }
 
-    fn delete_font(&mut self, _key: FontKey) { }
+    fn delete_font(&mut self, _key: FontKey) {}
 
-    fn delete_font_instance(&mut self, _key: FontInstanceKey) { }
+    fn delete_font_instance(&mut self, _key: FontInstanceKey) {}
 }
-
-

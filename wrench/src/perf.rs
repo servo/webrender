@@ -33,7 +33,8 @@ pub struct BenchmarkManifest {
 impl BenchmarkManifest {
     pub fn new(manifest: &Path) -> BenchmarkManifest {
         let dir = manifest.parent().unwrap();
-        let f = File::open(manifest).expect(&format!("couldn't open manifest: {}", manifest.display()));
+        let f =
+            File::open(manifest).expect(&format!("couldn't open manifest: {}", manifest.display()));
         let file = BufReader::new(&f);
 
         let mut benchmarks = Vec::new();
@@ -42,7 +43,7 @@ impl BenchmarkManifest {
             let l = line.unwrap();
 
             // strip the comments
-            let s = &l[0..l.find('#').unwrap_or(l.len())];
+            let s = &l[0 .. l.find('#').unwrap_or(l.len())];
             let s = s.trim();
             if s.is_empty() {
                 continue;
@@ -58,16 +59,14 @@ impl BenchmarkManifest {
                 }
                 Some(name) => {
                     let test = dir.join(name);
-                    benchmarks.push(Benchmark {
-                        test,
-                    });
+                    benchmarks.push(Benchmark { test });
                 }
                 _ => panic!(),
             };
         }
 
         BenchmarkManifest {
-            benchmarks: benchmarks
+            benchmarks: benchmarks,
         }
     }
 }
@@ -88,9 +87,7 @@ struct Profile {
 
 impl Profile {
     fn new() -> Profile {
-        Profile {
-            tests: Vec::new(),
-        }
+        Profile { tests: Vec::new() }
     }
 
     fn add(&mut self, profile: TestProfile) {
@@ -131,9 +128,7 @@ pub struct PerfHarness<'a> {
 }
 
 impl<'a> PerfHarness<'a> {
-    pub fn new(wrench: &'a mut Wrench,
-               window: &'a mut WindowWrapper) -> PerfHarness<'a>
-    {
+    pub fn new(wrench: &'a mut Wrench, window: &'a mut WindowWrapper) -> PerfHarness<'a> {
         // setup a notifier so we can wait for frames to be finished
         struct Notifier {
             tx: Sender<()>,
@@ -145,13 +140,11 @@ impl<'a> PerfHarness<'a> {
             fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {}
         }
         let (tx, rx) = channel();
-        wrench.renderer.set_render_notifier(Box::new(Notifier { tx: tx }));
+        wrench
+            .renderer
+            .set_render_notifier(Box::new(Notifier { tx: tx }));
 
-        PerfHarness {
-            wrench,
-            window,
-            rx,
-        }
+        PerfHarness { wrench, window, rx }
     }
 
     pub fn run(mut self, base_manifest: &Path, filename: &str) {
@@ -176,7 +169,8 @@ impl<'a> PerfHarness<'a> {
         let mut gpu_frame_profiles = Vec::new();
 
         while cpu_frame_profiles.len() < MIN_SAMPLE_COUNT ||
-              gpu_frame_profiles.len() < MIN_SAMPLE_COUNT {
+            gpu_frame_profiles.len() < MIN_SAMPLE_COUNT
+        {
             reader.do_frame(self.wrench);
             self.rx.recv().unwrap();
             self.wrench.render();
@@ -188,7 +182,11 @@ impl<'a> PerfHarness<'a> {
 
         // Ensure the draw calls match in every sample.
         let draw_calls = cpu_frame_profiles[0].draw_calls;
-        assert!(cpu_frame_profiles.iter().all(|s| s.draw_calls == draw_calls));
+        assert!(
+            cpu_frame_profiles
+                .iter()
+                .all(|s| s.draw_calls == draw_calls)
+        );
 
         let composite_time_ns = extract_sample(&mut cpu_frame_profiles, |a| a.composite_time_ns);
         let paint_time_ns = extract_sample(&mut gpu_frame_profiles, |a| a.paint_time_ns);
@@ -204,10 +202,13 @@ impl<'a> PerfHarness<'a> {
     }
 }
 
-fn extract_sample<F, T>(profiles: &mut [T], f: F) -> u64 where F: Fn(&T) -> u64 {
+fn extract_sample<F, T>(profiles: &mut [T], f: F) -> u64
+where
+    F: Fn(&T) -> u64,
+{
     let mut samples: Vec<u64> = profiles.iter().map(f).collect();
     samples.sort();
-    let useful_samples = &samples[SAMPLE_EXCLUDE_COUNT..samples.len() - SAMPLE_EXCLUDE_COUNT];
+    let useful_samples = &samples[SAMPLE_EXCLUDE_COUNT .. samples.len() - SAMPLE_EXCLUDE_COUNT];
     let total_time: u64 = useful_samples.iter().sum();
     total_time / useful_samples.len() as u64
 }
@@ -230,12 +231,23 @@ pub fn compare(first_filename: &str, second_filename: &str) {
     let (set0, map0) = profile0.build_set_and_map_of_tests();
     let (set1, map1) = profile1.build_set_and_map_of_tests();
 
-    println!("+------------------------------------------------+--------------+------------------+------------------+");
-    println!("|  Test name                                     | Draw Calls   | Composite (ms)   | Paint (ms)       |");
-    println!("+------------------------------------------------+--------------+------------------+------------------+");
+    print!("+------------------------------------------------");
+    println!("+--------------+------------------+------------------+");
+    print!("|  Test name                                     ");
+    println!("| Draw Calls   | Composite (ms)   | Paint (ms)       |");
+    print!("+------------------------------------------------");
+    println!("+--------------+------------------+------------------+");
 
     for test_name in set0.symmetric_difference(&set1) {
-        println!("| {}{:47}{}|{:14}|{:18}|{:18}|", COLOR_MAGENTA, test_name, COLOR_DEFAULT, " -", " -", " -");
+        println!(
+            "| {}{:47}{}|{:14}|{:18}|{:18}|",
+            COLOR_MAGENTA,
+            test_name,
+            COLOR_DEFAULT,
+            " -",
+            " -",
+            " -"
+        );
     }
 
     for test_name in set0.intersection(&set1) {
@@ -260,22 +272,24 @@ pub fn compare(first_filename: &str, second_filename: &str) {
         let paint_time_color = select_color(paint_time0, paint_time1);
 
         let draw_call_string = format!(" {} -> {}", test0.draw_calls, test1.draw_calls);
-        let composite_time_string = format!(" {:.2} -> {:.2}", composite_time0,
-                                                               composite_time1);
-        let paint_time_string = format!(" {:.2} -> {:.2}", paint_time0,
-                                                           paint_time1);
+        let composite_time_string = format!(" {:.2} -> {:.2}", composite_time0, composite_time1);
+        let paint_time_string = format!(" {:.2} -> {:.2}", paint_time0, paint_time1);
 
-        println!("| {:47}|{}{:14}{}|{}{:18}{}|{}{:18}{}|", test_name,
-                                                           draw_calls_color,
-                                                           draw_call_string,
-                                                           COLOR_DEFAULT,
-                                                           composite_time_color,
-                                                           composite_time_string,
-                                                           COLOR_DEFAULT,
-                                                           paint_time_color,
-                                                           paint_time_string,
-                                                           COLOR_DEFAULT);
+        println!(
+            "| {:47}|{}{:14}{}|{}{:18}{}|{}{:18}{}|",
+            test_name,
+            draw_calls_color,
+            draw_call_string,
+            COLOR_DEFAULT,
+            composite_time_color,
+            composite_time_string,
+            COLOR_DEFAULT,
+            paint_time_color,
+            paint_time_string,
+            COLOR_DEFAULT
+        );
     }
 
-    println!("+------------------------------------------------+--------------+------------------+------------------+");
+    print!("+------------------------------------------------");
+    println!("+--------------+------------------+------------------+");
 }

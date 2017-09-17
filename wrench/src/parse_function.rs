@@ -26,12 +26,15 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>, &str) {
                 self.start = k.0 + k.1.len_utf8();
                 self.o = self.itr.next();
             }
-
         }
     }
     let mut c = s.char_indices();
     let o = c.next();
-    let mut p = Parser { itr: c, start: 0, o: o };
+    let mut p = Parser {
+        itr: c,
+        start: 0,
+        o: o,
+    };
 
     p.skip_whitespace();
 
@@ -44,14 +47,14 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>, &str) {
         p.o = p.itr.next();
     }
 
-    let name = &s[p.start..end];
+    let name = &s[p.start .. end];
     let mut args = Vec::new();
 
     p.skip_whitespace();
 
     if let Some(k) = p.o {
         if k.1 != '(' {
-            return (name, args, &s[p.start..]);
+            return (name, args, &s[p.start ..]);
         }
         p.start = k.0 + k.1.len_utf8();
         p.o = p.itr.next();
@@ -69,7 +72,7 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>, &str) {
             p.o = p.itr.next();
         }
 
-        args.push(&s[p.start..end]);
+        args.push(&s[p.start .. end]);
 
         p.skip_whitespace();
 
@@ -84,10 +87,10 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>, &str) {
                 break;
             }
         } else {
-            break
+            break;
         }
     }
-    (name, args, &s[p.start..])
+    (name, args, &s[p.start ..])
 }
 
 #[test]

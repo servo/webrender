@@ -15,19 +15,21 @@ pub struct RawtestHarness<'a> {
 }
 
 impl<'a> RawtestHarness<'a> {
-    pub fn new(wrench: &'a mut Wrench,
-               window: &'a mut WindowWrapper) -> RawtestHarness<'a>
-    {
+    pub fn new(wrench: &'a mut Wrench, window: &'a mut WindowWrapper) -> RawtestHarness<'a> {
         // setup a notifier so we can wait for frames to be finished
         struct Notifier {
             tx: Sender<()>,
         };
         impl RenderNotifier for Notifier {
-            fn new_frame_ready(&mut self) { self.tx.send(()).unwrap(); }
+            fn new_frame_ready(&mut self) {
+                self.tx.send(()).unwrap();
+            }
             fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {}
         }
         let (tx, rx) = channel();
-        wrench.renderer.set_render_notifier(Box::new(Notifier { tx: tx }));
+        wrench
+            .renderer
+            .set_render_notifier(Box::new(Notifier { tx: tx }));
 
         RawtestHarness {
             wrench: wrench,
@@ -53,17 +55,22 @@ impl<'a> RawtestHarness<'a> {
         let mut resources = ResourceUpdates::new();
 
         let blob_img = self.wrench.api.generate_image_key();
-        resources.add_image(blob_img,
-                            ImageDescriptor::new(151, 56, ImageFormat::BGRA8, true),
-                            ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
-                            Some(128));
+        resources.add_image(
+            blob_img,
+            ImageDescriptor::new(151, 56, ImageFormat::BGRA8, true),
+            ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
+            Some(128),
+        );
 
         let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
 
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
 
         let info = LayoutPrimitiveInfo {
-            rect: LayoutRect::new(LayoutPoint::new(448.899994, 74.0), LayoutSize::new(151.000031, 56.)),
+            rect: LayoutRect::new(
+                LayoutPoint::new(448.899994, 74.0),
+                LayoutSize::new(151.000031, 56.),
+            ),
             local_clip: None,
             is_backface_visible: true,
         };
@@ -77,14 +84,18 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
         );
 
-        self.wrench.api.set_display_list(self.wrench.document_id,
-                                         Epoch(0),
-                                         root_background_color,
-                                         layout_size,
-                                         builder.finalize(),
-                                         false,
-                                         resources);
-        self.wrench.api.generate_frame(self.wrench.document_id, None);
+        self.wrench.api.set_display_list(
+            self.wrench.document_id,
+            Epoch(0),
+            root_background_color,
+            layout_size,
+            builder.finalize(),
+            false,
+            resources,
+        );
+        self.wrench
+            .api
+            .generate_frame(self.wrench.document_id, None);
 
         self.rx.recv().unwrap();
         self.wrench.render();
@@ -98,18 +109,21 @@ impl<'a> RawtestHarness<'a> {
         let test_size = DeviceUintSize::new(400, 400);
         let document_id = self.wrench.document_id;
 
-        let window_rect = DeviceUintRect::new(DeviceUintPoint::new(0, window_size.height - test_size.height),
-                                              test_size);
+        let window_rect = DeviceUintRect::new(
+            DeviceUintPoint::new(0, window_size.height - test_size.height),
+            test_size,
+        );
         let layout_size = LayoutSize::new(400., 400.);
         let mut resources = ResourceUpdates::new();
         {
             let api = &self.wrench.api;
 
             blob_img = api.generate_image_key();
-            resources.add_image(blob_img,
-                          ImageDescriptor::new(500, 500, ImageFormat::BGRA8, true),
-                          ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
-                          None,
+            resources.add_image(
+                blob_img,
+                ImageDescriptor::new(500, 500, ImageFormat::BGRA8, true),
+                ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
+                None,
             );
         }
         let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
@@ -130,13 +144,15 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
         );
 
-        self.wrench.api.set_display_list(document_id,
-                                         Epoch(0),
-                                         root_background_color,
-                                         layout_size,
-                                         builder.finalize(),
-                                         false,
-                                         resources);
+        self.wrench.api.set_display_list(
+            document_id,
+            Epoch(0),
+            root_background_color,
+            layout_size,
+            builder.finalize(),
+            false,
+            resources,
+        );
         self.wrench.api.generate_frame(document_id, None);
 
 
@@ -157,13 +173,15 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
         );
 
-        self.wrench.api.set_display_list(document_id,
-                                         Epoch(1),
-                                         root_background_color,
-                                         layout_size,
-                                         builder.finalize(),
-                                         false,
-                                         ResourceUpdates::new());
+        self.wrench.api.set_display_list(
+            document_id,
+            Epoch(1),
+            root_background_color,
+            layout_size,
+            builder.finalize(),
+            false,
+            ResourceUpdates::new(),
+        );
 
         self.wrench.api.generate_frame(document_id, None);
 
@@ -175,6 +193,5 @@ impl<'a> RawtestHarness<'a> {
         // png::save_flipped("out2.png", &pixels_second, window_rect.size);
 
         assert!(pixels_first != pixels_second);
-
     }
 }

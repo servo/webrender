@@ -42,10 +42,14 @@ fn it_works() {
     let mut f = [0xff, 0xff, 0xff, 0x80, 0x00, 0xff, 0x00, 0x80];
     premultiply(&mut f);
     println!("{:?}", f);
-    assert!(f[0] == 0x80 && f[1] == 0x80 && f[2] == 0x80 && f[3] == 0x80 &&
-            f[4] == 0x00 && f[5] == 0x80 && f[6] == 0x00 && f[7] == 0x80);
+    assert!(
+        f[0] == 0x80 && f[1] == 0x80 && f[2] == 0x80 && f[3] == 0x80 && f[4] == 0x00 &&
+            f[5] == 0x80 && f[6] == 0x00 && f[7] == 0x80
+    );
     unpremultiply(&mut f);
     println!("{:?}", f);
-    assert!(f[0] == 0xff && f[1] == 0xff && f[2] == 0xff && f[3] == 0x80 &&
-            f[4] == 0x00 && f[5] == 0xff && f[6] == 0x00 && f[7] == 0x80);
+    assert!(
+        f[0] == 0xff && f[1] == 0xff && f[2] == 0xff && f[3] == 0x80 && f[4] == 0x00 &&
+            f[5] == 0xff && f[6] == 0x00 && f[7] == 0x80
+    );
 }

@@ -116,20 +116,21 @@ impl HeadlessContext {
         attribs.push(24);
         attribs.push(0);
 
-        let context = unsafe {
-            osmesa_sys::OSMesaCreateContextAttribs(attribs.as_ptr(), ptr::null_mut())
-        };
+        let context =
+            unsafe { osmesa_sys::OSMesaCreateContextAttribs(attribs.as_ptr(), ptr::null_mut()) };
 
         assert!(!context.is_null());
 
         let mut buffer = vec![0; (width * height) as usize];
 
         unsafe {
-            let ret = osmesa_sys::OSMesaMakeCurrent(context,
-                                                    buffer.as_mut_ptr() as *mut _,
-                                                    gl::UNSIGNED_BYTE,
-                                                    width as i32,
-                                                    height as i32);
+            let ret = osmesa_sys::OSMesaMakeCurrent(
+                context,
+                buffer.as_mut_ptr() as *mut _,
+                gl::UNSIGNED_BYTE,
+                width as i32,
+                height as i32,
+            );
             assert!(ret != 0);
         };
 
@@ -143,18 +144,13 @@ impl HeadlessContext {
 
     #[cfg(not(feature = "headless"))]
     fn new(width: u32, height: u32) -> HeadlessContext {
-        HeadlessContext {
-            width,
-            height,
-        }
+        HeadlessContext { width, height }
     }
 
     #[cfg(feature = "headless")]
     fn get_proc_address(s: &str) -> *const c_void {
         let c_str = CString::new(s).expect("Unable to create CString");
-        unsafe {
-            mem::transmute(osmesa_sys::OSMesaGetProcAddress(c_str.as_ptr()))
-        }
+        unsafe { mem::transmute(osmesa_sys::OSMesaGetProcAddress(c_str.as_ptr())) }
     }
 
     #[cfg(not(feature = "headless"))]
@@ -202,60 +198,64 @@ impl WindowWrapper {
     fn set_title(&mut self, title: &str) {
         match *self {
             WindowWrapper::Window(ref window, _) => window.set_title(title),
-            WindowWrapper::Headless(..) => ()
+            WindowWrapper::Headless(..) => (),
         }
     }
 
     pub fn gl(&self) -> &gl::Gl {
         match *self {
-            WindowWrapper::Window(_, ref gl) |
-            WindowWrapper::Headless(_, ref gl) => &**gl,
+            WindowWrapper::Window(_, ref gl) | WindowWrapper::Headless(_, ref gl) => &**gl,
         }
     }
 
     pub fn clone_gl(&self) -> Rc<gl::Gl> {
         match *self {
-            WindowWrapper::Window(_, ref gl) |
-            WindowWrapper::Headless(_, ref gl) => gl.clone(),
+            WindowWrapper::Window(_, ref gl) | WindowWrapper::Headless(_, ref gl) => gl.clone(),
         }
     }
 }
 
-fn make_window(size: DeviceUintSize,
-               dp_ratio: Option<f32>,
-               vsync: bool,
-               headless: bool) -> WindowWrapper {
+fn make_window(
+    size: DeviceUintSize,
+    dp_ratio: Option<f32>,
+    vsync: bool,
+    headless: bool,
+) -> WindowWrapper {
     let wrapper = if headless {
         let gl = match gl::GlType::default() {
-            gl::GlType::Gl => {
-                unsafe { gl::GlFns::load_with(|symbol| HeadlessContext::get_proc_address(symbol) as *const _) }
-            }
-            gl::GlType::Gles => {
-                unsafe { gl::GlesFns::load_with(|symbol| HeadlessContext::get_proc_address(symbol) as *const _) }
-            }
+            gl::GlType::Gl => unsafe {
+                gl::GlFns::load_with(|symbol| {
+                    HeadlessContext::get_proc_address(symbol) as *const _
+                })
+            },
+            gl::GlType::Gles => unsafe {
+                gl::GlesFns::load_with(|symbol| {
+                    HeadlessContext::get_proc_address(symbol) as *const _
+                })
+            },
         };
-        WindowWrapper::Headless(HeadlessContext::new(size.width,
-                                                     size.height),
-                                gl)
+        WindowWrapper::Headless(HeadlessContext::new(size.width, size.height), gl)
     } else {
         let mut window = glutin::WindowBuilder::new()
             .with_gl(glutin::GlRequest::GlThenGles {
                 opengl_version: (3, 2),
-                opengles_version: (3, 1)
+                opengles_version: (3, 1),
             })
             .with_dimensions(size.width, size.height);
         window.opengl.vsync = vsync;
         let window = window.build().unwrap();
         unsafe {
-            window.make_current().expect("unable to make context current!");
+            window
+                .make_current()
+                .expect("unable to make context current!");
         }
         let gl = match gl::GlType::default() {
-            gl::GlType::Gl => {
-                unsafe { gl::GlFns::load_with(|symbol| window.get_proc_address(symbol) as *const _) }
-            }
-            gl::GlType::Gles => {
-                unsafe { gl::GlesFns::load_with(|symbol| window.get_proc_address(symbol) as *const _) }
-            }
+            gl::GlType::Gl => unsafe {
+                gl::GlFns::load_with(|symbol| window.get_proc_address(symbol) as *const _)
+            },
+            gl::GlType::Gles => unsafe {
+                gl::GlesFns::load_with(|symbol| window.get_proc_address(symbol) as *const _)
+            },
         };
         WindowWrapper::Window(window, gl)
     };
@@ -267,7 +267,11 @@ fn make_window(size: DeviceUintSize,
 
     let dp_ratio = dp_ratio.unwrap_or(wrapper.hidpi_factor());
     println!("OpenGL version {}, {}", gl_version, gl_renderer);
-    println!("hidpi factor: {} (native {})", dp_ratio, wrapper.hidpi_factor());
+    println!(
+        "hidpi factor: {} (native {})",
+        dp_ratio,
+        wrapper.hidpi_factor()
+    );
 
     wrapper
 }
@@ -284,105 +288,104 @@ fn main() {
     // handle some global arguments
     let res_path = args.value_of("shaders").map(|s| PathBuf::from(s));
     let dp_ratio = args.value_of("dp_ratio").map(|v| v.parse::<f32>().unwrap());
-    let limit_seconds = args.value_of("time").map(|s| time::Duration::seconds(s.parse::<i64>().unwrap()));
-    let save_type = args.value_of("save").map(|s| {
-        if s == "yaml" {
-            wrench::SaveType::Yaml
-        } else if s == "json" {
-            wrench::SaveType::Json
-        } else if s == "binary" {
-            wrench::SaveType::Binary
-        } else {
-            panic!("Save type must be json, yaml, or binary");
-        }
+    let limit_seconds = args.value_of("time")
+        .map(|s| time::Duration::seconds(s.parse::<i64>().unwrap()));
+    let save_type = args.value_of("save").map(|s| if s == "yaml" {
+        wrench::SaveType::Yaml
+    } else if s == "json" {
+        wrench::SaveType::Json
+    } else if s == "binary" {
+        wrench::SaveType::Binary
+    } else {
+        panic!("Save type must be json, yaml, or binary");
     });
-    let size = args.value_of("size").map(|s| {
-        if s == "720p" {
+    let size = args.value_of("size")
+        .map(|s| if s == "720p" {
             DeviceUintSize::new(1280, 720)
         } else if s == "1080p" {
             DeviceUintSize::new(1920, 1080)
         } else if s == "4k" {
             DeviceUintSize::new(3840, 2160)
         } else {
-            let x = s.find('x').expect("Size must be specified exactly as 720p, 1080p, 4k, or widthxheight");
-            let w = s[0..x].parse::<u32>().expect("Invalid size width");
-            let h = s[x + 1..].parse::<u32>().expect("Invalid size height");
+            let x = s.find('x').expect(
+                "Size must be specified exactly as 720p, 1080p, 4k, or widthxheight",
+            );
+            let w = s[0 .. x].parse::<u32>().expect("Invalid size width");
+            let h = s[x + 1 ..].parse::<u32>().expect("Invalid size height");
             DeviceUintSize::new(w, h)
-        }
-    }).unwrap_or(DeviceUintSize::new(1920, 1080));
+        })
+        .unwrap_or(DeviceUintSize::new(1920, 1080));
     let is_headless = args.is_present("headless");
 
-    let mut window = make_window(size,
-                                 dp_ratio,
-                                 args.is_present("vsync"),
-                                 is_headless);
+    let mut window = make_window(size, dp_ratio, args.is_present("vsync"), is_headless);
     let dp_ratio = dp_ratio.unwrap_or(window.hidpi_factor());
     let (width, height) = window.get_inner_size_pixels();
     let dim = DeviceUintSize::new(width, height);
-    let mut wrench = Wrench::new(&mut window,
-                                 res_path,
-                                 dp_ratio,
-                                 save_type,
-                                 dim,
-                                 args.is_present("rebuild"),
-                                 args.is_present("no_subpixel_aa"),
-                                 args.is_present("debug"),
-                                 args.is_present("verbose"),
-                                 args.is_present("no_scissor"),
-                                 args.is_present("no_batch"));
+    let mut wrench = Wrench::new(
+        &mut window,
+        res_path,
+        dp_ratio,
+        save_type,
+        dim,
+        args.is_present("rebuild"),
+        args.is_present("no_subpixel_aa"),
+        args.is_present("debug"),
+        args.is_present("verbose"),
+        args.is_present("no_scissor"),
+        args.is_present("no_batch"),
+    );
 
-    let mut thing =
-        if let Some(subargs) = args.subcommand_matches("show") {
-            Box::new(YamlFrameReader::new_from_args(subargs)) as Box<WrenchThing>
-        } else if let Some(subargs) = args.subcommand_matches("replay") {
-            Box::new(BinaryFrameReader::new_from_args(subargs)) as Box<WrenchThing>
-        } else if let Some(subargs) = args.subcommand_matches("png") {
-            let reader = YamlFrameReader::new_from_args(subargs);
-            png::png(&mut wrench, &mut window, reader);
-            wrench.renderer.deinit();
-            return;
-        } else if let Some(subargs) = args.subcommand_matches("reftest") {
-            let (w, h) = window.get_inner_size_pixels();
-            let harness = ReftestHarness::new(&mut wrench, &mut window);
-            let base_manifest = Path::new("reftests/reftest.list");
-            let specific_reftest = subargs.value_of("REFTEST").map(|x| Path::new(x));
-            let mut reftest_options = ReftestOptions::default();
-            if let Some(allow_max_diff) = subargs.value_of("fuzz_tolerance") {
-                reftest_options.allow_max_difference = allow_max_diff.parse().unwrap_or(1);
-                reftest_options.allow_num_differences = w as usize * h as usize;
-            }
-            harness.run(base_manifest, specific_reftest, &reftest_options);
-            return;
-        } else if let Some(_) = args.subcommand_matches("rawtest") {
-            {
-                let harness = RawtestHarness::new(&mut wrench, &mut window);
-                harness.run();
-            }
-            wrench.renderer.deinit();
-            return;
-        } else if let Some(subargs) = args.subcommand_matches("perf") {
-            // Perf mode wants to benchmark the total cost of drawing
-            // a new displaty list each frame.
-            wrench.rebuild_display_lists = true;
-            let harness = PerfHarness::new(&mut wrench, &mut window);
-            let base_manifest = Path::new("benchmarks/benchmarks.list");
-            let filename = subargs.value_of("filename").unwrap();
-            harness.run(base_manifest, filename);
-            return;
-        } else if let Some(subargs) = args.subcommand_matches("compare_perf") {
-            let first_filename = subargs.value_of("first_filename").unwrap();
-            let second_filename = subargs.value_of("second_filename").unwrap();
-            perf::compare(first_filename, second_filename);
-            return;
-        } else {
-            panic!("Should never have gotten here! {:?}", args);
-        };
+    let mut thing = if let Some(subargs) = args.subcommand_matches("show") {
+        Box::new(YamlFrameReader::new_from_args(subargs)) as Box<WrenchThing>
+    } else if let Some(subargs) = args.subcommand_matches("replay") {
+        Box::new(BinaryFrameReader::new_from_args(subargs)) as Box<WrenchThing>
+    } else if let Some(subargs) = args.subcommand_matches("png") {
+        let reader = YamlFrameReader::new_from_args(subargs);
+        png::png(&mut wrench, &mut window, reader);
+        wrench.renderer.deinit();
+        return;
+    } else if let Some(subargs) = args.subcommand_matches("reftest") {
+        let (w, h) = window.get_inner_size_pixels();
+        let harness = ReftestHarness::new(&mut wrench, &mut window);
+        let base_manifest = Path::new("reftests/reftest.list");
+        let specific_reftest = subargs.value_of("REFTEST").map(|x| Path::new(x));
+        let mut reftest_options = ReftestOptions::default();
+        if let Some(allow_max_diff) = subargs.value_of("fuzz_tolerance") {
+            reftest_options.allow_max_difference = allow_max_diff.parse().unwrap_or(1);
+            reftest_options.allow_num_differences = w as usize * h as usize;
+        }
+        harness.run(base_manifest, specific_reftest, &reftest_options);
+        return;
+    } else if let Some(_) = args.subcommand_matches("rawtest") {
+        {
+            let harness = RawtestHarness::new(&mut wrench, &mut window);
+            harness.run();
+        }
+        wrench.renderer.deinit();
+        return;
+    } else if let Some(subargs) = args.subcommand_matches("perf") {
+        // Perf mode wants to benchmark the total cost of drawing
+        // a new displaty list each frame.
+        wrench.rebuild_display_lists = true;
+        let harness = PerfHarness::new(&mut wrench, &mut window);
+        let base_manifest = Path::new("benchmarks/benchmarks.list");
+        let filename = subargs.value_of("filename").unwrap();
+        harness.run(base_manifest, filename);
+        return;
+    } else if let Some(subargs) = args.subcommand_matches("compare_perf") {
+        let first_filename = subargs.value_of("first_filename").unwrap();
+        let second_filename = subargs.value_of("second_filename").unwrap();
+        perf::compare(first_filename, second_filename);
+        return;
+    } else {
+        panic!("Should never have gotten here! {:?}", args);
+    };
 
     let mut show_help = false;
     let mut do_loop = false;
 
     let queue_frames = thing.queue_frames();
-    for _ in 0..queue_frames {
+    for _ in 0 .. queue_frames {
         let (width, height) = window.get_inner_size_pixels();
         let dim = DeviceUintSize::new(width, height);
         wrench.update(dim);
@@ -409,8 +412,12 @@ fn main() {
     let mut block_avg_time = vec![];
     let mut warmed_up = false;
 
-    fn as_ms(f: time::Duration) -> f64 { f.num_microseconds().unwrap() as f64 / 1000. }
-    fn as_fps(f: time::Duration) -> f64 { (1000.*1000.) / f.num_microseconds().unwrap() as f64 }
+    fn as_ms(f: time::Duration) -> f64 {
+        f.num_microseconds().unwrap() as f64 / 1000.
+    }
+    fn as_fps(f: time::Duration) -> f64 {
+        (1000. * 1000.) / f.num_microseconds().unwrap() as f64
+    }
 
     'outer: loop {
         if let Some(window_title) = wrench.take_title() {
@@ -419,30 +426,36 @@ fn main() {
 
         if let Some(limit) = limit_seconds {
             if (time::SteadyTime::now() - time_start) >= limit {
-                let mut block_avg_ms = block_avg_time.iter()
-                                                     .map(|v| as_ms(*v))
-                                                     .collect::<Vec<f64>>();
+                let mut block_avg_ms = block_avg_time
+                    .iter()
+                    .map(|v| as_ms(*v))
+                    .collect::<Vec<f64>>();
                 block_avg_ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                let avg_ms = block_avg_ms.iter().fold(0., |sum, v| sum + v) / block_avg_ms.len() as f64;
+                let avg_ms =
+                    block_avg_ms.iter().fold(0., |sum, v| sum + v) / block_avg_ms.len() as f64;
                 let val_10th_pct = percentile(&block_avg_ms, 10);
                 let val_90th_pct = percentile(&block_avg_ms, 90);
 
                 println!("-    {:7} {:7} {:7}", "10th", "avg", "90th");
-                println!("ms   {:4.3} {:4.3} {:4.3}",
-                         val_10th_pct, avg_ms, val_90th_pct);
-                println!("fps  {:4.3} {:4.3} {:4.3}",
-                         1000. / val_10th_pct, 1000. / avg_ms, 1000. / val_90th_pct);
+                println!(
+                    "ms   {:4.3} {:4.3} {:4.3}",
+                    val_10th_pct,
+                    avg_ms,
+                    val_90th_pct
+                );
+                println!(
+                    "fps  {:4.3} {:4.3} {:4.3}",
+                    1000. / val_10th_pct,
+                    1000. / avg_ms,
+                    1000. / val_90th_pct
+                );
                 break;
             }
         }
 
         let event = match window {
-            WindowWrapper::Headless(..) => {
-                glutin::Event::Awakened
-            }
-            WindowWrapper::Window(ref window, _) => {
-                window.wait_events().next().unwrap()
-            }
+            WindowWrapper::Headless(..) => glutin::Event::Awakened,
+            WindowWrapper::Window(ref window, _) => window.wait_events().next().unwrap(),
         };
 
         if let Some(limit) = limit_seconds {
@@ -491,13 +504,21 @@ fn main() {
                     }
 
                     if wrench.verbose {
+                        print!(
+                            "{:3.3} [{:3.3} .. {:3.3}]  -- {:4.3} fps",
+                            as_ms(avg_time),
+                            as_ms(min_time),
+                            as_ms(max_time),
+                            as_fps(avg_time)
+                        );
                         if warmed_up {
-                            println!("{:3.3} [{:3.3} .. {:3.3}]  -- {:4.3} fps  -- (global {:3.3} .. {:3.3})",
-                                     as_ms(avg_time), as_ms(min_time), as_ms(max_time),
-                                     as_fps(avg_time), as_ms(min_min_time), as_ms(max_max_time));
+                            println!(
+                                "  -- (global {:3.3} .. {:3.3})",
+                                as_ms(min_min_time),
+                                as_ms(max_max_time)
+                            );
                         } else {
-                            println!("{:3.3} [{:3.3} .. {:3.3}]  -- {:4.3} fps",
-                                     as_ms(avg_time), as_ms(min_time), as_ms(max_time), as_fps(avg_time));
+                            println!("");
                         }
                     }
 
@@ -519,58 +540,60 @@ fn main() {
                 break 'outer;
             }
 
-            glutin::Event::KeyboardInput(ElementState::Pressed, _scan_code, Some(vk)) => {
-                match vk {
-                    VirtualKeyCode::Escape | VirtualKeyCode::Q => {
-                        break 'outer;
-                    },
-                    VirtualKeyCode::P => {
-                        let mut flags = wrench.renderer.get_debug_flags();
-                        flags.toggle(webrender::PROFILER_DBG);
-                        wrench.renderer.set_debug_flags(flags);
-                    },
-                    VirtualKeyCode::O => {
-                        let mut flags = wrench.renderer.get_debug_flags();
-                        flags.toggle(webrender::RENDER_TARGET_DBG);
-                        wrench.renderer.set_debug_flags(flags);
-                    },
-                    VirtualKeyCode::I => {
-                        let mut flags = wrench.renderer.get_debug_flags();
-                        flags.toggle(webrender::TEXTURE_CACHE_DBG);
-                        wrench.renderer.set_debug_flags(flags);
-                    },
-                    VirtualKeyCode::B => {
-                        let mut flags = wrench.renderer.get_debug_flags();
-                        flags.toggle(webrender::ALPHA_PRIM_DBG);
-                        wrench.renderer.set_debug_flags(flags);
-                    },
-                    VirtualKeyCode::M => {
-                        wrench.api.notify_memory_pressure();
-                    },
-                    VirtualKeyCode::L => {
-                        do_loop = !do_loop;
-                    },
-                    VirtualKeyCode::Left => {
-                        thing.prev_frame();
-                    },
-                    VirtualKeyCode::Right => {
-                        thing.next_frame();
-                    },
-                    VirtualKeyCode::H => {
-                        show_help = !show_help;
-                    },
-                    _ => ()
+            glutin::Event::KeyboardInput(ElementState::Pressed, _scan_code, Some(vk)) => match vk {
+                VirtualKeyCode::Escape | VirtualKeyCode::Q => {
+                    break 'outer;
                 }
-            }
-            _ => ()
+                VirtualKeyCode::P => {
+                    let mut flags = wrench.renderer.get_debug_flags();
+                    flags.toggle(webrender::PROFILER_DBG);
+                    wrench.renderer.set_debug_flags(flags);
+                }
+                VirtualKeyCode::O => {
+                    let mut flags = wrench.renderer.get_debug_flags();
+                    flags.toggle(webrender::RENDER_TARGET_DBG);
+                    wrench.renderer.set_debug_flags(flags);
+                }
+                VirtualKeyCode::I => {
+                    let mut flags = wrench.renderer.get_debug_flags();
+                    flags.toggle(webrender::TEXTURE_CACHE_DBG);
+                    wrench.renderer.set_debug_flags(flags);
+                }
+                VirtualKeyCode::B => {
+                    let mut flags = wrench.renderer.get_debug_flags();
+                    flags.toggle(webrender::ALPHA_PRIM_DBG);
+                    wrench.renderer.set_debug_flags(flags);
+                }
+                VirtualKeyCode::M => {
+                    wrench.api.notify_memory_pressure();
+                }
+                VirtualKeyCode::L => {
+                    do_loop = !do_loop;
+                }
+                VirtualKeyCode::Left => {
+                    thing.prev_frame();
+                }
+                VirtualKeyCode::Right => {
+                    thing.next_frame();
+                }
+                VirtualKeyCode::H => {
+                    show_help = !show_help;
+                }
+                _ => (),
+            },
+            _ => (),
         }
     }
 
     if is_headless {
-        let pixels = window.gl().read_pixels(0, 0,
-                                             size.width as gl::GLsizei,
-                                             size.height as gl::GLsizei,
-                                             gl::RGBA, gl::UNSIGNED_BYTE);
+        let pixels = window.gl().read_pixels(
+            0,
+            0,
+            size.width as gl::GLsizei,
+            size.height as gl::GLsizei,
+            gl::RGBA,
+            gl::UNSIGNED_BYTE,
+        );
 
         save_flipped("screenshot.png", &pixels, size);
     }
