@@ -6,16 +6,14 @@ use {BorderDetails, BorderDisplayItem, BorderWidths, BoxShadowClipMode, BoxShado
 use {ClipAndScrollInfo, ClipDisplayItem, ClipId, ColorF, ComplexClipRegion, DisplayItem};
 use {ExtendMode, FastHashMap, FastHashSet, FilterOp, FontInstanceKey, GlyphIndex, GlyphInstance};
 use {GlyphOptions, Gradient, GradientDisplayItem, GradientStop, IframeDisplayItem};
-use {ImageDisplayItem, ImageKey, ImageMask, ImageRendering, LayerPrimitiveInfo, LayoutPoint,
-     LayoutRect, LayoutSize};
-use {LayoutPrimitiveInfo, LayoutTransform, LayoutVector2D, LineDisplayItem, LineOrientation,
-     LineStyle, LocalClip};
-use {MixBlendMode, PipelineId, PrimitiveInfo, PropertyBinding, PushStackingContextDisplayItem,
-     RadialGradient};
-use {RadialGradientDisplayItem, RectangleDisplayItem, ScrollFrameDisplayItem, ScrollPolicy};
-use {ScrollSensitivity, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem};
-use {StickyFrameInfo, TextDisplayItem, TextShadow, TransformStyle};
-use {YuvColorSpace, YuvData, YuvImageDisplayItem};
+use {ImageDisplayItem, ImageKey, ImageMask, ImageRendering, LayerPrimitiveInfo, LayoutPoint};
+use {LayoutPrimitiveInfo, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D};
+use {LineDisplayItem, LineOrientation, LineStyle, LocalClip, MixBlendMode, PipelineId};
+use {PropertyBinding, PushStackingContextDisplayItem, RadialGradient, RadialGradientDisplayItem};
+use {RectangleDisplayItem, ScrollFrameDisplayItem, ScrollPolicy, ScrollSensitivity};
+use {SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, StickyFrameInfo};
+use {TextDisplayItem, TextShadow, TransformStyle, YuvColorSpace, YuvData};
+use YuvImageDisplayItem;
 use bincode;
 use serde::{Deserialize, Serialize, Serializer};
 use serde::ser::{SerializeMap, SerializeSeq};
@@ -202,11 +200,7 @@ impl<'a> BuiltDisplayListIter<'a> {
                 // Dummy data, will be overwritten by `next`
                 item: SpecificDisplayItem::PopStackingContext,
                 clip_and_scroll: ClipAndScrollInfo::simple(ClipId::new(0, PipelineId::dummy())),
-                info: PrimitiveInfo {
-                    rect: LayoutRect::zero(),
-                    local_clip: Some(LocalClip::from(LayoutRect::zero())),
-                    is_backface_visible: true,
-                },
+                info: LayoutPrimitiveInfo::new(LayoutRect::zero()),
             },
             cur_stops: ItemRange::default(),
             cur_glyphs: ItemRange::default(),
@@ -347,13 +341,13 @@ impl<'a, 'b> DisplayItemRef<'a, 'b> {
         let info = self.iter.cur_item.info;
         LayerPrimitiveInfo {
             rect: info.rect.translate(&offset),
-            local_clip: info.local_clip.map(|clip| clip.create_with_offset(offset)),
+            local_clip: info.local_clip.create_with_offset(offset),
             is_backface_visible: info.is_backface_visible,
         }
     }
 
     pub fn local_clip(&self) -> &LocalClip {
-        self.iter.cur_item.info.local_clip.as_ref().unwrap()
+        &self.iter.cur_item.info.local_clip
     }
 
     pub fn clip_and_scroll(&self) -> ClipAndScrollInfo {
@@ -546,14 +540,12 @@ impl DisplayListBuilder {
     }
 
     fn push_item(&mut self, item: SpecificDisplayItem, info: &LayoutPrimitiveInfo) {
-        let mut new_info = info.clone();
-        new_info.local_clip = info.local_clip.or(Some(LocalClip::from(info.rect)));
         bincode::serialize_into(
             &mut self.data,
             &DisplayItem {
                 item,
                 clip_and_scroll: *self.clip_stack.last().unwrap(),
-                info: new_info,
+                info: *info,
             },
             bincode::Infinite,
         ).unwrap();
@@ -593,7 +585,6 @@ impl DisplayListBuilder {
 
     pub fn push_rect(&mut self, info: &LayoutPrimitiveInfo, color: ColorF) {
         let item = SpecificDisplayItem::Rectangle(RectangleDisplayItem { color });
-
         self.push_item(item, info);
     }
 
@@ -1004,7 +995,7 @@ impl DisplayListBuilder {
 
         let info = LayoutPrimitiveInfo {
             rect: content_rect,
-            local_clip: Some(LocalClip::from(clip_rect)),
+            local_clip: LocalClip::from(clip_rect),
             is_backface_visible: true,
         };
 
@@ -1050,12 +1041,7 @@ impl DisplayListBuilder {
             sticky_frame_info,
         });
 
-        let info = LayoutPrimitiveInfo {
-            rect: frame_rect,
-            local_clip: None,
-            is_backface_visible: true,
-        };
-
+        let info = LayoutPrimitiveInfo::new(frame_rect);
         self.push_item(item, &info);
         id
     }

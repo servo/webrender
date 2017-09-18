@@ -701,7 +701,7 @@ impl Frame {
             SpecificDisplayItem::Line(ref info) => {
                 let prim_info = LayerPrimitiveInfo {
                     rect: LayerRect::zero(),
-                    local_clip: Some(*item.local_clip()),
+                    local_clip: *item.local_clip(),
                     is_backface_visible: prim_info.is_backface_visible,
                 };
 
@@ -898,8 +898,7 @@ impl Frame {
             return false;
         }
 
-        let local_clip = info.local_clip.unwrap();
-        let inner_unclipped_rect = match &local_clip {
+        let inner_unclipped_rect = match &info.local_clip {
             &LocalClip::Rect(_) => return false,
             &LocalClip::RoundedRect(_, ref region) => region.get_inner_rect_full(),
         };
@@ -916,7 +915,7 @@ impl Frame {
 
         let prim_info = LayerPrimitiveInfo {
             rect: inner_unclipped_rect,
-            local_clip: Some(LocalClip::from(*info.local_clip.unwrap().clip_rect())),
+            local_clip: LocalClip::from(*info.local_clip.clip_rect()),
             is_backface_visible: info.is_backface_visible,
         };
 
