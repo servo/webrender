@@ -101,33 +101,26 @@ pub enum SubpixelDirection {
     Vertical,
 }
 
-const FIXED16_SHIFT: i32 = 16;
-
-// This matches the behaviour of SkScalarToFixed
-fn f32_truncate_to_fixed16(x: f32) -> i32 {
-    let fixed1 = (1 << FIXED16_SHIFT) as f32;
-    (x * fixed1) as i32
-}
-
 impl FontRenderMode {
     // Skia quantizes subpixel offets into 1/4 increments.
     // Given the absolute position, return the quantized increment
     fn subpixel_quantize_offset(&self, pos: f32) -> SubpixelOffset {
-        const SUBPIXEL_BITS: i32 = 2;
-        const SUBPIXEL_FIXED16_MASK: i32 =
-            ((1 << SUBPIXEL_BITS) - 1) << (FIXED16_SHIFT - SUBPIXEL_BITS);
+        // Following the conventions of Gecko and Skia, we want
+        // to quantize the subpixel position, such that abs(pos) gives:
+        // [0.0, 0.125) -> Zero
+        // [0.125, 0.375) -> Quarter
+        // [0.375, 0.625) -> Half
+        // [0.625, 0.875) -> ThreeQuarters,
+        // [0.875, 1.0) -> Zero
+        // The unit tests below check for this.
+        let apos = (pos.fract() * 8.0).abs() as i32;
 
-        const SUBPIXEL_ROUNDING: f32 = 0.5 / (1 << SUBPIXEL_BITS) as f32;
-        let pos = pos + SUBPIXEL_ROUNDING;
-        let fraction = (f32_truncate_to_fixed16(pos) & SUBPIXEL_FIXED16_MASK) >>
-            (FIXED16_SHIFT - SUBPIXEL_BITS);
-
-        match fraction {
-            0 => SubpixelOffset::Zero,
-            1 => SubpixelOffset::Quarter,
-            2 => SubpixelOffset::Half,
-            3 => SubpixelOffset::ThreeQuarters,
-            _ => panic!("Should only be given the fractional part"),
+        match apos {
+            0 | 7 => SubpixelOffset::Zero,
+            1...2 => SubpixelOffset::Quarter,
+            3...4 => SubpixelOffset::Half,
+            5...6 => SubpixelOffset::ThreeQuarters,
+            _ => unreachable!("bug: unexpected quantized result"),
         }
     }
 
@@ -273,4 +266,54 @@ pub type GlyphIndex = u32;
 pub struct GlyphInstance {
     pub index: GlyphIndex,
     pub point: LayoutPoint,
+}
+
+#[cfg(test)]
+mod test {
+    use super::{FontRenderMode, SubpixelOffset};
+
+    #[test]
+    fn test_subpx_quantize() {
+        let rm = FontRenderMode::Subpixel;
+
+        assert_eq!(rm.subpixel_quantize_offset(0.0), SubpixelOffset::Zero);
+        assert_eq!(rm.subpixel_quantize_offset(-0.0), SubpixelOffset::Zero);
+
+        assert_eq!(rm.subpixel_quantize_offset(0.1), SubpixelOffset::Zero);
+        assert_eq!(rm.subpixel_quantize_offset(0.01), SubpixelOffset::Zero);
+        assert_eq!(rm.subpixel_quantize_offset(0.05), SubpixelOffset::Zero);
+        assert_eq!(rm.subpixel_quantize_offset(0.12), SubpixelOffset::Zero);
+        assert_eq!(rm.subpixel_quantize_offset(0.124), SubpixelOffset::Zero);
+
+        assert_eq!(rm.subpixel_quantize_offset(0.125), SubpixelOffset::Quarter);
+        assert_eq!(rm.subpixel_quantize_offset(0.2), SubpixelOffset::Quarter);
+        assert_eq!(rm.subpixel_quantize_offset(0.25), SubpixelOffset::Quarter);
+        assert_eq!(rm.subpixel_quantize_offset(0.33), SubpixelOffset::Quarter);
+        assert_eq!(rm.subpixel_quantize_offset(0.374), SubpixelOffset::Quarter);
+
+        assert_eq!(rm.subpixel_quantize_offset(0.375), SubpixelOffset::Half);
+        assert_eq!(rm.subpixel_quantize_offset(0.4), SubpixelOffset::Half);
+        assert_eq!(rm.subpixel_quantize_offset(0.5), SubpixelOffset::Half);
+        assert_eq!(rm.subpixel_quantize_offset(0.58), SubpixelOffset::Half);
+        assert_eq!(rm.subpixel_quantize_offset(0.624), SubpixelOffset::Half);
+
+        assert_eq!(rm.subpixel_quantize_offset(0.625), SubpixelOffset::ThreeQuarters);
+        assert_eq!(rm.subpixel_quantize_offset(0.67), SubpixelOffset::ThreeQuarters);
+        assert_eq!(rm.subpixel_quantize_offset(0.7), SubpixelOffset::ThreeQuarters);
+        assert_eq!(rm.subpixel_quantize_offset(0.78), SubpixelOffset::ThreeQuarters);
+        assert_eq!(rm.subpixel_quantize_offset(0.874), SubpixelOffset::ThreeQuarters);
+
+        assert_eq!(rm.subpixel_quantize_offset(0.875), SubpixelOffset::Zero);
+        assert_eq!(rm.subpixel_quantize_offset(0.89), SubpixelOffset::Zero);
+        assert_eq!(rm.subpixel_quantize_offset(0.91), SubpixelOffset::Zero);
+        assert_eq!(rm.subpixel_quantize_offset(0.967), SubpixelOffset::Zero);
+        assert_eq!(rm.subpixel_quantize_offset(0.999), SubpixelOffset::Zero);
+
+        assert_eq!(rm.subpixel_quantize_offset(-1.0), SubpixelOffset::Zero);
+        assert_eq!(rm.subpixel_quantize_offset(1.0), SubpixelOffset::Zero);
+        assert_eq!(rm.subpixel_quantize_offset(1.5), SubpixelOffset::Half);
+        assert_eq!(rm.subpixel_quantize_offset(-1.625), SubpixelOffset::ThreeQuarters);
+        assert_eq!(rm.subpixel_quantize_offset(-4.33), SubpixelOffset::Quarter);
+
+    }
 }
