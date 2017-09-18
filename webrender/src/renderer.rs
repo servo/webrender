@@ -3222,9 +3222,9 @@ impl Renderer {
             self.output_targets
                 .retain(|_, target| if target.last_access != frame_id {
                     device.delete_fbo(target.fbo_id);
-                    true
-                } else {
                     false
+                } else {
+                    true
                 });
         }
 
