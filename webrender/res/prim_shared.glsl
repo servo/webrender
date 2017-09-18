@@ -289,10 +289,14 @@ Glyph fetch_glyph(int specific_prim_address,
         case SUBPX_DIR_NONE:
             break;
         case SUBPX_DIR_HORIZONTAL:
-            glyph.x = trunc(glyph.x);
+            // Glyphs positioned [-0.125, 0.125] get a
+            // subpx position of zero. So include that
+            // offset in the glyph position to ensure
+            // we truncate to the correct whole position.
+            glyph.x = trunc(glyph.x + 0.125);
             break;
         case SUBPX_DIR_VERTICAL:
-            glyph.y = trunc(glyph.y);
+            glyph.y = trunc(glyph.y + 0.125);
             break;
     }
 
