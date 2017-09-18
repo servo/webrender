@@ -19,7 +19,7 @@ use api::{BlobImageRenderer, BlobImageDescriptor, BlobImageError, BlobImageReque
 use api::{BlobImageResources, BlobImageData, ResourceUpdates, ResourceUpdate, AddFont};
 use api::{DevicePoint, DeviceUintRect, DeviceUintSize};
 use api::{Epoch, FontInstance, FontInstanceKey, FontKey, FontTemplate};
-use api::{FontInstanceOptions, FontInstancePlatformOptions};
+use api::{FontInstanceOptions, FontInstancePlatformOptions, FontVariation};
 use api::{ColorF, FontRenderMode, SubpixelDirection};
 use api::{GlyphDimensions, GlyphKey, IdNamespace};
 use api::{ImageData, ImageDescriptor, ImageKey, ImageRendering};
@@ -291,7 +291,8 @@ impl ResourceCache {
                 }
                 ResourceUpdate::AddFontInstance(instance) => {
                     self.add_font_instance(instance.key, instance.font_key, instance.glyph_size,
-                                           instance.options, instance.platform_options);
+                                           instance.options, instance.platform_options,
+                                           instance.variations);
                 }
                 ResourceUpdate::DeleteFontInstance(instance) => {
                     self.delete_font_instance(instance);
@@ -320,7 +321,8 @@ impl ResourceCache {
                              font_key: FontKey,
                              glyph_size: Au,
                              options: Option<FontInstanceOptions>,
-                             platform_options: Option<FontInstancePlatformOptions>) {
+                             platform_options: Option<FontInstancePlatformOptions>,
+                             variations: Vec<FontVariation>) {
         let mut render_mode = FontRenderMode::Subpixel;
         let mut subpx_dir = SubpixelDirection::Horizontal;
         if let Some(options) = options {
@@ -334,7 +336,8 @@ impl ResourceCache {
                                          ColorF::new(0.0, 0.0, 0.0, 1.0),
                                          render_mode,
                                          subpx_dir,
-                                         platform_options);
+                                         platform_options,
+                                         variations);
         self.resources.font_instances.insert(instance_key, instance);
     }
 

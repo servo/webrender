@@ -383,7 +383,8 @@ fn raterize_200_glyphs() {
                                  ColorF::new(0.0, 0.0, 0.0, 1.0),
                                  FontRenderMode::Subpixel,
                                  SubpixelDirection::Horizontal,
-                                 None);
+                                 None,
+                                 Vec::new());
 
     let mut glyph_keys = Vec::with_capacity(200);
     for i in 0..200 {

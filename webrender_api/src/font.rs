@@ -3,7 +3,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use {ColorU, ColorF, IdNamespace, LayoutPoint};
+use {ColorU, ColorF, IdNamespace, LayoutPoint, ToBits};
+use std::cmp::Ordering;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 #[cfg(target_os = "macos")] use core_foundation::string::CFString;
@@ -146,6 +148,36 @@ impl Into<f64> for SubpixelOffset {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, PartialOrd, Deserialize, Serialize)]
+pub struct FontVariation {
+    pub tag: u32,
+    pub value: f32,
+}
+
+impl Ord for FontVariation {
+    fn cmp(&self, other: &FontVariation) -> Ordering {
+        self.tag.cmp(&other.tag)
+            .then(self.value._to_bits().cmp(&other.value._to_bits()))
+    }
+}
+
+impl PartialEq for FontVariation {
+    fn eq(&self, other: &FontVariation) -> bool {
+        self.tag == other.tag &&
+        self.value._to_bits() == other.value._to_bits()
+    }
+}
+
+impl Eq for FontVariation {}
+
+impl Hash for FontVariation {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.tag.hash(state);
+        self.value._to_bits().hash(state);
+    }
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize)]
 pub struct GlyphOptions {
     pub render_mode: FontRenderMode,
@@ -178,6 +210,7 @@ pub struct FontInstance {
     pub render_mode: FontRenderMode,
     pub subpx_dir: SubpixelDirection,
     pub platform_options: Option<FontInstancePlatformOptions>,
+    pub variations: Vec<FontVariation>,
 }
 
 impl FontInstance {
@@ -186,7 +219,8 @@ impl FontInstance {
                mut color: ColorF,
                render_mode: FontRenderMode,
                subpx_dir: SubpixelDirection,
-               platform_options: Option<FontInstancePlatformOptions>) -> FontInstance {
+               platform_options: Option<FontInstancePlatformOptions>,
+               variations: Vec<FontVariation>) -> FontInstance {
         // In alpha/mono mode, the color of the font is irrelevant.
         // Forcing it to black in those cases saves rasterizing glyphs
         // of different colors when not needed.
@@ -201,6 +235,7 @@ impl FontInstance {
             render_mode,
             subpx_dir,
             platform_options,
+            variations,
         }
     }
 

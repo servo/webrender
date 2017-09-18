@@ -230,7 +230,8 @@ impl Wrench {
                                      ColorF::new(0.0, 0.0, 0.0, 1.0),
                                      FontRenderMode::Alpha,
                                      SubpixelDirection::Horizontal,
-                                     None);
+                                     None,
+                                     Vec::new());
         let mut keys = Vec::new();
         for glyph_index in &indices {
             keys.push(GlyphKey::new(*glyph_index,
@@ -334,7 +335,7 @@ impl Wrench {
     pub fn add_font_instance(&mut self, font_key: FontKey, size: Au) -> FontInstanceKey {
         let key = self.api.generate_font_instance_key();
         let mut update = ResourceUpdates::new();
-        update.add_font_instance(key, font_key, size, None, None);
+        update.add_font_instance(key, font_key, size, None, None, Vec::new());
         self.api.update_resources(update);
         key
     }

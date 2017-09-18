@@ -10,7 +10,8 @@ use std::marker::PhantomData;
 use {BuiltDisplayList, BuiltDisplayListDescriptor, ClipId, ColorF, DeviceIntPoint};
 use {DeviceUintRect, DeviceUintSize, FontInstanceKey, FontKey, GlyphDimensions, GlyphKey};
 use {ImageData, ImageDescriptor, ImageKey, LayoutPoint, LayoutVector2D, LayoutSize, LayoutTransform};
-use {FontInstance, FontInstanceOptions, FontInstancePlatformOptions, NativeFontHandle, WorldPoint};
+use {FontInstance, FontInstanceOptions, FontInstancePlatformOptions, FontVariation, NativeFontHandle};
+use {WorldPoint};
 
 pub type TileSize = u16;
 
@@ -79,8 +80,9 @@ impl ResourceUpdates {
                              font_key: FontKey,
                              glyph_size: Au,
                              options: Option<FontInstanceOptions>,
-                             platform_options: Option<FontInstancePlatformOptions>) {
-        self.updates.push(ResourceUpdate::AddFontInstance(AddFontInstance { key, font_key, glyph_size, options, platform_options }));
+                             platform_options: Option<FontInstancePlatformOptions>,
+                             variations: Vec<FontVariation>) {
+        self.updates.push(ResourceUpdate::AddFontInstance(AddFontInstance { key, font_key, glyph_size, options, platform_options, variations }));
     }
 
     pub fn delete_font_instance(&mut self, key: FontInstanceKey) {
@@ -125,6 +127,7 @@ pub struct AddFontInstance {
     pub glyph_size: Au,
     pub options: Option<FontInstanceOptions>,
     pub platform_options: Option<FontInstancePlatformOptions>,
+    pub variations: Vec<FontVariation>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]

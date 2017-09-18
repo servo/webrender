@@ -944,7 +944,8 @@ impl FrameBuilder {
                                           *color,
                                           normal_render_mode,
                                           subpx_dir,
-                                          font.platform_options);
+                                          font.platform_options,
+                                          font.variations.clone());
         let prim = TextRunPrimitiveCpu {
             font: prim_font,
             glyph_range,
