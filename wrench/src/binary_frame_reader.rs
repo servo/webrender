@@ -38,8 +38,11 @@ impl BinaryFrameReader {
     pub fn new(file_path: &Path) -> BinaryFrameReader {
         let mut file = File::open(&file_path).expect("Can't open recording file");
         let header = file.read_u64::<LittleEndian>().unwrap();
-        assert_eq!(header, WEBRENDER_RECORDING_HEADER,
-                "Binary recording is missing recording header!");
+        assert_eq!(
+            header,
+            WEBRENDER_RECORDING_HEADER,
+            "Binary recording is missing recording header!"
+        );
 
         let apimsg_type_id = unsafe {
             assert_eq!(mem::size_of::<TypeId>(), mem::size_of::<u64>());
@@ -48,9 +51,11 @@ impl BinaryFrameReader {
 
         let written_apimsg_type_id = file.read_u64::<LittleEndian>().unwrap();
         if written_apimsg_type_id != apimsg_type_id {
-            println!("Warning: binary file ApiMsg type mismatch: expected 0x{:x}, found 0x{:x}",
-                     apimsg_type_id,
-                     written_apimsg_type_id);
+            println!(
+                "Warning: binary file ApiMsg type mismatch: expected 0x{:x}, found 0x{:x}",
+                apimsg_type_id,
+                written_apimsg_type_id
+            );
         }
 
         BinaryFrameReader {
@@ -90,12 +95,8 @@ impl BinaryFrameReader {
         }
 
         match *msg {
-            ApiMsg::UpdateResources(..) => {
-                true
-            }
-            _ => {
-                false
-            }
+            ApiMsg::UpdateResources(..) => true,
+            _ => false,
         }
     }
 
@@ -164,7 +165,8 @@ impl WrenchThing for BinaryFrameReader {
             }
 
             if self.eof == false &&
-               self.file.seek(SeekFrom::Current(0)).unwrap() == self.file.metadata().unwrap().len() {
+                self.file.seek(SeekFrom::Current(0)).unwrap() == self.file.metadata().unwrap().len()
+            {
                 self.eof = true;
             }
 
@@ -176,11 +178,9 @@ impl WrenchThing for BinaryFrameReader {
             let frame_items = self.frame_data.clone();
             for item in frame_items {
                 match item {
-                    Item::Message(msg) => {
-                        if !self.should_skip_upload_msg(&msg) {
-                            wrench.api.send_message(msg);
-                        }
-                    }
+                    Item::Message(msg) => if !self.should_skip_upload_msg(&msg) {
+                        wrench.api.send_message(msg);
+                    },
                     Item::Data(buf) => {
                         wrench.api.send_payload(&buf);
                     }

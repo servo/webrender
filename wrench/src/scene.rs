@@ -42,23 +42,27 @@ impl Scene {
         self.display_lists.remove(pipeline_id);
     }
 
-    pub fn begin_display_list(&mut self,
-                              pipeline_id: &PipelineId,
-                              epoch: &Epoch,
-                              background_color: &Option<ColorF>,
-                              viewport_size: &LayerSize) {
+    pub fn begin_display_list(
+        &mut self,
+        pipeline_id: &PipelineId,
+        epoch: &Epoch,
+        background_color: &Option<ColorF>,
+        viewport_size: &LayerSize,
+    ) {
         let new_pipeline = ScenePipeline {
-             epoch: epoch.clone(),
-             viewport_size: viewport_size.clone(),
-             background_color: background_color.clone(),
+            epoch: epoch.clone(),
+            viewport_size: viewport_size.clone(),
+            background_color: background_color.clone(),
         };
 
         self.pipeline_map.insert(pipeline_id.clone(), new_pipeline);
     }
 
-    pub fn finish_display_list(&mut self,
-                               pipeline_id: PipelineId,
-                               built_display_list: BuiltDisplayList) {
+    pub fn finish_display_list(
+        &mut self,
+        pipeline_id: PipelineId,
+        built_display_list: BuiltDisplayList,
+    ) {
         self.display_lists.insert(pipeline_id, built_display_list);
     }
 }

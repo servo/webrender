@@ -6,7 +6,7 @@ extern crate gleam;
 extern crate glutin;
 extern crate webrender;
 
-#[path="common/boilerplate.rs"]
+#[path = "common/boilerplate.rs"]
 mod boilerplate;
 
 use boilerplate::{Example, HandyDandyRectBuilder};
@@ -38,13 +38,15 @@ impl ImageGenerator {
     fn generate_image(&mut self, size: u32) {
         let pattern = &self.patterns[self.next_pattern];
         self.current_image.clear();
-        for y in 0..size {
-            for x in 0..size {
+        for y in 0 .. size {
+            for x in 0 .. size {
                 let lum = 255 * (1 - (((x & 8) == 0) ^ ((y & 8) == 0)) as u8);
-                self.current_image.extend_from_slice(&[lum * pattern[0],
-                                                     lum * pattern[1],
-                                                     lum * pattern[2],
-                                                     0xff]);
+                self.current_image.extend_from_slice(&[
+                    lum * pattern[0],
+                    lum * pattern[1],
+                    lum * pattern[2],
+                    0xff,
+                ]);
             }
         }
 
@@ -64,11 +66,10 @@ impl webrender::ExternalImageHandler for ImageGenerator {
             v0: 0.0,
             u1: 1.0,
             v1: 1.0,
-            source: webrender::ExternalImageSource::RawData(&self.current_image)
+            source: webrender::ExternalImageSource::RawData(&self.current_image),
         }
     }
-    fn unlock(&mut self, _key: ExternalImageId, _channel_index: u8) {
-    }
+    fn unlock(&mut self, _key: ExternalImageId, _channel_index: u8) {}
 }
 
 struct App {
@@ -80,26 +81,30 @@ struct App {
 }
 
 impl Example for App {
-    fn render(&mut self,
-              api: &RenderApi,
-              builder: &mut DisplayListBuilder,
-              resources: &mut ResourceUpdates,
-              _layout_size: LayoutSize,
-              _pipeline_id: PipelineId,
-              _document_id: DocumentId) {
+    fn render(
+        &mut self,
+        api: &RenderApi,
+        builder: &mut DisplayListBuilder,
+        resources: &mut ResourceUpdates,
+        _layout_size: LayoutSize,
+        _pipeline_id: PipelineId,
+        _document_id: DocumentId,
+    ) {
         let bounds = (0, 0).to(512, 512);
         let info = LayoutPrimitiveInfo {
             rect: bounds,
             local_clip: None,
             is_backface_visible: true,
         };
-        builder.push_stacking_context(&info,
-                                      ScrollPolicy::Scrollable,
-                                      None,
-                                      TransformStyle::Flat,
-                                      None,
-                                      MixBlendMode::Normal,
-                                      Vec::new());
+        builder.push_stacking_context(
+            &info,
+            ScrollPolicy::Scrollable,
+            None,
+            TransformStyle::Flat,
+            None,
+            MixBlendMode::Normal,
+            Vec::new(),
+        );
 
         let x0 = 50.0;
         let y0 = 50.0;
@@ -133,7 +138,10 @@ impl Example for App {
             let x = (i % 128) as f32;
             let y = (i / 128) as f32;
             let info = LayoutPrimitiveInfo {
-                rect: LayoutRect::new(LayoutPoint::new(x0 + image_size.width * x, y0 + image_size.height * y), image_size),
+                rect: LayoutRect::new(
+                    LayoutPoint::new(x0 + image_size.width * x, y0 + image_size.height * y),
+                    image_size,
+                ),
                 local_clip: Some(LocalClip::from(bounds)),
                 is_backface_visible: true,
             };
@@ -143,7 +151,7 @@ impl Example for App {
                 image_size,
                 LayoutSize::zero(),
                 ImageRendering::Auto,
-                *key
+                *key,
             );
         }
 
@@ -160,7 +168,7 @@ impl Example for App {
                 image_size,
                 LayoutSize::zero(),
                 ImageRendering::Auto,
-                image_key
+                image_key,
             );
         }
 
@@ -177,17 +185,19 @@ impl Example for App {
             image_size,
             LayoutSize::zero(),
             ImageRendering::Auto,
-            swap_key
+            swap_key,
         );
         self.swap_index = 1 - self.swap_index;
 
         builder.pop_stacking_context();
     }
 
-    fn on_event(&mut self,
-                event: glutin::Event,
-                api: &RenderApi,
-                _document_id: DocumentId) -> bool {
+    fn on_event(
+        &mut self,
+        event: glutin::Event,
+        api: &RenderApi,
+        _document_id: DocumentId,
+    ) -> bool {
         match event {
             glutin::Event::KeyboardInput(glutin::ElementState::Pressed, _, Some(key)) => {
                 let mut updates = ResourceUpdates::new();
@@ -196,8 +206,8 @@ impl Example for App {
                     glutin::VirtualKeyCode::S => {
                         self.stress_keys.clear();
 
-                        for _ in 0..16 {
-                            for _ in 0..16 {
+                        for _ in 0 .. 16 {
+                            for _ in 0 .. 16 {
                                 let size = 4;
 
                                 let image_key = api.generate_image_key();
@@ -215,24 +225,20 @@ impl Example for App {
                             }
                         }
                     }
-                    glutin::VirtualKeyCode::D => {
-                        if let Some(image_key) = self.image_key.take() {
-                            updates.delete_image(image_key);
-                        }
-                    }
-                    glutin::VirtualKeyCode::U => {
-                        if let Some(image_key) = self.image_key {
-                            let size = 128;
-                            self.image_generator.generate_image(size);
+                    glutin::VirtualKeyCode::D => if let Some(image_key) = self.image_key.take() {
+                        updates.delete_image(image_key);
+                    },
+                    glutin::VirtualKeyCode::U => if let Some(image_key) = self.image_key {
+                        let size = 128;
+                        self.image_generator.generate_image(size);
 
-                            updates.update_image(
-                                image_key,
-                                ImageDescriptor::new(size, size, ImageFormat::BGRA8, true),
-                                ImageData::new(self.image_generator.take()),
-                                None,
-                            );
-                        }
-                    }
+                        updates.update_image(
+                            image_key,
+                            ImageDescriptor::new(size, size, ImageFormat::BGRA8, true),
+                            ImageData::new(self.image_generator.take()),
+                            None,
+                        );
+                    },
                     glutin::VirtualKeyCode::E => {
                         if let Some(image_key) = self.image_key.take() {
                             updates.delete_image(image_key);
