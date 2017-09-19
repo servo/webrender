@@ -170,6 +170,7 @@ pub enum DocumentMsg {
     SetWindowParameters {
         window_size: DeviceUintSize,
         inner_rect: DeviceUintRect,
+        device_pixel_ratio: f32,
     },
     Scroll(ScrollLocation, WorldPoint, ScrollEventPhase),
     ScrollNodeWithId(LayoutPoint, ClipId, ScrollClamping),
@@ -624,12 +625,14 @@ impl RenderApi {
         document_id: DocumentId,
         window_size: DeviceUintSize,
         inner_rect: DeviceUintRect,
+        device_pixel_ratio: f32,
     ) {
         self.send(
             document_id,
             DocumentMsg::SetWindowParameters {
                 window_size,
                 inner_rect,
+                device_pixel_ratio,
             },
         );
     }
