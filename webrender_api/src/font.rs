@@ -194,7 +194,8 @@ pub struct GlyphOptions {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize)]
 pub struct FontInstanceOptions {
-    pub render_mode: FontRenderMode,
+    pub render_mode: Option<FontRenderMode>,
+    pub synthetic_italics: bool,
 }
 
 #[repr(C)]
@@ -219,6 +220,7 @@ pub struct FontInstance {
     pub subpx_dir: SubpixelDirection,
     pub platform_options: Option<FontInstancePlatformOptions>,
     pub variations: Vec<FontVariation>,
+    pub synthetic_italics: bool,
 }
 
 impl FontInstance {
@@ -230,6 +232,7 @@ impl FontInstance {
         subpx_dir: SubpixelDirection,
         platform_options: Option<FontInstancePlatformOptions>,
         variations: Vec<FontVariation>,
+        synthetic_italics: bool,
     ) -> FontInstance {
         // In alpha/mono mode, the color of the font is irrelevant.
         // Forcing it to black in those cases saves rasterizing glyphs
@@ -246,6 +249,7 @@ impl FontInstance {
             subpx_dir,
             platform_options,
             variations,
+            synthetic_italics,
         }
     }
 
