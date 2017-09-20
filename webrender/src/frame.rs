@@ -7,7 +7,7 @@ use api::{ComplexClipRegion, DeviceUintRect, DeviceUintSize, DisplayItemRef, Epo
 use api::{ImageDisplayItem, ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect, LayerSize,
           LayerToScrollTransform};
 use api::{LayerVector2D, LayoutSize, LayoutTransform, LocalClip, MixBlendMode, PipelineId};
-use api::{PropertyBinding, ScrollClamping, ScrollEventPhase, ScrollLayerState, ScrollLocation};
+use api::{ScrollClamping, ScrollEventPhase, ScrollLayerState, ScrollLocation};
 use api::{ScrollPolicy, ScrollSensitivity, SpecificDisplayItem, StackingContext, TileOffset};
 use api::{TransformStyle, WorldPoint};
 use clip::ClipRegion;
@@ -18,7 +18,7 @@ use gpu_cache::GpuCache;
 use internal_types::{FastHashMap, FastHashSet, RendererFrame};
 use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
 use resource_cache::{ResourceCache, TiledImageMap};
-use scene::{Scene, SceneProperties};
+use scene::{FilterOpHelpers, Scene, SceneProperties};
 use tiling::{CompositeOps, DisplayListMap, PrimitiveFlags};
 use util::{subtract_rect, ComplexClipRegionHelpers};
 
@@ -199,42 +199,6 @@ pub struct Frame {
     id: FrameId,
     frame_builder_config: FrameBuilderConfig,
     pub frame_builder: Option<FrameBuilder>,
-}
-
-trait FilterOpHelpers {
-    fn resolve(self, properties: &SceneProperties) -> FilterOp;
-    fn is_noop(&self) -> bool;
-}
-
-impl FilterOpHelpers for FilterOp {
-    fn resolve(self, properties: &SceneProperties) -> FilterOp {
-        match self {
-            FilterOp::Opacity(ref value) => {
-                let amount = properties.resolve_float(value, 1.0);
-                FilterOp::Opacity(PropertyBinding::Value(amount))
-            }
-            _ => self,
-        }
-    }
-
-    fn is_noop(&self) -> bool {
-        match *self {
-            FilterOp::Blur(length) => length == 0.0,
-            FilterOp::Brightness(amount) => amount == 1.0,
-            FilterOp::Contrast(amount) => amount == 1.0,
-            FilterOp::Grayscale(amount) => amount == 0.0,
-            FilterOp::HueRotate(amount) => amount == 0.0,
-            FilterOp::Invert(amount) => amount == 0.0,
-            FilterOp::Opacity(value) => match value {
-                PropertyBinding::Value(amount) => amount == 1.0,
-                PropertyBinding::Binding(..) => {
-                    panic!("bug: binding value should be resolved");
-                }
-            },
-            FilterOp::Saturate(amount) => amount == 1.0,
-            FilterOp::Sepia(amount) => amount == 0.0,
-        }
-    }
 }
 
 trait StackingContextHelpers {

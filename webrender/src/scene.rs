@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BuiltDisplayList, ColorF, DynamicProperties, Epoch, LayerSize, LayoutSize};
-use api::{LayoutTransform, PipelineId, PropertyBinding, PropertyBindingId};
+use api::{FilterOp, LayoutTransform, PipelineId, PropertyBinding, PropertyBindingId};
 use internal_types::FastHashMap;
 
 /// Stores a map of the animated property bindings for the current display list. These
@@ -135,5 +135,41 @@ impl Scene {
         }
         self.display_lists.remove(&pipeline_id);
         self.pipeline_map.remove(&pipeline_id);
+    }
+}
+
+pub trait FilterOpHelpers {
+    fn resolve(self, properties: &SceneProperties) -> FilterOp;
+    fn is_noop(&self) -> bool;
+}
+
+impl FilterOpHelpers for FilterOp {
+    fn resolve(self, properties: &SceneProperties) -> FilterOp {
+        match self {
+            FilterOp::Opacity(ref value) => {
+                let amount = properties.resolve_float(value, 1.0);
+                FilterOp::Opacity(PropertyBinding::Value(amount))
+            }
+            _ => self,
+        }
+    }
+
+    fn is_noop(&self) -> bool {
+        match *self {
+            FilterOp::Blur(length) => length == 0.0,
+            FilterOp::Brightness(amount) => amount == 1.0,
+            FilterOp::Contrast(amount) => amount == 1.0,
+            FilterOp::Grayscale(amount) => amount == 0.0,
+            FilterOp::HueRotate(amount) => amount == 0.0,
+            FilterOp::Invert(amount) => amount == 0.0,
+            FilterOp::Opacity(value) => match value {
+                PropertyBinding::Value(amount) => amount == 1.0,
+                PropertyBinding::Binding(..) => {
+                    panic!("bug: binding value should be resolved");
+                }
+            },
+            FilterOp::Saturate(amount) => amount == 1.0,
+            FilterOp::Sepia(amount) => amount == 0.0,
+        }
     }
 }
