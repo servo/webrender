@@ -612,7 +612,7 @@ impl Frame {
                 }
             }
             SpecificDisplayItem::Rectangle(ref info) => {
-                if !self.try_to_add_rectangle_splitting_on_clip(
+                if !try_to_add_rectangle_splitting_on_clip(
                     context,
                     &prim_info,
                     &info.color,
@@ -806,65 +806,6 @@ impl Frame {
             }
         }
         None
-    }
-
-    /// Try to optimize the rendering of a solid rectangle that is clipped by a single
-    /// rounded rectangle, by only masking the parts of the rectangle that intersect
-    /// the rounded parts of the clip. This is pretty simple now, so has a lot of
-    /// potential for further optimizations.
-    fn try_to_add_rectangle_splitting_on_clip(
-        &mut self,
-        context: &mut FlattenContext,
-        info: &LayerPrimitiveInfo,
-        color: &ColorF,
-        clip_and_scroll: &ClipAndScrollInfo,
-    ) -> bool {
-        // If this rectangle is not opaque, splitting the rectangle up
-        // into an inner opaque region just ends up hurting batching and
-        // doing more work than necessary.
-        if color.a != 1.0 {
-            return false;
-        }
-
-        let inner_unclipped_rect = match &info.local_clip {
-            &LocalClip::Rect(_) => return false,
-            &LocalClip::RoundedRect(_, ref region) => region.get_inner_rect_full(),
-        };
-        let inner_unclipped_rect = match inner_unclipped_rect {
-            Some(rect) => rect,
-            None => return false,
-        };
-
-        // The inner rectangle is not clipped by its assigned clipping node, so we can
-        // let it be clipped by the parent of the clipping node, which may result in
-        // less masking some cases.
-        let mut clipped_rects = Vec::new();
-        subtract_rect(&info.rect, &inner_unclipped_rect, &mut clipped_rects);
-
-        let prim_info = LayerPrimitiveInfo {
-            rect: inner_unclipped_rect,
-            local_clip: LocalClip::from(*info.local_clip.clip_rect()),
-            is_backface_visible: info.is_backface_visible,
-        };
-
-        context.builder.add_solid_rectangle(
-            *clip_and_scroll,
-            &prim_info,
-            color,
-            PrimitiveFlags::None,
-        );
-
-        for clipped_rect in &clipped_rects {
-            let mut info = info.clone();
-            info.rect = *clipped_rect;
-            context.builder.add_solid_rectangle(
-                *clip_and_scroll,
-                &info,
-                color,
-                PrimitiveFlags::None,
-            );
-        }
-        true
     }
 
     fn flatten_root<'a>(
@@ -1320,4 +1261,62 @@ impl Frame {
         let nodes_bouncing_back = self.clip_scroll_tree.collect_nodes_bouncing_back();
         RendererFrame::new(self.pipeline_epoch_map.clone(), nodes_bouncing_back, frame)
     }
+}
+
+/// Try to optimize the rendering of a solid rectangle that is clipped by a single
+/// rounded rectangle, by only masking the parts of the rectangle that intersect
+/// the rounded parts of the clip. This is pretty simple now, so has a lot of
+/// potential for further optimizations.
+fn try_to_add_rectangle_splitting_on_clip(
+    context: &mut FlattenContext,
+    info: &LayerPrimitiveInfo,
+    color: &ColorF,
+    clip_and_scroll: &ClipAndScrollInfo,
+) -> bool {
+    // If this rectangle is not opaque, splitting the rectangle up
+    // into an inner opaque region just ends up hurting batching and
+    // doing more work than necessary.
+    if color.a != 1.0 {
+        return false;
+    }
+
+    let inner_unclipped_rect = match &info.local_clip {
+        &LocalClip::Rect(_) => return false,
+        &LocalClip::RoundedRect(_, ref region) => region.get_inner_rect_full(),
+    };
+    let inner_unclipped_rect = match inner_unclipped_rect {
+        Some(rect) => rect,
+        None => return false,
+    };
+
+    // The inner rectangle is not clipped by its assigned clipping node, so we can
+    // let it be clipped by the parent of the clipping node, which may result in
+    // less masking some cases.
+    let mut clipped_rects = Vec::new();
+    subtract_rect(&info.rect, &inner_unclipped_rect, &mut clipped_rects);
+
+    let prim_info = LayerPrimitiveInfo {
+        rect: inner_unclipped_rect,
+        local_clip: LocalClip::from(*info.local_clip.clip_rect()),
+        is_backface_visible: info.is_backface_visible,
+    };
+
+    context.builder.add_solid_rectangle(
+        *clip_and_scroll,
+        &prim_info,
+        color,
+        PrimitiveFlags::None,
+    );
+
+    for clipped_rect in &clipped_rects {
+        let mut info = info.clone();
+        info.rect = *clipped_rect;
+        context.builder.add_solid_rectangle(
+            *clip_and_scroll,
+            &info,
+            color,
+            PrimitiveFlags::None,
+        );
+    }
+    true
 }
