@@ -153,7 +153,12 @@ impl WrenchThing for BinaryFrameReader {
                         _ => {}
                     }
                     self.frame_data.push(Item::Message(msg));
-                    if found_frame_marker && found_display_list && found_pipeline {
+                    // Frames are marked by the GenerateFrame message.
+                    // On the first frame, we additionally need to find at least
+                    // a SetDisplayList and a SetRootPipeline.
+                    // After the first frame, any GenerateFrame message marks a new
+                    // frame being rendered.
+                    if found_frame_marker && (self.frame_num > 0 || (found_display_list && found_pipeline)) {
                         break;
                     }
                 } else {
