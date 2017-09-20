@@ -2186,9 +2186,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             //TODO-LCCR: bake a single LCCR instead of all aligned rects?
             self.current_clip_stack.push(ClipWorkItem {
                 layer_index: clip.packed_layer_index,
-                clip_sources: self.frame_builder
-                    .clip_store
-                    .create_weak_handle(&clip.clip_sources),
+                clip_sources: clip.clip_sources.weak(),
                 apply_rectangles: next_node_needs_region_mask,
             });
             next_node_needs_region_mask = false;
@@ -2317,9 +2315,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
 
                 let extra = ClipWorkItem {
                     layer_index: packed_layer_index,
-                    clip_sources: self.frame_builder
-                        .clip_store
-                        .create_weak_handle(&prim_metadata.clip_sources),
+                    clip_sources: prim_metadata.clip_sources.weak(),
                     apply_rectangles: false,
                 };
 
