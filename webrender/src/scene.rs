@@ -77,20 +77,19 @@ impl SceneProperties {
 }
 
 /// A representation of the layout within the display port for a given document or iframe.
-#[derive(Debug)]
 pub struct ScenePipeline {
     pub pipeline_id: PipelineId,
     pub epoch: Epoch,
     pub viewport_size: LayerSize,
     pub content_size: LayoutSize,
     pub background_color: Option<ColorF>,
+    pub display_list: BuiltDisplayList,
 }
 
 /// A complete representation of the layout bundling visible pipelines together.
 pub struct Scene {
     pub root_pipeline_id: Option<PipelineId>,
-    pub pipeline_map: FastHashMap<PipelineId, ScenePipeline>,
-    pub display_lists: FastHashMap<PipelineId, BuiltDisplayList>,
+    pub pipelines: FastHashMap<PipelineId, ScenePipeline>,
     pub properties: SceneProperties,
 }
 
@@ -98,8 +97,7 @@ impl Scene {
     pub fn new() -> Scene {
         Scene {
             root_pipeline_id: None,
-            pipeline_map: FastHashMap::default(),
-            display_lists: FastHashMap::default(),
+            pipelines: FastHashMap::default(),
             properties: SceneProperties::new(),
         }
     }
@@ -112,30 +110,28 @@ impl Scene {
         &mut self,
         pipeline_id: PipelineId,
         epoch: Epoch,
-        built_display_list: BuiltDisplayList,
+        display_list: BuiltDisplayList,
         background_color: Option<ColorF>,
         viewport_size: LayerSize,
         content_size: LayoutSize,
     ) {
-        self.display_lists.insert(pipeline_id, built_display_list);
-
         let new_pipeline = ScenePipeline {
             pipeline_id,
             epoch,
             viewport_size,
             content_size,
             background_color,
+            display_list,
         };
 
-        self.pipeline_map.insert(pipeline_id, new_pipeline);
+        self.pipelines.insert(pipeline_id, new_pipeline);
     }
 
     pub fn remove_pipeline(&mut self, pipeline_id: PipelineId) {
         if self.root_pipeline_id == Some(pipeline_id) {
             self.root_pipeline_id = None;
         }
-        self.display_lists.remove(&pipeline_id);
-        self.pipeline_map.remove(&pipeline_id);
+        self.pipelines.remove(&pipeline_id);
     }
 }
 

@@ -18,8 +18,8 @@ use gpu_cache::GpuCache;
 use internal_types::{FastHashMap, FastHashSet, RendererFrame};
 use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
 use resource_cache::{ResourceCache, TiledImageMap};
-use scene::{Scene, StackingContextHelpers};
-use tiling::{CompositeOps, DisplayListMap, PrimitiveFlags};
+use scene::{Scene, StackingContextHelpers, ScenePipeline};
+use tiling::{CompositeOps, PrimitiveFlags};
 use util::{subtract_rect, ComplexClipRegionHelpers};
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Eq, Ord)]
@@ -184,9 +184,10 @@ impl<'a> FlattenContext<'a> {
         }
 
         self.scene
-            .display_lists
+            .pipelines
             .get(&pipeline_id)
             .expect("No display list?")
+            .display_list
             .get(complex_clips)
             .collect()
     }
@@ -262,13 +263,8 @@ impl Frame {
             None => return,
         };
 
-        let root_pipeline = match scene.pipeline_map.get(&root_pipeline_id) {
+        let root_pipeline = match scene.pipelines.get(&root_pipeline_id) {
             Some(root_pipeline) => root_pipeline,
-            None => return,
-        };
-
-        let display_list = match scene.display_lists.get(&root_pipeline_id) {
-            Some(display_list) => display_list,
             None => return,
         };
 
@@ -310,7 +306,7 @@ impl Frame {
             );
 
             self.flatten_root(
-                &mut display_list.iter(),
+                &mut root_pipeline.display_list.iter(),
                 root_pipeline_id,
                 &mut context,
                 &root_pipeline.content_size,
@@ -392,11 +388,12 @@ impl Frame {
 
         let composition_operations = {
             // TODO(optimization?): self.traversal.display_list()
-            let display_list = context
+            let display_list = &context
                 .scene
-                .display_lists
+                .pipelines
                 .get(&pipeline_id)
-                .expect("No display list?!");
+                .expect("No display list?!")
+                .display_list;
             CompositeOps::new(
                 stacking_context.filter_ops_for_compositing(
                     display_list,
@@ -485,13 +482,8 @@ impl Frame {
         context: &mut FlattenContext,
         reference_frame_relative_offset: LayerVector2D,
     ) {
-        let pipeline = match context.scene.pipeline_map.get(&pipeline_id) {
+        let pipeline = match context.scene.pipelines.get(&pipeline_id) {
             Some(pipeline) => pipeline,
-            None => return,
-        };
-
-        let display_list = match context.scene.display_lists.get(&pipeline_id) {
-            Some(display_list) => display_list,
             None => return,
         };
 
@@ -533,7 +525,7 @@ impl Frame {
         );
 
         self.flatten_root(
-            &mut display_list.iter(),
+            &mut pipeline.display_list.iter(),
             pipeline_id,
             context,
             &pipeline.content_size,
@@ -834,7 +826,7 @@ impl Frame {
         // here, as it's handled by the framebuffer clear.
         let clip_id = ClipId::root_scroll_node(pipeline_id);
         if context.scene.root_pipeline_id != Some(pipeline_id) {
-            if let Some(pipeline) = context.scene.pipeline_map.get(&pipeline_id) {
+            if let Some(pipeline) = context.scene.pipelines.get(&pipeline_id) {
                 if let Some(bg_color) = pipeline.background_color {
                     let root_bounds = LayerRect::new(LayerPoint::zero(), *content_size);
                     let info = LayerPrimitiveInfo::new(root_bounds);
@@ -1212,7 +1204,7 @@ impl Frame {
         &mut self,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
-        display_lists: &DisplayListMap,
+        pipelines: &FastHashMap<PipelineId, ScenePipeline>,
         device_pixel_ratio: f32,
         pan: LayerPoint,
         output_pipelines: &FastHashSet<PipelineId>,
@@ -1223,7 +1215,7 @@ impl Frame {
         let frame = self.build_frame(
             resource_cache,
             gpu_cache,
-            display_lists,
+            pipelines,
             device_pixel_ratio,
             output_pipelines,
             texture_cache_profile,
@@ -1236,7 +1228,7 @@ impl Frame {
         &mut self,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
-        display_lists: &DisplayListMap,
+        pipelines: &FastHashMap<PipelineId, ScenePipeline>,
         device_pixel_ratio: f32,
         output_pipelines: &FastHashSet<PipelineId>,
         texture_cache_profile: &mut TextureCacheProfileCounters,
@@ -1249,7 +1241,7 @@ impl Frame {
                 gpu_cache,
                 self.id,
                 &mut self.clip_scroll_tree,
-                display_lists,
+                pipelines,
                 device_pixel_ratio,
                 output_pipelines,
                 texture_cache_profile,

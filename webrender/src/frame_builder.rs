@@ -30,8 +30,9 @@ use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfil
 use render_task::{AlphaRenderItem, ClipWorkItem, RenderTask};
 use render_task::{RenderTaskId, RenderTaskLocation, RenderTaskTree};
 use resource_cache::ResourceCache;
+use scene::ScenePipeline;
 use std::{mem, usize, f32, i32};
-use tiling::{ClipScrollGroup, ClipScrollGroupIndex, CompositeOps, DisplayListMap, Frame};
+use tiling::{ClipScrollGroup, ClipScrollGroupIndex, CompositeOps, Frame};
 use tiling::{ContextIsolation, StackingContextIndex};
 use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, RenderPass};
 use tiling::{RenderTargetContext, ScrollbarPrimitive, StackingContext};
@@ -1432,7 +1433,7 @@ impl FrameBuilder {
         &mut self,
         screen_rect: &DeviceIntRect,
         clip_scroll_tree: &mut ClipScrollTree,
-        display_lists: &DisplayListMap,
+        pipelines: &FastHashMap<PipelineId, ScenePipeline>,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
         render_tasks: &mut RenderTaskTree,
@@ -1444,7 +1445,7 @@ impl FrameBuilder {
             self,
             screen_rect,
             clip_scroll_tree,
-            display_lists,
+            pipelines,
             resource_cache,
             gpu_cache,
             render_tasks,
@@ -1807,7 +1808,7 @@ impl FrameBuilder {
         gpu_cache: &mut GpuCache,
         frame_id: FrameId,
         clip_scroll_tree: &mut ClipScrollTree,
-        display_lists: &DisplayListMap,
+        pipelines: &FastHashMap<PipelineId, ScenePipeline>,
         device_pixel_ratio: f32,
         output_pipelines: &FastHashSet<PipelineId>,
         texture_cache_profile: &mut TextureCacheProfileCounters,
@@ -1838,7 +1839,7 @@ impl FrameBuilder {
         self.build_layer_screen_rects_and_cull_layers(
             &screen_rect,
             clip_scroll_tree,
-            display_lists,
+            pipelines,
             resource_cache,
             gpu_cache,
             &mut render_tasks,
@@ -1927,7 +1928,7 @@ struct LayerRectCalculationAndCullingPass<'a> {
     frame_builder: &'a mut FrameBuilder,
     screen_rect: &'a DeviceIntRect,
     clip_scroll_tree: &'a mut ClipScrollTree,
-    display_lists: &'a DisplayListMap,
+    pipelines: &'a FastHashMap<PipelineId, ScenePipeline>,
     resource_cache: &'a mut ResourceCache,
     gpu_cache: &'a mut GpuCache,
     profile_counters: &'a mut FrameProfileCounters,
@@ -1950,7 +1951,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         frame_builder: &'a mut FrameBuilder,
         screen_rect: &'a DeviceIntRect,
         clip_scroll_tree: &'a mut ClipScrollTree,
-        display_lists: &'a DisplayListMap,
+        pipelines: &'a FastHashMap<PipelineId, ScenePipeline>,
         resource_cache: &'a mut ResourceCache,
         gpu_cache: &'a mut GpuCache,
         render_tasks: &'a mut RenderTaskTree,
@@ -1961,7 +1962,7 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
             frame_builder,
             screen_rect,
             clip_scroll_tree,
-            display_lists,
+            pipelines,
             resource_cache,
             gpu_cache,
             profile_counters,
@@ -2253,9 +2254,10 @@ impl<'a> LayerRectCalculationAndCullingPass<'a> {
         let stacking_context =
             &mut self.frame_builder.stacking_context_store[stacking_context_index.0];
         let packed_layer = &self.frame_builder.packed_layers[packed_layer_index.0];
-        let display_list = self.display_lists
+        let display_list = &self.pipelines
             .get(&pipeline_id)
-            .expect("No display list?");
+            .expect("No display list?")
+            .display_list;
         debug!(
             "\tclip_bounds {:?}, layer_local_clip {:?}",
             clip_bounds,
