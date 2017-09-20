@@ -2,11 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BuiltDisplayList, BuiltDisplayListIter, ClipAndScrollInfo, ClipId, ColorF};
+use api::{BuiltDisplayListIter, ClipAndScrollInfo, ClipId, ColorF};
 use api::{ComplexClipRegion, DeviceUintRect, DeviceUintSize, DisplayItemRef, Epoch, FilterOp};
 use api::{ImageDisplayItem, ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect, LayerSize,
           LayerToScrollTransform};
-use api::{LayerVector2D, LayoutSize, LayoutTransform, LocalClip, MixBlendMode, PipelineId};
+use api::{LayerVector2D, LayoutSize, LayoutTransform, LocalClip, PipelineId};
 use api::{ScrollClamping, ScrollEventPhase, ScrollLayerState, ScrollLocation};
 use api::{ScrollPolicy, ScrollSensitivity, SpecificDisplayItem, StackingContext, TileOffset};
 use api::{TransformStyle, WorldPoint};
@@ -18,7 +18,7 @@ use gpu_cache::GpuCache;
 use internal_types::{FastHashMap, FastHashSet, RendererFrame};
 use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
 use resource_cache::{ResourceCache, TiledImageMap};
-use scene::{FilterOpHelpers, Scene, SceneProperties};
+use scene::{Scene, StackingContextHelpers};
 use tiling::{CompositeOps, DisplayListMap, PrimitiveFlags};
 use util::{subtract_rect, ComplexClipRegionHelpers};
 
@@ -199,42 +199,6 @@ pub struct Frame {
     id: FrameId,
     frame_builder_config: FrameBuilderConfig,
     pub frame_builder: Option<FrameBuilder>,
-}
-
-trait StackingContextHelpers {
-    fn mix_blend_mode_for_compositing(&self) -> Option<MixBlendMode>;
-    fn filter_ops_for_compositing(
-        &self,
-        display_list: &BuiltDisplayList,
-        input_filters: ItemRange<FilterOp>,
-        properties: &SceneProperties,
-    ) -> Vec<FilterOp>;
-}
-
-impl StackingContextHelpers for StackingContext {
-    fn mix_blend_mode_for_compositing(&self) -> Option<MixBlendMode> {
-        match self.mix_blend_mode {
-            MixBlendMode::Normal => None,
-            _ => Some(self.mix_blend_mode),
-        }
-    }
-
-    fn filter_ops_for_compositing(
-        &self,
-        display_list: &BuiltDisplayList,
-        input_filters: ItemRange<FilterOp>,
-        properties: &SceneProperties,
-    ) -> Vec<FilterOp> {
-        let mut filters = vec![];
-        for filter in display_list.get(input_filters) {
-            let filter = filter.resolve(properties);
-            if filter.is_noop() {
-                continue;
-            }
-            filters.push(filter);
-        }
-        filters
-    }
 }
 
 impl Frame {

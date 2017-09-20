@@ -4,6 +4,7 @@
 
 use api::{BuiltDisplayList, ColorF, DynamicProperties, Epoch, LayerSize, LayoutSize};
 use api::{FilterOp, LayoutTransform, PipelineId, PropertyBinding, PropertyBindingId};
+use api::{ItemRange, MixBlendMode, StackingContext};
 use internal_types::FastHashMap;
 
 /// Stores a map of the animated property bindings for the current display list. These
@@ -171,5 +172,41 @@ impl FilterOpHelpers for FilterOp {
             FilterOp::Saturate(amount) => amount == 1.0,
             FilterOp::Sepia(amount) => amount == 0.0,
         }
+    }
+}
+
+pub trait StackingContextHelpers {
+    fn mix_blend_mode_for_compositing(&self) -> Option<MixBlendMode>;
+    fn filter_ops_for_compositing(
+        &self,
+        display_list: &BuiltDisplayList,
+        input_filters: ItemRange<FilterOp>,
+        properties: &SceneProperties,
+    ) -> Vec<FilterOp>;
+}
+
+impl StackingContextHelpers for StackingContext {
+    fn mix_blend_mode_for_compositing(&self) -> Option<MixBlendMode> {
+        match self.mix_blend_mode {
+            MixBlendMode::Normal => None,
+            _ => Some(self.mix_blend_mode),
+        }
+    }
+
+    fn filter_ops_for_compositing(
+        &self,
+        display_list: &BuiltDisplayList,
+        input_filters: ItemRange<FilterOp>,
+        properties: &SceneProperties,
+    ) -> Vec<FilterOp> {
+        let mut filters = vec![];
+        for filter in display_list.get(input_filters) {
+            let filter = filter.resolve(properties);
+            if filter.is_noop() {
+                continue;
+            }
+            filters.push(filter);
+        }
+        filters
     }
 }
