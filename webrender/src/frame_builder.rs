@@ -13,6 +13,7 @@ use api::{LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation
 use api::{LocalClip, PipelineId, RepeatMode, ScrollSensitivity, SubpixelDirection, TextShadow};
 use api::{TileOffset, TransformStyle, WorldPixel, YuvColorSpace, YuvData};
 use app_units::Au;
+use border::ImageBorderSegment;
 use clip::{ClipMode, ClipRegion, ClipSource, ClipSources, ClipStore};
 use clip_scroll_node::{ClipInfo, ClipScrollNode, NodeType};
 use clip_scroll_tree::ClipScrollTree;
@@ -38,58 +39,6 @@ use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, Ren
 use tiling::{RenderTargetContext, ScrollbarPrimitive, StackingContext};
 use util::{self, pack_as_float, recycle_vec, subtract_rect};
 use util::{MatrixHelpers, RectHelpers};
-
-#[derive(Debug, Clone)]
-struct ImageBorderSegment {
-    geom_rect: LayerRect,
-    sub_rect: TexelRect,
-    stretch_size: LayerSize,
-    tile_spacing: LayerSize,
-}
-
-impl ImageBorderSegment {
-    fn new(
-        rect: LayerRect,
-        sub_rect: TexelRect,
-        repeat_horizontal: RepeatMode,
-        repeat_vertical: RepeatMode,
-    ) -> ImageBorderSegment {
-        let tile_spacing = LayerSize::zero();
-
-        debug_assert!(sub_rect.uv1.x >= sub_rect.uv0.x);
-        debug_assert!(sub_rect.uv1.y >= sub_rect.uv0.y);
-
-        let image_size = LayerSize::new(
-            sub_rect.uv1.x - sub_rect.uv0.x,
-            sub_rect.uv1.y - sub_rect.uv0.y,
-        );
-
-        let stretch_size_x = match repeat_horizontal {
-            RepeatMode::Stretch => rect.size.width,
-            RepeatMode::Repeat => image_size.width,
-            RepeatMode::Round | RepeatMode::Space => {
-                error!("Round/Space not supported yet!");
-                rect.size.width
-            }
-        };
-
-        let stretch_size_y = match repeat_vertical {
-            RepeatMode::Stretch => rect.size.height,
-            RepeatMode::Repeat => image_size.height,
-            RepeatMode::Round | RepeatMode::Space => {
-                error!("Round/Space not supported yet!");
-                rect.size.height
-            }
-        };
-
-        ImageBorderSegment {
-            geom_rect: rect,
-            sub_rect,
-            stretch_size: LayerSize::new(stretch_size_x, stretch_size_y),
-            tile_spacing,
-        }
-    }
-}
 
 /// Construct a polygon from stacking context boundaries.
 /// `anchor` here is an index that's going to be preserved in all the

@@ -645,9 +645,9 @@ impl RenderBackend {
         for (_, doc) in &self.documents {
             let mut debug_doc = debug_server::TreeNode::new("document");
 
-            for (_, display_list) in &doc.scene.display_lists {
+            for (_, pipeline) in &doc.scene.pipelines {
                 let mut debug_dl = debug_server::TreeNode::new("display_list");
-                self.traverse_items(&mut display_list.iter(), &mut debug_dl);
+                self.traverse_items(&mut pipeline.display_list.iter(), &mut debug_dl);
                 debug_doc.add_child(debug_dl);
             }
 
