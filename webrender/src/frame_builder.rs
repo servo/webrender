@@ -1918,12 +1918,6 @@ impl FrameBuilder {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct LayerClipBounds {
-    outer: DeviceIntRect,
-    inner: DeviceIntRect,
-}
-
 struct LayerRectCalculationAndCullingPass<'a> {
     frame_builder: &'a mut FrameBuilder,
     screen_rect: &'a DeviceIntRect,
