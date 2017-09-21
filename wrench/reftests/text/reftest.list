@@ -18,3 +18,6 @@ fuzzy(1,100) == decorations-suite.yaml decorations-suite.png
 == split-batch.yaml split-batch-ref.yaml
 == shadow-red.yaml shadow-red-ref.yaml
 fuzzy(1,136) == shadow-grey.yaml shadow-grey-ref.yaml
+
+# enable when synthetic-italics implemented on mac
+# != synthetic-italics.yaml synthetic-italics-ref.yaml

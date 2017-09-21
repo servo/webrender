@@ -231,11 +231,12 @@ impl YamlFrameReader {
         &mut self,
         font_key: FontKey,
         size: Au,
+        synthetic_italics: bool,
         wrench: &mut Wrench,
     ) -> FontInstanceKey {
         *self.font_instances
             .entry((font_key, size))
-            .or_insert_with(|| wrench.add_font_instance(font_key, size))
+            .or_insert_with(|| wrench.add_font_instance(font_key, size, synthetic_italics))
     }
 
     fn to_image_mask(&mut self, item: &Yaml, wrench: &mut Wrench) -> Option<ImageMask> {
@@ -723,6 +724,7 @@ impl YamlFrameReader {
     ) {
         let size = item["size"].as_pt_to_au().unwrap_or(Au::from_f32_px(16.0));
         let color = item["color"].as_colorf().unwrap_or(*BLACK_COLOR);
+        let synthetic_italics = item["synthetic-italics"].as_bool().unwrap_or(false);
 
         assert!(
             item["blur-radius"].is_badvalue(),
@@ -731,7 +733,10 @@ impl YamlFrameReader {
 
         let desc = FontDescriptor::from_yaml(item, &self.aux_dir);
         let font_key = self.get_or_create_font(desc, wrench);
-        let font_instance_key = self.get_or_create_font_instance(font_key, size, wrench);
+        let font_instance_key = self.get_or_create_font_instance(font_key,
+                                                                 size,
+                                                                 synthetic_italics,
+                                                                 wrench);
 
         assert!(
             !(item["glyphs"].is_badvalue() && item["text"].is_badvalue()),

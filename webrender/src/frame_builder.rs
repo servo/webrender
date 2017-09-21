@@ -1065,6 +1065,7 @@ impl FrameBuilder {
             subpx_dir,
             font.platform_options,
             font.variations.clone(),
+            font.synthetic_italics,
         );
         let prim = TextRunPrimitiveCpu {
             font: prim_font,
