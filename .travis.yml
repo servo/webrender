@@ -20,8 +20,8 @@ addons:
       - libedit-dev
       - python
 env:
-  - BUILD_KIND=DEBUG RUST_BACKTRACE=1
-  - BUILD_KIND=RELEASE RUST_BACKTRACE=1
+  - BUILD_KIND=DEBUG RUST_BACKTRACE=1 RUSTFLAGS='--deny warnings'
+  - BUILD_KIND=RELEASE RUST_BACKTRACE=1 RUSTFLAGS='--deny warnings'
 before_install:
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew update; fi
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install zlib; fi
