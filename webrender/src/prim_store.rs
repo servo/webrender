@@ -2,11 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderRadius, ExtendMode, FontRenderMode, GlyphInstance, GradientStop};
-use api::{BuiltDisplayList, ColorF, ComplexClipRegion, DeviceIntRect, DeviceIntSize, DevicePoint};
-use api::{device_length, FontInstance, LayerVector2D, LineOrientation, LineStyle};
-use api::{GlyphKey, LayerToWorldTransform, TileOffset, YuvColorSpace, YuvFormat};
-use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize, TextShadow};
+use api::{BorderRadius, BuiltDisplayList, ColorF, ComplexClipRegion, DeviceIntRect, DeviceIntSize};
+use api::{DevicePoint, ExtendMode, FontInstance, FontKey, FontRenderMode, GlyphInstance, GlyphKey};
+use api::{GlyphOptions, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint};
+use api::{LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation, LineStyle};
+use api::{SubpixelDirection, TextShadow, TileOffset, YuvColorSpace, YuvFormat, device_length};
 use app_units::Au;
 use border::BorderCornerInstance;
 use clip::{ClipMode, ClipSourcesHandle, ClipStore};
@@ -144,6 +144,10 @@ pub struct PrimitiveMetadata {
     pub local_rect: LayerRect,
     pub local_clip_rect: LayerRect,
     pub is_backface_visible: bool,
+
+    /// A tag used to identify this primitive outside of WebRender. This is
+    /// used for returning useful data during hit testing.
+    pub tag: Option<ItemTag>,
 }
 
 #[derive(Debug)]
@@ -862,6 +866,7 @@ impl PrimitiveStore {
         local_clip_rect: &LayerRect,
         is_backface_visible: bool,
         clip_sources: ClipSourcesHandle,
+        tag: Option<ItemTag>,
         container: PrimitiveContainer,
     ) -> PrimitiveIndex {
         let prim_index = self.cpu_metadata.len();
@@ -879,6 +884,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    tag,
                 };
 
                 self.cpu_rectangles.push(rect);
@@ -896,6 +902,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    tag,
                 };
 
                 self.cpu_lines.push(line);
@@ -912,6 +919,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    tag,
                 };
 
                 self.cpu_text_runs.push(text_cpu);
@@ -928,6 +936,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    tag,
                 };
 
                 self.cpu_text_shadows.push(text_shadow);
@@ -944,6 +953,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    tag,
                 };
 
                 self.cpu_images.push(image_cpu);
@@ -960,6 +970,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    tag,
                 };
 
                 self.cpu_yuv_images.push(image_cpu);
@@ -976,6 +987,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    tag,
                 };
 
                 self.cpu_borders.push(border_cpu);
@@ -992,6 +1004,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    tag,
                 };
 
                 self.cpu_gradients.push(gradient_cpu);
@@ -1009,6 +1022,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    tag,
                 };
 
                 self.cpu_gradients.push(gradient_cpu);
@@ -1026,6 +1040,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    tag,
                 };
 
                 self.cpu_radial_gradients.push(radial_gradient_cpu);
@@ -1042,6 +1057,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    tag,
                 };
 
                 self.cpu_box_shadows.push(box_shadow);
