@@ -115,7 +115,7 @@ impl FontRenderMode {
         // [0.625, 0.875) -> ThreeQuarters,
         // [0.875, 1.0) -> Zero
         // The unit tests below check for this.
-        let apos = (pos.fract() * 8.0).abs() as i32;
+        let apos = ((pos - pos.floor()) * 8.0) as i32;
 
         match apos {
             0 | 7 => SubpixelOffset::Zero,
@@ -351,8 +351,8 @@ mod test {
         assert_eq!(rm.subpixel_quantize_offset(-1.0), SubpixelOffset::Zero);
         assert_eq!(rm.subpixel_quantize_offset(1.0), SubpixelOffset::Zero);
         assert_eq!(rm.subpixel_quantize_offset(1.5), SubpixelOffset::Half);
-        assert_eq!(rm.subpixel_quantize_offset(-1.625), SubpixelOffset::ThreeQuarters);
-        assert_eq!(rm.subpixel_quantize_offset(-4.33), SubpixelOffset::Quarter);
+        assert_eq!(rm.subpixel_quantize_offset(-1.625), SubpixelOffset::Half);
+        assert_eq!(rm.subpixel_quantize_offset(-4.33), SubpixelOffset::ThreeQuarters);
 
     }
 }
