@@ -2,19 +2,18 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderDetails, BorderDisplayItem, BorderRadius, BoxShadowClipMode, ClipAndScrollInfo,
-          ClipId, ColorF};
-use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
-use api::{device_length, ExtendMode, FilterOp, FontInstance, FontRenderMode};
-use api::{GlyphInstance, GlyphOptions, GradientStop};
-use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect,
-          LayerSize};
-use api::{LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation, LineStyle};
-use api::{LocalClip, PipelineId, RepeatMode, ScrollSensitivity, SubpixelDirection, TextShadow};
-use api::{TileOffset, TransformStyle, WorldPixel, YuvColorSpace, YuvData};
+use api::{BorderDetails, BorderDisplayItem, BorderRadius, BoxShadowClipMode, ClipAndScrollInfo};
+use api::{ClipId, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect};
+use api::{DeviceUintSize, ExtendMode, FIND_ALL, FilterOp, FontInstance, FontRenderMode};
+use api::{GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem, HitTestResult};
+use api::{ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect};
+use api::{LayerSize, LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation};
+use api::{LineStyle, LocalClip, POINT_RELATIVE_TO_PIPELINE_VIEWPORT, PipelineId, RepeatMode};
+use api::{ScrollSensitivity, SubpixelDirection, TextShadow, TileOffset, TransformStyle};
+use api::{WorldPixel, WorldPoint, YuvColorSpace, YuvData, device_length};
 use app_units::Au;
 use border::ImageBorderSegment;
-use clip::{ClipMode, ClipRegion, ClipSource, ClipSources, ClipStore};
+use clip::{ClipMode, ClipRegion, ClipSource, ClipSources, ClipStore, Contains};
 use clip_scroll_node::{ClipInfo, ClipScrollNode, NodeType};
 use clip_scroll_tree::ClipScrollTree;
 use euclid::{SideOffsets2D, vec2, vec3};
@@ -65,12 +64,32 @@ pub struct FrameBuilderConfig {
     pub debug: bool,
 }
 
+#[derive(Debug)]
+pub struct HitTestingItem {
+    rect: LayerRect,
+    clip: LocalClip,
+    tag: ItemTag,
+}
+
+impl HitTestingItem {
+    fn new(tag: ItemTag, info: &LayerPrimitiveInfo) -> HitTestingItem {
+        HitTestingItem {
+            rect: info.rect,
+            clip: info.local_clip,
+            tag: tag,
+        }
+    }
+}
+
+pub struct HitTestingRun(Vec<HitTestingItem>, ClipAndScrollInfo);
+
 pub struct FrameBuilder {
     screen_size: DeviceUintSize,
     background_color: Option<ColorF>,
     prim_store: PrimitiveStore,
     pub clip_store: ClipStore,
     cmds: Vec<PrimitiveRunCmd>,
+    hit_testing_runs: Vec<HitTestingRun>,
     config: FrameBuilderConfig,
 
     stacking_context_store: Vec<StackingContext>,
@@ -117,6 +136,7 @@ impl FrameBuilder {
                 clip_scroll_group_store: recycle_vec(prev.clip_scroll_group_store),
                 clip_scroll_group_indices: FastHashMap::default(),
                 cmds: recycle_vec(prev.cmds),
+                hit_testing_runs: recycle_vec(prev.hit_testing_runs),
                 packed_layers: recycle_vec(prev.packed_layers),
                 shadow_prim_stack: recycle_vec(prev.shadow_prim_stack),
                 scrollbar_prims: recycle_vec(prev.scrollbar_prims),
@@ -136,6 +156,7 @@ impl FrameBuilder {
                 clip_scroll_group_store: Vec::new(),
                 clip_scroll_group_indices: FastHashMap::default(),
                 cmds: Vec::new(),
+                hit_testing_runs: Vec::new(),
                 packed_layers: Vec::new(),
                 shadow_prim_stack: Vec::new(),
                 scrollbar_prims: Vec::new(),
@@ -189,10 +210,34 @@ impl FrameBuilder {
             &info.local_clip.clip_rect(),
             info.is_backface_visible,
             clip_sources,
+            info.tag,
             container,
         );
 
         prim_index
+    }
+
+    pub fn add_primitive_to_hit_testing_list(
+        &mut self,
+        info: &LayerPrimitiveInfo,
+        clip_and_scroll: ClipAndScrollInfo
+    ) {
+        let tag = match info.tag {
+            Some(tag) => tag,
+            None => return,
+        };
+
+        let new_item = HitTestingItem::new(tag, info);
+        match self.hit_testing_runs.last_mut() {
+            Some(&mut HitTestingRun(ref mut items, prev_clip_and_scroll))
+                if prev_clip_and_scroll == clip_and_scroll => {
+                items.push(new_item);
+                return;
+            }
+            _ => {}
+        }
+
+        self.hit_testing_runs.push(HitTestingRun(vec![new_item], clip_and_scroll));
     }
 
     /// Add an already created primitive to the draw lists.
@@ -232,10 +277,10 @@ impl FrameBuilder {
         clip_sources: Vec<ClipSource>,
         container: PrimitiveContainer,
     ) -> PrimitiveIndex {
+        self.add_primitive_to_hit_testing_list(info, clip_and_scroll);
         let prim_index = self.create_primitive(clip_and_scroll, info, clip_sources, container);
 
         self.add_primitive_to_draw_list(prim_index, clip_and_scroll);
-
         prim_index
     }
 
@@ -319,6 +364,7 @@ impl FrameBuilder {
         rect: &LayerRect,
         transform: &LayerToScrollTransform,
         origin_in_parent_reference_frame: LayerVector2D,
+        root_for_pipeline: bool,
         clip_scroll_tree: &mut ClipScrollTree,
     ) -> ClipId {
         let new_id = clip_scroll_tree.add_reference_frame(
@@ -327,6 +373,7 @@ impl FrameBuilder {
             origin_in_parent_reference_frame,
             pipeline_id,
             parent_id,
+            root_for_pipeline,
         );
         self.reference_frame_stack.push(new_id);
         new_id
@@ -396,6 +443,7 @@ impl FrameBuilder {
             &viewport_rect,
             identity,
             LayerVector2D::zero(),
+            true,
             clip_scroll_tree,
         );
 
@@ -508,6 +556,13 @@ impl FrameBuilder {
     ) {
         let prim = RectanglePrimitive { color: *color };
 
+        // Don't add transparent rectangles to the draw list, but do consider them for hit
+        // testing. This allows specifying invisible hit testing areas.
+        if color.a == 0.0 {
+            self.add_primitive_to_hit_testing_list(info, clip_and_scroll);
+            return;
+        }
+
         let prim_index = self.add_primitive(
             clip_and_scroll,
             info,
@@ -587,6 +642,7 @@ impl FrameBuilder {
         );
 
         if color.a > 0.0 {
+            self.add_primitive_to_hit_testing_list(&info, clip_and_scroll);
             self.add_primitive_to_draw_list(prim_index, clip_and_scroll);
         }
 
@@ -1090,6 +1146,7 @@ impl FrameBuilder {
 
         // Only add a visual element if it can contribute to the scene.
         if color.a > 0.0 {
+            self.add_primitive_to_hit_testing_list(info, clip_and_scroll);
             self.add_primitive_to_draw_list(prim_index, clip_and_scroll);
         }
 
@@ -1485,6 +1542,88 @@ impl FrameBuilder {
         Some(bounding_rect)
     }
 
+    pub fn get_packed_layer_index_if_visible(
+        &self,
+        clip_and_scroll: &ClipAndScrollInfo
+    ) -> Option<PackedLayerIndex> {
+        let group_index = self.clip_scroll_group_indices.get(&clip_and_scroll).unwrap();
+        let clip_scroll_group = &self.clip_scroll_group_store[group_index.0];
+        if clip_scroll_group.is_visible() {
+            Some(clip_scroll_group.packed_layer_index)
+        } else {
+            None
+        }
+    }
+
+    pub fn hit_test(
+        &self,
+        clip_scroll_tree: &ClipScrollTree,
+        pipeline_id: Option<PipelineId>,
+        point: WorldPoint,
+        flags: HitTestFlags
+    ) -> HitTestResult {
+        let point = if flags.contains(POINT_RELATIVE_TO_PIPELINE_VIEWPORT) {
+            let point = LayerPoint::new(point.x, point.y);
+            clip_scroll_tree.make_node_relative_point_absolute(pipeline_id, &point)
+        } else {
+            point
+        };
+
+        let mut node_cache = FastHashMap::default();
+        let mut result = HitTestResult::default();
+        for &HitTestingRun(ref items, ref clip_and_scroll) in self.hit_testing_runs.iter().rev() {
+            let scroll_node = &clip_scroll_tree.nodes[&clip_and_scroll.scroll_node_id];
+            match (pipeline_id, scroll_node.pipeline_id) {
+                (Some(id), node_id) if node_id != id => continue,
+                _ => {},
+            }
+
+            let transform = scroll_node.world_content_transform;
+            let point_in_layer = match transform.inverse() {
+                Some(inverted) => inverted.transform_point2d(&point),
+                None => continue,
+            };
+
+            let mut clipped_in = false;
+            for item in items.iter().rev() {
+                if !item.rect.contains(&point_in_layer) || !item.clip.contains(&point_in_layer) {
+                    continue;
+                }
+
+                let clip_id = &clip_and_scroll.clip_node_id();
+                if !clipped_in {
+                    clipped_in = clip_scroll_tree.is_point_clipped_in_for_node(point,
+                                                                               clip_id,
+                                                                               &mut node_cache,
+                                                                               &self.clip_store);
+                    if !clipped_in {
+                        break;
+                    }
+                }
+
+                let root_pipeline_reference_frame_id =
+                    ClipId::root_reference_frame(clip_id.pipeline_id());
+                let point_in_viewport = match node_cache.get(&root_pipeline_reference_frame_id) {
+                    Some(&Some(point)) => point,
+                    _ => unreachable!("Hittest target's root reference frame not hit."),
+                };
+
+                result.items.push(HitTestItem {
+                    pipeline: clip_and_scroll.clip_node_id().pipeline_id(),
+                    tag: item.tag,
+                    point_in_viewport,
+                });
+                if !flags.contains(FIND_ALL) {
+                    return result;
+                }
+            }
+        }
+
+        result.items.dedup();
+        return result;
+    }
+
+
     fn handle_primitive_run(
         &mut self,
         base_prim_index: PrimitiveIndex,
@@ -1500,36 +1639,27 @@ impl FrameBuilder {
         profile_counters: &mut FrameProfileCounters,
     ) {
         let stacking_context_index = *self.stacking_context_stack.last().unwrap();
-        let (packed_layer_index, pipeline_id) = {
+        let packed_layer_index =
+            match self.get_packed_layer_index_if_visible(&clip_and_scroll) {
+            Some(index) => index,
+            None => {
+                debug!("{:?} of invisible {:?}", base_prim_index, stacking_context_index);
+                return;
+            }
+        };
+
+        let pipeline_id = {
             let stacking_context =
                 &mut self.stacking_context_store[stacking_context_index.0];
             if !stacking_context.can_contribute_to_scene() {
                 return;
             }
 
-            let group_index = self.clip_scroll_group_indices
-                .get(&clip_and_scroll)
-                .unwrap();
-            let clip_scroll_group = &self.clip_scroll_group_store[group_index.0];
-            if !clip_scroll_group.is_visible() {
-                debug!(
-                    "{:?} of invisible {:?}",
-                    base_prim_index,
-                    stacking_context_index
-                );
-                return;
-            }
-
             // At least one primitive in this stacking context is visible, so the stacking
             // context is visible.
             stacking_context.is_visible = true;
-
-            (
-                clip_scroll_group.packed_layer_index,
-                stacking_context.pipeline_id,
-            )
+            stacking_context.pipeline_id
         };
-
 
         debug!(
             "\t{:?} of {:?} at {:?}",
