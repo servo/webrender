@@ -463,7 +463,11 @@ impl ClipScrollNode {
     }
 
     pub fn ray_intersects_node(&self, cursor: &WorldPoint) -> bool {
-        let inv = self.world_viewport_transform.inverse().unwrap();
+        let inv = match self.world_viewport_transform.inverse() {
+            Some(inv) => inv,
+            None => return false,
+        };
+
         let z0 = -10000.0;
         let z1 = 10000.0;
 
