@@ -1043,6 +1043,12 @@ impl FrameBuilder {
             if shadow_prim.shadow.blur_radius == 0.0 {
                 let mut text_prim = prim.clone();
                 text_prim.font.color = shadow_prim.shadow.color.into();
+                // If we have translucent text, we need to ensure it won't go
+                // through the subpixel blend mode, which doesn't work with
+                // traditional alpha blending.
+                if shadow_prim.shadow.color.a != 1.0 {
+                    text_prim.font.render_mode = text_prim.font.render_mode.limit_by(FontRenderMode::Alpha);
+                }
                 text_prim.color = shadow_prim.shadow.color;
                 text_prim.offset += shadow_prim.shadow.offset;
                 fast_text_shadow_prims.push(text_prim);
