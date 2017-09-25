@@ -144,6 +144,7 @@ pub struct PrimitiveMetadata {
     pub local_rect: LayerRect,
     pub local_clip_rect: LayerRect,
     pub is_backface_visible: bool,
+    pub screen_rect: Option<DeviceIntRect>,
 
     /// A tag used to identify this primitive outside of WebRender. This is
     /// used for returning useful data during hit testing.
@@ -811,7 +812,6 @@ pub enum PrimitiveContainer {
 
 pub struct PrimitiveStore {
     /// CPU side information only.
-    pub cpu_bounding_rects: Vec<Option<DeviceIntRect>>,
     pub cpu_rectangles: Vec<RectanglePrimitive>,
     pub cpu_text_runs: Vec<TextRunPrimitiveCpu>,
     pub cpu_text_shadows: Vec<TextShadowPrimitiveCpu>,
@@ -830,7 +830,6 @@ impl PrimitiveStore {
         PrimitiveStore {
             cpu_metadata: Vec::new(),
             cpu_rectangles: Vec::new(),
-            cpu_bounding_rects: Vec::new(),
             cpu_text_runs: Vec::new(),
             cpu_text_shadows: Vec::new(),
             cpu_images: Vec::new(),
@@ -847,7 +846,6 @@ impl PrimitiveStore {
         PrimitiveStore {
             cpu_metadata: recycle_vec(self.cpu_metadata),
             cpu_rectangles: recycle_vec(self.cpu_rectangles),
-            cpu_bounding_rects: recycle_vec(self.cpu_bounding_rects),
             cpu_text_runs: recycle_vec(self.cpu_text_runs),
             cpu_text_shadows: recycle_vec(self.cpu_text_shadows),
             cpu_images: recycle_vec(self.cpu_images),
@@ -870,7 +868,6 @@ impl PrimitiveStore {
         container: PrimitiveContainer,
     ) -> PrimitiveIndex {
         let prim_index = self.cpu_metadata.len();
-        self.cpu_bounding_rects.push(None);
 
         let metadata = match container {
             PrimitiveContainer::Rectangle(rect) => {
@@ -884,6 +881,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    screen_rect: None,
                     tag,
                 };
 
@@ -902,6 +900,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    screen_rect: None,
                     tag,
                 };
 
@@ -919,6 +918,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    screen_rect: None,
                     tag,
                 };
 
@@ -936,6 +936,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    screen_rect: None,
                     tag,
                 };
 
@@ -953,6 +954,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    screen_rect: None,
                     tag,
                 };
 
@@ -970,6 +972,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    screen_rect: None,
                     tag,
                 };
 
@@ -987,6 +990,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    screen_rect: None,
                     tag,
                 };
 
@@ -1004,6 +1008,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    screen_rect: None,
                     tag,
                 };
 
@@ -1022,6 +1027,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    screen_rect: None,
                     tag,
                 };
 
@@ -1040,6 +1046,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    screen_rect: None,
                     tag,
                 };
 
@@ -1057,6 +1064,7 @@ impl PrimitiveStore {
                     local_rect: *local_rect,
                     local_clip_rect: *local_clip_rect,
                     is_backface_visible: is_backface_visible,
+                    screen_rect: None,
                     tag,
                 };
 
@@ -1086,7 +1094,8 @@ impl PrimitiveStore {
         layer_combined_local_clip_rect: &LayerRect,
         device_pixel_ratio: f32,
     ) -> Option<(LayerRect, DeviceIntRect)> {
-        let metadata = &self.cpu_metadata[prim_index.0];
+        let metadata = &mut self.cpu_metadata[prim_index.0];
+        metadata.screen_rect = None;
 
         if !metadata.is_backface_visible && layer_transform.is_backface_visible() {
             return None;
@@ -1102,7 +1111,7 @@ impl PrimitiveStore {
             xf_rect.bounding_rect.intersection(screen_rect)
         });
 
-        self.cpu_bounding_rects[prim_index.0] = bounding_rect;
+        metadata.screen_rect = bounding_rect;
         bounding_rect.map(|screen_bound| (local_rect.unwrap(), screen_bound))
     }
 

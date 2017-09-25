@@ -2295,7 +2295,7 @@ impl FrameBuilder {
                     for i in 0 .. prim_count {
                         let prim_index = PrimitiveIndex(first_prim_index.0 + i);
 
-                        if self.prim_store.cpu_bounding_rects[prim_index.0].is_some() {
+                        if self.prim_store.cpu_metadata[prim_index.0].screen_rect.is_some() {
                             self.prim_store
                                 .add_render_tasks_for_prim(prim_index, &mut current_task);
                             let item =

@@ -357,9 +357,7 @@ impl AlphaRenderItem {
                     }
                     None => (TransformedRectKind::AxisAligned, PackedLayerIndex(0)),
                 };
-                let item_bounding_rect = ctx.prim_store.cpu_bounding_rects[prim_index.0]
-                    .as_ref()
-                    .unwrap();
+                let item_bounding_rect = prim_metadata.screen_rect.as_ref().unwrap();
                 let prim_cache_address = gpu_cache.get_address(&prim_metadata.gpu_location);
                 let no_textures = BatchTextures::no_texture();
                 let clip_task_address = prim_metadata
