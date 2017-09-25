@@ -5,3 +5,8 @@
 == opacity.yaml opacity-ref.yaml
 == opacity-combined.yaml opacity-combined-ref.yaml
 == opacity-overlap.yaml opacity-overlap-ref.yaml
+== filter-brightness.yaml filter-brightness-ref.yaml
+== filter-brightness-2.yaml filter-brightness-2-ref.yaml
+== filter-brightness-3.yaml filter-brightness-3-ref.yaml
+== filter-brightness-4.yaml filter-brightness-4-ref.yaml
+== filter-invert.yaml filter-invert-ref.yaml
