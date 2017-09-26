@@ -1142,6 +1142,13 @@ impl FrameBuilder {
             }
         }
 
+        let color = match font.render_mode {
+            FontRenderMode::Bitmap => ColorF::new(1.0, 1.0, 1.0, 1.0),
+            FontRenderMode::Subpixel |
+            FontRenderMode::Alpha |
+            FontRenderMode::Mono => *color,
+        };
+
         // Shadows never use subpixel AA, but need to respect the alpha/mono flag
         // for reftests.
         let (shadow_render_mode, subpx_dir) = match default_render_mode {
@@ -1151,12 +1158,13 @@ impl FrameBuilder {
                 (FontRenderMode::Alpha, font.subpx_dir)
             }
             FontRenderMode::Mono => (FontRenderMode::Mono, SubpixelDirection::None),
+            FontRenderMode::Bitmap => (FontRenderMode::Bitmap, font.subpx_dir),
         };
 
         let prim_font = FontInstance::new(
             font.font_key,
             font.size,
-            *color,
+            color,
             normal_render_mode,
             subpx_dir,
             font.platform_options,
@@ -1171,7 +1179,7 @@ impl FrameBuilder {
             glyph_keys: Vec::new(),
             shadow_render_mode,
             offset: run_offset,
-            color: *color,
+            color: color,
         };
 
         // Text shadows that have a blur radius of 0 need to be rendered as normal
@@ -1188,7 +1196,9 @@ impl FrameBuilder {
             let shadow_prim = &self.prim_store.cpu_text_shadows[shadow_metadata.cpu_prim_index.0];
             if shadow_prim.shadow.blur_radius == 0.0 {
                 let mut text_prim = prim.clone();
-                text_prim.font.color = shadow_prim.shadow.color.into();
+                if font.render_mode != FontRenderMode::Bitmap {
+                    text_prim.font.color = shadow_prim.shadow.color.into();
+                }
                 // If we have translucent text, we need to ensure it won't go
                 // through the subpixel blend mode, which doesn't work with
                 // traditional alpha blending.
