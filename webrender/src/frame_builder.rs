@@ -1719,7 +1719,6 @@ impl FrameBuilder {
 
             let visible = self.prim_store.prepare_prim_for_render(
                 prim_index,
-                prim_screen_rect,
                 &prim_context,
                 resource_cache,
                 gpu_cache,

@@ -1156,7 +1156,6 @@ impl PrimitiveStore {
     pub fn prepare_prim_for_render(
         &mut self,
         prim_index: PrimitiveIndex,
-        prim_screen_rect: DeviceIntRect,
         prim_context: &PrimitiveContext,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
@@ -1179,7 +1178,6 @@ impl PrimitiveStore {
             for sub_prim_index in self.cpu_text_shadows[cpu_prim_index.0].primitives.clone() {
                 self.prepare_prim_for_render(
                     sub_prim_index,
-                    prim_screen_rect,
                     prim_context,
                     resource_cache,
                     gpu_cache,
@@ -1201,6 +1199,7 @@ impl PrimitiveStore {
 
         // Try to create a mask if we may need to.
         let prim_clips = clip_store.get(&metadata.clip_sources);
+        let prim_screen_rect = metadata.screen_rect.expect("bug: non-visible prim being prepared");
         let clip_task = if prim_clips.is_masking() {
             // Take into account the actual clip info of the primitive, and
             // mutate the current bounds accordingly.
