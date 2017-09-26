@@ -123,9 +123,9 @@ pub struct PrimitiveContext<'a> {
     // In the future, we'll build these once at the
     // start of the frame when updating the
     // clip-scroll tree.
-    current_clip_stack: Vec<ClipWorkItem>,
-
+    pub current_clip_stack: Vec<ClipWorkItem>,
     pub clip_bounds: DeviceIntRect,
+    pub clip_id: ClipId,
 }
 
 impl<'a> PrimitiveContext<'a> {
@@ -199,6 +199,7 @@ impl<'a> PrimitiveContext<'a> {
             current_clip_stack,
             clip_bounds,
             device_pixel_ratio,
+            clip_id,
         })
     }
 }
@@ -1716,8 +1717,9 @@ impl FrameBuilder {
 
             debug!("\t\t{:?} bound is {:?}", prim_index, prim_screen_rect);
 
-            let prim_metadata = self.prim_store.prepare_prim_for_render(
+            let visible = self.prim_store.prepare_prim_for_render(
                 prim_index,
+                prim_screen_rect,
                 &prim_context,
                 resource_cache,
                 gpu_cache,
@@ -1727,59 +1729,15 @@ impl FrameBuilder {
                 &mut self.clip_store,
             );
 
-            stacking_context.screen_bounds =
-                stacking_context.screen_bounds.union(&prim_screen_rect);
-            stacking_context.isolated_items_bounds = stacking_context
-                .isolated_items_bounds
-                .union(&prim_local_rect);
+            if visible {
+                stacking_context.screen_bounds =
+                    stacking_context.screen_bounds.union(&prim_screen_rect);
+                stacking_context.isolated_items_bounds = stacking_context
+                    .isolated_items_bounds
+                    .union(&prim_local_rect);
 
-            // Try to create a mask if we may need to.
-            let prim_clips = self.clip_store.get(&prim_metadata.clip_sources);
-            let clip_task = if prim_clips.is_masking() {
-                // Take into account the actual clip info of the primitive, and
-                // mutate the current bounds accordingly.
-                let mask_rect = match prim_clips.bounds.outer {
-                    Some(ref outer) => match prim_screen_rect.intersection(&outer.device_rect) {
-                        Some(rect) => rect,
-                        None => continue,
-                    },
-                    _ => prim_screen_rect,
-                };
-
-                let extra = ClipWorkItem {
-                    layer_index: packed_layer_index,
-                    clip_sources: prim_metadata.clip_sources.weak(),
-                    apply_rectangles: false,
-                };
-
-                RenderTask::new_mask(
-                    None,
-                    mask_rect,
-                    &prim_context.current_clip_stack,
-                    Some(extra),
-                    prim_screen_rect,
-                    &self.clip_store,
-                )
-            } else if !prim_context.current_clip_stack.is_empty() {
-                // If the primitive doesn't have a specific clip, key the task ID off the
-                // stacking context. This means that two primitives which are only clipped
-                // by the stacking context stack can share clip masks during render task
-                // assignment to targets.
-                RenderTask::new_mask(
-                    Some(clip_and_scroll.clip_node_id()),
-                    prim_context.clip_bounds,
-                    &prim_context.current_clip_stack,
-                    None,
-                    prim_screen_rect,
-                    &self.clip_store,
-                )
-            } else {
-                None
-            };
-
-            prim_metadata.clip_task_id = clip_task.map(|clip_task| render_tasks.add(clip_task));
-
-            profile_counters.visible_primitives.inc();
+                profile_counters.visible_primitives.inc();
+            }
         }
     }
 

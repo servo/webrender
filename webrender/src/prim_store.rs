@@ -14,7 +14,7 @@ use euclid::Size2D;
 use frame_builder::PrimitiveContext;
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
-use render_task::{RenderTask, RenderTaskId, RenderTaskTree};
+use render_task::{ClipWorkItem, RenderTask, RenderTaskId, RenderTaskTree};
 use renderer::MAX_VERTEX_TEXTURE_WIDTH;
 use resource_cache::{ImageProperties, ResourceCache};
 use std::{mem, usize};
@@ -1156,6 +1156,7 @@ impl PrimitiveStore {
     pub fn prepare_prim_for_render(
         &mut self,
         prim_index: PrimitiveIndex,
+        prim_screen_rect: DeviceIntRect,
         prim_context: &PrimitiveContext,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
@@ -1163,7 +1164,7 @@ impl PrimitiveStore {
         text_run_mode: TextRunMode,
         render_tasks: &mut RenderTaskTree,
         clip_store: &mut ClipStore,
-    ) -> &mut PrimitiveMetadata {
+    ) -> bool {
         let (prim_kind, cpu_prim_index) = {
             let metadata = &self.cpu_metadata[prim_index.0];
             (metadata.prim_kind, metadata.cpu_prim_index)
@@ -1178,6 +1179,7 @@ impl PrimitiveStore {
             for sub_prim_index in self.cpu_text_shadows[cpu_prim_index.0].primitives.clone() {
                 self.prepare_prim_for_render(
                     sub_prim_index,
+                    prim_screen_rect,
                     prim_context,
                     resource_cache,
                     gpu_cache,
@@ -1196,6 +1198,52 @@ impl PrimitiveStore {
             resource_cache,
             prim_context.device_pixel_ratio,
         );
+
+        // Try to create a mask if we may need to.
+        let prim_clips = clip_store.get(&metadata.clip_sources);
+        let clip_task = if prim_clips.is_masking() {
+            // Take into account the actual clip info of the primitive, and
+            // mutate the current bounds accordingly.
+            let mask_rect = match prim_clips.bounds.outer {
+                Some(ref outer) => match prim_screen_rect.intersection(&outer.device_rect) {
+                    Some(rect) => rect,
+                    None => return false,
+                },
+                _ => prim_screen_rect,
+            };
+
+            let extra = ClipWorkItem {
+                layer_index: prim_context.packed_layer_index,
+                clip_sources: metadata.clip_sources.weak(),
+                apply_rectangles: false,
+            };
+
+            RenderTask::new_mask(
+                None,
+                mask_rect,
+                &prim_context.current_clip_stack,
+                Some(extra),
+                prim_screen_rect,
+                clip_store,
+            )
+        } else if !prim_context.current_clip_stack.is_empty() {
+            // If the primitive doesn't have a specific clip, key the task ID off the
+            // stacking context. This means that two primitives which are only clipped
+            // by the stacking context stack can share clip masks during render task
+            // assignment to targets.
+            RenderTask::new_mask(
+                Some(prim_context.clip_id),
+                prim_context.clip_bounds,
+                &prim_context.current_clip_stack,
+                None,
+                prim_screen_rect,
+                clip_store,
+            )
+        } else {
+            None
+        };
+
+        metadata.clip_task_id = clip_task.map(|clip_task| render_tasks.add(clip_task));
 
         match metadata.prim_kind {
             PrimitiveKind::Rectangle | PrimitiveKind::Border | PrimitiveKind::Line => {}
@@ -1367,7 +1415,7 @@ impl PrimitiveStore {
             }
         }
 
-        metadata
+        true
     }
 }
 
