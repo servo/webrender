@@ -1707,17 +1707,7 @@ impl FrameBuilder {
         for i in 0 .. prim_count {
             let prim_index = PrimitiveIndex(base_prim_index.0 + i);
 
-            let (prim_local_rect, prim_screen_rect) = match self.prim_store.build_bounding_rect(
-                prim_index,
-                &prim_context,
-            ) {
-                Some(rects) => rects,
-                None => continue,
-            };
-
-            debug!("\t\t{:?} bound is {:?}", prim_index, prim_screen_rect);
-
-            let visible = self.prim_store.prepare_prim_for_render(
+            if let Some((prim_local_rect, prim_screen_rect)) = self.prim_store.prepare_prim_for_render(
                 prim_index,
                 &prim_context,
                 resource_cache,
@@ -1726,11 +1716,10 @@ impl FrameBuilder {
                 TextRunMode::Normal,
                 render_tasks,
                 &mut self.clip_store,
-            );
-
-            if visible {
-                stacking_context.screen_bounds =
-                    stacking_context.screen_bounds.union(&prim_screen_rect);
+            ) {
+                stacking_context.screen_bounds = stacking_context
+                    .screen_bounds
+                    .union(&prim_screen_rect);
                 stacking_context.isolated_items_bounds = stacking_context
                     .isolated_items_bounds
                     .union(&prim_local_rect);

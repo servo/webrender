@@ -1087,37 +1087,6 @@ impl PrimitiveStore {
         self.cpu_metadata.len()
     }
 
-    pub fn build_bounding_rect(
-        &mut self,
-        prim_index: PrimitiveIndex,
-        prim_context: &PrimitiveContext,
-    ) -> Option<(LayerRect, DeviceIntRect)> {
-        let metadata = &mut self.cpu_metadata[prim_index.0];
-        metadata.screen_rect = None;
-
-        if !metadata.is_backface_visible &&
-           prim_context.packed_layer.transform.is_backface_visible() {
-            return None;
-        }
-
-        let local_rect = metadata
-            .local_rect
-            .intersection(&metadata.local_clip_rect)
-            .and_then(|rect| rect.intersection(&prim_context.packed_layer.local_clip_rect));
-
-        let bounding_rect = local_rect.and_then(|local_rect| {
-            let xf_rect = TransformedRect::new(
-                &local_rect,
-                &prim_context.packed_layer.transform,
-                prim_context.device_pixel_ratio
-            );
-            xf_rect.bounding_rect.intersection(&prim_context.clip_bounds)
-        });
-
-        metadata.screen_rect = bounding_rect;
-        bounding_rect.map(|screen_bound| (local_rect.unwrap(), screen_bound))
-    }
-
     /// Add any task dependencies for this primitive to the provided task.
     pub fn add_render_tasks_for_prim(&self, prim_index: PrimitiveIndex, task: &mut RenderTask) {
         // Add any dynamic render tasks needed to render this primitive
@@ -1163,10 +1132,40 @@ impl PrimitiveStore {
         text_run_mode: TextRunMode,
         render_tasks: &mut RenderTaskTree,
         clip_store: &mut ClipStore,
-    ) -> bool {
-        let (prim_kind, cpu_prim_index) = {
-            let metadata = &self.cpu_metadata[prim_index.0];
-            (metadata.prim_kind, metadata.cpu_prim_index)
+    ) -> Option<(LayerRect, DeviceIntRect)> {
+        let (prim_local_rect, prim_screen_rect, prim_kind, cpu_prim_index) = {
+            let metadata = &mut self.cpu_metadata[prim_index.0];
+            metadata.screen_rect = None;
+
+            if !metadata.is_backface_visible &&
+               prim_context.packed_layer.transform.is_backface_visible() {
+                return None;
+            }
+
+            let local_rect = metadata
+                .local_rect
+                .intersection(&metadata.local_clip_rect)
+                .and_then(|rect| rect.intersection(&prim_context.packed_layer.local_clip_rect));
+
+            let local_rect = match local_rect {
+                Some(local_rect) => local_rect,
+                None => return None,
+            };
+
+            let xf_rect = TransformedRect::new(
+                &local_rect,
+                &prim_context.packed_layer.transform,
+                prim_context.device_pixel_ratio
+            );
+
+            metadata.screen_rect = xf_rect
+                .bounding_rect
+                .intersection(&prim_context.clip_bounds);
+
+            match metadata.screen_rect {
+                Some(screen_rect) => (local_rect, screen_rect, metadata.prim_kind, metadata.cpu_prim_index),
+                None => return None,
+            }
         };
 
         // Recurse into any sub primitives and prepare them for rendering first.
@@ -1199,14 +1198,13 @@ impl PrimitiveStore {
 
         // Try to create a mask if we may need to.
         let prim_clips = clip_store.get(&metadata.clip_sources);
-        let prim_screen_rect = metadata.screen_rect.expect("bug: non-visible prim being prepared");
         let clip_task = if prim_clips.is_masking() {
             // Take into account the actual clip info of the primitive, and
             // mutate the current bounds accordingly.
             let mask_rect = match prim_clips.bounds.outer {
                 Some(ref outer) => match prim_screen_rect.intersection(&outer.device_rect) {
                     Some(rect) => rect,
-                    None => return false,
+                    None => return None,
                 },
                 _ => prim_screen_rect,
             };
@@ -1414,7 +1412,7 @@ impl PrimitiveStore {
             }
         }
 
-        true
+        Some((prim_local_rect, prim_screen_rect))
     }
 }
 
