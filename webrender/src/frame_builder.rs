@@ -112,15 +112,96 @@ pub struct FrameBuilder {
 
     /// Whether or not we've pushed a root stacking context for the current pipeline.
     has_root_stacking_context: bool,
+}
 
-    /// A cached clip info stack, which should handle the most common situation,
-    /// which is that we are using the same clip info stack that we were using
-    /// previously.
-    current_clip_stack: Vec<ClipWorkItem>,
+pub struct PrimitiveContext<'a> {
+    pub packed_layer_index: PackedLayerIndex,
+    pub packed_layer: &'a PackedLayer,
+    pub device_pixel_ratio: f32,
 
-    /// Information about the cached clip stack, which is used to avoid having
-    /// to recalculate it for every primitive.
-    current_clip_info: Option<(ClipId, Option<DeviceIntRect>)>,
+    // Clip items that apply for this primitive run.
+    // In the future, we'll build these once at the
+    // start of the frame when updating the
+    // clip-scroll tree.
+    pub current_clip_stack: Vec<ClipWorkItem>,
+    pub clip_bounds: DeviceIntRect,
+    pub clip_id: ClipId,
+}
+
+impl<'a> PrimitiveContext<'a> {
+    fn new(
+        packed_layer_index: PackedLayerIndex,
+        packed_layer: &'a PackedLayer,
+        clip_id: ClipId,
+        screen_rect: &DeviceIntRect,
+        clip_scroll_tree: &ClipScrollTree,
+        clip_store: &ClipStore,
+        device_pixel_ratio: f32) -> Option<Self> {
+
+        let mut current_clip_stack = Vec::new();
+        let mut clip_bounds = *screen_rect;
+        let mut current_id = Some(clip_id);
+        // Indicates if the next non-reference-frame that we encounter needs to have its
+        // local combined clip rectangle backed into the clip mask.
+        let mut next_node_needs_region_mask = false;
+        while let Some(id) = current_id {
+            let node = &clip_scroll_tree.nodes.get(&id).unwrap();
+            current_id = node.parent;
+
+            let clip = match node.node_type {
+                NodeType::ReferenceFrame(ref info) => {
+                    // if the transform is non-aligned, bake the next LCCR into the clip mask
+                    next_node_needs_region_mask |= !info.transform.preserves_2d_axis_alignment();
+                    continue;
+                }
+                NodeType::Clip(ref clip) => clip,
+                NodeType::StickyFrame(..) | NodeType::ScrollFrame(..) => {
+                    continue;
+                }
+            };
+
+            let clip_sources = clip_store.get(&clip.clip_sources);
+            if !clip_sources.is_masking() {
+                continue;
+            }
+
+            // apply the screen bounds of the clip node
+            //Note: these are based on the local combined viewport, so can be tighter
+            if let Some((_kind, ref screen_rect)) = clip.screen_bounding_rect {
+                clip_bounds = match clip_bounds.intersection(screen_rect) {
+                    Some(rect) => rect,
+                    None => return None,
+                }
+            }
+
+            // apply the outer device bounds of the clip stack
+            if let Some(ref outer) = clip_sources.bounds.outer {
+                clip_bounds = match clip_bounds.intersection(&outer.device_rect) {
+                    Some(rect) => rect,
+                    None => return None,
+                }
+            }
+
+            //TODO-LCCR: bake a single LCCR instead of all aligned rects?
+            current_clip_stack.push(ClipWorkItem {
+                layer_index: clip.packed_layer_index,
+                clip_sources: clip.clip_sources.weak(),
+                apply_rectangles: next_node_needs_region_mask,
+            });
+            next_node_needs_region_mask = false;
+        }
+
+        current_clip_stack.reverse();
+
+        Some(PrimitiveContext {
+            packed_layer_index,
+            packed_layer,
+            current_clip_stack,
+            clip_bounds,
+            device_pixel_ratio,
+            clip_id,
+        })
+    }
 }
 
 impl FrameBuilder {
@@ -148,8 +229,6 @@ impl FrameBuilder {
                 background_color,
                 config,
                 has_root_stacking_context: false,
-                current_clip_stack: recycle_vec(prev.current_clip_stack),
-                current_clip_info: None,
             },
             None => FrameBuilder {
                 stacking_context_store: Vec::new(),
@@ -168,8 +247,6 @@ impl FrameBuilder {
                 background_color,
                 config,
                 has_root_stacking_context: false,
-                current_clip_stack: Vec::new(),
-                current_clip_info: None,
             },
         }
     }
@@ -1468,80 +1545,6 @@ impl FrameBuilder {
         stacking_context.isolated_items_bounds = LayerRect::zero();
     }
 
-    fn rebuild_clip_info_stack_if_necessary(
-        &mut self,
-        clip_id: ClipId,
-        clip_scroll_tree: &ClipScrollTree,
-        screen_rect: &DeviceIntRect,
-    ) -> Option<DeviceIntRect> {
-        if let Some((current_id, bounding_rect)) = self.current_clip_info {
-            if current_id == clip_id {
-                return bounding_rect;
-            }
-        }
-
-        // TODO(mrobinson): If we notice that this process is expensive, we can special-case
-        // more common situations, such as moving from a child or a parent.
-        self.current_clip_stack.clear();
-        self.current_clip_info = Some((clip_id, None));
-
-        let mut bounding_rect = *screen_rect;
-        let mut current_id = Some(clip_id);
-        // Indicates if the next non-reference-frame that we encounter needs to have its
-        // local combined clip rectangle backed into the clip mask.
-        let mut next_node_needs_region_mask = false;
-        while let Some(id) = current_id {
-            let node = &clip_scroll_tree.nodes.get(&id).unwrap();
-            current_id = node.parent;
-
-            let clip = match node.node_type {
-                NodeType::ReferenceFrame(ref info) => {
-                    // if the transform is non-aligned, bake the next LCCR into the clip mask
-                    next_node_needs_region_mask |= !info.transform.preserves_2d_axis_alignment();
-                    continue;
-                }
-                NodeType::Clip(ref clip) => clip,
-                NodeType::StickyFrame(..) | NodeType::ScrollFrame(..) => {
-                    continue;
-                }
-            };
-
-            let clip_sources = self.clip_store.get(&clip.clip_sources);
-            if !clip_sources.is_masking() {
-                continue;
-            }
-
-            // apply the screen bounds of the clip node
-            //Note: these are based on the local combined viewport, so can be tighter
-            if let Some((_kind, ref screen_rect)) = clip.screen_bounding_rect {
-                bounding_rect = match bounding_rect.intersection(screen_rect) {
-                    Some(rect) => rect,
-                    None => return None,
-                }
-            }
-
-            // apply the outer device bounds of the clip stack
-            if let Some(ref outer) = clip_sources.bounds.outer {
-                bounding_rect = match bounding_rect.intersection(&outer.device_rect) {
-                    Some(rect) => rect,
-                    None => return None,
-                }
-            }
-
-            //TODO-LCCR: bake a single LCCR instead of all aligned rects?
-            self.current_clip_stack.push(ClipWorkItem {
-                layer_index: clip.packed_layer_index,
-                clip_sources: clip.clip_sources.weak(),
-                apply_rectangles: next_node_needs_region_mask,
-            });
-            next_node_needs_region_mask = false;
-        }
-
-        self.current_clip_stack.reverse();
-        self.current_clip_info = Some((clip_id, Some(bounding_rect)));
-        Some(bounding_rect)
-    }
-
     pub fn get_packed_layer_index_if_visible(
         &self,
         clip_and_scroll: &ClipAndScrollInfo
@@ -1667,15 +1670,6 @@ impl FrameBuilder {
             stacking_context_index,
             packed_layer_index
         );
-        let clip_bounds =
-            match self.rebuild_clip_info_stack_if_necessary(
-                clip_and_scroll.clip_node_id(),
-                clip_scroll_tree,
-                screen_rect
-            ) {
-                Some(rect) => rect,
-                None => return,
-            };
 
         let stacking_context =
             &mut self.stacking_context_store[stacking_context_index.0];
@@ -1684,96 +1678,54 @@ impl FrameBuilder {
             .get(&pipeline_id)
             .expect("No display list?")
             .display_list;
-        debug!(
-            "\tclip_bounds {:?}, layer_local_clip {:?}",
-            clip_bounds,
-            packed_layer.local_clip_rect
-        );
 
         if !stacking_context.is_backface_visible && packed_layer.transform.is_backface_visible() {
             return;
         }
 
+        let prim_context = PrimitiveContext::new(
+            packed_layer_index,
+            packed_layer,
+            clip_and_scroll.clip_node_id(),
+            screen_rect,
+            clip_scroll_tree,
+            &self.clip_store,
+            device_pixel_ratio,
+        );
+
+        let prim_context = match prim_context {
+            Some(prim_context) => prim_context,
+            None => return,
+        };
+
+        debug!(
+            "\tclip_bounds {:?}, layer_local_clip {:?}",
+            prim_context.clip_bounds,
+            packed_layer.local_clip_rect
+        );
+
         for i in 0 .. prim_count {
             let prim_index = PrimitiveIndex(base_prim_index.0 + i);
-            let (prim_local_rect, prim_screen_rect) = match self.prim_store.build_bounding_rect(
-                prim_index,
-                &clip_bounds,
-                &packed_layer.transform,
-                &packed_layer.local_clip_rect,
-                device_pixel_ratio,
-            ) {
-                Some(rects) => rects,
-                None => continue,
-            };
 
-            debug!("\t\t{:?} bound is {:?}", prim_index, prim_screen_rect);
-
-            let prim_metadata = self.prim_store.prepare_prim_for_render(
+            if let Some(prim_geom) = self.prim_store.prepare_prim_for_render(
                 prim_index,
+                &prim_context,
                 resource_cache,
                 gpu_cache,
-                &packed_layer.transform,
-                device_pixel_ratio,
                 display_list,
                 TextRunMode::Normal,
                 render_tasks,
                 &mut self.clip_store,
-            );
+            ) {
+                stacking_context.screen_bounds = stacking_context
+                    .screen_bounds
+                    .union(&prim_geom.device_rect);
+                stacking_context.isolated_items_bounds = stacking_context
+                    .isolated_items_bounds
+                    .union(&prim_geom.local_rect);
 
-            stacking_context.screen_bounds =
-                stacking_context.screen_bounds.union(&prim_screen_rect);
-            stacking_context.isolated_items_bounds = stacking_context
-                .isolated_items_bounds
-                .union(&prim_local_rect);
-
-            // Try to create a mask if we may need to.
-            let prim_clips = self.clip_store.get(&prim_metadata.clip_sources);
-            let clip_task = if prim_clips.is_masking() {
-                // Take into account the actual clip info of the primitive, and
-                // mutate the current bounds accordingly.
-                let mask_rect = match prim_clips.bounds.outer {
-                    Some(ref outer) => match prim_screen_rect.intersection(&outer.device_rect) {
-                        Some(rect) => rect,
-                        None => continue,
-                    },
-                    _ => prim_screen_rect,
-                };
-
-                let extra = ClipWorkItem {
-                    layer_index: packed_layer_index,
-                    clip_sources: prim_metadata.clip_sources.weak(),
-                    apply_rectangles: false,
-                };
-
-                RenderTask::new_mask(
-                    None,
-                    mask_rect,
-                    &self.current_clip_stack,
-                    Some(extra),
-                    prim_screen_rect,
-                    &self.clip_store,
-                )
-            } else if !self.current_clip_stack.is_empty() {
-                // If the primitive doesn't have a specific clip, key the task ID off the
-                // stacking context. This means that two primitives which are only clipped
-                // by the stacking context stack can share clip masks during render task
-                // assignment to targets.
-                RenderTask::new_mask(
-                    Some(clip_and_scroll.clip_node_id()),
-                    clip_bounds,
-                    &self.current_clip_stack,
-                    None,
-                    prim_screen_rect,
-                    &self.clip_store,
-                )
-            } else {
-                None
-            };
-
-            prim_metadata.clip_task_id = clip_task.map(|clip_task| render_tasks.add(clip_task));
-
-            profile_counters.visible_primitives.inc();
+                profile_counters.visible_primitives.inc();
+            }
         }
     }
 
@@ -2295,7 +2247,7 @@ impl FrameBuilder {
                     for i in 0 .. prim_count {
                         let prim_index = PrimitiveIndex(first_prim_index.0 + i);
 
-                        if self.prim_store.cpu_bounding_rects[prim_index.0].is_some() {
+                        if self.prim_store.cpu_metadata[prim_index.0].screen_rect.is_some() {
                             self.prim_store
                                 .add_render_tasks_for_prim(prim_index, &mut current_task);
                             let item =
