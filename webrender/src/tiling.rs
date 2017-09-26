@@ -55,7 +55,9 @@ impl AlphaBatchHelpers for PrimitiveStore {
                 let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
                 match text_run_cpu.font.render_mode {
                     FontRenderMode::Subpixel => BlendMode::Subpixel(text_run_cpu.color),
-                    FontRenderMode::Alpha | FontRenderMode::Mono => BlendMode::Alpha,
+                    FontRenderMode::Alpha |
+                    FontRenderMode::Mono |
+                    FontRenderMode::Bitmap => BlendMode::Alpha,
                 }
             }
             PrimitiveKind::Image |
