@@ -19,6 +19,15 @@ use webrender::api::*;
 use wrench::{Wrench, WrenchThing};
 use yaml_frame_reader::YamlFrameReader;
 
+#[cfg(target_os = "windows")]
+const PLATFORM: &str = "win";
+#[cfg(target_os = "linux")]
+const PLATFORM: &str = "linux";
+#[cfg(target_os = "macos")]
+const PLATFORM: &str = "mac";
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+const PLATFORM: &str = "other";
+
 pub struct ReftestOptions {
     // These override values that are lower.
     pub allow_max_difference: usize,
@@ -165,37 +174,55 @@ impl ReftestManifest {
                 continue;
             }
 
-            let items: Vec<&str> = s.split_whitespace().collect();
+            let tokens: Vec<&str> = s.split_whitespace().collect();
 
-            match items[0] {
-                "include" => {
-                    let include = dir.join(items[1]);
+            let mut max_difference = 0;
+            let mut max_count = 0;
+            let mut op = ReftestOp::Equal;
 
-                    reftests.append(
-                        &mut ReftestManifest::new(include.as_path(), options).reftests,
-                    );
+            for (i, token) in tokens.iter().enumerate() {
+                match *token {
+                    "include" => {
+                        assert!(i == 0, "include must be by itself");
+                        let include = dir.join(tokens[1]);
+
+                        reftests.append(
+                            &mut ReftestManifest::new(include.as_path(), options).reftests,
+                        );
+
+                        break;
+                    }
+                    platform if platform.starts_with("platform") => {
+                        let (_, args, _) = parse_function(platform);
+                        if !args.iter().any(|arg| arg == &PLATFORM) {
+                            // Skip due to platform not matching
+                            break;
+                        }
+                    }
+                    function if function.starts_with("fuzzy") => {
+                        let (_, args, _) = parse_function(function);
+                        max_difference = args[0].parse().unwrap();
+                        max_count = args[1].parse().unwrap();
+                    }
+                    "==" => {
+                        op = ReftestOp::Equal;
+                    }
+                    "!=" => {
+                        op = ReftestOp::NotEqual;
+                    }
+                    _ => {
+                        reftests.push(Reftest {
+                            op,
+                            test: dir.join(tokens[i + 0]),
+                            reference: dir.join(tokens[i + 1]),
+                            max_difference: cmp::max(max_difference, options.allow_max_difference),
+                            num_differences: cmp::max(max_count, options.allow_num_differences),
+                        });
+
+                        break;
+                    }
                 }
-                item_str => {
-                    // If the first item is "fuzzy(<val>,<count>)" the positions of the operator
-                    // and paths in the array are offset.
-                    // TODO: This is simple but not great because it does not support having spaces
-                    // in the fuzzy syntax, like between the arguments.
-                    let (max, count, offset) = if item_str.starts_with("fuzzy(") {
-                        let (_, args, _) = parse_function(item_str);
-                        (args[0].parse().unwrap(), args[1].parse().unwrap(), 1)
-                    } else {
-                        (0, 0, 0)
-                    };
-
-                    reftests.push(Reftest {
-                        op: parse_operator(items[offset]).expect("unexpected match operator"),
-                        test: dir.join(items[offset + 1]),
-                        reference: dir.join(items[offset + 2]),
-                        max_difference: cmp::max(max, options.allow_max_difference),
-                        num_differences: cmp::max(count, options.allow_num_differences),
-                    });
-                }
-            };
+            }
         }
 
         ReftestManifest { reftests: reftests }
@@ -208,14 +235,6 @@ impl ReftestManifest {
                 x.test.starts_with(prefix) || x.reference.starts_with(prefix)
             })
             .collect()
-    }
-}
-
-fn parse_operator(op_str: &str) -> Option<ReftestOp> {
-    match op_str {
-        "==" => Some(ReftestOp::Equal),
-        "!=" => Some(ReftestOp::NotEqual),
-        _ => None,
     }
 }
 

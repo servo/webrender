@@ -20,4 +20,4 @@ fuzzy(1,100) == decorations-suite.yaml decorations-suite.png
 fuzzy(1,160) == shadow-grey.yaml shadow-grey-ref.yaml
 == subtle-shadow.yaml subtle-shadow-ref.yaml
 # enable when synthetic-italics implemented on mac
-# != synthetic-italics.yaml synthetic-italics-ref.yaml
+platform(linux) != synthetic-italics.yaml synthetic-italics-ref.yaml
