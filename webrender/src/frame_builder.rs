@@ -117,6 +117,7 @@ pub struct FrameBuilder {
 pub struct PrimitiveContext<'a> {
     pub packed_layer_index: PackedLayerIndex,
     pub packed_layer: &'a PackedLayer,
+    pub device_pixel_ratio: f32,
 
     // Clip items that apply for this primitive run.
     // In the future, we'll build these once at the
@@ -134,7 +135,8 @@ impl<'a> PrimitiveContext<'a> {
         clip_id: ClipId,
         screen_rect: &DeviceIntRect,
         clip_scroll_tree: &ClipScrollTree,
-        clip_store: &ClipStore) -> Option<PrimitiveContext<'a>> {
+        clip_store: &ClipStore,
+        device_pixel_ratio: f32) -> Option<PrimitiveContext<'a>> {
 
         let mut current_clip_stack = Vec::new();
         let mut clip_bounds = *screen_rect;
@@ -196,6 +198,7 @@ impl<'a> PrimitiveContext<'a> {
             packed_layer,
             current_clip_stack,
             clip_bounds,
+            device_pixel_ratio,
         })
     }
 }
@@ -1686,6 +1689,7 @@ impl FrameBuilder {
             screen_rect,
             clip_scroll_tree,
             &self.clip_store,
+            device_pixel_ratio,
         );
 
         let prim_context = match prim_context {
@@ -1705,7 +1709,6 @@ impl FrameBuilder {
             let (prim_local_rect, prim_screen_rect) = match self.prim_store.build_bounding_rect(
                 prim_index,
                 &prim_context,
-                device_pixel_ratio,
             ) {
                 Some(rects) => rects,
                 None => continue,
@@ -1718,7 +1721,6 @@ impl FrameBuilder {
                 &prim_context,
                 resource_cache,
                 gpu_cache,
-                device_pixel_ratio,
                 display_list,
                 TextRunMode::Normal,
                 render_tasks,

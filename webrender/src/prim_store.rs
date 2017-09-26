@@ -1091,7 +1091,6 @@ impl PrimitiveStore {
         &mut self,
         prim_index: PrimitiveIndex,
         prim_context: &PrimitiveContext,
-        device_pixel_ratio: f32,
     ) -> Option<(LayerRect, DeviceIntRect)> {
         let metadata = &mut self.cpu_metadata[prim_index.0];
         metadata.screen_rect = None;
@@ -1110,7 +1109,7 @@ impl PrimitiveStore {
             let xf_rect = TransformedRect::new(
                 &local_rect,
                 &prim_context.packed_layer.transform,
-                device_pixel_ratio
+                prim_context.device_pixel_ratio
             );
             xf_rect.bounding_rect.intersection(&prim_context.clip_bounds)
         });
@@ -1160,7 +1159,6 @@ impl PrimitiveStore {
         prim_context: &PrimitiveContext,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
-        device_pixel_ratio: f32,
         display_list: &BuiltDisplayList,
         text_run_mode: TextRunMode,
         render_tasks: &mut RenderTaskTree,
@@ -1183,7 +1181,6 @@ impl PrimitiveStore {
                     prim_context,
                     resource_cache,
                     gpu_cache,
-                    device_pixel_ratio,
                     display_list,
                     TextRunMode::Shadow,
                     render_tasks,
@@ -1197,7 +1194,7 @@ impl PrimitiveStore {
             &prim_context.packed_layer.transform,
             gpu_cache,
             resource_cache,
-            device_pixel_ratio,
+            prim_context.device_pixel_ratio,
         );
 
         match metadata.prim_kind {
@@ -1211,7 +1208,7 @@ impl PrimitiveStore {
                 // the patch, in order to prevent bilinear filter artifacts as
                 // the patch is clamped / mirrored across the box shadow rect.
                 let box_shadow = &mut self.cpu_box_shadows[cpu_prim_index.0];
-                let edge_size = box_shadow.edge_size.ceil() * device_pixel_ratio;
+                let edge_size = box_shadow.edge_size.ceil() * prim_context.device_pixel_ratio;
                 let edge_size = edge_size as i32 + 2; // Account for bilinear filtering
                 let cache_size = DeviceIntSize::new(edge_size, edge_size);
 
@@ -1249,11 +1246,11 @@ impl PrimitiveStore {
                 // blur to that text run in order to build the actual primitive
                 // which will be blitted to the framebuffer.
                 let cache_width =
-                    (metadata.local_rect.size.width * device_pixel_ratio).ceil() as i32;
+                    (metadata.local_rect.size.width * prim_context.device_pixel_ratio).ceil() as i32;
                 let cache_height =
-                    (metadata.local_rect.size.height * device_pixel_ratio).ceil() as i32;
+                    (metadata.local_rect.size.height * prim_context.device_pixel_ratio).ceil() as i32;
                 let cache_size = DeviceIntSize::new(cache_width, cache_height);
-                let blur_radius = device_length(shadow.shadow.blur_radius, device_pixel_ratio);
+                let blur_radius = device_length(shadow.shadow.blur_radius, prim_context.device_pixel_ratio);
                 let prim_cache_task = RenderTask::new_prim_cache(cache_size, prim_index);
                 let prim_cache_task_id = render_tasks.add(prim_cache_task);
                 let render_task =
@@ -1264,7 +1261,7 @@ impl PrimitiveStore {
                 let text = &mut self.cpu_text_runs[cpu_prim_index.0];
                 text.prepare_for_render(
                     resource_cache,
-                    device_pixel_ratio,
+                    prim_context.device_pixel_ratio,
                     display_list,
                     text_run_mode,
                     gpu_cache,
