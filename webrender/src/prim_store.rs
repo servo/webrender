@@ -5,12 +5,13 @@
 use api::{BorderRadius, BuiltDisplayList, ColorF, ComplexClipRegion, DeviceIntRect, DeviceIntSize};
 use api::{DevicePoint, ExtendMode, FontInstance, FontRenderMode, GlyphInstance, GlyphKey};
 use api::{GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerRect};
-use api::{LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation, LineStyle, TextShadow};
+use api::{LayerSize, LayerVector2D, LineOrientation, LineStyle, TextShadow};
 use api::{TileOffset, YuvColorSpace, YuvFormat, device_length};
 use app_units::Au;
 use border::BorderCornerInstance;
 use clip::{ClipMode, ClipSourcesHandle, ClipStore};
 use euclid::Size2D;
+use frame_builder::PrimitiveContext;
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
 use render_task::{RenderTask, RenderTaskId, RenderTaskTree};
@@ -1089,26 +1090,29 @@ impl PrimitiveStore {
     pub fn build_bounding_rect(
         &mut self,
         prim_index: PrimitiveIndex,
-        screen_rect: &DeviceIntRect,
-        layer_transform: &LayerToWorldTransform,
-        layer_combined_local_clip_rect: &LayerRect,
+        prim_context: &PrimitiveContext,
         device_pixel_ratio: f32,
     ) -> Option<(LayerRect, DeviceIntRect)> {
         let metadata = &mut self.cpu_metadata[prim_index.0];
         metadata.screen_rect = None;
 
-        if !metadata.is_backface_visible && layer_transform.is_backface_visible() {
+        if !metadata.is_backface_visible &&
+           prim_context.packed_layer.transform.is_backface_visible() {
             return None;
         }
 
         let local_rect = metadata
             .local_rect
             .intersection(&metadata.local_clip_rect)
-            .and_then(|rect| rect.intersection(layer_combined_local_clip_rect));
+            .and_then(|rect| rect.intersection(&prim_context.packed_layer.local_clip_rect));
 
         let bounding_rect = local_rect.and_then(|local_rect| {
-            let xf_rect = TransformedRect::new(&local_rect, layer_transform, device_pixel_ratio);
-            xf_rect.bounding_rect.intersection(screen_rect)
+            let xf_rect = TransformedRect::new(
+                &local_rect,
+                &prim_context.packed_layer.transform,
+                device_pixel_ratio
+            );
+            xf_rect.bounding_rect.intersection(&prim_context.clip_bounds)
         });
 
         metadata.screen_rect = bounding_rect;
@@ -1153,9 +1157,9 @@ impl PrimitiveStore {
     pub fn prepare_prim_for_render(
         &mut self,
         prim_index: PrimitiveIndex,
+        prim_context: &PrimitiveContext,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
-        layer_transform: &LayerToWorldTransform,
         device_pixel_ratio: f32,
         display_list: &BuiltDisplayList,
         text_run_mode: TextRunMode,
@@ -1176,9 +1180,9 @@ impl PrimitiveStore {
             for sub_prim_index in self.cpu_text_shadows[cpu_prim_index.0].primitives.clone() {
                 self.prepare_prim_for_render(
                     sub_prim_index,
+                    prim_context,
                     resource_cache,
                     gpu_cache,
-                    layer_transform,
                     device_pixel_ratio,
                     display_list,
                     TextRunMode::Shadow,
@@ -1190,7 +1194,7 @@ impl PrimitiveStore {
 
         let metadata = &mut self.cpu_metadata[prim_index.0];
         clip_store.get_mut(&metadata.clip_sources).update(
-            layer_transform,
+            &prim_context.packed_layer.transform,
             gpu_cache,
             resource_cache,
             device_pixel_ratio,
@@ -1228,7 +1232,11 @@ impl PrimitiveStore {
                 // shadow shader needs to run on.
                 // TODO(gw): In the future, we can probably merge the box shadow
                 // primitive (stretch) shader with the generic cached primitive shader.
-                let render_task = RenderTask::new_box_shadow(cache_key, cache_size, prim_index);
+                let render_task = RenderTask::new_box_shadow(
+                    cache_key,
+                    cache_size,
+                    prim_index
+                );
                 let render_task_id = render_tasks.add(render_task);
 
                 box_shadow.render_task_id = Some(render_task_id);
