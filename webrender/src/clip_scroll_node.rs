@@ -32,10 +32,6 @@ pub struct ClipInfo {
     /// which depends on the screen rectangle and the transformation of all of
     /// the parents.
     pub screen_bounding_rect: Option<(TransformedRectKind, DeviceIntRect)>,
-
-    /// A rectangle which defines the rough boundaries of this clip in reference
-    /// frame relative coordinates (with no scroll offsets).
-    pub clip_rect: LayerRect,
 }
 
 impl ClipInfo {
@@ -44,12 +40,10 @@ impl ClipInfo {
         packed_layer_index: PackedLayerIndex,
         clip_store: &mut ClipStore,
     ) -> ClipInfo {
-        let clip_rect = LayerRect::new(clip_region.origin, clip_region.main.size);
         ClipInfo {
             clip_sources: clip_store.insert(ClipSources::from(clip_region)),
             packed_layer_index,
             screen_bounding_rect: None,
-            clip_rect: clip_rect,
         }
     }
 }
@@ -144,10 +138,15 @@ impl ClipScrollNode {
         }
     }
 
-    pub fn new(pipeline_id: PipelineId, parent_id: ClipId, clip_info: ClipInfo) -> ClipScrollNode {
+    pub fn new_clip_node(
+        pipeline_id: PipelineId,
+        parent_id: ClipId,
+        clip_info: ClipInfo,
+        clip_rect: LayerRect,
+    ) -> ClipScrollNode {
         ClipScrollNode {
-            local_viewport_rect: clip_info.clip_rect,
-            local_clip_rect: clip_info.clip_rect,
+            local_viewport_rect: clip_rect,
+            local_clip_rect: clip_rect,
             combined_local_viewport_rect: LayerRect::zero(),
             world_viewport_transform: LayerToWorldTransform::identity(),
             world_content_transform: LayerToWorldTransform::identity(),

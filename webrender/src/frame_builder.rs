@@ -548,12 +548,13 @@ impl FrameBuilder {
         clip_region: ClipRegion,
         clip_scroll_tree: &mut ClipScrollTree,
     ) {
+        let clip_rect = LayerRect::new(clip_region.origin, clip_region.main.size);
         let clip_info = ClipInfo::new(
             clip_region,
             PackedLayerIndex(self.packed_layers.len()),
             &mut self.clip_store,
         );
-        let node = ClipScrollNode::new(pipeline_id, parent_id, clip_info);
+        let node = ClipScrollNode::new_clip_node(pipeline_id, parent_id, clip_info, clip_rect);
         clip_scroll_tree.add_node(node, new_node_id);
         self.packed_layers.push(PackedLayer::empty());
     }
