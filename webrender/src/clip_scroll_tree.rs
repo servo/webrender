@@ -413,7 +413,6 @@ impl ClipScrollTree {
         let node = ClipScrollNode::new_reference_frame(
             parent_id,
             rect,
-            rect.size,
             transform,
             origin_in_parent_reference_frame,
             pipeline_id,
@@ -481,6 +480,7 @@ impl ClipScrollTree {
             }
             NodeType::ScrollFrame(scrolling_info) => {
                 pt.new_level(format!("ScrollFrame"));
+                pt.add_item(format!("scrollable_size: {:?}", scrolling_info.scrollable_size));
                 pt.add_item(format!("scroll.offset: {:?}", scrolling_info.offset));
             }
             NodeType::StickyFrame(sticky_frame_info) => {
@@ -489,7 +489,6 @@ impl ClipScrollTree {
             }
         }
 
-        pt.add_item(format!("content_size: {:?}", node.content_size));
         pt.add_item(format!(
             "local_viewport_rect: {:?}",
             node.local_viewport_rect

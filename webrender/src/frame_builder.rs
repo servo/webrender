@@ -1937,7 +1937,7 @@ impl FrameBuilder {
             // Invalidate what's in the cache so it will get rebuilt.
             gpu_cache.invalidate(&metadata.gpu_location);
 
-            let scrollable_distance = clip_scroll_node.scrollable_height();
+            let scrollable_distance = clip_scroll_node.scrollable_size().height;
 
             if scrollable_distance <= 0.0 {
                 metadata.local_clip_rect.size = LayerSize::zero();
