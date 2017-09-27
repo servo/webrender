@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ClipId, DeviceIntRect, LayerPixel, LayerPoint, LayerRect, LayerSize};
+use api::{ClipId, LayerPixel, LayerPoint, LayerRect, LayerSize};
 use api::{LayerToScrollTransform, LayerToWorldTransform, LayerVector2D, PipelineId};
 use api::{ScrollClamping, ScrollEventPhase, ScrollLocation, ScrollSensitivity, StickyFrameInfo};
 use api::WorldPoint;
@@ -11,7 +11,7 @@ use clip_scroll_tree::TransformUpdateState;
 use geometry::ray_intersects_rect;
 use spring::{Spring, DAMPING, STIFFNESS};
 use tiling::PackedLayerIndex;
-use util::{MatrixHelpers, TransformedRectKind};
+use util::MatrixHelpers;
 
 #[cfg(target_os = "macos")]
 const CAN_OVERSCROLL: bool = true;
@@ -27,11 +27,6 @@ pub struct ClipInfo {
     /// The packed layer index for this node, which is used to render a clip mask
     /// for it, if necessary.
     pub packed_layer_index: PackedLayerIndex,
-
-    /// The final transformed rectangle of this clipping region for this node,
-    /// which depends on the screen rectangle and the transformation of all of
-    /// the parents.
-    pub screen_bounding_rect: Option<(TransformedRectKind, DeviceIntRect)>,
 }
 
 impl ClipInfo {
@@ -43,7 +38,6 @@ impl ClipInfo {
         ClipInfo {
             clip_sources: clip_store.insert(ClipSources::from(clip_region)),
             packed_layer_index,
-            screen_bounding_rect: None,
         }
     }
 }

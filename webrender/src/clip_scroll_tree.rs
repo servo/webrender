@@ -463,10 +463,6 @@ impl ClipScrollTree {
         match node.node_type {
             NodeType::Clip(ref info) => {
                 pt.new_level("Clip".to_owned());
-                pt.add_item(format!(
-                    "screen_bounding_rect: {:?}",
-                    info.screen_bounding_rect
-                ));
 
                 let clips = clip_store.get(&info.clip_sources).clips();
                 pt.new_level(format!("Clip Sources [{}]", clips.len()));
