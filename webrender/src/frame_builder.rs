@@ -165,15 +165,6 @@ impl<'a> PrimitiveContext<'a> {
                 continue;
             }
 
-            // apply the screen bounds of the clip node
-            //Note: these are based on the local combined viewport, so can be tighter
-            if let Some((_kind, ref screen_rect)) = clip.screen_bounding_rect {
-                clip_bounds = match clip_bounds.intersection(screen_rect) {
-                    Some(rect) => rect,
-                    None => return None,
-                }
-            }
-
             // apply the outer device bounds of the clip stack
             if let Some(ref outer) = clip_sources.bounds.outer {
                 clip_bounds = match clip_bounds.intersection(&outer.device_rect) {
@@ -548,12 +539,13 @@ impl FrameBuilder {
         clip_region: ClipRegion,
         clip_scroll_tree: &mut ClipScrollTree,
     ) {
+        let clip_rect = LayerRect::new(clip_region.origin, clip_region.main.size);
         let clip_info = ClipInfo::new(
             clip_region,
             PackedLayerIndex(self.packed_layers.len()),
             &mut self.clip_store,
         );
-        let node = ClipScrollNode::new(pipeline_id, parent_id, clip_info);
+        let node = ClipScrollNode::new_clip_node(pipeline_id, parent_id, clip_info, clip_rect);
         clip_scroll_tree.add_node(node, new_node_id);
         self.packed_layers.push(PackedLayer::empty());
     }
@@ -1797,7 +1789,7 @@ impl FrameBuilder {
             let transform = node.world_viewport_transform
                 .pre_translate(node.local_viewport_rect.origin.to_vector().to_3d());
 
-            node_clip_info.screen_bounding_rect = if packed_layer.set_transform(transform) {
+            if packed_layer.set_transform(transform) {
                 // Meanwhile, the combined viewport rect is relative to the reference frame, so
                 // we move it into the local coordinate system of the node.
                 let local_viewport_rect = node.combined_local_viewport_rect
@@ -1807,10 +1799,8 @@ impl FrameBuilder {
                     &local_viewport_rect,
                     screen_rect,
                     device_pixel_ratio,
-                )
-            } else {
-                None
-            };
+                );
+            }
 
             let clip_sources = self.clip_store.get_mut(&node_clip_info.clip_sources);
             clip_sources.update(
