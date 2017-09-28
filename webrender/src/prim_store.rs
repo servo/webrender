@@ -18,7 +18,7 @@ use render_task::{ClipWorkItem, RenderTask, RenderTaskId, RenderTaskTree};
 use renderer::MAX_VERTEX_TEXTURE_WIDTH;
 use resource_cache::{ImageProperties, ResourceCache};
 use std::{mem, usize};
-use util::{pack_as_float, recycle_vec, TransformedRect};
+use util::{MatrixHelpers, pack_as_float, recycle_vec, TransformedRect};
 
 #[derive(Debug, Copy, Clone)]
 pub struct PrimitiveOpacity {
@@ -1136,6 +1136,7 @@ impl PrimitiveStore {
 
         // Try to create a mask if we may need to.
         let prim_clips = clip_store.get(&metadata.clip_sources);
+        let is_axis_aligned = prim_context.packed_layer.transform.preserves_2d_axis_alignment();
         let clip_task = if prim_clips.is_masking() {
             // Take into account the actual clip info of the primitive, and
             // mutate the current bounds accordingly.
@@ -1160,6 +1161,7 @@ impl PrimitiveStore {
                 Some(extra),
                 prim_screen_rect,
                 clip_store,
+                is_axis_aligned,
             )
         } else if !prim_context.current_clip_stack.is_empty() {
             // If the primitive doesn't have a specific clip, key the task ID off the
@@ -1173,6 +1175,7 @@ impl PrimitiveStore {
                 None,
                 prim_screen_rect,
                 clip_store,
+                is_axis_aligned,
             )
         } else {
             None
