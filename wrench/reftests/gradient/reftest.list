@@ -54,3 +54,5 @@ fuzzy(1,17) == tiling-radial-4.yaml tiling-radial-4-ref.yaml
 == radial-zero-size-3.yaml radial-zero-size-ref.yaml
 
 == linear-aligned-border-radius.yaml linear-aligned-border-radius.png
+== repeat-border-radius.yaml repeat-border-radius.png
+
