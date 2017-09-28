@@ -57,10 +57,10 @@ pub struct TexelRect {
 }
 
 impl TexelRect {
-    pub fn new(u0: u32, v0: u32, u1: u32, v1: u32) -> TexelRect {
+    pub fn new(u0: f32, v0: f32, u1: f32, v1: f32) -> TexelRect {
         TexelRect {
-            uv0: DevicePoint::new(u0 as f32, v0 as f32),
-            uv1: DevicePoint::new(u1 as f32, v1 as f32),
+            uv0: DevicePoint::new(u0, v0),
+            uv1: DevicePoint::new(u1, v1),
         }
     }
 

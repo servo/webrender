@@ -809,15 +809,15 @@ impl FrameBuilder {
                 let rect = LayerRect::new(origin, size);
 
                 // Calculate the local texel coords of the slices.
-                let px0 = 0;
-                let px1 = border.patch.slice.left;
-                let px2 = border.patch.width - border.patch.slice.right;
-                let px3 = border.patch.width;
+                let px0 = 0.0;
+                let px1 = border.patch.slice.left as f32;
+                let px2 = border.patch.width as f32 - border.patch.slice.right as f32;
+                let px3 = border.patch.width as f32;
 
-                let py0 = 0;
-                let py1 = border.patch.slice.top;
-                let py2 = border.patch.height - border.patch.slice.bottom;
-                let py3 = border.patch.height;
+                let py0 = 0.0;
+                let py1 = border.patch.slice.top as f32;
+                let py2 = border.patch.height as f32 - border.patch.slice.bottom as f32;
+                let py3 = border.patch.height as f32;
 
                 let tl_outer = LayerPoint::new(rect.origin.x, rect.origin.y);
                 let tl_inner = tl_outer + vec2(border_item.widths.left, border_item.widths.top);
@@ -834,81 +834,104 @@ impl FrameBuilder {
                 );
                 let br_inner = br_outer - vec2(border_item.widths.right, border_item.widths.bottom);
 
+                fn add_segment(
+                    segments: &mut Vec<ImageBorderSegment>,
+                    rect: LayerRect,
+                    uv_rect: TexelRect,
+                    repeat_horizontal: RepeatMode,
+                    repeat_vertical: RepeatMode) {
+                    if uv_rect.uv1.x > uv_rect.uv0.x &&
+                       uv_rect.uv1.y > uv_rect.uv0.y {
+                        segments.push(ImageBorderSegment::new(
+                            rect,
+                            uv_rect,
+                            repeat_horizontal,
+                            repeat_vertical,
+                        ));
+                    }
+                }
+
                 // Build the list of image segments
-                let mut segments = vec![
-                    // Top left
-                    ImageBorderSegment::new(
-                        LayerRect::from_floats(tl_outer.x, tl_outer.y, tl_inner.x, tl_inner.y),
-                        TexelRect::new(px0, py0, px1, py1),
-                        RepeatMode::Stretch,
-                        RepeatMode::Stretch,
-                    ),
-                    // Top right
-                    ImageBorderSegment::new(
-                        LayerRect::from_floats(tr_inner.x, tr_outer.y, tr_outer.x, tr_inner.y),
-                        TexelRect::new(px2, py0, px3, py1),
-                        RepeatMode::Stretch,
-                        RepeatMode::Stretch,
-                    ),
-                    // Bottom right
-                    ImageBorderSegment::new(
-                        LayerRect::from_floats(br_inner.x, br_inner.y, br_outer.x, br_outer.y),
-                        TexelRect::new(px2, py2, px3, py3),
-                        RepeatMode::Stretch,
-                        RepeatMode::Stretch,
-                    ),
-                    // Bottom left
-                    ImageBorderSegment::new(
-                        LayerRect::from_floats(bl_outer.x, bl_inner.y, bl_inner.x, bl_outer.y),
-                        TexelRect::new(px0, py2, px1, py3),
-                        RepeatMode::Stretch,
-                        RepeatMode::Stretch,
-                    ),
-                ];
+                let mut segments = vec![];
+
+                // Top left
+                add_segment(
+                    &mut segments,
+                    LayerRect::from_floats(tl_outer.x, tl_outer.y, tl_inner.x, tl_inner.y),
+                    TexelRect::new(px0, py0, px1, py1),
+                    RepeatMode::Stretch,
+                    RepeatMode::Stretch
+                );
+                // Top right
+                add_segment(
+                    &mut segments,
+                    LayerRect::from_floats(tr_inner.x, tr_outer.y, tr_outer.x, tr_inner.y),
+                    TexelRect::new(px2, py0, px3, py1),
+                    RepeatMode::Stretch,
+                    RepeatMode::Stretch
+                );
+                // Bottom right
+                add_segment(
+                    &mut segments,
+                    LayerRect::from_floats(br_inner.x, br_inner.y, br_outer.x, br_outer.y),
+                    TexelRect::new(px2, py2, px3, py3),
+                    RepeatMode::Stretch,
+                    RepeatMode::Stretch
+                );
+                // Bottom left
+                add_segment(
+                    &mut segments,
+                    LayerRect::from_floats(bl_outer.x, bl_inner.y, bl_inner.x, bl_outer.y),
+                    TexelRect::new(px0, py2, px1, py3),
+                    RepeatMode::Stretch,
+                    RepeatMode::Stretch
+                );
 
                 // Center
                 if border.fill {
-                    segments.push(ImageBorderSegment::new(
+                    add_segment(
+                        &mut segments,
                         LayerRect::from_floats(tl_inner.x, tl_inner.y, tr_inner.x, bl_inner.y),
                         TexelRect::new(px1, py1, px2, py2),
                         border.repeat_horizontal,
-                        border.repeat_vertical,
-                    ))
+                        border.repeat_vertical
+                    );
                 }
 
-                // Add edge segments if valid size.
-                if px1 < px2 && py1 < py2 {
-                    segments.extend_from_slice(&[
-                        // Top
-                        ImageBorderSegment::new(
-                            LayerRect::from_floats(tl_inner.x, tl_outer.y, tr_inner.x, tl_inner.y),
-                            TexelRect::new(px1, py0, px2, py1),
-                            border.repeat_horizontal,
-                            RepeatMode::Stretch,
-                        ),
-                        // Bottom
-                        ImageBorderSegment::new(
-                            LayerRect::from_floats(bl_inner.x, bl_inner.y, br_inner.x, bl_outer.y),
-                            TexelRect::new(px1, py2, px2, py3),
-                            border.repeat_horizontal,
-                            RepeatMode::Stretch,
-                        ),
-                        // Left
-                        ImageBorderSegment::new(
-                            LayerRect::from_floats(tl_outer.x, tl_inner.y, tl_inner.x, bl_inner.y),
-                            TexelRect::new(px0, py1, px1, py2),
-                            RepeatMode::Stretch,
-                            border.repeat_vertical,
-                        ),
-                        // Right
-                        ImageBorderSegment::new(
-                            LayerRect::from_floats(tr_inner.x, tr_inner.y, br_outer.x, br_inner.y),
-                            TexelRect::new(px2, py1, px3, py2),
-                            RepeatMode::Stretch,
-                            border.repeat_vertical,
-                        ),
-                    ]);
-                }
+                // Add edge segments.
+
+                // Top
+                add_segment(
+                    &mut segments,
+                    LayerRect::from_floats(tl_inner.x, tl_outer.y, tr_inner.x, tl_inner.y),
+                    TexelRect::new(px1, py0, px2, py1),
+                    border.repeat_horizontal,
+                    RepeatMode::Stretch,
+                );
+                // Bottom
+                add_segment(
+                    &mut segments,
+                    LayerRect::from_floats(bl_inner.x, bl_inner.y, br_inner.x, bl_outer.y),
+                    TexelRect::new(px1, py2, px2, py3),
+                    border.repeat_horizontal,
+                    RepeatMode::Stretch,
+                );
+                // Left
+                add_segment(
+                    &mut segments,
+                    LayerRect::from_floats(tl_outer.x, tl_inner.y, tl_inner.x, bl_inner.y),
+                    TexelRect::new(px0, py1, px1, py2),
+                    RepeatMode::Stretch,
+                    border.repeat_vertical,
+                );
+                // Right
+                add_segment(
+                    &mut segments,
+                    LayerRect::from_floats(tr_inner.x, tr_inner.y, br_outer.x, br_inner.y),
+                    TexelRect::new(px2, py1, px3, py2),
+                    RepeatMode::Stretch,
+                    border.repeat_vertical,
+                );
 
                 for segment in segments {
                     let mut info = info.clone();
