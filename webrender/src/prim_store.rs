@@ -1142,7 +1142,10 @@ impl PrimitiveStore {
             let mask_rect = match prim_clips.bounds.outer {
                 Some(ref outer) => match prim_screen_rect.intersection(&outer.device_rect) {
                     Some(rect) => rect,
-                    None => return None,
+                    None => {
+                        metadata.screen_rect = None;
+                        return None;
+                    }
                 },
                 _ => prim_screen_rect,
             };
