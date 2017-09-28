@@ -1075,6 +1075,12 @@ impl PrimitiveStore {
             let metadata = &mut self.cpu_metadata[prim_index.0];
             metadata.screen_rect = None;
 
+            if metadata.local_rect.size.width <= 0.0 ||
+               metadata.local_rect.size.height <= 0.0 {
+                warn!("invalid primitive rect {:?}", metadata.local_rect);
+                return None;
+            }
+
             if !metadata.is_backface_visible &&
                prim_context.packed_layer.transform.is_backface_visible() {
                 return None;
