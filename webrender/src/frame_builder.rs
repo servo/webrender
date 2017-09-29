@@ -94,7 +94,9 @@ pub struct FrameBuilder {
 
     stacking_context_store: Vec<StackingContext>,
     clip_scroll_group_store: Vec<ClipScrollGroup>,
-    clip_scroll_group_indices: FastHashMap<ClipAndScrollInfo, ClipScrollGroupIndex>,
+    // Note: value here is meant to be `ClipScrollGroupIndex`,
+    // but we already have `ClipAndScrollInfo` in the key
+    clip_scroll_group_indices: FastHashMap<ClipAndScrollInfo, usize>,
     packed_layers: Vec<PackedLayer>,
 
     // A stack of the current text-shadow primitives.
@@ -136,7 +138,8 @@ impl<'a> PrimitiveContext<'a> {
         screen_rect: &DeviceIntRect,
         clip_scroll_tree: &ClipScrollTree,
         clip_store: &ClipStore,
-        device_pixel_ratio: f32) -> Option<Self> {
+        device_pixel_ratio: f32,
+    ) -> Option<Self> {
 
         let mut current_clip_stack = Vec::new();
         let mut clip_bounds = *screen_rect;
@@ -242,15 +245,6 @@ impl FrameBuilder {
         }
     }
 
-    pub fn create_clip_scroll_group_if_necessary(&mut self, info: ClipAndScrollInfo) {
-        if self.clip_scroll_group_indices.contains_key(&info) {
-            return;
-        }
-
-        let group_index = self.create_clip_scroll_group(info);
-        self.clip_scroll_group_indices.insert(info, group_index);
-    }
-
     /// Create a primitive and add it to the prim store. This method doesn't
     /// add the primitive to the draw list, so can be used for creating
     /// sub-primitives.
@@ -261,7 +255,10 @@ impl FrameBuilder {
         mut clip_sources: Vec<ClipSource>,
         container: PrimitiveContainer,
     ) -> PrimitiveIndex {
-        self.create_clip_scroll_group_if_necessary(clip_and_scroll);
+        if !self.clip_scroll_group_indices.contains_key(&clip_and_scroll) {
+            let group_id = self.create_clip_scroll_group(&clip_and_scroll);
+            self.clip_scroll_group_indices.insert(clip_and_scroll, group_id);
+        }
 
         if let &LocalClip::RoundedRect(main, region) = &info.local_clip {
             clip_sources.push(ClipSource::Rectangle(main));
@@ -352,10 +349,11 @@ impl FrameBuilder {
         prim_index
     }
 
-    pub fn create_clip_scroll_group(&mut self, info: ClipAndScrollInfo) -> ClipScrollGroupIndex {
+    fn create_clip_scroll_group(&mut self, info: &ClipAndScrollInfo) -> usize {
         let packed_layer_index = PackedLayerIndex(self.packed_layers.len());
         self.packed_layers.push(PackedLayer::empty());
 
+        let group_id = self.clip_scroll_group_store.len();
         self.clip_scroll_group_store.push(ClipScrollGroup {
             scroll_node_id: info.scroll_node_id,
             clip_node_id: info.clip_node_id(),
@@ -363,7 +361,7 @@ impl FrameBuilder {
             screen_bounding_rect: None,
         });
 
-        ClipScrollGroupIndex(self.clip_scroll_group_store.len() - 1, info)
+        group_id
     }
 
     pub fn notify_waiting_for_root_stacking_context(&mut self) {
@@ -1574,8 +1572,8 @@ impl FrameBuilder {
         &self,
         clip_and_scroll: &ClipAndScrollInfo
     ) -> Option<PackedLayerIndex> {
-        let group_index = self.clip_scroll_group_indices.get(&clip_and_scroll).unwrap();
-        let clip_scroll_group = &self.clip_scroll_group_store[group_index.0];
+        let group_id = self.clip_scroll_group_indices[&clip_and_scroll];
+        let clip_scroll_group = &self.clip_scroll_group_store[group_id];
         if clip_scroll_group.is_visible() {
             Some(clip_scroll_group.packed_layer_index)
         } else {
@@ -1665,14 +1663,14 @@ impl FrameBuilder {
         screen_rect: &DeviceIntRect,
         device_pixel_ratio: f32,
         profile_counters: &mut FrameProfileCounters,
-    ) {
+    ) -> bool {
         let stacking_context_index = *self.stacking_context_stack.last().unwrap();
         let packed_layer_index =
             match self.get_packed_layer_index_if_visible(&clip_and_scroll) {
             Some(index) => index,
             None => {
                 debug!("{:?} of invisible {:?}", base_prim_index, stacking_context_index);
-                return;
+                return false;
             }
         };
 
@@ -1680,7 +1678,7 @@ impl FrameBuilder {
             let stacking_context =
                 &mut self.stacking_context_store[stacking_context_index.0];
             if !stacking_context.can_contribute_to_scene() {
-                return;
+                return false;
             }
 
             // At least one primitive in this stacking context is visible, so the stacking
@@ -1705,7 +1703,7 @@ impl FrameBuilder {
             .display_list;
 
         if !stacking_context.is_backface_visible && packed_layer.transform.is_backface_visible() {
-            return;
+            return false;
         }
 
         let prim_context = PrimitiveContext::new(
@@ -1720,7 +1718,11 @@ impl FrameBuilder {
 
         let prim_context = match prim_context {
             Some(prim_context) => prim_context,
-            None => return,
+            None => {
+                let group_id = self.clip_scroll_group_indices[&clip_and_scroll];
+                self.clip_scroll_group_store[group_id].screen_bounding_rect = None;
+                return false
+            },
         };
 
         debug!(
@@ -1752,6 +1754,8 @@ impl FrameBuilder {
                 profile_counters.visible_primitives.inc();
             }
         }
+
+        true //visible
     }
 
     fn handle_pop_stacking_context(&mut self, screen_rect: &DeviceIntRect) {
@@ -2254,10 +2258,10 @@ impl FrameBuilder {
                         continue;
                     }
 
-                    let group_index = *self.clip_scroll_group_indices
-                        .get(&clip_and_scroll)
-                        .unwrap();
-                    if self.clip_scroll_group_store[group_index.0]
+                    let group_id = self.clip_scroll_group_indices[&clip_and_scroll];
+                    let group_index = ClipScrollGroupIndex(group_id, clip_and_scroll);
+
+                    if self.clip_scroll_group_store[group_id]
                         .screen_bounding_rect
                         .is_none()
                     {
