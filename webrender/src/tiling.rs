@@ -977,18 +977,10 @@ impl<T: RenderTarget> RenderTargetList<T> {
         gpu_cache: &mut GpuCache,
         render_tasks: &mut RenderTaskTree,
         deferred_resolves: &mut Vec<DeferredResolve>,
-    ) -> DeviceUintSize {
-        let mut max_used_size = DeviceUintSize::zero();
-
+    ) {
         for target in &mut self.targets {
-            let used_rect = target.used_rect();
-            max_used_size.width = cmp::max(max_used_size.width, used_rect.size.width as u32);
-            max_used_size.height = cmp::max(max_used_size.height, used_rect.size.height as u32);
-
             target.build(ctx, gpu_cache, render_tasks, deferred_resolves);
         }
-
-        max_used_size
     }
 
     fn add_task(
@@ -1084,7 +1076,8 @@ impl RenderTarget for ColorRenderTarget {
     fn used_rect(&self) -> DeviceIntRect {
         self.allocator
             .as_ref()
-            .map_or(DeviceIntRect::zero(), |allocator| allocator.used_rect)
+            .expect("bug: used_rect called on framebuffer")
+            .used_rect
     }
 
     fn build(
@@ -1309,10 +1302,8 @@ pub struct RenderPass {
     pub color_texture: Option<Texture>,
     pub alpha_texture: Option<Texture>,
     dynamic_tasks: FastHashMap<RenderTaskKey, DynamicTaskInfo>,
-    pub color_allocator_size: DeviceUintSize,
-    pub alpha_allocator_size: DeviceUintSize,
-    pub max_used_color_target_size: DeviceUintSize,
-    pub max_used_alpha_target_size: DeviceUintSize,
+    pub max_color_target_size: DeviceUintSize,
+    pub max_alpha_target_size: DeviceUintSize,
 }
 
 impl RenderPass {
@@ -1325,10 +1316,8 @@ impl RenderPass {
             color_texture: None,
             alpha_texture: None,
             dynamic_tasks: FastHashMap::default(),
-            color_allocator_size: DeviceUintSize::new(MIN_TARGET_SIZE, MIN_TARGET_SIZE),
-            alpha_allocator_size: DeviceUintSize::new(MIN_TARGET_SIZE, MIN_TARGET_SIZE),
-            max_used_color_target_size: DeviceUintSize::zero(),
-            max_used_alpha_target_size: DeviceUintSize::zero(),
+            max_color_target_size: DeviceUintSize::new(MIN_TARGET_SIZE, MIN_TARGET_SIZE),
+            max_alpha_target_size: DeviceUintSize::new(MIN_TARGET_SIZE, MIN_TARGET_SIZE),
         }
     }
 
@@ -1340,16 +1329,16 @@ impl RenderPass {
     ) {
         match target_kind {
             RenderTargetKind::Color => {
-                self.color_allocator_size.width =
-                    cmp::max(self.color_allocator_size.width, size.width as u32);
-                self.color_allocator_size.height =
-                    cmp::max(self.color_allocator_size.height, size.height as u32);
+                self.max_color_target_size.width =
+                    cmp::max(self.max_color_target_size.width, size.width as u32);
+                self.max_color_target_size.height =
+                    cmp::max(self.max_color_target_size.height, size.height as u32);
             }
             RenderTargetKind::Alpha => {
-                self.alpha_allocator_size.width =
-                    cmp::max(self.alpha_allocator_size.width, size.width as u32);
-                self.alpha_allocator_size.height =
-                    cmp::max(self.alpha_allocator_size.height, size.height as u32);
+                self.max_alpha_target_size.width =
+                    cmp::max(self.max_alpha_target_size.width, size.width as u32);
+                self.max_alpha_target_size.height =
+                    cmp::max(self.max_alpha_target_size.height, size.height as u32);
             }
         }
 
@@ -1407,9 +1396,9 @@ impl RenderPass {
                         let alloc_size = DeviceUintSize::new(size.width as u32, size.height as u32);
                         let (alloc_origin, target_index) = match target_kind {
                             RenderTargetKind::Color => self.color_targets
-                                .allocate(alloc_size, self.color_allocator_size),
+                                .allocate(alloc_size, self.max_color_target_size),
                             RenderTargetKind::Alpha => self.alpha_targets
-                                .allocate(alloc_size, self.alpha_allocator_size),
+                                .allocate(alloc_size, self.max_alpha_target_size),
                         };
 
                         let origin = Some((
@@ -1457,9 +1446,9 @@ impl RenderPass {
             }
         }
 
-        self.max_used_color_target_size = self.color_targets
+        self.color_targets
             .build(ctx, gpu_cache, render_tasks, deferred_resolves);
-        self.max_used_alpha_target_size =self.alpha_targets
+        self.alpha_targets
             .build(ctx, gpu_cache, render_tasks, deferred_resolves);
     }
 }
