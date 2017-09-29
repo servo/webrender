@@ -3040,12 +3040,12 @@ impl Renderer {
             let alpha_target_count = pass.required_target_count(RenderTargetKind::Alpha);
 
             if let Some(texture) = pass.color_texture.as_mut() {
-                debug_assert!(pass.max_used_color_target_size.width > 0);
-                debug_assert!(pass.max_used_color_target_size.height > 0);
+                debug_assert!(pass.max_color_target_size.width > 0);
+                debug_assert!(pass.max_color_target_size.height > 0);
                 self.device.init_texture(
                     texture,
-                    pass.max_used_color_target_size.width,
-                    pass.max_used_color_target_size.height,
+                    pass.max_color_target_size.width,
+                    pass.max_color_target_size.height,
                     ImageFormat::BGRA8,
                     TextureFilter::Linear,
                     RenderTargetMode::RenderTarget,
@@ -3054,12 +3054,12 @@ impl Renderer {
                 );
             }
             if let Some(texture) = pass.alpha_texture.as_mut() {
-                debug_assert!(pass.max_used_alpha_target_size.width > 0);
-                debug_assert!(pass.max_used_alpha_target_size.height > 0);
+                debug_assert!(pass.max_alpha_target_size.width > 0);
+                debug_assert!(pass.max_alpha_target_size.height > 0);
                 self.device.init_texture(
                     texture,
-                    pass.max_used_alpha_target_size.width,
-                    pass.max_used_alpha_target_size.height,
+                    pass.max_alpha_target_size.width,
+                    pass.max_alpha_target_size.height,
                     ImageFormat::A8,
                     TextureFilter::Nearest,
                     RenderTargetMode::RenderTarget,
@@ -3125,9 +3125,9 @@ impl Renderer {
                 for (target_index, target) in pass.alpha_targets.targets.iter().enumerate() {
                     let projection = Transform3D::ortho(
                         0.0,
-                        pass.max_used_alpha_target_size.width as f32,
+                        pass.max_alpha_target_size.width as f32,
                         0.0,
-                        pass.max_used_alpha_target_size.height as f32,
+                        pass.max_alpha_target_size.height as f32,
                         ORTHO_NEAR_PLANE,
                         ORTHO_FAR_PLANE,
                     );
@@ -3135,7 +3135,7 @@ impl Renderer {
                     self.draw_alpha_target(
                         (pass.alpha_texture.as_ref().unwrap(), target_index as i32),
                         target,
-                        pass.max_used_alpha_target_size,
+                        pass.max_alpha_target_size,
                         &projection,
                     );
                 }
@@ -3165,7 +3165,7 @@ impl Renderer {
                             ORTHO_FAR_PLANE,
                         )
                     } else {
-                        size = pass.max_used_color_target_size;
+                        size = pass.max_color_target_size;
                         clear_color = Some([0.0, 0.0, 0.0, 0.0]);
                         projection = Transform3D::ortho(
                             0.0,
