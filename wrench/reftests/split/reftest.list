@@ -2,4 +2,5 @@
 == order.yaml order-ref.yaml
 == nested.yaml nested-ref.yaml
 == nested-preserve3d-crash.yaml nested-preserve3d-crash.yaml
+== intermediate-1.yaml intermediate-1-ref.yaml
 #== cross.yaml cross-ref.yaml #TODO: investigate sub-pixel differences
