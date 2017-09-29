@@ -7,7 +7,7 @@ use api::{ClipId, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUi
 use api::{DeviceUintSize, ExtendMode, FIND_ALL, FilterOp, FontInstance, FontRenderMode};
 use api::{GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem, HitTestResult};
 use api::{ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect};
-use api::{LayerSize, LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation};
+use api::{LayerSize, LayerToScrollTransform, LayerToWorldTransform, LayerVector2D, LayoutVector2D, LineOrientation};
 use api::{LineStyle, LocalClip, POINT_RELATIVE_TO_PIPELINE_VIEWPORT, PipelineId, RepeatMode};
 use api::{ScrollSensitivity, SubpixelDirection, TextShadow, TileOffset, TransformStyle};
 use api::{WorldPixel, WorldPoint, YuvColorSpace, YuvData, device_length};
@@ -46,12 +46,21 @@ fn make_polygon(
     stacking_context: &StackingContext,
     node: &ClipScrollNode,
     anchor: usize,
+    device_pixel_ratio: f32,
 ) -> Polygon<f32, WorldPixel> {
-    //TODO: only work with `isolated_items_bounds.size` worth of space
     // This can be achieved by moving the `origin` shift
     // from the primitive local coordinates into the layer transformation.
     // Which in turn needs it to be a render task property obeyed by all primitives
     // upon rendering, possibly not limited to `write_*_vertex` implementations.
+    if stacking_context.isolated_items_bounds.is_empty() {
+        // isolated_items_bounds is empty means there is no item for this sc.
+        // in this case, we use screen_bounds instead.
+        let rect = stacking_context.screen_bounds.to_f32() / device_pixel_ratio;
+        let bounds = LayerRect::new(LayerPoint::new(rect.origin.x, rect.origin.y),
+                                    LayerSize::new(rect.size.width, rect.size.height));
+        return Polygon::from_transformed_rect(bounds, LayerToWorldTransform::identity(), anchor);
+    }
+
     let size = stacking_context.isolated_items_bounds.bottom_right();
     let bounds = LayerRect::new(LayerPoint::zero(), LayerSize::new(size.x, size.y));
     Polygon::from_transformed_rect(bounds, node.world_content_transform, anchor)
@@ -2077,7 +2086,7 @@ impl FrameBuilder {
                             .get(&stacking_context.reference_frame_id)
                             .unwrap();
                         let sc_polygon =
-                            make_polygon(stacking_context, frame_node, stacking_context_index.0);
+                            make_polygon(stacking_context, frame_node, stacking_context_index.0, device_pixel_ratio);
                         debug!(
                             "\tsplitter[{}]: add {:?} -> {:?} with bounds {:?}",
                             splitter_stack.len(),
