@@ -978,7 +978,7 @@ impl<T: RenderTarget> RenderTargetList<T> {
         render_tasks: &mut RenderTaskTree,
         deferred_resolves: &mut Vec<DeferredResolve>,
     ) -> DeviceUintSize {
-        let mut max_used_size = DeviceUintSize::zero();
+        let mut max_used_size = DeviceUintSize::new(1, 1); // ending up with zero size is never a good idea
 
         for target in &mut self.targets {
             let used_rect = target.used_rect();
@@ -1412,30 +1412,17 @@ impl RenderPass {
                                 .allocate(alloc_size, self.alpha_allocator_size),
                         };
 
-                        let origin = Some((
-                            DeviceIntPoint::new(alloc_origin.x as i32, alloc_origin.y as i32),
-                            target_index,
-                        ));
-                        task.location = RenderTaskLocation::Dynamic(origin, size);
+                        let origin = DeviceIntPoint::new(alloc_origin.x as i32, alloc_origin.y as i32);
+                        task.location = RenderTaskLocation::Dynamic(Some((origin, target_index)), size);
 
-                        // If this task is cacheable / sharable, store it in the task hash
+                        // If this task is cache-able / sharable, store it in the task hash
                         // for this pass.
                         if let Some(cache_key) = task.cache_key {
                             self.dynamic_tasks.insert(
                                 cache_key,
                                 DynamicTaskInfo {
                                     task_id,
-                                    rect: match task.location {
-                                        RenderTaskLocation::Fixed => {
-                                            panic!("Dynamic tasks should not have fixed locations!")
-                                        }
-                                        RenderTaskLocation::Dynamic(Some((origin, _)), size) => {
-                                            DeviceIntRect::new(origin, size)
-                                        }
-                                        RenderTaskLocation::Dynamic(None, _) => {
-                                            panic!("Expect the task to be already allocated here")
-                                        }
-                                    },
+                                    rect: DeviceIntRect::new(origin, size),
                                 },
                             );
                         }
