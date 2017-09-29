@@ -8,7 +8,7 @@ use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUi
 use api::{ExtendMode, FIND_ALL, FilterOp, FontInstance, FontRenderMode};
 use api::{GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem, HitTestResult};
 use api::{ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect};
-use api::{LayerSize, LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation};
+use api::{LayerPixel, LayerSize, LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation};
 use api::{LineStyle, LocalClip, POINT_RELATIVE_TO_PIPELINE_VIEWPORT, PipelineId, RepeatMode};
 use api::{ScrollSensitivity, Shadow, TileOffset, TransformStyle};
 use api::{WorldPixel, WorldPoint, YuvColorSpace, YuvData, device_length};
@@ -1731,6 +1731,7 @@ impl FrameBuilder {
                 stacking_context.isolated_items_bounds = stacking_context
                     .isolated_items_bounds
                     .union(&prim_geom.local_rect);
+                stacking_context.has_any_primitive = true;
 
                 profile_counters.visible_primitives.inc();
             }
@@ -1739,12 +1740,22 @@ impl FrameBuilder {
         true //visible
     }
 
-    fn handle_pop_stacking_context(&mut self, screen_rect: &DeviceIntRect) {
+    fn handle_pop_stacking_context(
+        &mut self,
+        screen_rect: &DeviceIntRect,
+        clip_scroll_tree: &ClipScrollTree) {
         let stacking_context_index = self.stacking_context_stack.pop().unwrap();
 
         let (bounding_rect, is_visible, is_preserve_3d, reference_id, reference_bounds) = {
             let stacking_context =
                 &mut self.stacking_context_store[stacking_context_index.0];
+            if !stacking_context.has_any_primitive {
+                stacking_context.isolated_items_bounds = stacking_context.children_sc_bounds;
+            } else if stacking_context.isolation != ContextIsolation::Items {
+                stacking_context.isolated_items_bounds = stacking_context
+                    .isolated_items_bounds
+                    .union(&stacking_context.children_sc_bounds);
+            }
             stacking_context.screen_bounds = stacking_context
                 .screen_bounds
                 .intersection(screen_rect)
@@ -1763,9 +1774,21 @@ impl FrameBuilder {
         if let Some(ref mut parent_index) = self.stacking_context_stack.last_mut() {
             let parent = &mut self.stacking_context_store[parent_index.0];
             parent.screen_bounds = parent.screen_bounds.union(&bounding_rect);
+            let child_bounds = reference_bounds.translate(&-parent.reference_frame_offset);
+            let frame_node = clip_scroll_tree
+                .nodes
+                .get(&reference_id)
+                .unwrap();
+            let local_transform = match frame_node.node_type {
+                NodeType::ReferenceFrame(ref info) => info.transform,
+                _ => LayerToScrollTransform::identity(),
+            };
+            let transformed_bounds = local_transform
+                .with_destination::<LayerPixel>()
+                .transform_rect(&child_bounds);
+            parent.children_sc_bounds = parent.children_sc_bounds.union(&transformed_bounds);
             // add children local bounds only for non-item-isolated contexts
             if !is_preserve_3d && parent.reference_frame_id == reference_id {
-                let child_bounds = reference_bounds.translate(&-parent.reference_frame_offset);
                 parent.isolated_items_bounds = parent.isolated_items_bounds.union(&child_bounds);
             }
             // Per-primitive stacking context visibility checks do not take into account
@@ -1917,7 +1940,7 @@ impl FrameBuilder {
                     );
                 }
                 PrimitiveRunCmd::PopStackingContext => {
-                    self.handle_pop_stacking_context(screen_rect);
+                    self.handle_pop_stacking_context(screen_rect, clip_scroll_tree);
                 }
             }
         }
