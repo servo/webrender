@@ -11,6 +11,7 @@
 != shadow-cover-1.yaml shadow-cover-2.yaml
 != shadow-many.yaml shadow.yaml
 != shadow-complex.yaml shadow-many.yaml
+!= shadow-clipped-text.yaml blank.yaml
 != non-opaque.yaml non-opaque-notref.yaml
 == decorations.yaml decorations-ref.yaml
 fuzzy(1,100) == decorations-suite.yaml decorations-suite.png
