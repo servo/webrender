@@ -2,9 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderDetails, BorderDisplayItem, BorderRadius, BoxShadowClipMode, ClipAndScrollInfo};
-use api::{ClipId, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect};
-use api::{DeviceUintSize, ExtendMode, FIND_ALL, FilterOp, FontInstance, FontRenderMode};
+use api::{BorderDetails, BorderDisplayItem, BorderRadius, BoxShadowClipMode, BuiltDisplayList};
+use api::{ClipAndScrollInfo, ClipId, ColorF};
+use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
+use api::{ExtendMode, FIND_ALL, FilterOp, FontInstance, FontRenderMode};
 use api::{GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem, HitTestResult};
 use api::{ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect};
 use api::{LayerSize, LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation};
@@ -24,7 +25,7 @@ use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{BoxShadowPrimitiveCpu, TexelRect, YuvImagePrimitiveCpu};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, LinePrimitive, PrimitiveKind};
 use prim_store::{PrimitiveContainer, PrimitiveIndex};
-use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu, TextRunMode};
+use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
 use prim_store::{RectanglePrimitive, TextRunPrimitiveCpu, TextShadowPrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_task::{AlphaRenderItem, ClipWorkItem, RenderTask};
@@ -128,6 +129,8 @@ pub struct PrimitiveContext<'a> {
     pub current_clip_stack: Vec<ClipWorkItem>,
     pub clip_bounds: DeviceIntRect,
     pub clip_id: ClipId,
+
+    pub display_list: &'a BuiltDisplayList,
 }
 
 impl<'a> PrimitiveContext<'a> {
@@ -139,6 +142,7 @@ impl<'a> PrimitiveContext<'a> {
         clip_scroll_tree: &ClipScrollTree,
         clip_store: &ClipStore,
         device_pixel_ratio: f32,
+        display_list: &'a BuiltDisplayList,
     ) -> Option<Self> {
 
         let mut current_clip_stack = Vec::new();
@@ -194,6 +198,7 @@ impl<'a> PrimitiveContext<'a> {
             clip_bounds,
             device_pixel_ratio,
             clip_id,
+            display_list,
         })
     }
 }
@@ -1714,6 +1719,7 @@ impl FrameBuilder {
             clip_scroll_tree,
             &self.clip_store,
             device_pixel_ratio,
+            display_list,
         );
 
         let prim_context = match prim_context {
@@ -1739,8 +1745,6 @@ impl FrameBuilder {
                 &prim_context,
                 resource_cache,
                 gpu_cache,
-                display_list,
-                TextRunMode::Normal,
                 render_tasks,
                 &mut self.clip_store,
             ) {
