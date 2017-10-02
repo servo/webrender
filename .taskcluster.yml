@@ -5,6 +5,7 @@
 # as needed.
 #
 version: 0
+allowPullRequests: public
 metadata:
   name: WebRender
   description: Runs WebRender tests in TaskCluster
