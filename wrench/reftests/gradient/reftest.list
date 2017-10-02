@@ -2,6 +2,10 @@
 == premultiplied-angle.yaml premultiplied-angle.png
 == premultiplied-radial.yaml premultiplied-radial.png
 
+== premultiplied-aligned-2.yaml premultiplied-aligned-2.png
+== premultiplied-angle-2.yaml premultiplied-angle-2.png
+== premultiplied-radial-2.yaml premultiplied-radial-2.png
+
 == linear.yaml linear-ref.png
 == linear-reverse.yaml linear-ref.png
 fuzzy(1,35000) == linear-stops.yaml linear-stops-ref.png
