@@ -371,11 +371,12 @@ impl Wrench {
         font_key: FontKey,
         size: Au,
         synthetic_italics: bool,
+        render_mode: Option<FontRenderMode>,
     ) -> FontInstanceKey {
         let key = self.api.generate_font_instance_key();
         let mut update = ResourceUpdates::new();
         let options = FontInstanceOptions {
-            render_mode: None,
+            render_mode,
             synthetic_italics,
         };
         update.add_font_instance(key, font_key, size, Some(options), None, Vec::new());

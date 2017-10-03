@@ -86,6 +86,7 @@ pub struct YamlFrameReader {
 
     fonts: HashMap<FontDescriptor, FontKey>,
     font_instances: HashMap<(FontKey, Au), FontInstanceKey>,
+    font_render_mode: Option<FontRenderMode>,
 }
 
 impl YamlFrameReader {
@@ -102,7 +103,22 @@ impl YamlFrameReader {
             scroll_offsets: HashMap::new(),
             fonts: HashMap::new(),
             font_instances: HashMap::new(),
+            font_render_mode: None,
         }
+    }
+
+    pub fn deinit(mut self, wrench: &mut Wrench) {
+        let mut updates = ResourceUpdates::new();
+
+        for (_, font_instance) in self.font_instances.drain() {
+            updates.delete_font_instance(font_instance);
+        }
+
+        for (_, font) in self.fonts.drain() {
+            updates.delete_font(font);
+        }
+
+        wrench.api.update_resources(updates);
     }
 
     pub fn yaml_path(&self) -> &PathBuf {
@@ -227,6 +243,10 @@ impl YamlFrameReader {
             })
     }
 
+    pub fn set_font_render_mode(&mut self, render_mode: Option<FontRenderMode>) {
+        self.font_render_mode = render_mode;
+    }
+
     fn get_or_create_font_instance(
         &mut self,
         font_key: FontKey,
@@ -234,9 +254,18 @@ impl YamlFrameReader {
         synthetic_italics: bool,
         wrench: &mut Wrench,
     ) -> FontInstanceKey {
+        let font_render_mode = self.font_render_mode;
+
         *self.font_instances
             .entry((font_key, size))
-            .or_insert_with(|| wrench.add_font_instance(font_key, size, synthetic_italics))
+            .or_insert_with(|| {
+                wrench.add_font_instance(
+                    font_key,
+                    size,
+                    synthetic_italics,
+                    font_render_mode,
+                )
+            })
     }
 
     fn to_image_mask(&mut self, item: &Yaml, wrench: &mut Wrench) -> Option<ImageMask> {

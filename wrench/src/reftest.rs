@@ -28,6 +28,8 @@ const PLATFORM: &str = "mac";
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 const PLATFORM: &str = "other";
 
+const OPTION_DISABLE_SUBPX: &str = "disable-subpixel";
+
 pub struct ReftestOptions {
     // These override values that are lower.
     pub allow_max_difference: usize,
@@ -65,6 +67,7 @@ pub struct Reftest {
     op: ReftestOp,
     test: PathBuf,
     reference: PathBuf,
+    font_render_mode: Option<FontRenderMode>,
     max_difference: usize,
     num_differences: usize,
 }
@@ -179,6 +182,7 @@ impl ReftestManifest {
             let mut max_difference = 0;
             let mut max_count = 0;
             let mut op = ReftestOp::Equal;
+            let mut font_render_mode = None;
 
             for (i, token) in tokens.iter().enumerate() {
                 match *token {
@@ -204,6 +208,12 @@ impl ReftestManifest {
                         max_difference = args[0].parse().unwrap();
                         max_count = args[1].parse().unwrap();
                     }
+                    options if options.starts_with("options") => {
+                        let (_, args, _) = parse_function(options);
+                        if args.iter().any(|arg| arg == &OPTION_DISABLE_SUBPX) {
+                            font_render_mode = Some(FontRenderMode::Alpha);
+                        }
+                    }
                     "==" => {
                         op = ReftestOp::Equal;
                     }
@@ -215,6 +225,7 @@ impl ReftestManifest {
                             op,
                             test: dir.join(tokens[i + 0]),
                             reference: dir.join(tokens[i + 1]),
+                            font_render_mode,
                             max_difference: cmp::max(max_difference, options.allow_max_difference),
                             num_differences: cmp::max(max_count, options.allow_num_differences),
                         });
@@ -304,13 +315,13 @@ impl<'a> ReftestHarness<'a> {
             self.window.get_inner_size_pixels().1,
         );
         let reference = match t.reference.extension().unwrap().to_str().unwrap() {
-            "yaml" => self.render_yaml(t.reference.as_path(), window_size),
+            "yaml" => self.render_yaml(t.reference.as_path(), window_size, t.font_render_mode),
             "png" => self.load_image(t.reference.as_path(), ImageFormat::PNG),
             other => panic!("Unknown reftest extension: {}", other),
         };
         // the reference can be smaller than the window size,
         // in which case we only compare the intersection
-        let test = self.render_yaml(t.test.as_path(), reference.size);
+        let test = self.render_yaml(t.test.as_path(), reference.size, t.font_render_mode);
         let comparison = test.compare(&reference);
 
         match (&t.op, comparison) {
@@ -363,8 +374,14 @@ impl<'a> ReftestHarness<'a> {
         }
     }
 
-    fn render_yaml(&mut self, filename: &Path, size: DeviceUintSize) -> ReftestImage {
+    fn render_yaml(
+        &mut self,
+        filename: &Path,
+        size: DeviceUintSize,
+        font_render_mode: Option<FontRenderMode>,
+    ) -> ReftestImage {
         let mut reader = YamlFrameReader::new(filename);
+        reader.set_font_render_mode(font_render_mode);
         reader.do_frame(self.wrench);
 
         // wait for the frame
@@ -384,6 +401,8 @@ impl<'a> ReftestHarness<'a> {
             let debug_path = filename.with_extension("yaml.png");
             save_flipped(debug_path, &pixels, size);
         }
+
+        reader.deinit(self.wrench);
 
         ReftestImage { data: pixels, size }
     }
