@@ -17,6 +17,8 @@ use YuvImageDisplayItem;
 use bincode;
 use serde::{Deserialize, Serialize, Serializer};
 use serde::ser::{SerializeMap, SerializeSeq};
+use std::io::Write;
+use std::{io, ptr};
 use std::marker::PhantomData;
 use time::precise_time_ns;
 
@@ -483,6 +485,48 @@ impl<'a, 'b> Serialize for DisplayItemRef<'a, 'b> {
     }
 }
 
+// This is a replacement for bincode::serialize_into(&vec)
+// The default implementation Write for Vec will basically
+// call extend_from_slice(). Serde ends up calling that for ever
+// field of a struct that we're serializing. extend_from_slice()
+// does not get inlined and thus we end up calling a generic memcpy()
+// implementation. If we instead reserve enough room for the serialized
+// struct in the Vec ahead of time we can rely on that and use
+// the following UnsafeVecWriter to write into the vec without
+// any checks.
+struct UnsafeVecWriter<'a>(&'a mut Vec<u8>);
+
+impl<'a> Write for UnsafeVecWriter<'a> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        unsafe {
+            let old_len = self.0.len();
+            self.0.set_len(old_len + buf.len());
+            ptr::copy_nonoverlapping(buf.as_ptr(), self.0.as_mut_ptr().offset(old_len as isize), buf.len());
+        }
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> { Ok(()) }
+}
+
+struct SizeCounter(usize);
+
+impl<'a> Write for SizeCounter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0 += buf.len();
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> { Ok(()) }
+}
+
+fn serialize_fast<T: Serialize>(vec: &mut Vec<u8>, e: &T) {
+    // manually counting the size is faster than vec.reserve(bincode::serialized_size(&e) as usize) for some reason
+    let mut size = SizeCounter(0);
+    bincode::serialize_into(&mut size,e , bincode::Infinite).unwrap();
+    vec.reserve(size.0);
+
+    bincode::serialize_into(&mut UnsafeVecWriter(vec), e, bincode::Infinite).unwrap();
+}
+
 #[derive(Clone)]
 pub struct DisplayListBuilder {
     pub data: Vec<u8>,
@@ -541,28 +585,26 @@ impl DisplayListBuilder {
     }
 
     fn push_item(&mut self, item: SpecificDisplayItem, info: &LayoutPrimitiveInfo) {
-        bincode::serialize_into(
+        serialize_fast(
             &mut self.data,
             &DisplayItem {
                 item,
                 clip_and_scroll: *self.clip_stack.last().unwrap(),
                 info: *info,
             },
-            bincode::Infinite,
-        ).unwrap();
+        )
     }
 
     fn push_new_empty_item(&mut self, item: SpecificDisplayItem) {
         let info = LayoutPrimitiveInfo::new(LayoutRect::zero());
-        bincode::serialize_into(
+        serialize_fast(
             &mut self.data,
             &DisplayItem {
                 item,
                 clip_and_scroll: *self.clip_stack.last().unwrap(),
                 info,
-            },
-            bincode::Infinite,
-        ).unwrap();
+            }
+        )
     }
 
     fn push_iter<I>(&mut self, iter: I)
@@ -575,10 +617,10 @@ impl DisplayListBuilder {
         let len = iter.len();
         let mut count = 0;
 
-        bincode::serialize_into(&mut self.data, &len, bincode::Infinite).unwrap();
+        serialize_fast(&mut self.data, &len);
         for elem in iter {
             count += 1;
-            bincode::serialize_into(&mut self.data, &elem, bincode::Infinite).unwrap();
+            serialize_fast(&mut self.data, &elem);
         }
 
         debug_assert_eq!(len, count);
@@ -1103,8 +1145,8 @@ impl DisplayListBuilder {
 
         // Append glyph data to the end
         for ((font_key, color), sub_glyphs) in glyphs {
-            bincode::serialize_into(&mut self.data, &font_key, bincode::Infinite).unwrap();
-            bincode::serialize_into(&mut self.data, &color, bincode::Infinite).unwrap();
+            serialize_fast(&mut self.data, &font_key);
+            serialize_fast(&mut self.data, &color);
             self.push_iter(sub_glyphs);
         }
 
