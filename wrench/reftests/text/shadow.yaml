@@ -2,7 +2,7 @@
 root:
   items:
         -
-          type: "text-shadow"
+          type: "shadow"
           bounds: [14, 18, 205, 35]
           blur-radius: 0
           offset: [2, 3]
@@ -15,9 +15,9 @@ root:
           color: [0, 0, 0, 0] # actual text is transparent
           font: "VeraBd.ttf"
         -
-          type: "pop-text-shadow"
+          type: "pop-shadow"
         -
-          type: "text-shadow"
+          type: "shadow"
           bounds: [14, 318, 205, 35]
           blur-radius: 5
           offset: [-2, -4]
@@ -30,4 +30,4 @@ root:
           color: [0, 0, 0, 0] # actual text is transparent
           font: "VeraBd.ttf"
         -
-          type: "pop-text-shadow"
+          type: "pop-shadow"

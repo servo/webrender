@@ -9,7 +9,7 @@ root:
           color: green
           font: "VeraBd.ttf"
         -
-          type: "text-shadow"
+          type: "shadow"
           bounds: [14, 18, 205, 35]
           blur-radius: 3
           offset: [0, 0]
@@ -22,5 +22,5 @@ root:
           color: [0, 0, 0, 0] # text transparent
           font: "VeraBd.ttf"
         -
-          type: "pop-text-shadow"
+          type: "pop-shadow"
 

@@ -4,7 +4,7 @@ root:
         - rect: [14, 10, 205, 38]
           color: red
         -
-          type: "text-shadow"
+          type: "shadow"
           blur-radius: 1
           color: red
           bounds: [14, 10, 205, 38]
@@ -15,5 +15,5 @@ root:
           size: 24
           color: [0,0,0,0]
         -
-          type: "pop-text-shadow"
+          type: "pop-shadow"
 
