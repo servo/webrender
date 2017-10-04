@@ -977,10 +977,18 @@ impl<T: RenderTarget> RenderTargetList<T> {
         gpu_cache: &mut GpuCache,
         render_tasks: &mut RenderTaskTree,
         deferred_resolves: &mut Vec<DeferredResolve>,
-    ) {
+    ) -> DeviceUintSize {
+        let mut max_used_size = DeviceUintSize::new(1, 1); // ending up with zero size is never a good idea
+
         for target in &mut self.targets {
+            let used_rect = target.used_rect();
+            max_used_size.width = cmp::max(max_used_size.width, used_rect.size.width as u32);
+            max_used_size.height = cmp::max(max_used_size.height, used_rect.size.height as u32);
+
             target.build(ctx, gpu_cache, render_tasks, deferred_resolves);
         }
+
+        max_used_size
     }
 
     fn add_task(
@@ -1076,8 +1084,7 @@ impl RenderTarget for ColorRenderTarget {
     fn used_rect(&self) -> DeviceIntRect {
         self.allocator
             .as_ref()
-            .expect("bug: used_rect called on framebuffer")
-            .used_rect
+            .map_or(DeviceIntRect::zero(), |allocator| allocator.used_rect)
     }
 
     fn build(
@@ -1302,8 +1309,10 @@ pub struct RenderPass {
     pub color_texture: Option<Texture>,
     pub alpha_texture: Option<Texture>,
     dynamic_tasks: FastHashMap<RenderTaskKey, DynamicTaskInfo>,
-    pub max_color_target_size: DeviceUintSize,
-    pub max_alpha_target_size: DeviceUintSize,
+    pub color_allocator_size: DeviceUintSize,
+    pub alpha_allocator_size: DeviceUintSize,
+    pub max_used_color_target_size: DeviceUintSize,
+    pub max_used_alpha_target_size: DeviceUintSize,
 }
 
 impl RenderPass {
@@ -1316,8 +1325,10 @@ impl RenderPass {
             color_texture: None,
             alpha_texture: None,
             dynamic_tasks: FastHashMap::default(),
-            max_color_target_size: DeviceUintSize::new(MIN_TARGET_SIZE, MIN_TARGET_SIZE),
-            max_alpha_target_size: DeviceUintSize::new(MIN_TARGET_SIZE, MIN_TARGET_SIZE),
+            color_allocator_size: DeviceUintSize::new(MIN_TARGET_SIZE, MIN_TARGET_SIZE),
+            alpha_allocator_size: DeviceUintSize::new(MIN_TARGET_SIZE, MIN_TARGET_SIZE),
+            max_used_color_target_size: DeviceUintSize::zero(),
+            max_used_alpha_target_size: DeviceUintSize::zero(),
         }
     }
 
@@ -1329,16 +1340,16 @@ impl RenderPass {
     ) {
         match target_kind {
             RenderTargetKind::Color => {
-                self.max_color_target_size.width =
-                    cmp::max(self.max_color_target_size.width, size.width as u32);
-                self.max_color_target_size.height =
-                    cmp::max(self.max_color_target_size.height, size.height as u32);
+                self.color_allocator_size.width =
+                    cmp::max(self.color_allocator_size.width, size.width as u32);
+                self.color_allocator_size.height =
+                    cmp::max(self.color_allocator_size.height, size.height as u32);
             }
             RenderTargetKind::Alpha => {
-                self.max_alpha_target_size.width =
-                    cmp::max(self.max_alpha_target_size.width, size.width as u32);
-                self.max_alpha_target_size.height =
-                    cmp::max(self.max_alpha_target_size.height, size.height as u32);
+                self.alpha_allocator_size.width =
+                    cmp::max(self.alpha_allocator_size.width, size.width as u32);
+                self.alpha_allocator_size.height =
+                    cmp::max(self.alpha_allocator_size.height, size.height as u32);
             }
         }
 
@@ -1396,35 +1407,22 @@ impl RenderPass {
                         let alloc_size = DeviceUintSize::new(size.width as u32, size.height as u32);
                         let (alloc_origin, target_index) = match target_kind {
                             RenderTargetKind::Color => self.color_targets
-                                .allocate(alloc_size, self.max_color_target_size),
+                                .allocate(alloc_size, self.color_allocator_size),
                             RenderTargetKind::Alpha => self.alpha_targets
-                                .allocate(alloc_size, self.max_alpha_target_size),
+                                .allocate(alloc_size, self.alpha_allocator_size),
                         };
 
-                        let origin = Some((
-                            DeviceIntPoint::new(alloc_origin.x as i32, alloc_origin.y as i32),
-                            target_index,
-                        ));
-                        task.location = RenderTaskLocation::Dynamic(origin, size);
+                        let origin = DeviceIntPoint::new(alloc_origin.x as i32, alloc_origin.y as i32);
+                        task.location = RenderTaskLocation::Dynamic(Some((origin, target_index)), size);
 
-                        // If this task is cacheable / sharable, store it in the task hash
+                        // If this task is cache-able / sharable, store it in the task hash
                         // for this pass.
                         if let Some(cache_key) = task.cache_key {
                             self.dynamic_tasks.insert(
                                 cache_key,
                                 DynamicTaskInfo {
                                     task_id,
-                                    rect: match task.location {
-                                        RenderTaskLocation::Fixed => {
-                                            panic!("Dynamic tasks should not have fixed locations!")
-                                        }
-                                        RenderTaskLocation::Dynamic(Some((origin, _)), size) => {
-                                            DeviceIntRect::new(origin, size)
-                                        }
-                                        RenderTaskLocation::Dynamic(None, _) => {
-                                            panic!("Expect the task to be already allocated here")
-                                        }
-                                    },
+                                    rect: DeviceIntRect::new(origin, size),
                                 },
                             );
                         }
@@ -1446,9 +1444,9 @@ impl RenderPass {
             }
         }
 
-        self.color_targets
+        self.max_used_color_target_size = self.color_targets
             .build(ctx, gpu_cache, render_tasks, deferred_resolves);
-        self.alpha_targets
+        self.max_used_alpha_target_size =self.alpha_targets
             .build(ctx, gpu_cache, render_tasks, deferred_resolves);
     }
 }
