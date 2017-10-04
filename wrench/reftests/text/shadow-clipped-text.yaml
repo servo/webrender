@@ -6,7 +6,7 @@ root:
       content-size: [10, 5]
       items:
         -
-          type: "text-shadow"
+          type: "shadow"
           bounds: [11, 20, 100, 100]
           blur-radius: 3
           offset: [0, 0]
@@ -19,4 +19,4 @@ root:
           color: black
           font: "VeraBd.ttf"
         -
-          type: "pop-text-shadow"
+          type: "pop-shadow"

@@ -12,7 +12,7 @@ use {LineDisplayItem, LineOrientation, LineStyle, LocalClip, MixBlendMode, Pipel
 use {PropertyBinding, PushStackingContextDisplayItem, RadialGradient, RadialGradientDisplayItem};
 use {RectangleDisplayItem, ScrollFrameDisplayItem, ScrollPolicy, ScrollSensitivity};
 use {SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, StickyFrameInfo};
-use {TextDisplayItem, TextShadow, TransformStyle, YuvColorSpace, YuvData};
+use {TextDisplayItem, Shadow, TransformStyle, YuvColorSpace, YuvData};
 use YuvImageDisplayItem;
 use bincode;
 use serde::{Deserialize, Serialize, Serializer};
@@ -1133,12 +1133,12 @@ impl DisplayListBuilder {
         self.push_new_empty_item(SpecificDisplayItem::PopNestedDisplayList);
     }
 
-    pub fn push_text_shadow(&mut self, info: &LayoutPrimitiveInfo, shadow: TextShadow) {
-        self.push_item(SpecificDisplayItem::PushTextShadow(shadow), info);
+    pub fn push_shadow(&mut self, info: &LayoutPrimitiveInfo, shadow: Shadow) {
+        self.push_item(SpecificDisplayItem::PushShadow(shadow), info);
     }
 
-    pub fn pop_text_shadow(&mut self) {
-        self.push_new_empty_item(SpecificDisplayItem::PopTextShadow);
+    pub fn pop_shadow(&mut self) {
+        self.push_new_empty_item(SpecificDisplayItem::PopShadow);
     }
 
     pub fn finalize(mut self) -> (PipelineId, LayoutSize, BuiltDisplayList) {

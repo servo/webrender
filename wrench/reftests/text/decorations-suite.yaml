@@ -68,7 +68,7 @@ root:
       style: wavy
 
     -
-      type: "text-shadow"
+      type: "shadow"
       bounds: [14, 18, 205, 35]
       blur-radius: 0
       offset: [5, 7]
@@ -106,10 +106,10 @@ root:
       color: black
       style: wavy
     -
-      type: "pop-text-shadow"
+      type: "pop-shadow"
 
     -
-      type: "text-shadow"
+      type: "shadow"
       bounds: [0, 200, 220, 120]
       blur-radius: 3
       offset: [5, 7]
@@ -147,7 +147,7 @@ root:
       color: black
       style: wavy
     -
-      type: "pop-text-shadow"
+      type: "pop-shadow"
 
     - type: line
       baseline: 220
@@ -216,7 +216,7 @@ root:
       style: wavy
 
     -
-      type: "text-shadow"
+      type: "shadow"
       bounds: [350, 0, 120, 240]
       blur-radius: 3
       offset: [5, 2]
@@ -254,4 +254,4 @@ root:
       color: red
       style: wavy
     -
-      type: "pop-text-shadow"
+      type: "pop-shadow"

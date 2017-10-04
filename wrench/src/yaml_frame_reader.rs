@@ -757,7 +757,7 @@ impl YamlFrameReader {
 
         assert!(
             item["blur-radius"].is_badvalue(),
-            "text no longer has a blur radius, use PushTextShadow and PopTextShadow"
+            "text no longer has a blur radius, use PushShadow and PopShadow"
         );
 
         let desc = FontDescriptor::from_yaml(item, &self.aux_dir);
@@ -913,8 +913,8 @@ impl YamlFrameReader {
                 "stacking-context" => {
                     self.add_stacking_context_from_yaml(dl, wrench, item, false, &mut info)
                 }
-                "text-shadow" => self.handle_push_text_shadow(dl, item, &mut info),
-                "pop-text-shadow" => self.handle_pop_text_shadow(dl),
+                "shadow" => self.handle_push_shadow(dl, item, &mut info),
+                "pop-shadow" => self.handle_pop_shadow(dl),
                 _ => println!("Skipping unknown item type: {:?}", item),
             }
 
@@ -985,7 +985,7 @@ impl YamlFrameReader {
         dl.pop_clip_id();
     }
 
-    pub fn handle_push_text_shadow(
+    pub fn handle_push_shadow(
         &mut self,
         dl: &mut DisplayListBuilder,
         yaml: &Yaml,
@@ -1000,9 +1000,9 @@ impl YamlFrameReader {
         let offset = yaml["offset"].as_vector().unwrap_or(LayoutVector2D::zero());
         let color = yaml["color"].as_colorf().unwrap_or(*BLACK_COLOR);
 
-        dl.push_text_shadow(
+        dl.push_shadow(
             &info,
-            TextShadow {
+            Shadow {
                 blur_radius,
                 offset,
                 color,
@@ -1010,8 +1010,8 @@ impl YamlFrameReader {
         );
     }
 
-    pub fn handle_pop_text_shadow(&mut self, dl: &mut DisplayListBuilder) {
-        dl.pop_text_shadow();
+    pub fn handle_pop_shadow(&mut self, dl: &mut DisplayListBuilder) {
+        dl.pop_shadow();
     }
 
     pub fn handle_clip(&mut self, dl: &mut DisplayListBuilder, wrench: &mut Wrench, yaml: &Yaml) {

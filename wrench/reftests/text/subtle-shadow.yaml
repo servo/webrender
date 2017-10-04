@@ -5,7 +5,7 @@ root:
           bounds: [0, 0, 255, 85]
           color: [245, 100, 100, 1.0]
         -
-          type: "text-shadow"
+          type: "shadow"
           bounds: [14, 18, 205, 35]
           blur-radius: 0
           offset: [0, 1]
@@ -18,4 +18,4 @@ root:
           color: [168, 168, 168, 1.0]
           font: "VeraBd.ttf"
         -
-          type: "pop-text-shadow"
+          type: "pop-shadow"

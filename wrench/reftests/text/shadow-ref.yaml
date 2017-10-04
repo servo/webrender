@@ -9,7 +9,7 @@ root:
           color: black
           font: "VeraBd.ttf"
         - # Compare blurred offset shadow to shadow
-          type: "text-shadow"
+          type: "shadow"
           bounds: [12, 314, 205, 35]
           blur-radius: 5
           offset: [0, 0]
@@ -22,4 +22,4 @@ root:
           color: [0, 0, 0, 0] # actual text is transparent
           font: "VeraBd.ttf"
         -
-          type: "pop-text-shadow"
+          type: "pop-shadow"
