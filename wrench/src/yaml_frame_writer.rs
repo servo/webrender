@@ -632,8 +632,7 @@ impl YamlFrameWriter {
                 yaml_node(&mut v, "complex-clip", self.make_complex_clip_node(region));
             }
 
-            let clip_and_scroll_info = clip_id_mapper.fix_ids_for_nesting(&base.clip_and_scroll());
-            let clip_and_scroll_yaml = match clip_id_mapper.map_info(&clip_and_scroll_info) {
+            let clip_and_scroll_yaml = match clip_id_mapper.map_info(&base.clip_and_scroll()) {
                 (scroll_id, Some(clip_id)) => {
                     Yaml::Array(vec![Yaml::Integer(scroll_id), Yaml::Integer(clip_id)])
                 }
@@ -1002,10 +1001,6 @@ impl YamlFrameWriter {
                     );
                 }
 
-                PushNestedDisplayList => {
-                    clip_id_mapper.push_nested_display_list_ids(clip_and_scroll_info)
-                }
-                PopNestedDisplayList => clip_id_mapper.pop_nested_display_list_ids(),
                 PopStackingContext => return,
                 SetGradientStops => panic!("dummy item yielded?"),
                 PushShadow(shadow) => {
@@ -1091,14 +1086,12 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
 struct ClipIdMapper {
     hash_map: HashMap<ClipId, usize>,
     current_clip_id: usize,
-    nested_display_list_info: Vec<(ClipId, ClipId)>,
 }
 
 impl ClipIdMapper {
     fn new() -> ClipIdMapper {
         ClipIdMapper {
             hash_map: HashMap::new(),
-            nested_display_list_info: Vec::new(),
             current_clip_id: 1,
         }
     }
@@ -1109,36 +1102,11 @@ impl ClipIdMapper {
         self.current_clip_id - 1
     }
 
-    fn push_nested_display_list_ids(&mut self, info: ClipAndScrollInfo) {
-        self.nested_display_list_info
-            .push((info.scroll_node_id, info.clip_node_id()));
-    }
-
-    fn pop_nested_display_list_ids(&mut self) {
-        self.nested_display_list_info.pop();
-    }
-
     fn map_id(&self, id: &ClipId) -> usize {
         if id.is_root_scroll_node() {
             return 0;
         }
         *self.hash_map.get(id).unwrap()
-    }
-
-    fn fix_ids_for_nesting(&self, info: &ClipAndScrollInfo) -> ClipAndScrollInfo {
-        let mut info = *info;
-        for nested_info in self.nested_display_list_info.iter().rev() {
-            if info.scroll_node_id.is_root_scroll_node() {
-                info.scroll_node_id = nested_info.0;
-            }
-
-            match info.clip_node_id {
-                Some(id) if id.is_root_scroll_node() => info.clip_node_id = Some(nested_info.1),
-                _ => {}
-            }
-        }
-
-        info
     }
 
     fn map_info(&self, info: &ClipAndScrollInfo) -> (i64, Option<i64>) {
