@@ -64,7 +64,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
             PrimitiveKind::AlignedGradient |
             PrimitiveKind::AngleGradient |
             PrimitiveKind::RadialGradient |
-            PrimitiveKind::Shadow => if needs_blending {
+            PrimitiveKind::Picture => if needs_blending {
                 BlendMode::PremultipliedAlpha
             } else {
                 BlendMode::None
@@ -541,10 +541,10 @@ impl AlphaRenderItem {
                             },
                         );
                     }
-                    PrimitiveKind::Shadow => {
-                        let shadow =
-                            &ctx.prim_store.cpu_shadows[prim_metadata.cpu_prim_index.0];
-                        let cache_task_id = shadow.render_task_id.expect("no render task!");
+                    PrimitiveKind::Picture => {
+                        let picture =
+                            &ctx.prim_store.cpu_pictures[prim_metadata.cpu_prim_index.0];
+                        let cache_task_id = picture.render_task_id.expect("no render task!");
                         let cache_task_address = render_tasks.get_task_address(cache_task_id);
                         let textures = BatchTextures::render_target_cache();
                         let kind = BatchKind::Transformable(
@@ -1135,67 +1135,71 @@ impl RenderTarget for ColorRenderTarget {
                     blur_direction: BlurDirection::Horizontal,
                 });
             }
-            RenderTaskKind::CachePrimitive(prim_index) => {
+            RenderTaskKind::Picture(prim_index) => {
                 let prim_metadata = ctx.prim_store.get_metadata(prim_index);
                 let prim_address = prim_metadata.gpu_location.as_int(gpu_cache);
 
                 match prim_metadata.prim_kind {
-                    PrimitiveKind::Shadow => {
-                        let prim = &ctx.prim_store.cpu_shadows[prim_metadata.cpu_prim_index.0];
+                    PrimitiveKind::Picture => {
+                        let prim = &ctx.prim_store.cpu_pictures[prim_metadata.cpu_prim_index.0];
 
                         let task_index = render_tasks.get_task_address(task_id);
 
-                        for sub_prim_index in &prim.primitives {
-                            let sub_metadata = ctx.prim_store.get_metadata(*sub_prim_index);
-                            let sub_prim_address =
-                                gpu_cache.get_address(&sub_metadata.gpu_location);
-                            let instance = SimplePrimitiveInstance::new(
-                                sub_prim_address,
-                                task_index,
-                                RenderTaskAddress(0),
-                                PackedLayerIndex(0).into(),
-                                0,
-                            ); // z is disabled for rendering cache primitives
+                        for run in &prim.prim_runs {
+                            for i in 0 .. run.count {
+                                let sub_prim_index = PrimitiveIndex(run.prim_index.0 + i);
 
-                            match sub_metadata.prim_kind {
-                                PrimitiveKind::TextRun => {
-                                    // Add instances that reference the text run GPU location. Also supply
-                                    // the parent shadow prim address as a user data field, allowing
-                                    // the shader to fetch the shadow parameters.
-                                    let text = &ctx.prim_store.cpu_text_runs
-                                        [sub_metadata.cpu_prim_index.0];
-                                    let text_run_cache_prims = &mut self.text_run_cache_prims;
+                                let sub_metadata = ctx.prim_store.get_metadata(sub_prim_index);
+                                let sub_prim_address =
+                                    gpu_cache.get_address(&sub_metadata.gpu_location);
+                                let instance = SimplePrimitiveInstance::new(
+                                    sub_prim_address,
+                                    task_index,
+                                    RenderTaskAddress(0),
+                                    PackedLayerIndex(0).into(),
+                                    0,
+                                ); // z is disabled for rendering cache primitives
 
-                                    let mut font = text.font.clone();
-                                    font.size = font.size.scale_by(ctx.device_pixel_ratio);
-                                    font.render_mode = text.shadow_render_mode;
+                                match sub_metadata.prim_kind {
+                                    PrimitiveKind::TextRun => {
+                                        // Add instances that reference the text run GPU location. Also supply
+                                        // the parent shadow prim address as a user data field, allowing
+                                        // the shader to fetch the shadow parameters.
+                                        let text = &ctx.prim_store.cpu_text_runs
+                                            [sub_metadata.cpu_prim_index.0];
+                                        let text_run_cache_prims = &mut self.text_run_cache_prims;
 
-                                    ctx.resource_cache.fetch_glyphs(
-                                        font,
-                                        &text.glyph_keys,
-                                        &mut self.glyph_fetch_buffer,
-                                        gpu_cache,
-                                        |texture_id, glyphs| {
-                                            let batch = text_run_cache_prims
-                                                .entry(texture_id)
-                                                .or_insert(Vec::new());
+                                        let mut font = text.font.clone();
+                                        font.size = font.size.scale_by(ctx.device_pixel_ratio);
+                                        font.render_mode = text.shadow_render_mode;
 
-                                            for glyph in glyphs {
-                                                batch.push(instance.build(
-                                                    glyph.index_in_text_run,
-                                                    glyph.uv_rect_address.as_int(),
-                                                    prim_address,
-                                                ));
-                                            }
-                                        },
-                                    );
-                                }
-                                PrimitiveKind::Line => {
-                                    self.line_cache_prims
-                                        .push(instance.build(prim_address, 0, 0));
-                                }
-                                _ => {
-                                    unreachable!("Unexpected sub primitive type");
+                                        ctx.resource_cache.fetch_glyphs(
+                                            font,
+                                            &text.glyph_keys,
+                                            &mut self.glyph_fetch_buffer,
+                                            gpu_cache,
+                                            |texture_id, glyphs| {
+                                                let batch = text_run_cache_prims
+                                                    .entry(texture_id)
+                                                    .or_insert(Vec::new());
+
+                                                for glyph in glyphs {
+                                                    batch.push(instance.build(
+                                                        glyph.index_in_text_run,
+                                                        glyph.uv_rect_address.as_int(),
+                                                        prim_address,
+                                                    ));
+                                                }
+                                            },
+                                        );
+                                    }
+                                    PrimitiveKind::Line => {
+                                        self.line_cache_prims
+                                            .push(instance.build(prim_address, 0, 0));
+                                    }
+                                    _ => {
+                                        unreachable!("Unexpected sub primitive type");
+                                    }
                                 }
                             }
                         }
@@ -1255,7 +1259,7 @@ impl RenderTarget for AlphaRenderTarget {
             RenderTaskKind::Alpha(..) |
             RenderTaskKind::VerticalBlur(..) |
             RenderTaskKind::HorizontalBlur(..) |
-            RenderTaskKind::CachePrimitive(..) |
+            RenderTaskKind::Picture(..) |
             RenderTaskKind::Readback(..) => {
                 panic!("Should not be added to alpha target!");
             }
