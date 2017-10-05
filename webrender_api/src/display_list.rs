@@ -1035,7 +1035,7 @@ impl DisplayListBuilder {
     fn generate_clip_id(&mut self, id: Option<ClipId>) -> ClipId {
         id.unwrap_or_else(|| {
             self.next_clip_id += 1;
-            ClipId::Clip(self.next_clip_id - 1, 0, self.pipeline_id)
+            ClipId::Clip(self.next_clip_id - 1, self.pipeline_id)
         })
     }
 
@@ -1178,25 +1178,6 @@ impl DisplayListBuilder {
             pipeline_id: pipeline_id,
         });
         self.push_item(item, info);
-    }
-
-    // Don't use this function. It will go away.
-    //
-    // We're using this method as a hack in Gecko to retain parts sub-parts of display
-    // lists so that we can regenerate them without building Gecko display items. WebRender
-    // will replace references to the root scroll frame id with the current scroll frame
-    // id.
-    pub fn push_nested_display_list(&mut self, built_display_list: &BuiltDisplayList) {
-        self.push_new_empty_item(SpecificDisplayItem::PushNestedDisplayList);
-
-        // Need to read out all the glyph data to update the cache
-        for (font_key, color, glyphs) in built_display_list.glyphs() {
-            self.cache_glyphs(font_key, color, built_display_list.get(glyphs));
-        }
-
-        // Only append the actual items, not any caches
-        self.data.extend_from_slice(built_display_list.item_slice());
-        self.push_new_empty_item(SpecificDisplayItem::PopNestedDisplayList);
     }
 
     pub fn push_shadow(&mut self, info: &LayoutPrimitiveInfo, shadow: Shadow) {
