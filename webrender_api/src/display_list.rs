@@ -51,6 +51,14 @@ impl<T> ItemRange<T> {
     }
 }
 
+#[repr(C)]
+#[derive(Debug)]
+pub struct DisplayListBuilderSaveState {
+    dl_len: usize,
+    clip_stack_len: usize,
+    next_clip_id: u64,
+}
+
 /// A display list.
 #[derive(Clone, Default)]
 pub struct BuiltDisplayList {
@@ -592,6 +600,20 @@ impl DisplayListBuilder {
             builder_start_time: start_time,
             content_size,
         }
+    }
+
+    pub fn save(&self) -> DisplayListBuilderSaveState {
+        DisplayListBuilderSaveState {
+            clip_stack_len: self.clip_stack.len(),
+            dl_len: self.data.len(),
+            next_clip_id: self.next_clip_id,
+        }
+    }
+
+    pub fn restore(&mut self, state: DisplayListBuilderSaveState) {
+        self.clip_stack.truncate(state.clip_stack_len);
+        self.data.truncate(state.dl_len);
+        self.next_clip_id = state.next_clip_id;
     }
 
     pub fn print_display_list(&mut self) {
