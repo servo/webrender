@@ -4,7 +4,7 @@
 
 use {BorderDetails, BorderDisplayItem, BorderWidths, BoxShadowClipMode, BoxShadowDisplayItem};
 use {ClipAndScrollInfo, ClipDisplayItem, ClipId, ColorF, ComplexClipRegion, DisplayItem};
-use {ExtendMode, FastHashMap, FastHashSet, FilterOp, FontInstanceKey, GlyphIndex, GlyphInstance};
+use {ExtendMode, FilterOp, FontInstanceKey, GlyphInstance};
 use {GlyphOptions, Gradient, GradientDisplayItem, GradientStop, IframeDisplayItem};
 use {ImageDisplayItem, ImageKey, ImageMask, ImageRendering, LayerPrimitiveInfo, LayoutPoint};
 use {LayoutPrimitiveInfo, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D};
@@ -72,8 +72,6 @@ pub struct BuiltDisplayListDescriptor {
     builder_finish_time: u64,
     /// The third IPC time stamp: just before sending
     send_start_time: u64,
-    /// The offset where DisplayItems stop and the Glyph list starts
-    glyph_offset: usize,
 }
 
 pub struct BuiltDisplayListIter<'a> {
@@ -90,12 +88,6 @@ pub struct BuiltDisplayListIter<'a> {
 pub struct DisplayItemRef<'a: 'b, 'b> {
     iter: &'b BuiltDisplayListIter<'a>,
 }
-
-pub struct GlyphsIter<'a> {
-    list: &'a BuiltDisplayList,
-    data: &'a [u8],
-}
-
 
 #[derive(PartialEq)]
 enum Peek {
@@ -127,12 +119,9 @@ impl BuiltDisplayList {
         &self.data[..]
     }
 
+    // Currently redundant with data, but may be useful if we add extra data to dl
     pub fn item_slice(&self) -> &[u8] {
-        &self.data[.. self.descriptor.glyph_offset]
-    }
-
-    pub fn glyph_slice(&self) -> &[u8] {
-        &self.data[self.descriptor.glyph_offset ..]
+        &self.data[..]
     }
 
     pub fn descriptor(&self) -> &BuiltDisplayListDescriptor {
@@ -149,13 +138,6 @@ impl BuiltDisplayList {
 
     pub fn iter(&self) -> BuiltDisplayListIter {
         BuiltDisplayListIter::new(self)
-    }
-
-    pub fn glyphs(&self) -> GlyphsIter {
-        GlyphsIter {
-            list: self,
-            data: self.glyph_slice(),
-        }
     }
 
     pub fn get<'de, T: Deserialize<'de>>(&self, range: ItemRange<T>) -> AuxIter<T> {
@@ -311,21 +293,6 @@ impl<'a> BuiltDisplayListIter<'a> {
         } else {
             Some(self.as_ref())
         }
-    }
-}
-
-impl<'a> Iterator for GlyphsIter<'a> {
-    type Item = (FontInstanceKey, ColorF, ItemRange<GlyphIndex>);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.data.len() == 0 {
-            return None;
-        }
-
-        let (font_key, color) = bincode::deserialize_from(&mut self.data, bincode::Infinite)
-            .expect("MEH: malicious process?");
-        let glyph_indices = skip_slice::<GlyphIndex>(self.list, &mut self.data).0;
-        Some((font_key, color, glyph_indices))
     }
 }
 
@@ -556,8 +523,6 @@ pub struct DisplayListBuilder {
     pub data: Vec<u8>,
     pub pipeline_id: PipelineId,
     clip_stack: Vec<ClipAndScrollInfo>,
-    // FIXME: audit whether fast hashers (FNV?) are safe here
-    glyphs: FastHashMap<(FontInstanceKey, ColorF), FastHashSet<GlyphIndex>>,
     next_clip_id: u64,
     builder_start_time: u64,
 
@@ -587,7 +552,6 @@ impl DisplayListBuilder {
             clip_stack: vec![
                 ClipAndScrollInfo::simple(ClipId::root_scroll_node(pipeline_id)),
             ],
-            glyphs: FastHashMap::default(),
             next_clip_id: FIRST_CLIP_ID,
             builder_start_time: start_time,
             content_size,
@@ -730,27 +694,7 @@ impl DisplayListBuilder {
         for split_glyphs in glyphs.chunks(MAX_TEXT_RUN_LENGTH) {
             self.push_item(item, info);
             self.push_iter(split_glyphs);
-
-            // Remember that we've seen these glyphs
-            self.cache_glyphs(
-                font_key,
-                color,
-                split_glyphs.iter().map(|glyph| glyph.index),
-            );
         }
-    }
-
-    fn cache_glyphs<I: Iterator<Item = GlyphIndex>>(
-        &mut self,
-        font_key: FontInstanceKey,
-        color: ColorF,
-        glyphs: I,
-    ) {
-        let font_glyphs = self.glyphs
-            .entry((font_key, color))
-            .or_insert(FastHashSet::default());
-
-        font_glyphs.extend(glyphs);
     }
 
     // Gradients can be defined with stops outside the range of [0, 1]
@@ -1188,19 +1132,7 @@ impl DisplayListBuilder {
         self.push_new_empty_item(SpecificDisplayItem::PopShadow);
     }
 
-    pub fn finalize(mut self) -> (PipelineId, LayoutSize, BuiltDisplayList) {
-        let glyph_offset = self.data.len();
-
-        // Want to use self.push_iter, so can't borrow self
-        let glyphs = ::std::mem::replace(&mut self.glyphs, FastHashMap::default());
-
-        // Append glyph data to the end
-        for ((font_key, color), sub_glyphs) in glyphs {
-            serialize_fast(&mut self.data, &font_key);
-            serialize_fast(&mut self.data, &color);
-            self.push_iter(sub_glyphs);
-        }
-
+    pub fn finalize(self) -> (PipelineId, LayoutSize, BuiltDisplayList) {
         let end_time = precise_time_ns();
 
 
@@ -1212,7 +1144,6 @@ impl DisplayListBuilder {
                     builder_start_time: self.builder_start_time,
                     builder_finish_time: end_time,
                     send_start_time: 0,
-                    glyph_offset,
                 },
                 data: self.data,
             },
