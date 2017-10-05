@@ -376,8 +376,9 @@ impl Wrench {
         let key = self.api.generate_font_instance_key();
         let mut update = ResourceUpdates::new();
         let options = FontInstanceOptions {
-            render_mode,
+            render_mode: render_mode.unwrap_or(FontRenderMode::Subpixel),
             synthetic_italics,
+            ..Default::default()
         };
         update.add_font_instance(key, font_key, size, Some(options), None, Vec::new());
         self.api.update_resources(update);

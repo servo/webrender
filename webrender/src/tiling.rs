@@ -16,7 +16,7 @@ use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveIn
 use internal_types::{FastHashMap, SourceTexture};
 use internal_types::BatchTextures;
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
-use prim_store::DeferredResolve;
+use prim_store::{DeferredResolve, TextRunMode};
 use profiler::FrameProfileCounters;
 use render_task::{AlphaRenderItem, ClipWorkItem, MaskGeometryKind, MaskSegment};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKey, RenderTaskKind};
@@ -55,10 +55,10 @@ impl AlphaBatchHelpers for PrimitiveStore {
             PrimitiveKind::TextRun => {
                 let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
                 match text_run_cpu.font.render_mode {
-                    FontRenderMode::Subpixel => BlendMode::Subpixel(text_run_cpu.color),
+                    FontRenderMode::Subpixel => BlendMode::Subpixel(text_run_cpu.font.color),
                     FontRenderMode::Alpha |
                     FontRenderMode::Mono |
-                    FontRenderMode::Bitmap => BlendMode::Alpha,
+                    FontRenderMode::Bitmap => BlendMode::PremultipliedAlpha,
                 }
             }
             PrimitiveKind::Image |
@@ -508,8 +508,7 @@ impl AlphaRenderItem {
                         let text_cpu =
                             &ctx.prim_store.cpu_text_runs[prim_metadata.cpu_prim_index.0];
 
-                        let mut font = text_cpu.font.clone();
-                        font.size = font.size.scale_by(ctx.device_pixel_ratio);
+                        let font = text_cpu.get_font(TextRunMode::Normal, ctx.device_pixel_ratio);
 
                         ctx.resource_cache.fetch_glyphs(
                             font,
@@ -529,6 +528,7 @@ impl AlphaRenderItem {
                                     transform_kind,
                                     TransformBatchKind::TextRun,
                                 );
+
                                 let key = BatchKey::new(kind, blend_mode, textures);
                                 let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
 
@@ -1170,9 +1170,7 @@ impl RenderTarget for ColorRenderTarget {
                                             [sub_metadata.cpu_prim_index.0];
                                         let text_run_cache_prims = &mut self.text_run_cache_prims;
 
-                                        let mut font = text.font.clone();
-                                        font.size = font.size.scale_by(ctx.device_pixel_ratio);
-                                        font.render_mode = text.shadow_render_mode;
+                                        let font = text.get_font(TextRunMode::Shadow, ctx.device_pixel_ratio);
 
                                         ctx.resource_cache.fetch_glyphs(
                                             font,
