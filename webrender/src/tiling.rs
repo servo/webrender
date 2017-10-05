@@ -26,7 +26,8 @@ use renderer::ImageBufferKind;
 use resource_cache::{GlyphFetchResult, ResourceCache};
 use std::{cmp, usize, f32, i32};
 use texture_allocator::GuillotineAllocator;
-use util::{TransformedRect, TransformedRectKind};
+use util::{MatrixHelpers, TransformedRect, TransformedRectKind};
+use euclid::rect;
 
 // Special sentinel value recognized by the shader. It is considered to be
 // a dummy task that doesn't mask out anything.
@@ -1690,7 +1691,13 @@ impl PackedLayer {
         screen_rect: &DeviceIntRect,
         device_pixel_ratio: f32,
     ) -> Option<(TransformedRectKind, DeviceIntRect)> {
-        self.local_clip_rect = *local_rect;
+        self.local_clip_rect = if self.transform.has_perspective_component() {
+            // Given a very large rect which means any rect would be inside this rect.
+            // That is, nothing would be clipped.
+            rect(f32::MIN / 2.0, f32::MIN / 2.0, f32::MAX, f32::MAX)
+        } else {
+            *local_rect
+        };
         let xf_rect = TransformedRect::new(local_rect, &self.transform, device_pixel_ratio);
         xf_rect
             .bounding_rect
