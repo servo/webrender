@@ -10,7 +10,7 @@ use api::{GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem, 
 use api::{ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect};
 use api::{LayerSize, LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation};
 use api::{LineStyle, LocalClip, POINT_RELATIVE_TO_PIPELINE_VIEWPORT, PipelineId, RepeatMode};
-use api::{ScrollSensitivity, SubpixelDirection, Shadow, TileOffset, TransformStyle};
+use api::{ScrollSensitivity, Shadow, TileOffset, TransformStyle};
 use api::{WorldPixel, WorldPoint, YuvColorSpace, YuvData, device_length};
 use app_units::Au;
 use border::ImageBorderSegment;
@@ -1132,19 +1132,18 @@ impl FrameBuilder {
         // TODO(gw): Use a proper algorithm to select
         // whether this item should be rendered with
         // subpixel AA!
-        let mut default_render_mode = self.config
+        let mut render_mode = self.config
             .default_font_render_mode
             .limit_by(font.render_mode);
         if let Some(options) = glyph_options {
-            default_render_mode = default_render_mode.limit_by(options.render_mode);
+            render_mode = render_mode.limit_by(options.render_mode);
         }
 
         // There are some conditions under which we can't use
         // subpixel text rendering, even if enabled.
-        let mut normal_render_mode = default_render_mode;
-        if normal_render_mode == FontRenderMode::Subpixel {
+        if render_mode == FontRenderMode::Subpixel {
             if color.a != 1.0 {
-                normal_render_mode = FontRenderMode::Alpha;
+                render_mode = FontRenderMode::Alpha;
             }
 
             // text on a stacking context that has filters
@@ -1155,36 +1154,17 @@ impl FrameBuilder {
             if let Some(sc_index) = self.stacking_context_stack.last() {
                 let stacking_context = &self.stacking_context_store[sc_index.0];
                 if stacking_context.composite_ops.count() > 0 {
-                    normal_render_mode = FontRenderMode::Alpha;
+                    render_mode = FontRenderMode::Alpha;
                 }
             }
         }
 
-        let color = match font.render_mode {
-            FontRenderMode::Bitmap => ColorF::new(1.0, 1.0, 1.0, 1.0),
-            FontRenderMode::Subpixel |
-            FontRenderMode::Alpha |
-            FontRenderMode::Mono => *color,
-        };
-
-        // Shadows never use subpixel AA, but need to respect the alpha/mono flag
-        // for reftests.
-        let (shadow_render_mode, subpx_dir) = match default_render_mode {
-            FontRenderMode::Subpixel | FontRenderMode::Alpha => {
-                // TODO(gw): Expose subpixel direction in API once WR supports
-                //           vertical text runs.
-                (FontRenderMode::Alpha, font.subpx_dir)
-            }
-            FontRenderMode::Mono => (FontRenderMode::Mono, SubpixelDirection::None),
-            FontRenderMode::Bitmap => (FontRenderMode::Bitmap, font.subpx_dir),
-        };
-
         let prim_font = FontInstance::new(
             font.font_key,
             font.size,
-            color,
-            normal_render_mode,
-            subpx_dir,
+            *color,
+            render_mode,
+            font.subpx_dir,
             font.platform_options,
             font.variations.clone(),
             font.synthetic_italics,
@@ -1195,9 +1175,7 @@ impl FrameBuilder {
             glyph_count,
             glyph_gpu_blocks: Vec::new(),
             glyph_keys: Vec::new(),
-            shadow_render_mode,
             offset: run_offset,
-            color: color,
         };
 
         // Text shadows that have a blur radius of 0 need to be rendered as normal
@@ -1215,16 +1193,13 @@ impl FrameBuilder {
             let shadow = picture_prim.as_shadow();
             if shadow.blur_radius == 0.0 {
                 let mut text_prim = prim.clone();
-                if font.render_mode != FontRenderMode::Bitmap {
-                    text_prim.font.color = shadow.color.into();
-                }
+                text_prim.font.color = shadow.color.into();
                 // If we have translucent text, we need to ensure it won't go
                 // through the subpixel blend mode, which doesn't work with
                 // traditional alpha blending.
                 if shadow.color.a != 1.0 {
                     text_prim.font.render_mode = text_prim.font.render_mode.limit_by(FontRenderMode::Alpha);
                 }
-                text_prim.color = shadow.color;
                 text_prim.offset += shadow.offset;
                 fast_shadow_prims.push(text_prim);
             }

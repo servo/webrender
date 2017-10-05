@@ -523,8 +523,6 @@ pub struct TextRunPrimitiveCpu {
     pub glyph_count: usize,
     pub glyph_keys: Vec<GlyphKey>,
     pub glyph_gpu_blocks: Vec<GpuBlockData>,
-    pub shadow_render_mode: FontRenderMode,
-    pub color: ColorF,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -534,6 +532,23 @@ pub enum TextRunMode {
 }
 
 impl TextRunPrimitiveCpu {
+    pub fn get_font(&self,
+                    run_mode: TextRunMode,
+                    device_pixel_ratio: f32,
+    ) -> FontInstance {
+        let mut font = self.font.clone();
+        match run_mode {
+            TextRunMode::Normal => {}
+            TextRunMode::Shadow => {
+                // Shadows never use subpixel AA, but need to respect the alpha/mono flag
+                // for reftests.
+                font.render_mode = font.render_mode.limit_by(FontRenderMode::Alpha);
+            }
+        };
+        font.size = font.size.scale_by(device_pixel_ratio);
+        font
+    }
+
     fn prepare_for_render(
         &mut self,
         resource_cache: &mut ResourceCache,
@@ -542,33 +557,22 @@ impl TextRunPrimitiveCpu {
         run_mode: TextRunMode,
         gpu_cache: &mut GpuCache,
     ) {
-        let mut font = self.font.clone();
-        font.size = font.size.scale_by(device_pixel_ratio);
-        match run_mode {
-            TextRunMode::Shadow => {
-                font.render_mode = self.shadow_render_mode;
-            }
-            TextRunMode::Normal => {}
-        }
-
-        if run_mode == TextRunMode::Shadow {
-            font.render_mode = self.shadow_render_mode;
-        }
+        let font = self.get_font(run_mode, device_pixel_ratio);
 
         // Cache the glyph positions, if not in the cache already.
         // TODO(gw): In the future, remove `glyph_instances`
         //           completely, and just reference the glyphs
         //           directly from the display list.
         if self.glyph_keys.is_empty() {
+            let subpx_dir = font.subpx_dir.limit_by(font.render_mode);
             let src_glyphs = display_list.get(self.glyph_range);
 
             // TODO(gw): If we support chunks() on AuxIter
             //           in the future, this code below could
             //           be much simpler...
             let mut gpu_block = GpuBlockData::empty();
-
             for (i, src) in src_glyphs.enumerate() {
-                let key = GlyphKey::new(src.index, src.point, font.render_mode, font.subpx_dir);
+                let key = GlyphKey::new(src.index, src.point, font.render_mode, subpx_dir);
                 self.glyph_keys.push(key);
 
                 // Two glyphs are packed per GPU block.
@@ -594,11 +598,11 @@ impl TextRunPrimitiveCpu {
     }
 
     fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
-        request.push(self.color);
+        request.push(ColorF::from(self.font.color));
         request.push([
             self.offset.x,
             self.offset.y,
-            self.font.subpx_dir as u32 as f32,
+            self.font.subpx_dir.limit_by(self.font.render_mode) as u32 as f32,
             0.0,
         ]);
         request.extend_from_slice(&self.glyph_gpu_blocks);
