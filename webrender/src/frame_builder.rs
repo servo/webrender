@@ -1625,6 +1625,7 @@ impl FrameBuilder {
                     pipeline: clip_and_scroll.clip_node_id().pipeline_id(),
                     tag: item.tag,
                     point_in_viewport,
+                    point_relative_to_item: point_in_layer - item.rect.origin.to_vector(),
                 });
                 if !flags.contains(FIND_ALL) {
                     return result;
