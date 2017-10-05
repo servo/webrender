@@ -41,6 +41,7 @@ impl<'a> RawtestHarness<'a> {
     pub fn run(mut self) {
         self.retained_blob_images_test();
         self.tile_decomposition();
+        self.save_restore();
     }
 
     fn render_and_get_pixels(&mut self, window_rect: DeviceUintRect) -> Vec<u8> {
@@ -181,5 +182,87 @@ impl<'a> RawtestHarness<'a> {
         // png::save_flipped("out2.png", &pixels_second, window_rect.size);
 
         assert!(pixels_first != pixels_second);
+    }
+
+
+    // Ensures that content doing a save-restore produces the same results as not
+    fn save_restore(&mut self) {
+        fn rect(x: f32, y: f32, w: f32, h: f32) -> LayoutRect {
+            LayoutRect::new(
+                    LayoutPoint::new(x, y),
+                    LayoutSize::new(w, h))
+        }
+
+        let window_size = self.window.get_inner_size_pixels();
+        let window_size = DeviceUintSize::new(window_size.0, window_size.1);
+
+        let test_size = DeviceUintSize::new(400, 400);
+
+        let window_rect = DeviceUintRect::new(
+            DeviceUintPoint::new(0, window_size.height - test_size.height),
+            test_size,
+        );
+        let layout_size = LayoutSize::new(400., 400.);
+        let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
+
+
+        let mut do_test = |should_try_and_fail| {
+            let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
+
+            let clip = builder.define_clip(None, rect(110., 120., 200., 200.),
+                                           None::<ComplexClipRegion>, None);
+            builder.push_clip_id(clip);
+            builder.push_rect(&PrimitiveInfo::new(rect(100., 100., 100., 100.)),
+                              ColorF::new(0.0, 0.0, 1.0, 1.0));
+
+            if should_try_and_fail {
+                let save_state = builder.save();
+                let clip = builder.define_clip(None, rect(80., 80., 90., 90.),
+                                           None::<ComplexClipRegion>, None);
+                builder.push_clip_id(clip);
+                builder.push_rect(&PrimitiveInfo::new(rect(110., 110., 50., 50.)),
+                              ColorF::new(0.0, 1.0, 0.0, 1.0));
+                builder.push_shadow(&PrimitiveInfo::new(rect(100., 100., 100., 100.)),
+                    Shadow {
+                        offset: LayoutVector2D::new(1.0, 1.0),
+                        blur_radius: 1.0,
+                        color: ColorF::new(0.0, 0.0, 0.0, 1.0),
+                    });
+                builder.push_line(&PrimitiveInfo::new(rect(100., 100., 100., 100.)),
+                                  110., 110., 160., LineOrientation::Horizontal, 2.0,
+                                  ColorF::new(0.0, 0.0, 0.0, 1.0), LineStyle::Solid);
+                builder.restore(save_state);
+            }
+
+            let clip = builder.define_clip(None, rect(80., 80., 100., 100.),
+                                           None::<ComplexClipRegion>, None);
+            builder.push_clip_id(clip);
+            builder.push_rect(&PrimitiveInfo::new(rect(150., 150., 100., 100.)),
+                              ColorF::new(0.0, 0.0, 1.0, 1.0));
+
+            builder.pop_clip_id();
+            builder.pop_clip_id();
+
+            self.wrench.api.set_display_list(
+                self.wrench.document_id,
+                Epoch(0),
+                root_background_color,
+                layout_size,
+                builder.finalize(),
+                false,
+                ResourceUpdates::new(),
+            );
+            self.wrench
+                .api
+                .generate_frame(self.wrench.document_id, None);
+ 
+            self.render_and_get_pixels(window_rect)
+        };
+
+
+        let first = do_test(false);
+        let second = do_test(true);
+
+        assert_eq!(first, second);
     }
 }
