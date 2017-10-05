@@ -184,7 +184,7 @@ fn write_sc(parent: &mut Table, sc: &StackingContext) {
 
     match sc.transform {
         Some(PropertyBinding::Value(transform)) => matrix4d_node(parent, "transform", &transform),
-        Some(PropertyBinding::Binding(..)) => panic!("TODO: Handle property bindings in wrench!"),
+        Some(PropertyBinding::Binding(..)) => println!("TODO: Handle property bindings in wrench!"),
         None => {}
     };
 
