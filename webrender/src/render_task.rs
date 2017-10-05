@@ -329,7 +329,10 @@ impl RenderTask {
                 }
 
                 match clip_info.bounds.inner {
-                    Some(ref inner) if !inner.device_rect.is_empty() => {
+                    // Inner rects aren't valid if the item is not axis-aligned, which can
+                    // be determined by the apply_rectangles field. This is mostly a band-aid
+                    // until we have better handling of inner rectangles for transformed clips.
+                    Some(ref inner) if !work_item.apply_rectangles && !inner.device_rect.is_empty() => {
                         inner_rect = inner_rect.and_then(|r| r.intersection(&inner.device_rect));
                         !inner.device_rect.contains_rect(&task_rect)
                     }
