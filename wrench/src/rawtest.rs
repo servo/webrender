@@ -216,7 +216,7 @@ impl<'a> RawtestHarness<'a> {
                               ColorF::new(0.0, 0.0, 1.0, 1.0));
 
             if should_try_and_fail {
-                let save_state = builder.save();
+                builder.save();
                 let clip = builder.define_clip(None, rect(80., 80., 90., 90.),
                                            None::<ComplexClipRegion>, None);
                 builder.push_clip_id(clip);
@@ -231,16 +231,21 @@ impl<'a> RawtestHarness<'a> {
                 builder.push_line(&PrimitiveInfo::new(rect(100., 100., 100., 100.)),
                                   110., 110., 160., LineOrientation::Horizontal, 2.0,
                                   ColorF::new(0.0, 0.0, 0.0, 1.0), LineStyle::Solid);
-                builder.restore(save_state);
+                builder.restore();
             }
 
-            let clip = builder.define_clip(None, rect(80., 80., 100., 100.),
-                                           None::<ComplexClipRegion>, None);
-            builder.push_clip_id(clip);
-            builder.push_rect(&PrimitiveInfo::new(rect(150., 150., 100., 100.)),
-                              ColorF::new(0.0, 0.0, 1.0, 1.0));
+            {
+                builder.save();
+                let clip = builder.define_clip(None, rect(80., 80., 100., 100.),
+                                               None::<ComplexClipRegion>, None);
+                builder.push_clip_id(clip);
+                builder.push_rect(&PrimitiveInfo::new(rect(150., 150., 100., 100.)),
+                                  ColorF::new(0.0, 0.0, 1.0, 1.0));
 
-            builder.pop_clip_id();
+                builder.pop_clip_id();
+                builder.clear_save();
+            }
+
             builder.pop_clip_id();
 
             self.wrench.api.set_display_list(
