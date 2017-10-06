@@ -109,7 +109,6 @@ pub enum SpecificDisplayItem {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ClipDisplayItem {
     pub id: ClipId,
-    pub parent_id: ClipId,
     pub image_mask: Option<ImageMask>,
 }
 
@@ -137,7 +136,6 @@ pub enum ScrollSensitivity {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ScrollFrameDisplayItem {
     pub id: ClipId,
-    pub parent_id: ClipId,
     pub image_mask: Option<ImageMask>,
     pub scroll_sensitivity: ScrollSensitivity,
 }
