@@ -23,6 +23,7 @@ extern crate image;
 extern crate lazy_static;
 #[cfg(feature = "headless")]
 extern crate osmesa_sys;
+extern crate ron;
 #[macro_use]
 extern crate serde;
 extern crate serde_json;
@@ -33,6 +34,7 @@ extern crate yaml_rust;
 mod binary_frame_reader;
 mod blob;
 mod json_frame_writer;
+mod ron_frame_writer;
 mod parse_function;
 mod perf;
 mod png;
@@ -290,14 +292,12 @@ fn main() {
     let dp_ratio = args.value_of("dp_ratio").map(|v| v.parse::<f32>().unwrap());
     let limit_seconds = args.value_of("time")
         .map(|s| time::Duration::seconds(s.parse::<i64>().unwrap()));
-    let save_type = args.value_of("save").map(|s| if s == "yaml" {
-        wrench::SaveType::Yaml
-    } else if s == "json" {
-        wrench::SaveType::Json
-    } else if s == "binary" {
-        wrench::SaveType::Binary
-    } else {
-        panic!("Save type must be json, yaml, or binary");
+    let save_type = args.value_of("save").map(|s| match s {
+        "yaml" => wrench::SaveType::Yaml,
+        "json" => wrench::SaveType::Json,
+        "ron" => wrench::SaveType::Ron,
+        "binary" => wrench::SaveType::Binary,
+        _ => panic!("Save type must be json, ron, yaml, or binary")
     });
     let size = args.value_of("size")
         .map(|s| if s == "720p" {

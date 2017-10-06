@@ -12,6 +12,7 @@ use dwrote;
 use font_loader::system_fonts;
 use glutin::WindowProxy;
 use json_frame_writer::JsonFrameWriter;
+use ron_frame_writer::RonFrameWriter;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use time;
@@ -38,6 +39,7 @@ pub enum FontDescriptor {
 pub enum SaveType {
     Yaml,
     Json,
+    Ron,
     Binary,
 }
 
@@ -144,6 +146,8 @@ impl Wrench {
                 YamlFrameWriterReceiver::new(&PathBuf::from("yaml_frames")),
             ) as Box<webrender::ApiRecordingReceiver>,
             SaveType::Json => Box::new(JsonFrameWriter::new(&PathBuf::from("json_frames"))) as
+                Box<webrender::ApiRecordingReceiver>,
+            SaveType::Ron => Box::new(RonFrameWriter::new(&PathBuf::from("ron_frames"))) as
                 Box<webrender::ApiRecordingReceiver>,
             SaveType::Binary => Box::new(webrender::BinaryRecorder::new(
                 &PathBuf::from("wr-record.bin"),

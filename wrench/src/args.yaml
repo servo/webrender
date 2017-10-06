@@ -22,7 +22,7 @@ args:
       help: Rebuild display list from scratch every frame
   - save:
       long: save
-      help: 'Save frames, one of: yaml, json, or binary'
+      help: 'Save frames, one of: yaml, json, ron, or binary'
       takes_value: true
   - no_subpixel_aa:
       short: a
