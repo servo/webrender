@@ -733,10 +733,10 @@ vec2 init_transform_fs(vec3 local_pos, out float fragment_alpha) {
     float d = signed_distance_rect(pos, vLocalBounds.xy, vLocalBounds.zw);
 
     // Find the appropriate distance to apply the AA smoothstep over.
-    float afwidth = 0.5 * length(fwidth(pos.xy));
+    float aa_range = 0.4 * length(fwidth(pos.xy));
 
     // Only apply AA to fragments outside the signed distance field.
-    fragment_alpha = 1.0 - smoothstep(0.0, afwidth, d);
+    fragment_alpha = 1.0 - smoothstep(-aa_range, aa_range, d);
 
     return pos;
 }
