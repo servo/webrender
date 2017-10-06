@@ -492,15 +492,13 @@ impl<'a, 'b> Serialize for DisplayItemRef<'a, 'b> {
 // }
 //
 
-struct UnsafeVecWriter<'a>(&'a mut Vec<u8>);
+struct UnsafeVecWriter(*mut u8);
 
-impl<'a> Write for UnsafeVecWriter<'a> {
+impl Write for UnsafeVecWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         unsafe {
-            let old_len = self.0.len();
-            self.0.set_len(old_len + buf.len());
-            debug_assert!(self.0.len() <= self.0.capacity());
-            ptr::copy_nonoverlapping(buf.as_ptr(), self.0.as_mut_ptr().offset(old_len as isize), buf.len());
+            ptr::copy_nonoverlapping(buf.as_ptr(), self.0, buf.len());
+            self.0 = self.0.offset(buf.len() as isize);
         }
         Ok(buf.len())
     }
@@ -523,7 +521,16 @@ fn serialize_fast<T: Serialize>(vec: &mut Vec<u8>, e: &T) {
     bincode::serialize_into(&mut size,e , bincode::Infinite).unwrap();
     vec.reserve(size.0);
 
-    bincode::serialize_into(&mut UnsafeVecWriter(vec), e, bincode::Infinite).unwrap();
+    let old_len = vec.len();
+    let ptr = unsafe { vec.as_mut_ptr().offset(old_len as isize) };
+    let mut w = UnsafeVecWriter(ptr);
+    bincode::serialize_into(&mut w, e, bincode::Infinite).unwrap();
+
+    // fix up the length
+    unsafe { vec.set_len(old_len + size.0); }
+
+    // make sure we wrote the right amount
+    debug_assert!(((w.0 as usize) - (vec.as_ptr() as usize)) == vec.len());
 }
 
 #[derive(Clone)]
