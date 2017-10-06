@@ -78,6 +78,9 @@ subcommands:
               help: Include the given element type. Can be specified multiple times. (rect/image/text/glyphs/border)
               multiple: true
               takes_value: true
+          - list-resources:
+              long: list-resources
+              help: List the resources used by this YAML file
           - watch:
               short: w
               long: watch

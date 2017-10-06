@@ -154,6 +154,7 @@ pub struct YamlFrameReader {
     include_only: Vec<String>,
 
     watch_source: bool,
+    list_resources: bool,
 
     /// A HashMap of offsets which specify what scroll offsets particular
     /// scroll layers should be initialized with.
@@ -170,6 +171,7 @@ impl YamlFrameReader {
     pub fn new(yaml_path: &Path) -> YamlFrameReader {
         YamlFrameReader {
             watch_source: false,
+            list_resources: false,
             frame_built: false,
             yaml_path: yaml_path.to_owned(),
             aux_dir: yaml_path.parent().unwrap().to_owned(),
@@ -207,6 +209,7 @@ impl YamlFrameReader {
         let yaml_file = args.value_of("INPUT").map(|s| PathBuf::from(s)).unwrap();
 
         let mut y = YamlFrameReader::new(&yaml_file);
+        y.list_resources = args.is_present("list-resources");
         y.watch_source = args.is_present("watch");
         y.queue_depth = args.value_of("queue")
             .map(|s| s.parse::<u32>().unwrap())
@@ -308,6 +311,7 @@ impl YamlFrameReader {
             return *k;
         }
 
+        if self.list_resources { println!("{}", file.to_string_lossy()); }
         let (descriptor, image_data) = match image::open(file) {
             Ok(image) => {
                 let image_dims = image.dimensions();
@@ -373,6 +377,7 @@ impl YamlFrameReader {
     }
 
     fn get_or_create_font(&mut self, desc: FontDescriptor, wrench: &mut Wrench) -> FontKey {
+        let list_resources = self.list_resources;
         *self.fonts
             .entry(desc.clone())
             .or_insert_with(|| match desc {
@@ -380,6 +385,7 @@ impl YamlFrameReader {
                     ref path,
                     font_index,
                 } => {
+                    if list_resources { println!("{}", path.to_string_lossy()); }
                     let mut file = File::open(path).expect("Couldn't open font file");
                     let mut bytes = vec![];
                     file.read_to_end(&mut bytes)
