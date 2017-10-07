@@ -5,6 +5,10 @@
 use app_units::Au;
 use clap;
 use euclid::SideOffsets2D;
+use image;
+use image::GenericImage;
+use parse_function::parse_function;
+use premultiply::premultiply;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
@@ -32,8 +36,9 @@ impl FontDescriptor {
                 stretch: item["stretch"].as_i64().unwrap_or(5) as u32,
             }
         } else if !item["font"].is_badvalue() {
+            let path = rsrc_path(&item["font"], aux_dir);
             FontDescriptor::Path {
-                path: rsrc_path(&item["font"], aux_dir),
+                path,
                 font_index: item["font-index"].as_i64().unwrap_or(0) as u32,
             }
         } else {
@@ -67,6 +72,76 @@ fn broadcast<T: Clone>(base_vals: &[T], num_items: usize) -> Vec<T> {
     vals
 }
 
+
+fn generate_xy_gradient_image(w: u32, h: u32) -> (ImageDescriptor, ImageData) {
+    let mut pixels = Vec::with_capacity((w * h * 4) as usize);
+    for y in 0 .. h {
+        for x in 0 .. w {
+            let grid = if x % 100 < 3 || y % 100 < 3 { 0.9 } else { 1.0 };
+            pixels.push((y as f32 / h as f32 * 255.0 * grid) as u8);
+            pixels.push(0);
+            pixels.push((x as f32 / w as f32 * 255.0 * grid) as u8);
+            pixels.push(255);
+        }
+    }
+
+    (
+        ImageDescriptor::new(w, h, ImageFormat::BGRA8, true),
+        ImageData::new(pixels),
+    )
+}
+
+fn generate_solid_color_image(
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+    w: u32,
+    h: u32,
+) -> (ImageDescriptor, ImageData) {
+    let buf_size = (w * h * 4) as usize;
+    let mut pixels = Vec::with_capacity(buf_size);
+    // Unsafely filling the buffer is horrible. Unfortunately doing this idiomatically
+    // is terribly slow in debug builds to the point that reftests/image/very-big.yaml
+    // takes more than 20 seconds to run on a recent laptop.
+    unsafe {
+        pixels.set_len(buf_size);
+        let color: u32 = ::std::mem::transmute([b, g, r, a]);
+        let mut ptr: *mut u32 = ::std::mem::transmute(&mut pixels[0]);
+        let end = ptr.offset((w * h) as isize);
+        while ptr < end {
+            *ptr = color;
+            ptr = ptr.offset(1);
+        }
+    }
+
+    (
+        ImageDescriptor::new(w, h, ImageFormat::BGRA8, a == 255),
+        ImageData::new(pixels),
+    )
+}
+
+
+
+fn is_image_opaque(format: ImageFormat, bytes: &[u8]) -> bool {
+    match format {
+        ImageFormat::BGRA8 => {
+            let mut is_opaque = true;
+            for i in 0 .. (bytes.len() / 4) {
+                if bytes[i * 4 + 3] != 255 {
+                    is_opaque = false;
+                    break;
+                }
+            }
+            is_opaque
+        }
+        ImageFormat::RGB8 => true,
+        ImageFormat::RG8 => true,
+        ImageFormat::A8 => false,
+        ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
+    }
+}
+
 pub struct YamlFrameReader {
     frame_built: bool,
     yaml_path: PathBuf,
@@ -79,10 +154,13 @@ pub struct YamlFrameReader {
     include_only: Vec<String>,
 
     watch_source: bool,
+    list_resources: bool,
 
     /// A HashMap of offsets which specify what scroll offsets particular
     /// scroll layers should be initialized with.
     scroll_offsets: HashMap<ClipId, LayerPoint>,
+
+    image_map: HashMap<(PathBuf, Option<i64>), (ImageKey, LayoutSize)>,
 
     fonts: HashMap<FontDescriptor, FontKey>,
     font_instances: HashMap<(FontKey, Au), FontInstanceKey>,
@@ -93,6 +171,7 @@ impl YamlFrameReader {
     pub fn new(yaml_path: &Path) -> YamlFrameReader {
         YamlFrameReader {
             watch_source: false,
+            list_resources: false,
             frame_built: false,
             yaml_path: yaml_path.to_owned(),
             aux_dir: yaml_path.parent().unwrap().to_owned(),
@@ -104,6 +183,7 @@ impl YamlFrameReader {
             fonts: HashMap::new(),
             font_instances: HashMap::new(),
             font_render_mode: None,
+            image_map: HashMap::new()
         }
     }
 
@@ -129,6 +209,7 @@ impl YamlFrameReader {
         let yaml_file = args.value_of("INPUT").map(|s| PathBuf::from(s)).unwrap();
 
         let mut y = YamlFrameReader::new(&yaml_file);
+        y.list_resources = args.is_present("list-resources");
         y.watch_source = args.is_present("watch");
         y.queue_depth = args.value_of("queue")
             .map(|s| s.parse::<u32>().unwrap())
@@ -219,7 +300,84 @@ impl YamlFrameReader {
         )
     }
 
+    pub fn add_or_get_image(
+            &mut self,
+            file: &Path,
+            tiling: Option<i64>,
+            wrench: &mut Wrench,
+    ) -> (ImageKey, LayoutSize) {
+        let key = (file.to_owned(), tiling);
+        if let Some(k) = self.image_map.get(&key) {
+            return *k;
+        }
+
+        if self.list_resources { println!("{}", file.to_string_lossy()); }
+        let (descriptor, image_data) = match image::open(file) {
+            Ok(image) => {
+                let image_dims = image.dimensions();
+                let format = match image {
+                    image::ImageLuma8(_) => ImageFormat::A8,
+                    image::ImageRgb8(_) => ImageFormat::RGB8,
+                    image::ImageRgba8(_) => ImageFormat::BGRA8,
+                    _ => panic!("We don't support whatever your crazy image type is, come on"),
+                };
+                let mut bytes = image.raw_pixels();
+                if format == ImageFormat::BGRA8 {
+                    premultiply(bytes.as_mut_slice());
+                }
+                let descriptor = ImageDescriptor::new(
+                    image_dims.0,
+                    image_dims.1,
+                    format,
+                    is_image_opaque(format, &bytes[..]),
+                );
+                let data = ImageData::new(bytes);
+                (descriptor, data)
+            }
+            _ => {
+                // This is a hack but it is convenient when generating test cases and avoids
+                // bloating the repository.
+                match parse_function(
+                    file.components()
+                        .last()
+                        .unwrap()
+                        .as_os_str()
+                        .to_str()
+                        .unwrap(),
+                ) {
+                    ("xy-gradient", args, _) => generate_xy_gradient_image(
+                        args.get(0).unwrap_or(&"1000").parse::<u32>().unwrap(),
+                        args.get(1).unwrap_or(&"1000").parse::<u32>().unwrap(),
+                    ),
+                    ("solid-color", args, _) => generate_solid_color_image(
+                        args.get(0).unwrap_or(&"255").parse::<u8>().unwrap(),
+                        args.get(1).unwrap_or(&"255").parse::<u8>().unwrap(),
+                        args.get(2).unwrap_or(&"255").parse::<u8>().unwrap(),
+                        args.get(3).unwrap_or(&"255").parse::<u8>().unwrap(),
+                        args.get(4).unwrap_or(&"1000").parse::<u32>().unwrap(),
+                        args.get(5).unwrap_or(&"1000").parse::<u32>().unwrap(),
+                    ),
+                    _ => {
+                        panic!("Failed to load image {:?}", file.to_str());
+                    }
+                }
+            }
+        };
+        let tiling = tiling.map(|tile_size| tile_size as u16);
+        let image_key = wrench.api.generate_image_key();
+        let mut resources = ResourceUpdates::new();
+        resources.add_image(image_key, descriptor, image_data, tiling);
+        wrench.api.update_resources(resources);
+        let val = (
+            image_key,
+            LayoutSize::new(descriptor.width as f32, descriptor.height as f32),
+        );
+        self.image_map.insert(key, val);
+        val
+    }
+
     fn get_or_create_font(&mut self, desc: FontDescriptor, wrench: &mut Wrench) -> FontKey {
+        let list_resources = self.list_resources;
         *self.fonts
             .entry(desc.clone())
             .or_insert_with(|| match desc {
@@ -227,6 +385,7 @@ impl YamlFrameReader {
                     ref path,
                     font_index,
                 } => {
+                    if list_resources { println!("{}", path.to_string_lossy()); }
                     let mut file = File::open(path).expect("Couldn't open font file");
                     let mut bytes = vec![];
                     file.read_to_end(&mut bytes)
@@ -273,8 +432,9 @@ impl YamlFrameReader {
             return None;
         }
 
+        let file = rsrc_path(&item["image"], &self.aux_dir);
         let (image_key, image_dims) =
-            wrench.add_or_get_image(&rsrc_path(&item["image"], &self.aux_dir), None);
+            self.add_or_get_image(&file, None, wrench);
         let image_rect = item["rect"]
             .as_rect()
             .unwrap_or(LayoutRect::new(LayoutPoint::zero(), image_dims));
@@ -567,8 +727,9 @@ impl YamlFrameReader {
                     }))
                 }
                 "image" => {
-                    let (image_key, _) = wrench
-                        .add_or_get_image(&rsrc_path(&item["image-source"], &self.aux_dir), None);
+                    let file = rsrc_path(&item["image-source"], &self.aux_dir);
+                    let (image_key, _) = self
+                        .add_or_get_image(&file, None, wrench);
                     let image_width = item["image-width"]
                         .as_i64()
                         .expect("border must have image-width");
@@ -710,8 +871,9 @@ impl YamlFrameReader {
                                  "src"
                              }];
         let tiling = item["tile-size"].as_i64();
+        let file = rsrc_path(filename, &self.aux_dir);
         let (image_key, image_dims) =
-            wrench.add_or_get_image(&rsrc_path(filename, &self.aux_dir), tiling);
+            self.add_or_get_image(&file, tiling, wrench);
 
         let bounds_raws = item["bounds"].as_vec_f32().unwrap();
         info.rect = if bounds_raws.len() == 2 {

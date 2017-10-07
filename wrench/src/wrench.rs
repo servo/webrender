@@ -11,13 +11,9 @@ use dwrote;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use font_loader::system_fonts;
 use glutin::WindowProxy;
-use image;
-use image::GenericImage;
 use json_frame_writer::JsonFrameWriter;
-use parse_function::parse_function;
-use premultiply::premultiply;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use time;
 use webrender;
 use webrender::api::*;
@@ -119,8 +115,6 @@ pub struct Wrench {
 
     window_title_to_set: Option<String>,
 
-    image_map: HashMap<(PathBuf, Option<i64>), (ImageKey, LayoutSize)>,
-
     graphics_api: webrender::GraphicsApiInfo,
 
     pub rebuild_display_lists: bool,
@@ -197,8 +191,6 @@ impl Wrench {
             rebuild_display_lists: do_rebuild,
             verbose,
             device_pixel_ratio: dp_ratio,
-
-            image_map: HashMap::new(),
 
             root_pipeline_id: PipelineId(0, 0),
 
@@ -385,76 +377,6 @@ impl Wrench {
         key
     }
 
-    pub fn add_or_get_image(&mut self, file: &Path, tiling: Option<i64>) -> (ImageKey, LayoutSize) {
-        let key = (file.to_owned(), tiling);
-        if let Some(k) = self.image_map.get(&key) {
-            return *k;
-        }
-
-        let (descriptor, image_data) = match image::open(file) {
-            Ok(image) => {
-                let image_dims = image.dimensions();
-                let format = match image {
-                    image::ImageLuma8(_) => ImageFormat::A8,
-                    image::ImageRgb8(_) => ImageFormat::RGB8,
-                    image::ImageRgba8(_) => ImageFormat::BGRA8,
-                    _ => panic!("We don't support whatever your crazy image type is, come on"),
-                };
-                let mut bytes = image.raw_pixels();
-                if format == ImageFormat::BGRA8 {
-                    premultiply(bytes.as_mut_slice());
-                }
-                let descriptor = ImageDescriptor::new(
-                    image_dims.0,
-                    image_dims.1,
-                    format,
-                    is_image_opaque(format, &bytes[..]),
-                );
-                let data = ImageData::new(bytes);
-                (descriptor, data)
-            }
-            _ => {
-                // This is a hack but it is convenient when generating test cases and avoids
-                // bloating the repository.
-                match parse_function(
-                    file.components()
-                        .last()
-                        .unwrap()
-                        .as_os_str()
-                        .to_str()
-                        .unwrap(),
-                ) {
-                    ("xy-gradient", args, _) => generate_xy_gradient_image(
-                        args.get(0).unwrap_or(&"1000").parse::<u32>().unwrap(),
-                        args.get(1).unwrap_or(&"1000").parse::<u32>().unwrap(),
-                    ),
-                    ("solid-color", args, _) => generate_solid_color_image(
-                        args.get(0).unwrap_or(&"255").parse::<u8>().unwrap(),
-                        args.get(1).unwrap_or(&"255").parse::<u8>().unwrap(),
-                        args.get(2).unwrap_or(&"255").parse::<u8>().unwrap(),
-                        args.get(3).unwrap_or(&"255").parse::<u8>().unwrap(),
-                        args.get(4).unwrap_or(&"1000").parse::<u32>().unwrap(),
-                        args.get(5).unwrap_or(&"1000").parse::<u32>().unwrap(),
-                    ),
-                    _ => {
-                        panic!("Failed to load image {:?}", file.to_str());
-                    }
-                }
-            }
-        };
-        let tiling = tiling.map(|tile_size| tile_size as u16);
-        let image_key = self.api.generate_image_key();
-        let mut resources = ResourceUpdates::new();
-        resources.add_image(image_key, descriptor, image_data, tiling);
-        self.api.update_resources(resources);
-        let val = (
-            image_key,
-            LayoutSize::new(descriptor.width as f32, descriptor.height as f32),
-        );
-        self.image_map.insert(key, val);
-        val
-    }
-
     pub fn update(&mut self, dim: DeviceUintSize) {
         if dim != self.window_size {
             self.window_size = dim;
@@ -537,71 +459,4 @@ impl Wrench {
             }
         }
     }
-}
-
-fn is_image_opaque(format: ImageFormat, bytes: &[u8]) -> bool {
-    match format {
-        ImageFormat::BGRA8 => {
-            let mut is_opaque = true;
-            for i in 0 .. (bytes.len() / 4) {
-                if bytes[i * 4 + 3] != 255 {
-                    is_opaque = false;
-                    break;
-                }
-            }
-            is_opaque
-        }
-        ImageFormat::RGB8 => true,
-        ImageFormat::RG8 => true,
-        ImageFormat::A8 => false,
-        ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
-    }
-}
-
-fn generate_xy_gradient_image(w: u32, h: u32) -> (ImageDescriptor, ImageData) {
-    let mut pixels = Vec::with_capacity((w * h * 4) as usize);
-    for y in 0 .. h {
-        for x in 0 .. w {
-            let grid = if x % 100 < 3 || y % 100 < 3 { 0.9 } else { 1.0 };
-            pixels.push((y as f32 / h as f32 * 255.0 * grid) as u8);
-            pixels.push(0);
-            pixels.push((x as f32 / w as f32 * 255.0 * grid) as u8);
-            pixels.push(255);
-        }
-    }
-
-    (
-        ImageDescriptor::new(w, h, ImageFormat::BGRA8, true),
-        ImageData::new(pixels),
-    )
-}
-
-fn generate_solid_color_image(
-    r: u8,
-    g: u8,
-    b: u8,
-    a: u8,
-    w: u32,
-    h: u32,
-) -> (ImageDescriptor, ImageData) {
-    let buf_size = (w * h * 4) as usize;
-    let mut pixels = Vec::with_capacity(buf_size);
-    // Unsafely filling the buffer is horrible. Unfortunately doing this idiomatically
-    // is terribly slow in debug builds to the point that reftests/image/very-big.yaml
-    // takes more than 20 seconds to run on a recent laptop.
-    unsafe {
-        pixels.set_len(buf_size);
-        let color: u32 = ::std::mem::transmute([b, g, r, a]);
-        let mut ptr: *mut u32 = ::std::mem::transmute(&mut pixels[0]);
-        let end = ptr.offset((w * h) as isize);
-        while ptr < end {
-            *ptr = color;
-            ptr = ptr.offset(1);
-        }
-    }
-
-    (
-        ImageDescriptor::new(w, h, ImageFormat::BGRA8, a == 255),
-        ImageData::new(pixels),
-    )
 }
