@@ -406,6 +406,14 @@ impl FontContext {
         }
     }
 
+    fn should_use_white_on_black(&self, color: ColorU) -> bool {
+        let r = color.r as f32 / 255.0;
+        let g = color.g as f32 / 255.0;
+        let b = color.b as f32 / 255.0;
+        // These thresholds were determined on 10.12 by observing what CG does.
+        r >= 0.333 && g >= 0.333 && b >= 0.333 && r + g + b >= 2.0
+    }
+
     #[allow(dead_code)]
     fn print_glyph_data(&mut self, data: &[u8], width: usize, height: usize) {
         // Rust doesn't have step_by support on stable :(
@@ -497,13 +505,22 @@ impl FontContext {
         // At the end of all this, WR expects individual RGB channels and ignores alpha
         // for subpixel AA.
         // For alpha/mono, WR ignores all channels other than alpha.
-        // Also note that WR expects text to be black bg with white text, so invert
-        // when we draw the glyphs.
-        let (antialias, smooth, bg_color) = match font.render_mode {
-            FontRenderMode::Subpixel => (true, true, 1.0),
-            FontRenderMode::Alpha => (true, false, 1.0),
-            FontRenderMode::Bitmap => (true, false, 0.0),
-            FontRenderMode::Mono => (false, false, 1.0),
+        // Also note that WR expects text to be white text on black bg, so invert
+        // when we draw the glyphs as black on white.
+        let use_white_on_black = self.should_use_white_on_black(font.color);
+        let (antialias, smooth, text_color, bg_color, bg_alpha, invert) = match font.render_mode {
+            FontRenderMode::Subpixel => if use_white_on_black {
+                (true, true, 1.0, 0.0, 1.0, false)
+            } else {
+                (true, true, 0.0, 1.0, 1.0, true)
+            },
+            FontRenderMode::Alpha => if use_white_on_black {
+                (true, false, 1.0, 0.0, 1.0, false)
+            } else {
+                (true, false, 0.0, 1.0, 1.0, true)
+            },
+            FontRenderMode::Bitmap => (true, false, 0.0, 0.0, 0.0, false),
+            FontRenderMode::Mono => (false, false, 0.0, 1.0, 1.0, true),
         };
 
         // These are always true in Gecko, even for non-AA fonts
@@ -527,7 +544,7 @@ impl FontContext {
 
         // Always draw black text on a white background
         // Fill the background
-        cg_context.set_rgb_fill_color(bg_color, bg_color, bg_color, bg_color);
+        cg_context.set_rgb_fill_color(bg_color, bg_color, bg_color, bg_alpha);
         let rect = CGRect {
             origin: CGPoint { x: 0.0, y: 0.0 },
             size: CGSize {
@@ -538,7 +555,7 @@ impl FontContext {
         cg_context.fill_rect(rect);
 
         // Set the text color
-        cg_context.set_rgb_fill_color(0.0, 0.0, 0.0, 1.0);
+        cg_context.set_rgb_fill_color(text_color, text_color, text_color, 1.0);
         cg_context.set_text_drawing_mode(CGTextDrawingMode::CGTextFill);
         ct_font.draw_glyphs(&[glyph], &[rasterization_origin], cg_context.clone());
 
@@ -555,16 +572,16 @@ impl FontContext {
                 );
             }
 
-            // We need to invert the pixels back since right now
-            // transparent pixels are actually opaque white.
             for i in 0 .. metrics.rasterized_height {
                 let current_height = (i * metrics.rasterized_width * 4) as usize;
                 let end_row = current_height + (metrics.rasterized_width as usize * 4);
 
                 for pixel in rasterized_pixels[current_height .. end_row].chunks_mut(4) {
-                    pixel[0] = 255 - pixel[0];
-                    pixel[1] = 255 - pixel[1];
-                    pixel[2] = 255 - pixel[2];
+                    if invert {
+                        pixel[0] = 255 - pixel[0];
+                        pixel[1] = 255 - pixel[1];
+                        pixel[2] = 255 - pixel[2];
+                    }
 
                     pixel[3] = match font.render_mode {
                         FontRenderMode::Subpixel => 255,
