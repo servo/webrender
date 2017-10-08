@@ -51,14 +51,6 @@ impl<T> ItemRange<T> {
     }
 }
 
-#[repr(C)]
-#[derive(Debug)]
-pub struct DisplayListBuilderSaveState {
-    dl_len: usize,
-    clip_stack_len: usize,
-    next_clip_id: u64,
-}
-
 /// A display list.
 #[derive(Clone, Default)]
 pub struct BuiltDisplayList {
@@ -533,6 +525,13 @@ fn serialize_fast<T: Serialize>(vec: &mut Vec<u8>, e: &T) {
     debug_assert!(((w.0 as usize) - (vec.as_ptr() as usize)) == vec.len());
 }
 
+#[derive(Clone, Debug)]
+pub struct SaveState {
+    dl_len: usize,
+    clip_stack_len: usize,
+    next_clip_id: u64,
+}
+
 #[derive(Clone)]
 pub struct DisplayListBuilder {
     pub data: Vec<u8>,
@@ -544,6 +543,7 @@ pub struct DisplayListBuilder {
     /// The size of the content of this display list. This is used to allow scrolling
     /// outside the bounds of the display list items themselves.
     content_size: LayoutSize,
+    save_state: Option<SaveState>,
 }
 
 impl DisplayListBuilder {
@@ -570,21 +570,39 @@ impl DisplayListBuilder {
             next_clip_id: FIRST_CLIP_ID,
             builder_start_time: start_time,
             content_size,
+            save_state: None,
         }
     }
 
-    pub fn save(&self) -> DisplayListBuilderSaveState {
-        DisplayListBuilderSaveState {
+    /// Saves the current display list state, so it may be `restore()`'d.
+    ///
+    /// # Conditions:
+    /// 
+    /// * Doesn't support popping clips that were pushed before the save.
+    /// * Doesn't support nested saves.
+    /// * Must call `clear_save()` if the restore becomes unnecessary.
+    pub fn save(&mut self) {
+        assert!(self.save_state.is_none(), "DisplayListBuilder doesn't support nested saves");
+
+        self.save_state = Some(SaveState {
             clip_stack_len: self.clip_stack.len(),
             dl_len: self.data.len(),
             next_clip_id: self.next_clip_id,
-        }
+        });
     }
 
-    pub fn restore(&mut self, state: DisplayListBuilderSaveState) {
+    /// Restores the state of the builder to when `save()` was last called.
+    pub fn restore(&mut self) {
+        let state = self.save_state.take().expect("No save to restore DisplayListBuilder from");
+
         self.clip_stack.truncate(state.clip_stack_len);
         self.data.truncate(state.dl_len);
         self.next_clip_id = state.next_clip_id;
+    }
+
+    /// Discards the builder's save (indicating the attempted operation was sucessful).
+    pub fn clear_save(&mut self) {
+        self.save_state.take().expect("No save to clear in DisplayListBuilder");
     }
 
     pub fn print_display_list(&mut self) {
@@ -1143,6 +1161,10 @@ impl DisplayListBuilder {
 
     pub fn pop_clip_id(&mut self) {
         self.clip_stack.pop();
+        if let Some(save_state) = self.save_state.as_ref() {
+            assert!(self.clip_stack.len() >= save_state.clip_stack_len,
+                    "Cannot pop clips that were pushed before the DisplayListBuilder save.");
+        }
         assert!(self.clip_stack.len() > 0);
     }
 
@@ -1162,6 +1184,8 @@ impl DisplayListBuilder {
     }
 
     pub fn finalize(self) -> (PipelineId, LayoutSize, BuiltDisplayList) {
+        assert!(self.save_state.is_none(), "Finalized DisplayListBuilder with a pending save");
+
         let end_time = precise_time_ns();
 
 
