@@ -103,7 +103,7 @@ impl Document {
             self.pan.x as f32 / accumulated_scale_factor,
             self.pan.y as f32 / accumulated_scale_factor,
         );
-        self.frame.build(
+        self.frame.build_renderer_frame(
             resource_cache,
             gpu_cache,
             &self.scene.pipelines,

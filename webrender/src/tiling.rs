@@ -9,6 +9,7 @@ use api::{LayerToWorldTransform, MixBlendMode, PipelineId, PropertyBinding, Tran
 use api::{LayerVector2D, TileOffset, WorldToLayerTransform, YuvColorSpace, YuvFormat};
 use border::{BorderCornerInstance, BorderCornerSide};
 use clip::{ClipSource, ClipStore};
+use clip_scroll_tree::CoordinateSystemId;
 use device::Texture;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle, GpuCacheUpdateList};
 use gpu_types::{BlurDirection, BlurInstance, BoxShadowCacheInstance, ClipMaskInstance};
@@ -789,11 +790,13 @@ impl ClipBatcher {
         &mut self,
         task_address: RenderTaskAddress,
         clips: &[ClipWorkItem],
+        coordinate_system_id: CoordinateSystemId,
         resource_cache: &ResourceCache,
         gpu_cache: &GpuCache,
         geometry_kind: MaskGeometryKind,
         clip_store: &ClipStore,
     ) {
+        let mut coordinate_system_id = coordinate_system_id;
         for work_item in clips.iter() {
             let instance = ClipMaskInstance {
                 render_task_address: task_address,
@@ -822,12 +825,15 @@ impl ClipBatcher {
                                 ..instance
                             });
                     }
-                    ClipSource::Rectangle(..) => if work_item.apply_rectangles {
-                        self.rectangles.push(ClipMaskInstance {
-                            clip_data_address: gpu_address,
-                            segment: MaskSegment::All as i32,
-                            ..instance
-                        });
+                    ClipSource::Rectangle(..) => {
+                        if work_item.coordinate_system_id != coordinate_system_id {
+                            self.rectangles.push(ClipMaskInstance {
+                                clip_data_address: gpu_address,
+                                segment: MaskSegment::All as i32,
+                                ..instance
+                            });
+                            coordinate_system_id = work_item.coordinate_system_id;
+                        }
                     },
                     ClipSource::RoundedRectangle(..) => match geometry_kind {
                         MaskGeometryKind::Default => {
@@ -1282,6 +1288,7 @@ impl RenderTarget for AlphaRenderTarget {
                 self.clip_batcher.add(
                     task_address,
                     &task_info.clips,
+                    task_info.coordinate_system_id,
                     &ctx.resource_cache,
                     gpu_cache,
                     task_info.geometry_kind,
@@ -1647,6 +1654,7 @@ pub struct ClipScrollGroup {
     pub clip_node_id: ClipId,
     pub packed_layer_index: PackedLayerIndex,
     pub screen_bounding_rect: Option<(TransformedRectKind, DeviceIntRect)>,
+    pub coordinate_system_id: CoordinateSystemId,
 }
 
 impl ClipScrollGroup {

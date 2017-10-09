@@ -1094,36 +1094,13 @@ impl Frame {
         }
     }
 
-    pub fn build(
+    pub fn build_renderer_frame(
         &mut self,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
         pipelines: &FastHashMap<PipelineId, ScenePipeline>,
         device_pixel_ratio: f32,
         pan: LayerPoint,
-        output_pipelines: &FastHashSet<PipelineId>,
-        texture_cache_profile: &mut TextureCacheProfileCounters,
-        gpu_cache_profile: &mut GpuCacheProfileCounters,
-    ) -> RendererFrame {
-        self.clip_scroll_tree.update_all_node_transforms(pan);
-        let frame = self.build_frame(
-            resource_cache,
-            gpu_cache,
-            pipelines,
-            device_pixel_ratio,
-            output_pipelines,
-            texture_cache_profile,
-            gpu_cache_profile,
-        );
-        frame
-    }
-
-    fn build_frame(
-        &mut self,
-        resource_cache: &mut ResourceCache,
-        gpu_cache: &mut GpuCache,
-        pipelines: &FastHashMap<PipelineId, ScenePipeline>,
-        device_pixel_ratio: f32,
         output_pipelines: &FastHashSet<PipelineId>,
         texture_cache_profile: &mut TextureCacheProfileCounters,
         gpu_cache_profile: &mut GpuCacheProfileCounters,
@@ -1137,6 +1114,7 @@ impl Frame {
                 &mut self.clip_scroll_tree,
                 pipelines,
                 device_pixel_ratio,
+                pan,
                 output_pipelines,
                 texture_cache_profile,
                 gpu_cache_profile,

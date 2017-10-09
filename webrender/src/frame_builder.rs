@@ -16,7 +16,7 @@ use app_units::Au;
 use border::ImageBorderSegment;
 use clip::{ClipMode, ClipRegion, ClipSource, ClipSources, ClipStore, Contains};
 use clip_scroll_node::{ClipInfo, ClipScrollNode, NodeType};
-use clip_scroll_tree::ClipScrollTree;
+use clip_scroll_tree::{ClipScrollTree, CoordinateSystemId};
 use euclid::{SideOffsets2D, vec2, vec3};
 use frame::FrameId;
 use gpu_cache::GpuCache;
@@ -29,8 +29,8 @@ use prim_store::{PrimitiveContainer, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
 use prim_store::{RectanglePrimitive, TextRunPrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
-use render_task::{AlphaRenderItem, ClipWorkItem, RenderTask};
-use render_task::{RenderTaskId, RenderTaskLocation, RenderTaskTree};
+use render_task::{AlphaRenderItem, ClipChain, RenderTask, RenderTaskId, RenderTaskLocation};
+use render_task::RenderTaskTree;
 use resource_cache::ResourceCache;
 use scene::ScenePipeline;
 use std::{mem, usize, f32, i32};
@@ -38,8 +38,7 @@ use tiling::{ClipScrollGroup, ClipScrollGroupIndex, CompositeOps, Frame};
 use tiling::{ContextIsolation, StackingContextIndex};
 use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, RenderPass};
 use tiling::{RenderTargetContext, ScrollbarPrimitive, StackingContext};
-use util::{self, pack_as_float, recycle_vec, subtract_rect};
-use util::{MatrixHelpers, RectHelpers};
+use util::{self, RectHelpers, pack_as_float, recycle_vec, subtract_rect};
 
 /// Construct a polygon from stacking context boundaries.
 /// `anchor` here is an index that's going to be preserved in all the
@@ -122,15 +121,10 @@ pub struct PrimitiveContext<'a> {
     pub packed_layer_index: PackedLayerIndex,
     pub packed_layer: &'a PackedLayer,
     pub device_pixel_ratio: f32,
-
-    // Clip items that apply for this primitive run.
-    // In the future, we'll build these once at the
-    // start of the frame when updating the
-    // clip-scroll tree.
-    pub current_clip_stack: Vec<ClipWorkItem>,
+    pub clip_chain: ClipChain,
     pub clip_bounds: DeviceIntRect,
     pub clip_id: ClipId,
-
+    pub coordinate_system_id: CoordinateSystemId,
     pub display_list: &'a BuiltDisplayList,
 }
 
@@ -139,68 +133,22 @@ impl<'a> PrimitiveContext<'a> {
         packed_layer_index: PackedLayerIndex,
         packed_layer: &'a PackedLayer,
         clip_id: ClipId,
-        screen_rect: &DeviceIntRect,
-        clip_scroll_tree: &ClipScrollTree,
-        clip_store: &ClipStore,
+        clip_chain: ClipChain,
+        clip_bounds: DeviceIntRect,
+        coordinate_system_id: CoordinateSystemId,
         device_pixel_ratio: f32,
         display_list: &'a BuiltDisplayList,
-    ) -> Option<Self> {
-
-        let mut current_clip_stack = Vec::new();
-        let mut clip_bounds = *screen_rect;
-        let mut current_id = Some(clip_id);
-        // Indicates if the next non-reference-frame that we encounter needs to have its
-        // local combined clip rectangle backed into the clip mask.
-        let mut next_node_needs_region_mask = false;
-        while let Some(id) = current_id {
-            let node = &clip_scroll_tree.nodes.get(&id).unwrap();
-            current_id = node.parent;
-
-            let clip = match node.node_type {
-                NodeType::ReferenceFrame(ref info) => {
-                    // if the transform is non-aligned, bake the next LCCR into the clip mask
-                    next_node_needs_region_mask |= !info.transform.preserves_2d_axis_alignment();
-                    continue;
-                }
-                NodeType::Clip(ref clip) => clip,
-                NodeType::StickyFrame(..) | NodeType::ScrollFrame(..) => {
-                    continue;
-                }
-            };
-
-            let clip_sources = clip_store.get(&clip.clip_sources);
-            if !clip_sources.is_masking() {
-                continue;
-            }
-
-            // apply the outer device bounds of the clip stack
-            if let Some(ref outer) = clip_sources.bounds.outer {
-                clip_bounds = match clip_bounds.intersection(&outer.device_rect) {
-                    Some(rect) => rect,
-                    None => return None,
-                }
-            }
-
-            //TODO-LCCR: bake a single LCCR instead of all aligned rects?
-            current_clip_stack.push(ClipWorkItem {
-                layer_index: clip.packed_layer_index,
-                clip_sources: clip.clip_sources.weak(),
-                apply_rectangles: next_node_needs_region_mask,
-            });
-            next_node_needs_region_mask = false;
-        }
-
-        current_clip_stack.reverse();
-
-        Some(PrimitiveContext {
+    ) -> Self {
+        PrimitiveContext {
             packed_layer_index,
             packed_layer,
-            current_clip_stack,
+            clip_chain,
             clip_bounds,
+            coordinate_system_id,
             device_pixel_ratio,
             clip_id,
             display_list,
-        })
+        }
     }
 }
 
@@ -365,6 +313,7 @@ impl FrameBuilder {
             clip_node_id: info.clip_node_id(),
             packed_layer_index,
             screen_bounding_rect: None,
+            coordinate_system_id: CoordinateSystemId(0),
         });
 
         group_id
@@ -1642,7 +1591,6 @@ impl FrameBuilder {
         resource_cache: &mut ResourceCache,
         pipelines: &FastHashMap<PipelineId, ScenePipeline>,
         clip_scroll_tree: &ClipScrollTree,
-        screen_rect: &DeviceIntRect,
         device_pixel_ratio: f32,
         profile_counters: &mut FrameProfileCounters,
     ) -> bool {
@@ -1656,9 +1604,27 @@ impl FrameBuilder {
             }
         };
 
+        let (clip_chain, clip_bounds, coordinate_system_id) =
+            match clip_scroll_tree.nodes.get(&clip_and_scroll.clip_node_id()) {
+            Some(node) if node.combined_clip_outer_bounds != DeviceIntRect::zero() => {
+                let group_id = self.clip_scroll_group_indices[&clip_and_scroll];
+                (
+                    node.clip_chain_node.clone(),
+                    node.combined_clip_outer_bounds,
+                    self.clip_scroll_group_store[group_id].coordinate_system_id,
+                )
+            }
+            _ => {
+                let group_id = self.clip_scroll_group_indices[&clip_and_scroll];
+                self.clip_scroll_group_store[group_id].screen_bounding_rect = None;
+
+                debug!("{:?} of clipped out {:?}", base_prim_index, stacking_context_index);
+                return false;
+            }
+        };
+
+        let stacking_context = &mut self.stacking_context_store[stacking_context_index.0];
         let pipeline_id = {
-            let stacking_context =
-                &mut self.stacking_context_store[stacking_context_index.0];
             if !stacking_context.can_contribute_to_scene() {
                 return false;
             }
@@ -1676,8 +1642,6 @@ impl FrameBuilder {
             packed_layer_index
         );
 
-        let stacking_context =
-            &mut self.stacking_context_store[stacking_context_index.0];
         let packed_layer = &self.packed_layers[packed_layer_index.0];
         let display_list = &pipelines
             .get(&pipeline_id)
@@ -1692,21 +1656,12 @@ impl FrameBuilder {
             packed_layer_index,
             packed_layer,
             clip_and_scroll.clip_node_id(),
-            screen_rect,
-            clip_scroll_tree,
-            &self.clip_store,
+            clip_chain,
+            clip_bounds,
+            coordinate_system_id,
             device_pixel_ratio,
             display_list,
         );
-
-        let prim_context = match prim_context {
-            Some(prim_context) => prim_context,
-            None => {
-                let group_id = self.clip_scroll_group_indices[&clip_and_scroll];
-                self.clip_scroll_group_store[group_id].screen_bounding_rect = None;
-                return false
-            },
-        };
 
         debug!(
             "\tclip_bounds {:?}, layer_local_clip {:?}",
@@ -1774,52 +1729,6 @@ impl FrameBuilder {
         }
     }
 
-    fn recalculate_clip_scroll_nodes(
-        &mut self,
-        clip_scroll_tree: &mut ClipScrollTree,
-        gpu_cache: &mut GpuCache,
-        resource_cache: &mut ResourceCache,
-        screen_rect: &DeviceIntRect,
-        device_pixel_ratio: f32
-    ) {
-        for (_, ref mut node) in clip_scroll_tree.nodes.iter_mut() {
-            let node_clip_info = match node.node_type {
-                NodeType::Clip(ref mut clip_info) => clip_info,
-                _ => continue,
-            };
-
-            let packed_layer_index = node_clip_info.packed_layer_index;
-            let packed_layer = &mut self.packed_layers[packed_layer_index.0];
-
-            // The coordinates of the mask are relative to the origin of the node itself,
-            // so we need to account for that origin in the transformation we assign to
-            // the packed layer.
-            let transform = node.world_viewport_transform
-                .pre_translate(node.local_viewport_rect.origin.to_vector().to_3d());
-
-            if packed_layer.set_transform(transform) {
-                // Meanwhile, the combined viewport rect is relative to the reference frame, so
-                // we move it into the local coordinate system of the node.
-                let local_viewport_rect = node.combined_local_viewport_rect
-                    .translate(&-node.local_viewport_rect.origin.to_vector());
-
-                packed_layer.set_rect(
-                    &local_viewport_rect,
-                    screen_rect,
-                    device_pixel_ratio,
-                );
-            }
-
-            let clip_sources = self.clip_store.get_mut(&node_clip_info.clip_sources);
-            clip_sources.update(
-                &transform,
-                gpu_cache,
-                resource_cache,
-                device_pixel_ratio,
-            );
-        }
-    }
-
     fn recalculate_clip_scroll_groups(
         &mut self,
         clip_scroll_tree: &ClipScrollTree,
@@ -1858,6 +1767,8 @@ impl FrameBuilder {
                 device_pixel_ratio,
             );
 
+            group.coordinate_system_id = scroll_node.coordinate_system_id;
+
             debug!(
                 "\t\tlocal viewport {:?} screen bound {:?}",
                 local_viewport_rect,
@@ -1881,13 +1792,6 @@ impl FrameBuilder {
     ) {
         profile_scope!("cull");
 
-        self.recalculate_clip_scroll_nodes(
-            clip_scroll_tree,
-            gpu_cache,
-            resource_cache,
-            screen_rect,
-            device_pixel_ratio
-        );
         self.recalculate_clip_scroll_groups(
             clip_scroll_tree,
             screen_rect,
@@ -1911,7 +1815,6 @@ impl FrameBuilder {
                         resource_cache,
                         pipelines,
                         clip_scroll_tree,
-                        screen_rect,
                         device_pixel_ratio,
                         profile_counters,
                     );
@@ -2281,6 +2184,7 @@ impl FrameBuilder {
         clip_scroll_tree: &mut ClipScrollTree,
         pipelines: &FastHashMap<PipelineId, ScenePipeline>,
         device_pixel_ratio: f32,
+        pan: LayerPoint,
         output_pipelines: &FastHashSet<PipelineId>,
         texture_cache_profile: &mut TextureCacheProfileCounters,
         gpu_cache_profile: &mut GpuCacheProfileCounters,
@@ -2301,6 +2205,16 @@ impl FrameBuilder {
                 self.screen_size.width as i32,
                 self.screen_size.height as i32,
             ),
+        );
+
+        clip_scroll_tree.update_all_node_transforms(
+            &screen_rect,
+            device_pixel_ratio,
+            &mut self.packed_layers,
+            &mut self.clip_store,
+            resource_cache,
+            gpu_cache,
+            pan
         );
 
         self.update_scroll_bars(clip_scroll_tree, gpu_cache);
