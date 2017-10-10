@@ -17,7 +17,7 @@ use YuvImageDisplayItem;
 use bincode;
 use serde::{Deserialize, Serialize, Serializer};
 use serde::ser::{SerializeMap, SerializeSeq};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::{io, ptr};
 use std::marker::PhantomData;
 use time::precise_time_ns;
@@ -179,6 +179,45 @@ fn skip_slice<T: for<'de> Deserialize<'de>>(
     (range, count)
 }
 
+struct UnsafeReader<'a: 'b, 'b> {
+    buf: *const u8,
+    end: *const u8,
+    slice: &'b mut &'a [u8]
+}
+
+impl<'a, 'b> UnsafeReader<'a, 'b> {
+    fn new(buf: &'b mut &'a [u8]) -> UnsafeReader<'a, 'b> {
+        unsafe {
+            let end = buf.as_ptr().offset(buf.len() as isize);
+            let start = buf.as_ptr();
+            UnsafeReader { buf: start, end, slice: buf }
+        }
+    }
+}
+
+use std::slice;
+
+impl<'a, 'b> Drop for UnsafeReader<'a, 'b> {
+    fn drop(&mut self) {
+        unsafe {
+            *self.slice = slice::from_raw_parts(self.buf, (self.end as usize) - (self.buf as usize));
+        }
+    }
+}
+
+impl<'a, 'b> Read for UnsafeReader<'a, 'b> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        unsafe {
+            if self.buf.offset(buf.len() as isize) > self.end {
+                panic!();
+            }
+            ptr::copy_nonoverlapping(self.buf, buf.as_mut_ptr(), buf.len());
+            self.buf = self.buf.offset(buf.len() as isize);
+        }
+        Ok(buf.len())
+    }
+}
+
 impl<'a> BuiltDisplayListIter<'a> {
     pub fn new(list: &'a BuiltDisplayList) -> Self {
         Self::new_with_list_and_data(list, list.item_slice())
@@ -229,7 +268,7 @@ impl<'a> BuiltDisplayListIter<'a> {
                 return None;
             }
 
-            self.cur_item = bincode::deserialize_from(&mut self.data, bincode::Infinite)
+            self.cur_item = bincode::deserialize_from(&mut UnsafeReader::new(&mut self.data), bincode::Infinite)
                 .expect("MEH: malicious process?");
 
             match self.cur_item.item {
@@ -371,7 +410,7 @@ impl<'de, 'a, T: Deserialize<'de>> AuxIter<'a, T> {
         let size: usize = if data.len() == 0 {
             0 // Accept empty ItemRanges pointing anywhere
         } else {
-            bincode::deserialize_from(&mut data, bincode::Infinite).expect("MEH: malicious input?")
+            bincode::deserialize_from(&mut UnsafeReader::new(&mut data), bincode::Infinite).expect("MEH: malicious input?")
         };
 
         AuxIter {
@@ -391,7 +430,7 @@ impl<'a, T: for<'de> Deserialize<'de>> Iterator for AuxIter<'a, T> {
         } else {
             self.size -= 1;
             Some(
-                bincode::deserialize_from(&mut self.data, bincode::Infinite)
+                bincode::deserialize_from(&mut UnsafeReader::new(&mut self.data), bincode::Infinite)
                     .expect("MEH: malicious input?"),
             )
         }
