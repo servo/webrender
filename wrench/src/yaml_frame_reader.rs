@@ -741,7 +741,7 @@ impl YamlFrameReader {
                         color: colors[0],
                         style: styles[0],
                     };
-                    let left = BorderSide {
+                    let right = BorderSide {
                         color: colors[1],
                         style: styles[1],
                     };
@@ -749,7 +749,7 @@ impl YamlFrameReader {
                         color: colors[2],
                         style: styles[2],
                     };
-                    let right = BorderSide {
+                    let left = BorderSide {
                         color: colors[3],
                         style: styles[3],
                     };
