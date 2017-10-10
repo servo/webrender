@@ -67,8 +67,8 @@ use util::TransformedRectKind;
 
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 
-const GPU_TAG_CACHE_BOX_SHADOW: GpuProfileTag = GpuProfileTag {
-    label: "C_BoxShadow",
+const GPU_TAG_BRUSH_MASK: GpuProfileTag = GpuProfileTag {
+    label: "B_Mask",
     color: debug_colors::BLACK,
 };
 const GPU_TAG_CACHE_CLIP: GpuProfileTag = GpuProfileTag {
@@ -139,10 +139,6 @@ const GPU_TAG_PRIM_RADIAL_GRADIENT: GpuProfileTag = GpuProfileTag {
     label: "RadialGradient",
     color: debug_colors::LIGHTPINK,
 };
-const GPU_TAG_PRIM_BOX_SHADOW: GpuProfileTag = GpuProfileTag {
-    label: "BoxShadow",
-    color: debug_colors::CYAN,
-};
 const GPU_TAG_PRIM_BORDER_CORNER: GpuProfileTag = GpuProfileTag {
     label: "BorderCorner",
     color: debug_colors::DARKSLATEGREY,
@@ -194,8 +190,7 @@ impl BatchKind {
                 TransformBatchKind::AlignedGradient => "AlignedGradient",
                 TransformBatchKind::AngleGradient => "AngleGradient",
                 TransformBatchKind::RadialGradient => "RadialGradient",
-                TransformBatchKind::BoxShadow => "BoxShadow",
-                TransformBatchKind::CacheImage => "CacheImage",
+                TransformBatchKind::CacheImage(..) => "CacheImage",
                 TransformBatchKind::BorderCorner => "BorderCorner",
                 TransformBatchKind::BorderEdge => "BorderEdge",
                 TransformBatchKind::Line => "Line",
@@ -365,35 +360,11 @@ const DESC_CLIP: VertexDescriptor = VertexDescriptor {
     ],
 };
 
-const DESC_CACHE_BOX_SHADOW: VertexDescriptor = VertexDescriptor {
-    vertex_attributes: &[
-        VertexAttribute {
-            name: "aPosition",
-            count: 2,
-            kind: VertexAttributeKind::F32,
-        },
-    ],
-    instance_attributes: &[
-        VertexAttribute {
-            name: "aPrimAddress",
-            count: 2,
-            kind: VertexAttributeKind::U16,
-        },
-        VertexAttribute {
-            name: "aTaskIndex",
-            count: 1,
-            kind: VertexAttributeKind::I32,
-        },
-    ],
-};
-
 #[derive(Debug, Copy, Clone)]
 enum VertexArrayKind {
     Primitive,
     Blur,
     Clip,
-
-    CacheBoxShadow,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -864,6 +835,7 @@ enum ShaderKind {
     Primitive,
     Cache(VertexArrayKind),
     ClipCache,
+    Brush,
 }
 
 struct LazilyCompiledShader {
@@ -917,7 +889,7 @@ impl LazilyCompiledShader {
         if self.program.is_none() {
             let program = try!{
                 match self.kind {
-                    ShaderKind::Primitive => {
+                    ShaderKind::Primitive | ShaderKind::Brush => {
                         create_prim_shader(self.name,
                                            device,
                                            &self.features,
@@ -1044,7 +1016,6 @@ fn create_prim_shader(
         VertexArrayKind::Primitive => DESC_PRIM_INSTANCES,
         VertexArrayKind::Blur => DESC_BLUR,
         VertexArrayKind::Clip => DESC_CLIP,
-        VertexArrayKind::CacheBoxShadow => DESC_CACHE_BOX_SHADOW,
     };
 
     let program = device.create_program(name, &prefix, &vertex_descriptor);
@@ -1122,10 +1093,11 @@ pub struct Renderer {
     // These are "cache shaders". These shaders are used to
     // draw intermediate results to cache targets. The results
     // of these shaders are then used by the primitive shaders.
-    cs_box_shadow: LazilyCompiledShader,
     cs_text_run: LazilyCompiledShader,
     cs_line: LazilyCompiledShader,
-    cs_blur: LazilyCompiledShader,
+    cs_blur_a8: LazilyCompiledShader,
+    cs_blur_rgba8: LazilyCompiledShader,
+    brush_mask: LazilyCompiledShader,
 
     /// These are "cache clip shaders". These shaders are used to
     /// draw clip instances into the cached clip mask. The results
@@ -1151,8 +1123,8 @@ pub struct Renderer {
     ps_gradient: PrimitiveShader,
     ps_angle_gradient: PrimitiveShader,
     ps_radial_gradient: PrimitiveShader,
-    ps_box_shadow: PrimitiveShader,
-    ps_cache_image: PrimitiveShader,
+    ps_cache_image_rgba8: PrimitiveShader,
+    ps_cache_image_a8: PrimitiveShader,
     ps_line: PrimitiveShader,
 
     ps_blend: LazilyCompiledShader,
@@ -1183,7 +1155,6 @@ pub struct Renderer {
     prim_vao: VAO,
     blur_vao: VAO,
     clip_vao: VAO,
-    box_shadow_vao: VAO,
 
     layer_texture: VertexDataTexture,
     render_task_texture: VertexDataTexture,
@@ -1304,14 +1275,6 @@ impl Renderer {
         // device-pixel ratio doesn't matter here - we are just creating resources.
         device.begin_frame(1.0);
 
-        let cs_box_shadow = try!{
-            LazilyCompiledShader::new(ShaderKind::Cache(VertexArrayKind::CacheBoxShadow),
-                                      "cs_box_shadow",
-                                      &[],
-                                      &mut device,
-                                      options.precache_shaders)
-        };
-
         let cs_text_run = try!{
             LazilyCompiledShader::new(ShaderKind::Cache(VertexArrayKind::Primitive),
                                       "cs_text_run",
@@ -1328,10 +1291,26 @@ impl Renderer {
                                       options.precache_shaders)
         };
 
-        let cs_blur = try!{
+        let brush_mask = try!{
+            LazilyCompiledShader::new(ShaderKind::Brush,
+                                      "brush_mask",
+                                      &[],
+                                      &mut device,
+                                      options.precache_shaders)
+        };
+
+        let cs_blur_a8 = try!{
             LazilyCompiledShader::new(ShaderKind::Cache(VertexArrayKind::Blur),
                                      "cs_blur",
-                                      &[],
+                                      &["ALPHA"],
+                                      &mut device,
+                                      options.precache_shaders)
+        };
+
+        let cs_blur_rgba8 = try!{
+            LazilyCompiledShader::new(ShaderKind::Cache(VertexArrayKind::Blur),
+                                     "cs_blur",
+                                      &["COLOR"],
                                       &mut device,
                                       options.precache_shaders)
         };
@@ -1470,13 +1449,6 @@ impl Renderer {
                                  options.precache_shaders)
         };
 
-        let ps_box_shadow = try!{
-            PrimitiveShader::new("ps_box_shadow",
-                                 &mut device,
-                                 &[],
-                                 options.precache_shaders)
-        };
-
         let dithering_feature = ["DITHERING"];
 
         let ps_gradient = try!{
@@ -1512,10 +1484,17 @@ impl Renderer {
                                  options.precache_shaders)
         };
 
-        let ps_cache_image = try!{
+        let ps_cache_image_a8 = try!{
             PrimitiveShader::new("ps_cache_image",
                                  &mut device,
-                                 &[],
+                                 &["ALPHA"],
+                                 options.precache_shaders)
+        };
+
+        let ps_cache_image_rgba8 = try!{
+            PrimitiveShader::new("ps_cache_image",
+                                 &mut device,
+                                 &["COLOR"],
                                  options.precache_shaders)
         };
 
@@ -1663,8 +1642,6 @@ impl Renderer {
 
         let blur_vao = device.create_vao_with_new_instances(&DESC_BLUR, &prim_vao);
         let clip_vao = device.create_vao_with_new_instances(&DESC_CLIP, &prim_vao);
-        let box_shadow_vao =
-            device.create_vao_with_new_instances(&DESC_CACHE_BOX_SHADOW, &prim_vao);
 
         let texture_cache_upload_pbo = device.create_pbo();
 
@@ -1733,10 +1710,11 @@ impl Renderer {
             pending_texture_updates: Vec::new(),
             pending_gpu_cache_updates: Vec::new(),
             pending_shader_updates: Vec::new(),
-            cs_box_shadow,
             cs_text_run,
             cs_line,
-            cs_blur,
+            cs_blur_a8,
+            cs_blur_rgba8,
+            brush_mask,
             cs_clip_rectangle,
             cs_clip_border,
             cs_clip_image,
@@ -1747,11 +1725,11 @@ impl Renderer {
             ps_yuv_image,
             ps_border_corner,
             ps_border_edge,
-            ps_box_shadow,
             ps_gradient,
             ps_angle_gradient,
             ps_radial_gradient,
-            ps_cache_image,
+            ps_cache_image_rgba8,
+            ps_cache_image_a8,
             ps_blend,
             ps_hw_composite,
             ps_split_composite,
@@ -1775,7 +1753,6 @@ impl Renderer {
             gpu_profile,
             prim_vao,
             blur_vao,
-            box_shadow_vao,
             clip_vao,
             layer_texture,
             render_task_texture,
@@ -1933,18 +1910,28 @@ impl Renderer {
                         target.clip_batcher.borders.len(),
                     );
                     debug_target.add(
+                        debug_server::BatchKind::Cache,
+                        "Vertical Blur",
+                        target.vertical_blurs.len(),
+                    );
+                    debug_target.add(
+                        debug_server::BatchKind::Cache,
+                        "Horizontal Blur",
+                        target.horizontal_blurs.len(),
+                    );
+                    debug_target.add(
                         debug_server::BatchKind::Clip,
                         "Rectangles",
                         target.clip_batcher.rectangles.len(),
                     );
+                    debug_target.add(
+                        debug_server::BatchKind::Cache,
+                        "Rectangle Brush",
+                        target.rect_cache_prims.len(),
+                    );
                     for (_, items) in target.clip_batcher.images.iter() {
                         debug_target.add(debug_server::BatchKind::Clip, "Image mask", items.len());
                     }
-                    debug_target.add(
-                        debug_server::BatchKind::Cache,
-                        "Box Shadow",
-                        target.box_shadow_cache_prims.len(),
-                    );
 
                     debug_pass.add(debug_target);
                 }
@@ -2314,7 +2301,6 @@ impl Renderer {
             VertexArrayKind::Primitive => &self.prim_vao,
             VertexArrayKind::Clip => &self.clip_vao,
             VertexArrayKind::Blur => &self.blur_vao,
-            VertexArrayKind::CacheBoxShadow => &self.box_shadow_vao,
         };
 
         self.device.bind_vao(vao);
@@ -2492,24 +2478,25 @@ impl Renderer {
                     );
                     GPU_TAG_PRIM_RADIAL_GRADIENT
                 }
-                TransformBatchKind::BoxShadow => {
-                    self.ps_box_shadow.bind(
-                        &mut self.device,
-                        transform_kind,
-                        projection,
-                        0,
-                        &mut self.renderer_errors,
-                    );
-                    GPU_TAG_PRIM_BOX_SHADOW
-                }
-                TransformBatchKind::CacheImage => {
-                    self.ps_cache_image.bind(
-                        &mut self.device,
-                        transform_kind,
-                        projection,
-                        0,
-                        &mut self.renderer_errors,
-                    );
+                TransformBatchKind::CacheImage(target_kind) => {
+                    match target_kind {
+                        RenderTargetKind::Alpha => {
+                            self.ps_cache_image_a8.bind(
+                                &mut self.device,
+                                transform_kind,
+                                projection,
+                                &mut self.renderer_errors,
+                            );
+                        }
+                        RenderTargetKind::Color => {
+                            self.ps_cache_image_rgba8.bind(
+                                &mut self.device,
+                                transform_kind,
+                                projection,
+                                &mut self.renderer_errors,
+                            );
+                        }
+                    }
                     GPU_TAG_PRIM_CACHE_IMAGE
                 }
             },
@@ -2639,8 +2626,8 @@ impl Renderer {
             let _gm = self.gpu_profile.add_marker(GPU_TAG_BLUR);
 
             self.device.set_blend(false);
-            self.cs_blur
-                .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+            self.cs_blur_rgba8
+                .bind(&mut self.device, projection, &mut self.renderer_errors);
 
             if !target.vertical_blurs.is_empty() {
                 self.draw_instanced_batch(
@@ -2921,15 +2908,45 @@ impl Renderer {
                 .clear_target_rect(Some(clear_color), None, target.used_rect());
         }
 
-        // Draw any box-shadow caches for this target.
-        if !target.box_shadow_cache_prims.is_empty() {
+        // Draw any blurs for this target.
+        // Blurs are rendered as a standard 2-pass
+        // separable implementation.
+        // TODO(gw): In the future, consider having
+        //           fast path blur shaders for common
+        //           blur radii with fixed weights.
+        if !target.vertical_blurs.is_empty() || !target.horizontal_blurs.is_empty() {
+            let _gm = self.gpu_profile.add_marker(GPU_TAG_BLUR);
+
             self.device.set_blend(false);
-            let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_BOX_SHADOW);
-            self.cs_box_shadow
-                .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+            self.cs_blur_a8
+                .bind(&mut self.device, projection, &mut self.renderer_errors);
+
+            if !target.vertical_blurs.is_empty() {
+                self.draw_instanced_batch(
+                    &target.vertical_blurs,
+                    VertexArrayKind::Blur,
+                    &BatchTextures::no_texture(),
+                );
+            }
+
+            if !target.horizontal_blurs.is_empty() {
+                self.draw_instanced_batch(
+                    &target.horizontal_blurs,
+                    VertexArrayKind::Blur,
+                    &BatchTextures::no_texture(),
+                );
+            }
+        }
+
+        if !target.rect_cache_prims.is_empty() {
+            self.device.set_blend(false);
+
+            let _gm = self.gpu_profile.add_marker(GPU_TAG_BRUSH_MASK);
+            self.brush_mask
+                .bind(&mut self.device, projection, &mut self.renderer_errors);
             self.draw_instanced_batch(
-                &target.box_shadow_cache_prims,
-                VertexArrayKind::CacheBoxShadow,
+                &target.rect_cache_prims,
+                VertexArrayKind::Primitive,
                 &BatchTextures::no_texture(),
             );
         }
@@ -3473,12 +3490,12 @@ impl Renderer {
         self.device.delete_vao(self.prim_vao);
         self.device.delete_vao(self.clip_vao);
         self.device.delete_vao(self.blur_vao);
-        self.device.delete_vao(self.box_shadow_vao);
         self.debug.deinit(&mut self.device);
-        self.cs_box_shadow.deinit(&mut self.device);
         self.cs_text_run.deinit(&mut self.device);
         self.cs_line.deinit(&mut self.device);
-        self.cs_blur.deinit(&mut self.device);
+        self.cs_blur_a8.deinit(&mut self.device);
+        self.cs_blur_rgba8.deinit(&mut self.device);
+        self.brush_mask.deinit(&mut self.device);
         self.cs_clip_rectangle.deinit(&mut self.device);
         self.cs_clip_image.deinit(&mut self.device);
         self.cs_clip_border.deinit(&mut self.device);
@@ -3503,8 +3520,8 @@ impl Renderer {
         self.ps_gradient.deinit(&mut self.device);
         self.ps_angle_gradient.deinit(&mut self.device);
         self.ps_radial_gradient.deinit(&mut self.device);
-        self.ps_box_shadow.deinit(&mut self.device);
-        self.ps_cache_image.deinit(&mut self.device);
+        self.ps_cache_image_rgba8.deinit(&mut self.device);
+        self.ps_cache_image_a8.deinit(&mut self.device);
         self.ps_line.deinit(&mut self.device);
         self.ps_blend.deinit(&mut self.device);
         self.ps_hw_composite.deinit(&mut self.device);

@@ -8,7 +8,7 @@ use api::PipelineId;
 use clip::{ClipSource, ClipSourcesWeakHandle, ClipStore};
 use gpu_cache::GpuCacheHandle;
 use internal_types::HardwareCompositeOp;
-use prim_store::{BoxShadowPrimitiveCacheKey, PrimitiveIndex};
+use prim_store::PrimitiveIndex;
 use std::{cmp, usize, f32, i32};
 use tiling::{ClipScrollGroupIndex, PackedLayerIndex, RenderPass, RenderTargetIndex};
 use tiling::{RenderTargetKind, StackingContextIndex};
@@ -112,8 +112,6 @@ impl RenderTaskTree {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum RenderTaskKey {
-    /// Draw this box shadow to a cache target.
-    BoxShadow(BoxShadowPrimitiveCacheKey),
     /// Draw the alpha mask for a shared clip.
     CacheMask(ClipId),
 }
@@ -219,6 +217,18 @@ pub struct CacheMaskTask {
 }
 
 #[derive(Debug)]
+pub struct PictureTask {
+    pub prim_index: PrimitiveIndex,
+    pub target_kind: RenderTargetKind,
+}
+
+#[derive(Debug)]
+pub struct BlurTask {
+    pub blur_radius: DeviceIntLength,
+    pub target_kind: RenderTargetKind,
+}
+
+#[derive(Debug)]
 pub struct RenderTaskData {
     pub data: [f32; FLOATS_PER_RENDER_TASK_INFO],
 }
@@ -226,11 +236,10 @@ pub struct RenderTaskData {
 #[derive(Debug)]
 pub enum RenderTaskKind {
     Alpha(AlphaRenderTask),
-    Picture(PrimitiveIndex),
-    BoxShadow(PrimitiveIndex),
+    Picture(PictureTask),
     CacheMask(CacheMaskTask),
-    VerticalBlur(DeviceIntLength),
-    HorizontalBlur(DeviceIntLength),
+    VerticalBlur(BlurTask),
+    HorizontalBlur(BlurTask),
     Readback(DeviceIntRect),
     Alias(RenderTaskId),
 }
@@ -269,25 +278,19 @@ impl RenderTask {
         Self::new_alpha_batch(rect.origin, location, frame_output_pipeline_id)
     }
 
-    pub fn new_picture(size: DeviceIntSize, prim_index: PrimitiveIndex) -> RenderTask {
+    pub fn new_picture(
+        size: DeviceIntSize,
+        prim_index: PrimitiveIndex,
+        target_kind: RenderTargetKind,
+    ) -> RenderTask {
         RenderTask {
             cache_key: None,
             children: Vec::new(),
             location: RenderTaskLocation::Dynamic(None, size),
-            kind: RenderTaskKind::Picture(prim_index),
-        }
-    }
-
-    pub fn new_box_shadow(
-        key: BoxShadowPrimitiveCacheKey,
-        size: DeviceIntSize,
-        prim_index: PrimitiveIndex,
-    ) -> RenderTask {
-        RenderTask {
-            cache_key: Some(RenderTaskKey::BoxShadow(key)),
-            children: Vec::new(),
-            location: RenderTaskLocation::Dynamic(None, size),
-            kind: RenderTaskKind::BoxShadow(prim_index),
+            kind: RenderTaskKind::Picture(PictureTask {
+                prim_index,
+                target_kind,
+            }),
         }
     }
 
@@ -399,6 +402,7 @@ impl RenderTask {
         blur_radius: DeviceIntLength,
         src_task_id: RenderTaskId,
         render_tasks: &mut RenderTaskTree,
+        target_kind: RenderTargetKind,
     ) -> RenderTask {
         let src_size = render_tasks.get(src_task_id).get_dynamic_size();
 
@@ -408,7 +412,10 @@ impl RenderTask {
             cache_key: None,
             children: vec![src_task_id],
             location: RenderTaskLocation::Dynamic(None, blur_target_size),
-            kind: RenderTaskKind::VerticalBlur(blur_radius),
+            kind: RenderTaskKind::VerticalBlur(BlurTask {
+                blur_radius,
+                target_kind,
+            }),
         };
 
         let blur_task_v_id = render_tasks.add(blur_task_v);
@@ -417,7 +424,10 @@ impl RenderTask {
             cache_key: None,
             children: vec![blur_task_v_id],
             location: RenderTaskLocation::Dynamic(None, blur_target_size),
-            kind: RenderTaskKind::HorizontalBlur(blur_radius),
+            kind: RenderTaskKind::HorizontalBlur(BlurTask {
+                blur_radius,
+                target_kind,
+            }),
         };
 
         blur_task_h
@@ -427,7 +437,6 @@ impl RenderTask {
         match self.kind {
             RenderTaskKind::Alpha(ref mut task) => task,
             RenderTaskKind::Picture(..) |
-            RenderTaskKind::BoxShadow(..) |
             RenderTaskKind::CacheMask(..) |
             RenderTaskKind::VerticalBlur(..) |
             RenderTaskKind::Readback(..) |
@@ -440,7 +449,6 @@ impl RenderTask {
         match self.kind {
             RenderTaskKind::Alpha(ref task) => task,
             RenderTaskKind::Picture(..) |
-            RenderTaskKind::BoxShadow(..) |
             RenderTaskKind::CacheMask(..) |
             RenderTaskKind::VerticalBlur(..) |
             RenderTaskKind::Readback(..) |
@@ -481,7 +489,7 @@ impl RenderTask {
                     ],
                 }
             }
-            RenderTaskKind::Picture(..) | RenderTaskKind::BoxShadow(..) => {
+            RenderTaskKind::Picture(..) => {
                 let (target_rect, target_index) = self.get_target_rect();
                 RenderTaskData {
                     data: [
@@ -519,8 +527,8 @@ impl RenderTask {
                     ],
                 }
             }
-            RenderTaskKind::VerticalBlur(blur_radius) |
-            RenderTaskKind::HorizontalBlur(blur_radius) => {
+            RenderTaskKind::VerticalBlur(ref task_info) |
+            RenderTaskKind::HorizontalBlur(ref task_info) => {
                 let (target_rect, target_index) = self.get_target_rect();
                 RenderTaskData {
                     data: [
@@ -529,7 +537,7 @@ impl RenderTask {
                         target_rect.size.width as f32,
                         target_rect.size.height as f32,
                         target_index.0 as f32,
-                        blur_radius.0 as f32,
+                        task_info.blur_radius.0 as f32,
                         0.0,
                         0.0,
                         0.0,
@@ -583,13 +591,19 @@ impl RenderTask {
     pub fn target_kind(&self) -> RenderTargetKind {
         match self.kind {
             RenderTaskKind::Alpha(..) |
-            RenderTaskKind::Picture(..) |
-            RenderTaskKind::VerticalBlur(..) |
-            RenderTaskKind::Readback(..) |
-            RenderTaskKind::HorizontalBlur(..) => RenderTargetKind::Color,
+            RenderTaskKind::Readback(..) => RenderTargetKind::Color,
 
-            RenderTaskKind::CacheMask(..) | RenderTaskKind::BoxShadow(..) => {
+            RenderTaskKind::CacheMask(..) => {
                 RenderTargetKind::Alpha
+            }
+
+            RenderTaskKind::VerticalBlur(ref task_info) |
+            RenderTaskKind::HorizontalBlur(ref task_info) => {
+                task_info.target_kind
+            }
+
+            RenderTaskKind::Picture(ref task_info) => {
+                task_info.target_kind
             }
 
             RenderTaskKind::Alias(..) => {
@@ -612,7 +626,7 @@ impl RenderTask {
             RenderTaskKind::Readback(..) |
             RenderTaskKind::HorizontalBlur(..) => false,
 
-            RenderTaskKind::CacheMask(..) | RenderTaskKind::BoxShadow(..) => true,
+            RenderTaskKind::CacheMask(..) => true,
 
             RenderTaskKind::Alias(..) => {
                 panic!("BUG: is_shared() called on aliased task");

@@ -659,15 +659,15 @@ Rectangle fetch_rectangle(int address) {
     return Rectangle(data);
 }
 
-struct TextShadow {
+struct Picture {
     vec4 color;
     vec2 offset;
     float blur_radius;
 };
 
-TextShadow fetch_text_shadow(int address) {
+Picture fetch_picture(int address) {
     vec4 data[2] = fetch_from_resource_cache_2(address);
-    return TextShadow(data[0], data[1].xy, data[1].z);
+    return Picture(data[0], data[1].xy, data[1].z);
 }
 
 struct TextRun {
@@ -690,23 +690,6 @@ struct Image {
 Image fetch_image(int address) {
     vec4 data[2] = fetch_from_resource_cache_2(address);
     return Image(data[0], data[1]);
-}
-
-struct BoxShadow {
-    vec4 src_rect;
-    vec4 bs_rect;
-    vec4 color;
-    vec4 border_radius_edge_size_blur_radius_inverted;
-};
-
-BoxShadow fetch_boxshadow(int address) {
-    vec4 data[4] = fetch_from_resource_cache_4(address);
-    return BoxShadow(data[0], data[1], data[2], data[3]);
-}
-
-BoxShadow fetch_boxshadow_direct(ivec2 address) {
-    vec4 data[4] = fetch_from_resource_cache_4_direct(address);
-    return BoxShadow(data[0], data[1], data[2], data[3]);
 }
 
 void write_clip(vec2 global_pos, ClipArea area) {
