@@ -17,9 +17,10 @@ use YuvImageDisplayItem;
 use bincode;
 use serde::{Deserialize, Serialize, Serializer};
 use serde::ser::{SerializeMap, SerializeSeq};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::{io, ptr};
 use std::marker::PhantomData;
+use std::slice;
 use time::precise_time_ns;
 
 // We don't want to push a long text-run. If a text-run is too long, split it into several parts.
@@ -171,6 +172,7 @@ fn skip_slice<T: for<'de> Deserialize<'de>>(
     (range, count)
 }
 
+
 impl<'a> BuiltDisplayListIter<'a> {
     pub fn new(list: &'a BuiltDisplayList) -> Self {
         Self::new_with_list_and_data(list, list.item_slice())
@@ -221,7 +223,7 @@ impl<'a> BuiltDisplayListIter<'a> {
                 return None;
             }
 
-            self.cur_item = bincode::deserialize_from(&mut self.data, bincode::Infinite)
+            self.cur_item = bincode::deserialize_from(&mut UnsafeReader::new(&mut self.data), bincode::Infinite)
                 .expect("MEH: malicious process?");
 
             match self.cur_item.item {
@@ -363,7 +365,7 @@ impl<'de, 'a, T: Deserialize<'de>> AuxIter<'a, T> {
         let size: usize = if data.len() == 0 {
             0 // Accept empty ItemRanges pointing anywhere
         } else {
-            bincode::deserialize_from(&mut data, bincode::Infinite).expect("MEH: malicious input?")
+            bincode::deserialize_from(&mut UnsafeReader::new(&mut data), bincode::Infinite).expect("MEH: malicious input?")
         };
 
         AuxIter {
@@ -383,7 +385,7 @@ impl<'a, T: for<'de> Deserialize<'de>> Iterator for AuxIter<'a, T> {
         } else {
             self.size -= 1;
             Some(
-                bincode::deserialize_from(&mut self.data, bincode::Infinite)
+                bincode::deserialize_from(&mut UnsafeReader::new(&mut self.data), bincode::Infinite)
                     .expect("MEH: malicious input?"),
             )
         }
@@ -523,6 +525,71 @@ fn serialize_fast<T: Serialize>(vec: &mut Vec<u8>, e: &T) {
 
     // make sure we wrote the right amount
     debug_assert!(((w.0 as usize) - (vec.as_ptr() as usize)) == vec.len());
+}
+
+// This uses a (start, end) representation instead of (start, len) so that
+// only need to update a single field as we read through it. This
+// makes it easier for llvm to understand what's going on. (https://github.com/rust-lang/rust/issues/45068)
+// We update the slice only once we're done reading
+struct UnsafeReader<'a: 'b, 'b> {
+    start: *const u8,
+    end: *const u8,
+    slice: &'b mut &'a [u8],
+}
+
+impl<'a, 'b> UnsafeReader<'a, 'b> {
+    fn new(buf: &'b mut &'a [u8]) -> UnsafeReader<'a, 'b> {
+        unsafe {
+            let end = buf.as_ptr().offset(buf.len() as isize);
+            let start = buf.as_ptr();
+            UnsafeReader { start: start, end, slice: buf }
+        }
+    }
+
+    // This read implementation is significantly faster than the standard &[u8] one.
+    //
+    // First, it only supports reading exactly buf.len() bytes. This ensures that
+    // the argument to memcpy is always buf.len() and will allow a constant buf.len()
+    // to be propagated through to memcpy which LLVM will turn into explicit loads and
+    // stores. The standard implementation does a len = min(slice.len(), buf.len())
+    //
+    // Second, we only need to adjust 'start' after reading and it's only adjusted by a
+    // constant. This allows LLVM to avoid adjusting the length field after ever read
+    // and lets it be aggregated into a single adjustment.
+    #[inline(always)]
+    fn read_internal(&mut self, buf: &mut [u8]) {
+        // this is safe because we panic if start + buf.len() > end
+        unsafe {
+            assert!(self.start.offset(buf.len() as isize) <= self.end, "UnsafeReader: read past end of target");
+            ptr::copy_nonoverlapping(self.start, buf.as_mut_ptr(), buf.len());
+            self.start = self.start.offset(buf.len() as isize);
+        }
+    }
+}
+
+impl<'a, 'b> Drop for UnsafeReader<'a, 'b> {
+    // this adjusts input slice so that it properly represents the amount that's left.
+    fn drop(&mut self) {
+        // this is safe because we know that start and end are contained inside the original slice
+        unsafe {
+            *self.slice = slice::from_raw_parts(self.start, (self.end as usize) - (self.start as usize));
+        }
+    }
+}
+
+impl<'a, 'b> Read for UnsafeReader<'a, 'b> {
+    // These methods were not being inlined and we need them to be so that the memcpy
+    // is for a constant size
+    #[inline(always)]
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.read_internal(buf);
+        Ok(buf.len())
+    }
+    #[inline(always)]
+    fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
+        self.read_internal(buf);
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug)]
