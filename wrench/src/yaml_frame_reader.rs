@@ -837,13 +837,12 @@ impl YamlFrameReader {
         let border_radius = item["border-radius"].as_force_f32().unwrap_or(0.0);
         let clip_mode = if let Some(mode) = item["clip-mode"].as_str() {
             match mode {
-                "none" => BoxShadowClipMode::None,
                 "outset" => BoxShadowClipMode::Outset,
                 "inset" => BoxShadowClipMode::Inset,
                 s => panic!("Unknown box shadow clip mode {}", s),
             }
         } else {
-            BoxShadowClipMode::None
+            BoxShadowClipMode::Outset
         };
 
         dl.push_box_shadow(

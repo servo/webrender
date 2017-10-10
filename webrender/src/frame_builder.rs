@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderDetails, BorderDisplayItem, BorderRadius, BoxShadowClipMode, BuiltDisplayList};
-use api::{ClipAndScrollInfo, ClipId, ColorF};
+use api::{ComplexClipRegion, ClipAndScrollInfo, ClipId, ColorF};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
 use api::{ExtendMode, FIND_ALL, FilterOp, FontInstance, FontRenderMode};
 use api::{GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem, HitTestResult};
@@ -21,9 +21,9 @@ use euclid::{SideOffsets2D, vec2, vec3};
 use frame::FrameId;
 use gpu_cache::GpuCache;
 use internal_types::{FastHashMap, FastHashSet, HardwareCompositeOp};
-use picture::PicturePrimitive;
+use picture::{PicturePrimitive};
 use plane_split::{BspSplitter, Polygon, Splitter};
-use prim_store::{BoxShadowPrimitiveCpu, TexelRect, YuvImagePrimitiveCpu};
+use prim_store::{BrushPrimitive, TexelRect, YuvImagePrimitiveCpu};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, LinePrimitive, PrimitiveKind};
 use prim_store::{PrimitiveContainer, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
@@ -35,10 +35,10 @@ use resource_cache::ResourceCache;
 use scene::ScenePipeline;
 use std::{mem, usize, f32, i32};
 use tiling::{ClipScrollGroup, ClipScrollGroupIndex, CompositeOps, Frame};
-use tiling::{ContextIsolation, StackingContextIndex};
+use tiling::{ContextIsolation, RenderTargetKind, StackingContextIndex};
 use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, RenderPass};
 use tiling::{RenderTargetContext, ScrollbarPrimitive, StackingContext};
-use util::{self, pack_as_float, recycle_vec, subtract_rect};
+use util::{self, pack_as_float, recycle_vec};
 use util::{MatrixHelpers, RectHelpers};
 
 /// Construct a polygon from stacking context boundaries.
@@ -585,7 +585,7 @@ impl FrameBuilder {
         clip_and_scroll: ClipAndScrollInfo,
         info: &LayerPrimitiveInfo,
     ) {
-        let prim = PicturePrimitive::new_shadow(shadow);
+        let prim = PicturePrimitive::new_shadow(shadow, RenderTargetKind::Color);
 
         // Create an empty shadow primitive. Insert it into
         // the draw lists immediately so that it will be drawn
@@ -1257,47 +1257,10 @@ impl FrameBuilder {
         }
     }
 
-    pub fn fill_box_shadow_rect(
-        &mut self,
-        clip_and_scroll: ClipAndScrollInfo,
-        info: &LayerPrimitiveInfo,
-        bs_rect: LayerRect,
-        color: &ColorF,
-        border_radius: f32,
-        clip_mode: BoxShadowClipMode,
-    ) {
-        // We can draw a rectangle instead with the proper border radius clipping.
-        let (bs_clip_mode, rect_to_draw) = match clip_mode {
-            BoxShadowClipMode::Outset | BoxShadowClipMode::None => (ClipMode::Clip, bs_rect),
-            BoxShadowClipMode::Inset => (ClipMode::ClipOut, info.rect),
-        };
-
-        let box_clip_mode = !bs_clip_mode;
-
-        // Clip the inside and then the outside of the box.
-        let border_radius = BorderRadius::uniform(border_radius);
-        let extra_clips = vec![
-            ClipSource::RoundedRectangle(bs_rect, border_radius, bs_clip_mode),
-            ClipSource::RoundedRectangle(info.rect, border_radius, box_clip_mode),
-        ];
-
-        let prim = RectanglePrimitive { color: *color };
-
-        let mut info = info.clone();
-        info.rect = rect_to_draw;
-
-        self.add_primitive(
-            clip_and_scroll,
-            &info,
-            extra_clips,
-            PrimitiveContainer::Rectangle(prim),
-        );
-    }
-
     pub fn add_box_shadow(
         &mut self,
         clip_and_scroll: ClipAndScrollInfo,
-        info: &LayerPrimitiveInfo,
+        prim_info: &LayerPrimitiveInfo,
         box_offset: &LayerVector2D,
         color: &ColorF,
         blur_radius: f32,
@@ -1309,162 +1272,170 @@ impl FrameBuilder {
             return;
         }
 
-        // The local space box shadow rect. It is the element rect
-        // translated by the box shadow offset and inflated by the
-        // box shadow spread.
-        let inflate_amount = match clip_mode {
-            BoxShadowClipMode::Outset | BoxShadowClipMode::None => spread_radius,
-            BoxShadowClipMode::Inset => -spread_radius,
-        };
-
-        let bs_rect = info.rect
-            .translate(box_offset)
-            .inflate(inflate_amount, inflate_amount);
-        // If we have negative inflate amounts.
-        // Have to explicitly check this since euclid::TypedRect relies on negative rects
-        let bs_rect_empty = bs_rect.size.width <= 0.0 || bs_rect.size.height <= 0.0;
-
-        // Just draw a rectangle
-        if (blur_radius == 0.0 && spread_radius == 0.0 && clip_mode == BoxShadowClipMode::None) ||
-            bs_rect_empty
-        {
-            self.add_solid_rectangle(clip_and_scroll, info, color, PrimitiveFlags::None);
-            return;
-        }
-
-        if blur_radius == 0.0 && border_radius != 0.0 {
-            self.fill_box_shadow_rect(
-                clip_and_scroll,
-                info,
-                bs_rect,
-                color,
-                border_radius,
-                clip_mode,
-            );
-            return;
-        }
-
-        // Get the outer rectangle, based on the blur radius.
-        let outside_edge_size = 2.0 * blur_radius;
-        let inside_edge_size = outside_edge_size.max(border_radius);
-        let edge_size = outside_edge_size + inside_edge_size;
-        let outer_rect = bs_rect.inflate(outside_edge_size, outside_edge_size);
-
-        // Box shadows are often used for things like text underline and other
-        // simple primitives, so we want to draw these simple cases with the
-        // solid rectangle shader wherever possible, to avoid invoking the
-        // expensive box-shadow shader.
-        enum BoxShadowKind {
-            Simple(Vec<LayerRect>), // Can be drawn via simple rectangles only
-            Shadow(Vec<LayerRect>), // Requires the full box-shadow code path
-        }
-
-        let shadow_kind = match clip_mode {
-            BoxShadowClipMode::Outset | BoxShadowClipMode::None => {
-                // If a border radius is set, we need to draw inside
-                // the original box in order to draw where the border
-                // corners are. A clip-out mask applied below will
-                // ensure that we don't draw on the box itself.
-                let inner_box_bounds = info.rect.inflate(-border_radius, -border_radius);
-                // For outset shadows, subtracting the element rectangle
-                // from the outer rectangle gives the rectangles we need
-                // to draw. In the simple case (no blur radius), we can
-                // just draw these as solid colors.
-                let mut rects = Vec::new();
-                subtract_rect(&outer_rect, &inner_box_bounds, &mut rects);
-                if edge_size == 0.0 {
-                    BoxShadowKind::Simple(rects)
-                } else {
-                    BoxShadowKind::Shadow(rects)
-                }
+        let spread_amount = match clip_mode {
+            BoxShadowClipMode::Outset => {
+                spread_radius
             }
             BoxShadowClipMode::Inset => {
-                // For inset shadows, in the simple case (no blur) we
-                // can draw the shadow area by subtracting the box
-                // shadow rect from the element rect (since inset box
-                // shadows never extend past the element rect). However,
-                // in the case of an inset box shadow with blur, we
-                // currently just draw the box shadow over the entire
-                // rect. The opaque parts of the shadow (past the outside
-                // edge of the box-shadow) are handled by the shadow
-                // shader.
-                // TODO(gw): We should be able to optimize the complex
-                //           inset shadow case to touch fewer pixels. We
-                //           can probably calculate the inner rect that
-                //           can't be affected, and subtract that from
-                //           the element rect?
-                let mut rects = Vec::new();
-                if edge_size == 0.0 {
-                    subtract_rect(&info.rect, &bs_rect, &mut rects);
-                    BoxShadowKind::Simple(rects)
-                } else {
-                    rects.push(info.rect);
-                    BoxShadowKind::Shadow(rects)
-                }
+                -spread_radius
             }
         };
 
-        match shadow_kind {
-            BoxShadowKind::Simple(rects) => for rect in &rects {
-                let mut info = info.clone();
-                info.rect = *rect;
-                self.add_solid_rectangle(clip_and_scroll, &info, color, PrimitiveFlags::None)
-            },
-            BoxShadowKind::Shadow(rects) => {
-                assert!(blur_radius > 0.0);
-                if clip_mode == BoxShadowClipMode::Inset {
-                    self.fill_box_shadow_rect(
+        // Adjust the shadow box radius as per:
+        // https://drafts.csswg.org/css-backgrounds-3/#shadow-shape
+        let sharpness_scale = if border_radius < spread_radius {
+            let r = border_radius / spread_amount;
+            1.0 + (r - 1.0) * (r - 1.0) * (r - 1.0)
+        } else {
+            1.0
+        };
+        let shadow_radius = (border_radius + spread_amount * sharpness_scale).max(0.0);
+        let shadow_rect = prim_info.rect
+                                   .translate(box_offset)
+                                   .inflate(spread_amount, spread_amount);
+
+        if blur_radius == 0.0 {
+            let mut clips = Vec::new();
+
+            match clip_mode {
+                BoxShadowClipMode::Outset => {
+                    // TODO(gw): Add a fast path for ClipOut + zero border radius!
+                    clips.push(ClipSource::RoundedRectangle(
+                        prim_info.rect,
+                        BorderRadius::uniform(border_radius),
+                        ClipMode::ClipOut
+                    ));
+
+                    let fast_info = LayerPrimitiveInfo::with_clip(
+                        shadow_rect,
+                        LocalClip::RoundedRect(
+                            shadow_rect,
+                            ComplexClipRegion::new(shadow_rect, BorderRadius::uniform(shadow_radius)),
+                        ),
+                    );
+
+                    self.add_primitive(
                         clip_and_scroll,
-                        info,
-                        bs_rect,
-                        color,
-                        border_radius,
-                        clip_mode,
+                        &fast_info,
+                        clips,
+                        PrimitiveContainer::Rectangle(RectanglePrimitive {
+                            color: *color,
+                        }),
                     );
                 }
-
-                let inverted = match clip_mode {
-                    BoxShadowClipMode::Outset | BoxShadowClipMode::None => 0.0,
-                    BoxShadowClipMode::Inset => 1.0,
-                };
-
-                // Outset box shadows with border radius
-                // need a clip out of the center box.
-                let extra_clip_mode = match clip_mode {
-                    BoxShadowClipMode::Outset | BoxShadowClipMode::None => ClipMode::ClipOut,
-                    BoxShadowClipMode::Inset => ClipMode::Clip,
-                };
-
-                let mut extra_clips = Vec::new();
-                if border_radius >= 0.0 {
-                    extra_clips.push(ClipSource::RoundedRectangle(
-                        info.rect,
-                        BorderRadius::uniform(border_radius),
-                        extra_clip_mode,
+                BoxShadowClipMode::Inset => {
+                    clips.push(ClipSource::RoundedRectangle(
+                        shadow_rect,
+                        BorderRadius::uniform(shadow_radius),
+                        ClipMode::ClipOut
                     ));
+
+                    let fast_info = LayerPrimitiveInfo::with_clip(
+                        prim_info.rect,
+                        LocalClip::RoundedRect(
+                            prim_info.rect,
+                            ComplexClipRegion::new(prim_info.rect, BorderRadius::uniform(border_radius)),
+                        ),
+                    );
+
+                    self.add_primitive(
+                        clip_and_scroll,
+                        &fast_info,
+                        clips,
+                        PrimitiveContainer::Rectangle(RectanglePrimitive {
+                            color: *color,
+                        }),
+                    );
                 }
-
-                let prim_cpu = BoxShadowPrimitiveCpu {
-                    src_rect: info.rect,
-                    bs_rect,
-                    color: *color,
-                    blur_radius,
-                    border_radius,
-                    edge_size,
-                    inverted,
-                    rects,
-                    render_task_id: None,
-                };
-
-                let mut info = info.clone();
-                info.rect = outer_rect;
-                self.add_primitive(
-                    clip_and_scroll,
-                    &info,
-                    extra_clips,
-                    PrimitiveContainer::BoxShadow(prim_cpu),
-                );
             }
+        } else {
+            let shadow = Shadow {
+                blur_radius,
+                color: *color,
+                offset: LayerVector2D::zero(),
+            };
+
+            let blur_offset = 2.0 * blur_radius;
+
+            match clip_mode {
+                BoxShadowClipMode::Outset => {
+                    let brush_prim = BrushPrimitive {
+                        clip_mode: ClipMode::Clip,
+                        radius: shadow_radius,
+                    };
+
+                    let brush_rect = LayerRect::new(LayerPoint::new(blur_offset, blur_offset),
+                                                    shadow_rect.size);
+
+                    let brush_info = LayerPrimitiveInfo::new(brush_rect);
+
+                    let brush_prim_index = self.create_primitive(
+                        clip_and_scroll,
+                        &brush_info,
+                        Vec::new(),
+                        PrimitiveContainer::Brush(brush_prim),
+                    );
+
+                    let mut pic_prim = PicturePrimitive::new_shadow(shadow, RenderTargetKind::Alpha);
+                    pic_prim.add_primitive(brush_prim_index, clip_and_scroll);
+
+                    let pic_rect = shadow_rect.inflate(blur_offset, blur_offset);
+                    let pic_info = LayerPrimitiveInfo::new(pic_rect);
+                    let mut extra_clips = vec![];
+
+                    extra_clips.push(ClipSource::RoundedRectangle(
+                        prim_info.rect,
+                        BorderRadius::uniform(border_radius),
+                        ClipMode::ClipOut,
+                    ));
+
+                    self.add_primitive(
+                        clip_and_scroll,
+                        &pic_info,
+                        extra_clips,
+                        PrimitiveContainer::Picture(pic_prim),
+                    );
+                }
+                BoxShadowClipMode::Inset => {
+                    let brush_prim = BrushPrimitive {
+                        clip_mode: ClipMode::ClipOut,
+                        radius: shadow_radius,
+                    };
+
+                    let mut brush_rect = shadow_rect;
+                    brush_rect.origin.x = brush_rect.origin.x - prim_info.rect.origin.x + blur_offset;
+                    brush_rect.origin.y = brush_rect.origin.y - prim_info.rect.origin.y + blur_offset;
+
+                    let brush_info = LayerPrimitiveInfo::new(brush_rect);
+
+                    let brush_prim_index = self.create_primitive(
+                        clip_and_scroll,
+                        &brush_info,
+                        Vec::new(),
+                        PrimitiveContainer::Brush(brush_prim),
+                    );
+
+                    let mut pic_prim = PicturePrimitive::new_shadow(shadow, RenderTargetKind::Alpha);
+                    pic_prim.add_primitive(brush_prim_index, clip_and_scroll);
+
+                    let pic_rect = prim_info.rect.inflate(blur_offset, blur_offset);
+                    let pic_info = LayerPrimitiveInfo::with_clip_rect(pic_rect, prim_info.rect);
+                    let mut extra_clips = vec![];
+
+                    extra_clips.push(ClipSource::RoundedRectangle(
+                        prim_info.rect,
+                        BorderRadius::uniform(border_radius),
+                        ClipMode::Clip,
+                    ));
+
+                    self.add_primitive(
+                        clip_and_scroll,
+                        &pic_info,
+                        extra_clips,
+                        PrimitiveContainer::Picture(pic_prim),
+                    );
+                }
+            };
         }
     }
 
@@ -2118,6 +2089,7 @@ impl FrameBuilder {
                                     blur_radius,
                                     current_task_id,
                                     render_tasks,
+                                    RenderTargetKind::Color,
                                 );
                                 let blur_render_task_id = render_tasks.add(blur_render_task);
                                 let item = AlphaRenderItem::HardwareComposite(

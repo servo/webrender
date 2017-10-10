@@ -66,4 +66,54 @@ float distance_to_ellipse(vec2 p, vec2 radii) {
     }
 }
 
+float clip_against_ellipse_if_needed(vec2 pos,
+                                     float current_distance,
+                                     vec4 ellipse_center_radius,
+                                     vec2 sign_modifier,
+                                     float afwidth) {
+    float ellipse_distance = distance_to_ellipse(pos - ellipse_center_radius.xy,
+                                                 ellipse_center_radius.zw);
+
+    return mix(current_distance,
+               ellipse_distance + afwidth,
+               all(lessThan(sign_modifier * pos, sign_modifier * ellipse_center_radius.xy)));
+}
+
+float rounded_rect(vec2 pos,
+                   vec4 clip_center_radius_tl,
+                   vec4 clip_center_radius_tr,
+                   vec4 clip_center_radius_br,
+                   vec4 clip_center_radius_bl) {
+    float current_distance = 0.0;
+
+    // Apply AA
+    float afwidth = 0.5 * length(fwidth(pos));
+
+    // Clip against each ellipse.
+    current_distance = clip_against_ellipse_if_needed(pos,
+                                                      current_distance,
+                                                      clip_center_radius_tl,
+                                                      vec2(1.0),
+                                                      afwidth);
+
+    current_distance = clip_against_ellipse_if_needed(pos,
+                                                      current_distance,
+                                                      clip_center_radius_tr,
+                                                      vec2(-1.0, 1.0),
+                                                      afwidth);
+
+    current_distance = clip_against_ellipse_if_needed(pos,
+                                                      current_distance,
+                                                      clip_center_radius_br,
+                                                      vec2(-1.0),
+                                                      afwidth);
+
+    current_distance = clip_against_ellipse_if_needed(pos,
+                                                      current_distance,
+                                                      clip_center_radius_bl,
+                                                      vec2(1.0, -1.0),
+                                                      afwidth);
+
+    return smoothstep(0.0, afwidth, 1.0 - current_distance);
+}
 #endif

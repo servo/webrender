@@ -896,7 +896,6 @@ impl YamlFrameWriter {
                     f32_node(&mut v, "spread-radius", item.spread_radius);
                     f32_node(&mut v, "border-radius", item.border_radius);
                     let clip_mode = match item.clip_mode {
-                        BoxShadowClipMode::None => "none",
                         BoxShadowClipMode::Outset => "outset",
                         BoxShadowClipMode::Inset => "inset",
                     };
