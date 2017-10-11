@@ -1057,7 +1057,6 @@ impl PrimitiveStore {
         }
     }
 
-    /// Returns true if the bounding box needs to be updated.
     fn prepare_prim_for_render_inner(
         &mut self,
         prim_index: PrimitiveIndex,
@@ -1320,7 +1319,6 @@ impl PrimitiveStore {
         true
     }
 
-    /// Returns true if the bounding box needs to be updated.
     pub fn prepare_prim_for_render(
         &mut self,
         prim_index: PrimitiveIndex,
