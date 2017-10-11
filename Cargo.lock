@@ -354,7 +354,7 @@ dependencies = [
 
 [[package]]
 name = "gamma-lut"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "log 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1052,7 +1052,7 @@ dependencies = [
  "euclid 0.15.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "freetype 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fxhash 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "gamma-lut 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "gamma-lut 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1195,7 +1195,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum freetype 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "398b8a11884898184d55aca9806f002b3cf68f0e860e0cbb4586f834ee39b0e7"
 "checksum futures 0.1.13 (registry+https://github.com/rust-lang/crates.io-index)" = "55f0008e13fc853f79ea8fc86e931486860d4c4c156cdffb59fa5f7fa833660a"
 "checksum fxhash 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
-"checksum gamma-lut 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "41f72af1e933f296b827361eb9e70d0267abf8ad0de9ec7fa667bbe67177b297"
+"checksum gamma-lut 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "dd65074503368cef99b98844012adfed8d7f99ff3e1e6d05e9055232f2d59dc9"
 "checksum gcc 0.3.43 (registry+https://github.com/rust-lang/crates.io-index)" = "c07c758b972368e703a562686adb39125707cc1ef3399da8c019fc6c2498a75d"
 "checksum gdi32-sys 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "0912515a8ff24ba900422ecda800b52f4016a56251922d397c576bf92c690518"
 "checksum gif 0.9.2 (registry+https://github.com/rust-lang/crates.io-index)" = "e2e41945ba23db3bf51b24756d73d81acb4f28d85c3dccc32c6fae904438c25f"
