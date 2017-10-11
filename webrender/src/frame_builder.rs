@@ -1153,7 +1153,7 @@ impl FrameBuilder {
             //           we handle subpixel blending.
             if let Some(sc_index) = self.stacking_context_stack.last() {
                 let stacking_context = &self.stacking_context_store[sc_index.0];
-                if stacking_context.composite_ops.count() > 0 {
+                if !stacking_context.allow_subpixel_aa {
                     render_mode = FontRenderMode::Alpha;
                 }
             }
