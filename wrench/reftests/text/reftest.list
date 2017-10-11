@@ -20,6 +20,8 @@ fuzzy(1,100) == decorations-suite.yaml decorations-suite.png
 == shadow-red.yaml shadow-red-ref.yaml
 fuzzy(1,164) == shadow-grey.yaml shadow-grey-ref.yaml
 == subtle-shadow.yaml subtle-shadow-ref.yaml
+== shadow-atomic.yaml shadow-atomic-ref.yaml
+== shadow-ordering.yaml shadow-ordering-ref.yaml
 # enable when synthetic-italics implemented on mac
 platform(linux) != synthetic-italics.yaml synthetic-italics-ref.yaml
 options(disable-subpixel) == ahem.yaml ahem-ref.yaml
