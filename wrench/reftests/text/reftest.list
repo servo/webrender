@@ -24,4 +24,5 @@ fuzzy(1,160) == shadow-grey.yaml shadow-grey-ref.yaml
 platform(linux) != synthetic-italics.yaml synthetic-italics-ref.yaml
 options(disable-subpixel) == ahem.yaml ahem-ref.yaml
 platform(linux) == isolated-text.yaml isolated-text.png
+== shadow-atomic.yaml shadow-atomic-ref.yaml
 
