@@ -538,6 +538,7 @@ struct UnsafeReader<'a: 'b, 'b> {
 }
 
 impl<'a, 'b> UnsafeReader<'a, 'b> {
+    #[inline(always)]
     fn new(buf: &'b mut &'a [u8]) -> UnsafeReader<'a, 'b> {
         unsafe {
             let end = buf.as_ptr().offset(buf.len() as isize);
@@ -569,6 +570,7 @@ impl<'a, 'b> UnsafeReader<'a, 'b> {
 
 impl<'a, 'b> Drop for UnsafeReader<'a, 'b> {
     // this adjusts input slice so that it properly represents the amount that's left.
+    #[inline(always)]
     fn drop(&mut self) {
         // this is safe because we know that start and end are contained inside the original slice
         unsafe {
