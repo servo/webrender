@@ -332,6 +332,9 @@ impl YamlHelper for Yaml {
                         "rotate-y" if args.len() == 1 => {
                             make_rotation(transform_origin, args[0].parse().unwrap(), 0.0, 1.0, 0.0)
                         }
+                        "perspective" if args.len() == 1 => {
+                            LayoutTransform::create_perspective(args[0].parse().unwrap())
+                        }
                         _ => {
                             println!("unknown function {}", function);
                             break;
