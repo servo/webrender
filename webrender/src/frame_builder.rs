@@ -5,11 +5,11 @@
 use api::{BorderDetails, BorderDisplayItem, BorderRadius, BoxShadowClipMode, BuiltDisplayList};
 use api::{ClipAndScrollInfo, ClipId, ColorF};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
-use api::{ExtendMode, FIND_ALL, FilterOp, FontInstance, FontRenderMode};
+use api::{ExtendMode, FilterOp, FontInstance, FontRenderMode};
 use api::{GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem, HitTestResult};
 use api::{ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect};
 use api::{LayerPixel, LayerSize, LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation};
-use api::{LineStyle, LocalClip, POINT_RELATIVE_TO_PIPELINE_VIEWPORT, PipelineId, RepeatMode};
+use api::{LineStyle, LocalClip, PipelineId, RepeatMode};
 use api::{ScrollSensitivity, Shadow, TileOffset, TransformStyle};
 use api::{WorldPixel, WorldPoint, YuvColorSpace, YuvData, device_length};
 use app_units::Au;
@@ -1575,7 +1575,7 @@ impl FrameBuilder {
         point: WorldPoint,
         flags: HitTestFlags
     ) -> HitTestResult {
-        let point = if flags.contains(POINT_RELATIVE_TO_PIPELINE_VIEWPORT) {
+        let point = if flags.contains(HitTestFlags::POINT_RELATIVE_TO_PIPELINE_VIEWPORT) {
             let point = LayerPoint::new(point.x, point.y);
             clip_scroll_tree.make_node_relative_point_absolute(pipeline_id, &point)
         } else {
@@ -1626,7 +1626,7 @@ impl FrameBuilder {
                     tag: item.tag,
                     point_in_viewport,
                 });
-                if !flags.contains(FIND_ALL) {
+                if !flags.contains(HitTestFlags::FIND_ALL) {
                     return result;
                 }
             }

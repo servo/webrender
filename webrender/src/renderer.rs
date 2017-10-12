@@ -2011,24 +2011,24 @@ impl Renderer {
     fn handle_debug_command(&mut self, command: DebugCommand) {
         match command {
             DebugCommand::EnableProfiler(enable) => if enable {
-                self.debug_flags.insert(PROFILER_DBG);
+                self.debug_flags.insert(DebugFlags::PROFILER_DBG);
             } else {
-                self.debug_flags.remove(PROFILER_DBG);
+                self.debug_flags.remove(DebugFlags::PROFILER_DBG);
             },
             DebugCommand::EnableTextureCacheDebug(enable) => if enable {
-                self.debug_flags.insert(TEXTURE_CACHE_DBG);
+                self.debug_flags.insert(DebugFlags::TEXTURE_CACHE_DBG);
             } else {
-                self.debug_flags.remove(TEXTURE_CACHE_DBG);
+                self.debug_flags.remove(DebugFlags::TEXTURE_CACHE_DBG);
             },
             DebugCommand::EnableRenderTargetDebug(enable) => if enable {
-                self.debug_flags.insert(RENDER_TARGET_DBG);
+                self.debug_flags.insert(DebugFlags::RENDER_TARGET_DBG);
             } else {
-                self.debug_flags.remove(RENDER_TARGET_DBG);
+                self.debug_flags.remove(DebugFlags::RENDER_TARGET_DBG);
             },
             DebugCommand::EnableAlphaRectsDebug(enable) => if enable {
-                self.debug_flags.insert(ALPHA_PRIM_DBG);
+                self.debug_flags.insert(DebugFlags::ALPHA_PRIM_DBG);
             } else {
-                self.debug_flags.remove(ALPHA_PRIM_DBG);
+                self.debug_flags.remove(DebugFlags::ALPHA_PRIM_DBG);
             },
             DebugCommand::FetchDocuments => {}
             DebugCommand::FetchClipScrollTree => {}
@@ -2133,7 +2133,7 @@ impl Renderer {
                     self.cpu_profiles.push_back(cpu_profile);
                 }
 
-                if self.debug_flags.contains(PROFILER_DBG) {
+                if self.debug_flags.contains(DebugFlags::PROFILER_DBG) {
                     let screen_fraction = 1.0 / //TODO: take device/pixel ratio into equation?
                         (framebuffer_size.width as f32 * framebuffer_size.height as f32);
                     self.profiler.draw_profile(
@@ -2734,7 +2734,7 @@ impl Renderer {
             self.gpu_profile.add_sampler(GPU_SAMPLER_TAG_TRANSPARENT);
 
             for batch in &target.alpha_batcher.batch_list.alpha_batch_list.batches {
-                if self.debug_flags.contains(ALPHA_PRIM_DBG) {
+                if self.debug_flags.contains(DebugFlags::ALPHA_PRIM_DBG) {
                     let color = match batch.key.blend_mode {
                         BlendMode::None => ColorF::new(0.3, 0.3, 0.3, 1.0),
                         BlendMode::Alpha => ColorF::new(0.0, 0.9, 0.1, 1.0),
@@ -3330,7 +3330,7 @@ impl Renderer {
     }
 
     fn draw_render_target_debug(&mut self, framebuffer_size: DeviceUintSize) {
-        if !self.debug_flags.contains(RENDER_TARGET_DBG) {
+        if !self.debug_flags.contains(DebugFlags::RENDER_TARGET_DBG) {
             return;
         }
 
@@ -3370,7 +3370,7 @@ impl Renderer {
     }
 
     fn draw_texture_cache_debug(&mut self, framebuffer_size: DeviceUintSize) {
-        if !self.debug_flags.contains(TEXTURE_CACHE_DBG) {
+        if !self.debug_flags.contains(DebugFlags::TEXTURE_CACHE_DBG) {
             return;
         }
 
@@ -3391,7 +3391,7 @@ impl Renderer {
 
         let mut i = 0;
         for texture in &self.texture_resolver.cache_texture_map {
-            let y = spacing + if self.debug_flags.contains(RENDER_TARGET_DBG) {
+            let y = spacing + if self.debug_flags.contains(DebugFlags::RENDER_TARGET_DBG) {
                 528
             } else {
                 0
