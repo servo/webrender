@@ -1009,8 +1009,8 @@ impl YamlFrameWriter {
                     color_node(&mut v, "color", shadow.color);
                     f32_node(&mut v, "blur-radius", shadow.blur_radius);
                 }
-                PopShadow => {
-                    str_node(&mut v, "type", "pop-shadow");
+                PopAllShadows => {
+                    str_node(&mut v, "type", "pop-all-shadows");
                 }
             }
             if !v.is_empty() {

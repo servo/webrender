@@ -15,5 +15,5 @@ root:
           color: [0, 0, 0, 1.0]
           font: "VeraBd.ttf"
         -
-          type: "pop-shadow"
+          type: "pop-all-shadows"
 

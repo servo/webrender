@@ -103,7 +103,7 @@ pub enum SpecificDisplayItem {
     PopStackingContext,
     SetGradientStops,
     PushShadow(Shadow),
-    PopShadow,
+    PopAllShadows,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
