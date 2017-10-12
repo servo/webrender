@@ -7,7 +7,7 @@ license = "MPL-2.0"
 
 [dependencies]
 base64 = "0.3"
-bincode = "0.8"
+bincode = "0.9"
 byteorder = "1.0"
 env_logger = { version = "0.4", optional = true }
 euclid = "0.15"
