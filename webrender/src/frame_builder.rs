@@ -1173,10 +1173,6 @@ impl FrameBuilder {
         // There are some conditions under which we can't use
         // subpixel text rendering, even if enabled.
         if render_mode == FontRenderMode::Subpixel {
-            if color.a != 1.0 {
-                render_mode = FontRenderMode::Alpha;
-            }
-
             // text on a stacking context that has filters
             // (e.g. opacity) can't use sub-pixel.
             // TODO(gw): It's possible we can relax this in
@@ -1200,7 +1196,7 @@ impl FrameBuilder {
             font.variations.clone(),
             font.synthetic_italics,
         );
-        let prim = TextRunPrimitiveCpu {
+        let mut prim = TextRunPrimitiveCpu {
             font: prim_font,
             glyph_range,
             glyph_count,
@@ -1247,6 +1243,12 @@ impl FrameBuilder {
                 PrimitiveContainer::TextRun(text_prim),
             );
             self.shadow_prim_stack[idx].1.push((prim_index, clip_and_scroll));
+        }
+
+        // We defer this until after fast-shadows so that shadows of transparent text
+        // get subpixel-aa
+        if color.a != 1.0 {
+            prim.font.render_mode = FontRenderMode::Alpha;
         }
 
         // Create (and add to primitive store) the primitive that will be
