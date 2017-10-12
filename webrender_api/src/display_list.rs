@@ -699,7 +699,7 @@ impl DisplayListBuilder {
         )
     }
 
-    fn push_item_with_scrollinfo(
+    fn push_item_with_clip_scroll_info(
         &mut self,
         item: SpecificDisplayItem,
         info: &LayoutPrimitiveInfo,
@@ -1128,10 +1128,10 @@ impl DisplayListBuilder {
         I: IntoIterator<Item = ComplexClipRegion>,
         I::IntoIter: ExactSizeIterator,
     {
-        let scrollinfo = *self.clip_stack.last().unwrap();
-        self.define_scroll_frame_with_scrollinfo(
+        let parent = self.clip_stack.last().unwrap().scroll_node_id;
+        self.define_scroll_frame_with_parent(
             id,
-            scrollinfo,
+            parent,
             content_rect,
             clip_rect,
             complex_clips,
@@ -1139,10 +1139,10 @@ impl DisplayListBuilder {
             scroll_sensitivity)
     }
 
-    pub fn define_scroll_frame_with_scrollinfo<I>(
+    pub fn define_scroll_frame_with_parent<I>(
         &mut self,
         id: Option<ClipId>,
-        scrollinfo: ClipAndScrollInfo,
+        parent: ClipId,
         content_rect: LayoutRect,
         clip_rect: LayoutRect,
         complex_clips: I,
@@ -1167,7 +1167,8 @@ impl DisplayListBuilder {
             tag: None,
         };
 
-        self.push_item_with_scrollinfo(item, &info, scrollinfo);
+        let scrollinfo = ClipAndScrollInfo::simple(parent);
+        self.push_item_with_clip_scroll_info(item, &info, scrollinfo);
         self.push_iter(complex_clips);
         id
     }
@@ -1183,19 +1184,19 @@ impl DisplayListBuilder {
         I: IntoIterator<Item = ComplexClipRegion>,
         I::IntoIter: ExactSizeIterator,
     {
-        let scrollinfo = *self.clip_stack.last().unwrap();
-        self.define_clip_with_scrollinfo(
+        let parent = self.clip_stack.last().unwrap().scroll_node_id;
+        self.define_clip_with_parent(
             id,
-            scrollinfo,
+            parent,
             clip_rect,
             complex_clips,
             image_mask)
     }
 
-    pub fn define_clip_with_scrollinfo<I>(
+    pub fn define_clip_with_parent<I>(
         &mut self,
         id: Option<ClipId>,
-        scrollinfo: ClipAndScrollInfo,
+        parent: ClipId,
         clip_rect: LayoutRect,
         complex_clips: I,
         image_mask: Option<ImageMask>,
@@ -1212,7 +1213,8 @@ impl DisplayListBuilder {
 
         let info = LayoutPrimitiveInfo::new(clip_rect);
 
-        self.push_item_with_scrollinfo(item, &info, scrollinfo);
+        let scrollinfo = ClipAndScrollInfo::simple(parent);
+        self.push_item_with_clip_scroll_info(item, &info, scrollinfo);
         self.push_iter(complex_clips);
         id
     }
