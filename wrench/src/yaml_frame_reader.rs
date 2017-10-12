@@ -919,7 +919,7 @@ impl YamlFrameReader {
 
         assert!(
             item["blur-radius"].is_badvalue(),
-            "text no longer has a blur radius, use PushShadow and PopShadow"
+            "text no longer has a blur radius, use PushShadow and PopAllShadows"
         );
 
         let desc = FontDescriptor::from_yaml(item, &self.aux_dir);
@@ -1076,7 +1076,7 @@ impl YamlFrameReader {
                     self.add_stacking_context_from_yaml(dl, wrench, item, false, &mut info)
                 }
                 "shadow" => self.handle_push_shadow(dl, item, &mut info),
-                "pop-shadow" => self.handle_pop_shadow(dl),
+                "pop-all-shadows" => self.handle_pop_all_shadows(dl),
                 _ => println!("Skipping unknown item type: {:?}", item),
             }
 
@@ -1172,8 +1172,8 @@ impl YamlFrameReader {
         );
     }
 
-    pub fn handle_pop_shadow(&mut self, dl: &mut DisplayListBuilder) {
-        dl.pop_shadow();
+    pub fn handle_pop_all_shadows(&mut self, dl: &mut DisplayListBuilder) {
+        dl.pop_all_shadows();
     }
 
     pub fn handle_clip(&mut self, dl: &mut DisplayListBuilder, wrench: &mut Wrench, yaml: &Yaml) {

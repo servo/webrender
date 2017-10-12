@@ -15,5 +15,5 @@ root:
           size: 24
           color: [0,0,0,0]
         -
-          type: "pop-shadow"
+          type: "pop-all-shadows"
 

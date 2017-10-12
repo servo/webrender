@@ -1,3 +1,4 @@
+
 --- # tests that shadows still render even if the associated text is clipped out
 root:
   items:
@@ -19,4 +20,4 @@ root:
           color: black
           font: "VeraBd.ttf"
         -
-          type: "pop-shadow"
+          type: "pop-all-shadows"

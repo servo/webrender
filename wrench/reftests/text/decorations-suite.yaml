@@ -106,7 +106,7 @@ root:
       color: black
       style: wavy
     -
-      type: "pop-shadow"
+      type: "pop-all-shadows"
 
     -
       type: "shadow"
@@ -147,7 +147,7 @@ root:
       color: black
       style: wavy
     -
-      type: "pop-shadow"
+      type: "pop-all-shadows"
 
     - type: line
       baseline: 220
@@ -254,4 +254,4 @@ root:
       color: red
       style: wavy
     -
-      type: "pop-shadow"
+      type: "pop-all-shadows"

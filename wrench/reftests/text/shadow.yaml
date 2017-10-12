@@ -15,7 +15,7 @@ root:
           color: [0, 0, 0, 0] # actual text is transparent
           font: "VeraBd.ttf"
         -
-          type: "pop-shadow"
+          type: "pop-all-shadows"
         -
           type: "shadow"
           bounds: [14, 318, 205, 35]
@@ -30,4 +30,4 @@ root:
           color: [0, 0, 0, 0] # actual text is transparent
           font: "VeraBd.ttf"
         -
-          type: "pop-shadow"
+          type: "pop-all-shadows"

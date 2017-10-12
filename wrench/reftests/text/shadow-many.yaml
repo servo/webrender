@@ -27,8 +27,4 @@ root:
           color: [0, 0, 0, 0] # actual text is transparent
           font: "VeraBd.ttf"
         -
-          type: "pop-shadow"
-        -
-          type: "pop-shadow"
-        -
-          type: "pop-shadow"
+          type: "pop-all-shadows"
