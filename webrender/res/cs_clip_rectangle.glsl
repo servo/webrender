@@ -138,9 +138,9 @@ float rounded_rect(vec2 pos) {
 
     // Apply AA
     // See comment in ps_border_corner about the choice of constants.
-    float aa_range = 0.4 * length(fwidth(pos));
+    float aa_range = compute_aa_range(pos);
 
-    return 1.0 - smoothstep(-aa_range, aa_range, current_distance);
+    return distance_aa(aa_range, current_distance);
 }
 
 void main(void) {

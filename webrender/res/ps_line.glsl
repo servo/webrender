@@ -190,7 +190,7 @@ void main(void) {
 #endif
 
     // Find the appropriate distance to apply the step over.
-    float aa_range = 0.4 * length(fwidth(local_pos));
+    float aa_range = compute_aa_range(local_pos);
 
     // Select the x/y coord, depending on which axis this edge is.
     vec2 pos = mix(local_pos.xy, local_pos.yx, vAxisSelect);
@@ -214,7 +214,7 @@ void main(void) {
             // Get the dot alpha
             vec2 dot_relative_pos = vec2(x, pos.y) - vParams.yz;
             float dot_distance = length(dot_relative_pos) - vParams.y;
-            alpha = min(alpha, 1.0 - smoothstep(-aa_range, aa_range, dot_distance));
+            alpha = min(alpha, distance_aa(aa_range, dot_distance));
             break;
         }
         case LINE_STYLE_WAVY: {
@@ -248,9 +248,7 @@ void main(void) {
             float d = min(d1, d2);
 
             // Apply AA based on the thickness of the wave.
-            alpha = 1.0 - smoothstep(vParams.x - aa_range,
-                                     vParams.x + aa_range,
-                                     d);
+            alpha = distance_aa(aa_range, d - vParams.x);
             break;
         }
     }
