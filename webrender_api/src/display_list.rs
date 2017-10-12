@@ -1248,8 +1248,8 @@ impl DisplayListBuilder {
         self.push_item(SpecificDisplayItem::PushShadow(shadow), info);
     }
 
-    pub fn pop_shadow(&mut self) {
-        self.push_new_empty_item(SpecificDisplayItem::PopShadow);
+    pub fn pop_all_shadows(&mut self) {
+        self.push_new_empty_item(SpecificDisplayItem::PopAllShadows);
     }
 
     pub fn finalize(self) -> (PipelineId, LayoutSize, BuiltDisplayList) {
