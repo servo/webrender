@@ -66,11 +66,13 @@ float distance_to_ellipse(vec2 p, vec2 radii) {
     }
 }
 
-float clip_against_ellipse_if_needed(vec2 pos,
-                                     float current_distance,
-                                     vec4 ellipse_center_radius,
-                                     vec2 sign_modifier,
-                                     float afwidth) {
+float clip_against_ellipse_if_needed(
+    vec2 pos,
+    float current_distance,
+    vec4 ellipse_center_radius,
+    vec2 sign_modifier,
+    float afwidth
+) {
     float ellipse_distance = distance_to_ellipse(pos - ellipse_center_radius.xy,
                                                  ellipse_center_radius.zw);
 

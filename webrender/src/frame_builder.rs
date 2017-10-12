@@ -1297,7 +1297,7 @@ impl FrameBuilder {
         if blur_radius == 0.0 {
             let mut clips = Vec::new();
 
-            match clip_mode {
+            let fast_info = match clip_mode {
                 BoxShadowClipMode::Outset => {
                     // TODO(gw): Add a fast path for ClipOut + zero border radius!
                     clips.push(ClipSource::RoundedRectangle(
@@ -1306,22 +1306,13 @@ impl FrameBuilder {
                         ClipMode::ClipOut
                     ));
 
-                    let fast_info = LayerPrimitiveInfo::with_clip(
+                    LayerPrimitiveInfo::with_clip(
                         shadow_rect,
                         LocalClip::RoundedRect(
                             shadow_rect,
                             ComplexClipRegion::new(shadow_rect, BorderRadius::uniform(shadow_radius)),
                         ),
-                    );
-
-                    self.add_primitive(
-                        clip_and_scroll,
-                        &fast_info,
-                        clips,
-                        PrimitiveContainer::Rectangle(RectanglePrimitive {
-                            color: *color,
-                        }),
-                    );
+                    )
                 }
                 BoxShadowClipMode::Inset => {
                     clips.push(ClipSource::RoundedRectangle(
@@ -1330,24 +1321,24 @@ impl FrameBuilder {
                         ClipMode::ClipOut
                     ));
 
-                    let fast_info = LayerPrimitiveInfo::with_clip(
+                    LayerPrimitiveInfo::with_clip(
                         prim_info.rect,
                         LocalClip::RoundedRect(
                             prim_info.rect,
                             ComplexClipRegion::new(prim_info.rect, BorderRadius::uniform(border_radius)),
                         ),
-                    );
-
-                    self.add_primitive(
-                        clip_and_scroll,
-                        &fast_info,
-                        clips,
-                        PrimitiveContainer::Rectangle(RectanglePrimitive {
-                            color: *color,
-                        }),
-                    );
+                    )
                 }
-            }
+            };
+
+            self.add_primitive(
+                clip_and_scroll,
+                &fast_info,
+                clips,
+                PrimitiveContainer::Rectangle(RectanglePrimitive {
+                    color: *color,
+                }),
+            );
         } else {
             let shadow = Shadow {
                 blur_radius,
@@ -1356,8 +1347,10 @@ impl FrameBuilder {
             };
 
             let blur_offset = 2.0 * blur_radius;
+            let mut extra_clips = vec![];
+            let mut pic_prim = PicturePrimitive::new_shadow(shadow, RenderTargetKind::Alpha);
 
-            match clip_mode {
+            let pic_info = match clip_mode {
                 BoxShadowClipMode::Outset => {
                     let brush_prim = BrushPrimitive {
                         clip_mode: ClipMode::Clip,
@@ -1376,12 +1369,7 @@ impl FrameBuilder {
                         PrimitiveContainer::Brush(brush_prim),
                     );
 
-                    let mut pic_prim = PicturePrimitive::new_shadow(shadow, RenderTargetKind::Alpha);
                     pic_prim.add_primitive(brush_prim_index, clip_and_scroll);
-
-                    let pic_rect = shadow_rect.inflate(blur_offset, blur_offset);
-                    let pic_info = LayerPrimitiveInfo::new(pic_rect);
-                    let mut extra_clips = vec![];
 
                     extra_clips.push(ClipSource::RoundedRectangle(
                         prim_info.rect,
@@ -1389,12 +1377,8 @@ impl FrameBuilder {
                         ClipMode::ClipOut,
                     ));
 
-                    self.add_primitive(
-                        clip_and_scroll,
-                        &pic_info,
-                        extra_clips,
-                        PrimitiveContainer::Picture(pic_prim),
-                    );
+                    let pic_rect = shadow_rect.inflate(blur_offset, blur_offset);
+                    LayerPrimitiveInfo::new(pic_rect)
                 }
                 BoxShadowClipMode::Inset => {
                     let brush_prim = BrushPrimitive {
@@ -1415,12 +1399,7 @@ impl FrameBuilder {
                         PrimitiveContainer::Brush(brush_prim),
                     );
 
-                    let mut pic_prim = PicturePrimitive::new_shadow(shadow, RenderTargetKind::Alpha);
                     pic_prim.add_primitive(brush_prim_index, clip_and_scroll);
-
-                    let pic_rect = prim_info.rect.inflate(blur_offset, blur_offset);
-                    let pic_info = LayerPrimitiveInfo::with_clip_rect(pic_rect, prim_info.rect);
-                    let mut extra_clips = vec![];
 
                     extra_clips.push(ClipSource::RoundedRectangle(
                         prim_info.rect,
@@ -1428,14 +1407,17 @@ impl FrameBuilder {
                         ClipMode::Clip,
                     ));
 
-                    self.add_primitive(
-                        clip_and_scroll,
-                        &pic_info,
-                        extra_clips,
-                        PrimitiveContainer::Picture(pic_prim),
-                    );
+                    let pic_rect = prim_info.rect.inflate(blur_offset, blur_offset);
+                    LayerPrimitiveInfo::with_clip_rect(pic_rect, prim_info.rect)
                 }
             };
+
+            self.add_primitive(
+                clip_and_scroll,
+                &pic_info,
+                extra_clips,
+                PrimitiveContainer::Picture(pic_prim),
+            );
         }
     }
 

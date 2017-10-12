@@ -99,11 +99,11 @@ void main(void) {
 
 #ifdef WR_FEATURE_CACHE
     int picture_address = prim.user_data0;
-    PrimitiveGeometry shadow_geom = fetch_primitive_geometry(picture_address);
+    PrimitiveGeometry picture_geom = fetch_primitive_geometry(picture_address);
     Picture pic = fetch_picture(picture_address + VECS_PER_PRIM_HEADER);
 
     vec2 device_origin = prim.task.render_target_origin +
-                         uDevicePixelRatio * (prim.local_rect.p0 + pic.offset - shadow_geom.local_rect.p0);
+                         uDevicePixelRatio * (prim.local_rect.p0 + pic.offset - picture_geom.local_rect.p0);
     vec2 device_size = uDevicePixelRatio * prim.local_rect.size;
 
     vec2 device_pos = mix(device_origin,

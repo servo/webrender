@@ -20,7 +20,7 @@ void main(void) {
     int resource_address = prim.user_data1;
     int picture_address = prim.user_data2;
 
-    // Fetch the parent text-shadow for this primitive. This allows the code
+    // Fetch the owning picture for this primitive. This allows the code
     // below to normalize the glyph offsets relative to the original text
     // shadow rect, which is the union of all elements that make up this
     // text shadow. This allows the text shadow to be rendered at an
