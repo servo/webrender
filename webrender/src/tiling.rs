@@ -1606,6 +1606,12 @@ pub struct StackingContext {
     /// This is a temporary hack while we don't support subpixel AA
     /// on transparent stacking contexts.
     pub allow_subpixel_aa: bool,
+
+    /// Indicate that if any pritimive contained in this stacking context.
+    pub has_any_primitive: bool,
+
+    /// Union of all stacking context bounds of all children.
+    pub children_sc_bounds: LayerRect,
 }
 
 impl StackingContext {
@@ -1638,6 +1644,8 @@ impl StackingContext {
             is_visible: false,
             is_backface_visible,
             allow_subpixel_aa,
+            has_any_primitive: false,
+            children_sc_bounds: LayerRect::zero(),
         }
     }
 
