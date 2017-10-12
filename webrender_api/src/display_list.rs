@@ -699,6 +699,22 @@ impl DisplayListBuilder {
         )
     }
 
+    fn push_item_with_scrollinfo(
+        &mut self,
+        item: SpecificDisplayItem,
+        info: &LayoutPrimitiveInfo,
+        scrollinfo: ClipAndScrollInfo
+    ) {
+        serialize_fast(
+            &mut self.data,
+            &DisplayItem {
+                item,
+                clip_and_scroll: scrollinfo,
+                info: *info,
+            },
+        )
+    }
+
     fn push_new_empty_item(&mut self, item: SpecificDisplayItem) {
         let info = LayoutPrimitiveInfo::new(LayoutRect::zero());
         serialize_fast(
@@ -1112,10 +1128,10 @@ impl DisplayListBuilder {
         I: IntoIterator<Item = ComplexClipRegion>,
         I::IntoIter: ExactSizeIterator,
     {
-        let parent_id = self.clip_stack.last().unwrap().scroll_node_id;
-        self.define_scroll_frame_with_parent(
+        let scrollinfo = *self.clip_stack.last().unwrap();
+        self.define_scroll_frame_with_scrollinfo(
             id,
-            parent_id,
+            scrollinfo,
             content_rect,
             clip_rect,
             complex_clips,
@@ -1123,10 +1139,10 @@ impl DisplayListBuilder {
             scroll_sensitivity)
     }
 
-    pub fn define_scroll_frame_with_parent<I>(
+    pub fn define_scroll_frame_with_scrollinfo<I>(
         &mut self,
         id: Option<ClipId>,
-        parent_id: ClipId,
+        scrollinfo: ClipAndScrollInfo,
         content_rect: LayoutRect,
         clip_rect: LayoutRect,
         complex_clips: I,
@@ -1140,7 +1156,6 @@ impl DisplayListBuilder {
         let id = self.generate_clip_id(id);
         let item = SpecificDisplayItem::ScrollFrame(ScrollFrameDisplayItem {
             id: id,
-            parent_id: parent_id,
             image_mask: image_mask,
             scroll_sensitivity,
         });
@@ -1152,7 +1167,7 @@ impl DisplayListBuilder {
             tag: None,
         };
 
-        self.push_item(item, &info);
+        self.push_item_with_scrollinfo(item, &info, scrollinfo);
         self.push_iter(complex_clips);
         id
     }
@@ -1168,19 +1183,19 @@ impl DisplayListBuilder {
         I: IntoIterator<Item = ComplexClipRegion>,
         I::IntoIter: ExactSizeIterator,
     {
-        let parent_id = self.clip_stack.last().unwrap().scroll_node_id;
-        self.define_clip_with_parent(
+        let scrollinfo = *self.clip_stack.last().unwrap();
+        self.define_clip_with_scrollinfo(
             id,
-            parent_id,
+            scrollinfo,
             clip_rect,
             complex_clips,
             image_mask)
     }
 
-    pub fn define_clip_with_parent<I>(
+    pub fn define_clip_with_scrollinfo<I>(
         &mut self,
         id: Option<ClipId>,
-        parent_id: ClipId,
+        scrollinfo: ClipAndScrollInfo,
         clip_rect: LayoutRect,
         complex_clips: I,
         image_mask: Option<ImageMask>,
@@ -1192,13 +1207,12 @@ impl DisplayListBuilder {
         let id = self.generate_clip_id(id);
         let item = SpecificDisplayItem::Clip(ClipDisplayItem {
             id,
-            parent_id: parent_id,
             image_mask: image_mask,
         });
 
         let info = LayoutPrimitiveInfo::new(clip_rect);
 
-        self.push_item(item, &info);
+        self.push_item_with_scrollinfo(item, &info, scrollinfo);
         self.push_iter(complex_clips);
         id
     }
