@@ -211,7 +211,8 @@ impl Wrench {
         font_key: FontKey,
         text: &str,
         size: Au,
-    ) -> (Vec<u32>, Vec<f32>) {
+        origin: LayerPoint,
+    ) -> (Vec<u32>, Vec<LayerPoint>, LayoutRect) {
         // Map the string codepoints to glyph indices in this font.
         // Just drop any glyph that isn't present in this font.
         let indices: Vec<u32> = self.api
@@ -241,17 +242,34 @@ impl Wrench {
             ));
         }
         let metrics = self.api.get_glyph_dimensions(font, keys);
+        let mut bounding_rect = LayoutRect::zero();
+        let mut positions = Vec::new();
 
-        // Extract the advances from the metrics. The get_glyph_dimensions API
-        // has a limitation that it can't currently get dimensions for non-renderable
-        // glyphs (e.g. spaces), so just use a rough estimate in that case.
-        let space_advance = size.to_f32_px() / 3.0;
-        let advances = metrics
-            .iter()
-            .map(|m| m.map(|dim| dim.advance).unwrap_or(space_advance))
-            .collect();
+        let mut x = origin.x;
+        let y = origin.y;
+        for metric in metrics {
+            positions.push(LayerPoint::new(x, y));
 
-        (indices, advances)
+            match metric {
+                Some(metric) => {
+                    let glyph_rect = LayoutRect::new(
+                        LayoutPoint::new(x + metric.left as f32, y - metric.top as f32),
+                        LayoutSize::new(metric.width as f32, metric.height as f32)
+                    );
+                    bounding_rect = bounding_rect.union(&glyph_rect);
+                    x += metric.advance;
+                }
+                None => {
+                    // Extract the advances from the metrics. The get_glyph_dimensions API
+                    // has a limitation that it can't currently get dimensions for non-renderable
+                    // glyphs (e.g. spaces), so just use a rough estimate in that case.
+                    let space_advance = size.to_f32_px() / 3.0;
+                    x += space_advance;
+                }
+            }
+        }
+
+        (indices, positions, bounding_rect)
     }
 
     pub fn set_title(&mut self, extra: &str) {
