@@ -722,20 +722,23 @@ void write_clip(vec2 global_pos, ClipArea area) {
 /// Find the appropriate half range to apply the AA smoothstep over.
 /// This range represents a coefficient to go from one CSS pixel to half a device pixel.
 float compute_aa_range(vec2 position) {
-    // We use 0.4 instead of 0.5 here to compensate for the fact that length(fw) is equal
-    // to sqrt(2) times the device pixel ratio in the typical case.
-    // This coefficient is chosen to ensure that a sample that any sample 0.5 pixels
-    // or more inside of the shape has no anti-aliasing applied to it (since pixels are
-    // sampled at their center, such a pixel (axis aligned) is fully inside the border),
-    // so that antialiased curves properly connect with non-antialiased vertical or horizontal
-    // lines.
+    // The constant factor is chosen to compensate for the fact that length(fw) is equal
+    // to sqrt(2) times the device pixel ratio in the typical case. 0.5/sqrt(2) = 0.35355.
+    //
+    // This coefficient is chosen to ensure that any sample 0.5 pixels or more inside of
+    // the shape has no anti-aliasing applied to it (since pixels are sampled at their center,
+    // such a pixel (axis aligned) is fully inside the border). We need this so that antialiased
+    // curves properly connect with non-antialiased vertical or horizontal lines, among other things.
     //
     // Using larger aa steps is quite common when rendering shapes with distance fields.
     // It gives a smoother (although blurrier look) by extending the range that is smoothed
     // to produce the anti aliasing. In our case, however, extending the range inside of
     // the shape causes noticeable artifacts at the junction between an antialiased corner
     // and a straight edge.
-    return 0.4 * length(fwidth(position));
+    // We may want to adjust this constant in specific scenarios (for example keep the principled
+    // value for straight edges where we want pixel-perfect equivalence with non antialiased lines
+    // when axis aligned, while selecting a larger and smoother aa range on curves).
+    return 0.35355 * length(fwidth(position));
 }
 
 /// Return the blending coefficient to for distance antialiasing.
