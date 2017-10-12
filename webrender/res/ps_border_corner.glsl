@@ -324,19 +324,7 @@ void main(void) {
 
     alpha = min(alpha, do_clip());
 
-    // Find the appropriate range to apply the AA smoothstep over.
-    // the aa step represents a coefficient to go from one CSS pixel to half a device pixel.
-    // We use 0.4 here to compensate for the fact that length(fw) is equal to sqrt(2) times
-    // the device pixel ratio in the typical case.
-    // Using larger aa steps is quite common when rendering shapes with distance fields.
-    // It gives a smoother (although a bit blurrier look) by extending the range that is
-    // smoothed to produce the anti aliasing. In our case, however, extending the range inside
-    // of the shape causes noticeable artifacts at the junction between an antialiased corner
-    // and a straight edge.
-    // The coefficient below is chosen to ensure that a sample that is 0.5 pixels or more inside of the
-    // curve shape has no anti-aliasing applied to it (since pixels are sampled at their center, such a
-    // pixel is fully inside the border.
-    float aa_range = 0.4 * length(fwidth(local_pos));
+    float aa_range = compute_aa_range(local_pos);
 
     float distance_for_color;
     float color_mix_factor;
@@ -373,10 +361,10 @@ void main(void) {
         float d = mix(max(d_main, -d_inner), d_main, vSDFSelect);
 
         // Only apply AA to fragments outside the signed distance field.
-        alpha = min(alpha, 1.0 - smoothstep(-aa_range, aa_range, d));
+        alpha = min(alpha, distance_aa(aa_range, d));
 
         // Get the groove/ridge mix factor.
-        color_mix_factor = smoothstep(-aa_range, aa_range, -d2);
+        color_mix_factor = distance_aa(aa_range, d2);
     } else {
         // Handle the case where the fragment is outside the clip
         // region in a corner. This occurs when border width is
@@ -408,7 +396,7 @@ void main(void) {
     // Select color based on side of line. Get distance from the
     // reference line, and then apply AA along the edge.
     float ld = distance_to_line(vColorEdgeLine.xy, vColorEdgeLine.zw, local_pos);
-    float m = smoothstep(-aa_range, aa_range, ld);
+    float m = distance_aa(aa_range, -ld);
     vec4 color = mix(color0, color1, m);
 
     oFragColor = color * vec4(1.0, 1.0, 1.0, alpha);

@@ -155,7 +155,7 @@ void main(void) {
                                 clip_relative_pos);
 
     // Get AA widths based on zoom / scale etc.
-    float aa_range = 0.4 * length(fwidth(local_pos));
+    float aa_range = compute_aa_range(local_pos);
 
     // SDF subtract edges for dash clip
     float dash_distance = max(d0, -d1);
@@ -167,7 +167,7 @@ void main(void) {
     float d = mix(dash_distance, dot_distance, vAlphaMask.x);
 
     // Apply AA.
-    d = 1.0 - smoothstep(-aa_range, aa_range, d);
+    d = distance_aa(aa_range, d);
 
     // Completely mask out clip if zero'ing out the rect.
     d = d * vAlphaMask.y;
