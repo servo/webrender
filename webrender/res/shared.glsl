@@ -70,6 +70,10 @@ uniform sampler2DArray sColor2;
 uniform sampler2D sDither;
 #endif
 
+// A generic uniform that shaders can optionally use to configure
+// an operation mode for this batch.
+uniform int uMode;
+
 //======================================================================================
 // Interpolator definitions
 //======================================================================================

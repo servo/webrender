@@ -27,4 +27,7 @@ platform(linux) != synthetic-italics.yaml synthetic-italics-ref.yaml
 options(disable-subpixel) == ahem.yaml ahem-ref.yaml
 platform(linux) == isolated-text.yaml isolated-text.png
 platform(mac) == white-opacity.yaml white-opacity.png
-
+fuzzy(1,4) platform(linux) options(disable-subpixel) == colors.yaml colors-alpha.png
+fuzzy(1,2) platform(linux) == colors.yaml colors-subpx.png
+platform(linux) options(disable-subpixel) == border-radius.yaml border-radius-alpha.png
+platform(linux) == border-radius.yaml border-radius-subpx.png

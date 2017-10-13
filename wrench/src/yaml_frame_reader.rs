@@ -965,28 +965,28 @@ impl YamlFrameReader {
             (glyphs, rect)
         } else {
             let text = item["text"].as_str().unwrap();
-            let (glyph_indices, glyph_advances) = wrench.layout_simple_ascii(font_key, text, size);
             let origin = item["origin"]
                 .as_point()
                 .expect("origin required for text without glyphs");
+            let (glyph_indices, glyph_positions, bounds) = wrench.layout_simple_ascii(
+                font_key,
+                text,
+                size,
+                origin,
+            );
 
-            let mut x = origin.x;
-            let y = origin.y;
             let glyphs = glyph_indices
                 .iter()
-                .zip(glyph_advances)
+                .zip(glyph_positions)
                 .map(|arg| {
                     let gi = GlyphInstance {
                         index: *arg.0 as u32,
-                        point: LayoutPoint::new(x, y),
+                        point: arg.1,
                     };
-                    x += arg.1;
                     gi
                 })
                 .collect::<Vec<_>>();
-            // FIXME this is incorrect!
-            let rect = LayoutRect::new(LayoutPoint::new(0.0, 0.0), wrench.window_size_f32());
-            (glyphs, rect)
+            (glyphs, bounds)
         };
         info.rect = rect;
 
