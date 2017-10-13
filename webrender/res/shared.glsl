@@ -39,6 +39,10 @@
 // Fragment shader attributes and uniforms
 //======================================================================================
 #ifdef WR_FRAGMENT_SHADER
+    // A generic uniform that shaders can optionally use to configure
+    // an operation mode for this batch.
+    uniform int uMode;
+
     // Uniform inputs
 
     // Fragment shader outputs
@@ -69,10 +73,6 @@ uniform sampler2DArray sColor2;
 #ifdef WR_FEATURE_DITHERING
 uniform sampler2D sDither;
 #endif
-
-// A generic uniform that shaders can optionally use to configure
-// an operation mode for this batch.
-uniform int uMode;
 
 //======================================================================================
 // Interpolator definitions

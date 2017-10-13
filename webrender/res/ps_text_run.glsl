@@ -83,16 +83,19 @@ void main(void) {
     //           if we should instead handle the mode via
     //           a combination of mix() etc. Branching on
     //           a uniform is probably fast in most GPUs now though?
+    vec4 modulate_color = vec4(0.0);
     switch (uMode) {
         case MODE_ALPHA:
-            oFragColor = alpha * color * vColor;
+            modulate_color = alpha * vColor;
             break;
         case MODE_SUBPX_PASS0:
-            oFragColor = alpha * color;
+            modulate_color = vec4(alpha);
             break;
         case MODE_SUBPX_PASS1:
-            oFragColor = vColor * color;
+            modulate_color = vColor;
             break;
     }
+
+    oFragColor = color * modulate_color;
 }
 #endif
