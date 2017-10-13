@@ -2485,6 +2485,7 @@ impl Renderer {
                                 &mut self.device,
                                 transform_kind,
                                 projection,
+                                0,
                                 &mut self.renderer_errors,
                             );
                         }
@@ -2493,6 +2494,7 @@ impl Renderer {
                                 &mut self.device,
                                 transform_kind,
                                 projection,
+                                0,
                                 &mut self.renderer_errors,
                             );
                         }
@@ -2627,7 +2629,7 @@ impl Renderer {
 
             self.device.set_blend(false);
             self.cs_blur_rgba8
-                .bind(&mut self.device, projection, &mut self.renderer_errors);
+                .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
 
             if !target.vertical_blurs.is_empty() {
                 self.draw_instanced_batch(
@@ -2919,7 +2921,7 @@ impl Renderer {
 
             self.device.set_blend(false);
             self.cs_blur_a8
-                .bind(&mut self.device, projection, &mut self.renderer_errors);
+                .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
 
             if !target.vertical_blurs.is_empty() {
                 self.draw_instanced_batch(
@@ -2943,7 +2945,7 @@ impl Renderer {
 
             let _gm = self.gpu_profile.add_marker(GPU_TAG_BRUSH_MASK);
             self.brush_mask
-                .bind(&mut self.device, projection, &mut self.renderer_errors);
+                .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
             self.draw_instanced_batch(
                 &target.rect_cache_prims,
                 VertexArrayKind::Primitive,
