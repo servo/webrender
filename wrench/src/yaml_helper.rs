@@ -31,6 +31,7 @@ pub trait YamlHelper {
     fn as_clip_and_scroll_info(&self, pipeline_id: PipelineId) -> Option<ClipAndScrollInfo>;
     fn as_border_radius(&self) -> Option<BorderRadius>;
     fn as_transform_style(&self) -> Option<TransformStyle>;
+    fn as_clip_mode(&self) -> Option<ClipMode>;
     fn as_mix_blend_mode(&self) -> Option<MixBlendMode>;
     fn as_scroll_policy(&self) -> Option<ScrollPolicy>;
     fn as_filter_op(&self) -> Option<FilterOp>;
@@ -136,6 +137,8 @@ define_string_enum!(
         Wavy = "wavy"
     ]
 );
+
+define_string_enum!(ClipMode, [Clip = "clip", ClipOut = "clip-out"]);
 
 // Rotate around `axis` by `degrees` angle
 fn make_rotation(
@@ -486,6 +489,10 @@ impl YamlHelper for Yaml {
     }
 
     fn as_scroll_policy(&self) -> Option<ScrollPolicy> {
+        self.as_str().and_then(|x| StringEnum::from_str(x))
+    }
+
+    fn as_clip_mode(&self) -> Option<ClipMode> {
         self.as_str().and_then(|x| StringEnum::from_str(x))
     }
 

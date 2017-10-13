@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderDetails, BorderDisplayItem, BorderRadius, BoxShadowClipMode, BuiltDisplayList};
-use api::{ComplexClipRegion, ClipAndScrollInfo, ClipId, ColorF, LayoutSize};
+use api::{ClipMode, ComplexClipRegion, ClipAndScrollInfo, ClipId, ColorF, LayoutSize};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
 use api::{ExtendMode, FilterOp, FontInstance, FontRenderMode};
 use api::{GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem, HitTestResult};
@@ -14,7 +14,7 @@ use api::{ScrollSensitivity, Shadow, TileOffset, TransformStyle};
 use api::{WorldPixel, WorldPoint, YuvColorSpace, YuvData, device_length};
 use app_units::Au;
 use border::ImageBorderSegment;
-use clip::{ClipMode, ClipRegion, ClipSource, ClipSources, ClipStore, Contains};
+use clip::{ClipRegion, ClipSource, ClipSources, ClipStore, Contains};
 use clip_scroll_node::{ClipInfo, ClipScrollNode, NodeType};
 use clip_scroll_tree::{ClipScrollTree, CoordinateSystemId};
 use euclid::{SideOffsets2D, TypedTransform3D, vec2, vec3};
@@ -242,7 +242,7 @@ impl FrameBuilder {
             clip_sources.push(ClipSource::RoundedRectangle(
                 region.rect,
                 region.radii,
-                ClipMode::Clip,
+                region.mode,
             ));
         }
 
@@ -1299,7 +1299,11 @@ impl FrameBuilder {
                         shadow_rect,
                         LocalClip::RoundedRect(
                             shadow_rect,
-                            ComplexClipRegion::new(shadow_rect, shadow_radius),
+                            ComplexClipRegion::new(
+                                shadow_rect,
+                                shadow_radius,
+                                ClipMode::Clip,
+                            ),
                         ),
                     )
                 }
@@ -1314,7 +1318,11 @@ impl FrameBuilder {
                         prim_info.rect,
                         LocalClip::RoundedRect(
                             prim_info.rect,
-                            ComplexClipRegion::new(prim_info.rect, border_radius),
+                            ComplexClipRegion::new(
+                                prim_info.rect,
+                                border_radius,
+                                ClipMode::Clip
+                            ),
                         ),
                     )
                 }

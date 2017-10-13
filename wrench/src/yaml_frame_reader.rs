@@ -264,7 +264,10 @@ impl YamlFrameReader {
         let radius = item["radius"]
             .as_border_radius()
             .unwrap_or(BorderRadius::zero());
-        ComplexClipRegion::new(rect, radius)
+        let mode = item["clip-mode"]
+            .as_clip_mode()
+            .unwrap_or(ClipMode::Clip);
+        ComplexClipRegion::new(rect, radius, mode)
     }
 
     fn to_complex_clip_regions(&mut self, item: &Yaml) -> Vec<ComplexClipRegion> {
