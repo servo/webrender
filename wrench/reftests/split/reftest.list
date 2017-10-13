@@ -5,4 +5,5 @@
 == perspective-clipping.yaml perspective-clipping-ref.yaml
 == intermediate-1.yaml intermediate-1-ref.yaml
 == intermediate-2.yaml intermediate-1-ref.yaml
+== split-intersect1.yaml split-intersect1-ref.yaml
 #== cross.yaml cross-ref.yaml #TODO: investigate sub-pixel differences
