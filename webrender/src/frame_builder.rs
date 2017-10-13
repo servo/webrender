@@ -17,7 +17,7 @@ use border::ImageBorderSegment;
 use clip::{ClipMode, ClipRegion, ClipSource, ClipSources, ClipStore, Contains};
 use clip_scroll_node::{ClipInfo, ClipScrollNode, NodeType};
 use clip_scroll_tree::ClipScrollTree;
-use euclid::{SideOffsets2D, vec2, vec3};
+use euclid::{SideOffsets2D, TypedTransform3D, vec2, vec3};
 use frame::FrameId;
 use gpu_cache::GpuCache;
 use internal_types::{FastHashMap, FastHashSet, HardwareCompositeOp};
@@ -48,7 +48,7 @@ fn make_polygon(
     stacking_context: &StackingContext,
     node: &ClipScrollNode,
     anchor: usize,
-) -> Polygon<f32, WorldPixel> {
+) -> Polygon<f64, WorldPixel> {
     //TODO: only work with `isolated_items_bounds.size` worth of space
     // This can be achieved by moving the `origin` shift
     // from the primitive local coordinates into the layer transformation.
@@ -56,7 +56,24 @@ fn make_polygon(
     // upon rendering, possibly not limited to `write_*_vertex` implementations.
     let size = stacking_context.isolated_items_bounds.bottom_right();
     let bounds = LayerRect::new(LayerPoint::zero(), LayerSize::new(size.x, size.y));
-    Polygon::from_transformed_rect(bounds, node.world_content_transform, anchor)
+    let mat = TypedTransform3D::row_major(
+        node.world_content_transform.m11 as f64,
+        node.world_content_transform.m12 as f64,
+        node.world_content_transform.m13 as f64,
+        node.world_content_transform.m14 as f64,
+        node.world_content_transform.m21 as f64,
+        node.world_content_transform.m22 as f64,
+        node.world_content_transform.m23 as f64,
+        node.world_content_transform.m24 as f64,
+        node.world_content_transform.m31 as f64,
+        node.world_content_transform.m32 as f64,
+        node.world_content_transform.m33 as f64,
+        node.world_content_transform.m34 as f64,
+        node.world_content_transform.m41 as f64,
+        node.world_content_transform.m42 as f64,
+        node.world_content_transform.m43 as f64,
+        node.world_content_transform.m44 as f64);
+    Polygon::from_transformed_rect(bounds.cast().unwrap(), mat, anchor)
 }
 
 #[derive(Clone, Copy)]
@@ -2263,9 +2280,9 @@ impl FrameBuilder {
                             debug!("\t\tproduce {:?} -> {:?} for {:?}", sc_index, poly, task_id);
                             let pp = &poly.points;
                             let gpu_blocks = [
-                                [pp[0].x, pp[0].y, pp[0].z, pp[1].x].into(),
-                                [pp[1].y, pp[1].z, pp[2].x, pp[2].y].into(),
-                                [pp[2].z, pp[3].x, pp[3].y, pp[3].z].into(),
+                                [pp[0].x as f32, pp[0].y as f32, pp[0].z as f32, pp[1].x as f32].into(),
+                                [pp[1].y as f32, pp[1].z as f32, pp[2].x as f32, pp[2].y as f32].into(),
+                                [pp[2].z as f32, pp[3].x as f32, pp[3].y as f32, pp[3].z as f32].into(),
                             ];
                             let handle = gpu_cache.push_per_frame_blocks(&gpu_blocks);
                             let item =
