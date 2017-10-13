@@ -1248,7 +1248,7 @@ impl FrameBuilder {
         // We defer this until after fast-shadows so that shadows of transparent text
         // get subpixel-aa
         if color.a != 1.0 {
-            prim.font.render_mode = FontRenderMode::Alpha;
+            prim.font.render_mode = prim.font.render_mode.limit_by(FontRenderMode::Alpha);
         }
 
         // Create (and add to primitive store) the primitive that will be
