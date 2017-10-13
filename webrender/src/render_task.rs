@@ -6,10 +6,12 @@ use api::{ClipId, DeviceIntLength, DeviceIntPoint, DeviceIntRect, DeviceIntSize}
 use api::{FilterOp, MixBlendMode};
 use api::PipelineId;
 use clip::{ClipSource, ClipSourcesWeakHandle, ClipStore};
+use clip_scroll_tree::CoordinateSystemId;
 use gpu_cache::GpuCacheHandle;
 use internal_types::HardwareCompositeOp;
 use prim_store::{BoxShadowPrimitiveCacheKey, PrimitiveIndex};
 use std::{cmp, usize, f32, i32};
+use std::rc::Rc;
 use tiling::{ClipScrollGroupIndex, PackedLayerIndex, RenderPass, RenderTargetIndex};
 use tiling::{RenderTargetKind, StackingContextIndex};
 
@@ -26,6 +28,31 @@ pub struct RenderTaskAddress(pub u32);
 pub struct RenderTaskTree {
     pub tasks: Vec<RenderTask>,
     pub task_data: Vec<RenderTaskData>,
+}
+
+pub type ClipChain = Option<Rc<ClipChainNode>>;
+
+#[derive(Debug)]
+pub struct ClipChainNode {
+    pub work_item: ClipWorkItem,
+    pub prev: ClipChain,
+}
+
+struct ClipChainNodeIter {
+    current: ClipChain,
+}
+
+impl Iterator for ClipChainNodeIter {
+    type Item = Rc<ClipChainNode>;
+
+    fn next(&mut self) -> ClipChain {
+        let previous = self.current.clone();
+        self.current = match self.current {
+            Some(ref item) => item.prev.clone(),
+            None => return None,
+        };
+        previous
+    }
 }
 
 impl RenderTaskTree {
@@ -177,11 +204,15 @@ pub enum MaskGeometryKind {
 pub struct ClipWorkItem {
     pub layer_index: PackedLayerIndex,
     pub clip_sources: ClipSourcesWeakHandle,
-    pub apply_rectangles: bool,
+    pub coordinate_system_id: CoordinateSystemId,
 }
 
 impl ClipWorkItem {
-    fn get_geometry_kind(&self, clip_store: &ClipStore) -> MaskGeometryKind {
+    fn get_geometry_kind(
+        &self,
+        clip_store: &ClipStore,
+        prim_coordinate_system_id: CoordinateSystemId
+    ) -> MaskGeometryKind {
         let clips = clip_store
             .get_opt(&self.clip_sources)
             .expect("bug: clip handle should be valid")
@@ -190,8 +221,10 @@ impl ClipWorkItem {
 
         for &(ref clip, _) in clips {
             match *clip {
-                ClipSource::Rectangle(..) => if self.apply_rectangles {
-                    return MaskGeometryKind::Default;
+                ClipSource::Rectangle(..) => {
+                    if self.has_compatible_coordinate_system(prim_coordinate_system_id) {
+                        return MaskGeometryKind::Default;
+                    }
                 },
                 ClipSource::RoundedRectangle(..) => {
                     rounded_rect_count += 1;
@@ -208,6 +241,10 @@ impl ClipWorkItem {
             MaskGeometryKind::Default
         }
     }
+
+    fn has_compatible_coordinate_system(&self, other_id: CoordinateSystemId) -> bool {
+        self.coordinate_system_id == other_id
+    }
 }
 
 #[derive(Debug)]
@@ -216,6 +253,7 @@ pub struct CacheMaskTask {
     inner_rect: DeviceIntRect,
     pub clips: Vec<ClipWorkItem>,
     pub geometry_kind: MaskGeometryKind,
+    pub coordinate_system_id: CoordinateSystemId,
 }
 
 #[derive(Debug)]
@@ -303,52 +341,53 @@ impl RenderTask {
     pub fn new_mask(
         key: Option<ClipId>,
         task_rect: DeviceIntRect,
-        raw_clips: &[ClipWorkItem],
-        extra_clip: Option<ClipWorkItem>,
+        raw_clips: ClipChain,
+        extra_clip: ClipChain,
         prim_rect: DeviceIntRect,
         clip_store: &ClipStore,
         is_axis_aligned: bool,
+        prim_coordinate_system_id: CoordinateSystemId,
     ) -> Option<RenderTask> {
         // Filter out all the clip instances that don't contribute to the result
+        let mut current_coordinate_system_id = prim_coordinate_system_id;
         let mut inner_rect = Some(task_rect);
-        let clips: Vec<_> = raw_clips
-            .iter()
-            .chain(extra_clip.iter())
-            .filter(|work_item| {
-                let clip_info = clip_store
-                    .get_opt(&work_item.clip_sources)
-                    .expect("bug: clip item should exist");
+        let clips: Vec<_> = ClipChainNodeIter { current: raw_clips }
+            .chain(ClipChainNodeIter { current: extra_clip })
+            .filter_map(|node| {
+                let work_item = node.work_item.clone();
 
-                // If this clip does not contribute to a mask, then ensure
-                // it gets filtered out here. Otherwise, if a mask is
-                // created (by a different clip in the list), the allocated
-                // rectangle for the mask could end up being much bigger
-                // than is actually required.
-                if !clip_info.is_masking() {
-                    return false;
+                // FIXME(1828): This is a workaround until we can fix the inconsistency between
+                // the shader and the CPU code around how inner_rects are handled.
+                if !node.work_item.has_compatible_coordinate_system(current_coordinate_system_id) {
+                    current_coordinate_system_id = node.work_item.coordinate_system_id;
+                    inner_rect = None;
+                    return Some(work_item)
                 }
+
+                let clip_info = clip_store
+                    .get_opt(&node.work_item.clip_sources)
+                    .expect("bug: clip item should exist");
+                debug_assert!(clip_info.is_masking());
 
                 match clip_info.bounds.inner {
-                    // Inner rects aren't valid if the item is not axis-aligned, which can
-                    // be determined by the apply_rectangles field. This is mostly a band-aid
-                    // until we have better handling of inner rectangles for transformed clips.
-                    Some(ref inner) if !work_item.apply_rectangles && !inner.device_rect.is_empty() => {
+                    Some(ref inner) if !inner.device_rect.is_empty() => {
                         inner_rect = inner_rect.and_then(|r| r.intersection(&inner.device_rect));
-                        !inner.device_rect.contains_rect(&task_rect)
+                        if inner.device_rect.contains_rect(&task_rect) {
+                            return None;
+                        }
                     }
-                    _ => {
-                        inner_rect = None;
-                        true
-                    }
+                    _ => inner_rect = None,
                 }
+
+                Some(work_item)
             })
-            .cloned()
             .collect();
 
         // Nothing to do, all clips are irrelevant for this case
         if clips.is_empty() {
             return None;
         }
+
 
         // TODO(gw): This optimization is very conservative for now.
         //           For now, only draw optimized geometry if it is
@@ -363,7 +402,7 @@ impl RenderTask {
                 return None;
             }
             if is_axis_aligned && clips.len() == 1 {
-                geometry_kind = clips[0].get_geometry_kind(clip_store);
+                geometry_kind = clips[0].get_geometry_kind(clip_store, prim_coordinate_system_id);
             }
         }
 
@@ -376,6 +415,7 @@ impl RenderTask {
                 inner_rect: inner_rect.unwrap_or(DeviceIntRect::zero()),
                 clips,
                 geometry_kind,
+                coordinate_system_id: prim_coordinate_system_id,
             }),
         })
     }
