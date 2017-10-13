@@ -719,6 +719,35 @@ void write_clip(vec2 global_pos, ClipArea area) {
 
 #ifdef WR_FRAGMENT_SHADER
 
+/// Find the appropriate half range to apply the AA smoothstep over.
+/// This range represents a coefficient to go from one CSS pixel to half a device pixel.
+float compute_aa_range(vec2 position) {
+    // The constant factor is chosen to compensate for the fact that length(fw) is equal
+    // to sqrt(2) times the device pixel ratio in the typical case. 0.5/sqrt(2) = 0.35355.
+    //
+    // This coefficient is chosen to ensure that any sample 0.5 pixels or more inside of
+    // the shape has no anti-aliasing applied to it (since pixels are sampled at their center,
+    // such a pixel (axis aligned) is fully inside the border). We need this so that antialiased
+    // curves properly connect with non-antialiased vertical or horizontal lines, among other things.
+    //
+    // Using larger aa steps is quite common when rendering shapes with distance fields.
+    // It gives a smoother (although blurrier look) by extending the range that is smoothed
+    // to produce the anti aliasing. In our case, however, extending the range inside of
+    // the shape causes noticeable artifacts at the junction between an antialiased corner
+    // and a straight edge.
+    // We may want to adjust this constant in specific scenarios (for example keep the principled
+    // value for straight edges where we want pixel-perfect equivalence with non antialiased lines
+    // when axis aligned, while selecting a larger and smoother aa range on curves).
+    return 0.35355 * length(fwidth(position));
+}
+
+/// Return the blending coefficient to for distance antialiasing.
+///
+/// 0.0 means inside the shape, 1.0 means outside.
+float distance_aa(float aa_range, float signed_distance) {
+    return 1.0 - smoothstep(-aa_range, aa_range, signed_distance);
+}
+
 #ifdef WR_FEATURE_TRANSFORM
 float signed_distance_rect(vec2 pos, vec2 p0, vec2 p1) {
     vec2 d = max(p0 - pos, pos - p1);
@@ -733,10 +762,10 @@ vec2 init_transform_fs(vec3 local_pos, out float fragment_alpha) {
     float d = signed_distance_rect(pos, vLocalBounds.xy, vLocalBounds.zw);
 
     // Find the appropriate distance to apply the AA smoothstep over.
-    float afwidth = 0.5 * length(fwidth(pos.xy));
+    float aa_range = compute_aa_range(pos.xy);
 
     // Only apply AA to fragments outside the signed distance field.
-    fragment_alpha = 1.0 - smoothstep(0.0, afwidth, d);
+    fragment_alpha = distance_aa(aa_range, d);
 
     return pos;
 }

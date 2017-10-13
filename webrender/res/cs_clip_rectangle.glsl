@@ -101,50 +101,47 @@ void main(void) {
 float clip_against_ellipse_if_needed(vec2 pos,
                                      float current_distance,
                                      vec4 ellipse_center_radius,
-                                     vec2 sign_modifier,
-                                     float afwidth) {
+                                     vec2 sign_modifier) {
     float ellipse_distance = distance_to_ellipse(pos - ellipse_center_radius.xy,
                                                  ellipse_center_radius.zw);
-
     return mix(current_distance,
-               ellipse_distance + afwidth,
+               ellipse_distance,
                all(lessThan(sign_modifier * pos, sign_modifier * ellipse_center_radius.xy)));
 }
 
 float rounded_rect(vec2 pos) {
-    float current_distance = 0.0;
-
-    // Apply AA
-    float afwidth = 0.5 * length(fwidth(pos));
+    // Start with a negative value (means "inside") for all fragments that are not
+    // in a corner. If the fragment is in a corner, one of the clip_against_ellipse_if_needed
+    // calls below will update it.
+    float current_distance = -1.0;
 
     // Clip against each ellipse.
     current_distance = clip_against_ellipse_if_needed(pos,
                                                       current_distance,
                                                       vClipCenter_Radius_TL,
-                                                      vec2(1.0),
-                                                      afwidth);
+                                                      vec2(1.0));
 
     current_distance = clip_against_ellipse_if_needed(pos,
                                                       current_distance,
                                                       vClipCenter_Radius_TR,
-                                                      vec2(-1.0, 1.0),
-                                                      afwidth);
+                                                      vec2(-1.0, 1.0));
 
     current_distance = clip_against_ellipse_if_needed(pos,
                                                       current_distance,
                                                       vClipCenter_Radius_BR,
-                                                      vec2(-1.0),
-                                                      afwidth);
+                                                      vec2(-1.0));
 
     current_distance = clip_against_ellipse_if_needed(pos,
                                                       current_distance,
                                                       vClipCenter_Radius_BL,
-                                                      vec2(1.0, -1.0),
-                                                      afwidth);
+                                                      vec2(1.0, -1.0));
 
-    return smoothstep(0.0, afwidth, 1.0 - current_distance);
+    // Apply AA
+    // See comment in ps_border_corner about the choice of constants.
+    float aa_range = compute_aa_range(pos);
+
+    return distance_aa(aa_range, current_distance);
 }
-
 
 void main(void) {
     float alpha = 1.f;
