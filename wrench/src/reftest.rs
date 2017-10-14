@@ -29,6 +29,7 @@ const PLATFORM: &str = "mac";
 const PLATFORM: &str = "other";
 
 const OPTION_DISABLE_SUBPX: &str = "disable-subpixel";
+const OPTION_DISABLE_AA: &str = "disable-aa";
 
 pub struct ReftestOptions {
     // These override values that are lower.
@@ -212,6 +213,9 @@ impl ReftestManifest {
                         let (_, args, _) = parse_function(options);
                         if args.iter().any(|arg| arg == &OPTION_DISABLE_SUBPX) {
                             font_render_mode = Some(FontRenderMode::Alpha);
+                        }
+                        if args.iter().any(|arg| arg == &OPTION_DISABLE_AA) {
+                            font_render_mode = Some(FontRenderMode::Mono);
                         }
                     }
                     "==" => {

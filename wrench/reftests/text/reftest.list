@@ -31,3 +31,4 @@ fuzzy(1,4) platform(linux) options(disable-subpixel) == colors.yaml colors-alpha
 fuzzy(1,2) platform(linux) == colors.yaml colors-subpx.png
 platform(linux) options(disable-subpixel) == border-radius.yaml border-radius-alpha.png
 platform(linux) == border-radius.yaml border-radius-subpx.png
+options(disable-aa) == transparent-no-aa.yaml transparent-no-aa-ref.yaml
