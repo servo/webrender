@@ -15,10 +15,11 @@ use frame_builder::PrimitiveContext;
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
 use picture::PicturePrimitive;
-use render_task::{ClipWorkItem, RenderTask, RenderTaskId, RenderTaskTree};
+use render_task::{ClipWorkItem, ClipChainNode, RenderTask, RenderTaskId, RenderTaskTree};
 use renderer::MAX_VERTEX_TEXTURE_WIDTH;
 use resource_cache::{ImageProperties, ResourceCache};
 use std::{mem, usize};
+use std::rc::Rc;
 use util::{MatrixHelpers, pack_as_float, recycle_vec, TransformedRect};
 
 #[derive(Debug, Copy, Clone)]
@@ -1283,22 +1284,26 @@ impl PrimitiveStore {
                 _ => prim_screen_rect,
             };
 
-            let extra = ClipWorkItem {
-                layer_index: prim_context.packed_layer_index,
-                clip_sources: metadata.clip_sources.weak(),
-                apply_rectangles: false,
-            };
+            let extra_clip = Some(Rc::new(ClipChainNode {
+                work_item: ClipWorkItem {
+                    layer_index: prim_context.packed_layer_index,
+                    clip_sources: metadata.clip_sources.weak(),
+                    coordinate_system_id: prim_context.coordinate_system_id,
+                },
+                prev: None,
+            }));
 
             RenderTask::new_mask(
                 None,
                 mask_rect,
-                &prim_context.current_clip_stack,
-                Some(extra),
+                prim_context.clip_chain.clone(),
+                extra_clip,
                 prim_screen_rect,
                 clip_store,
                 is_axis_aligned,
+                prim_context.coordinate_system_id,
             )
-        } else if !prim_context.current_clip_stack.is_empty() {
+        } else if prim_context.clip_chain.is_some() {
             // If the primitive doesn't have a specific clip, key the task ID off the
             // stacking context. This means that two primitives which are only clipped
             // by the stacking context stack can share clip masks during render task
@@ -1306,11 +1311,12 @@ impl PrimitiveStore {
             RenderTask::new_mask(
                 Some(prim_context.clip_id),
                 prim_context.clip_bounds,
-                &prim_context.current_clip_stack,
+                prim_context.clip_chain.clone(),
                 None,
                 prim_screen_rect,
                 clip_store,
                 is_axis_aligned,
+                prim_context.coordinate_system_id,
             )
         } else {
             None
