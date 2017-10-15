@@ -546,22 +546,22 @@ fn main() {
                 }
                 VirtualKeyCode::P => {
                     let mut flags = wrench.renderer.get_debug_flags();
-                    flags.toggle(webrender::PROFILER_DBG);
+                    flags.toggle(webrender::DebugFlags::PROFILER_DBG);
                     wrench.renderer.set_debug_flags(flags);
                 }
                 VirtualKeyCode::O => {
                     let mut flags = wrench.renderer.get_debug_flags();
-                    flags.toggle(webrender::RENDER_TARGET_DBG);
+                    flags.toggle(webrender::DebugFlags::RENDER_TARGET_DBG);
                     wrench.renderer.set_debug_flags(flags);
                 }
                 VirtualKeyCode::I => {
                     let mut flags = wrench.renderer.get_debug_flags();
-                    flags.toggle(webrender::TEXTURE_CACHE_DBG);
+                    flags.toggle(webrender::DebugFlags::TEXTURE_CACHE_DBG);
                     wrench.renderer.set_debug_flags(flags);
                 }
                 VirtualKeyCode::B => {
                     let mut flags = wrench.renderer.get_debug_flags();
-                    flags.toggle(webrender::ALPHA_PRIM_DBG);
+                    flags.toggle(webrender::DebugFlags::ALPHA_PRIM_DBG);
                     wrench.renderer.set_debug_flags(flags);
                 }
                 VirtualKeyCode::M => {
