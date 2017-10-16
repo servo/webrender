@@ -192,6 +192,11 @@ pub enum DocumentMsg {
         preserve_frame_state: bool,
         resources: ResourceUpdates,
     },
+    UpdatePipelineResources {
+        resources: ResourceUpdates,
+        pipeline_id: PipelineId,
+        epoch: Epoch,
+    },
     SetPageZoom(ZoomFactor),
     SetPinchZoom(ZoomFactor),
     SetPan(DeviceIntPoint),
@@ -214,6 +219,7 @@ impl fmt::Debug for DocumentMsg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(match *self {
             DocumentMsg::SetDisplayList { .. } => "DocumentMsg::SetDisplayList",
+            DocumentMsg::UpdatePipelineResources { .. } => "DocumentMsg::UpdatePipelineResources",
             DocumentMsg::HitTest(..) => "DocumentMsg::HitTest",
             DocumentMsg::SetPageZoom(..) => "DocumentMsg::SetPageZoom",
             DocumentMsg::SetPinchZoom(..) => "DocumentMsg::SetPinchZoom",
@@ -461,7 +467,7 @@ impl RenderApi {
         ImageKey::new(self.namespace_id, new_id)
     }
 
-    /// Adds an image identified by the `ImageKey`.
+    /// Add/remove/update resources such as images and fonts.
     pub fn update_resources(&self, resources: ResourceUpdates) {
         if resources.updates.is_empty() {
             return;
@@ -469,6 +475,24 @@ impl RenderApi {
         self.api_sender
             .send(ApiMsg::UpdateResources(resources))
             .unwrap();
+    }
+
+    /// Add/remove/update resources such as images and fonts.
+    ///
+    /// This is similar to update_resources with the addition that it allows updating
+    /// a pipeline's epoch.
+    pub fn update_pipeline_resources(
+        &self,
+        resources: ResourceUpdates,
+        document_id: DocumentId,
+        pipeline_id: PipelineId,
+        epoch: Epoch,
+    ) {
+        self.send(document_id, DocumentMsg::UpdatePipelineResources {
+            resources,
+            pipeline_id,
+            epoch,
+        });
     }
 
     pub fn send_external_event(&self, evt: ExternalEvent) {

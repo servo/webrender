@@ -297,6 +297,17 @@ impl RenderBackend {
 
                 DocumentOp::Built
             }
+            DocumentMsg::UpdatePipelineResources { resources, pipeline_id, epoch } => {
+                profile_scope!("UpdateResources");
+
+                self.resource_cache
+                    .update_resources(resources, &mut profile_counters.resources);
+
+                doc.scene.update_epoch(pipeline_id, epoch);
+                doc.frame.update_epoch(pipeline_id, epoch);
+
+                DocumentOp::Nop
+            }
             DocumentMsg::SetRootPipeline(pipeline_id) => {
                 profile_scope!("SetRootPipeline");
 
