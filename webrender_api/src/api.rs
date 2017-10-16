@@ -154,6 +154,10 @@ pub struct HitTestItem {
     /// viewport is the scroll node formed by the root reference frame of the display item's
     /// pipeline.
     pub point_in_viewport: LayoutPoint,
+
+    /// The coordinates of the original hit test point relative to the origin of this item.
+    /// This is useful for calculating things like text offsets in the client.
+    pub point_relative_to_item: LayoutPoint,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
