@@ -990,7 +990,7 @@ impl YamlFrameReader {
         };
         info.rect = rect;
 
-        dl.push_text(&info, &glyphs, font_instance_key, color, None);
+        dl.push_text(&info, glyphs.iter().cloned(), font_instance_key, color, None);
     }
 
     fn handle_iframe(
