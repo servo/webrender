@@ -123,6 +123,170 @@ impl ResourceUpdates {
     }
 }
 
+/// A Transaction is a group of commands to apply atomically to a document.
+///
+/// This mechanism ensures that:
+///  - no other message can be interleaved between two commands that need to be applied together.
+///  - no redundant work is performed if two commands in the same transaction cause the scene or
+///    the frame to be rebuilt.
+pub struct Transaction {
+    ops: Vec<DocumentMsg>,
+    payloads: Vec<Payload>,
+}
+
+impl Transaction {
+    pub fn new() -> Self {
+        Transaction {
+            ops: Vec::new(),
+            payloads: Vec::new(),
+        }
+    }
+
+    pub fn update_epoch(&mut self, pipeline_id: PipelineId, epoch: Epoch) {
+        self.ops.push(DocumentMsg::UpdateEpoch(pipeline_id, epoch));
+    }
+
+    /// Sets the root pipeline.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use webrender_api::{DeviceUintSize, PipelineId, RenderApiSender};
+    /// # fn example(sender: RenderApiSender) {
+    /// let api = sender.create_api();
+    /// let document_id = api.add_document(DeviceUintSize::zero());
+    /// let pipeline_id = PipelineId(0, 0);
+    /// api.set_root_pipeline(document_id, pipeline_id);
+    /// # }
+    /// ```
+    pub fn set_root_pipeline(&mut self, pipeline_id: PipelineId) {
+        self.ops.push(DocumentMsg::SetRootPipeline(pipeline_id));
+    }
+
+    /// Removes data associated with a pipeline from the internal data structures.
+    /// If the specified `pipeline_id` is for the root pipeline, the root pipeline
+    /// is reset back to `None`.
+    pub fn remove_pipeline(&mut self, pipeline_id: PipelineId) {
+        self.ops.push(DocumentMsg::RemovePipeline(pipeline_id));
+    }
+
+    /// Supplies a new frame to WebRender.
+    ///
+    /// Non-blocking, it notifies a worker process which processes the display list.
+    /// When it's done and a RenderNotifier has been set in `webrender::Renderer`,
+    /// [new_frame_ready()][notifier] gets called.
+    ///
+    /// Note: Scrolling doesn't require an own Frame.
+    ///
+    /// Arguments:
+    ///
+    /// * `document_id`: Target Document ID.
+    /// * `epoch`: The unique Frame ID, monotonically increasing.
+    /// * `background`: The background color of this pipeline.
+    /// * `viewport_size`: The size of the viewport for this frame.
+    /// * `pipeline_id`: The ID of the pipeline that is supplying this display list.
+    /// * `content_size`: The total screen space size of this display list's display items.
+    /// * `display_list`: The root Display list used in this frame.
+    /// * `preserve_frame_state`: If a previous frame exists which matches this pipeline
+    ///                           id, this setting determines if frame state (such as scrolling
+    ///                           position) should be preserved for this new display list.
+    /// * `resources`: A set of resource updates that must be applied at the same time as the
+    ///                display list.
+    ///
+    /// [notifier]: trait.RenderNotifier.html#tymethod.new_frame_ready
+    pub fn set_display_list(
+        &mut self,
+        epoch: Epoch,
+        background: Option<ColorF>,
+        viewport_size: LayoutSize,
+        (pipeline_id, content_size, display_list): (PipelineId, LayoutSize, BuiltDisplayList),
+        preserve_frame_state: bool,
+    ) {
+        let (display_list_data, list_descriptor) = display_list.into_data();
+        self.ops.push(
+            DocumentMsg::SetDisplayList {
+                epoch,
+                pipeline_id,
+                background,
+                viewport_size,
+                content_size,
+                list_descriptor,
+                preserve_frame_state,
+                resources: ResourceUpdates::new(),
+            }
+        );
+        self.payloads.push(Payload { epoch, pipeline_id, display_list_data });
+    }
+
+    pub fn update_resources(&mut self, resources: ResourceUpdates) {
+        self.ops.push(DocumentMsg::UpdateResources(resources));
+    }
+
+    pub fn set_window_parameters(
+        &mut self,
+        window_size: DeviceUintSize,
+        inner_rect: DeviceUintRect,
+        device_pixel_ratio: f32,
+    ) {
+        self.ops.push(
+            DocumentMsg::SetWindowParameters {
+                window_size,
+                inner_rect,
+                device_pixel_ratio,
+            },
+        );
+    }
+
+    /// Scrolls the scrolling layer under the `cursor`
+    ///
+    /// WebRender looks for the layer closest to the user
+    /// which has `ScrollPolicy::Scrollable` set.
+    pub fn scroll(
+        &mut self,
+        scroll_location: ScrollLocation,
+        cursor: WorldPoint,
+        phase: ScrollEventPhase,
+    ) {
+        self.ops.push(DocumentMsg::Scroll(scroll_location, cursor, phase));
+    }
+
+    pub fn scroll_node_with_id(
+        &mut self,
+        origin: LayoutPoint,
+        id: ClipId,
+        clamp: ScrollClamping,
+    ) {
+        self.ops.push(DocumentMsg::ScrollNodeWithId(origin, id, clamp));
+    }
+
+    pub fn set_page_zoom(&mut self, page_zoom: ZoomFactor) {
+        self.ops.push(DocumentMsg::SetPageZoom(page_zoom));
+    }
+
+    pub fn set_pinch_zoom(&mut self, pinch_zoom: ZoomFactor) {
+        self.ops.push(DocumentMsg::SetPinchZoom(pinch_zoom));
+    }
+
+    pub fn set_pan(&mut self, pan: DeviceIntPoint) {
+        self.ops.push(DocumentMsg::SetPan(pan));
+    }
+
+    pub fn tick_scrolling_bounce_animations(&mut self) {
+        self.ops.push(DocumentMsg::TickScrollingBounce);
+    }
+
+    // TODO(nical) - now that we have transactions it would be more elegant to split this into
+    // an update_animated_properties(bindings) and a generate_frame() method
+
+    /// Generate a new frame. Optionally, supply a list of animated
+    /// property bindings that should be used to resolve bindings
+    /// in the current display list.
+    pub fn generate_frame(&mut self, property_bindings: Option<DynamicProperties>) {
+        self.ops.push(DocumentMsg::GenerateFrame(property_bindings));
+    }
+}
+
+
 #[derive(Clone, Deserialize, Serialize)]
 pub struct AddImage {
     pub key: ImageKey,
@@ -199,11 +363,14 @@ pub enum DocumentMsg {
         preserve_frame_state: bool,
         resources: ResourceUpdates,
     },
+    UpdateResources(ResourceUpdates),
+    // TODO(nical): Remove this once gecko doesn't use it anymore.
     UpdatePipelineResources {
         resources: ResourceUpdates,
         pipeline_id: PipelineId,
         epoch: Epoch,
     },
+    UpdateEpoch(PipelineId, Epoch),
     SetPageZoom(ZoomFactor),
     SetPinchZoom(ZoomFactor),
     SetPan(DeviceIntPoint),
@@ -240,6 +407,8 @@ impl fmt::Debug for DocumentMsg {
             DocumentMsg::GetScrollNodeState(..) => "DocumentMsg::GetScrollNodeState",
             DocumentMsg::GenerateFrame(..) => "DocumentMsg::GenerateFrame",
             DocumentMsg::EnableFrameOutput(..) => "DocumentMsg::EnableFrameOutput",
+            DocumentMsg::UpdateResources(..) => "DocumentMsg::UpdateResources",
+            DocumentMsg::UpdateEpoch(..) => "DocumentMsg::UpdateEpoch",
         })
     }
 }
@@ -293,7 +462,7 @@ pub enum ApiMsg {
     /// Adds a new document with given initial size.
     AddDocument(DocumentId, DeviceUintSize, DocumentLayer),
     /// A message targeted at a particular document.
-    UpdateDocument(DocumentId, DocumentMsg),
+    UpdateDocument(DocumentId, Vec<DocumentMsg>),
     /// Deletes an existing document.
     DeleteDocument(DocumentId),
     /// An opaque handle that must be passed to the render notifier. It is used by Gecko
@@ -570,9 +739,14 @@ impl RenderApi {
         // `RenderApi` instances for layout and compositor.
         //assert_eq!(document_id.0, self.namespace_id);
         self.api_sender
-            .send(ApiMsg::UpdateDocument(document_id, msg))
+            .send(ApiMsg::UpdateDocument(document_id, vec![msg]))
             .unwrap()
     }
+
+    // TODO(nical) - decide what to do with the methods that are duplicated in Transaction.
+    // I think that we should remove them from RenderApi but we could also leave them here if
+    // it makes things easier for servo.
+    // They are all equivalent to creating a transaction with a single command.
 
     /// Sets the root pipeline.
     ///
@@ -630,8 +804,14 @@ impl RenderApi {
         viewport_size: LayoutSize,
         (pipeline_id, content_size, display_list): (PipelineId, LayoutSize, BuiltDisplayList),
         preserve_frame_state: bool,
-        resources: ResourceUpdates,
+        resources: ResourceUpdates, // TODO: this will be removed soon.
     ) {
+        // TODO(nical) set_display_list uses the epoch to match the displaylist and the payload
+        // coming from different channels when receiving in the render backend.
+        // It would be cleaner to use a separate id that is implicitly generated for the displaylist-payload
+        // matching so that the semantics of epochs is really up to the api user and so that the latter can't
+        // introduce bugs by accidently using the same epoch twice.
+
         let (display_list_data, list_descriptor) = display_list.into_data();
         self.send(
             document_id,
@@ -654,6 +834,13 @@ impl RenderApi {
                 display_list_data,
             })
             .unwrap();
+    }
+
+    pub fn send_transaction(&mut self, document_id: DocumentId, transaction: Transaction) {
+        for payload in transaction.payloads {
+            self.payload_sender.send_payload(payload).unwrap();
+        }
+        self.api_sender.send(ApiMsg::UpdateDocument(document_id, transaction.ops)).unwrap();
     }
 
     /// Scrolls the scrolling layer under the `cursor`
