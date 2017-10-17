@@ -222,6 +222,10 @@ impl Frame {
             .finalize_and_apply_pending_scroll_offsets(old_scrolling_states);
     }
 
+    pub fn update_epoch(&mut self, pipeline_id: PipelineId, epoch: Epoch) {
+        self.pipeline_epoch_map.insert(pipeline_id, epoch);
+    }
+
     fn flatten_clip<'a>(
         &mut self,
         context: &mut FlattenContext,
