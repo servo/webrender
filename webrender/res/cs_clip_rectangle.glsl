@@ -81,73 +81,35 @@ void main(void) {
 
     RectWithEndpoint clip_rect = to_rect_with_endpoint(local_rect);
 
-    vClipCenter_Radius_TL = vec4(clip_rect.p0 + clip.top_left.outer_inner_radius.xy,
-                                 clip.top_left.outer_inner_radius.xy);
+    vec2 r_tl = clip.top_left.outer_inner_radius.xy;
+    vec2 r_tr = clip.top_right.outer_inner_radius.xy;
+    vec2 r_br = clip.bottom_right.outer_inner_radius.xy;
+    vec2 r_bl = clip.bottom_left.outer_inner_radius.xy;
 
-    vClipCenter_Radius_TR = vec4(clip_rect.p1.x - clip.top_right.outer_inner_radius.x,
-                                 clip_rect.p0.y + clip.top_right.outer_inner_radius.y,
-                                 clip.top_right.outer_inner_radius.xy);
+    vClipCenter_Radius_TL = vec4(clip_rect.p0 + r_tl, r_tl);
 
-    vClipCenter_Radius_BR = vec4(clip_rect.p1 - clip.bottom_right.outer_inner_radius.xy,
-                                 clip.bottom_right.outer_inner_radius.xy);
+    vClipCenter_Radius_TR = vec4(clip_rect.p1.x - r_tr.x,
+                                 clip_rect.p0.y + r_tr.y,
+                                 r_tr);
 
-    vClipCenter_Radius_BL = vec4(clip_rect.p0.x + clip.bottom_left.outer_inner_radius.x,
-                                 clip_rect.p1.y - clip.bottom_left.outer_inner_radius.y,
-                                 clip.bottom_left.outer_inner_radius.xy);
+    vClipCenter_Radius_BR = vec4(clip_rect.p1 - r_br, r_br);
+
+    vClipCenter_Radius_BL = vec4(clip_rect.p0.x + r_bl.x,
+                                 clip_rect.p1.y - r_bl.y,
+                                 r_bl);
 }
 #endif
 
 #ifdef WR_FRAGMENT_SHADER
-float clip_against_ellipse_if_needed(vec2 pos,
-                                     float current_distance,
-                                     vec4 ellipse_center_radius,
-                                     vec2 sign_modifier) {
-    float ellipse_distance = distance_to_ellipse(pos - ellipse_center_radius.xy,
-                                                 ellipse_center_radius.zw);
-    return mix(current_distance,
-               ellipse_distance,
-               all(lessThan(sign_modifier * pos, sign_modifier * ellipse_center_radius.xy)));
-}
-
-float rounded_rect(vec2 pos) {
-    // Start with a negative value (means "inside") for all fragments that are not
-    // in a corner. If the fragment is in a corner, one of the clip_against_ellipse_if_needed
-    // calls below will update it.
-    float current_distance = -1.0;
-
-    // Clip against each ellipse.
-    current_distance = clip_against_ellipse_if_needed(pos,
-                                                      current_distance,
-                                                      vClipCenter_Radius_TL,
-                                                      vec2(1.0));
-
-    current_distance = clip_against_ellipse_if_needed(pos,
-                                                      current_distance,
-                                                      vClipCenter_Radius_TR,
-                                                      vec2(-1.0, 1.0));
-
-    current_distance = clip_against_ellipse_if_needed(pos,
-                                                      current_distance,
-                                                      vClipCenter_Radius_BR,
-                                                      vec2(-1.0));
-
-    current_distance = clip_against_ellipse_if_needed(pos,
-                                                      current_distance,
-                                                      vClipCenter_Radius_BL,
-                                                      vec2(1.0, -1.0));
-
-    // Apply AA
-    // See comment in ps_border_corner about the choice of constants.
-    float aa_range = compute_aa_range(pos);
-
-    return distance_aa(aa_range, current_distance);
-}
-
 void main(void) {
     float alpha = 1.f;
     vec2 local_pos = init_transform_fs(vPos, alpha);
 
-    float clip_alpha = rounded_rect(local_pos);
+    float clip_alpha = rounded_rect(local_pos,
+                                    vClipCenter_Radius_TL,
+                                    vClipCenter_Radius_TR,
+                                    vClipCenter_Radius_BR,
+                                    vClipCenter_Radius_BL);
 
     float combined_alpha = min(alpha, clip_alpha);
 
