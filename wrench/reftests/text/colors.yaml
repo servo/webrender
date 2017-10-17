@@ -163,7 +163,7 @@ root:
       origin: 20 410
       size: 32
       font: "FreeSans.ttf"
-      color: [50, 50, 50, 0.1]
+      color: [50, 50, 50, 0.5]
 
     - type: rect
       bounds: [270, 370, 250, 50]
@@ -172,7 +172,7 @@ root:
       origin: 280 410
       size: 32
       font: "FreeSans.ttf"
-      color: [50, 50, 50, 0.1]
+      color: [50, 50, 50, 0.5]
 
     - type: rect
       bounds: [530, 370, 250, 50]
@@ -181,7 +181,7 @@ root:
       origin: 540 410
       size: 32
       font: "FreeSans.ttf"
-      color: [50, 50, 50, 0.1]
+      color: [50, 50, 50, 0.5]
 
     - type: rect
       bounds: [10, 430, 250, 50]
@@ -190,7 +190,7 @@ root:
       origin: 20 470
       size: 32
       font: "FreeSans.ttf"
-      color: [50, 50, 50, 0.1]
+      color: [50, 50, 50, 0.5]
 
     - type: rect
       bounds: [270, 430, 250, 50]
@@ -199,7 +199,7 @@ root:
       origin: 280 470
       size: 32
       font: "FreeSans.ttf"
-      color: [50, 50, 50, 0.1]
+      color: [50, 50, 50, 0.5]
 
     - type: rect
       bounds: [530, 430, 250, 50]
@@ -208,4 +208,4 @@ root:
       origin: 540 470
       size: 32
       font: "FreeSans.ttf"
-      color: [50, 50, 50, 0.1]
+      color: [50, 50, 50, 0.5]
