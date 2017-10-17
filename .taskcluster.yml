@@ -137,9 +137,8 @@ tasks:
           export RUST_BACKTRACE=1 &&
           export RUSTFLAGS='--deny warnings' &&
           export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH" &&
-          (cd webrender_api && cargo test --verbose --features "ipc") &&
-          (cd webrender && cargo build --verbose --no-default-features) &&
-          (cargo test --all --verbose)
+          (cd wrench && python headless.py reftest) &&
+          (cd wrench && cargo build --release --features=debugger)
     routes:
       - "index.garbage.webrender.ci.{{event.head.user.login}}.{{event.head.repo.branch}}.osx-release"
   - metadata:
@@ -169,7 +168,8 @@ tasks:
           export RUST_BACKTRACE=1 &&
           export RUSTFLAGS='--deny warnings' &&
           export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH" &&
-          (cd wrench && python headless.py reftest) &&
-          (cd wrench && cargo build --release --features=debugger)
+          (cd webrender_api && cargo test --verbose --features "ipc") &&
+          (cd webrender && cargo build --verbose --no-default-features) &&
+          (cargo test --all --verbose)
     routes:
       - "index.garbage.webrender.ci.{{event.head.user.login}}.{{event.head.repo.branch}}.osx-debug"
