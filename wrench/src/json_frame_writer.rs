@@ -290,26 +290,33 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
         match *msg {
             ApiMsg::UpdateResources(ref updates) => self.update_resources(updates),
 
-            ApiMsg::UpdateDocument(
-                _,
-                DocumentMsg::SetDisplayList {
-                    ref epoch,
-                    ref pipeline_id,
-                    ref background,
-                    ref viewport_size,
-                    ref list_descriptor,
-                    ref resources,
-                    ..
-                },
-            ) => {
-                self.update_resources(resources);
-                self.begin_write_display_list(
-                    epoch,
-                    pipeline_id,
-                    background,
-                    viewport_size,
-                    list_descriptor,
-                );
+            ApiMsg::UpdateDocument(_, ref doc_msgs) => {
+                for doc_msg in doc_msgs {
+                    match *doc_msg {
+                        DocumentMsg::UpdateResources(ref resources) => {
+                            self.update_resources(resources);
+                        }
+                        DocumentMsg::SetDisplayList {
+                            ref epoch,
+                            ref pipeline_id,
+                            ref background,
+                            ref viewport_size,
+                            ref list_descriptor,
+                            ref resources,
+                            ..
+                        } => {
+                            self.update_resources(resources);
+                            self.begin_write_display_list(
+                                epoch,
+                                pipeline_id,
+                                background,
+                                viewport_size,
+                                list_descriptor,
+                            );
+                        }
+                        _ => {}
+                    }
+                }
             }
             ApiMsg::CloneApi(..) => {}
             _ => {}
