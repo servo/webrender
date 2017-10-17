@@ -707,7 +707,6 @@ impl<T> GpuProfiler<T> {
     where
         T: NamedTag,
     {
-        #[cfg(feature = "query")]
         self.frames[self.next_frame].add_marker(tag)
     }
 
@@ -715,12 +714,10 @@ impl<T> GpuProfiler<T> {
     where
         T: NamedTag,
     {
-        #[cfg(feature = "query")]
         self.frames[self.next_frame].add_sampler(tag)
     }
 
     pub fn done_sampler(&mut self) {
-        #[cfg(feature = "query")]
         self.frames[self.next_frame].done_sampler()
     }
 }
