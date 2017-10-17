@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderDetails, BorderDisplayItem, BorderRadius, BoxShadowClipMode, BuiltDisplayList};
-use api::{ComplexClipRegion, ClipAndScrollInfo, ClipId, ColorF};
+use api::{ComplexClipRegion, ClipAndScrollInfo, ClipId, ColorF, LayoutSize};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
 use api::{ExtendMode, FilterOp, FontInstance, FontRenderMode};
 use api::{GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem, HitTestResult};
@@ -1258,7 +1258,7 @@ impl FrameBuilder {
         color: &ColorF,
         blur_radius: f32,
         spread_radius: f32,
-        border_radius: f32,
+        border_radius: BorderRadius,
         clip_mode: BoxShadowClipMode,
     ) {
         if color.a == 0.0 {
@@ -1274,15 +1274,11 @@ impl FrameBuilder {
             }
         };
 
-        // Adjust the shadow box radius as per:
-        // https://drafts.csswg.org/css-backgrounds-3/#shadow-shape
-        let sharpness_scale = if border_radius < spread_radius {
-            let r = border_radius / spread_amount;
-            1.0 + (r - 1.0) * (r - 1.0) * (r - 1.0)
-        } else {
-            1.0
-        };
-        let shadow_radius = (border_radius + spread_amount * sharpness_scale).max(0.0);
+        let shadow_radius = adjust_border_radius_for_box_shadow(
+            border_radius,
+            spread_amount,
+            spread_radius
+        );
         let shadow_rect = prim_info.rect
                                    .translate(box_offset)
                                    .inflate(spread_amount, spread_amount);
@@ -1295,7 +1291,7 @@ impl FrameBuilder {
                     // TODO(gw): Add a fast path for ClipOut + zero border radius!
                     clips.push(ClipSource::RoundedRectangle(
                         prim_info.rect,
-                        BorderRadius::uniform(border_radius),
+                        border_radius,
                         ClipMode::ClipOut
                     ));
 
@@ -1303,14 +1299,14 @@ impl FrameBuilder {
                         shadow_rect,
                         LocalClip::RoundedRect(
                             shadow_rect,
-                            ComplexClipRegion::new(shadow_rect, BorderRadius::uniform(shadow_radius)),
+                            ComplexClipRegion::new(shadow_rect, shadow_radius),
                         ),
                     )
                 }
                 BoxShadowClipMode::Inset => {
                     clips.push(ClipSource::RoundedRectangle(
                         shadow_rect,
-                        BorderRadius::uniform(shadow_radius),
+                        shadow_radius,
                         ClipMode::ClipOut
                     ));
 
@@ -1318,7 +1314,7 @@ impl FrameBuilder {
                         prim_info.rect,
                         LocalClip::RoundedRect(
                             prim_info.rect,
-                            ComplexClipRegion::new(prim_info.rect, BorderRadius::uniform(border_radius)),
+                            ComplexClipRegion::new(prim_info.rect, border_radius),
                         ),
                     )
                 }
@@ -1366,7 +1362,7 @@ impl FrameBuilder {
 
                     extra_clips.push(ClipSource::RoundedRectangle(
                         prim_info.rect,
-                        BorderRadius::uniform(border_radius),
+                        border_radius,
                         ClipMode::ClipOut,
                     ));
 
@@ -1396,7 +1392,7 @@ impl FrameBuilder {
 
                     extra_clips.push(ClipSource::RoundedRectangle(
                         prim_info.rect,
-                        BorderRadius::uniform(border_radius),
+                        border_radius,
                         ClipMode::Clip,
                     ));
 
@@ -2325,4 +2321,68 @@ impl FrameBuilder {
             gpu_cache_updates: Some(gpu_cache_updates),
         }
     }
+}
+
+fn adjust_border_radius_for_box_shadow(
+    radius: BorderRadius,
+    spread_amount: f32,
+    spread_radius: f32,
+) -> BorderRadius {
+    BorderRadius {
+        top_left: adjust_corner_for_box_shadow(
+            radius.top_left,
+            spread_radius,
+            spread_amount,
+        ),
+        top_right: adjust_corner_for_box_shadow(
+            radius.top_right,
+            spread_radius,
+            spread_amount,
+        ),
+        bottom_right: adjust_corner_for_box_shadow(
+            radius.bottom_right,
+            spread_radius,
+            spread_amount,
+        ),
+        bottom_left: adjust_corner_for_box_shadow(
+            radius.bottom_left,
+            spread_radius,
+            spread_amount,
+        ),
+    }
+}
+
+fn adjust_corner_for_box_shadow(
+    corner: LayoutSize,
+    spread_amount: f32,
+    spread_radius: f32,
+) -> LayoutSize {
+    LayoutSize::new(
+        adjust_radius_for_box_shadow(
+            corner.width,
+            spread_radius,
+            spread_amount
+        ),
+        adjust_radius_for_box_shadow(
+            corner.height,
+            spread_radius,
+            spread_amount
+        ),
+    )
+}
+
+fn adjust_radius_for_box_shadow(
+    border_radius: f32,
+    spread_amount: f32,
+    spread_radius: f32,
+) -> f32 {
+    // Adjust the shadow box radius as per:
+    // https://drafts.csswg.org/css-backgrounds-3/#shadow-shape
+    let sharpness_scale = if border_radius < spread_radius {
+        let r = border_radius / spread_amount;
+        1.0 + (r - 1.0) * (r - 1.0) * (r - 1.0)
+    } else {
+        1.0
+    };
+    (border_radius + spread_amount * sharpness_scale).max(0.0)
 }

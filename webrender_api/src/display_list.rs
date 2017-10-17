@@ -12,7 +12,7 @@ use {LineDisplayItem, LineOrientation, LineStyle, LocalClip, MixBlendMode, Pipel
 use {PropertyBinding, PushStackingContextDisplayItem, RadialGradient, RadialGradientDisplayItem};
 use {RectangleDisplayItem, ScrollFrameDisplayItem, ScrollPolicy, ScrollSensitivity};
 use {SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, StickyFrameInfo};
-use {TextDisplayItem, Shadow, TransformStyle, YuvColorSpace, YuvData};
+use {BorderRadius, TextDisplayItem, Shadow, TransformStyle, YuvColorSpace, YuvData};
 use YuvImageDisplayItem;
 use bincode;
 use serde::{Deserialize, Serialize, Serializer};
@@ -1024,7 +1024,7 @@ impl DisplayListBuilder {
         color: ColorF,
         blur_radius: f32,
         spread_radius: f32,
-        border_radius: f32,
+        border_radius: BorderRadius,
         clip_mode: BoxShadowClipMode,
     ) {
         let item = SpecificDisplayItem::BoxShadow(BoxShadowDisplayItem {

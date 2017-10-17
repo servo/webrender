@@ -297,7 +297,7 @@ pub struct BoxShadowDisplayItem {
     pub color: ColorF,
     pub blur_radius: f32,
     pub spread_radius: f32,
-    pub border_radius: f32,
+    pub border_radius: BorderRadius,
     pub clip_mode: BoxShadowClipMode,
 }
 

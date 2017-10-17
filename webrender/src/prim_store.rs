@@ -167,16 +167,28 @@ impl ToGpuBlocks for RectanglePrimitive {
 #[derive(Debug)]
 pub struct BrushPrimitive {
     pub clip_mode: ClipMode,
-    pub radius: f32,
+    pub radius: BorderRadius,
 }
 
 impl ToGpuBlocks for BrushPrimitive {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
         request.push([
             self.clip_mode as u32 as f32,
-            self.radius,
+            0.0,
             0.0,
             0.0
+        ]);
+        request.push([
+            self.radius.top_left.width,
+            self.radius.top_left.height,
+            self.radius.top_right.width,
+            self.radius.top_right.height,
+        ]);
+        request.push([
+            self.radius.bottom_right.width,
+            self.radius.bottom_right.height,
+            self.radius.bottom_left.width,
+            self.radius.bottom_left.height,
         ]);
     }
 }
