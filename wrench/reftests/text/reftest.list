@@ -28,8 +28,10 @@ options(disable-subpixel) == ahem.yaml ahem-ref.yaml
 platform(linux) == isolated-text.yaml isolated-text.png
 platform(mac) == white-opacity.yaml white-opacity.png
 fuzzy(1,4) platform(linux) options(disable-subpixel) == colors.yaml colors-alpha.png
-fuzzy(1,2) platform(linux) == colors.yaml colors-subpx.png
+fuzzy(1,4) platform(linux) == colors.yaml colors-subpx.png
 platform(linux) options(disable-subpixel) == border-radius.yaml border-radius-alpha.png
 platform(linux) == border-radius.yaml border-radius-subpx.png
 options(disable-aa) == transparent-no-aa.yaml transparent-no-aa-ref.yaml
 != diacritics.yaml diacritics-ref.yaml
+fuzzy(1,1) platform(linux) options(disable-subpixel) == text-masking.yaml text-masking-alpha.png
+fuzzy(1,44) platform(linux) == text-masking.yaml text-masking-subpx.png

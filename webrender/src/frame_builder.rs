@@ -1162,7 +1162,7 @@ impl FrameBuilder {
             font.variations.clone(),
             font.synthetic_italics,
         );
-        let mut prim = TextRunPrimitiveCpu {
+        let prim = TextRunPrimitiveCpu {
             font: prim_font,
             glyph_range,
             glyph_count,
@@ -1187,12 +1187,6 @@ impl FrameBuilder {
             if shadow.blur_radius == 0.0 {
                 let mut text_prim = prim.clone();
                 text_prim.font.color = shadow.color.into();
-                // If we have translucent text, we need to ensure it won't go
-                // through the subpixel blend mode, which doesn't work with
-                // traditional alpha blending.
-                if shadow.color.a != 1.0 {
-                    text_prim.font.render_mode = text_prim.font.render_mode.limit_by(FontRenderMode::Alpha);
-                }
                 text_prim.offset += shadow.offset;
                 fast_shadow_prims.push((idx, text_prim));
             }
@@ -1209,12 +1203,6 @@ impl FrameBuilder {
                 PrimitiveContainer::TextRun(text_prim),
             );
             self.shadow_prim_stack[idx].1.push((prim_index, clip_and_scroll));
-        }
-
-        // We defer this until after fast-shadows so that shadows of transparent text
-        // get subpixel-aa
-        if color.a != 1.0 {
-            prim.font.render_mode = prim.font.render_mode.limit_by(FontRenderMode::Alpha);
         }
 
         // Create (and add to primitive store) the primitive that will be
