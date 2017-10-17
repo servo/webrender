@@ -34,6 +34,7 @@ script:
   - servo-tidy
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender_api && cargo test --verbose --features "ipc"); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo build --verbose --no-default-features); fi
+  - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo build --verbose --features profiler,query); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cargo test --all --verbose); fi
   - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && python headless.py reftest); fi
   - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && cargo build --release --features=debugger); fi
