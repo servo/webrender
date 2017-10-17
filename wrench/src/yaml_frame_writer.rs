@@ -1101,39 +1101,44 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
             ApiMsg::UpdateResources(ref updates) => {
                 self.frame_writer.update_resources(updates);
             }
-
-            ApiMsg::UpdateDocument(_, DocumentMsg::SetRootPipeline(ref pipeline_id)) => {
-                self.scene.set_root_pipeline_id(pipeline_id.clone());
+            ApiMsg::UpdateDocument(_, ref doc_msgs) => {
+                for doc_msg in doc_msgs {
+                    match *doc_msg {
+                        DocumentMsg::UpdateResources(ref resources) => {
+                            self.frame_writer.update_resources(resources);
+                        }
+                        DocumentMsg::SetDisplayList {
+                            ref epoch,
+                            ref pipeline_id,
+                            ref background,
+                            ref viewport_size,
+                            ref list_descriptor,
+                            ref resources,
+                            ..
+                        } => {
+                            self.frame_writer.update_resources(resources);
+                            self.frame_writer.begin_write_display_list(
+                                &mut self.scene,
+                                epoch,
+                                pipeline_id,
+                                background,
+                                viewport_size,
+                                list_descriptor,
+                            );
+                        }
+                        DocumentMsg::SetRootPipeline(ref pipeline_id) => {
+                            self.scene.set_root_pipeline_id(pipeline_id.clone());
+                        }
+                        DocumentMsg::RemovePipeline(ref pipeline_id) => {
+                            self.scene.remove_pipeline(pipeline_id);
+                        }
+                        DocumentMsg::GenerateFrame(Some(ref properties)) => {
+                            self.scene.properties.set_properties(properties);
+                        }
+                        _ => {}
+                    }
+                }
             }
-            ApiMsg::UpdateDocument(
-                _,
-                DocumentMsg::SetDisplayList {
-                    ref epoch,
-                    ref pipeline_id,
-                    ref background,
-                    ref viewport_size,
-                    ref list_descriptor,
-                    ref resources,
-                    ..
-                },
-            ) => {
-                self.frame_writer.update_resources(resources);
-                self.frame_writer.begin_write_display_list(
-                    &mut self.scene,
-                    epoch,
-                    pipeline_id,
-                    background,
-                    viewport_size,
-                    list_descriptor,
-                );
-            }
-            ApiMsg::UpdateDocument(_, DocumentMsg::RemovePipeline(ref pipeline_id)) => {
-                self.scene.remove_pipeline(pipeline_id);
-            }
-            ApiMsg::UpdateDocument(_, DocumentMsg::GenerateFrame(Some(ref properties))) => {
-                self.scene.properties.set_properties(properties);
-            }
-            ApiMsg::UpdateDocument(..) => {}
             _ => {}
         }
     }
