@@ -663,11 +663,13 @@ struct Picture {
     vec4 color;
     vec2 offset;
     float blur_radius;
+    vec2 slice_top_left;
+    vec2 slice_bottom_right;
 };
 
 Picture fetch_picture(int address) {
-    vec4 data[2] = fetch_from_resource_cache_2(address);
-    return Picture(data[0], data[1].xy, data[1].z);
+    vec4 data[3] = fetch_from_resource_cache_3(address);
+    return Picture(data[0], data[1].xy, data[1].z, data[2].xy, data[2].zw);
 }
 
 struct TextRun {

@@ -16,6 +16,7 @@ use gpu_types::{BlurDirection, BlurInstance, BrushInstance, ClipMaskInstance};
 use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
 use internal_types::{FastHashMap, SourceTexture};
 use internal_types::BatchTextures;
+use picture::PictureKind;
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
 use prim_store::{DeferredResolve, TextRunMode};
 use profiler::FrameProfileCounters;
@@ -580,11 +581,20 @@ impl AlphaRenderItem {
                         let textures = BatchTextures::render_target_cache();
                         let kind = BatchKind::Transformable(
                             transform_kind,
-                            TransformBatchKind::CacheImage(picture.kind),
+                            TransformBatchKind::CacheImage(picture.target_kind),
                         );
                         let key = BatchKey::new(kind, blend_mode, textures);
                         let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
-                        batch.push(base_instance.build(0, cache_task_address.0 as i32, 0));
+                        match picture.kind {
+                            PictureKind::TextShadow(..) => {
+                                batch.push(base_instance.build(0, cache_task_address.0 as i32, 0));
+                            }
+                            PictureKind::BoxShadow(..) => {
+                                for i in 0..9 {
+                                    batch.push(base_instance.build(i, cache_task_address.0 as i32, 0));
+                                }
+                            }
+                        }
                     }
                     PrimitiveKind::AlignedGradient => {
                         let gradient_cpu =

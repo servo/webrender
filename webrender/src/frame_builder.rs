@@ -557,7 +557,7 @@ impl FrameBuilder {
         clip_and_scroll: ClipAndScrollInfo,
         info: &LayerPrimitiveInfo,
     ) {
-        let prim = PicturePrimitive::new_shadow(shadow, RenderTargetKind::Color);
+        let prim = PicturePrimitive::new_text_shadow(shadow);
 
         // Create an empty shadow primitive. Insert it into
         // the draw lists immediately so that it will be drawn
@@ -587,7 +587,7 @@ impl FrameBuilder {
                 // is then used when blitting the shadow to the final location.
                 let metadata = &mut self.prim_store.cpu_metadata[prim_index.0];
                 let prim = &self.prim_store.cpu_pictures[metadata.cpu_prim_index.0];
-                let shadow = prim.as_shadow();
+                let shadow = prim.as_text_shadow();
 
                 metadata.local_rect = metadata.local_rect.translate(&shadow.offset);
             }
@@ -676,7 +676,7 @@ impl FrameBuilder {
         for (idx, &(shadow_prim_index, _)) in self.shadow_prim_stack.iter().enumerate() {
             let shadow_metadata = &self.prim_store.cpu_metadata[shadow_prim_index.0];
             let picture = &self.prim_store.cpu_pictures[shadow_metadata.cpu_prim_index.0];
-            let shadow = picture.as_shadow();
+            let shadow = picture.as_text_shadow();
             if shadow.blur_radius == 0.0 {
                 fast_shadow_prims.push((idx, shadow.clone()));
             }
@@ -719,7 +719,7 @@ impl FrameBuilder {
             debug_assert_eq!(shadow_metadata.prim_kind, PrimitiveKind::Picture);
             let picture =
                 &mut self.prim_store.cpu_pictures[shadow_metadata.cpu_prim_index.0];
-            let blur_radius = picture.as_shadow().blur_radius;
+            let blur_radius = picture.as_text_shadow().blur_radius;
 
             // Only run real blurs here (fast path zero blurs are handled above).
             if blur_radius > 0.0 {
@@ -1183,7 +1183,7 @@ impl FrameBuilder {
         for (idx, &(shadow_prim_index, _)) in self.shadow_prim_stack.iter().enumerate() {
             let shadow_metadata = &self.prim_store.cpu_metadata[shadow_prim_index.0];
             let picture_prim = &self.prim_store.cpu_pictures[shadow_metadata.cpu_prim_index.0];
-            let shadow = picture_prim.as_shadow();
+            let shadow = picture_prim.as_text_shadow();
             if shadow.blur_radius == 0.0 {
                 let mut text_prim = prim.clone();
                 text_prim.font.color = shadow.color.into();
@@ -1238,7 +1238,7 @@ impl FrameBuilder {
                 &mut self.prim_store.cpu_pictures[shadow_metadata.cpu_prim_index.0];
 
             // Only run real blurs here (fast path zero blurs are handled above).
-            let blur_radius = picture_prim.as_shadow().blur_radius;
+            let blur_radius = picture_prim.as_text_shadow().blur_radius;
             if blur_radius > 0.0 {
                 let shadow_rect = rect.inflate(
                     blur_radius,
@@ -1329,25 +1329,35 @@ impl FrameBuilder {
                 }),
             );
         } else {
-            let shadow = Shadow {
-                blur_radius,
-                color: *color,
-                offset: LayerVector2D::zero(),
-            };
-
             let blur_offset = 2.0 * blur_radius;
             let mut extra_clips = vec![];
-            let mut pic_prim = PicturePrimitive::new_shadow(shadow, RenderTargetKind::Alpha);
 
-            let pic_info = match clip_mode {
+            match clip_mode {
                 BoxShadowClipMode::Outset => {
+                    let left_width = shadow_radius.top_left.width.max(shadow_radius.bottom_left.width).max(8.0);
+                    let right_width = shadow_radius.top_right.width.max(shadow_radius.bottom_right.width).max(8.0);
+                    let top_height = shadow_radius.top_left.height.max(shadow_radius.top_right.height).max(8.0);
+                    let bottom_height = shadow_radius.bottom_left.height.max(shadow_radius.bottom_right.height).max(8.0);
+
+                    let brush_size = LayerSize::new(
+                        left_width + blur_offset + right_width,
+                        top_height + blur_offset + bottom_height,
+                    );
+
+                    let brush_rect = LayerRect::new(LayerPoint::new(blur_offset, blur_offset), brush_size);
+
+                    let mut pic_prim = PicturePrimitive::new_box_shadow(
+                        brush_rect.inflate(blur_offset, blur_offset),
+                        *color,
+                        blur_radius,
+                        LayerSize::new(left_width, top_height),
+                        LayerSize::new(right_width, bottom_height),
+                    );
+
                     let brush_prim = BrushPrimitive {
                         clip_mode: ClipMode::Clip,
                         radius: shadow_radius,
                     };
-
-                    let brush_rect = LayerRect::new(LayerPoint::new(blur_offset, blur_offset),
-                                                    shadow_rect.size);
 
                     let brush_info = LayerPrimitiveInfo::new(brush_rect);
 
@@ -1367,7 +1377,14 @@ impl FrameBuilder {
                     ));
 
                     let pic_rect = shadow_rect.inflate(blur_offset, blur_offset);
-                    LayerPrimitiveInfo::new(pic_rect)
+                    let pic_info = LayerPrimitiveInfo::new(pic_rect);
+
+                    self.add_primitive(
+                        clip_and_scroll,
+                        &pic_info,
+                        extra_clips,
+                        PrimitiveContainer::Picture(pic_prim),
+                    );
                 }
                 BoxShadowClipMode::Inset => {
                     let brush_prim = BrushPrimitive {
@@ -1388,6 +1405,16 @@ impl FrameBuilder {
                         PrimitiveContainer::Brush(brush_prim),
                     );
 
+                    let pic_rect = prim_info.rect.inflate(blur_offset, blur_offset);
+
+                    let mut pic_prim = PicturePrimitive::new_box_shadow(
+                        pic_rect,
+                        *color,
+                        blur_radius,
+                        LayerSize::zero(),
+                        LayerSize::zero(),
+                    );
+
                     pic_prim.add_primitive(brush_prim_index, clip_and_scroll);
 
                     extra_clips.push(ClipSource::RoundedRectangle(
@@ -1396,17 +1423,16 @@ impl FrameBuilder {
                         ClipMode::Clip,
                     ));
 
-                    let pic_rect = prim_info.rect.inflate(blur_offset, blur_offset);
-                    LayerPrimitiveInfo::with_clip_rect(pic_rect, prim_info.rect)
+                    let pic_info = LayerPrimitiveInfo::with_clip_rect(pic_rect, prim_info.rect);
+
+                    self.add_primitive(
+                        clip_and_scroll,
+                        &pic_info,
+                        extra_clips,
+                        PrimitiveContainer::Picture(pic_prim),
+                    );
                 }
             };
-
-            self.add_primitive(
-                clip_and_scroll,
-                &pic_info,
-                extra_clips,
-                PrimitiveContainer::Picture(pic_prim),
-            );
         }
     }
 
