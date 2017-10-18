@@ -894,7 +894,9 @@ impl YamlFrameWriter {
                     color_node(&mut v, "color", item.color);
                     f32_node(&mut v, "blur-radius", item.blur_radius);
                     f32_node(&mut v, "spread-radius", item.spread_radius);
-                    f32_node(&mut v, "border-radius", item.border_radius);
+                    if let Some(radius_node) = maybe_radius_yaml(&item.border_radius) {
+                        yaml_node(&mut v, "border-radius", radius_node);
+                    }
                     let clip_mode = match item.clip_mode {
                         BoxShadowClipMode::Outset => "outset",
                         BoxShadowClipMode::Inset => "inset",
