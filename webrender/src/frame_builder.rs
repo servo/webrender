@@ -1774,8 +1774,9 @@ impl FrameBuilder {
 
             let transform = scroll_node.world_content_transform;
             if !packed_layer.set_transform(transform) {
+                group.screen_bounding_rect = None;
                 debug!("\t\tUnable to set transform {:?}", transform);
-                return;
+                continue;
             }
 
             // Here we move the viewport rectangle into the coordinate system
