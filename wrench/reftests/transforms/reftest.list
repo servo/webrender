@@ -4,3 +4,5 @@
 # Something leaks the state: the test passes if only run `reftest reftests/transform`
 # but fails when all the tests are run
 fuzzy(1,1) == rotated-image.yaml rotated-image.png
+== singular.yaml singular-ref.yaml
+
