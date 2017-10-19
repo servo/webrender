@@ -1,6 +1,7 @@
 == border-gradient-simple.yaml border-gradient-simple-ref.yaml
 == border-radial-gradient-simple.yaml border-radial-gradient-simple-ref.yaml
 == border-radii.yaml border-radii.png
+== border-invisible.yaml border-invisible-ref.yaml
 == border-suite.yaml border-suite.png
 == border-suite-2.yaml border-suite-2.png
 == border-suite-3.yaml border-suite-3.png
