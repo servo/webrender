@@ -544,6 +544,7 @@ impl YamlFrameWriter {
             "radius",
             maybe_radius_yaml(&complex_clip.radii).unwrap(),
         );
+        enum_node(&mut t, "clip-mode", complex_clip.mode);
         Yaml::Hash(t)
     }
 

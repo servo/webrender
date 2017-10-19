@@ -6,6 +6,7 @@ use {ColorF, FontInstanceKey, ImageKey, LayerPixel, LayoutPixel, LayoutPoint, La
      LayoutSize, LayoutTransform};
 use {GlyphOptions, LayoutVector2D, PipelineId, PropertyBinding};
 use euclid::{SideOffsets2D, TypedRect, TypedSideOffsets2D};
+use std::ops::Not;
 
 // NOTE: some of these structs have an "IMPLICIT" comment.
 // This indicates that the BuiltDisplayList will have serialized
@@ -547,8 +548,27 @@ impl LocalClip {
                 ComplexClipRegion {
                     rect: complex.rect.translate(offset),
                     radii: complex.radii,
+                    mode: complex.mode,
                 },
             ),
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ClipMode {
+    Clip,    // Pixels inside the region are visible.
+    ClipOut, // Pixels outside the region are visible.
+}
+
+impl Not for ClipMode {
+    type Output = ClipMode;
+
+    fn not(self) -> ClipMode {
+        match self {
+            ClipMode::Clip => ClipMode::ClipOut,
+            ClipMode::ClipOut => ClipMode::Clip,
         }
     }
 }
@@ -560,6 +580,9 @@ pub struct ComplexClipRegion {
     pub rect: LayoutRect,
     /// Border radii of this rectangle.
     pub radii: BorderRadius,
+    /// Whether we are clipping inside or outside
+    /// the region.
+    pub mode: ClipMode,
 }
 
 impl BorderRadius {
@@ -619,8 +642,12 @@ impl BorderRadius {
 
 impl ComplexClipRegion {
     /// Create a new complex clip region.
-    pub fn new(rect: LayoutRect, radii: BorderRadius) -> ComplexClipRegion {
-        ComplexClipRegion { rect, radii }
+    pub fn new(
+        rect: LayoutRect,
+        radii: BorderRadius,
+        mode: ClipMode,
+    ) -> ComplexClipRegion {
+        ComplexClipRegion { rect, radii, mode }
     }
 }
 

@@ -5,10 +5,10 @@
 use api::{BorderRadius, BuiltDisplayList, ColorF, ComplexClipRegion, DeviceIntRect, DeviceIntSize};
 use api::{DevicePoint, ExtendMode, FontInstance, FontRenderMode, GlyphInstance, GlyphKey};
 use api::{GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerRect};
-use api::{LayerSize, LayerVector2D, LineOrientation, LineStyle};
+use api::{ClipMode, LayerSize, LayerVector2D, LineOrientation, LineStyle};
 use api::{TileOffset, YuvColorSpace, YuvFormat, device_length};
 use border::BorderCornerInstance;
-use clip::{ClipMode, ClipSourcesHandle, ClipStore, Geometry};
+use clip::{ClipSourcesHandle, ClipStore, Geometry};
 use frame_builder::PrimitiveContext;
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};

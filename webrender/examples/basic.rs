@@ -218,7 +218,11 @@ impl Example for App {
             rect: (75, 75).by(100, 100),
             repeat: false,
         };
-        let complex = ComplexClipRegion::new((50, 50).to(150, 150), BorderRadius::uniform(20.0));
+        let complex = ComplexClipRegion::new(
+            (50, 50).to(150, 150),
+            BorderRadius::uniform(20.0),
+            ClipMode::Clip
+        );
         let id = builder.define_clip(None, bounds, vec![complex], Some(mask));
         builder.push_clip_id(id);
 
