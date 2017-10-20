@@ -22,12 +22,18 @@ impl Notifier {
 }
 
 impl RenderNotifier for Notifier {
-    fn new_frame_ready(&mut self) {
+    fn clone(&self) -> Box<RenderNotifier> {
+        Box::new(Notifier {
+            window_proxy: self.window_proxy.clone(),
+        })
+    }
+
+    fn new_frame_ready(&self) {
         #[cfg(not(target_os = "android"))]
         self.window_proxy.wakeup_event_loop();
     }
 
-    fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {
+    fn new_scroll_frame_ready(&self, _composite_needed: bool) {
         #[cfg(not(target_os = "android"))]
         self.window_proxy.wakeup_event_loop();
     }
