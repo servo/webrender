@@ -325,6 +325,11 @@ const DESC_BLUR: VertexDescriptor = VertexDescriptor {
             count: 1,
             kind: VertexAttributeKind::I32,
         },
+        VertexAttribute {
+            name: "aBlurRegion",
+            count: 4,
+            kind: VertexAttributeKind::F32
+        },
     ],
 };
 
@@ -2890,6 +2895,7 @@ impl Renderer {
         target: &AlphaRenderTarget,
         target_size: DeviceUintSize,
         projection: &Transform3D<f32>,
+        render_tasks: &RenderTaskTree,
     ) {
         self.gpu_profile.add_sampler(GPU_SAMPLER_TAG_ALPHA);
 
@@ -2908,6 +2914,14 @@ impl Renderer {
             let clear_color = [1.0, 1.0, 1.0, 0.0];
             self.device
                 .clear_target_rect(Some(clear_color), None, target.used_rect());
+
+            let zero_color = [0.0, 0.0, 0.0, 0.0];
+            for task_id in &target.zero_clears {
+                let task = render_tasks.get(*task_id);
+                let (rect, _) = task.get_target_rect();
+                self.device
+                    .clear_target_rect(Some(zero_color), None, rect);
+            }
         }
 
         // Draw any blurs for this target.
@@ -3238,6 +3252,7 @@ impl Renderer {
                         target,
                         pass.max_alpha_target_size,
                         &projection,
+                        &frame.render_tasks,
                     );
                 }
 
