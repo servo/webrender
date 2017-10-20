@@ -427,6 +427,7 @@ impl AlphaRenderItem {
                             {
                                 let sub_index = i as i32;
                                 match *instance_kind {
+                                    BorderCornerInstance::None => {}
                                     BorderCornerInstance::Single => {
                                         batch.push(base_instance.build(
                                             sub_index,
