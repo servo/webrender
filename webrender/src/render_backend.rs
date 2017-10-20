@@ -22,6 +22,7 @@ use resource_cache::ResourceCache;
 use scene::Scene;
 #[cfg(feature = "debugger")]
 use serde_json;
+use std::sync::atomic::{ATOMIC_USIZE_INIT, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 use std::u32;
@@ -124,6 +125,9 @@ enum DocumentOp {
     Rendered(RendererFrame),
 }
 
+/// The unique id for WR resource identification.
+static NEXT_NAMESPACE_ID: AtomicUsize = ATOMIC_USIZE_INIT;
+
 /// The render backend is responsible for transforming high level display lists into
 /// GPU-friendly work which is then submitted to the renderer in the form of a frame::Frame.
 ///
@@ -133,7 +137,6 @@ pub struct RenderBackend {
     payload_rx: PayloadReceiver,
     payload_tx: PayloadSender,
     result_tx: Sender<ResultMsg>,
-    next_namespace_id: IdNamespace,
     default_device_pixel_ratio: f32,
 
     gpu_cache: GpuCache,
@@ -163,6 +166,9 @@ impl RenderBackend {
         blob_image_renderer: Option<Box<BlobImageRenderer>>,
         enable_render_on_scroll: bool,
     ) -> RenderBackend {
+        // The namespace_id should start from 1.
+        NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed);
+
         let resource_cache = ResourceCache::new(texture_cache, workers, blob_image_renderer);
 
         register_thread_with_profiler("Backend".to_string());
@@ -177,7 +183,6 @@ impl RenderBackend {
             gpu_cache: GpuCache::new(),
             frame_config,
             documents: FastHashMap::default(),
-            next_namespace_id: IdNamespace(1),
             notifier,
             recorder,
 
@@ -421,6 +426,10 @@ impl RenderBackend {
         }
     }
 
+    fn next_namespace_id(&self) -> IdNamespace {
+        IdNamespace(NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed) as u32)
+    }
+
     pub fn run(&mut self, mut profile_counters: BackendProfileCounters) {
         let mut frame_counter: u32 = 0;
 
@@ -463,9 +472,7 @@ impl RenderBackend {
                     tx.send(glyph_indices).unwrap();
                 }
                 ApiMsg::CloneApi(sender) => {
-                    let namespace = self.next_namespace_id;
-                    self.next_namespace_id = IdNamespace(namespace.0 + 1);
-                    sender.send(namespace).unwrap();
+                    sender.send(self.next_namespace_id()).unwrap();
                 }
                 ApiMsg::AddDocument(document_id, initial_size) => {
                     let document = Document::new(
