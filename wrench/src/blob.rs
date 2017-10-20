@@ -105,7 +105,7 @@ impl BlobImageRenderer for CheckerboardRenderer {
             .insert(key, deserialize_blob(&cmds[..]).unwrap());
     }
 
-    fn update(&mut self, key: ImageKey, cmds: BlobImageData) {
+    fn update(&mut self, key: ImageKey, cmds: BlobImageData, _dirty_rect: Option<DeviceUintRect>) {
         // Here, updating is just replacing the current version of the commands with
         // the new one (no incremental updates).
         self.image_cmds
