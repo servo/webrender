@@ -104,6 +104,7 @@ impl HitTestingItem {
 
 pub struct HitTestingRun(Vec<HitTestingItem>, ClipAndScrollInfo);
 
+/// A builder structure for `RendererFrame`
 pub struct FrameBuilder {
     screen_size: DeviceUintSize,
     background_color: Option<ColorF>,
@@ -178,11 +179,11 @@ impl<'a> PrimitiveContext<'a> {
 
 impl FrameBuilder {
     pub fn new(
-        previous: Option<FrameBuilder>,
+        previous: Option<Self>,
         screen_size: DeviceUintSize,
         background_color: Option<ColorF>,
         config: FrameBuilderConfig,
-    ) -> FrameBuilder {
+    ) -> Self {
         match previous {
             Some(prev) => FrameBuilder {
                 stacking_context_store: recycle_vec(prev.stacking_context_store),
