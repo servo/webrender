@@ -337,7 +337,6 @@ pub struct GradientStop {
     pub offset: f32,
     pub color: ColorF,
 }
-known_heap_size!(0, GradientStop);
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RadialGradient {
@@ -376,8 +375,6 @@ pub enum ScrollPolicy {
     Scrollable = 0,
     Fixed = 1,
 }
-
-known_heap_size!(0, ScrollPolicy);
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -699,21 +696,3 @@ impl ClipId {
         }
     }
 }
-
-macro_rules! define_empty_heap_size_of {
-    ($name:ident) => {
-        impl ::heapsize::HeapSizeOf for $name {
-            fn heap_size_of_children(&self) -> usize { 0 }
-        }
-    }
-}
-
-define_empty_heap_size_of!(ClipAndScrollInfo);
-define_empty_heap_size_of!(ClipId);
-define_empty_heap_size_of!(ImageKey);
-define_empty_heap_size_of!(LocalClip);
-define_empty_heap_size_of!(MixBlendMode);
-define_empty_heap_size_of!(RepeatMode);
-define_empty_heap_size_of!(ScrollSensitivity);
-define_empty_heap_size_of!(StickySideConstraint);
-define_empty_heap_size_of!(TransformStyle);
