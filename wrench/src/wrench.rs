@@ -15,6 +15,7 @@ use json_frame_writer::JsonFrameWriter;
 use ron_frame_writer::RonFrameWriter;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use time;
 use webrender;
 use webrender::api::*;
@@ -43,20 +44,20 @@ pub enum SaveType {
     Binary,
 }
 
-struct Notifier {
+struct NotifierData {
     window_proxy: Option<WindowProxy>,
     frames_notified: u32,
     timing_receiver: chase_lev::Stealer<time::SteadyTime>,
     verbose: bool,
 }
 
-impl Notifier {
+impl NotifierData {
     fn new(
         window_proxy: Option<WindowProxy>,
         timing_receiver: chase_lev::Stealer<time::SteadyTime>,
         verbose: bool,
-    ) -> Notifier {
-        Notifier {
+    ) -> NotifierData {
+        NotifierData {
             window_proxy,
             frames_notified: 0,
             timing_receiver,
@@ -65,32 +66,38 @@ impl Notifier {
     }
 }
 
+#[derive(Clone)]
+struct Notifier(Arc<Mutex<NotifierData>>);
+
 impl RenderNotifier for Notifier {
-    fn new_frame_ready(&mut self) {
-        match self.timing_receiver.steal() {
+    fn new_frame_ready(&self) {
+        let mut data = self.0.lock();
+        let data = data.as_mut().unwrap();
+        match data.timing_receiver.steal() {
             chase_lev::Steal::Data(last_timing) => {
-                self.frames_notified += 1;
-                if self.verbose && self.frames_notified == 600 {
+                data.frames_notified += 1;
+                if data.verbose && data.frames_notified == 600 {
                     let elapsed = time::SteadyTime::now() - last_timing;
                     println!(
                         "frame latency (consider queue depth here): {:3.6} ms",
                         elapsed.num_microseconds().unwrap() as f64 / 1000.
                     );
-                    self.frames_notified = 0;
+                    data.frames_notified = 0;
                 }
             }
             _ => {
                 println!("Notified of frame, but no frame was ready?");
             }
         }
-        if let Some(ref window_proxy) = self.window_proxy {
+        if let Some(ref window_proxy) = data.window_proxy {
             #[cfg(not(target_os = "android"))]
             window_proxy.wakeup_event_loop();
         }
     }
 
-    fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {
-        if let Some(ref window_proxy) = self.window_proxy {
+    fn new_scroll_frame_ready(&self, _composite_needed: bool) {
+        let data = self.0.lock();
+        if let Some(ref window_proxy) = data.unwrap().window_proxy {
             #[cfg(not(target_os = "android"))]
             window_proxy.wakeup_event_loop();
         }
@@ -126,7 +133,7 @@ pub struct Wrench {
 }
 
 impl Wrench {
-    pub fn new(
+    pub fn new<T: RenderNotifier + 'static>(
         window: &mut WindowWrapper,
         shader_override_path: Option<PathBuf>,
         dp_ratio: f32,
@@ -138,7 +145,7 @@ impl Wrench {
         verbose: bool,
         no_scissor: bool,
         no_batch: bool,
-        notifier: Option<Box<RenderNotifier>>,
+        notifier: Option<T>,
     ) -> Wrench {
         println!("Shader override path: {:?}", shader_override_path);
 
@@ -176,9 +183,15 @@ impl Wrench {
         }
 
         let (timing_sender, timing_receiver) = chase_lev::deque();
-        let notifier = notifier.unwrap_or_else(|| Box::new(Notifier::new(proxy, timing_receiver, verbose)));
-
-        let (renderer, sender) = webrender::Renderer::new(window.clone_gl(), notifier, opts).unwrap();
+        let (renderer, sender) = match notifier {
+            Some(notifier) => {
+                webrender::Renderer::new(window.clone_gl(), notifier, opts).unwrap()
+            }
+            None => {
+                let data = Arc::new(Mutex::new(NotifierData::new(proxy, timing_receiver, verbose)));
+                webrender::Renderer::new(window.clone_gl(), Notifier(data), opts).unwrap()
+            }
+        };
         let api = sender.create_api();
         let document_id = api.add_document(size);
 

@@ -279,19 +279,22 @@ fn make_window(
     wrapper
 }
 
-fn create_notifier() -> (Box<RenderNotifier>, Receiver<()>) {
-    // setup a notifier so we can wait for frames to be finished
-    struct Notifier {
-        tx: Sender<()>,
-    };
-    impl RenderNotifier for Notifier {
-        fn new_frame_ready(&mut self) {
-            self.tx.send(()).unwrap();
-        }
-        fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {}
+#[derive(Clone)]
+struct Notifier {
+    tx: Sender<()>,
+}
+
+// setup a notifier so we can wait for frames to be finished
+impl RenderNotifier for Notifier {
+    fn new_frame_ready(&self) {
+        self.tx.send(()).unwrap();
     }
+    fn new_scroll_frame_ready(&self, _composite_needed: bool) {}
+}
+
+fn create_notifier() -> (Notifier, Receiver<()>) {
     let (tx, rx) = channel();
-    (Box::new(Notifier { tx: tx }), rx)
+    (Notifier { tx: tx }, rx)
 }
 
 fn main() {

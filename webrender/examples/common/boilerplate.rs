@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use webrender;
 use webrender::api::*;
 
+#[derive(Clone)]
 struct Notifier {
     window_proxy: glutin::WindowProxy,
 }
@@ -22,12 +23,12 @@ impl Notifier {
 }
 
 impl RenderNotifier for Notifier {
-    fn new_frame_ready(&mut self) {
+    fn new_frame_ready(&self) {
         #[cfg(not(target_os = "android"))]
         self.window_proxy.wakeup_event_loop();
     }
 
-    fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {
+    fn new_scroll_frame_ready(&self, _composite_needed: bool) {
         #[cfg(not(target_os = "android"))]
         self.window_proxy.wakeup_event_loop();
     }
@@ -125,7 +126,7 @@ pub fn main_wrapper(example: &mut Example, options: Option<webrender::RendererOp
     };
 
     let size = DeviceUintSize::new(width, height);
-    let notifier = Box::new(Notifier::new(window.create_window_proxy()));
+    let notifier = Notifier::new(window.create_window_proxy());
     let (mut renderer, sender) = webrender::Renderer::new(gl.clone(), notifier, opts).unwrap();
     let api = sender.create_api();
     let document_id = api.add_document(size);

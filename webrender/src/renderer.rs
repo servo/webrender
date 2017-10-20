@@ -55,7 +55,7 @@ use std::f32;
 use std::mem;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::TextureCache;
@@ -929,19 +929,15 @@ struct PrimitiveShader {
     transform: LazilyCompiledShader,
 }
 
-struct FileWatcher {
-    notifier: Arc<Mutex<Box<RenderNotifier>>>,
+struct FileWatcher<T> {
+    notifier: T,
     result_tx: Sender<ResultMsg>,
 }
 
-impl FileWatcherHandler for FileWatcher {
+impl<T: RenderNotifier> FileWatcherHandler for FileWatcher<T> {
     fn file_changed(&self, path: PathBuf) {
         self.result_tx.send(ResultMsg::RefreshShader(path)).ok();
-        let mut notifier = self.notifier.lock();
-        notifier
-            .as_mut()
-            .unwrap()
-            .new_frame_ready();
+        self.notifier.new_frame_ready();
     }
 }
 
@@ -1228,9 +1224,9 @@ impl Renderer {
     /// let (renderer, sender) = Renderer::new(opts);
     /// ```
     /// [rendereroptions]: struct.RendererOptions.html
-    pub fn new(
+    pub fn new<T: RenderNotifier + 'static>(
         gl: Rc<gl::Gl>,
-        notifier: Box<RenderNotifier>,
+        notifier: T,
         mut options: RendererOptions,
     ) -> Result<(Renderer, RenderApiSender), RendererError> {
         let (api_tx, api_rx) = try!{ channel::msg_channel() };
@@ -1238,12 +1234,11 @@ impl Renderer {
         let (result_tx, result_rx) = channel();
         let gl_type = gl.get_type();
 
-        let notifier = Arc::new(Mutex::new(notifier));
         let debug_server = DebugServer::new(api_tx.clone());
 
         let file_watch_handler = FileWatcher {
             result_tx: result_tx.clone(),
-            notifier: Arc::clone(&notifier),
+            notifier: notifier.clone(),
         };
 
         let mut device = Device::new(
@@ -1654,7 +1649,7 @@ impl Renderer {
 
         device.end_frame();
 
-        let backend_notifier = Arc::clone(&notifier);
+        let backend_notifier = notifier.clone();
 
         let default_font_render_mode = match (options.enable_aa, options.enable_subpixel_aa) {
             (true, true) => FontRenderMode::Subpixel,
