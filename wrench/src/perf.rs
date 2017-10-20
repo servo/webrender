@@ -9,8 +9,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, Sender};
-use webrender::api::*;
+use std::sync::mpsc::Receiver;
 use wrench::{Wrench, WrenchThing};
 use yaml_frame_reader::YamlFrameReader;
 
@@ -128,22 +127,7 @@ pub struct PerfHarness<'a> {
 }
 
 impl<'a> PerfHarness<'a> {
-    pub fn new(wrench: &'a mut Wrench, window: &'a mut WindowWrapper) -> PerfHarness<'a> {
-        // setup a notifier so we can wait for frames to be finished
-        struct Notifier {
-            tx: Sender<()>,
-        };
-        impl RenderNotifier for Notifier {
-            fn new_frame_ready(&mut self) {
-                self.tx.send(()).unwrap();
-            }
-            fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {}
-        }
-        let (tx, rx) = channel();
-        wrench
-            .renderer
-            .set_render_notifier(Box::new(Notifier { tx: tx }));
-
+    pub fn new(wrench: &'a mut Wrench, window: &'a mut WindowWrapper, rx: Receiver<()>) -> PerfHarness<'a> {
         PerfHarness { wrench, window, rx }
     }
 

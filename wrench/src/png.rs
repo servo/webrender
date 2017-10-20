@@ -7,7 +7,7 @@ use image::ColorType;
 use image::png::PNGEncoder;
 use std::fs::File;
 use std::path::Path;
-use std::sync::mpsc::{channel, Sender};
+use std::sync::mpsc::Receiver;
 use webrender::api::*;
 use wrench::{Wrench, WrenchThing};
 use yaml_frame_reader::YamlFrameReader;
@@ -29,21 +29,7 @@ pub fn save_flipped<P: AsRef<Path>>(path: P, orig_pixels: &[u8], size: DeviceUin
         .expect("Unable to encode PNG!");
 }
 
-pub fn png(wrench: &mut Wrench, window: &mut WindowWrapper, mut reader: YamlFrameReader) {
-    // setup a notifier so we can wait for frames to be finished
-    struct Notifier {
-        tx: Sender<()>,
-    };
-    impl RenderNotifier for Notifier {
-        fn new_frame_ready(&mut self) {
-            self.tx.send(()).unwrap();
-        }
-        fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {}
-    }
-    let (tx, rx) = channel();
-    wrench
-        .renderer
-        .set_render_notifier(Box::new(Notifier { tx: tx }));
+pub fn png(wrench: &mut Wrench, window: &mut WindowWrapper, mut reader: YamlFrameReader, rx: Receiver<()>) {
     reader.do_frame(wrench);
 
     // wait for the frame

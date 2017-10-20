@@ -138,6 +138,7 @@ impl Wrench {
         verbose: bool,
         no_scissor: bool,
         no_batch: bool,
+        notifier: Option<Box<RenderNotifier>>,
     ) -> Wrench {
         println!("Shader override path: {:?}", shader_override_path);
 
@@ -167,10 +168,6 @@ impl Wrench {
             ..Default::default()
         };
 
-        let (renderer, sender) = webrender::Renderer::new(window.clone_gl(), opts).unwrap();
-        let api = sender.create_api();
-        let document_id = api.add_document(size);
-
         let proxy = window.create_window_proxy();
         // put an Awakened event into the queue to kick off the first frame
         if let Some(ref wp) = proxy {
@@ -179,8 +176,11 @@ impl Wrench {
         }
 
         let (timing_sender, timing_receiver) = chase_lev::deque();
-        let notifier = Box::new(Notifier::new(proxy, timing_receiver, verbose));
-        renderer.set_render_notifier(notifier);
+        let notifier = notifier.unwrap_or_else(|| Box::new(Notifier::new(proxy, timing_receiver, verbose)));
+
+        let (renderer, sender) = webrender::Renderer::new(window.clone_gl(), notifier, opts).unwrap();
+        let api = sender.create_api();
+        let document_id = api.add_document(size);
 
         let graphics_api = renderer.get_graphics_api_info();
 

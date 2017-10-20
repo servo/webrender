@@ -145,7 +145,7 @@ pub struct RenderBackend {
     frame_config: FrameBuilderConfig,
     documents: FastHashMap<DocumentId, Document>,
 
-    notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
+    notifier: Arc<Mutex<Box<RenderNotifier>>>,
     recorder: Option<Box<ApiRecordingReceiver>>,
 
     enable_render_on_scroll: bool,
@@ -160,7 +160,7 @@ impl RenderBackend {
         default_device_pixel_ratio: f32,
         texture_cache: TextureCache,
         workers: Arc<ThreadPool>,
-        notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
+        notifier: Arc<Mutex<Box<RenderNotifier>>>,
         frame_config: FrameBuilderConfig,
         recorder: Option<Box<ApiRecordingReceiver>>,
         blob_image_renderer: Option<Box<BlobImageRenderer>>,
@@ -445,7 +445,7 @@ impl RenderBackend {
                 }
                 Err(..) => {
                     let notifier = self.notifier.lock();
-                    notifier.unwrap().as_mut().unwrap().shut_down();
+                    notifier.unwrap().shut_down();
                     break;
                 }
             };
@@ -512,7 +512,7 @@ impl RenderBackend {
                 }
                 ApiMsg::ExternalEvent(evt) => {
                     let notifier = self.notifier.lock();
-                    notifier.unwrap().as_mut().unwrap().external_event(evt);
+                    notifier.unwrap().external_event(evt);
                 }
                 ApiMsg::ClearNamespace(namespace_id) => {
                     self.resource_cache.clear_namespace(namespace_id);
@@ -540,8 +540,6 @@ impl RenderBackend {
                     self.notifier
                         .lock()
                         .unwrap()
-                        .as_mut()
-                        .unwrap()
                         .new_frame_ready();
                 }
                 ApiMsg::DebugCommand(option) => {
@@ -558,11 +556,11 @@ impl RenderBackend {
                     };
                     self.result_tx.send(msg).unwrap();
                     let notifier = self.notifier.lock();
-                    notifier.unwrap().as_mut().unwrap().new_frame_ready();
+                    notifier.unwrap().new_frame_ready();
                 }
                 ApiMsg::ShutDown => {
                     let notifier = self.notifier.lock();
-                    notifier.unwrap().as_mut().unwrap().shut_down();
+                    notifier.unwrap().shut_down();
                     break;
                 }
             }
@@ -597,8 +595,6 @@ impl RenderBackend {
         notifier
             .as_mut()
             .unwrap()
-            .as_mut()
-            .unwrap()
             .new_frame_ready();
     }
 
@@ -609,8 +605,6 @@ impl RenderBackend {
         //           cleaner way to do this, or use the OnceMutex on crates.io?
         let mut notifier = self.notifier.lock();
         notifier
-            .as_mut()
-            .unwrap()
             .as_mut()
             .unwrap()
             .new_scroll_frame_ready(composite_needed);

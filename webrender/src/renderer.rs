@@ -930,7 +930,7 @@ struct PrimitiveShader {
 }
 
 struct FileWatcher {
-    notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
+    notifier: Arc<Mutex<Box<RenderNotifier>>>,
     result_tx: Sender<ResultMsg>,
 }
 
@@ -939,8 +939,6 @@ impl FileWatcherHandler for FileWatcher {
         self.result_tx.send(ResultMsg::RefreshShader(path)).ok();
         let mut notifier = self.notifier.lock();
         notifier
-            .as_mut()
-            .unwrap()
             .as_mut()
             .unwrap()
             .new_frame_ready();
@@ -1137,8 +1135,6 @@ pub struct Renderer {
     ps_split_composite: LazilyCompiledShader,
     ps_composite: LazilyCompiledShader,
 
-    notifier: Arc<Mutex<Option<Box<RenderNotifier>>>>,
-
     max_texture_size: u32,
 
     max_recorded_profiles: usize,
@@ -1234,6 +1230,7 @@ impl Renderer {
     /// [rendereroptions]: struct.RendererOptions.html
     pub fn new(
         gl: Rc<gl::Gl>,
+        notifier: Box<RenderNotifier>,
         mut options: RendererOptions,
     ) -> Result<(Renderer, RenderApiSender), RendererError> {
         let (api_tx, api_rx) = try!{ channel::msg_channel() };
@@ -1241,7 +1238,7 @@ impl Renderer {
         let (result_tx, result_rx) = channel();
         let gl_type = gl.get_type();
 
-        let notifier = Arc::new(Mutex::new(None));
+        let notifier = Arc::new(Mutex::new(notifier));
         let debug_server = DebugServer::new(api_tx.clone());
 
         let file_watch_handler = FileWatcher {
@@ -1740,7 +1737,6 @@ impl Renderer {
             ps_split_composite,
             ps_composite,
             ps_line,
-            notifier,
             debug: debug_renderer,
             debug_flags,
             enable_batcher: options.enable_batcher,
@@ -1797,15 +1793,6 @@ impl Renderer {
     ) -> usize {
         ((buffer_kind as usize) * YUV_FORMATS.len() + (format as usize)) * YUV_COLOR_SPACES.len() +
             (color_space as usize)
-    }
-
-    /// Sets the new RenderNotifier.
-    ///
-    /// The RenderNotifier will be called when processing e.g. of a (scrolling) frame is done,
-    /// and therefore the screen should be updated.
-    pub fn set_render_notifier(&self, notifier: Box<RenderNotifier>) {
-        let mut notifier_arc = self.notifier.lock().unwrap();
-        *notifier_arc = Some(notifier);
     }
 
     /// Returns the Epoch of the current frame in a pipeline.
