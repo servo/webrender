@@ -40,6 +40,9 @@ use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, Ren
 use tiling::{RenderTargetContext, ScrollbarPrimitive, StackingContext};
 use util::{self, pack_as_float, RectHelpers, recycle_vec};
 
+// The blur shader samples BLUR_SAMPLE_SCALE * blur_radius surrounding texels.
+const BLUR_SAMPLE_SCALE: f32 = 3.0;
+
 /// Construct a polygon from stacking context boundaries.
 /// `anchor` here is an index that's going to be preserved in all the
 /// splits of the polygon.
@@ -1361,36 +1364,47 @@ impl FrameBuilder {
                     );
 
                     let pic_rect = shadow_rect.inflate(blur_offset, blur_offset);
-                    let blur_range = 3.0 * blur_radius;
+                    let blur_range = BLUR_SAMPLE_SCALE * blur_radius;
 
                     let size = pic_rect.size;
 
                     let tl = LayerSize::new(
                         blur_radius.max(border_radius.top_left.width),
                         blur_radius.max(border_radius.top_left.height)
-                    ) * 3.0;
+                    ) * BLUR_SAMPLE_SCALE;
                     let tr = LayerSize::new(
                         blur_radius.max(border_radius.top_right.width),
                         blur_radius.max(border_radius.top_right.height)
-                    ) * 3.0;
+                    ) * BLUR_SAMPLE_SCALE;
                     let br = LayerSize::new(
                         blur_radius.max(border_radius.bottom_right.width),
                         blur_radius.max(border_radius.bottom_right.height)
-                    ) * 3.0;
+                    ) * BLUR_SAMPLE_SCALE;
                     let bl = LayerSize::new(
                         blur_radius.max(border_radius.bottom_left.width),
                         blur_radius.max(border_radius.bottom_left.height)
-                    ) * 3.0;
+                    ) * BLUR_SAMPLE_SCALE;
 
-                    blur_regions.push(LayerRect::from_floats(0.0, 0.0, tl.width, tl.height));
-                    blur_regions.push(LayerRect::from_floats(size.width - tr.width, 0.0, size.width, tr.height));
-                    blur_regions.push(LayerRect::from_floats(size.width - br.width, size.height - br.height, size.width, size.height));
-                    blur_regions.push(LayerRect::from_floats(0.0, size.height - bl.height, bl.width, size.height));
+                    let max_width = tl.width.max(tr.width.max(bl.width.max(br.width)));
+                    let max_height = tl.height.max(tr.height.max(bl.height.max(br.height)));
 
-                    blur_regions.push(LayerRect::from_floats(0.0, tl.height, blur_range, size.height - bl.height));
-                    blur_regions.push(LayerRect::from_floats(size.width - blur_range, tr.height, size.width, size.height - br.height));
-                    blur_regions.push(LayerRect::from_floats(tl.width, 0.0, size.width - tr.width, blur_range));
-                    blur_regions.push(LayerRect::from_floats(bl.width, size.height - blur_range, size.width - br.width, size.height));
+                    // Apply a conservative test that if any of the blur regions below
+                    // will overlap, we won't bother applying the region optimization
+                    // and will just blur the entire thing. This should only happen
+                    // in rare cases, where either the blur radius or border radius
+                    // is very large, in which case there's no real point in trying
+                    // to only blur a small region anyway.
+                    if max_width < 0.5 * size.width && max_height < 0.5 * size.height {
+                        blur_regions.push(LayerRect::from_floats(0.0, 0.0, tl.width, tl.height));
+                        blur_regions.push(LayerRect::from_floats(size.width - tr.width, 0.0, size.width, tr.height));
+                        blur_regions.push(LayerRect::from_floats(size.width - br.width, size.height - br.height, size.width, size.height));
+                        blur_regions.push(LayerRect::from_floats(0.0, size.height - bl.height, bl.width, size.height));
+
+                        blur_regions.push(LayerRect::from_floats(0.0, tl.height, blur_range, size.height - bl.height));
+                        blur_regions.push(LayerRect::from_floats(size.width - blur_range, tr.height, size.width, size.height - br.height));
+                        blur_regions.push(LayerRect::from_floats(tl.width, 0.0, size.width - tr.width, blur_range));
+                        blur_regions.push(LayerRect::from_floats(bl.width, size.height - blur_range, size.width - br.width, size.height));
+                    }
 
                     let mut pic_prim = PicturePrimitive::new_box_shadow(
                         blur_radius,

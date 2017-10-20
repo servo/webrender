@@ -1896,20 +1896,20 @@ impl BlurTask {
         blur_direction: BlurDirection,
         render_tasks: &RenderTaskTree,
     ) {
+        let instance = BlurInstance {
+            task_address: render_tasks.get_task_address(task_id),
+            src_task_address: render_tasks.get_task_address(source_task_id),
+            blur_direction,
+            region: LayerRect::zero(),
+        };
+
         if self.regions.is_empty() {
-            instances.push(BlurInstance {
-                task_address: render_tasks.get_task_address(task_id),
-                src_task_address: render_tasks.get_task_address(source_task_id),
-                blur_direction,
-                region: LayerRect::zero(),
-            });
+            instances.push(instance);
         } else {
             for region in &self.regions {
                 instances.push(BlurInstance {
-                    task_address: render_tasks.get_task_address(task_id),
-                    src_task_address: render_tasks.get_task_address(source_task_id),
-                    blur_direction,
                     region: *region,
+                    ..instance
                 });
             }
         }
