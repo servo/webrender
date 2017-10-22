@@ -14,7 +14,7 @@ use std::fmt::{Display, Error, Formatter};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::Receiver;
 use webrender::api::*;
 use wrench::{Wrench, WrenchThing};
 use yaml_frame_reader::YamlFrameReader;
@@ -259,22 +259,7 @@ pub struct ReftestHarness<'a> {
     rx: Receiver<()>,
 }
 impl<'a> ReftestHarness<'a> {
-    pub fn new(wrench: &'a mut Wrench, window: &'a mut WindowWrapper) -> ReftestHarness<'a> {
-        // setup a notifier so we can wait for frames to be finished
-        struct Notifier {
-            tx: Sender<()>,
-        };
-        impl RenderNotifier for Notifier {
-            fn new_frame_ready(&mut self) {
-                self.tx.send(()).unwrap();
-            }
-            fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {}
-        }
-        let (tx, rx) = channel();
-        wrench
-            .renderer
-            .set_render_notifier(Box::new(Notifier { tx: tx }));
-
+    pub fn new(wrench: &'a mut Wrench, window: &'a mut WindowWrapper, rx: Receiver<()>) -> ReftestHarness<'a> {
         ReftestHarness { wrench, window, rx }
     }
 

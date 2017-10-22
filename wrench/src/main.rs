@@ -63,6 +63,7 @@ use std::os::raw::c_void;
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::rc::Rc;
+use std::sync::mpsc::{channel, Sender, Receiver};
 use webrender::api::*;
 use wrench::{Wrench, WrenchThing};
 use yaml_frame_reader::YamlFrameReader;
@@ -278,6 +279,29 @@ fn make_window(
     wrapper
 }
 
+struct Notifier {
+    tx: Sender<()>,
+}
+
+// setup a notifier so we can wait for frames to be finished
+impl RenderNotifier for Notifier {
+    fn clone(&self) -> Box<RenderNotifier> {
+        Box::new(Notifier {
+            tx: self.tx.clone(),
+        })
+    }
+
+    fn new_frame_ready(&self) {
+        self.tx.send(()).unwrap();
+    }
+    fn new_scroll_frame_ready(&self, _composite_needed: bool) {}
+}
+
+fn create_notifier() -> (Box<RenderNotifier>, Receiver<()>) {
+    let (tx, rx) = channel();
+    (Box::new(Notifier { tx: tx }), rx)
+}
+
 fn main() {
     #[cfg(feature = "logging")]
     env_logger::init().unwrap();
@@ -321,6 +345,17 @@ fn main() {
     let dp_ratio = dp_ratio.unwrap_or(window.hidpi_factor());
     let (width, height) = window.get_inner_size_pixels();
     let dim = DeviceUintSize::new(width, height);
+
+    let needs_frame_notifier = ["perf", "reftest", "png", "rawtest"]
+        .iter()
+        .any(|s| args.subcommand_matches(s).is_some());
+    let (notifier, rx) = if needs_frame_notifier {
+        let (notifier, rx) = create_notifier();
+        (Some(notifier), Some(rx))
+    } else {
+        (None, None)
+    };
+
     let mut wrench = Wrench::new(
         &mut window,
         res_path,
@@ -333,6 +368,7 @@ fn main() {
         args.is_present("verbose"),
         args.is_present("no_scissor"),
         args.is_present("no_batch"),
+        notifier,
     );
 
     let mut thing = if let Some(subargs) = args.subcommand_matches("show") {
@@ -341,12 +377,12 @@ fn main() {
         Box::new(BinaryFrameReader::new_from_args(subargs)) as Box<WrenchThing>
     } else if let Some(subargs) = args.subcommand_matches("png") {
         let reader = YamlFrameReader::new_from_args(subargs);
-        png::png(&mut wrench, &mut window, reader);
+        png::png(&mut wrench, &mut window, reader, rx.unwrap());
         wrench.renderer.deinit();
         return;
     } else if let Some(subargs) = args.subcommand_matches("reftest") {
         let (w, h) = window.get_inner_size_pixels();
-        let harness = ReftestHarness::new(&mut wrench, &mut window);
+        let harness = ReftestHarness::new(&mut wrench, &mut window, rx.unwrap());
         let base_manifest = Path::new("reftests/reftest.list");
         let specific_reftest = subargs.value_of("REFTEST").map(|x| Path::new(x));
         let mut reftest_options = ReftestOptions::default();
@@ -358,7 +394,7 @@ fn main() {
         return;
     } else if let Some(_) = args.subcommand_matches("rawtest") {
         {
-            let harness = RawtestHarness::new(&mut wrench, &mut window);
+            let harness = RawtestHarness::new(&mut wrench, &mut window, rx.unwrap());
             harness.run();
         }
         wrench.renderer.deinit();
@@ -367,7 +403,7 @@ fn main() {
         // Perf mode wants to benchmark the total cost of drawing
         // a new displaty list each frame.
         wrench.rebuild_display_lists = true;
-        let harness = PerfHarness::new(&mut wrench, &mut window);
+        let harness = PerfHarness::new(&mut wrench, &mut window, rx.unwrap());
         let base_manifest = Path::new("benchmarks/benchmarks.list");
         let filename = subargs.value_of("filename").unwrap();
         harness.run(base_manifest, filename);

@@ -4,7 +4,7 @@
 
 use WindowWrapper;
 use blob;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::Receiver;
 use webrender::api::*;
 use wrench::Wrench;
 
@@ -15,22 +15,7 @@ pub struct RawtestHarness<'a> {
 }
 
 impl<'a> RawtestHarness<'a> {
-    pub fn new(wrench: &'a mut Wrench, window: &'a mut WindowWrapper) -> RawtestHarness<'a> {
-        // setup a notifier so we can wait for frames to be finished
-        struct Notifier {
-            tx: Sender<()>,
-        };
-        impl RenderNotifier for Notifier {
-            fn new_frame_ready(&mut self) {
-                self.tx.send(()).unwrap();
-            }
-            fn new_scroll_frame_ready(&mut self, _composite_needed: bool) {}
-        }
-        let (tx, rx) = channel();
-        wrench
-            .renderer
-            .set_render_notifier(Box::new(Notifier { tx: tx }));
-
+    pub fn new(wrench: &'a mut Wrench, window: &'a mut WindowWrapper, rx: Receiver<()>) -> RawtestHarness<'a> {
         RawtestHarness {
             wrench: wrench,
             rx: rx,
