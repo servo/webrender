@@ -213,9 +213,9 @@ impl<'a> RawtestHarness<'a> {
                         blur_radius: 1.0,
                         color: ColorF::new(0.0, 0.0, 0.0, 1.0),
                     });
-                builder.push_line(&PrimitiveInfo::new(rect(100., 100., 100., 100.)),
-                                  110., 110., 160., LineOrientation::Horizontal, 2.0,
-                                  ColorF::new(0.0, 0.0, 0.0, 1.0), LineStyle::Solid);
+                builder.push_line(&PrimitiveInfo::new(rect(110., 110., 50., 2.)),
+                                  0.0, LineOrientation::Horizontal,
+                                  &ColorF::new(0.0, 0.0, 0.0, 1.0), LineStyle::Solid);
                 builder.restore();
             }
 

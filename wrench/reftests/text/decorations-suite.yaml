@@ -30,6 +30,7 @@ root:
       start: 10
       end: 210
       width: 3
+      thickness: 1
       orientation: horizontal
       color: red
       style: wavy
@@ -62,7 +63,8 @@ root:
       baseline: 95
       start: 10
       end: 210
-      width: 8
+      width: 6
+      thickness: 2
       orientation: horizontal
       color: red
       style: wavy
@@ -101,7 +103,8 @@ root:
       baseline: 190
       start: 10
       end: 210
-      width: 8
+      width: 12
+      thickness: 3
       orientation: horizontal
       color: black
       style: wavy
@@ -142,7 +145,8 @@ root:
       baseline: 290
       start: 10
       end: 210
-      width: 8
+      width: 16
+      thickness: 4
       orientation: horizontal
       color: black
       style: wavy
@@ -177,6 +181,7 @@ root:
       baseline: 250
       start: 10
       end: 210
+      thickness: 1
       width: 3
       orientation: vertical
       color: red
@@ -210,7 +215,8 @@ root:
       baseline: 330
       start: 10
       end: 210
-      width: 8
+      thickness: 2
+      width: 6
       orientation: vertical
       color: red
       style: wavy
@@ -249,7 +255,8 @@ root:
       baseline: 440
       start: 10
       end: 210
-      width: 8
+      thickness: 4
+      width: 16
       orientation: vertical
       color: red
       style: wavy

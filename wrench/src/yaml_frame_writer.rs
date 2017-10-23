@@ -649,11 +649,10 @@ impl YamlFrameWriter {
                 }
                 Line(item) => {
                     str_node(&mut v, "type", "line");
-                    f32_node(&mut v, "baseline", item.baseline);
-                    f32_node(&mut v, "start", item.start);
-                    f32_node(&mut v, "end", item.end);
+                    if let LineStyle::Wavy = item.style {
+                        f32_node(&mut v, "thickness", item.wavy_line_thickness);
+                    }
                     str_node(&mut v, "orientation", item.orientation.as_str());
-                    f32_node(&mut v, "width", item.width);
                     color_node(&mut v, "color", item.color);
                     str_node(&mut v, "style", item.style.as_str());
                 }
