@@ -4,8 +4,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BuiltDisplayListIter, ClipAndScrollInfo, ClipId, ColorF, ComplexClipRegion};
-use api::{DeviceUintRect, DeviceUintSize, DisplayItemRef, Epoch, FilterOp, HitTestFlags};
-use api::{HitTestResult, ImageDisplayItem, ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect};
+use api::{DeviceUintRect, DeviceUintSize, DisplayItemRef, Epoch, FilterOp};
+use api::{ImageDisplayItem, ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect};
 use api::{LayerSize, LayerToScrollTransform, LayerVector2D, LayoutSize, LayoutTransform};
 use api::{LocalClip, PipelineId, ScrollClamping, ScrollEventPhase, ScrollLayerState};
 use api::{ScrollLocation, ScrollPolicy, ScrollSensitivity, SpecificDisplayItem, StackingContext};
@@ -19,7 +19,7 @@ use internal_types::{FastHashMap, FastHashSet, RendererFrame};
 use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
 use resource_cache::{ResourceCache, TiledImageMap};
 use scene::{Scene, StackingContextHelpers, ScenePipeline};
-use tiling::{CompositeOps, PrimitiveFlags};
+use tiling::{CompositeOps, Frame, PrimitiveFlags};
 use util::{subtract_rect, ComplexClipRegionHelpers};
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Eq, Ord)]
@@ -85,22 +85,21 @@ impl<'a> FlattenContext<'a> {
     }
 }
 
-// TODO: doc
-pub struct Frame {
-    pub clip_scroll_tree: ClipScrollTree,
-    pub pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
+/// Frame context contains the information required to update
+/// (e.g. scroll) a renderer frame builder (`FrameBuilder`).
+pub struct FrameContext {
+    clip_scroll_tree: ClipScrollTree,
+    pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
     id: FrameId,
     frame_builder_config: FrameBuilderConfig,
-    pub frame_builder: Option<FrameBuilder>,
 }
 
-impl Frame {
-    pub fn new(config: FrameBuilderConfig) -> Frame {
-        Frame {
+impl FrameContext {
+    pub fn new(config: FrameBuilderConfig) -> Self {
+        FrameContext {
             pipeline_epoch_map: FastHashMap::default(),
             clip_scroll_tree: ClipScrollTree::new(),
             id: FrameId(0),
-            frame_builder: None,
             frame_builder_config: config,
         }
     }
@@ -112,6 +111,10 @@ impl Frame {
         self.id.0 += 1;
 
         self.clip_scroll_tree.drain()
+    }
+
+    pub fn get_clip_scroll_tree(&self) -> &ClipScrollTree {
+        &self.clip_scroll_tree
     }
 
     pub fn get_scroll_node_state(&self) -> Vec<ScrollLayerState> {
@@ -133,18 +136,6 @@ impl Frame {
         self.clip_scroll_tree.scroll(scroll_location, cursor, phase)
     }
 
-    pub fn hit_test(&mut self,
-                    pipeline_id: Option<PipelineId>,
-                    point: WorldPoint,
-                    flags: HitTestFlags)
-                    -> HitTestResult {
-        if let Some(ref builder) = self.frame_builder {
-            builder.hit_test(&self.clip_scroll_tree, pipeline_id, point, flags)
-        } else {
-            HitTestResult::default()
-        }
-    }
-
     pub fn tick_scrolling_bounce_animations(&mut self) {
         self.clip_scroll_tree.tick_scrolling_bounce_animations();
     }
@@ -156,20 +147,21 @@ impl Frame {
 
     pub fn create(
         &mut self,
+        old_builder: Option<FrameBuilder>,
         scene: &Scene,
         resource_cache: &mut ResourceCache,
         window_size: DeviceUintSize,
         inner_rect: DeviceUintRect,
         device_pixel_ratio: f32,
-    ) {
+    ) -> Option<FrameBuilder> {
         let root_pipeline_id = match scene.root_pipeline_id {
             Some(root_pipeline_id) => root_pipeline_id,
-            None => return,
+            None => return old_builder,
         };
 
         let root_pipeline = match scene.pipelines.get(&root_pipeline_id) {
             Some(root_pipeline) => root_pipeline,
-            None => return,
+            None => return old_builder,
         };
 
         if window_size.width == 0 || window_size.height == 0 {
@@ -186,7 +178,7 @@ impl Frame {
             .and_then(|color| if color.a > 0.0 { Some(color) } else { None });
 
         let mut frame_builder = FrameBuilder::new(
-            self.frame_builder.take(),
+            old_builder,
             window_size,
             background_color,
             self.frame_builder_config,
@@ -217,9 +209,9 @@ impl Frame {
             );
         }
 
-        self.frame_builder = Some(frame_builder);
         self.clip_scroll_tree
             .finalize_and_apply_pending_scroll_offsets(old_scrolling_states);
+        Some(frame_builder)
     }
 
     pub fn update_epoch(&mut self, pipeline_id: PipelineId, epoch: Epoch) {
@@ -1099,8 +1091,14 @@ impl Frame {
         }
     }
 
+    fn get_renderer_frame_impl(&self, frame: Option<Frame>) -> RendererFrame {
+        let nodes_bouncing_back = self.clip_scroll_tree.collect_nodes_bouncing_back();
+        RendererFrame::new(self.pipeline_epoch_map.clone(), nodes_bouncing_back, frame)
+    }
+
     pub fn build_renderer_frame(
         &mut self,
+        frame_builder: &mut FrameBuilder,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
         pipelines: &FastHashMap<PipelineId, ScenePipeline>,
@@ -1110,25 +1108,24 @@ impl Frame {
         texture_cache_profile: &mut TextureCacheProfileCounters,
         gpu_cache_profile: &mut GpuCacheProfileCounters,
     ) -> RendererFrame {
-        let mut frame_builder = self.frame_builder.take();
-        let frame = frame_builder.as_mut().map(|builder| {
-            builder.build(
-                resource_cache,
-                gpu_cache,
-                self.id,
-                &mut self.clip_scroll_tree,
-                pipelines,
-                device_pixel_ratio,
-                pan,
-                output_pipelines,
-                texture_cache_profile,
-                gpu_cache_profile,
-            )
-        });
-        self.frame_builder = frame_builder;
+        let frame = frame_builder.build(
+            resource_cache,
+            gpu_cache,
+            self.id,
+            &mut self.clip_scroll_tree,
+            pipelines,
+            device_pixel_ratio,
+            pan,
+            output_pipelines,
+            texture_cache_profile,
+            gpu_cache_profile,
+        );
 
-        let nodes_bouncing_back = self.clip_scroll_tree.collect_nodes_bouncing_back();
-        RendererFrame::new(self.pipeline_epoch_map.clone(), nodes_bouncing_back, frame)
+        self.get_renderer_frame_impl(Some(frame))
+    }
+
+    pub fn get_renderer_frame(&self) -> RendererFrame {
+        self.get_renderer_frame_impl(None)
     }
 }
 
