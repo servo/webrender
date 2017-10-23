@@ -1156,10 +1156,17 @@ impl FrameBuilder {
             }
         }
 
+        let color = match font.render_mode {
+            FontRenderMode::Bitmap => ColorF::new(1.0, 1.0, 1.0, color.a),
+            FontRenderMode::Subpixel |
+            FontRenderMode::Alpha |
+            FontRenderMode::Mono => *color,
+        };
+
         let prim_font = FontInstance::new(
             font.font_key,
             font.size,
-            *color,
+            color,
             render_mode,
             font.subpx_dir,
             font.platform_options,
