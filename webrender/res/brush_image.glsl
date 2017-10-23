@@ -12,46 +12,45 @@ flat varying vec4 vColor;
 #endif
 
 #ifdef WR_VERTEX_SHADER
-// Draw a cached primitive (e.g. a blurred text run) from the
-// target cache to the framebuffer, applying tile clip boundaries.
-
-void main(void) {
-    Primitive prim = load_primitive();
-
-    VertexInfo vi = write_vertex(prim.local_rect,
-                                 prim.local_clip_rect,
-                                 prim.z,
-                                 prim.layer,
-                                 prim.task,
-                                 prim.local_rect);
-
-    RenderTaskData child_task = fetch_render_task(prim.user_data1);
+void brush_vs(
+    int prim_address,
+    vec2 local_pos,
+    RectWithSize local_rect,
+    ivec2 user_data
+) {
+    // TODO(gw): For now, this brush_image shader is only
+    //           being used to draw items from the intermediate
+    //           surface cache (render tasks). In the future
+    //           we can expand this to support items from
+    //           the normal texture cache and unify this
+    //           with the normal image shader.
+    RenderTaskData child_task = fetch_render_task(user_data.x);
     vUv.z = child_task.data1.x;
 
 #if defined WR_FEATURE_COLOR
     vec2 texture_size = vec2(textureSize(sColor0, 0).xy);
 #else
-    Picture pic = fetch_picture(prim.specific_prim_address);
+    Picture pic = fetch_picture(prim_address);
 
     vec2 texture_size = vec2(textureSize(sColor1, 0).xy);
     vColor = pic.color;
 #endif
+
     vec2 uv0 = child_task.data0.xy;
     vec2 uv1 = (child_task.data0.xy + child_task.data0.zw);
 
-    vec2 f = (vi.local_pos - prim.local_rect.p0) / prim.local_rect.size;
+    vec2 f = (local_pos - local_rect.p0) / local_rect.size;
 
     vUv.xy = mix(uv0 / texture_size,
                  uv1 / texture_size,
                  f);
-    vUvBounds = vec4(uv0 + vec2(0.5), uv1 - vec2(0.5)) / texture_size.xyxy;
 
-    write_clip(vi.screen_pos, prim.clip_area);
+    vUvBounds = vec4(uv0 + vec2(0.5), uv1 - vec2(0.5)) / texture_size.xyxy;
 }
 #endif
 
 #ifdef WR_FRAGMENT_SHADER
-void main(void) {
+vec4 brush_fs() {
     vec2 uv = clamp(vUv.xy, vUvBounds.xy, vUvBounds.zw);
 
 #if defined WR_FEATURE_COLOR
@@ -60,6 +59,8 @@ void main(void) {
     vec4 color = vColor * texture(sColor1, vec3(uv, vUv.z)).r;
 #endif
 
-    oFragColor = color * do_clip();
+    return color;
 }
 #endif
+
+#include brush

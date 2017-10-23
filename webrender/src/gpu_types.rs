@@ -140,20 +140,50 @@ impl From<CompositePrimitiveInstance> for PrimitiveInstance {
     }
 }
 
+// Whether this brush is being drawn on a Picture
+// task (new) or an alpha batch task (legacy).
+// Can be removed once everything uses pictures.
+pub const BRUSH_FLAG_USES_PICTURE: i32 = (1 << 0);
+
+// TODO(gw): While we are comverting things over, we
+//           need to have the instance be the same
+//           size as an old PrimitiveInstance. In the
+//           future, we can compress this vertex
+//           format a lot - e.g. z, render task
+//           addresses etc can reasonably become
+//           a u16 type.
 #[repr(C)]
 pub struct BrushInstance {
     picture_address: RenderTaskAddress,
     prim_address: GpuCacheAddress,
+    layer_address: PackedLayerAddress,
+    clip_task_address: RenderTaskAddress,
+    z: i32,
+    flags: i32,
+    user_data0: i32,
+    user_data1: i32,
 }
 
 impl BrushInstance {
     pub fn new(
         picture_address: RenderTaskAddress,
-        prim_address: GpuCacheAddress
+        prim_address: GpuCacheAddress,
+        layer_address: PackedLayerAddress,
+        clip_task_address: RenderTaskAddress,
+        z: i32,
+        flags: i32,
+        user_data0: i32,
+        user_data1: i32,
     ) -> BrushInstance {
         BrushInstance {
             picture_address,
             prim_address,
+            layer_address: layer_address.into(),
+            clip_task_address,
+            z,
+            flags,
+            user_data0,
+            user_data1,
         }
     }
 }
@@ -164,12 +194,12 @@ impl From<BrushInstance> for PrimitiveInstance {
             data: [
                 instance.picture_address.0 as i32,
                 instance.prim_address.as_int(),
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
+                instance.layer_address.0,
+                instance.clip_task_address.0 as i32,
+                instance.z,
+                instance.flags,
+                instance.user_data0,
+                instance.user_data1,
             ]
         }
     }
