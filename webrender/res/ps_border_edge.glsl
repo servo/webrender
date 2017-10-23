@@ -250,7 +250,7 @@ void main(void) {
     vec2 local_pos = vLocalPos;
 #endif
 
-    alpha = min(alpha, do_clip());
+    alpha *= do_clip();
 
     // Find the appropriate distance to apply the step over.
     float aa_range = compute_aa_range(local_pos);

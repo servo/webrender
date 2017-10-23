@@ -111,7 +111,7 @@ void main(void) {
                                     vClipCenter_Radius_BR,
                                     vClipCenter_Radius_BL);
 
-    float combined_alpha = min(alpha, clip_alpha);
+    float combined_alpha = alpha * clip_alpha;
 
     // Select alpha or inverse alpha depending on clip in/out.
     float final_alpha = mix(combined_alpha, 1.0 - combined_alpha, vClipMode);
