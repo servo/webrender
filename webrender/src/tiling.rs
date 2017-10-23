@@ -63,6 +63,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                 }
             }
             PrimitiveKind::Rectangle |
+            PrimitiveKind::Border |
             PrimitiveKind::Image |
             PrimitiveKind::AlignedGradient |
             PrimitiveKind::AngleGradient |
@@ -73,7 +74,6 @@ impl AlphaBatchHelpers for PrimitiveStore {
                 BlendMode::None
             },
             PrimitiveKind::YuvImage |
-            PrimitiveKind::Border |
             PrimitiveKind::Line |
             PrimitiveKind::Brush => if needs_blending {
                 BlendMode::Alpha
