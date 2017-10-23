@@ -62,6 +62,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     FontRenderMode::Bitmap => BlendMode::PremultipliedAlpha,
                 }
             }
+            PrimitiveKind::Rectangle |
             PrimitiveKind::Image |
             PrimitiveKind::AlignedGradient |
             PrimitiveKind::AngleGradient |
@@ -71,7 +72,10 @@ impl AlphaBatchHelpers for PrimitiveStore {
             } else {
                 BlendMode::None
             },
-            _ => if needs_blending {
+            PrimitiveKind::YuvImage |
+            PrimitiveKind::Border |
+            PrimitiveKind::Line |
+            PrimitiveKind::Brush => if needs_blending {
                 BlendMode::Alpha
             } else {
                 BlendMode::None
