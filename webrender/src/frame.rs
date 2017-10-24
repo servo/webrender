@@ -16,6 +16,7 @@ use euclid::rect;
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use gpu_cache::GpuCache;
 use internal_types::{FastHashMap, FastHashSet, RendererFrame};
+use prim_store::FillOrClear;
 use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
 use resource_cache::{ResourceCache, TiledImageMap};
 use scene::{Scene, StackingContextHelpers, ScenePipeline};
@@ -512,10 +513,18 @@ impl FrameContext {
                     context.builder.add_solid_rectangle(
                         clip_and_scroll,
                         &prim_info,
-                        &info.color,
+                        &FillOrClear::Fill(info.color),
                         PrimitiveFlags::None,
                     );
                 }
+            }
+            SpecificDisplayItem::ClearRectangle => {
+                context.builder.add_solid_rectangle(
+                    clip_and_scroll,
+                    &prim_info,
+                    &FillOrClear::Clear,
+                    PrimitiveFlags::None,
+                );
             }
             SpecificDisplayItem::Line(ref info) => {
                 let prim_info = LayerPrimitiveInfo {
@@ -724,7 +733,7 @@ impl FrameContext {
                     context.builder.add_solid_rectangle(
                         ClipAndScrollInfo::simple(clip_id),
                         &info,
-                        &bg_color,
+                        &FillOrClear::Fill(bg_color),
                         PrimitiveFlags::None,
                     );
                 }
@@ -741,7 +750,7 @@ impl FrameContext {
             context.builder.add_solid_rectangle(
                 ClipAndScrollInfo::simple(clip_id),
                 &info,
-                &DEFAULT_SCROLLBAR_COLOR,
+                &FillOrClear::Fill(DEFAULT_SCROLLBAR_COLOR),
                 PrimitiveFlags::Scrollbar(self.clip_scroll_tree.topmost_scrolling_node_id(), 4.0),
             );
         }
@@ -1176,7 +1185,7 @@ fn try_to_add_rectangle_splitting_on_clip(
     context.builder.add_solid_rectangle(
         *clip_and_scroll,
         &prim_info,
-        color,
+        &FillOrClear::Fill(*color),
         PrimitiveFlags::None,
     );
 
@@ -1186,7 +1195,7 @@ fn try_to_add_rectangle_splitting_on_clip(
         context.builder.add_solid_rectangle(
             *clip_and_scroll,
             &info,
-            color,
+            &FillOrClear::Fill(*color),
             PrimitiveFlags::None,
         );
     }

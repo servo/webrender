@@ -618,6 +618,7 @@ pub enum BlendMode {
     None,
     Alpha,
     PremultipliedAlpha,
+    PremultipliedDestOut,
     Subpixel,
 }
 
@@ -2350,6 +2351,7 @@ impl Renderer {
                         !needs_clipping || match key.blend_mode {
                             BlendMode::Alpha |
                             BlendMode::PremultipliedAlpha |
+                            BlendMode::PremultipliedDestOut |
                             BlendMode::Subpixel => true,
                             BlendMode::None => false,
                         }
@@ -2715,6 +2717,7 @@ impl Renderer {
                         BlendMode::None => ColorF::new(0.3, 0.3, 0.3, 1.0),
                         BlendMode::Alpha => ColorF::new(0.0, 0.9, 0.1, 1.0),
                         BlendMode::PremultipliedAlpha => ColorF::new(0.0, 0.3, 0.7, 1.0),
+                        BlendMode::PremultipliedDestOut => ColorF::new(0.6, 0.2, 0.0, 1.0),
                         BlendMode::Subpixel => ColorF::new(0.5, 0.0, 0.4, 1.0),
                     }.into();
                     for item_rect in &batch.item_rects {
@@ -2791,7 +2794,7 @@ impl Renderer {
                                 self.device
                                     .draw_indexed_triangles_instanced_u16(6, batch.instances.len() as i32);
                             }
-                            BlendMode::Alpha | BlendMode::None => {
+                            BlendMode::Alpha | BlendMode::PremultipliedDestOut | BlendMode::None => {
                                 unreachable!("bug: bad blend mode for text");
                             }
                         }
@@ -2812,6 +2815,10 @@ impl Renderer {
                                 BlendMode::PremultipliedAlpha => {
                                     self.device.set_blend(true);
                                     self.device.set_blend_mode_premultiplied_alpha();
+                                }
+                                BlendMode::PremultipliedDestOut => {
+                                    self.device.set_blend(true);
+                                    self.device.set_blend_mode_premultiplied_dest_out();
                                 }
                                 BlendMode::Subpixel => {
                                     unreachable!("bug: subpx text handled earlier");

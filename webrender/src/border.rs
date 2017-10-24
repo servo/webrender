@@ -8,7 +8,7 @@ use clip::ClipSource;
 use ellipse::Ellipse;
 use frame_builder::FrameBuilder;
 use gpu_cache::GpuDataRequest;
-use prim_store::{BorderPrimitiveCpu, PrimitiveContainer, TexelRect};
+use prim_store::{BorderPrimitiveCpu, FillOrClear, PrimitiveContainer, TexelRect};
 use tiling::PrimitiveFlags;
 use util::{lerp, pack_as_float};
 
@@ -385,7 +385,7 @@ impl FrameBuilder {
                 self.add_solid_rectangle(
                     clip_and_scroll,
                     &info,
-                    &border.top.color,
+                    &FillOrClear::Fill(border.top.color),
                     PrimitiveFlags::None,
                 );
             }
@@ -398,7 +398,7 @@ impl FrameBuilder {
                 self.add_solid_rectangle(
                     clip_and_scroll,
                     &info,
-                    &border.left.color,
+                    &FillOrClear::Fill(border.left.color),
                     PrimitiveFlags::None,
                 );
             }
@@ -411,7 +411,7 @@ impl FrameBuilder {
                 self.add_solid_rectangle(
                     clip_and_scroll,
                     &info,
-                    &border.right.color,
+                    &FillOrClear::Fill(border.right.color),
                     PrimitiveFlags::None,
                 );
             }
@@ -424,7 +424,7 @@ impl FrameBuilder {
                 self.add_solid_rectangle(
                     clip_and_scroll,
                     &info,
-                    &border.bottom.color,
+                    &FillOrClear::Fill(border.bottom.color),
                     PrimitiveFlags::None,
                 );
             }

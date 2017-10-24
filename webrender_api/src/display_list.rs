@@ -770,6 +770,10 @@ impl DisplayListBuilder {
         self.push_item(item, info);
     }
 
+    pub fn push_clear_rect(&mut self, info: &LayoutPrimitiveInfo) {
+        self.push_item(SpecificDisplayItem::ClearRectangle, info);
+    }
+
     pub fn push_line(
         &mut self,
         info: &LayoutPrimitiveInfo,

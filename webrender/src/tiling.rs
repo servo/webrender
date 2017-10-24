@@ -61,8 +61,14 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     FontRenderMode::Mono |
                     FontRenderMode::Bitmap => BlendMode::PremultipliedAlpha,
                 }
-            }
-            PrimitiveKind::Rectangle |
+            },
+            PrimitiveKind::Rectangle => if metadata.is_clear {
+                BlendMode::PremultipliedDestOut
+            } else if needs_blending {
+                BlendMode::PremultipliedAlpha
+            } else {
+                BlendMode::None
+            },
             PrimitiveKind::Border |
             PrimitiveKind::Image |
             PrimitiveKind::AlignedGradient |
@@ -257,7 +263,8 @@ impl BatchList {
     ) -> &mut Vec<PrimitiveInstance> {
         match key.blend_mode {
             BlendMode::None => self.opaque_batch_list.get_suitable_batch(key),
-            BlendMode::Alpha | BlendMode::PremultipliedAlpha | BlendMode::Subpixel => {
+            BlendMode::Alpha | BlendMode::PremultipliedAlpha |
+            BlendMode::PremultipliedDestOut | BlendMode::Subpixel => {
                 self.alpha_batch_list
                     .get_suitable_batch(key, item_bounding_rect)
             }

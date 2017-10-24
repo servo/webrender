@@ -27,7 +27,7 @@ use prim_store::{BrushPrimitive, TexelRect, YuvImagePrimitiveCpu};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, LinePrimitive, PrimitiveKind};
 use prim_store::{PrimitiveContainer, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
-use prim_store::{RectanglePrimitive, TextRunPrimitiveCpu};
+use prim_store::{FillOrClear, RectanglePrimitive, TextRunPrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_task::{AlphaRenderItem, ClearMode, ClipChain, RenderTask, RenderTaskId, RenderTaskLocation};
 use render_task::RenderTaskTree;
@@ -616,17 +616,23 @@ impl FrameBuilder {
         &mut self,
         clip_and_scroll: ClipAndScrollInfo,
         info: &LayerPrimitiveInfo,
-        color: &ColorF,
+        operation: &FillOrClear,
         flags: PrimitiveFlags,
     ) {
-        let prim = RectanglePrimitive { color: *color };
-
-        // Don't add transparent rectangles to the draw list, but do consider them for hit
-        // testing. This allows specifying invisible hit testing areas.
-        if color.a == 0.0 {
-            self.add_primitive_to_hit_testing_list(info, clip_and_scroll);
-            return;
-        }
+        let prim = match operation {
+            &FillOrClear::Fill(ref color) => {
+                // Don't add transparent rectangles to the draw list, but do consider them for hit
+                // testing. This allows specifying invisible hit testing areas.
+                if color.a == 0.0 {
+                    self.add_primitive_to_hit_testing_list(info, clip_and_scroll);
+                    return;
+                }
+                RectanglePrimitive { operation: *operation }
+            }
+            &FillOrClear::Clear => {
+                RectanglePrimitive { operation: *operation }
+            }
+        };
 
         let prim_index = self.add_primitive(
             clip_and_scroll,
@@ -1336,7 +1342,7 @@ impl FrameBuilder {
                 &fast_info,
                 clips,
                 PrimitiveContainer::Rectangle(RectanglePrimitive {
-                    color: *color,
+                    operation: FillOrClear::Fill(*color),
                 }),
             );
         } else {
