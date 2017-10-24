@@ -17,7 +17,7 @@ use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use gpu_cache::GpuCache;
 use internal_types::{FastHashMap, FastHashSet, RendererFrame};
 use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
-use resource_cache::{ResourceCache, TiledImageMap};
+use resource_cache::{FontInstanceMap,ResourceCache, TiledImageMap};
 use scene::{Scene, StackingContextHelpers, ScenePipeline};
 use tiling::{CompositeOps, Frame, PrimitiveFlags};
 use util::{subtract_rect, ComplexClipRegionHelpers};
@@ -35,7 +35,7 @@ static DEFAULT_SCROLLBAR_COLOR: ColorF = ColorF {
 struct FlattenContext<'a> {
     scene: &'a Scene,
     builder: &'a mut FrameBuilder,
-    resource_cache: &'a ResourceCache,
+    font_instances: FontInstanceMap,
     tiled_image_map: TiledImageMap,
     replacements: Vec<(ClipId, ClipId)>,
 }
@@ -49,7 +49,7 @@ impl<'a> FlattenContext<'a> {
         FlattenContext {
             scene,
             builder,
-            resource_cache,
+            font_instances: resource_cache.get_font_instances(),
             tiled_image_map: resource_cache.get_tiled_image_map(),
             replacements: Vec::new(),
         }
@@ -484,7 +484,10 @@ impl FrameContext {
                 );
             }
             SpecificDisplayItem::Text(ref text_info) => {
-                match context.resource_cache.get_font_instance(text_info.font_key) {
+                let instance_map =context.font_instances
+                    .read()
+                    .unwrap();
+                match instance_map.get(&text_info.font_key) {
                     Some(instance) => {
                         context.builder.add_text(
                             clip_and_scroll,
