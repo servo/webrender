@@ -2,6 +2,7 @@
 != inset-spread.yaml inset-spread-ref.yaml
 == inset-no-blur-radius.yaml inset-no-blur-radius-ref.png
 == inset-spread-large.yaml inset-spread-large-ref.yaml
+== inset-alpha.yaml inset-alpha.png
 == boxshadow-spread-only.yaml boxshadow-spread-only-ref.png
 fuzzy(1,396) == inset-large-offset.yaml inset-large-offset-ref.png
 == inset-border-radius.yaml inset-border-radius.png
