@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include shared,prim_shared,ellipse
+#include shared,prim_shared,ellipse,brush
 
 flat varying float vClipMode;
 flat varying vec4 vClipCenter_Radius_TL;
@@ -75,5 +75,3 @@ vec4 brush_fs() {
     return vec4(mix(d, 1.0 - d, vClipMode));
 }
 #endif
-
-#include brush

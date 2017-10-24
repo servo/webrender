@@ -4,6 +4,13 @@
 
 #ifdef WR_VERTEX_SHADER
 
+void brush_vs(
+    int prim_address,
+    vec2 local_pos,
+    RectWithSize local_rect,
+    ivec2 user_data
+);
+
 // Whether this brush is being drawn on a Picture
 // task (new) or an alpha batch task (legacy).
 // Can be removed once everything uses pictures.
@@ -102,7 +109,7 @@ void main(void) {
         //           shaders that don't clip in the future,
         //           but it's reasonable to assume that one
         //           implies the other, for now.
-#ifdef WR_FEATURE_ALPHA
+#ifdef WR_FEATURE_ALPHA_PASS
         write_clip(
             vi.screen_pos,
             clip_area
@@ -121,11 +128,14 @@ void main(void) {
 #endif
 
 #ifdef WR_FRAGMENT_SHADER
+
+vec4 brush_fs();
+
 void main(void) {
     // Run the specific brush FS code to output the color.
     vec4 color = brush_fs();
 
-#ifdef WR_FEATURE_ALPHA
+#ifdef WR_FEATURE_ALPHA_PASS
     // Apply the clip mask
     color *= do_clip();
 #endif

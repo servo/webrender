@@ -839,7 +839,7 @@ impl VertexDataTexture {
 
 const TRANSFORM_FEATURE: &str = "TRANSFORM";
 const CLIP_FEATURE: &str = "CLIP";
-const ALPHA_FEATURE: &str = "ALPHA";
+const ALPHA_FEATURE: &str = "ALPHA_PASS";
 
 enum ShaderKind {
     Primitive,
@@ -1377,21 +1377,21 @@ impl Renderer {
         let brush_image_a8 = try!{
             BrushShader::new("brush_image",
                              &mut device,
-                             &["ALPHA"],
+                             &["ALPHA_TARGET"],
                              options.precache_shaders)
         };
 
         let brush_image_rgba8 = try!{
             BrushShader::new("brush_image",
                              &mut device,
-                             &["COLOR"],
+                             &["COLOR_TARGET"],
                              options.precache_shaders)
         };
 
         let cs_blur_a8 = try!{
             LazilyCompiledShader::new(ShaderKind::Cache(VertexArrayKind::Blur),
                                      "cs_blur",
-                                      &["ALPHA"],
+                                      &["ALPHA_TARGET"],
                                       &mut device,
                                       options.precache_shaders)
         };
@@ -1399,7 +1399,7 @@ impl Renderer {
         let cs_blur_rgba8 = try!{
             LazilyCompiledShader::new(ShaderKind::Cache(VertexArrayKind::Blur),
                                      "cs_blur",
-                                      &["COLOR"],
+                                      &["COLOR_TARGET"],
                                       &mut device,
                                       options.precache_shaders)
         };
@@ -2425,27 +2425,17 @@ impl Renderer {
             BatchKind::Brush(brush_kind) => {
                 match brush_kind {
                     BrushBatchKind::Image(target_kind) => {
-                        match target_kind {
-                            RenderTargetKind::Alpha => {
-                                self.brush_image_a8.bind(
-                                    &mut self.device,
-                                    key.blend_mode,
-                                    projection,
-                                    0,
-                                    &mut self.renderer_errors,
-                                );
-                            }
-                            RenderTargetKind::Color => {
-                                self.brush_image_rgba8.bind(
-                                    &mut self.device,
-                                    key.blend_mode,
-                                    projection,
-                                    0,
-                                    &mut self.renderer_errors,
-                                );
-                            }
-                        }
-
+                        let shader = match target_kind {
+                            RenderTargetKind::Alpha => &mut self.brush_image_a8,
+                            RenderTargetKind::Color => &mut self.brush_image_rgba8,
+                        };
+                        shader.bind(
+                            &mut self.device,
+                            key.blend_mode,
+                            projection,
+                            0,
+                            &mut self.renderer_errors,
+                        );
                         GPU_TAG_BRUSH_IMAGE
                     }
                 }

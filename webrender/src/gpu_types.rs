@@ -154,38 +154,14 @@ pub const BRUSH_FLAG_USES_PICTURE: i32 = (1 << 0);
 //           a u16 type.
 #[repr(C)]
 pub struct BrushInstance {
-    picture_address: RenderTaskAddress,
-    prim_address: GpuCacheAddress,
-    layer_address: PackedLayerAddress,
-    clip_task_address: RenderTaskAddress,
-    z: i32,
-    flags: i32,
-    user_data0: i32,
-    user_data1: i32,
-}
-
-impl BrushInstance {
-    pub fn new(
-        picture_address: RenderTaskAddress,
-        prim_address: GpuCacheAddress,
-        layer_address: PackedLayerAddress,
-        clip_task_address: RenderTaskAddress,
-        z: i32,
-        flags: i32,
-        user_data0: i32,
-        user_data1: i32,
-    ) -> BrushInstance {
-        BrushInstance {
-            picture_address,
-            prim_address,
-            layer_address: layer_address.into(),
-            clip_task_address,
-            z,
-            flags,
-            user_data0,
-            user_data1,
-        }
-    }
+    pub picture_address: RenderTaskAddress,
+    pub prim_address: GpuCacheAddress,
+    pub layer_address: PackedLayerAddress,
+    pub clip_task_address: RenderTaskAddress,
+    pub z: i32,
+    pub flags: i32,
+    pub user_data0: i32,
+    pub user_data1: i32,
 }
 
 impl From<BrushInstance> for PrimitiveInstance {

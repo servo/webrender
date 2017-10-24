@@ -2,12 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include shared,prim_shared
+#include shared,prim_shared,brush
 
 varying vec3 vUv;
 flat varying vec4 vUvBounds;
 
-#if defined WR_FEATURE_ALPHA
+#if defined WR_FEATURE_ALPHA_TARGET
 flat varying vec4 vColor;
 #endif
 
@@ -27,7 +27,7 @@ void brush_vs(
     RenderTaskData child_task = fetch_render_task(user_data.x);
     vUv.z = child_task.data1.x;
 
-#if defined WR_FEATURE_COLOR
+#if defined WR_FEATURE_COLOR_TARGET
     vec2 texture_size = vec2(textureSize(sColor0, 0).xy);
 #else
     Picture pic = fetch_picture(prim_address);
@@ -53,7 +53,7 @@ void brush_vs(
 vec4 brush_fs() {
     vec2 uv = clamp(vUv.xy, vUvBounds.xy, vUvBounds.zw);
 
-#if defined WR_FEATURE_COLOR
+#if defined WR_FEATURE_COLOR_TARGET
     vec4 color = texture(sColor0, vec3(uv, vUv.z));
 #else
     vec4 color = vColor * texture(sColor1, vec3(uv, vUv.z)).r;
@@ -62,5 +62,3 @@ vec4 brush_fs() {
     return color;
 }
 #endif
-
-#include brush

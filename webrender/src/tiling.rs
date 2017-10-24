@@ -589,16 +589,16 @@ impl AlphaRenderItem {
                         );
                         let key = BatchKey::new(kind, blend_mode, textures);
                         let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
-                        let instance = BrushInstance::new(
-                            task_address,
-                            prim_cache_address,
-                            packed_layer_index.into(),
+                        let instance = BrushInstance {
+                            picture_address: task_address,
+                            prim_address: prim_cache_address,
+                            layer_address: packed_layer_index.into(),
                             clip_task_address,
                             z,
-                            0,
-                            cache_task_address.0 as i32,
-                            0,
-                        );
+                            flags: 0,
+                            user_data0: cache_task_address.0 as i32,
+                            user_data1: 0,
+                        };
                         batch.push(PrimitiveInstance::from(instance));
                     }
                     PrimitiveKind::AlignedGradient => {
@@ -1348,21 +1348,21 @@ impl RenderTarget for AlphaRenderTarget {
 
                                 match sub_metadata.prim_kind {
                                     PrimitiveKind::Brush => {
-                                        let instance = BrushInstance::new(
-                                            task_index,
-                                            sub_prim_address,
+                                        let instance = BrushInstance {
+                                            picture_address: task_index,
+                                            prim_address: sub_prim_address,
                                             // TODO(gw): In the future, when brush
                                             //           primitives on picture backed
                                             //           tasks support clip masks and
                                             //           transform primitives, these
                                             //           will need to be filled out!
-                                            PackedLayerIndex(0).into(),
-                                            RenderTaskAddress(0),
-                                            0,
-                                            BRUSH_FLAG_USES_PICTURE,
-                                            0,
-                                            0,
-                                        );
+                                            layer_address: PackedLayerIndex(0).into(),
+                                            clip_task_address: RenderTaskAddress(0),
+                                            z: 0,
+                                            flags: BRUSH_FLAG_USES_PICTURE,
+                                            user_data0: 0,
+                                            user_data1: 0,
+                                        };
                                         self.rect_cache_prims.push(PrimitiveInstance::from(instance));
                                     }
                                     _ => {
