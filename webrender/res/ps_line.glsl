@@ -59,30 +59,22 @@ void main(void) {
             break;
         }
         case LINE_STYLE_DASHED: {
-            // y = dash on + off length
-            // z = dash length
-            // w = center line of edge cross-axis (for dots only)
-            float desired_dash_length = size.y * 3.0;
-            // Consider half total length since there is an equal on/off for each dash.
-            float dash_count = 1.0 + ceil(size.x / desired_dash_length);
-            float dash_length = size.x / dash_count;
-            vParams = vec4(2.0 * dash_length,
-                           dash_length,
+            float dash_length = size.y * 3.0;
+            vParams = vec4(2.0 * dash_length, // period
+                           dash_length,       // dash length
                            0.0,
                            0.0);
             break;
         }
         case LINE_STYLE_DOTTED: {
             float diameter = size.y;
-            float radius = 0.5 * diameter;
-            float dot_count = ceil(0.5 * size.x / diameter);
-            float empty_space = size.x - dot_count * diameter;
-            float distance_between_centers = diameter + empty_space / dot_count;
+            float period = diameter * 2.0;
             float center_line = pos.y + 0.5 * size.y;
-            vParams = vec4(distance_between_centers,
-                           radius,
+            float max_x = floor(size.x / period) * period; 
+            vParams = vec4(period,
+                           diameter / 2.0, // radius
                            center_line,
-                           0.0);
+                           max_x);
             break;
         }
         case LINE_STYLE_WAVY: {
@@ -223,6 +215,8 @@ void main(void) {
             vec2 dot_relative_pos = vec2(x, pos.y) - vParams.yz;
             float dot_distance = length(dot_relative_pos) - vParams.y;
             alpha = min(alpha, distance_aa(aa_range, dot_distance));
+            // Clip off partial dots
+            alpha *= step(pos.x - vLocalOrigin.x, vParams.w);
             break;
         }
         case LINE_STYLE_WAVY: {
