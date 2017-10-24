@@ -3353,21 +3353,22 @@ impl Renderer {
         let mut spacing = 16;
         let mut size = 512;
         let fb_width = framebuffer_size.width as i32;
-        let num_textures = self.color_render_targets
+        let num_layers: i32 = self.color_render_targets
             .iter()
             .chain(self.alpha_render_targets.iter())
-            .count() as i32;
+            .map(|texture| texture.get_render_target_layer_count() as i32)
+            .sum();
 
-        if num_textures * (size + spacing) > fb_width {
-            let factor = fb_width as f32 / (num_textures * (size + spacing)) as f32;
+        if num_layers * (size + spacing) > fb_width {
+            let factor = fb_width as f32 / (num_layers * (size + spacing)) as f32;
             size = (size as f32 * factor) as i32;
             spacing = (spacing as f32 * factor) as i32;
         }
 
-        for (i, texture) in self.color_render_targets
+        let mut target_index = 0;
+        for texture in self.color_render_targets
             .iter()
             .chain(self.alpha_render_targets.iter())
-            .enumerate()
         {
             let dimensions = texture.get_dimensions();
             let src_rect = DeviceIntRect::new(DeviceIntPoint::zero(), dimensions.to_i32());
@@ -3376,11 +3377,12 @@ impl Renderer {
             for layer_index in 0 .. layer_count {
                 self.device
                     .bind_read_target(Some((texture, layer_index as i32)));
-                let x = fb_width - (spacing + size) * (i as i32 + 1);
+                let x = fb_width - (spacing + size) * (target_index + 1);
                 let y = spacing;
 
                 let dest_rect = rect(x, y, size, size);
                 self.device.blit_render_target(src_rect, dest_rect);
+                target_index += 1;
             }
         }
     }
