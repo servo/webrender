@@ -1281,7 +1281,6 @@ impl FrameBuilder {
         let shadow_radius = adjust_border_radius_for_box_shadow(
             border_radius,
             spread_amount,
-            spread_radius
         );
         let shadow_rect = prim_info.rect
                                    .translate(box_offset)
@@ -2401,27 +2400,22 @@ impl FrameBuilder {
 fn adjust_border_radius_for_box_shadow(
     radius: BorderRadius,
     spread_amount: f32,
-    spread_radius: f32,
 ) -> BorderRadius {
     BorderRadius {
         top_left: adjust_corner_for_box_shadow(
             radius.top_left,
-            spread_radius,
             spread_amount,
         ),
         top_right: adjust_corner_for_box_shadow(
             radius.top_right,
-            spread_radius,
             spread_amount,
         ),
         bottom_right: adjust_corner_for_box_shadow(
             radius.bottom_right,
-            spread_radius,
             spread_amount,
         ),
         bottom_left: adjust_corner_for_box_shadow(
             radius.bottom_left,
-            spread_radius,
             spread_amount,
         ),
     }
@@ -2430,17 +2424,14 @@ fn adjust_border_radius_for_box_shadow(
 fn adjust_corner_for_box_shadow(
     corner: LayoutSize,
     spread_amount: f32,
-    spread_radius: f32,
 ) -> LayoutSize {
     LayoutSize::new(
         adjust_radius_for_box_shadow(
             corner.width,
-            spread_radius,
             spread_amount
         ),
         adjust_radius_for_box_shadow(
             corner.height,
-            spread_radius,
             spread_amount
         ),
     )
@@ -2449,15 +2440,10 @@ fn adjust_corner_for_box_shadow(
 fn adjust_radius_for_box_shadow(
     border_radius: f32,
     spread_amount: f32,
-    spread_radius: f32,
 ) -> f32 {
-    // Adjust the shadow box radius as per:
-    // https://drafts.csswg.org/css-backgrounds-3/#shadow-shape
-    let sharpness_scale = if border_radius < spread_radius {
-        let r = border_radius / spread_amount;
-        1.0 + (r - 1.0) * (r - 1.0) * (r - 1.0)
+    if border_radius > 0.0 {
+        (border_radius + spread_amount).max(0.0)
     } else {
-        1.0
-    };
-    (border_radius + spread_amount * sharpness_scale).max(0.0)
+        0.0
+    }
 }
