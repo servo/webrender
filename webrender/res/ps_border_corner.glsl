@@ -110,10 +110,10 @@ void write_color(vec4 color0, vec4 color1, int style, vec2 delta, int instance_k
             break;
     }
 
-    vColor00 = vec4(clamp(color0.rgb * modulate.x, vec3(0.0), vec3(1.0)), color0.a);
-    vColor01 = vec4(clamp(color0.rgb * modulate.y, vec3(0.0), vec3(1.0)), color0.a);
-    vColor10 = vec4(clamp(color1.rgb * modulate.z, vec3(0.0), vec3(1.0)), color1.a);
-    vColor11 = vec4(clamp(color1.rgb * modulate.w, vec3(0.0), vec3(1.0)), color1.a);
+    vColor00 = vec4(clamp(color0.rgb * modulate.x, vec3(0.0), vec3(color0.a)), color0.a);
+    vColor01 = vec4(clamp(color0.rgb * modulate.y, vec3(0.0), vec3(color0.a)), color0.a);
+    vColor10 = vec4(clamp(color1.rgb * modulate.z, vec3(0.0), vec3(color1.a)), color1.a);
+    vColor11 = vec4(clamp(color1.rgb * modulate.w, vec3(0.0), vec3(color1.a)), color1.a);
 }
 
 int select_style(int color_select, vec2 fstyle) {
@@ -399,6 +399,6 @@ void main(void) {
     float m = distance_aa(aa_range, -ld);
     vec4 color = mix(color0, color1, m);
 
-    oFragColor = color * vec4(1.0, 1.0, 1.0, alpha);
+    oFragColor = color * alpha;
 }
 #endif
