@@ -9,4 +9,4 @@ fuzzy(1,396) == inset-large-offset.yaml inset-large-offset-ref.png
 == box-shadow-suite-blur.yaml box-shadow-suite-blur.png
 == rounding.yaml rounding-ref.yaml
 == box-shadow-border-radii.yaml box-shadow-border-radii.png
-
+== box-shadow-spread.yaml box-shadow-spread.png
