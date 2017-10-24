@@ -20,7 +20,7 @@ use internal_types::{FastHashMap, SourceTexture};
 use internal_types::BatchTextures;
 use picture::PictureKind;
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
-use prim_store::{BrushMaskKind, BrushKind, DeferredResolve, TextRunMode};
+use prim_store::{BrushMaskKind, BrushKind, DeferredResolve, RectangleContent, TextRunMode};
 use profiler::FrameProfileCounters;
 use render_task::{AlphaRenderItem, ClipWorkItem, MaskGeometryKind, MaskSegment};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKey, RenderTaskKind};
@@ -64,8 +64,24 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     FontRenderMode::Mono |
                     FontRenderMode::Bitmap => BlendMode::PremultipliedAlpha,
                 }
-            }
-            PrimitiveKind::Rectangle |
+            },
+            PrimitiveKind::Rectangle => {
+                let rectangle_cpu = &self.cpu_rectangles[metadata.cpu_prim_index.0];
+                match rectangle_cpu.content {
+                    RectangleContent::Fill(..) => if needs_blending {
+                        BlendMode::PremultipliedAlpha
+                    } else {
+                        BlendMode::None
+                    },
+                    RectangleContent::Clear => {
+                        // TODO: If needs_blending == false, we could use BlendMode::None
+                        // to clear the rectangle, but then we'd need to draw the rectangle
+                        // with alpha == 0.0 instead of alpha == 1.0, and the RectanglePrimitive
+                        // would need to know about that.
+                        BlendMode::PremultipliedDestOut
+                    },
+                }
+            },
             PrimitiveKind::Border |
             PrimitiveKind::Image |
             PrimitiveKind::AlignedGradient |
@@ -260,7 +276,8 @@ impl BatchList {
     ) -> &mut Vec<PrimitiveInstance> {
         match key.blend_mode {
             BlendMode::None => self.opaque_batch_list.get_suitable_batch(key),
-            BlendMode::Alpha | BlendMode::PremultipliedAlpha | BlendMode::Subpixel => {
+            BlendMode::Alpha | BlendMode::PremultipliedAlpha |
+            BlendMode::PremultipliedDestOut | BlendMode::Subpixel => {
                 self.alpha_batch_list
                     .get_suitable_batch(key, item_bounding_rect)
             }
