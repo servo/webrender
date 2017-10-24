@@ -571,6 +571,18 @@ impl YamlFrameReader {
         dl.push_rect(&info, color);
     }
 
+    fn handle_clear_rect(
+        &mut self,
+        dl: &mut DisplayListBuilder,
+        item: &Yaml,
+        info: &mut LayoutPrimitiveInfo,
+    ) {
+        info.rect = item["bounds"]
+            .as_rect()
+            .expect("clear-rect type must have bounds");
+        dl.push_clear_rect(&info);
+    }
+
     fn handle_line(
         &mut self,
         dl: &mut DisplayListBuilder,
@@ -1094,6 +1106,7 @@ impl YamlFrameReader {
             info.is_backface_visible = item["backface-visible"].as_bool().unwrap_or(true);;
             match item_type {
                 "rect" => self.handle_rect(dl, item, &mut info),
+                "clear-rect" => self.handle_clear_rect(dl, item, &mut info),
                 "line" => self.handle_line(dl, item, &mut info),
                 "image" => self.handle_image(dl, wrench, item, &mut info),
                 "text" | "glyphs" => self.handle_text(dl, wrench, item, &mut info),

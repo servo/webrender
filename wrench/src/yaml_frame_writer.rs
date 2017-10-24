@@ -647,6 +647,9 @@ impl YamlFrameWriter {
                     str_node(&mut v, "type", "rect");
                     color_node(&mut v, "color", item.color);
                 }
+                ClearRectangle => {
+                    str_node(&mut v, "type", "clear-rect");;
+                }
                 Line(item) => {
                     str_node(&mut v, "type", "line");
                     if let LineStyle::Wavy = item.style {

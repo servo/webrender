@@ -91,6 +91,7 @@ pub enum SpecificDisplayItem {
     ScrollFrame(ScrollFrameDisplayItem),
     StickyFrame(StickyFrameDisplayItem),
     Rectangle(RectangleDisplayItem),
+    ClearRectangle,
     Line(LineDisplayItem),
     Text(TextDisplayItem),
     Image(ImageDisplayItem),

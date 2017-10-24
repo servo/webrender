@@ -7,7 +7,7 @@ use api::{BorderRadius, BoxShadowClipMode, LayoutSize, LayerPrimitiveInfo};
 use api::{ClipMode, ComplexClipRegion, LocalClip, ClipAndScrollInfo};
 use clip::ClipSource;
 use frame_builder::FrameBuilder;
-use prim_store::{PrimitiveContainer, RectanglePrimitive, BrushPrimitive};
+use prim_store::{RectangleContent, PrimitiveContainer, RectanglePrimitive, BrushPrimitive};
 use picture::PicturePrimitive;
 use util::RectHelpers;
 
@@ -97,7 +97,7 @@ impl FrameBuilder {
                 &fast_info,
                 clips,
                 PrimitiveContainer::Rectangle(RectanglePrimitive {
-                    color: *color,
+                    content: RectangleContent::Fill(*color),
                 }),
             );
         } else {

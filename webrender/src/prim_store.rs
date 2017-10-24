@@ -138,6 +138,7 @@ pub struct PrimitiveMetadata {
     pub cpu_prim_index: SpecificPrimitiveIndex,
     pub gpu_location: GpuCacheHandle,
     pub clip_task_id: Option<RenderTaskId>,
+    pub is_clear: bool,
 
     // TODO(gw): In the future, we should just pull these
     //           directly from the DL item, instead of
@@ -152,15 +153,28 @@ pub struct PrimitiveMetadata {
     pub tag: Option<ItemTag>,
 }
 
+#[derive(Debug,Clone,Copy)]
+pub enum RectangleContent {
+    Fill(ColorF),
+    Clear,
+}
+
 #[derive(Debug)]
-#[repr(C)]
 pub struct RectanglePrimitive {
-    pub color: ColorF,
+    pub content: RectangleContent,
 }
 
 impl ToGpuBlocks for RectanglePrimitive {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        request.push(self.color.premultiplied());
+        match &self.content {
+            &RectangleContent::Fill(ref color) => {
+                request.push(color.premultiplied());
+            }
+            &RectangleContent::Clear => {
+                // Opaque black with operator dest out
+                request.push(ColorF::new(0.0, 0.0, 0.0, 1.0));
+            }
+        }
     }
 }
 
@@ -868,14 +882,24 @@ impl PrimitiveStore {
             tag,
 
             opacity: PrimitiveOpacity::translucent(),
+            is_clear: false,
             prim_kind: PrimitiveKind::Rectangle,
             cpu_prim_index: SpecificPrimitiveIndex(0),
         };
 
         let metadata = match container {
             PrimitiveContainer::Rectangle(rect) => {
+                let (opacity, is_clear) = match &rect.content {
+                    &RectangleContent::Fill(ref color) => {
+                        (PrimitiveOpacity::from_alpha(color.a), false)
+                    }
+                    &RectangleContent::Clear => {
+                        (PrimitiveOpacity::opaque(), true)
+                    }
+                };
                 let metadata = PrimitiveMetadata {
-                    opacity: PrimitiveOpacity::from_alpha(rect.color.a),
+                    opacity,
+                    is_clear,
                     prim_kind: PrimitiveKind::Rectangle,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_rectangles.len()),
                     ..base_metadata
