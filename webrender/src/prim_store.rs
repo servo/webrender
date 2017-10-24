@@ -160,7 +160,7 @@ pub struct RectanglePrimitive {
 
 impl ToGpuBlocks for RectanglePrimitive {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        request.push(self.color);
+        request.push(self.color.premultiplied());
     }
 }
 
