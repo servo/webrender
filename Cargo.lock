@@ -22,7 +22,7 @@ dependencies = [
  "serde_json 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "servo-glutin 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "time 0.1.36 (registry+https://github.com/rust-lang/crates.io-index)",
- "webrender 0.53.0",
+ "webrender 0.53.1",
  "yaml-rust 0.3.4 (git+https://github.com/vvuk/yaml-rust)",
 ]
 
@@ -1050,7 +1050,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "webrender"
-version = "0.53.0"
+version = "0.53.1"
 dependencies = [
  "angle 0.5.0 (git+https://github.com/servo/angle?branch=servo)",
  "app_units 0.5.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1079,13 +1079,13 @@ dependencies = [
  "servo-glutin 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "thread_profiler 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "time 0.1.36 (registry+https://github.com/rust-lang/crates.io-index)",
- "webrender_api 0.53.0",
+ "webrender_api 0.53.1",
  "ws 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "webrender_api"
-version = "0.53.0"
+version = "0.53.1"
 dependencies = [
  "app_units 0.5.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "bincode 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
