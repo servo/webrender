@@ -518,21 +518,11 @@ impl FrameContext {
                 }
             }
             SpecificDisplayItem::Line(ref info) => {
-                let prim_info = LayerPrimitiveInfo {
-                    rect: LayerRect::zero(),
-                    local_clip: *item.local_clip(),
-                    is_backface_visible: prim_info.is_backface_visible,
-                    tag: prim_info.tag,
-                };
-
                 context.builder.add_line(
                     clip_and_scroll,
                     &prim_info,
-                    info.baseline,
-                    info.start,
-                    info.end,
+                    info.wavy_line_thickness,
                     info.orientation,
-                    info.width,
                     &info.color,
                     info.style,
                 );

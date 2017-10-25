@@ -651,26 +651,13 @@ impl FrameBuilder {
         &mut self,
         clip_and_scroll: ClipAndScrollInfo,
         info: &LayerPrimitiveInfo,
-        baseline: f32,
-        start: f32,
-        end: f32,
+        wavy_line_thickness: f32,
         orientation: LineOrientation,
-        width: f32,
         color: &ColorF,
         style: LineStyle,
     ) {
-        let new_rect = match orientation {
-            LineOrientation::Horizontal => LayerRect::new(
-                LayerPoint::new(start, baseline),
-                LayerSize::new(end - start, width),
-            ),
-            LineOrientation::Vertical => LayerRect::new(
-                LayerPoint::new(baseline, start),
-                LayerSize::new(width, end - start),
-            ),
-        };
-
         let line = LinePrimitive {
+            wavy_line_thickness,
             color: *color,
             style: style,
             orientation: orientation,
@@ -690,7 +677,7 @@ impl FrameBuilder {
             let mut line = line.clone();
             line.color = shadow.color;
             let mut info = info.clone();
-            info.rect = new_rect.translate(&shadow.offset);
+            info.rect = info.rect.translate(&shadow.offset);
             let prim_index = self.create_primitive(
                 clip_and_scroll,
                 &info,
@@ -700,8 +687,6 @@ impl FrameBuilder {
             self.shadow_prim_stack[idx].1.push((prim_index, clip_and_scroll));
         }
 
-        let mut info = info.clone();
-        info.rect = new_rect;
         let prim_index = self.create_primitive(
             clip_and_scroll,
             &info,
@@ -714,7 +699,7 @@ impl FrameBuilder {
                 self.add_primitive_to_hit_testing_list(&info, clip_and_scroll);
                 self.add_primitive_to_draw_list(prim_index, clip_and_scroll);
             } else {
-                self.pending_shadow_contents.push((prim_index, clip_and_scroll, info));
+                self.pending_shadow_contents.push((prim_index, clip_and_scroll, *info));
             }
         }
 
@@ -727,7 +712,7 @@ impl FrameBuilder {
 
             // Only run real blurs here (fast path zero blurs are handled above).
             if blur_radius > 0.0 {
-                let shadow_rect = new_rect.inflate(
+                let shadow_rect = info.rect.inflate(
                     blur_radius,
                     blur_radius,
                 );

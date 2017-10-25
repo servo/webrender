@@ -578,10 +578,6 @@ impl YamlFrameReader {
         info: &mut LayoutPrimitiveInfo,
     ) {
         let color = item["color"].as_colorf().unwrap_or(*BLACK_COLOR);
-        let baseline = item["baseline"].as_f32().expect("line must have baseline");
-        let start = item["start"].as_f32().expect("line must have start");
-        let end = item["end"].as_f32().expect("line must have end");
-        let width = item["width"].as_f32().expect("line must have width");
         let orientation = item["orientation"]
             .as_str()
             .and_then(LineOrientation::from_str)
@@ -590,14 +586,47 @@ impl YamlFrameReader {
             .as_str()
             .and_then(LineStyle::from_str)
             .expect("line must have style");
+
+        let wavy_line_thickness = if let LineStyle::Wavy = style {
+            item["thickness"].as_f32().expect("wavy lines must have a thickness")
+        } else {
+            0.0
+        };
+
+        if item["baseline"].is_badvalue() {
+            let bounds_key = if item["type"].is_badvalue() {
+                "rect"
+            } else {
+                "bounds"
+            };
+
+            info.rect = item[bounds_key]
+                .as_rect()
+                .expect("line type must have bounds");
+        } else {
+            // Legacy line representation
+            let baseline = item["baseline"].as_f32().expect("line must have baseline");
+            let start = item["start"].as_f32().expect("line must have start");
+            let end = item["end"].as_f32().expect("line must have end");
+            let width = item["width"].as_f32().expect("line must have width");
+
+            info.rect = match orientation {
+                LineOrientation::Horizontal => {
+                    LayoutRect::new(LayoutPoint::new(start, baseline),
+                                    LayoutSize::new(end - start, width))
+                }
+                LineOrientation::Vertical => {
+                    LayoutRect::new(LayoutPoint::new(baseline, start),
+                                    LayoutSize::new(width, end - start))
+                }
+            };
+        }
+
         dl.push_line(
             &info,
-            baseline,
-            start,
-            end,
+            wavy_line_thickness,
             orientation,
-            width,
-            color,
+            &color,
             style,
         );
     }

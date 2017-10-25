@@ -773,21 +773,15 @@ impl DisplayListBuilder {
     pub fn push_line(
         &mut self,
         info: &LayoutPrimitiveInfo,
-        baseline: f32,
-        start: f32,
-        end: f32,
+        wavy_line_thickness: f32,
         orientation: LineOrientation,
-        width: f32,
-        color: ColorF,
+        color: &ColorF,
         style: LineStyle,
     ) {
         let item = SpecificDisplayItem::Line(LineDisplayItem {
-            baseline,
-            start,
-            end,
+            wavy_line_thickness,
             orientation,
-            width,
-            color,
+            color: *color,
             style,
         });
 

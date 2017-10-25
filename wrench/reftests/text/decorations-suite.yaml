@@ -5,7 +5,7 @@ root:
       baseline: 10
       start: 10
       end: 210
-      width: 3
+      width: 1
       orientation: horizontal
       color: black
       style: solid
@@ -13,7 +13,7 @@ root:
       baseline: 20
       start: 10
       end: 210
-      width: 3
+      width: 1
       orientation: horizontal
       color: blue
       style: dashed
@@ -21,7 +21,7 @@ root:
       baseline: 30
       start: 10
       end: 210
-      width: 3
+      width: 1
       orientation: horizontal
       color: green
       style: dotted
@@ -30,6 +30,7 @@ root:
       start: 10
       end: 210
       width: 3
+      thickness: 1
       orientation: horizontal
       color: red
       style: wavy
@@ -38,7 +39,7 @@ root:
       baseline: 50
       start: 10
       end: 210
-      width: 8
+      width: 2
       orientation: horizontal
       color: black
       style: solid
@@ -46,15 +47,15 @@ root:
       baseline: 65
       start: 10
       end: 210
-      width: 8
+      width: 2
       orientation: horizontal
       color: blue
       style: dashed
     - type: line
       baseline: 80
       start: 10
-      end: 210
-      width: 8
+      end: 207  # pruposefully cut off
+      width: 2
       orientation: horizontal
       color: green
       style: dotted
@@ -62,56 +63,100 @@ root:
       baseline: 95
       start: 10
       end: 210
-      width: 8
+      width: 6
+      thickness: 2
       orientation: horizontal
       color: red
       style: wavy
 
     -
       type: "shadow"
-      bounds: [14, 18, 205, 35]
+      bounds: [8, 100, 225, 50]
       blur-radius: 0
-      offset: [5, 7]
+      offset: [2, 2]
       color: red
+    - type: line
+      baseline: 110
+      start: 10
+      end: 210
+      width: 1
+      orientation: horizontal
+      color: [0,0,0,0]
+      style: solid
+    - type: line
+      baseline: 120
+      start: 10
+      end: 210
+      width: 1
+      orientation: horizontal
+      color: [0,0,0,0]
+      style: dashed
     - type: line
       baseline: 130
       start: 10
-      end: 210
-      width: 8
+      end: 209
+      width: 1
       orientation: horizontal
-      color: black
-      style: solid
+      color: [0,0,0,0]
+      style: dotted
+    - type: line
+      baseline: 140
+      start: 10
+      end: 210
+      width: 3
+      thickness: 1
+      orientation: horizontal
+      color: [0,0,0,0]
+      style: wavy
+    -
+      type: pop-all-shadows
+
+    -
+      type: "shadow"
+      bounds: [8, 145, 225, 65]
+      blur-radius: 1
+      offset: [2, 3]
+      color: red
     - type: line
       baseline: 150
       start: 10
       end: 210
-      width: 8
+      width: 2
+      orientation: horizontal
+      color: black
+      style: solid
+    - type: line
+      baseline: 165
+      start: 10
+      end: 210
+      width: 2
       orientation: horizontal
       color: blue
       style: dashed
     - type: line
-      baseline: 170
+      baseline: 180
       start: 10
-      end: 210
-      width: 8
+      end: 207    # purposefully cut off
+      width: 2
       orientation: horizontal
       color: green
       style: dotted
     - type: line
-      baseline: 190
+      baseline: 195
       start: 10
       end: 210
-      width: 8
+      width: 6
+      thickness: 2
       orientation: horizontal
-      color: black
+      color: red
       style: wavy
     -
-      type: "pop-all-shadows"
+      type: pop-all-shadows
 
     -
       type: "shadow"
-      bounds: [0, 200, 220, 120]
-      blur-radius: 3
+      bounds: [8, 220, 225, 40]
+      blur-radius: 0
       offset: [5, 7]
       color: red
     - type: line
@@ -133,7 +178,7 @@ root:
     - type: line
       baseline: 270
       start: 10
-      end: 210
+      end: 205    # purposefully cut off
       width: 8
       orientation: horizontal
       color: green
@@ -142,7 +187,50 @@ root:
       baseline: 290
       start: 10
       end: 210
+      width: 12
+      thickness: 3
+      orientation: horizontal
+      color: black
+      style: wavy
+    -
+      type: "pop-all-shadows"
+
+    -
+      type: "shadow"
+      bounds: [0, 320, 240, 140]
+      blur-radius: 3
+      offset: [5, 7]
+      color: red
+    - type: line
+      baseline: 330
+      start: 10
+      end: 210
       width: 8
+      orientation: horizontal
+      color: black
+      style: solid
+    - type: line
+      baseline: 350
+      start: 10
+      end: 210
+      width: 8
+      orientation: horizontal
+      color: blue
+      style: dashed
+    - type: line
+      baseline: 370
+      start: 10
+      end: 205    # purposefully cut off
+      width: 8
+      orientation: horizontal
+      color: green
+      style: dotted
+    - type: line
+      baseline: 390
+      start: 10
+      end: 210
+      width: 16
+      thickness: 4
       orientation: horizontal
       color: black
       style: wavy
@@ -153,7 +241,7 @@ root:
       baseline: 220
       start: 10
       end: 210
-      width: 3
+      width: 1
       orientation: vertical
       color: black
       style: solid
@@ -161,7 +249,7 @@ root:
       baseline: 230
       start: 10
       end: 210
-      width: 3
+      width: 1
       orientation: vertical
       color: blue
       style: dashed
@@ -169,7 +257,7 @@ root:
       baseline: 240
       start: 10
       end: 210
-      width: 3
+      width: 1
       orientation: vertical
       color: green
       style: dotted
@@ -177,6 +265,7 @@ root:
       baseline: 250
       start: 10
       end: 210
+      thickness: 1
       width: 3
       orientation: vertical
       color: red
@@ -186,7 +275,7 @@ root:
       baseline: 270
       start: 10
       end: 210
-      width: 8
+      width: 2
       orientation: vertical
       color: black
       style: solid
@@ -194,15 +283,15 @@ root:
       baseline: 290
       start: 10
       end: 210
-      width: 8
+      width: 2
       orientation: vertical
       color: blue
       style: dashed
     - type: line
       baseline: 310
       start: 10
-      end: 210
-      width: 8
+      end: 207    # purposefully cut off
+      width: 2
       orientation: vertical
       color: green
       style: dotted
@@ -210,7 +299,8 @@ root:
       baseline: 330
       start: 10
       end: 210
-      width: 8
+      thickness: 2
+      width: 6
       orientation: vertical
       color: red
       style: wavy
@@ -240,7 +330,7 @@ root:
     - type: line
       baseline: 420
       start: 10
-      end: 210
+      end: 205  # purposefully cut off
       width: 8
       orientation: vertical
       color: green
@@ -249,7 +339,8 @@ root:
       baseline: 440
       start: 10
       end: 210
-      width: 8
+      thickness: 4
+      width: 16
       orientation: vertical
       color: red
       style: wavy
