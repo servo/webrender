@@ -3,10 +3,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #[cfg(test)]
-use api::{ColorF, IdNamespace, LayoutPoint};
+use api::{ColorF, IdNamespace, LayoutPoint, FontRenderMode, SubpixelDirection};
 use api::{DevicePoint, DeviceUintSize, FontInstance};
-use api::{FontKey, FontTemplate, FontRenderMode, ColorU};
-use api::{GlyphDimensions, GlyphKey, SubpixelDirection};
+use api::{FontKey, FontTemplate, GlyphDimensions, GlyphKey};
 use api::{ImageData, ImageDescriptor, ImageFormat};
 #[cfg(test)]
 use app_units::Au;
@@ -145,26 +144,7 @@ impl GlyphRasterizer {
     }
 
     pub fn prepare_font(&self, font: &mut FontInstance) {
-        // In alpha/mono mode, the color of the font is irrelevant.
-        // Forcing it to black in those cases saves rasterizing glyphs
-        // of different colors when not needed.
-        match font.render_mode {
-            FontRenderMode::Mono | FontRenderMode::Bitmap => {
-                font.color = ColorU::new(255, 255, 255, 255);
-                // Subpixel positioning is disabled in mono and bitmap modes.
-                font.subpx_dir = SubpixelDirection::None;
-            }
-            FontRenderMode::Alpha => {
-                font.color = ColorU::new(255, 255, 255, 255);
-            }
-            FontRenderMode::Subpixel => {
-                // In subpixel mode, we only actually need the color if preblending
-                // is used in the font backend.
-                if !FontContext::has_gamma_correct_subpixel_aa() {
-                    font.color = ColorU::new(255, 255, 255, 255);
-                }
-            }
-        }
+        FontContext::prepare_font(font);
     }
 
     pub fn request_glyphs(
