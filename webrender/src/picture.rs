@@ -73,7 +73,7 @@ impl PicturePrimitive {
             render_task_id: None,
             kind: PictureKind::BoxShadow {
                 blur_radius,
-                color,
+                color: color.premultiplied(),
                 blur_regions,
                 clip_mode,
             },
