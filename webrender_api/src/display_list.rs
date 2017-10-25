@@ -2,19 +2,19 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use {BorderDetails, BorderDisplayItem, BorderWidths, BoxShadowClipMode, BoxShadowDisplayItem};
-use {ClipAndScrollInfo, ClipDisplayItem, ClipId, ColorF, ComplexClipRegion, DisplayItem};
-use {ExtendMode, FilterOp, FontInstanceKey, GlyphInstance};
-use {GlyphOptions, Gradient, GradientDisplayItem, GradientStop, IframeDisplayItem};
-use {ImageDisplayItem, ImageKey, ImageMask, ImageRendering, LayerPrimitiveInfo, LayoutPoint};
-use {LayoutPrimitiveInfo, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D};
-use {LineDisplayItem, LineOrientation, LineStyle, LocalClip, MixBlendMode, PipelineId};
-use {PropertyBinding, PushStackingContextDisplayItem, RadialGradient, RadialGradientDisplayItem};
-use {RectangleDisplayItem, ScrollFrameDisplayItem, ScrollPolicy, ScrollSensitivity};
-use {SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, StickyFrameInfo};
-use {BorderRadius, TextDisplayItem, Shadow, TransformStyle, YuvColorSpace, YuvData};
+use {BorderDetails, BorderDisplayItem, BorderRadius, BorderWidths, BoxShadowClipMode};
+use {BoxShadowDisplayItem, ClipAndScrollInfo, ClipDisplayItem, ClipId, ColorF, ComplexClipRegion};
+use {DisplayItem, ExtendMode, FilterOp, FontInstanceKey, GlyphInstance, GlyphOptions, Gradient};
+use {GradientDisplayItem, GradientStop, IframeDisplayItem, ImageDisplayItem, ImageKey, ImageMask};
+use {ImageRendering, LayerPrimitiveInfo, LayoutPoint, LayoutPrimitiveInfo, LayoutRect, LayoutSize};
+use {LayoutTransform, LayoutVector2D, LineDisplayItem, LineOrientation, LineStyle, LocalClip};
+use {MixBlendMode, PipelineId, PropertyBinding, PushStackingContextDisplayItem, RadialGradient};
+use {RadialGradientDisplayItem, RectangleDisplayItem, ScrollFrameDisplayItem, ScrollPolicy};
+use {ScrollSensitivity, Shadow, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem};
+use {StickyOffsetConstraints, TextDisplayItem, TransformStyle, YuvColorSpace, YuvData};
 use YuvImageDisplayItem;
 use bincode;
+use euclid::SideOffsets2D;
 use serde::{Deserialize, Serialize, Serializer};
 use serde::ser::{SerializeMap, SerializeSeq};
 use std::io::{Read, Write};
@@ -1236,12 +1236,16 @@ impl DisplayListBuilder {
         &mut self,
         id: Option<ClipId>,
         frame_rect: LayoutRect,
-        sticky_frame_info: StickyFrameInfo,
+        margins: SideOffsets2D<Option<f32>>,
+        vertical_constraints: StickyOffsetConstraints,
+        horizontal_constraints: StickyOffsetConstraints,
     ) -> ClipId {
         let id = self.generate_clip_id(id);
         let item = SpecificDisplayItem::StickyFrame(StickyFrameDisplayItem {
             id,
-            sticky_frame_info,
+            margins,
+            vertical_constraints,
+            horizontal_constraints,
         });
 
         let info = LayoutPrimitiveInfo::new(frame_rect);

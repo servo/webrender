@@ -5,7 +5,7 @@
 use {ColorF, FontInstanceKey, ImageKey, LayerPixel, LayoutPixel, LayoutPoint, LayoutRect,
      LayoutSize, LayoutTransform};
 use {GlyphOptions, LayoutVector2D, PipelineId, PropertyBinding};
-use euclid::{SideOffsets2D, TypedRect, TypedSideOffsets2D};
+use euclid::{SideOffsets2D, TypedRect};
 use std::ops::Not;
 
 // NOTE: some of these structs have an "IMPLICIT" comment.
@@ -113,19 +113,50 @@ pub struct ClipDisplayItem {
     pub image_mask: Option<ImageMask>,
 }
 
+/// Constraints for sticky frames for a single dimension.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct StickyOffsetConstraints {
+    /// The minimum offset for this frame, typically a negative value, which specifies how
+    /// far in the negative direction the sticky frame can offset its contents in this
+    /// dimension.
+    pub min_offset: f32,
+
+    /// The maximum offset for this frame, typically a positive value, which specifies how
+    /// far in the positive direction the sticky frame can offset its contents in this
+    /// dimension.
+    pub max_offset: f32,
+}
+
+impl StickyOffsetConstraints {
+    pub fn new(min_offset: f32, max_offset: f32) -> StickyOffsetConstraints {
+        StickyOffsetConstraints {
+            min_offset,
+            max_offset
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StickyFrameDisplayItem {
     pub id: ClipId,
-    pub sticky_frame_info: StickyFrameInfo,
-}
 
-pub type StickyFrameInfo = TypedSideOffsets2D<Option<StickySideConstraint>, LayoutPoint>;
+    /// The margins that should be maintained between the edge of the parent viewport and this
+    /// sticky frame. A margin of None indicates that the sticky frame should not stick at all
+    /// to that particular edge of the viewport.
+    pub margins: SideOffsets2D<Option<f32>>,
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
-pub struct StickySideConstraint {
-    pub margin: f32,
-    pub max_offset: f32,
+    /// The vertical constraints for this sticky frame. Ignoring constraints, the sticky
+    /// frame will continue to stick to the edge of the viewport as its original position
+    /// is scrolled out of view. Constraints specify a maximum and minimum offset from the
+    /// original position relative to non-sticky content within the same scrolling frame.
+    pub vertical_constraints: StickyOffsetConstraints,
+
+    /// The horizontal constraints for this sticky frame. Ignoring constraints, the sticky
+    /// frame will continue to stick to the edge of the viewport as its original position
+    /// is scrolled out of view. Constraints specify a maximum and minimum offset from the
+    /// original position relative to non-sticky content within the same scrolling frame.
+    pub horizontal_constraints: StickyOffsetConstraints,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
