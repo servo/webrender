@@ -109,7 +109,7 @@ pub struct FrameBuilder {
     pub clip_store: ClipStore,
     cmds: Vec<PrimitiveRunCmd>,
     hit_testing_runs: Vec<HitTestingRun>,
-    config: FrameBuilderConfig,
+    pub config: FrameBuilderConfig,
 
     stacking_context_store: Vec<StackingContext>,
     clip_scroll_group_store: Vec<ClipScrollGroup>,
