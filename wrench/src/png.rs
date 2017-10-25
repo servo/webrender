@@ -3,8 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use WindowWrapper;
-use image::ColorType;
 use image::png::PNGEncoder;
+use image::{self, ColorType, GenericImage};
 use std::fs::File;
 use std::path::Path;
 use std::sync::mpsc::Receiver;
@@ -12,20 +12,37 @@ use webrender::api::*;
 use wrench::{Wrench, WrenchThing};
 use yaml_frame_reader::YamlFrameReader;
 
-pub fn save_flipped<P: AsRef<Path>>(path: P, orig_pixels: &[u8], size: DeviceUintSize) {
+pub fn save_flipped<P: Clone + AsRef<Path>>(
+    path: P,
+    orig_pixels: Vec<u8>,
+    mut size: DeviceUintSize
+) {
+    let mut buffer = image::RgbaImage::from_raw(
+        size.width,
+        size.height,
+        orig_pixels,
+    ).expect("bug: unable to construct image buffer");
+
     // flip image vertically (texture is upside down)
-    let mut data = orig_pixels.to_owned();
-    let stride = size.width as usize * 4;
-    for y in 0 .. size.height as usize {
-        let dst_start = y * stride;
-        let src_start = (size.height as usize - y - 1) * stride;
-        let src_slice = &orig_pixels[src_start .. src_start + stride];
-        (&mut data[dst_start .. dst_start + stride]).clone_from_slice(&src_slice[.. stride]);
+    buffer = image::imageops::flip_vertical(&buffer);
+
+    if let Ok(existing_image) = image::open(path.clone()) {
+        let old_dims = existing_image.dimensions();
+        println!("Crop from {:?} to {:?}", size, old_dims);
+        size.width = old_dims.0;
+        size.height = old_dims.1;
+        buffer = image::imageops::crop(
+            &mut buffer,
+            0,
+            0,
+            size.width,
+            size.height
+        ).to_image();
     }
 
     let encoder = PNGEncoder::new(File::create(path).unwrap());
     encoder
-        .encode(&data, size.width, size.height, ColorType::RGBA(8))
+        .encode(&buffer.into_vec(), size.width, size.height, ColorType::RGBA(8))
         .expect("Unable to encode PNG!");
 }
 
@@ -45,5 +62,5 @@ pub fn png(wrench: &mut Wrench, window: &mut WindowWrapper, mut reader: YamlFram
     let mut out_path = reader.yaml_path().clone();
     out_path.set_extension("png");
 
-    save_flipped(out_path, &data, device_size);
+    save_flipped(out_path, data, device_size);
 }

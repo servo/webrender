@@ -388,7 +388,7 @@ impl<'a> ReftestHarness<'a> {
         let write_debug_images = false;
         if write_debug_images {
             let debug_path = filename.with_extension("yaml.png");
-            save_flipped(debug_path, &pixels, size);
+            save_flipped(debug_path, pixels.clone(), size);
         }
 
         reader.deinit(self.wrench);

@@ -631,7 +631,7 @@ fn main() {
             gl::UNSIGNED_BYTE,
         );
 
-        save_flipped("screenshot.png", &pixels, size);
+        save_flipped("screenshot.png", pixels, size);
     }
 
     wrench.renderer.deinit();
