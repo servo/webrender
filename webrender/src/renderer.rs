@@ -33,6 +33,7 @@ use device::{FileWatcherHandler, GpuTimer, ShaderError, TextureFilter, TextureTa
 use euclid::{rect, Transform3D};
 use frame_builder::FrameBuilderConfig;
 use gleam::gl;
+use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
 use gpu_types::PrimitiveInstance;
 use internal_types::{BatchTextures, SourceTexture, ORTHO_FAR_PLANE, ORTHO_NEAR_PLANE};
@@ -184,7 +185,7 @@ impl BatchKind {
             }
             BatchKind::Transformable(_, kind) => match kind {
                 TransformBatchKind::Rectangle(..) => "Rectangle",
-                TransformBatchKind::TextRun => "TextRun",
+                TransformBatchKind::TextRun(..) => "TextRun",
                 TransformBatchKind::Image(image_buffer_kind, ..) => match image_buffer_kind {
                     ImageBufferKind::Texture2D => "Image (2D)",
                     ImageBufferKind::TextureRect => "Image (Rect)",
@@ -222,11 +223,24 @@ enum TextShaderMode {
     Alpha = 0,
     SubpixelPass0 = 1,
     SubpixelPass1 = 2,
+    ColorBitmap = 3,
 }
 
 impl Into<ShaderMode> for TextShaderMode {
     fn into(self) -> i32 {
         self as i32
+    }
+}
+
+impl From<GlyphFormat> for TextShaderMode {
+    fn from(format: GlyphFormat) -> TextShaderMode {
+        match format {
+            GlyphFormat::Mono | GlyphFormat::Alpha => TextShaderMode::Alpha,
+            GlyphFormat::Subpixel => {
+                panic!("Subpixel glyph format must be handled separately.");
+            }
+            GlyphFormat::ColorBitmap => TextShaderMode::ColorBitmap,
+        }
     }
 }
 
@@ -2480,7 +2494,7 @@ impl Renderer {
                     );
                     GPU_TAG_PRIM_LINE
                 }
-                TransformBatchKind::TextRun => {
+                TransformBatchKind::TextRun(..) => {
                     unreachable!("bug: text batches are special cased");
                 }
                 TransformBatchKind::Image(image_buffer_kind) => {
@@ -2796,7 +2810,7 @@ impl Renderer {
                 }
 
                 match batch.key.kind {
-                    BatchKind::Transformable(transform_kind, TransformBatchKind::TextRun) => {
+                    BatchKind::Transformable(transform_kind, TransformBatchKind::TextRun(glyph_format)) => {
                         // Text run batches are handled by this special case branch.
                         // In the case of subpixel text, we draw it as a two pass
                         // effect, to ensure we can apply clip masks correctly.
@@ -2816,7 +2830,7 @@ impl Renderer {
                                     &mut self.device,
                                     transform_kind,
                                     projection,
-                                    TextShaderMode::Alpha,
+                                    TextShaderMode::from(glyph_format),
                                     &mut self.renderer_errors,
                                 );
 

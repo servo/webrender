@@ -6,6 +6,7 @@ use api::{FontInstance, FontInstancePlatformOptions, FontKey, FontRenderMode};
 use api::{ColorU, GlyphDimensions, GlyphKey, SubpixelDirection};
 use dwrote;
 use gamma_lut::{Color as ColorLut, GammaLut};
+use glyph_rasterizer::{GlyphFormat, RasterizedGlyph};
 use internal_types::FastHashMap;
 use std::sync::Arc;
 
@@ -27,15 +28,6 @@ pub struct FontContext {
 // DirectWrite is safe to use on multiple threads and non-shareable resources are
 // all hidden inside their font context.
 unsafe impl Send for FontContext {}
-
-pub struct RasterizedGlyph {
-    pub top: f32,
-    pub left: f32,
-    pub width: u32,
-    pub height: u32,
-    pub scale: f32,
-    pub bytes: Vec<u8>,
-}
 
 fn dwrite_texture_type(render_mode: FontRenderMode) -> dwrote::DWRITE_TEXTURE_TYPE {
     match render_mode {
@@ -375,6 +367,7 @@ impl FontContext {
             width: width as u32,
             height: height as u32,
             scale: 1.0,
+            format: GlyphFormat::from(font.render_mode),
             bytes: rgba_pixels,
         })
     }

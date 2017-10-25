@@ -16,7 +16,7 @@ use app_units::Au;
 use device::TextureFilter;
 use frame::FrameId;
 use glyph_cache::GlyphCache;
-use glyph_rasterizer::{GlyphRasterizer, GlyphRequest};
+use glyph_rasterizer::{GlyphFormat, GlyphRasterizer, GlyphRequest};
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use internal_types::{FastHashMap, FastHashSet, SourceTexture, TextureUpdateList};
 use profiler::{ResourceProfileCounters, TextureCacheProfileCounters};
@@ -610,7 +610,7 @@ impl ResourceCache {
         gpu_cache: &GpuCache,
         mut f: F,
     ) where
-        F: FnMut(SourceTexture, &[GlyphFetchResult]),
+        F: FnMut(SourceTexture, GlyphFormat, &[GlyphFetchResult]),
     {
         debug_assert_eq!(self.state, State::QueryResources);
 
@@ -618,17 +618,20 @@ impl ResourceCache {
         let glyph_key_cache = self.cached_glyphs.get_glyph_key_cache_for_font(&font);
 
         let mut current_texture_id = SourceTexture::Invalid;
+        let mut current_glyph_format = GlyphFormat::Subpixel;
         debug_assert!(fetch_buffer.is_empty());
 
         for (loop_index, key) in glyph_keys.iter().enumerate() {
             if let Ok(Some(ref glyph)) = *glyph_key_cache.get(key) {
                 let cache_item = self.texture_cache.get(&glyph.texture_cache_handle);
-                if current_texture_id != cache_item.texture_id {
+                if current_texture_id != cache_item.texture_id ||
+                   current_glyph_format != glyph.format {
                     if !fetch_buffer.is_empty() {
-                        f(current_texture_id, fetch_buffer);
+                        f(current_texture_id, current_glyph_format, fetch_buffer);
                         fetch_buffer.clear();
                     }
                     current_texture_id = cache_item.texture_id;
+                    current_glyph_format = glyph.format;
                 }
                 fetch_buffer.push(GlyphFetchResult {
                     index_in_text_run: loop_index as i32,
@@ -638,7 +641,7 @@ impl ResourceCache {
         }
 
         if !fetch_buffer.is_empty() {
-            f(current_texture_id, fetch_buffer);
+            f(current_texture_id, current_glyph_format, fetch_buffer);
             fetch_buffer.clear();
         }
     }

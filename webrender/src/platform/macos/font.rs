@@ -22,6 +22,7 @@ use core_text;
 use core_text::font::{CTFont, CTFontRef};
 use core_text::font_descriptor::{kCTFontDefaultOrientation, kCTFontColorGlyphsTrait};
 use gamma_lut::{Color as ColorLut, GammaLut};
+use glyph_rasterizer::{GlyphFormat, RasterizedGlyph};
 use internal_types::FastHashMap;
 use std::collections::hash_map::Entry;
 use std::ptr;
@@ -36,28 +37,6 @@ pub struct FontContext {
 // core text is safe to use on multiple threads and non-shareable resources are
 // all hidden inside their font context.
 unsafe impl Send for FontContext {}
-
-pub struct RasterizedGlyph {
-    pub top: f32,
-    pub left: f32,
-    pub width: u32,
-    pub height: u32,
-    pub scale: f32,
-    pub bytes: Vec<u8>,
-}
-
-impl RasterizedGlyph {
-    pub fn blank() -> RasterizedGlyph {
-        RasterizedGlyph {
-            top: 0.0,
-            left: 0.0,
-            width: 0,
-            height: 0,
-            scale: 1.0,
-            bytes: vec![],
-        }
-    }
-}
 
 struct GlyphMetrics {
     rasterized_left: i32,
@@ -469,14 +448,14 @@ impl FontContext {
     ) -> Option<RasterizedGlyph> {
         let ct_font = match self.get_ct_font(font.font_key, font.size, &font.variations) {
             Some(font) => font,
-            None => return Some(RasterizedGlyph::blank()),
+            None => return None,
         };
 
         let glyph = key.index as CGGlyph;
         let (x_offset, y_offset) = font.get_subpx_offset(key);
         let metrics = get_glyph_metrics(&ct_font, glyph, x_offset, y_offset);
         if metrics.rasterized_width == 0 || metrics.rasterized_height == 0 {
-            return Some(RasterizedGlyph::blank());
+            return None;
         }
 
         let context_flags = match font.render_mode {
@@ -632,6 +611,7 @@ impl FontContext {
             width: metrics.rasterized_width,
             height: metrics.rasterized_height,
             scale: 1.0,
+            format: GlyphFormat::from(font.render_mode),
             bytes: rasterized_pixels,
         })
     }
