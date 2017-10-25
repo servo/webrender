@@ -73,7 +73,7 @@ struct ImageResource {
     dirty_rect: Option<DeviceUintRect>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ImageTiling {
     pub image_size: DeviceUintSize,
     pub tile_size: TileSize,
