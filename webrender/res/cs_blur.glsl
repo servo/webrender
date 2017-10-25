@@ -29,7 +29,7 @@ void main(void) {
     vec4 src_rect = src_task.data0;
     vec4 target_rect = task.data0;
 
-#if defined WR_FEATURE_COLOR
+#if defined WR_FEATURE_COLOR_TARGET
     vec2 texture_size = vec2(textureSize(sCacheRGBA8, 0).xy);
 #else
     vec2 texture_size = vec2(textureSize(sCacheA8, 0).xy);
@@ -69,7 +69,7 @@ void main(void) {
 
 #ifdef WR_FRAGMENT_SHADER
 
-#if defined WR_FEATURE_COLOR
+#if defined WR_FEATURE_COLOR_TARGET
 #define SAMPLE_TYPE vec4
 #define SAMPLE_TEXTURE(uv)  texture(sCacheRGBA8, uv)
 #else

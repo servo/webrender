@@ -14,6 +14,7 @@ use device::Texture;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle, GpuCacheUpdateList};
 use gpu_types::{BlurDirection, BlurInstance, BrushInstance, ClipMaskInstance};
 use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
+use gpu_types::{BRUSH_FLAG_USES_PICTURE};
 use internal_types::{FastHashMap, SourceTexture};
 use internal_types::BatchTextures;
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
@@ -583,13 +584,22 @@ impl AlphaRenderItem {
                         let cache_task_id = picture.render_task_id.expect("no render task!");
                         let cache_task_address = render_tasks.get_task_address(cache_task_id);
                         let textures = BatchTextures::render_target_cache();
-                        let kind = BatchKind::Transformable(
-                            transform_kind,
-                            TransformBatchKind::CacheImage(picture.target_kind()),
+                        let kind = BatchKind::Brush(
+                            BrushBatchKind::Image(picture.target_kind()),
                         );
                         let key = BatchKey::new(kind, blend_mode, textures);
                         let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
-                        batch.push(base_instance.build(0, cache_task_address.0 as i32, 0));
+                        let instance = BrushInstance {
+                            picture_address: task_address,
+                            prim_address: prim_cache_address,
+                            layer_address: packed_layer_index.into(),
+                            clip_task_address,
+                            z,
+                            flags: 0,
+                            user_data0: cache_task_address.0 as i32,
+                            user_data1: 0,
+                        };
+                        batch.push(PrimitiveInstance::from(instance));
                     }
                     PrimitiveKind::AlignedGradient => {
                         let gradient_cpu =
@@ -1338,7 +1348,21 @@ impl RenderTarget for AlphaRenderTarget {
 
                                 match sub_metadata.prim_kind {
                                     PrimitiveKind::Brush => {
-                                        let instance = BrushInstance::new(task_index, sub_prim_address);
+                                        let instance = BrushInstance {
+                                            picture_address: task_index,
+                                            prim_address: sub_prim_address,
+                                            // TODO(gw): In the future, when brush
+                                            //           primitives on picture backed
+                                            //           tasks support clip masks and
+                                            //           transform primitives, these
+                                            //           will need to be filled out!
+                                            layer_address: PackedLayerIndex(0).into(),
+                                            clip_task_address: RenderTaskAddress(0),
+                                            z: 0,
+                                            flags: BRUSH_FLAG_USES_PICTURE,
+                                            user_data0: 0,
+                                            user_data1: 0,
+                                        };
                                         self.rect_cache_prims.push(PrimitiveInstance::from(instance));
                                     }
                                     _ => {
@@ -1543,10 +1567,14 @@ pub enum TransformBatchKind {
     AlignedGradient,
     AngleGradient,
     RadialGradient,
-    CacheImage(RenderTargetKind),
     BorderCorner,
     BorderEdge,
     Line,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum BrushBatchKind {
+    Image(RenderTargetKind)
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -1560,6 +1588,7 @@ pub enum BatchKind {
     SplitComposite,
     Blend,
     Transformable(TransformedRectKind, TransformBatchKind),
+    Brush(BrushBatchKind),
 }
 
 #[derive(Copy, Clone, Debug)]
