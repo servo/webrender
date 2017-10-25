@@ -2,12 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ClipId, DeviceIntRect, LayerPoint, LayerRect};
-use api::{LayerToScrollTransform, LayerToWorldTransform, LayerVector2D, PipelineId};
-use api::{ScrollClamping, ScrollEventPhase, ScrollLayerState, ScrollLocation, StickyFrameInfo};
-use api::WorldPoint;
+use api::{ClipId, DeviceIntRect, LayerPoint, LayerRect, LayerToScrollTransform};
+use api::{LayerToWorldTransform, LayerVector2D, PipelineId, ScrollClamping, ScrollEventPhase};
+use api::{ScrollLayerState, ScrollLocation, WorldPoint};
 use clip::ClipStore;
-use clip_scroll_node::{ClipScrollNode, NodeType, ScrollingState};
+use clip_scroll_node::{ClipScrollNode, NodeType, ScrollingState, StickyFrameInfo};
 use gpu_cache::GpuCache;
 use internal_types::{FastHashMap, FastHashSet};
 use print_tree::{PrintTree, PrintTreePrinter};
@@ -531,11 +530,10 @@ impl ClipScrollTree {
                 pt.add_item(format!("scrollable_size: {:?}", scrolling_info.scrollable_size));
                 pt.add_item(format!("scroll.offset: {:?}", scrolling_info.offset));
             }
-            NodeType::StickyFrame(sticky_frame_info, sticky_offset) => {
+            NodeType::StickyFrame(ref sticky_frame_info) => {
                 pt.new_level(format!("StickyFrame"));
                 pt.add_item(format!("id: {:?}", id));
                 pt.add_item(format!("sticky info: {:?}", sticky_frame_info));
-                pt.add_item(format!("sticky offset: {:?}", sticky_offset));
             }
         }
 

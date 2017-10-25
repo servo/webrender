@@ -11,6 +11,7 @@ use api::{LocalClip, PipelineId, ScrollClamping, ScrollEventPhase, ScrollLayerSt
 use api::{ScrollLocation, ScrollPolicy, ScrollSensitivity, SpecificDisplayItem, StackingContext};
 use api::{ClipMode, TileOffset, TransformStyle, WorldPoint};
 use clip::ClipRegion;
+use clip_scroll_node::StickyFrameInfo;
 use clip_scroll_tree::{ClipScrollTree, ScrollStates};
 use euclid::rect;
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
@@ -653,11 +654,16 @@ impl FrameContext {
             }
             SpecificDisplayItem::StickyFrame(ref info) => {
                 let frame_rect = item.rect().translate(&reference_frame_relative_offset);
+                let sticky_frame_info = StickyFrameInfo::new(
+                    info.margins,
+                    info.vertical_offset_bounds,
+                    info.horizontal_offset_bounds,
+                );
                 self.clip_scroll_tree.add_sticky_frame(
                     info.id,
                     clip_and_scroll.scroll_node_id, /* parent id */
                     frame_rect,
-                    info.sticky_frame_info,
+                    sticky_frame_info
                 );
             }
 
