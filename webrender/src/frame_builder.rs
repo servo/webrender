@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderDetails, BorderDisplayItem, BorderRadius, BoxShadowClipMode, BuiltDisplayList};
-use api::{ClipMode, ComplexClipRegion, ClipAndScrollInfo, ClipId, ColorF, LayoutSize};
+use api::{BorderDetails, BorderDisplayItem, BuiltDisplayList};
+use api::{ClipAndScrollInfo, ClipId, ColorF};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
 use api::{ExtendMode, FilterOp, FontInstance, FontRenderMode};
 use api::{GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem, HitTestResult};
@@ -23,7 +23,7 @@ use gpu_cache::GpuCache;
 use internal_types::{FastHashMap, FastHashSet, HardwareCompositeOp};
 use picture::{PicturePrimitive};
 use plane_split::{BspSplitter, Polygon, Splitter};
-use prim_store::{BrushPrimitive, TexelRect, YuvImagePrimitiveCpu};
+use prim_store::{TexelRect, YuvImagePrimitiveCpu};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, LinePrimitive, PrimitiveKind};
 use prim_store::{PrimitiveContainer, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
@@ -39,9 +39,6 @@ use tiling::{ContextIsolation, RenderTargetKind, StackingContextIndex};
 use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, RenderPass};
 use tiling::{RenderTargetContext, ScrollbarPrimitive, StackingContext};
 use util::{self, pack_as_float, RectHelpers, recycle_vec};
-
-// The blur shader samples BLUR_SAMPLE_SCALE * blur_radius surrounding texels.
-const BLUR_SAMPLE_SCALE: f32 = 3.0;
 
 /// Construct a polygon from stacking context boundaries.
 /// `anchor` here is an index that's going to be preserved in all the
@@ -229,7 +226,7 @@ impl FrameBuilder {
     /// Create a primitive and add it to the prim store. This method doesn't
     /// add the primitive to the draw list, so can be used for creating
     /// sub-primitives.
-    fn create_primitive(
+    pub fn create_primitive(
         &mut self,
         clip_and_scroll: ClipAndScrollInfo,
         info: &LayerPrimitiveInfo,
@@ -1254,233 +1251,6 @@ impl FrameBuilder {
         }
     }
 
-    pub fn add_box_shadow(
-        &mut self,
-        clip_and_scroll: ClipAndScrollInfo,
-        prim_info: &LayerPrimitiveInfo,
-        box_offset: &LayerVector2D,
-        color: &ColorF,
-        blur_radius: f32,
-        spread_radius: f32,
-        border_radius: BorderRadius,
-        clip_mode: BoxShadowClipMode,
-    ) {
-        if color.a == 0.0 {
-            return;
-        }
-
-        let spread_amount = match clip_mode {
-            BoxShadowClipMode::Outset => {
-                spread_radius
-            }
-            BoxShadowClipMode::Inset => {
-                -spread_radius
-            }
-        };
-
-        let shadow_radius = adjust_border_radius_for_box_shadow(
-            border_radius,
-            spread_amount,
-        );
-        let shadow_rect = prim_info.rect
-                                   .translate(box_offset)
-                                   .inflate(spread_amount, spread_amount);
-
-        if blur_radius == 0.0 {
-            let mut clips = Vec::new();
-
-            let fast_info = match clip_mode {
-                BoxShadowClipMode::Outset => {
-                    // TODO(gw): Add a fast path for ClipOut + zero border radius!
-                    clips.push(ClipSource::RoundedRectangle(
-                        prim_info.rect,
-                        border_radius,
-                        ClipMode::ClipOut
-                    ));
-
-                    LayerPrimitiveInfo::with_clip(
-                        shadow_rect,
-                        LocalClip::RoundedRect(
-                            shadow_rect,
-                            ComplexClipRegion::new(
-                                shadow_rect,
-                                shadow_radius,
-                                ClipMode::Clip,
-                            ),
-                        ),
-                    )
-                }
-                BoxShadowClipMode::Inset => {
-                    clips.push(ClipSource::RoundedRectangle(
-                        shadow_rect,
-                        shadow_radius,
-                        ClipMode::ClipOut
-                    ));
-
-                    LayerPrimitiveInfo::with_clip(
-                        prim_info.rect,
-                        LocalClip::RoundedRect(
-                            prim_info.rect,
-                            ComplexClipRegion::new(
-                                prim_info.rect,
-                                border_radius,
-                                ClipMode::Clip
-                            ),
-                        ),
-                    )
-                }
-            };
-
-            self.add_primitive(
-                clip_and_scroll,
-                &fast_info,
-                clips,
-                PrimitiveContainer::Rectangle(RectanglePrimitive {
-                    color: *color,
-                }),
-            );
-        } else {
-            let blur_offset = 2.0 * blur_radius;
-            let mut extra_clips = vec![];
-            let mut blur_regions = vec![];
-
-            match clip_mode {
-                BoxShadowClipMode::Outset => {
-                    let brush_prim = BrushPrimitive {
-                        clip_mode: ClipMode::Clip,
-                        radius: shadow_radius,
-                    };
-
-                    let brush_rect = LayerRect::new(LayerPoint::new(blur_offset, blur_offset),
-                                                    shadow_rect.size);
-
-                    let brush_info = LayerPrimitiveInfo::new(brush_rect);
-
-                    let brush_prim_index = self.create_primitive(
-                        clip_and_scroll,
-                        &brush_info,
-                        Vec::new(),
-                        PrimitiveContainer::Brush(brush_prim),
-                    );
-
-                    let pic_rect = shadow_rect.inflate(blur_offset, blur_offset);
-                    let blur_range = BLUR_SAMPLE_SCALE * blur_radius;
-
-                    let size = pic_rect.size;
-
-                    let tl = LayerSize::new(
-                        blur_radius.max(border_radius.top_left.width),
-                        blur_radius.max(border_radius.top_left.height)
-                    ) * BLUR_SAMPLE_SCALE;
-                    let tr = LayerSize::new(
-                        blur_radius.max(border_radius.top_right.width),
-                        blur_radius.max(border_radius.top_right.height)
-                    ) * BLUR_SAMPLE_SCALE;
-                    let br = LayerSize::new(
-                        blur_radius.max(border_radius.bottom_right.width),
-                        blur_radius.max(border_radius.bottom_right.height)
-                    ) * BLUR_SAMPLE_SCALE;
-                    let bl = LayerSize::new(
-                        blur_radius.max(border_radius.bottom_left.width),
-                        blur_radius.max(border_radius.bottom_left.height)
-                    ) * BLUR_SAMPLE_SCALE;
-
-                    let max_width = tl.width.max(tr.width.max(bl.width.max(br.width)));
-                    let max_height = tl.height.max(tr.height.max(bl.height.max(br.height)));
-
-                    // Apply a conservative test that if any of the blur regions below
-                    // will overlap, we won't bother applying the region optimization
-                    // and will just blur the entire thing. This should only happen
-                    // in rare cases, where either the blur radius or border radius
-                    // is very large, in which case there's no real point in trying
-                    // to only blur a small region anyway.
-                    if max_width < 0.5 * size.width && max_height < 0.5 * size.height {
-                        blur_regions.push(LayerRect::from_floats(0.0, 0.0, tl.width, tl.height));
-                        blur_regions.push(LayerRect::from_floats(size.width - tr.width, 0.0, size.width, tr.height));
-                        blur_regions.push(LayerRect::from_floats(size.width - br.width, size.height - br.height, size.width, size.height));
-                        blur_regions.push(LayerRect::from_floats(0.0, size.height - bl.height, bl.width, size.height));
-
-                        blur_regions.push(LayerRect::from_floats(0.0, tl.height, blur_range, size.height - bl.height));
-                        blur_regions.push(LayerRect::from_floats(size.width - blur_range, tr.height, size.width, size.height - br.height));
-                        blur_regions.push(LayerRect::from_floats(tl.width, 0.0, size.width - tr.width, blur_range));
-                        blur_regions.push(LayerRect::from_floats(bl.width, size.height - blur_range, size.width - br.width, size.height));
-                    }
-
-                    let mut pic_prim = PicturePrimitive::new_box_shadow(
-                        blur_radius,
-                        *color,
-                        blur_regions,
-                        BoxShadowClipMode::Outset,
-                    );
-
-                    pic_prim.add_primitive(brush_prim_index, clip_and_scroll);
-
-                    extra_clips.push(ClipSource::RoundedRectangle(
-                        prim_info.rect,
-                        border_radius,
-                        ClipMode::ClipOut,
-                    ));
-
-                    let pic_info = LayerPrimitiveInfo::new(pic_rect);
-
-                    self.add_primitive(
-                        clip_and_scroll,
-                        &pic_info,
-                        extra_clips,
-                        PrimitiveContainer::Picture(pic_prim),
-                    );
-                }
-                BoxShadowClipMode::Inset => {
-                    let brush_prim = BrushPrimitive {
-                        clip_mode: ClipMode::ClipOut,
-                        radius: shadow_radius,
-                    };
-
-                    let mut brush_rect = shadow_rect;
-                    brush_rect.origin.x = brush_rect.origin.x - prim_info.rect.origin.x + blur_offset;
-                    brush_rect.origin.y = brush_rect.origin.y - prim_info.rect.origin.y + blur_offset;
-
-                    let brush_info = LayerPrimitiveInfo::new(brush_rect);
-
-                    let brush_prim_index = self.create_primitive(
-                        clip_and_scroll,
-                        &brush_info,
-                        Vec::new(),
-                        PrimitiveContainer::Brush(brush_prim),
-                    );
-
-                    let pic_rect = prim_info.rect.inflate(blur_offset, blur_offset);
-
-                    // TODO(gw): Apply minimal blur regions for inset box shadows.
-
-                    let mut pic_prim = PicturePrimitive::new_box_shadow(
-                        blur_radius,
-                        *color,
-                        blur_regions,
-                        BoxShadowClipMode::Inset,
-                    );
-
-                    pic_prim.add_primitive(brush_prim_index, clip_and_scroll);
-
-                    extra_clips.push(ClipSource::RoundedRectangle(
-                        prim_info.rect,
-                        border_radius,
-                        ClipMode::Clip,
-                    ));
-
-                    let pic_info = LayerPrimitiveInfo::with_clip_rect(pic_rect, prim_info.rect);
-
-                    self.add_primitive(
-                        clip_and_scroll,
-                        &pic_info,
-                        extra_clips,
-                        PrimitiveContainer::Picture(pic_prim),
-                    );
-                }
-            }
-        }
-    }
-
     pub fn add_image(
         &mut self,
         clip_and_scroll: ClipAndScrollInfo,
@@ -2394,56 +2164,5 @@ impl FrameBuilder {
             deferred_resolves,
             gpu_cache_updates: Some(gpu_cache_updates),
         }
-    }
-}
-
-fn adjust_border_radius_for_box_shadow(
-    radius: BorderRadius,
-    spread_amount: f32,
-) -> BorderRadius {
-    BorderRadius {
-        top_left: adjust_corner_for_box_shadow(
-            radius.top_left,
-            spread_amount,
-        ),
-        top_right: adjust_corner_for_box_shadow(
-            radius.top_right,
-            spread_amount,
-        ),
-        bottom_right: adjust_corner_for_box_shadow(
-            radius.bottom_right,
-            spread_amount,
-        ),
-        bottom_left: adjust_corner_for_box_shadow(
-            radius.bottom_left,
-            spread_amount,
-        ),
-    }
-}
-
-fn adjust_corner_for_box_shadow(
-    corner: LayoutSize,
-    spread_amount: f32,
-) -> LayoutSize {
-    LayoutSize::new(
-        adjust_radius_for_box_shadow(
-            corner.width,
-            spread_amount
-        ),
-        adjust_radius_for_box_shadow(
-            corner.height,
-            spread_amount
-        ),
-    )
-}
-
-fn adjust_radius_for_box_shadow(
-    border_radius: f32,
-    spread_amount: f32,
-) -> f32 {
-    if border_radius > 0.0 {
-        (border_radius + spread_amount).max(0.0)
-    } else {
-        0.0
     }
 }
