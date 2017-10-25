@@ -77,7 +77,7 @@ impl<'a> FlattenContext<'a> {
         &mut self,
         traversal: &mut BuiltDisplayListIter<'a>,
         pipeline_id: PipelineId,
-        content_size: &LayoutSize,
+        frame_size: &LayoutSize,
     ) {
         self.builder.push_stacking_context(
             &LayerVector2D::zero(),
@@ -96,11 +96,11 @@ impl<'a> FlattenContext<'a> {
 
         // For the root pipeline, there's no need to add a full screen rectangle
         // here, as it's handled by the framebuffer clear.
-        let clip_id = ClipId::root_scroll_node(pipeline_id);
+        let clip_id = ClipId::root_reference_frame(pipeline_id);
         if self.scene.root_pipeline_id != Some(pipeline_id) {
             if let Some(pipeline) = self.scene.pipelines.get(&pipeline_id) {
                 if let Some(bg_color) = pipeline.background_color {
-                    let root_bounds = LayerRect::new(LayerPoint::zero(), *content_size);
+                    let root_bounds = LayerRect::new(LayerPoint::zero(), *frame_size);
                     let info = LayerPrimitiveInfo::new(root_bounds);
                     self.builder.add_solid_rectangle(
                         ClipAndScrollInfo::simple(clip_id),
@@ -119,12 +119,14 @@ impl<'a> FlattenContext<'a> {
             let scrollbar_rect = LayerRect::new(LayerPoint::zero(), LayerSize::new(10.0, 70.0));
             let info = LayerPrimitiveInfo::new(scrollbar_rect);
 
-            self.builder.add_solid_rectangle(
-                ClipAndScrollInfo::simple(clip_id),
-                &info,
-                &DEFAULT_SCROLLBAR_COLOR,
-                PrimitiveFlags::Scrollbar(self.clip_scroll_tree.topmost_scrolling_node_id(), 4.0),
-            );
+            if let Some(node_id) = self.clip_scroll_tree.topmost_scrolling_node_id {
+                self.builder.add_solid_rectangle(
+                    ClipAndScrollInfo::simple(clip_id),
+                    &info,
+                    &DEFAULT_SCROLLBAR_COLOR,
+                    PrimitiveFlags::Scrollbar(node_id, 4.0),
+                );
+            }
         }
 
         self.builder.pop_stacking_context();
@@ -339,7 +341,7 @@ impl<'a> FlattenContext<'a> {
         let iframe_rect = LayerRect::new(LayerPoint::zero(), bounds.size);
         let origin = reference_frame_relative_offset + bounds.origin.to_vector();
         let transform = LayerToScrollTransform::create_translation(origin.x, origin.y, 0.0);
-        let iframe_reference_frame_id = self.builder.push_reference_frame(
+        self.builder.push_reference_frame(
             Some(clip_id),
             pipeline_id,
             &iframe_rect,
@@ -349,20 +351,10 @@ impl<'a> FlattenContext<'a> {
             self.clip_scroll_tree,
         );
 
-        self.builder.add_scroll_frame(
-            ClipId::root_scroll_node(pipeline_id),
-            iframe_reference_frame_id,
-            pipeline_id,
-            &iframe_rect,
-            &pipeline.content_size,
-            ScrollSensitivity::ScriptAndInputEvents,
-            self.clip_scroll_tree,
-        );
-
         self.flatten_root(
             &mut pipeline.display_list.iter(),
             pipeline_id,
-            &pipeline.content_size,
+            &bounds.size,
         );
 
         self.builder.pop_reference_frame();
@@ -668,7 +660,6 @@ impl<'a> FlattenContext<'a> {
             color,
             PrimitiveFlags::None,
         );
-
         for clipped_rect in &clipped_rects {
             let mut info = info.clone();
             info.rect = *clipped_rect;
@@ -1095,7 +1086,6 @@ impl FrameContext {
             roller.builder.push_root(
                 root_pipeline_id,
                 &root_pipeline.viewport_size,
-                &root_pipeline.content_size,
                 roller.clip_scroll_tree,
             );
 
