@@ -40,25 +40,6 @@ BrushInstance load_brush() {
     return bi;
 }
 
-/*
- The dynamic picture that this brush exists on. Right now, it
- contains minimal information. In the future, it will describe
- the transform mode of primitives on this picture, among other things.
- */
-struct PictureTask {
-    RectWithSize target_rect;
-};
-
-PictureTask fetch_picture_task(int index) {
-    ivec2 uv = get_fetch_uv(index, VECS_PER_RENDER_TASK);
-
-    vec4 target_rect = TEXEL_FETCH(sRenderTasks, uv, 0, ivec2(0, 0));
-
-    PictureTask task = PictureTask(RectWithSize(target_rect.xy, target_rect.zw));
-
-    return task;
-}
-
 void main(void) {
     // Load the brush instance from vertex attributes.
     BrushInstance brush = load_brush();
