@@ -12,7 +12,7 @@ use picture::PicturePrimitive;
 use util::RectHelpers;
 
 // The blur shader samples BLUR_SAMPLE_SCALE * blur_radius surrounding texels.
-const BLUR_SAMPLE_SCALE: f32 = 3.0;
+pub const BLUR_SAMPLE_SCALE: f32 = 3.0;
 
 impl FrameBuilder {
     pub fn add_box_shadow(

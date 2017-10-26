@@ -35,7 +35,7 @@ void main(void) {
     vec2 texture_size = vec2(textureSize(sCacheA8, 0).xy);
 #endif
     vUv.z = src_task.data1.x;
-    vBlurRadius = 3 * int(task.data1.y);
+    vBlurRadius = int(3.0 * task.data1.y);
     vSigma = task.data1.y;
 
     switch (aBlurDirection) {
@@ -106,7 +106,7 @@ void main(void) {
     gauss_coefficient_sum += gauss_coefficient.x;
     gauss_coefficient.xy *= gauss_coefficient.yz;
 
-    for (int i=1 ; i <= vBlurRadius/2 ; ++i) {
+    for (int i=1 ; i <= vBlurRadius ; ++i) {
         vec2 offset = vOffsetScale * float(i);
 
         vec2 st0 = clamp(vUv.xy - offset, vUvRect.xy, vUvRect.zw);

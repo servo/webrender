@@ -39,6 +39,7 @@ use tiling::{ContextIsolation, RenderTargetKind, StackingContextIndex};
 use tiling::{PackedLayer, PackedLayerIndex, PrimitiveFlags, PrimitiveRunCmd, RenderPass};
 use tiling::{RenderTargetContext, ScrollbarPrimitive, StackingContext};
 use util::{self, pack_as_float, RectHelpers, recycle_vec};
+use box_shadow::BLUR_SAMPLE_SCALE;
 
 /// Construct a polygon from stacking context boundaries.
 /// `anchor` here is an index that's going to be preserved in all the
@@ -1861,10 +1862,12 @@ impl FrameBuilder {
                         match *filter {
                             FilterOp::Blur(blur_radius) => {
                                 let blur_radius = device_length(blur_radius, device_pixel_ratio);
+                                let blur_std_deviation = blur_radius.0 as f32;
+                                let inflate_size = blur_std_deviation * BLUR_SAMPLE_SCALE;
                                 render_tasks.get_mut(current_task_id)
-                                            .inflate(blur_radius.0);
+                                            .inflate(inflate_size as i32);
                                 let blur_render_task = RenderTask::new_blur(
-                                    blur_radius,
+                                    blur_std_deviation,
                                     current_task_id,
                                     render_tasks,
                                     RenderTargetKind::Color,
@@ -1877,8 +1880,8 @@ impl FrameBuilder {
                                     blur_render_task_id,
                                     HardwareCompositeOp::PremultipliedAlpha,
                                     DeviceIntPoint::new(
-                                        screen_origin.x - blur_radius.0,
-                                        screen_origin.y - blur_radius.0,
+                                        screen_origin.x - inflate_size as i32,
+                                        screen_origin.y - inflate_size as i32,
                                     ),
                                     next_z,
                                 );
