@@ -588,10 +588,8 @@ impl FrameBuilder {
                 // safe to offset the local rect by the offset of the shadow, which
                 // is then used when blitting the shadow to the final location.
                 let metadata = &mut self.prim_store.cpu_metadata[prim_index.0];
-                let prim = &self.prim_store.cpu_pictures[metadata.cpu_prim_index.0];
-                let shadow = prim.as_text_shadow();
-
-                metadata.local_rect = metadata.local_rect.translate(&shadow.offset);
+                let prim = &mut self.prim_store.cpu_pictures[metadata.cpu_prim_index.0];
+                metadata.local_rect = prim.build();
             }
 
             // Push any fast-path shadows now
@@ -710,12 +708,11 @@ impl FrameBuilder {
 
             // Only run real blurs here (fast path zero blurs are handled above).
             if blur_radius > 0.0 {
-                let shadow_rect = info.rect.inflate(
-                    blur_radius,
-                    blur_radius,
+                picture.add_primitive(
+                    prim_index,
+                    &info.rect,
+                    clip_and_scroll,
                 );
-                shadow_metadata.local_rect = shadow_metadata.local_rect.union(&shadow_rect);
-                picture.add_primitive(prim_index, clip_and_scroll);
             }
         }
     }
@@ -1227,12 +1224,11 @@ impl FrameBuilder {
             // Only run real blurs here (fast path zero blurs are handled above).
             let blur_radius = picture_prim.as_text_shadow().blur_radius;
             if blur_radius > 0.0 {
-                let shadow_rect = rect.inflate(
-                    blur_radius,
-                    blur_radius,
+                picture_prim.add_primitive(
+                    prim_index,
+                    &rect,
+                    clip_and_scroll,
                 );
-                shadow_metadata.local_rect = shadow_metadata.local_rect.union(&shadow_rect);
-                picture_prim.add_primitive(prim_index, clip_and_scroll);
             }
         }
     }
@@ -1873,6 +1869,7 @@ impl FrameBuilder {
                                     RenderTargetKind::Color,
                                     &[],
                                     ClearMode::Transparent,
+                                    ColorF::new(0.0, 0.0, 0.0, 0.0),
                                 );
                                 let blur_render_task_id = render_tasks.add(blur_render_task);
                                 let item = AlphaRenderItem::HardwareComposite(

@@ -2,6 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#ifdef WR_FEATURE_CACHE
+    #define PRIMITIVE_HAS_PICTURE_TASK
+#endif
+
 #include shared,prim_shared
 
 varying vec4 vColor;
@@ -70,7 +74,7 @@ void main(void) {
             float diameter = size.y;
             float period = diameter * 2.0;
             float center_line = pos.y + 0.5 * size.y;
-            float max_x = floor(size.x / period) * period; 
+            float max_x = floor(size.x / period) * period;
             vParams = vec4(period,
                            diameter / 2.0, // radius
                            center_line,
@@ -95,19 +99,15 @@ void main(void) {
     }
 
 #ifdef WR_FEATURE_CACHE
-    int picture_address = prim.user_data0;
-    PrimitiveGeometry picture_geom = fetch_primitive_geometry(picture_address);
-    Picture pic = fetch_picture(picture_address + VECS_PER_PRIM_HEADER);
-
-    vec2 device_origin = prim.task.render_target_origin +
-                         uDevicePixelRatio * (prim.local_rect.p0 + pic.offset - picture_geom.local_rect.p0);
+    vec2 device_origin = prim.task.target_rect.p0 +
+                         uDevicePixelRatio * (prim.local_rect.p0 - prim.task.content_origin);
     vec2 device_size = uDevicePixelRatio * prim.local_rect.size;
 
     vec2 device_pos = mix(device_origin,
                           device_origin + device_size,
                           aPosition.xy);
 
-    vColor = pic.color;
+    vColor = prim.task.color;
     vLocalPos = mix(prim.local_rect.p0,
                     prim.local_rect.p0 + prim.local_rect.size,
                     aPosition.xy);

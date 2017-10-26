@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{ClipId, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use api::{FilterOp, MixBlendMode};
+use api::{ColorF, FilterOp, LayerPoint, MixBlendMode};
 use api::{LayerRect, PipelineId};
 use clip::{ClipSource, ClipSourcesWeakHandle, ClipStore};
 use clip_scroll_tree::CoordinateSystemId;
@@ -258,6 +258,8 @@ pub struct CacheMaskTask {
 pub struct PictureTask {
     pub prim_index: PrimitiveIndex,
     pub target_kind: RenderTargetKind,
+    pub content_origin: LayerPoint,
+    pub color: ColorF,
 }
 
 #[derive(Debug)]
@@ -265,6 +267,7 @@ pub struct BlurTask {
     pub blur_std_deviation: f32,
     pub target_kind: RenderTargetKind,
     pub regions: Vec<LayerRect>,
+    pub color: ColorF,
 }
 
 #[derive(Debug)]
@@ -333,6 +336,8 @@ impl RenderTask {
         size: DeviceIntSize,
         prim_index: PrimitiveIndex,
         target_kind: RenderTargetKind,
+        content_origin: LayerPoint,
+        color: ColorF,
     ) -> RenderTask {
         let clear_mode = match target_kind {
             RenderTargetKind::Color => ClearMode::Transparent,
@@ -346,6 +351,8 @@ impl RenderTask {
             kind: RenderTaskKind::Picture(PictureTask {
                 prim_index,
                 target_kind,
+                content_origin,
+                color,
             }),
             clear_mode,
         }
@@ -466,6 +473,7 @@ impl RenderTask {
         target_kind: RenderTargetKind,
         regions: &[LayerRect],
         clear_mode: ClearMode,
+        color: ColorF,
     ) -> RenderTask {
         let blur_target_size = render_tasks.get(src_task_id).get_dynamic_size();
 
@@ -477,6 +485,7 @@ impl RenderTask {
                 blur_std_deviation,
                 target_kind,
                 regions: regions.to_vec(),
+                color,
             }),
             clear_mode,
         };
@@ -491,6 +500,7 @@ impl RenderTask {
                 blur_std_deviation,
                 target_kind,
                 regions: regions.to_vec(),
+                color,
             }),
             clear_mode,
         };
@@ -554,7 +564,7 @@ impl RenderTask {
                     ],
                 }
             }
-            RenderTaskKind::Picture(..) => {
+            RenderTaskKind::Picture(ref task) => {
                 let (target_rect, target_index) = self.get_target_rect();
                 RenderTaskData {
                     data: [
@@ -563,13 +573,13 @@ impl RenderTask {
                         target_rect.size.width as f32,
                         target_rect.size.height as f32,
                         target_index.0 as f32,
+                        task.content_origin.x,
+                        task.content_origin.y,
                         0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
+                        task.color.r,
+                        task.color.g,
+                        task.color.b,
+                        task.color.a,
                     ],
                 }
             }
@@ -605,10 +615,10 @@ impl RenderTask {
                         task_info.blur_std_deviation,
                         0.0,
                         0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
+                        task_info.color.r,
+                        task_info.color.g,
+                        task_info.color.b,
+                        task_info.color.a,
                     ],
                 }
             }

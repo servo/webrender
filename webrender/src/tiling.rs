@@ -1172,8 +1172,6 @@ impl RenderTarget for ColorRenderTarget {
             }
             RenderTaskKind::Picture(ref task_info) => {
                 let prim_metadata = ctx.prim_store.get_metadata(task_info.prim_index);
-                let prim_address = prim_metadata.gpu_location.as_int(gpu_cache);
-
                 match prim_metadata.prim_kind {
                     PrimitiveKind::Picture => {
                         let prim = &ctx.prim_store.cpu_pictures[prim_metadata.cpu_prim_index.0];
@@ -1220,7 +1218,7 @@ impl RenderTarget for ColorRenderTarget {
                                                     batch.push(instance.build(
                                                         glyph.index_in_text_run,
                                                         glyph.uv_rect_address.as_int(),
-                                                        prim_address,
+                                                        0
                                                     ));
                                                 }
                                             },
@@ -1228,7 +1226,7 @@ impl RenderTarget for ColorRenderTarget {
                                     }
                                     PrimitiveKind::Line => {
                                         self.line_cache_prims
-                                            .push(instance.build(prim_address, 0, 0));
+                                            .push(instance.build(0, 0, 0));
                                     }
                                     _ => {
                                         unreachable!("Unexpected sub primitive type");
