@@ -435,8 +435,9 @@ impl ResourceCache {
             ),
         };
 
-        if image.tiling.is_none() && Self::should_tile(max_texture_size, &descriptor, &data) {
-            image.tiling = Some(DEFAULT_TILE_SIZE);
+        let mut tiling = image.tiling;
+        if tiling.is_none() && Self::should_tile(max_texture_size, &descriptor, &data) {
+            tiling = Some(DEFAULT_TILE_SIZE);
         }
 
         if let ImageData::Blob(ref mut blob) = data {
@@ -446,11 +447,16 @@ impl ResourceCache {
                 .update(image_key, mem::replace(blob, BlobImageData::new()), dirty_rect);
         }
 
-        image.epoch.0 += 1;
-        image.dirty_rect = match (dirty_rect, image.dirty_rect) {
-            (Some(rect), Some(prev_rect)) => Some(rect.union(&prev_rect)),
-            (Some(rect), None) => Some(rect),
-            (None, _) => None,
+        *image = ImageResource {
+            descriptor,
+            data,
+            epoch: Epoch(image.epoch.0 + 1),
+            tiling,
+            dirty_rect: match (dirty_rect, image.dirty_rect) {
+                (Some(rect), Some(prev_rect)) => Some(rect.union(&prev_rect)),
+                (Some(rect), None) => Some(rect),
+                (None, _) => None,
+            },
         };
     }
 
