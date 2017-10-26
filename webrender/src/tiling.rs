@@ -11,6 +11,7 @@ use border::{BorderCornerInstance, BorderCornerSide};
 use clip::{ClipSource, ClipStore};
 use clip_scroll_tree::CoordinateSystemId;
 use device::Texture;
+use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle, GpuCacheUpdateList};
 use gpu_types::{BlurDirection, BlurInstance, BrushInstance, ClipMaskInstance};
 use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
@@ -142,7 +143,7 @@ impl AlphaBatchList {
                 // the input to the next composite. Perhaps we can
                 // optimize this in the future.
             }
-            BatchKind::Transformable(_, TransformBatchKind::TextRun) => {
+            BatchKind::Transformable(_, TransformBatchKind::TextRun(_)) => {
                 'outer_text: for (batch_index, batch) in self.batches.iter().enumerate().rev().take(10) {
                     // Subpixel text is drawn in two passes. Because of this, we need
                     // to check for overlaps with every batch (which is a bit different
@@ -549,7 +550,7 @@ impl AlphaRenderItem {
                             &text_cpu.glyph_keys,
                             glyph_fetch_buffer,
                             gpu_cache,
-                            |texture_id, glyphs| {
+                            |texture_id, glyph_format, glyphs| {
                                 debug_assert_ne!(texture_id, SourceTexture::Invalid);
 
                                 let textures = BatchTextures {
@@ -562,7 +563,7 @@ impl AlphaRenderItem {
 
                                 let kind = BatchKind::Transformable(
                                     transform_kind,
-                                    TransformBatchKind::TextRun,
+                                    TransformBatchKind::TextRun(glyph_format),
                                 );
 
                                 let key = BatchKey::new(kind, blend_mode, textures);
@@ -1211,7 +1212,7 @@ impl RenderTarget for ColorRenderTarget {
                                             &text.glyph_keys,
                                             &mut self.glyph_fetch_buffer,
                                             gpu_cache,
-                                            |texture_id, glyphs| {
+                                            |texture_id, _glyph_format, glyphs| {
                                                 let batch = text_run_cache_prims
                                                     .entry(texture_id)
                                                     .or_insert(Vec::new());
@@ -1561,7 +1562,7 @@ impl RenderPass {
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum TransformBatchKind {
     Rectangle(bool),
-    TextRun,
+    TextRun(GlyphFormat),
     Image(ImageBufferKind),
     YuvImage(ImageBufferKind, YuvFormat, YuvColorSpace),
     AlignedGradient,
