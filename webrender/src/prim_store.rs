@@ -1060,7 +1060,6 @@ impl PrimitiveStore {
                 self.cpu_pictures[metadata.cpu_prim_index.0]
                     .prepare_for_render(
                         prim_index,
-                        metadata,
                         prim_context,
                         render_tasks
                     );

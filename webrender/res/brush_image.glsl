@@ -24,20 +24,18 @@ void brush_vs(
     //           we can expand this to support items from
     //           the normal texture cache and unify this
     //           with the normal image shader.
-    RenderTaskData child_task = fetch_render_task(user_data.x);
-    vUv.z = child_task.data1.x;
+    BlurTask task = fetch_blur_task(user_data.x);
+    vUv.z = task.render_target_layer_index;
 
 #if defined WR_FEATURE_COLOR_TARGET
     vec2 texture_size = vec2(textureSize(sColor0, 0).xy);
 #else
-    Picture pic = fetch_picture(prim_address);
-
     vec2 texture_size = vec2(textureSize(sColor1, 0).xy);
-    vColor = pic.color;
+    vColor = task.color;
 #endif
 
-    vec2 uv0 = child_task.data0.xy;
-    vec2 uv1 = (child_task.data0.xy + child_task.data0.zw);
+    vec2 uv0 = task.target_rect.p0;
+    vec2 uv1 = (task.target_rect.p0 + task.target_rect.size);
 
     vec2 f = (local_pos - local_rect.p0) / local_rect.size;
 

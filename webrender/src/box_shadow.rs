@@ -174,7 +174,13 @@ impl FrameBuilder {
                         BoxShadowClipMode::Outset,
                     );
 
-                    pic_prim.add_primitive(brush_prim_index, clip_and_scroll);
+                    pic_prim.add_primitive(
+                        brush_prim_index,
+                        &brush_rect,
+                        clip_and_scroll
+                    );
+
+                    pic_prim.build();
 
                     extra_clips.push(ClipSource::RoundedRectangle(
                         prim_info.rect,
@@ -221,7 +227,13 @@ impl FrameBuilder {
                         BoxShadowClipMode::Inset,
                     );
 
-                    pic_prim.add_primitive(brush_prim_index, clip_and_scroll);
+                    pic_prim.add_primitive(
+                        brush_prim_index,
+                        &prim_info.rect,
+                        clip_and_scroll
+                    );
+
+                    pic_prim.build();
 
                     extra_clips.push(ClipSource::RoundedRectangle(
                         prim_info.rect,
