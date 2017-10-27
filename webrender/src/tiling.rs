@@ -13,13 +13,14 @@ use clip_scroll_tree::CoordinateSystemId;
 use device::Texture;
 use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle, GpuCacheUpdateList};
-use gpu_types::{BlurDirection, BlurInstance, BrushInstance, ClipMaskInstance};
+use gpu_types::{BlurDirection, BlurInstance, BrushInstance, BrushImageKind, ClipMaskInstance};
 use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
 use gpu_types::{BRUSH_FLAG_USES_PICTURE};
 use internal_types::{FastHashMap, SourceTexture};
 use internal_types::BatchTextures;
+use picture::PictureKind;
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
-use prim_store::{DeferredResolve, TextRunMode};
+use prim_store::{BrushMaskKind, BrushKind, DeferredResolve, TextRunMode};
 use profiler::FrameProfileCounters;
 use render_task::{AlphaRenderItem, ClipWorkItem, MaskGeometryKind, MaskSegment};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKey, RenderTaskKind};
@@ -590,6 +591,18 @@ impl AlphaRenderItem {
                         );
                         let key = BatchKey::new(kind, blend_mode, textures);
                         let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
+                        let image_kind = match picture.kind {
+                            PictureKind::TextShadow { .. } => {
+                                BrushImageKind::Simple
+                            }
+                            PictureKind::BoxShadow { has_uniform_radii, .. } => {
+                                if has_uniform_radii {
+                                    BrushImageKind::Mirror
+                                } else {
+                                    BrushImageKind::NinePatch
+                                }
+                            }
+                        };
                         let instance = BrushInstance {
                             picture_address: task_address,
                             prim_address: prim_cache_address,
@@ -598,7 +611,7 @@ impl AlphaRenderItem {
                             z,
                             flags: 0,
                             user_data0: cache_task_address.0 as i32,
-                            user_data1: 0,
+                            user_data1: image_kind as i32,
                         };
                         batch.push(PrimitiveInstance::from(instance));
                     }
@@ -1254,7 +1267,8 @@ impl RenderTarget for ColorRenderTarget {
 
 pub struct AlphaRenderTarget {
     pub clip_batcher: ClipBatcher,
-    pub rect_cache_prims: Vec<PrimitiveInstance>,
+    pub brush_mask_corners: Vec<PrimitiveInstance>,
+    pub brush_mask_rounded_rects: Vec<PrimitiveInstance>,
     // List of blur operations to apply for this render target.
     pub vertical_blurs: Vec<BlurInstance>,
     pub horizontal_blurs: Vec<BlurInstance>,
@@ -1270,7 +1284,8 @@ impl RenderTarget for AlphaRenderTarget {
     fn new(size: Option<DeviceUintSize>) -> AlphaRenderTarget {
         AlphaRenderTarget {
             clip_batcher: ClipBatcher::new(),
-            rect_cache_prims: Vec::new(),
+            brush_mask_corners: Vec::new(),
+            brush_mask_rounded_rects: Vec::new(),
             vertical_blurs: Vec::new(),
             horizontal_blurs: Vec::new(),
             zero_clears: Vec::new(),
@@ -1362,7 +1377,16 @@ impl RenderTarget for AlphaRenderTarget {
                                             user_data0: 0,
                                             user_data1: 0,
                                         };
-                                        self.rect_cache_prims.push(PrimitiveInstance::from(instance));
+                                        let brush = &ctx.prim_store.cpu_brushes[sub_metadata.cpu_prim_index.0];
+                                        let batch = match brush.kind {
+                                            BrushKind::Mask { ref kind, .. } => {
+                                                match *kind {
+                                                    BrushMaskKind::Corner(..) => &mut self.brush_mask_corners,
+                                                    BrushMaskKind::RoundedRect(..) => &mut self.brush_mask_rounded_rects,
+                                                }
+                                            }
+                                        };
+                                        batch.push(PrimitiveInstance::from(instance));
                                     }
                                     _ => {
                                         unreachable!("Unexpected sub primitive type");
