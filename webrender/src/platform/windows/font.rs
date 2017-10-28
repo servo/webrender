@@ -311,10 +311,15 @@ impl FontContext {
                 font.subpx_dir = SubpixelDirection::None;
             }
             FontRenderMode::Alpha => {
-                // In alpha mode the color of the font is irrelevant.
-                font.color = ColorU::new(255, 255, 255, 255);
+                let ColorLut { r, g, b, a } =
+                    ColorLut::new(font.color.r, font.color.g, font.color.b, 255).luminance_color().quantize();
+                font.color = ColorU::new(r, g, b, a);
             }
-            FontRenderMode::Subpixel => {}
+            FontRenderMode::Subpixel => {
+                let ColorLut { r, g, b, a } =
+                    ColorLut::new(font.color.r, font.color.g, font.color.b, 255).quantize();
+                font.color = ColorU::new(r, g, b, a);
+            }
         }
     }
 
