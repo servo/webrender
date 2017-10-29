@@ -548,30 +548,6 @@ impl YamlFrameWriter {
         Yaml::Hash(t)
     }
 
-    fn make_sticky_info_node(&mut self, sticky_info: &StickySideConstraint) -> Yaml {
-        Yaml::Array(vec![
-            Yaml::Real(sticky_info.margin.to_string()),
-            Yaml::Real(sticky_info.max_offset.to_string()),
-        ])
-    }
-
-    fn make_sticky_frame_info_node(&mut self, sticky_frame_info: &StickyFrameInfo) -> Yaml {
-        let mut table = new_table();
-        if let Some(ref info) = sticky_frame_info.left {
-            yaml_node(&mut table, "left", self.make_sticky_info_node(info));
-        }
-        if let Some(ref info) = sticky_frame_info.top {
-            yaml_node(&mut table, "top", self.make_sticky_info_node(info));
-        }
-        if let Some(ref info) = sticky_frame_info.right {
-            yaml_node(&mut table, "right", self.make_sticky_info_node(info));
-        }
-        if let Some(ref info) = sticky_frame_info.bottom {
-            yaml_node(&mut table, "bottom", self.make_sticky_info_node(info));
-        }
-        Yaml::Hash(table)
-    }
-
     fn make_complex_clips_node(
         &mut self,
         complex_clip_count: usize,
@@ -995,11 +971,31 @@ impl YamlFrameWriter {
                     str_node(&mut v, "type", "sticky-frame");
                     usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
                     rect_node(&mut v, "bounds", &base.local_clip().clip_rect());
-                    yaml_node(
-                        &mut v,
-                        "sticky-info",
-                        self.make_sticky_frame_info_node(&item.sticky_frame_info),
-                    );
+
+                    if let Some(margin) = item.margins.top {
+                        f32_node(&mut v, "margin-top", margin);
+                    }
+                    if let Some(margin) = item.margins.bottom {
+                        f32_node(&mut v, "margin-bottom", margin);
+                    }
+                    if let Some(margin) = item.margins.left {
+                        f32_node(&mut v, "margin-left", margin);
+                    }
+                    if let Some(margin) = item.margins.right {
+                        f32_node(&mut v, "margin-right", margin);
+                    }
+
+                    let horizontal = vec![
+                        Yaml::Real(item.horizontal_offset_bounds.min.to_string()),
+                        Yaml::Real(item.horizontal_offset_bounds.max.to_string()),
+                    ];
+                    let vertical = vec![
+                        Yaml::Real(item.vertical_offset_bounds.min.to_string()),
+                        Yaml::Real(item.vertical_offset_bounds.max.to_string()),
+                    ];
+
+                    yaml_node(&mut v, "horizontal-offset-bounds", Yaml::Array(horizontal));
+                    yaml_node(&mut v, "vertical-offset-bounds", Yaml::Array(vertical));
                 }
 
                 PopStackingContext => return,

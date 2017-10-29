@@ -8,8 +8,8 @@ root:
       items:
       - type: sticky-frame
         bounds: [10, 60, 50, 50]
-        sticky-info:
-          bottom: [0, -500]
+        margin-bottom: 0
+        vertical-offset-bounds: [-500, 0]
         items:
         - type: clip
           bounds: [10, 60, 50, 50]
@@ -26,8 +26,8 @@ root:
       items:
       - type: sticky-frame
         bounds: [70, 10, 50, 50]
-        sticky-info:
-          top: [0, 500]
+        margin-top: 0
+        vertical-offset-bounds: [0, 500]
         items:
         - type: clip
           bounds: [70, 10, 50, 50]
@@ -43,8 +43,8 @@ root:
       items:
       - type: sticky-frame
         bounds: [60, 70, 50, 50]
-        sticky-info:
-          right: [0, -500]
+        margin-right: 0
+        horizontal-offset-bounds: [-500, 0]
         items:
         - type: clip
           bounds: [60, 70, 50, 50]
@@ -61,8 +61,8 @@ root:
       items:
       - type: sticky-frame
         bounds: [70, 70, 50, 50]
-        sticky-info:
-          left: [0, 500]
+        margin-left: 0
+        horizontal-offset-bounds: [0, 500]
         items:
         - type: clip
           bounds: [70, 70, 50, 50]
@@ -79,8 +79,8 @@ root:
       items:
       - type: sticky-frame
         bounds: [130, 60, 50, 50]
-        sticky-info:
-          bottom: [10, -500]
+        margin-bottom: 10
+        vertical-offset-bounds: [-500, 0]
         items:
         - type: clip
           bounds: [130, 60, 50, 50]
@@ -97,8 +97,8 @@ root:
       items:
       - type: sticky-frame
         bounds: [190, 10, 50, 50]
-        sticky-info:
-          top: [10, 500]
+        margin-top: 10
+        vertical-offset-bounds: [0, 500]
         items:
         - type: clip
           bounds: [190, 10, 50, 50]
@@ -114,8 +114,8 @@ root:
       items:
       - type: sticky-frame
         bounds: [180, 70, 50, 50]
-        sticky-info:
-          right: [10, -500]
+        margin-right: 10
+        horizontal-offset-bounds: [-500, 0]
         items:
         - type: clip
           bounds: [180, 70, 50, 50]
@@ -132,8 +132,8 @@ root:
       items:
       - type: sticky-frame
         bounds: [190, 70, 50, 50]
-        sticky-info:
-          left: [10, 500]
+        margin-left: 10
+        horizontal-offset-bounds: [0, 500]
         items:
         - type: clip
           bounds: [190, 70, 50, 50]
@@ -150,8 +150,8 @@ root:
       items:
       - type: sticky-frame
         bounds: [250, 60, 50, 50]
-        sticky-info:
-          bottom: [0, -25]
+        margin-bottom: 0
+        vertical-offset-bounds: [-25, 0]
         items:
         - type: clip
           bounds: [250, 60, 50, 50]
@@ -168,8 +168,8 @@ root:
       items:
       - type: sticky-frame
         bounds: [310, 10, 50, 50]
-        sticky-info:
-          top: [0, 25]
+        margin-top: 0
+        vertical-offset-bounds: [0, 25]
         items:
         - type: clip
           bounds: [310, 10, 50, 50]
@@ -185,8 +185,8 @@ root:
       items:
       - type: sticky-frame
         bounds: [300, 70, 50, 50]
-        sticky-info:
-          right: [0, -25]
+        margin-right: 0
+        horizontal-offset-bounds: [-25, 0]
         items:
         - type: clip
           bounds: [300, 70, 50, 50]
@@ -203,8 +203,8 @@ root:
       items:
       - type: sticky-frame
         bounds: [310, 70, 50, 50]
-        sticky-info:
-          left: [0, 25]
+        margin-left: 0
+        horizontal-offset-bounds: [0, 25]
         items:
         - type: clip
           bounds: [310, 70, 50, 50]

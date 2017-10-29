@@ -284,23 +284,14 @@ impl YamlFrameReader {
         }
     }
 
-    fn to_sticky_info(&mut self, item: &Yaml) -> Option<StickySideConstraint> {
-        match item.as_vec_f32() {
-            Some(v) => Some(StickySideConstraint {
-                margin: v[0],
-                max_offset: v[1],
-            }),
-            None => None,
+    fn to_sticky_offset_bounds(&mut self, item: &Yaml) -> StickyOffsetBounds {
+        match *item {
+            Yaml::Array(ref array) => StickyOffsetBounds::new(
+                array[0].as_f32().unwrap_or(0.0),
+                array[1].as_f32().unwrap_or(0.0),
+            ),
+            _ => StickyOffsetBounds::new(0.0, 0.0),
         }
-    }
-
-    fn to_sticky_frame_info(&mut self, item: &Yaml) -> StickyFrameInfo {
-        StickyFrameInfo::new(
-            self.to_sticky_info(&item["top"]),
-            self.to_sticky_info(&item["right"]),
-            self.to_sticky_info(&item["bottom"]),
-            self.to_sticky_info(&item["left"]),
-        )
     }
 
     pub fn add_or_get_image(
@@ -1170,8 +1161,19 @@ impl YamlFrameReader {
         let id = yaml["id"]
             .as_i64()
             .map(|id| ClipId::new(id as u64, dl.pipeline_id));
-        let sticky_frame_info = self.to_sticky_frame_info(&yaml["sticky-info"]);
-        let id = dl.define_sticky_frame(id, bounds, sticky_frame_info);
+
+        let id = dl.define_sticky_frame(
+            id,
+            bounds,
+            SideOffsets2D::new(
+                yaml["margin-top"].as_f32(),
+                yaml["margin-right"].as_f32(),
+                yaml["margin-bottom"].as_f32(),
+                yaml["margin-left"].as_f32(),
+            ),
+            self.to_sticky_offset_bounds(&yaml["vertical-offset-bounds"]),
+            self.to_sticky_offset_bounds(&yaml["horizontal-offset-bounds"]),
+        );
 
         dl.push_clip_id(id);
         if !yaml["items"].is_badvalue() {
