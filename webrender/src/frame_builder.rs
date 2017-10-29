@@ -365,13 +365,6 @@ impl FrameBuilder {
                 // must be drawn with a transparent background, unless the parent stacking context
                 // is the root of the page
                 let isolation = &mut self.stacking_context_store[parent_index.0].isolation;
-                if *isolation != ContextIsolation::None {
-                    error!(
-                        "Isolation conflict detected on {:?}: {:?}",
-                        parent_index,
-                        *isolation
-                    );
-                }
                 *isolation = ContextIsolation::Full;
             }
         }
