@@ -74,11 +74,9 @@ fn supports_subpixel_aa() -> bool {
 }
 
 fn should_use_white_on_black(color: ColorU) -> bool {
-    let r = color.r as f32 / 255.0;
-    let g = color.g as f32 / 255.0;
-    let b = color.b as f32 / 255.0;
+    let (r, g, b) = (color.r as u32, color.g as u32, color.b as u32);
     // These thresholds were determined on 10.12 by observing what CG does.
-    r >= 0.333 && g >= 0.333 && b >= 0.333 && r + g + b >= 2.0
+    r >= 85 && g >= 85 && b >= 85 && r + g + b >= 2 * 255
 }
 
 fn get_glyph_metrics(
@@ -430,14 +428,23 @@ impl FontContext {
                 font.subpx_dir = SubpixelDirection::None;
             }
             FontRenderMode::Alpha => {
-                font.color = if font.platform_options.unwrap_or_default().font_smoothing &&
-                                should_use_white_on_black(font.color) {
-                    ColorU::new(255, 255, 255, 255)
+                font.color = if font.platform_options.unwrap_or_default().font_smoothing {
+                    let ColorLut { r, g, b, .. } =
+                        ColorLut::new(font.color.r, font.color.g, font.color.b, 255).luminance_color().quantize();
+                    // Quantization may change the light/dark determination, so check using
+                    // the original color and store in the otherwise unused alpha channel.
+                    let a = if should_use_white_on_black(font.color) { 255 } else { 0 };
+                    ColorU::new(r, g, b, a)
                 } else {
-                    ColorU::new(0, 0, 0, 255)
+                    ColorU::new(255, 255, 255, 255)
                 };
             }
-            FontRenderMode::Subpixel => {}
+            FontRenderMode::Subpixel => {
+                let ColorLut { r, g, b, .. } =
+                    ColorLut::new(font.color.r, font.color.g, font.color.b, 255).quantize();
+                let a = if should_use_white_on_black(font.color) { 255 } else { 0 };
+                font.color = ColorU::new(r, g, b, a);
+            }
         }
     }
 
@@ -523,7 +530,7 @@ impl FontContext {
         // the text color brightness exceeds a certain threshold. This applies
         // to both the Subpixel and the "Alpha + smoothing" modes, but not to
         // the "Alpha without smoothing" and Mono modes.
-        let use_white_on_black = should_use_white_on_black(font.color);
+        let use_white_on_black = font.color.a != 0;
         let use_font_smoothing = font.platform_options.unwrap_or_default().font_smoothing;
         let (antialias, smooth, text_color, bg_color, bg_alpha, invert) =
             match (font.render_mode, use_font_smoothing) {
