@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorF, ClipAndScrollInfo, device_length, DeviceIntSize};
+use api::{BorderRadiusKind, ColorF, ClipAndScrollInfo, device_length, DeviceIntSize};
 use api::{BoxShadowClipMode, LayerPoint, LayerRect, LayerSize, Shadow};
 use box_shadow::BLUR_SAMPLE_SCALE;
 use frame_builder::PrimitiveContext;
@@ -38,7 +38,7 @@ pub enum PictureKind {
         color: ColorF,
         blur_regions: Vec<LayerRect>,
         clip_mode: BoxShadowClipMode,
-        has_uniform_radii: bool,
+        radii_kind: BorderRadiusKind,
     },
 }
 
@@ -71,7 +71,7 @@ impl PicturePrimitive {
         color: ColorF,
         blur_regions: Vec<LayerRect>,
         clip_mode: BoxShadowClipMode,
-        has_uniform_radii: bool,
+        radii_kind: BorderRadiusKind,
     ) -> PicturePrimitive {
         PicturePrimitive {
             prim_runs: Vec::new(),
@@ -82,7 +82,7 @@ impl PicturePrimitive {
                 color: color.premultiplied(),
                 blur_regions,
                 clip_mode,
-                has_uniform_radii,
+                radii_kind,
             },
         }
     }
@@ -137,33 +137,39 @@ impl PicturePrimitive {
 
                 self.content_rect.translate(&shadow.offset)
             }
-            PictureKind::BoxShadow { blur_radius, clip_mode, has_uniform_radii, .. } => {
+            PictureKind::BoxShadow { blur_radius, clip_mode, radii_kind, .. } => {
                 // We need to inflate the content rect if outset.
-                if clip_mode == BoxShadowClipMode::Outset {
-                    let blur_offset = blur_radius * BLUR_SAMPLE_SCALE;
+                match clip_mode {
+                    BoxShadowClipMode::Outset => {
+                        let blur_offset = blur_radius * BLUR_SAMPLE_SCALE;
 
-                    // If the radii are uniform, we can render just the top
-                    // left corner and mirror it across the primitive. In
-                    // this case, shift the content rect to leave room
-                    // for the blur to take effect.
-                    if has_uniform_radii {
-                        let origin = LayerPoint::new(
-                            self.content_rect.origin.x - blur_offset,
-                            self.content_rect.origin.y - blur_offset,
-                        );
-                        let size = LayerSize::new(
-                            self.content_rect.size.width + blur_offset,
-                            self.content_rect.size.height + blur_offset,
-                        );
-                        self.content_rect = LayerRect::new(origin, size);
-                    } else {
-                        // For a non-uniform radii, we need to expand
-                        // the content rect on all sides for the blur.
-                        self.content_rect = self.content_rect.inflate(
-                            blur_offset,
-                            blur_offset,
-                        );
+                        // If the radii are uniform, we can render just the top
+                        // left corner and mirror it across the primitive. In
+                        // this case, shift the content rect to leave room
+                        // for the blur to take effect.
+                        match radii_kind {
+                            BorderRadiusKind::Uniform => {
+                                let origin = LayerPoint::new(
+                                    self.content_rect.origin.x - blur_offset,
+                                    self.content_rect.origin.y - blur_offset,
+                                );
+                                let size = LayerSize::new(
+                                    self.content_rect.size.width + blur_offset,
+                                    self.content_rect.size.height + blur_offset,
+                                );
+                                self.content_rect = LayerRect::new(origin, size);
+                            }
+                            BorderRadiusKind::NonUniform => {
+                                // For a non-uniform radii, we need to expand
+                                // the content rect on all sides for the blur.
+                                self.content_rect = self.content_rect.inflate(
+                                    blur_offset,
+                                    blur_offset,
+                                );
+                            }
+                        }
                     }
+                    BoxShadowClipMode::Inset => {}
                 }
 
                 self.content_rect

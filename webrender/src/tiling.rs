@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ClipAndScrollInfo, ClipId, ColorF, DeviceIntPoint, ImageKey};
+use api::{BorderRadiusKind, ClipAndScrollInfo, ClipId, ColorF, DeviceIntPoint, ImageKey};
 use api::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintSize};
 use api::{ExternalImageType, FilterOp, FontRenderMode, ImageRendering, LayerRect};
 use api::{LayerToWorldTransform, MixBlendMode, PipelineId, PropertyBinding, TransformStyle};
@@ -595,11 +595,14 @@ impl AlphaRenderItem {
                             PictureKind::TextShadow { .. } => {
                                 BrushImageKind::Simple
                             }
-                            PictureKind::BoxShadow { has_uniform_radii, .. } => {
-                                if has_uniform_radii {
-                                    BrushImageKind::Mirror
-                                } else {
-                                    BrushImageKind::NinePatch
+                            PictureKind::BoxShadow { radii_kind, .. } => {
+                                match radii_kind {
+                                    BorderRadiusKind::Uniform => {
+                                        BrushImageKind::Mirror
+                                    }
+                                    BorderRadiusKind::NonUniform => {
+                                        BrushImageKind::NinePatch
+                                    }
                                 }
                             }
                         };

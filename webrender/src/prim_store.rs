@@ -187,38 +187,34 @@ pub struct BrushPrimitive {
 impl ToGpuBlocks for BrushPrimitive {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
         match self.kind {
-            BrushKind::Mask { clip_mode, ref kind } => {
-                match *kind {
-                    BrushMaskKind::Corner(radius) => {
-                        request.push([
-                            radius.width,
-                            radius.height,
-                            clip_mode as u32 as f32,
-                            0.0,
-                        ]);
-                    }
-                    BrushMaskKind::RoundedRect(rect, radii) => {
-                        request.push([
-                            clip_mode as u32 as f32,
-                            0.0,
-                            0.0,
-                            0.0
-                        ]);
-                        request.push(rect);
-                        request.push([
-                            radii.top_left.width,
-                            radii.top_left.height,
-                            radii.top_right.width,
-                            radii.top_right.height,
-                        ]);
-                        request.push([
-                            radii.bottom_right.width,
-                            radii.bottom_right.height,
-                            radii.bottom_left.width,
-                            radii.bottom_left.height,
-                        ]);
-                    }
-                }
+            BrushKind::Mask { clip_mode, kind: BrushMaskKind::Corner(radius) } => {
+                request.push([
+                    radius.width,
+                    radius.height,
+                    clip_mode as u32 as f32,
+                    0.0,
+                ]);
+            }
+            BrushKind::Mask { clip_mode, kind: BrushMaskKind::RoundedRect(rect, radii) } => {
+                request.push([
+                    clip_mode as u32 as f32,
+                    0.0,
+                    0.0,
+                    0.0
+                ]);
+                request.push(rect);
+                request.push([
+                    radii.top_left.width,
+                    radii.top_left.height,
+                    radii.top_right.width,
+                    radii.top_right.height,
+                ]);
+                request.push([
+                    radii.bottom_right.width,
+                    radii.bottom_right.height,
+                    radii.bottom_left.width,
+                    radii.bottom_left.height,
+                ]);
             }
         }
     }

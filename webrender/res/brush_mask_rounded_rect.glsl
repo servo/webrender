@@ -73,19 +73,21 @@ vec4 brush_fs() {
     //       since otherwise the results can be undefined if the
     //       input function is not continuous. I have observed this
     //       as flickering behaviour on Intel GPUs.
+    float aa_range = compute_aa_range(vLocalPos);
 
     // Apply ellipse clip on each corner.
-    float d = rounded_rect(vLocalPos,
-                           vClipCenter_Radius_TL,
-                           vClipCenter_Radius_TR,
-                           vClipCenter_Radius_BR,
-                           vClipCenter_Radius_BL);
+    float d = 0.0;
 
-    if (vLocalPos.x < vLocalRect.x ||
-        vLocalPos.y < vLocalRect.y ||
-        vLocalPos.x > vLocalRect.z ||
-        vLocalPos.y > vLocalRect.w) {
-        d = 0.0;
+    if (vLocalPos.x > vLocalRect.x &&
+        vLocalPos.y > vLocalRect.y &&
+        vLocalPos.x <= vLocalRect.z &&
+        vLocalPos.y <= vLocalRect.w) {
+        d = rounded_rect(vLocalPos,
+                         vClipCenter_Radius_TL,
+                         vClipCenter_Radius_TR,
+                         vClipCenter_Radius_BR,
+                         vClipCenter_Radius_BL,
+                         aa_range);
     }
 
     return vec4(mix(d, 1.0 - d, vClipMode));

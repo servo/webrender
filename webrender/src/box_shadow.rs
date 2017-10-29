@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorF, LayerPoint, LayerRect, LayerSize, LayerVector2D};
+use api::{BorderRadiusKind, ColorF, LayerPoint, LayerRect, LayerSize, LayerVector2D};
 use api::{BorderRadius, BoxShadowClipMode, LayoutSize, LayerPrimitiveInfo};
 use api::{ClipMode, ComplexClipRegion, LocalClip, ClipAndScrollInfo};
 use clip::ClipSource;
@@ -115,11 +115,13 @@ impl FrameBuilder {
                     let height;
                     let brush_prim;
                     let corner_size = shadow_radius.is_uniform_size();
+                    let radii_kind;
 
                     // If the outset box shadow has a uniform corner side, we can
                     // just blur the top left corner, and stretch / mirror that
                     // across the primitive.
                     if let Some(corner_size) = corner_size {
+                        radii_kind = BorderRadiusKind::Uniform;
                         width = MASK_CORNER_PADDING + corner_size.width.max(BLUR_SAMPLE_SCALE * blur_radius);
                         height = MASK_CORNER_PADDING + corner_size.height.max(BLUR_SAMPLE_SCALE * blur_radius);
 
@@ -134,6 +136,7 @@ impl FrameBuilder {
                         // case, we ensure the size of each corner is the same,
                         // to simplify the shader logic that stretches the blurred
                         // result across the primitive.
+                        radii_kind = BorderRadiusKind::NonUniform;
                         let max_width = shadow_radius.top_left.width
                                             .max(shadow_radius.bottom_left.width)
                                             .max(shadow_radius.top_right.width)
@@ -175,7 +178,7 @@ impl FrameBuilder {
                         *color,
                         Vec::new(),
                         clip_mode,
-                        corner_size.is_some(),
+                        radii_kind,
                     );
                     pic_prim.add_primitive(
                         brush_prim_index,
@@ -244,7 +247,8 @@ impl FrameBuilder {
                         *color,
                         Vec::new(),
                         BoxShadowClipMode::Inset,
-                        false,
+                        // TODO(gw): Make use of optimization for inset.
+                        BorderRadiusKind::NonUniform,
                     );
                     pic_prim.add_primitive(
                         brush_prim_index,

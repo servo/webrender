@@ -243,6 +243,13 @@ pub struct BorderDisplayItem {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub enum BorderRadiusKind {
+    Uniform,
+    NonUniform,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BorderRadius {
     pub top_left: LayoutSize,
     pub top_right: LayoutSize,
