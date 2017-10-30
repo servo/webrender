@@ -1218,7 +1218,7 @@ impl PrimitiveStore {
         // Try to create a mask if we may need to.
         let prim_clips = clip_store.get(&metadata.clip_sources);
         let is_axis_aligned = prim_context.packed_layer.transform.preserves_2d_axis_alignment();
-        let clip_task = if prim_clips.is_masking() {
+        let clip_task = if prim_context.clip_chain.is_some() || prim_clips.is_masking() {
             // Take into account the actual clip info of the primitive, and
             // mutate the current bounds accordingly.
             let mask_rect = match prim_clips.bounds.outer {
@@ -1232,35 +1232,24 @@ impl PrimitiveStore {
                 _ => prim_screen_rect,
             };
 
-            let extra_clip = Some(Rc::new(ClipChainNode {
-                work_item: ClipWorkItem {
-                    layer_index: prim_context.packed_layer_index,
-                    clip_sources: metadata.clip_sources.weak(),
-                    coordinate_system_id: prim_context.coordinate_system_id,
-                },
-                prev: None,
-            }));
+            let extra_clip = if prim_clips.is_masking() {
+                Some(Rc::new(ClipChainNode {
+                    work_item: ClipWorkItem {
+                        layer_index: prim_context.packed_layer_index,
+                        clip_sources: metadata.clip_sources.weak(),
+                        coordinate_system_id: prim_context.coordinate_system_id,
+                    },
+                    prev: None,
+                }))
+            } else {
+                None
+            };
 
             RenderTask::new_mask(
                 None,
                 mask_rect,
                 prim_context.clip_chain.clone(),
                 extra_clip,
-                prim_screen_rect,
-                clip_store,
-                is_axis_aligned,
-                prim_context.coordinate_system_id,
-            )
-        } else if prim_context.clip_chain.is_some() {
-            // If the primitive doesn't have a specific clip, key the task ID off the
-            // stacking context. This means that two primitives which are only clipped
-            // by the stacking context stack can share clip masks during render task
-            // assignment to targets.
-            RenderTask::new_mask(
-                Some(prim_context.clip_id),
-                prim_context.clip_bounds,
-                prim_context.clip_chain.clone(),
-                None,
                 prim_screen_rect,
                 clip_store,
                 is_axis_aligned,
