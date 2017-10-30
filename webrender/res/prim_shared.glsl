@@ -420,6 +420,8 @@ struct CompositeInstance {
     int user_data0;
     int user_data1;
     float z;
+    int user_data2;
+    int user_data3;
 };
 
 CompositeInstance fetch_composite_instance() {
@@ -432,6 +434,8 @@ CompositeInstance fetch_composite_instance() {
 
     ci.user_data0 = aData1.x;
     ci.user_data1 = aData1.y;
+    ci.user_data2 = aData1.z;
+    ci.user_data3 = aData1.w;
 
     return ci;
 }
