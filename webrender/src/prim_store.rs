@@ -165,31 +165,58 @@ impl ToGpuBlocks for RectanglePrimitive {
 }
 
 #[derive(Debug)]
+pub enum BrushMaskKind {
+    //Rect,         // TODO(gw): Optimization opportunity for masks with 0 border radii.
+    Corner(LayerSize),
+    RoundedRect(LayerRect, BorderRadius),
+}
+
+#[derive(Debug)]
+pub enum BrushKind {
+    Mask {
+        clip_mode: ClipMode,
+        kind: BrushMaskKind,
+    }
+}
+
+#[derive(Debug)]
 pub struct BrushPrimitive {
-    pub clip_mode: ClipMode,
-    pub radius: BorderRadius,
+    pub kind: BrushKind,
 }
 
 impl ToGpuBlocks for BrushPrimitive {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        request.push([
-            self.clip_mode as u32 as f32,
-            0.0,
-            0.0,
-            0.0
-        ]);
-        request.push([
-            self.radius.top_left.width,
-            self.radius.top_left.height,
-            self.radius.top_right.width,
-            self.radius.top_right.height,
-        ]);
-        request.push([
-            self.radius.bottom_right.width,
-            self.radius.bottom_right.height,
-            self.radius.bottom_left.width,
-            self.radius.bottom_left.height,
-        ]);
+        match self.kind {
+            BrushKind::Mask { clip_mode, kind: BrushMaskKind::Corner(radius) } => {
+                request.push([
+                    radius.width,
+                    radius.height,
+                    clip_mode as u32 as f32,
+                    0.0,
+                ]);
+            }
+            BrushKind::Mask { clip_mode, kind: BrushMaskKind::RoundedRect(rect, radii) } => {
+                request.push([
+                    clip_mode as u32 as f32,
+                    0.0,
+                    0.0,
+                    0.0
+                ]);
+                request.push(rect);
+                request.push([
+                    radii.top_left.width,
+                    radii.top_left.height,
+                    radii.top_right.width,
+                    radii.top_right.height,
+                ]);
+                request.push([
+                    radii.bottom_right.width,
+                    radii.bottom_right.height,
+                    radii.bottom_left.width,
+                    radii.bottom_left.height,
+                ]);
+            }
+        }
     }
 }
 
