@@ -286,6 +286,13 @@ impl Wrench {
             }
         }
 
+        // The platform font implementations don't always handle
+        // the exact dimensions used when subpixel AA is enabled
+        // on glyphs. As a workaround, inflate the bounds by
+        // 2 pixels on either side, to give a slightly less
+        // tight fitting bounding rect.
+        let bounding_rect = bounding_rect.inflate(2.0, 2.0);
+
         (indices, positions, bounding_rect)
     }
 
