@@ -10,6 +10,7 @@ use frame_builder::FrameBuilder;
 use prim_store::{PrimitiveContainer, RectanglePrimitive, BrushPrimitive};
 use prim_store::{BrushMaskKind, BrushKind};
 use picture::PicturePrimitive;
+use util::RectHelpers;
 
 // The blur shader samples BLUR_SAMPLE_SCALE * blur_radius surrounding texels.
 pub const BLUR_SAMPLE_SCALE: f32 = 3.0;
@@ -116,6 +117,10 @@ impl FrameBuilder {
                     let brush_prim;
                     let corner_size = shadow_radius.is_uniform_size();
                     let radii_kind;
+
+                    if !shadow_rect.is_well_formed_and_nonempty() {
+                        return;
+                    }
 
                     // If the outset box shadow has a uniform corner side, we can
                     // just blur the top left corner, and stretch / mirror that

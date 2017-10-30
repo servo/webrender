@@ -187,10 +187,16 @@ impl PicturePrimitive {
         // render the text run to a target, and then apply a gaussian
         // blur to that text run in order to build the actual primitive
         // which will be blitted to the framebuffer.
+
+        // TODO(gw): Rounding the content rect here to device pixels is not
+        // technically correct. Ideally we should ceil() here, and ensure that
+        // the extra part pixel in the case of fractional sizes is correctly
+        // handled. For now, just use rounding which passes the existing
+        // Gecko tests.
         let cache_width =
-            (self.content_rect.size.width * prim_context.device_pixel_ratio).ceil() as i32;
+            (self.content_rect.size.width * prim_context.device_pixel_ratio).round() as i32;
         let cache_height =
-            (self.content_rect.size.height * prim_context.device_pixel_ratio).ceil() as i32;
+            (self.content_rect.size.height * prim_context.device_pixel_ratio).round() as i32;
         let cache_size = DeviceIntSize::new(cache_width, cache_height);
 
         match self.kind {
@@ -233,12 +239,12 @@ impl PicturePrimitive {
                 // Gaussian blur with a standard deviation equal to half the blur radius."
                 let blur_std_deviation = blur_radius.0 as f32 * 0.5;
 
-                let (pic_clear_mode, blur_clear_mode) = match clip_mode {
+                let blur_clear_mode = match clip_mode {
                     BoxShadowClipMode::Outset => {
-                        (ClearMode::Zero, ClearMode::One)
+                        ClearMode::One
                     }
                     BoxShadowClipMode::Inset => {
-                        (ClearMode::One, ClearMode::Zero)
+                        ClearMode::Zero
                     }
                 };
 
@@ -248,7 +254,7 @@ impl PicturePrimitive {
                     RenderTargetKind::Alpha,
                     self.content_rect.origin,
                     color,
-                    pic_clear_mode,
+                    ClearMode::Zero,
                 );
 
                 let picture_task_id = render_tasks.add(picture_task);
