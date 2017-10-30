@@ -3349,7 +3349,7 @@ impl Renderer {
                     pass.max_alpha_target_size.width,
                     pass.max_alpha_target_size.height,
                     ImageFormat::A8,
-                    TextureFilter::Nearest,
+                    TextureFilter::Linear,
                     RenderTargetMode::RenderTarget,
                     alpha_target_count as i32,
                     None,
