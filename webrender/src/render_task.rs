@@ -167,6 +167,7 @@ pub enum AlphaRenderItem {
         HardwareCompositeOp,
         DeviceIntPoint,
         i32,
+        DeviceIntSize,
     ),
 }
 

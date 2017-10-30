@@ -101,6 +101,8 @@ pub struct CompositePrimitiveInstance {
     pub data0: i32,
     pub data1: i32,
     pub z: i32,
+    pub data2: i32,
+    pub data3: i32,
 }
 
 impl CompositePrimitiveInstance {
@@ -111,6 +113,8 @@ impl CompositePrimitiveInstance {
         data0: i32,
         data1: i32,
         z: i32,
+        data2: i32,
+        data3: i32,
     ) -> CompositePrimitiveInstance {
         CompositePrimitiveInstance {
             task_address,
@@ -119,6 +123,8 @@ impl CompositePrimitiveInstance {
             data0,
             data1,
             z,
+            data2,
+            data3,
         }
     }
 }
@@ -133,8 +139,8 @@ impl From<CompositePrimitiveInstance> for PrimitiveInstance {
                 instance.z,
                 instance.data0,
                 instance.data1,
-                0,
-                0,
+                instance.data2,
+                instance.data3,
             ],
         }
     }

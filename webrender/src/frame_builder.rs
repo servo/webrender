@@ -1837,6 +1837,7 @@ impl FrameBuilder {
                     {
                         let mut prev_task = alpha_task_stack.pop().unwrap();
                         let screen_origin = current_task.as_alpha_batch().screen_origin;
+                        let current_task_size = current_task.get_dynamic_size();
                         let current_task_id = render_tasks.add(current_task);
                         let item = AlphaRenderItem::HardwareComposite(
                             stacking_context_index,
@@ -1844,6 +1845,7 @@ impl FrameBuilder {
                             HardwareCompositeOp::PremultipliedAlpha,
                             screen_origin,
                             next_z,
+                            current_task_size,
                         );
                         next_z += 1;
                         prev_task.as_alpha_batch_mut().items.push(item);
@@ -1881,6 +1883,7 @@ impl FrameBuilder {
                                         screen_origin.y - inflate_size as i32,
                                     ),
                                     next_z,
+                                    render_tasks.get(current_task_id).get_dynamic_size(),
                                 );
                                 prev_task.as_alpha_batch_mut().items.push(item);
                                 prev_task.children.push(blur_render_task_id);
@@ -1971,6 +1974,7 @@ impl FrameBuilder {
                     {
                         let mut prev_task = alpha_task_stack.pop().unwrap();
                         let screen_origin = current_task.as_alpha_batch().screen_origin;
+                        let current_task_size = current_task.get_dynamic_size();
                         let current_task_id = render_tasks.add(current_task);
                         let item = AlphaRenderItem::HardwareComposite(
                             stacking_context_index,
@@ -1978,6 +1982,7 @@ impl FrameBuilder {
                             HardwareCompositeOp::PremultipliedAlpha,
                             screen_origin,
                             next_z,
+                            current_task_size,
                         );
                         next_z += 1;
                         prev_task.as_alpha_batch_mut().items.push(item);
