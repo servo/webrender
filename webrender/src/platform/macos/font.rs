@@ -612,12 +612,15 @@ impl FontContext {
                         pixel[2] = 255 - pixel[2];
                     }
 
-                    pixel[3] = match font.render_mode {
-                        FontRenderMode::Subpixel => 255,
-                        _ => {
-                            pixel[0]
-                        }
-                    }; // end match
+                    // Set alpha to the value of the green channel. For grayscale
+                    // text, all three channels have the same value anyway.
+                    // For subpixel text, the mask's alpha only makes a difference
+                    // when computing the destination alpha on destination pixels
+                    // that are not completely opaque. Picking an alpha value
+                    // that's somehow based on the mask at least ensures that text
+                    // blending doesn't modify the destination alpha on pixels where
+                    // the mask is entirely zero.
+                    pixel[3] = pixel[1];
                 } // end row
             } // end height
 
