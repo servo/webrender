@@ -24,14 +24,12 @@ time = "0.1"
 crossbeam = "0.2"
 osmesa-sys = { version = "0.1.2", optional = true }
 osmesa-src = { git = "https://github.com/servo/osmesa-src", optional = true }
-webrender = {path = "../webrender"}
+webrender = {path = "../webrender", features=["debugger","query"]}
 serde = {version = "1.0", features = ["derive"] }
 
 [features]
 headless = [ "osmesa-sys", "osmesa-src" ]
 logging = [ "env_logger" ]
-debugger = [ "webrender/debugger"]
-query = [ "webrender/query" ]
 
 [target.'cfg(target_os = "windows")'.dependencies]
 dwrote = "0.4"
