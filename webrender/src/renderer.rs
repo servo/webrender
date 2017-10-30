@@ -62,7 +62,7 @@ use std::thread;
 use texture_cache::TextureCache;
 use thread_profiler::{register_thread_with_profiler, write_profile};
 use tiling::{AlphaRenderTarget, ColorRenderTarget, RenderTargetKind};
-use tiling::{BatchKey, BatchKind, BrushBatchKind, Frame, RenderTarget, TransformBatchKind};
+use tiling::{BatchKey, BatchKind, BrushBatchKind, Frame, RenderTarget, ScalingInfo, TransformBatchKind};
 use time::precise_time_ns;
 use util::TransformedRectKind;
 
@@ -2656,6 +2656,30 @@ impl Renderer {
         self.draw_instanced_batch(instances, VertexArrayKind::Primitive, &key.textures);
     }
 
+    fn handle_scaling(
+        &mut self,
+        render_tasks: &RenderTaskTree,
+        scalings: &Vec<ScalingInfo>,
+        source: SourceTexture,
+    ) {
+        let cache_texture = self.texture_resolver
+            .resolve(&source)
+            .unwrap();
+        for scaling in scalings {
+            let source = render_tasks.get(scaling.src_task_id);
+            let dest = render_tasks.get(scaling.dest_task_id);
+
+            let (source_rect, source_layer) = source.get_target_rect();
+            let (dest_rect, _) = dest.get_target_rect();
+
+            let cache_draw_target = (cache_texture, source_layer.0 as i32);
+            self.device
+                .bind_read_target(Some(cache_draw_target));
+
+            self.device.blit_render_target(source_rect, dest_rect);
+        }
+    }
+
     fn draw_color_target(
         &mut self,
         render_target: Option<(&Texture, i32)>,
@@ -2721,6 +2745,8 @@ impl Renderer {
                 );
             }
         }
+
+        self.handle_scaling(render_tasks, &target.scalings, SourceTexture::CacheRGBA8);
 
         // Draw any textrun caches for this target. For now, this
         // is only used to cache text runs that are to be blurred
@@ -3022,6 +3048,8 @@ impl Renderer {
                 );
             }
         }
+
+        self.handle_scaling(render_tasks, &target.scalings, SourceTexture::CacheA8);
 
         if !target.rect_cache_prims.is_empty() {
             self.device.set_blend(false);

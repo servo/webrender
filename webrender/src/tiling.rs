@@ -1085,6 +1085,11 @@ pub struct FrameOutput {
     pub pipeline_id: PipelineId,
 }
 
+pub struct ScalingInfo {
+    pub src_task_id: RenderTaskId,
+    pub dest_task_id: RenderTaskId,
+}
+
 /// A render target represents a number of rendering operations on a surface.
 pub struct ColorRenderTarget {
     pub alpha_batcher: AlphaBatcher,
@@ -1095,6 +1100,7 @@ pub struct ColorRenderTarget {
     pub vertical_blurs: Vec<BlurInstance>,
     pub horizontal_blurs: Vec<BlurInstance>,
     pub readbacks: Vec<DeviceIntRect>,
+    pub scalings: Vec<ScalingInfo>,
     // List of frame buffer outputs for this render target.
     pub outputs: Vec<FrameOutput>,
     allocator: Option<TextureAllocator>,
@@ -1117,6 +1123,7 @@ impl RenderTarget for ColorRenderTarget {
             vertical_blurs: Vec::new(),
             horizontal_blurs: Vec::new(),
             readbacks: Vec::new(),
+            scalings: Vec::new(),
             allocator: size.map(|size| TextureAllocator::new(size)),
             glyph_fetch_buffer: Vec::new(),
             outputs: Vec::new(),
@@ -1262,6 +1269,12 @@ impl RenderTarget for ColorRenderTarget {
             RenderTaskKind::Readback(device_rect) => {
                 self.readbacks.push(device_rect);
             }
+            RenderTaskKind::Scaling(..) => {
+                self.scalings.push(ScalingInfo {
+                    src_task_id: task.children[0],
+                    dest_task_id: task_id,
+                });
+            }
         }
     }
 }
@@ -1272,6 +1285,7 @@ pub struct AlphaRenderTarget {
     // List of blur operations to apply for this render target.
     pub vertical_blurs: Vec<BlurInstance>,
     pub horizontal_blurs: Vec<BlurInstance>,
+    pub scalings: Vec<ScalingInfo>,
     pub zero_clears: Vec<RenderTaskId>,
     allocator: TextureAllocator,
 }
@@ -1287,6 +1301,7 @@ impl RenderTarget for AlphaRenderTarget {
             rect_cache_prims: Vec::new(),
             vertical_blurs: Vec::new(),
             horizontal_blurs: Vec::new(),
+            scalings: Vec::new(),
             zero_clears: Vec::new(),
             allocator: TextureAllocator::new(size.expect("bug: alpha targets need size")),
         }
@@ -1402,6 +1417,12 @@ impl RenderTarget for AlphaRenderTarget {
                     task_info.geometry_kind,
                     clip_store,
                 );
+            }
+            RenderTaskKind::Scaling(..) => {
+                self.scalings.push(ScalingInfo {
+                    src_task_id: task.children[0],
+                    dest_task_id: task_id,
+                });
             }
         }
     }
