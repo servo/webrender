@@ -270,6 +270,7 @@ pub struct BlurTask {
     pub target_kind: RenderTargetKind,
     pub regions: Vec<LayerRect>,
     pub color: ColorF,
+    pub scale_factor: f32,
 }
 
 #[derive(Debug)]
@@ -450,13 +451,16 @@ impl RenderTask {
         })
     }
 
-    // Construct a render task to apply a blur to a primitive. For now,
-    // this is only used for text runs, but we can probably extend this
-    // to handle general blurs to any render task in the future.
+    // Construct a render task to apply a blur to a primitive. 
     // The render task chain that is constructed looks like:
     //
-    //    PrimitiveCacheTask: Draw the text run.
+    //    PrimitiveCacheTask: Draw the primitives.
     //           ^
+    //           |
+    //    DownscalingTask(s): Each downscaling task reduces the size of render target to
+    //           ^            half. Also reduce the std deviation to half until the std
+    //           |            deviation less than 4.0.
+    //           |
     //           |
     //    VerticalBlurTask: Apply the separable vertical blur to the primitive.
     //           ^
@@ -474,17 +478,41 @@ impl RenderTask {
         clear_mode: ClearMode,
         color: ColorF,
     ) -> RenderTask {
+        // Adjust large std deviation value.
+        const MAX_BLUR_STD_DEVIATION: f32 = 4.0;
+        const MIN_DOWNSCALING_RT_SIZE: i32 = 128;
+        let mut adjusted_blur_std_deviation = blur_std_deviation;
         let blur_target_size = render_tasks.get(src_task_id).get_dynamic_size();
+        let mut adjusted_blur_target_size = blur_target_size;
+        let mut downscaling_src_task_id = src_task_id;
+        let mut scale_factor = 1.0;
+        while adjusted_blur_std_deviation > MAX_BLUR_STD_DEVIATION {
+            if adjusted_blur_target_size.width < MIN_DOWNSCALING_RT_SIZE ||
+               adjusted_blur_target_size.height < MIN_DOWNSCALING_RT_SIZE {
+                break;
+            }
+            adjusted_blur_std_deviation *= 0.5;
+            scale_factor *= 2.0;
+            adjusted_blur_target_size = (blur_target_size.to_f32() / scale_factor).to_i32();
+            let downscaling_task = RenderTask::new_scaling(
+                target_kind,
+                downscaling_src_task_id,
+                adjusted_blur_target_size
+            );
+            downscaling_src_task_id = render_tasks.add(downscaling_task);
+        }
+        scale_factor = blur_target_size.width as f32 / adjusted_blur_target_size.width as f32;
 
         let blur_task_v = RenderTask {
             cache_key: None,
-            children: vec![src_task_id],
-            location: RenderTaskLocation::Dynamic(None, blur_target_size),
+            children: vec![downscaling_src_task_id],
+            location: RenderTaskLocation::Dynamic(None, adjusted_blur_target_size),
             kind: RenderTaskKind::VerticalBlur(BlurTask {
-                blur_std_deviation,
+                blur_std_deviation: adjusted_blur_std_deviation,
                 target_kind,
                 regions: regions.to_vec(),
                 color,
+                scale_factor,
             }),
             clear_mode,
         };
@@ -494,12 +522,13 @@ impl RenderTask {
         let blur_task_h = RenderTask {
             cache_key: None,
             children: vec![blur_task_v_id],
-            location: RenderTaskLocation::Dynamic(None, blur_target_size),
+            location: RenderTaskLocation::Dynamic(None, adjusted_blur_target_size),
             kind: RenderTaskKind::HorizontalBlur(BlurTask {
-                blur_std_deviation,
+                blur_std_deviation: adjusted_blur_std_deviation,
                 target_kind,
                 regions: regions.to_vec(),
                 color,
+                scale_factor,
             }),
             clear_mode,
         };
@@ -631,7 +660,7 @@ impl RenderTask {
                         target_rect.size.height as f32,
                         target_index.0 as f32,
                         task_info.blur_std_deviation,
-                        0.0,
+                        task_info.scale_factor,
                         0.0,
                         task_info.color.r,
                         task_info.color.g,
