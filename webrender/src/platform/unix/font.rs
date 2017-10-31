@@ -22,6 +22,7 @@ use glyph_rasterizer::{GlyphFormat, RasterizedGlyph};
 use internal_types::FastHashMap;
 use std::{cmp, mem, ptr, slice};
 use std::sync::Arc;
+use std::cmp::max;
 
 // These constants are not present in the freetype
 // bindings due to bindgen not handling the way
@@ -562,8 +563,7 @@ impl FontContext {
                         final_buffer[dest + 0] = b;
                         final_buffer[dest + 1] = g;
                         final_buffer[dest + 2] = r;
-                        // Use green as a cheap grayscale approximation.
-                        final_buffer[dest + 3] = g;
+                        final_buffer[dest + 3] = max(max(b, g), r);
                         src = unsafe { src.offset(3) };
                         dest += 4;
                     }
@@ -578,8 +578,7 @@ impl FontContext {
                         final_buffer[dest + 0] = b;
                         final_buffer[dest + 1] = g;
                         final_buffer[dest + 2] = r;
-                        // Use green as a cheap grayscale approximation.
-                        final_buffer[dest + 3] = g;
+                        final_buffer[dest + 3] = max(max(b, g), r);
                         src = unsafe { src.offset(1) };
                         dest += 4;
                     }

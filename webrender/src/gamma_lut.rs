@@ -11,6 +11,7 @@ This is a port of Skia gamma LUT logic into Rust, used by WebRender.
 #![allow(dead_code)]
 
 use api::ColorU;
+use std::cmp::max;
 
 /// Color space responsible for converting between lumas and luminances.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -302,11 +303,11 @@ impl GammaLut {
         let table_b = self.get_table(color.b);
 
         for pixel in pixels.chunks_mut(4) {
-            pixel[0] = table_b[pixel[0] as usize];
-            pixel[1] = table_g[pixel[1] as usize];
-            pixel[2] = table_r[pixel[2] as usize];
-            // Use green channel as a cheap grayscale approximation that won't disturb preblending.
-            pixel[3] = pixel[1];
+            let (b, g, r) = (table_b[pixel[0] as usize], table_g[pixel[1] as usize], table_r[pixel[2] as usize]);
+            pixel[0] = b;
+            pixel[1] = g;
+            pixel[2] = r;
+            pixel[3] = max(max(b, g), r);
         }
     }
 
@@ -337,7 +338,6 @@ impl GammaLut {
 
 #[cfg(test)]
 mod tests {
-    use std::cmp;
     use super::*;
 
     fn over(dst: u32, src: u32, alpha: u32) -> u32 {
@@ -373,7 +373,7 @@ mod tests {
                     let true_result = ((overf(lin_dst, lin_src, alpha as f32) / 255.).powf(1. / g) * 255.) as u32;
                     let diff = absdiff(preblend_result, true_result);
                     //println!("{} -- {} {} = {}", alpha, preblend_result, true_result, diff);
-                    max_diff = cmp::max(max_diff, diff);
+                    max_diff = max(max_diff, diff);
                 }
 
                 //println!("{} {} max {}", src, dst, max_diff);

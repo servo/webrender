@@ -209,6 +209,10 @@ pub struct FontInstanceOptions {
     pub render_mode: FontRenderMode,
     pub subpx_dir: SubpixelDirection,
     pub synthetic_italics: bool,
+    /// When bg_color.a is != 0 and render_mode is FontRenderMode::Subpixel,
+    /// the text will be rendered with bg_color.r/g/b as an opaque estimated
+    /// background color.
+    pub bg_color: ColorU,
 }
 
 impl Default for FontInstanceOptions {
@@ -217,6 +221,7 @@ impl Default for FontInstanceOptions {
             render_mode: FontRenderMode::Subpixel,
             subpx_dir: SubpixelDirection::Horizontal,
             synthetic_italics: false,
+            bg_color: ColorU::new(0, 0, 0, 0),
         }
     }
 }
@@ -313,6 +318,7 @@ pub struct FontInstance {
     //           or something similar to that.
     pub size: Au,
     pub color: ColorU,
+    pub bg_color: ColorU,
     pub render_mode: FontRenderMode,
     pub subpx_dir: SubpixelDirection,
     pub platform_options: Option<FontInstancePlatformOptions>,
@@ -325,6 +331,7 @@ impl FontInstance {
         font_key: FontKey,
         size: Au,
         color: ColorF,
+        bg_color: ColorU,
         render_mode: FontRenderMode,
         subpx_dir: SubpixelDirection,
         platform_options: Option<FontInstancePlatformOptions>,
@@ -335,6 +342,7 @@ impl FontInstance {
             font_key,
             size,
             color: color.into(),
+            bg_color,
             render_mode,
             subpx_dir,
             platform_options,
