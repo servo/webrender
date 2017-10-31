@@ -17,6 +17,7 @@ use euclid::rect;
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use gpu_cache::GpuCache;
 use internal_types::{FastHashMap, FastHashSet, RendererFrame};
+use prim_store::RectangleContent;
 use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
 use resource_cache::{FontInstanceMap,ResourceCache, TiledImageMap};
 use scene::{Scene, StackingContextHelpers, ScenePipeline};
@@ -105,7 +106,7 @@ impl<'a> FlattenContext<'a> {
                     self.builder.add_solid_rectangle(
                         ClipAndScrollInfo::simple(clip_id),
                         &info,
-                        &bg_color,
+                        &RectangleContent::Fill(bg_color),
                         PrimitiveFlags::None,
                     );
                 }
@@ -123,7 +124,7 @@ impl<'a> FlattenContext<'a> {
                 self.builder.add_solid_rectangle(
                     ClipAndScrollInfo::simple(clip_id),
                     &info,
-                    &DEFAULT_SCROLLBAR_COLOR,
+                    &RectangleContent::Fill(DEFAULT_SCROLLBAR_COLOR),
                     PrimitiveFlags::Scrollbar(node_id, 4.0),
                 );
             }
@@ -435,16 +436,24 @@ impl<'a> FlattenContext<'a> {
             SpecificDisplayItem::Rectangle(ref info) => {
                 if !self.try_to_add_rectangle_splitting_on_clip(
                     &prim_info,
-                    &info.color,
+                    &RectangleContent::Fill(info.color),
                     &clip_and_scroll,
                 ) {
                     self.builder.add_solid_rectangle(
                         clip_and_scroll,
                         &prim_info,
-                        &info.color,
+                        &RectangleContent::Fill(info.color),
                         PrimitiveFlags::None,
                     );
                 }
+            }
+            SpecificDisplayItem::ClearRectangle => {
+                self.builder.add_solid_rectangle(
+                    clip_and_scroll,
+                    &prim_info,
+                    &RectangleContent::Clear,
+                    PrimitiveFlags::None,
+                );
             }
             SpecificDisplayItem::Line(ref info) => {
                 self.builder.add_line(
@@ -617,14 +626,16 @@ impl<'a> FlattenContext<'a> {
     fn try_to_add_rectangle_splitting_on_clip(
         &mut self,
         info: &LayerPrimitiveInfo,
-        color: &ColorF,
+        content: &RectangleContent,
         clip_and_scroll: &ClipAndScrollInfo,
     ) -> bool {
         // If this rectangle is not opaque, splitting the rectangle up
         // into an inner opaque region just ends up hurting batching and
         // doing more work than necessary.
-        if color.a != 1.0 {
-            return false;
+        if let &RectangleContent::Fill(ColorF{a, ..}) = content {
+            if a != 1.0 {
+                return false;
+            }
         }
 
         let inner_unclipped_rect = match &info.local_clip {
@@ -657,7 +668,7 @@ impl<'a> FlattenContext<'a> {
         self.builder.add_solid_rectangle(
             *clip_and_scroll,
             &prim_info,
-            color,
+            content,
             PrimitiveFlags::None,
         );
         for clipped_rect in &clipped_rects {
@@ -666,7 +677,7 @@ impl<'a> FlattenContext<'a> {
             self.builder.add_solid_rectangle(
                 *clip_and_scroll,
                 &info,
-                color,
+                content,
                 PrimitiveFlags::None,
             );
         }

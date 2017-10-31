@@ -152,15 +152,28 @@ pub struct PrimitiveMetadata {
     pub tag: Option<ItemTag>,
 }
 
+#[derive(Debug,Clone,Copy)]
+pub enum RectangleContent {
+    Fill(ColorF),
+    Clear,
+}
+
 #[derive(Debug)]
-#[repr(C)]
 pub struct RectanglePrimitive {
-    pub color: ColorF,
+    pub content: RectangleContent,
 }
 
 impl ToGpuBlocks for RectanglePrimitive {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        request.push(self.color.premultiplied());
+        match &self.content {
+            &RectangleContent::Fill(ref color) => {
+                request.push(color.premultiplied());
+            }
+            &RectangleContent::Clear => {
+                // Opaque black with operator dest out
+                request.push(ColorF::new(0.0, 0.0, 0.0, 1.0));
+            }
+        }
     }
 }
 
@@ -901,8 +914,14 @@ impl PrimitiveStore {
 
         let metadata = match container {
             PrimitiveContainer::Rectangle(rect) => {
+                let opacity = match &rect.content {
+                    &RectangleContent::Fill(ref color) => {
+                        PrimitiveOpacity::from_alpha(color.a)
+                    },
+                    &RectangleContent::Clear => PrimitiveOpacity::opaque()
+                };
                 let metadata = PrimitiveMetadata {
-                    opacity: PrimitiveOpacity::from_alpha(rect.color.a),
+                    opacity,
                     prim_kind: PrimitiveKind::Rectangle,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_rectangles.len()),
                     ..base_metadata
