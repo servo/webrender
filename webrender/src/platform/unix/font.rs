@@ -554,45 +554,34 @@ impl FontContext {
                     }
                 }
                 FT_Pixel_Mode::FT_PIXEL_MODE_LCD => {
-                    if subpixel_bgr {
-                        while dest < row_end {
-                            final_buffer[dest + 0] = unsafe { *src };
-                            final_buffer[dest + 1] = unsafe { *src.offset(1) };
-                            final_buffer[dest + 2] = unsafe { *src.offset(2) };
-                            final_buffer[dest + 3] = 0xff;
-                            src = unsafe { src.offset(3) };
-                            dest += 4;
+                    while dest < row_end {
+                        let (mut r, g, mut b) = unsafe { (*src, *src.offset(1), *src.offset(2)) };
+                        if subpixel_bgr {
+                            mem::swap(&mut r, &mut b);
                         }
-                    } else {
-                        while dest < row_end {
-                            final_buffer[dest + 2] = unsafe { *src };
-                            final_buffer[dest + 1] = unsafe { *src.offset(1) };
-                            final_buffer[dest + 0] = unsafe { *src.offset(2) };
-                            final_buffer[dest + 3] = 0xff;
-                            src = unsafe { src.offset(3) };
-                            dest += 4;
-                        }
+                        final_buffer[dest + 0] = b;
+                        final_buffer[dest + 1] = g;
+                        final_buffer[dest + 2] = r;
+                        // Use green as a cheap grayscale approximation.
+                        final_buffer[dest + 3] = g;
+                        src = unsafe { src.offset(3) };
+                        dest += 4;
                     }
                 }
                 FT_Pixel_Mode::FT_PIXEL_MODE_LCD_V => {
-                    if subpixel_bgr {
-                        while dest < row_end {
-                            final_buffer[dest + 0] = unsafe { *src };
-                            final_buffer[dest + 1] = unsafe { *src.offset(bitmap.pitch as isize) };
-                            final_buffer[dest + 2] = unsafe { *src.offset((2 * bitmap.pitch) as isize) };
-                            final_buffer[dest + 3] = 0xff;
-                            src = unsafe { src.offset(1) };
-                            dest += 4;
+                    while dest < row_end {
+                        let (mut r, g, mut b) =
+                            unsafe { (*src, *src.offset(bitmap.pitch as isize), *src.offset((2 * bitmap.pitch) as isize)) };
+                        if subpixel_bgr {
+                            mem::swap(&mut r, &mut b);
                         }
-                    } else {
-                        while dest < row_end {
-                            final_buffer[dest + 2] = unsafe { *src };
-                            final_buffer[dest + 1] = unsafe { *src.offset(bitmap.pitch as isize) };
-                            final_buffer[dest + 0] = unsafe { *src.offset((2 * bitmap.pitch) as isize) };
-                            final_buffer[dest + 3] = 0xff;
-                            src = unsafe { src.offset(1) };
-                            dest += 4;
-                        }
+                        final_buffer[dest + 0] = b;
+                        final_buffer[dest + 1] = g;
+                        final_buffer[dest + 2] = r;
+                        // Use green as a cheap grayscale approximation.
+                        final_buffer[dest + 3] = g;
+                        src = unsafe { src.offset(1) };
+                        dest += 4;
                     }
                     src_row = unsafe { src_row.offset((2 * bitmap.pitch) as isize) };
                 }
@@ -605,6 +594,7 @@ impl FontContext {
                 _ => panic!("Unsupported {:?}", pixel_mode),
             }
             src_row = unsafe { src_row.offset(bitmap.pitch as isize) };
+            dest = row_end;
         }
 
         Some(RasterizedGlyph {
