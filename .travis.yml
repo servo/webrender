@@ -40,5 +40,5 @@ script:
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo build --verbose --features profiler,query); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cargo test --all --verbose); fi
   - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && python headless.py reftest); fi
-  - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && cargo build --release --features=debugger); fi
+  - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && cargo build --release); fi
   - if [ $TRAVIS_RUST_VERSION == "nightly" ]; then (cd webrender && cargo bench --verbose); fi
