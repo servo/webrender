@@ -244,7 +244,7 @@ impl YamlFrameReader {
 
                 let mut dl = DisplayListBuilder::new(pipeline_id, content_size);
                 let mut info = LayoutPrimitiveInfo::new(LayoutRect::zero());
-                self.add_stacking_context_from_yaml(&mut dl, wrench, pipeline, &mut info);
+                self.add_stacking_context_from_yaml(&mut dl, wrench, pipeline, true, &mut info);
                 self.display_lists.push(dl.finalize());
             }
         }
@@ -253,7 +253,7 @@ impl YamlFrameReader {
         let content_size = self.get_root_size_from_yaml(wrench, &yaml["root"]);
         let mut dl = DisplayListBuilder::new(wrench.root_pipeline_id, content_size);
         let mut info = LayoutPrimitiveInfo::new(LayoutRect::zero());
-        self.add_stacking_context_from_yaml(&mut dl, wrench, &yaml["root"], &mut info);
+        self.add_stacking_context_from_yaml(&mut dl, wrench, &yaml["root"], true, &mut info);
         self.display_lists.push(dl.finalize());
     }
 
@@ -1110,7 +1110,7 @@ impl YamlFrameReader {
                 "box-shadow" => self.handle_box_shadow(dl, item, &mut info),
                 "iframe" => self.handle_iframe(dl, item, &mut info),
                 "stacking-context" => {
-                    self.add_stacking_context_from_yaml(dl, wrench, item, &mut info)
+                    self.add_stacking_context_from_yaml(dl, wrench, item, false, &mut info)
                 }
                 "shadow" => self.handle_push_shadow(dl, item, &mut info),
                 "pop-all-shadows" => self.handle_pop_all_shadows(dl),
@@ -1258,6 +1258,7 @@ impl YamlFrameReader {
         dl: &mut DisplayListBuilder,
         wrench: &mut Wrench,
         yaml: &Yaml,
+        is_root: bool,
         info: &mut LayoutPrimitiveInfo,
     ) {
         let default_bounds = LayoutRect::new(LayoutPoint::zero(), wrench.window_size_f32());
@@ -1289,6 +1290,14 @@ impl YamlFrameReader {
         let scroll_policy = yaml["scroll-policy"]
             .as_scroll_policy()
             .unwrap_or(ScrollPolicy::Scrollable);
+
+        if is_root {
+            if let Some(size) = yaml["scroll-offset"].as_point() {
+                let id = ClipId::root_scroll_node(dl.pipeline_id);
+                self.scroll_offsets
+                    .insert(id, LayerPoint::new(size.x, size.y));
+            }
+        }
 
         let filters = yaml["filters"].as_vec_filter_op().unwrap_or(vec![]);
         info.rect = bounds;
