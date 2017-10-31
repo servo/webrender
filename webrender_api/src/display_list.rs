@@ -657,7 +657,7 @@ impl DisplayListBuilder {
             data: Vec::with_capacity(capacity),
             pipeline_id,
             clip_stack: vec![
-                ClipAndScrollInfo::simple(ClipId::root_reference_frame(pipeline_id)),
+                ClipAndScrollInfo::simple(ClipId::root_scroll_node(pipeline_id)),
             ],
             next_clip_id: FIRST_CLIP_ID,
             builder_start_time: start_time,

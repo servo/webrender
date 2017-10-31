@@ -1103,7 +1103,7 @@ impl ClipIdMapper {
     }
 
     fn map_id(&self, id: &ClipId) -> usize {
-        if id.is_root() {
+        if id.is_root_scroll_node() {
             return 0;
         }
         *self.hash_map.get(id).unwrap()
