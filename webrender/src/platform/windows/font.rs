@@ -5,7 +5,7 @@
 use api::{FontInstance, FontInstancePlatformOptions, FontKey, FontRenderMode};
 use api::{ColorU, GlyphDimensions, GlyphKey, SubpixelDirection};
 use dwrote;
-use gamma_lut::{Color as ColorLut, GammaLut};
+use gamma_lut::{ColorLut, GammaLut};
 use glyph_rasterizer::{GlyphFormat, RasterizedGlyph};
 use internal_types::FastHashMap;
 use std::sync::Arc;
@@ -311,14 +311,10 @@ impl FontContext {
                 font.subpx_dir = SubpixelDirection::None;
             }
             FontRenderMode::Alpha => {
-                let ColorLut { r, g, b, a } =
-                    ColorLut::new(font.color.r, font.color.g, font.color.b, 255).luminance_color().quantize();
-                font.color = ColorU::new(r, g, b, a);
+                font.color = font.color.luminance_color().quantize();
             }
             FontRenderMode::Subpixel => {
-                let ColorLut { r, g, b, a } =
-                    ColorLut::new(font.color.r, font.color.g, font.color.b, 255).quantize();
-                font.color = ColorU::new(r, g, b, a);
+                font.color = font.color.quantize();
             }
         }
     }
@@ -359,7 +355,7 @@ impl FontContext {
                     &mut pixels,
                     width,
                     height,
-                    ColorLut::new(font.color.r, font.color.g, font.color.b, font.color.a),
+                    font.color,
                 );
             }
         }

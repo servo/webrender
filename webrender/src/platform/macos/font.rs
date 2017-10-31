@@ -21,7 +21,7 @@ use core_graphics::geometry::{CGPoint, CGRect, CGSize};
 use core_text;
 use core_text::font::{CTFont, CTFontRef};
 use core_text::font_descriptor::{kCTFontDefaultOrientation, kCTFontColorGlyphsTrait};
-use gamma_lut::{Color as ColorLut, GammaLut};
+use gamma_lut::{ColorLut, GammaLut};
 use glyph_rasterizer::{GlyphFormat, RasterizedGlyph};
 use internal_types::FastHashMap;
 use std::collections::hash_map::Entry;
@@ -377,15 +377,14 @@ impl FontContext {
         color: ColorU,
     ) {
         // Then convert back to gamma corrected values.
-        let color_lut = ColorLut::new(color.r, color.g, color.b, color.a);
         match render_mode {
             FontRenderMode::Alpha => {
                 self.gamma_lut
-                    .preblend_grayscale_bgra(pixels, width, height, color_lut);
+                    .preblend_grayscale_bgra(pixels, width, height, color);
             }
             FontRenderMode::Subpixel => {
                 self.gamma_lut
-                    .preblend_bgra(pixels, width, height, color_lut);
+                    .preblend_bgra(pixels, width, height, color);
             }
             _ => {} // Again, give mono untouched since only the alpha matters.
         }
@@ -429,21 +428,23 @@ impl FontContext {
             }
             FontRenderMode::Alpha => {
                 font.color = if font.platform_options.unwrap_or_default().font_smoothing {
-                    let ColorLut { r, g, b, .. } =
-                        ColorLut::new(font.color.r, font.color.g, font.color.b, 255).luminance_color().quantize();
-                    // Quantization may change the light/dark determination, so check using
-                    // the original color and store in the otherwise unused alpha channel.
-                    let a = if should_use_white_on_black(font.color) { 255 } else { 0 };
-                    ColorU::new(r, g, b, a)
+                    // Only the G channel is used to index grayscale tables,
+                    // so use R and B to preserve light/dark determination.
+                    let ColorU { g, a, .. } = font.color.luminance_color().quantized_ceil();
+                    let rb = if should_use_white_on_black(font.color) { 255 } else { 0 };
+                    ColorU::new(rb, g, rb, a)
                 } else {
                     ColorU::new(255, 255, 255, 255)
                 };
             }
             FontRenderMode::Subpixel => {
-                let ColorLut { r, g, b, .. } =
-                    ColorLut::new(font.color.r, font.color.g, font.color.b, 255).quantize();
-                let a = if should_use_white_on_black(font.color) { 255 } else { 0 };
-                font.color = ColorU::new(r, g, b, a);
+                // Quantization may change the light/dark determination, so quantize in the
+                // direction necessary to respect the threshold.
+                font.color = if should_use_white_on_black(font.color) {
+                    font.color.quantized_ceil()
+                } else {
+                    font.color.quantized_floor()
+                };
             }
         }
     }
@@ -530,7 +531,7 @@ impl FontContext {
         // the text color brightness exceeds a certain threshold. This applies
         // to both the Subpixel and the "Alpha + smoothing" modes, but not to
         // the "Alpha without smoothing" and Mono modes.
-        let use_white_on_black = font.color.a != 0;
+        let use_white_on_black = should_use_white_on_black(font.color);
         let use_font_smoothing = font.platform_options.unwrap_or_default().font_smoothing;
         let (antialias, smooth, text_color, bg_color, bg_alpha, invert) =
             match (font.render_mode, use_font_smoothing) {
