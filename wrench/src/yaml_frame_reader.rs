@@ -1186,6 +1186,10 @@ impl YamlFrameReader {
             ),
             self.to_sticky_offset_bounds(&yaml["vertical-offset-bounds"]),
             self.to_sticky_offset_bounds(&yaml["horizontal-offset-bounds"]),
+            LayoutVector2D::new(
+                yaml["applied-offset-x"].as_f32().unwrap_or(0.0),
+                yaml["applied-offset-y"].as_f32().unwrap_or(0.0),
+            ),
         );
 
         dl.push_clip_id(id);

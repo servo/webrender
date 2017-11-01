@@ -599,6 +599,7 @@ impl<'a> FlattenContext<'a> {
                     info.margins,
                     info.vertical_offset_bounds,
                     info.horizontal_offset_bounds,
+                    info.applied_offset,
                 );
                 self.clip_scroll_tree.add_sticky_frame(
                     info.id,

@@ -999,6 +999,9 @@ impl YamlFrameWriter {
 
                     yaml_node(&mut v, "horizontal-offset-bounds", Yaml::Array(horizontal));
                     yaml_node(&mut v, "vertical-offset-bounds", Yaml::Array(vertical));
+
+                    f32_node(&mut v, "applied-offset-x", item.applied_offset.x);
+                    f32_node(&mut v, "applied-offset-y", item.applied_offset.y);
                 }
 
                 PopStackingContext => return,
