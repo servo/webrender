@@ -12,4 +12,4 @@ fuzzy(255,24) == border-ridge-simple.yaml border-ridge-simple-ref.yaml
 == border-image.yaml border-image-ref.png
 == border-image-crash.yaml border-image-crash-ref.yaml
 == border-image-fill.yaml border-image-fill-ref.png
-
+== border-no-bogus-line.yaml border-no-bogus-line-ref.png
