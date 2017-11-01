@@ -65,7 +65,7 @@ tasks:
           git checkout {{event.head.sha}} &&
           servo-tidy &&
           (cd wrench && python headless.py reftest) &&
-          (cd wrench && cargo build --release --features=debugger)
+          (cd wrench && cargo build --release)
     routes:
       - "index.garbage.webrender.ci.{{event.head.user.login}}.{{event.head.repo.branch}}.linux-release"
   - metadata:
@@ -139,7 +139,7 @@ tasks:
           export RUSTFLAGS='--deny warnings' &&
           export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH" &&
           (cd wrench && python headless.py reftest) &&
-          (cd wrench && cargo build --release --features=debugger)
+          (cd wrench && cargo build --release)
     routes:
       - "index.garbage.webrender.ci.{{event.head.user.login}}.{{event.head.repo.branch}}.osx-release"
   - metadata:
