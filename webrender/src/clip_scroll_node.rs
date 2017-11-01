@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{ClipId, DeviceIntRect, LayerPixel, LayerPoint, LayerRect, LayerSize};
-use api::{LayerToScrollTransform, LayerToWorldTransform, LayerVector2D, PipelineId};
+use api::{LayerToScrollTransform, LayerToWorldTransform, LayerVector2D, LayoutVector2D, PipelineId};
 use api::{ScrollClamping, ScrollEventPhase, ScrollLocation, ScrollSensitivity};
 use api::{StickyOffsetBounds, WorldPoint};
 use clip::{ClipRegion, ClipSources, ClipSourcesHandle, ClipStore};
@@ -55,6 +55,7 @@ pub struct StickyFrameInfo {
     pub margins: SideOffsets2D<Option<f32>>,
     pub vertical_offset_bounds: StickyOffsetBounds,
     pub horizontal_offset_bounds: StickyOffsetBounds,
+    pub previously_applied_offset: LayoutVector2D,
     pub current_offset: LayerVector2D,
 }
 
@@ -62,12 +63,14 @@ impl StickyFrameInfo {
     pub fn new(
         margins: SideOffsets2D<Option<f32>>,
         vertical_offset_bounds: StickyOffsetBounds,
-        horizontal_offset_bounds: StickyOffsetBounds
+        horizontal_offset_bounds: StickyOffsetBounds,
+        previously_applied_offset: LayoutVector2D
     ) -> StickyFrameInfo {
         StickyFrameInfo {
             margins,
             vertical_offset_bounds,
             horizontal_offset_bounds,
+            previously_applied_offset,
             current_offset: LayerVector2D::zero(),
         }
     }
@@ -493,54 +496,87 @@ impl ClipScrollNode {
 
         let mut sticky_offset = LayerVector2D::zero();
         if let Some(margin) = info.margins.top {
-            // If the sticky rect is positioned above the top edge of the viewport (plus margin)
-            // we move it down so that it is fully inside the viewport.
             let top_viewport_edge = viewport_rect.min_y() + margin;
             if sticky_rect.min_y() < top_viewport_edge {
-                 sticky_offset.y = top_viewport_edge - sticky_rect.min_y();
+                // If the sticky rect is positioned above the top edge of the viewport (plus margin)
+                // we move it down so that it is fully inside the viewport.
+                sticky_offset.y = top_viewport_edge - sticky_rect.min_y();
+            } else if info.previously_applied_offset.y > 0.0 &&
+                sticky_rect.min_y() > top_viewport_edge {
+                // However, if the sticky rect is positioned *below* the top edge of the viewport
+                // and there is already some offset applied to the sticky rect's position, then
+                // we need to move it up so that it remains at the correct position. This
+                // makes sticky_offset.y negative and effectively reduces the amount of the
+                // offset that was already applied. We limit the reduction so that it can, at most,
+                // cancel out the already-applied offset, but should never end up adjusting the
+                // position the other way.
+                sticky_offset.y = top_viewport_edge - sticky_rect.min_y();
+                sticky_offset.y = sticky_offset.y.max(-info.previously_applied_offset.y);
             }
-            debug_assert!(sticky_offset.y >= 0.0);
+            debug_assert!(sticky_offset.y + info.previously_applied_offset.y >= 0.0);
         }
 
-        if sticky_offset.y == 0.0 {
+        // If we don't have a sticky-top offset (sticky_offset.y + info.previously_applied_offset.y
+        // == 0), or if we have a previously-applied bottom offset (previously_applied_offset.y < 0)
+        // then we check for handling the bottom margin case.
+        if sticky_offset.y + info.previously_applied_offset.y <= 0.0 {
             if let Some(margin) = info.margins.bottom {
-                // If the bottom of the sticky rect is positioned below the bottom viewport edge
-                // (accounting for margin), we move it up so that it is fully inside the viewport.
+                // Same as the above case, but inverted for bottom-sticky items. Here
+                // we adjust items upwards, resulting in a negative sticky_offset.y,
+                // or reduce the already-present upward adjustment, resulting in a positive
+                // sticky_offset.y.
                 let bottom_viewport_edge = viewport_rect.max_y() - margin;
                 if sticky_rect.max_y() > bottom_viewport_edge {
-                     sticky_offset.y = bottom_viewport_edge - sticky_rect.max_y();
+                    sticky_offset.y = bottom_viewport_edge - sticky_rect.max_y();
+                } else if info.previously_applied_offset.y < 0.0 &&
+                    sticky_rect.max_y() < bottom_viewport_edge {
+                    sticky_offset.y = bottom_viewport_edge - sticky_rect.max_y();
+                    sticky_offset.y = sticky_offset.y.min(-info.previously_applied_offset.y);
                 }
-                debug_assert!(sticky_offset.y <= 0.0);
+                debug_assert!(sticky_offset.y + info.previously_applied_offset.y <= 0.0);
             }
         }
 
+        // Same as above, but for the x-axis.
         if let Some(margin) = info.margins.left {
-            // If the sticky rect is positioned left of the left edge of the viewport (plus margin)
-            // we move it right so that it is fully inside the viewport.
             let left_viewport_edge = viewport_rect.min_x() + margin;
             if sticky_rect.min_x() < left_viewport_edge {
-                 sticky_offset.x = left_viewport_edge - sticky_rect.min_x();
+                sticky_offset.x = left_viewport_edge - sticky_rect.min_x();
+            } else if info.previously_applied_offset.x > 0.0 &&
+                sticky_rect.min_x() > left_viewport_edge {
+                sticky_offset.x = left_viewport_edge - sticky_rect.min_x();
+                sticky_offset.x = sticky_offset.x.max(-info.previously_applied_offset.x);
             }
-            debug_assert!(sticky_offset.x >= 0.0);
+            debug_assert!(sticky_offset.x + info.previously_applied_offset.x >= 0.0);
         }
 
-        if sticky_offset.x == 0.0 {
+        if sticky_offset.x + info.previously_applied_offset.x <= 0.0 {
             if let Some(margin) = info.margins.right {
-                // If the right edge of the sticky rect is positioned right of the right viewport
-                // edge (accounting for margin), we move it left so that it is fully inside the
-                // viewport.
                 let right_viewport_edge = viewport_rect.max_x() - margin;
                 if sticky_rect.max_x() > right_viewport_edge {
-                     sticky_offset.x = right_viewport_edge - sticky_rect.max_x();
+                    sticky_offset.x = right_viewport_edge - sticky_rect.max_x();
+                } else if info.previously_applied_offset.x < 0.0 &&
+                    sticky_rect.max_x() < right_viewport_edge {
+                    sticky_offset.x = right_viewport_edge - sticky_rect.max_x();
+                    sticky_offset.x = sticky_offset.x.min(-info.previously_applied_offset.x);
                 }
-                debug_assert!(sticky_offset.x <= 0.0);
+                debug_assert!(sticky_offset.x + info.previously_applied_offset.x <= 0.0);
             }
         }
 
-        sticky_offset.y = sticky_offset.y.max(info.vertical_offset_bounds.min);
-        sticky_offset.y = sticky_offset.y.min(info.vertical_offset_bounds.max);
-        sticky_offset.x = sticky_offset.x.max(info.horizontal_offset_bounds.min);
-        sticky_offset.x = sticky_offset.x.min(info.horizontal_offset_bounds.max);
+        // The total "sticky offset" (which is the sum that was already applied by
+        // the calling code, stored in info.previously_applied_offset, and the extra amount we
+        // computed as a result of scrolling, stored in sticky_offset) needs to be
+        // clamped to the provided bounds.
+        let clamp_adjusted = |value: f32, adjust: f32, bounds: &StickyOffsetBounds| {
+            (value + adjust).max(bounds.min).min(bounds.max) - adjust
+        };
+        sticky_offset.y = clamp_adjusted(sticky_offset.y,
+                                         info.previously_applied_offset.y,
+                                         &info.vertical_offset_bounds);
+        sticky_offset.x = clamp_adjusted(sticky_offset.x,
+                                         info.previously_applied_offset.x,
+                                         &info.horizontal_offset_bounds);
 
         sticky_offset
     }
