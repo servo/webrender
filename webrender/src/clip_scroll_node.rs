@@ -5,17 +5,17 @@
 use api::{ClipId, DeviceIntRect, LayerPixel, LayerPoint, LayerRect, LayerSize};
 use api::{LayerToScrollTransform, LayerToWorldTransform, LayerVector2D, PipelineId};
 use api::{ScrollClamping, ScrollEventPhase, ScrollLocation, ScrollSensitivity, StickyOffsetBounds};
-use api::WorldPoint;
+use api::{WorldPoint, WorldToLayerTransform};
 use clip::{ClipRegion, ClipSources, ClipSourcesHandle, ClipStore};
 use clip_scroll_tree::{CoordinateSystemId, TransformUpdateState};
 use euclid::SideOffsets2D;
 use geometry::ray_intersects_rect;
 use gpu_cache::GpuCache;
+use gpu_types::{ClipScrollNodeId, ClipScrollNodeData};
 use render_task::{ClipChain, ClipChainNode, ClipWorkItem};
 use resource_cache::ResourceCache;
 use spring::{DAMPING, STIFFNESS, Spring};
 use std::rc::Rc;
-use tiling::{PackedLayer, PackedLayerIndex};
 use util::{MatrixHelpers, MaxRect};
 
 #[cfg(target_os = "macos")]
@@ -24,14 +24,12 @@ const CAN_OVERSCROLL: bool = true;
 #[cfg(not(target_os = "macos"))]
 const CAN_OVERSCROLL: bool = false;
 
+const MAX_LOCAL_VIEWPORT: f32 = 1000000.0;
+
 #[derive(Debug)]
 pub struct ClipInfo {
     /// The clips for this node.
     pub clip_sources: ClipSourcesHandle,
-
-    /// The packed layer index for this node, which is used to render a clip mask
-    /// for it, if necessary.
-    pub packed_layer_index: PackedLayerIndex,
 
     /// Whether or not this clip node automatically creates a mask.
     pub is_masking: bool,
@@ -40,7 +38,6 @@ pub struct ClipInfo {
 impl ClipInfo {
     pub fn new(
         clip_region: ClipRegion,
-        packed_layer_index: PackedLayerIndex,
         clip_store: &mut ClipStore,
     ) -> ClipInfo {
         let clip_sources = ClipSources::from(clip_region);
@@ -48,7 +45,6 @@ impl ClipInfo {
 
         ClipInfo {
             clip_sources: clip_store.insert(clip_sources),
-            packed_layer_index,
             is_masking,
         }
     }
@@ -110,7 +106,8 @@ pub struct ClipScrollNode {
     /// This is in the coordinate system of the node origin.
     /// Precisely, it combines the local clipping rectangles of all the parent
     /// nodes on the way to the root, including those of `ClipRegion` rectangles.
-    /// The combined clip is lossy/concervative on `ReferenceFrame` nodes.
+    /// The combined clip is reset to maximum when an incompatible coordinate
+    /// system is encountered.
     pub combined_local_viewport_rect: LayerRect,
 
     /// World transform for the viewport rect itself. This is the parent
@@ -148,6 +145,10 @@ pub struct ClipScrollNode {
 
     /// The axis-aligned coordinate system id of this node.
     pub coordinate_system_id: CoordinateSystemId,
+
+    /// A linear ID / index of this clip-scroll node. Used as a reference to
+    /// pass to shaders, to allow them to fetch a given clip-scroll node.
+    pub id: ClipScrollNodeId,
 }
 
 impl ClipScrollNode {
@@ -171,6 +172,7 @@ impl ClipScrollNode {
             clip_chain_node: None,
             combined_clip_outer_bounds: DeviceIntRect::max_rect(),
             coordinate_system_id: CoordinateSystemId(0),
+            id: ClipScrollNodeId(0),
         }
     }
 
@@ -287,15 +289,11 @@ impl ClipScrollNode {
     pub fn update_clip_work_item(
         &mut self,
         state: &mut TransformUpdateState,
-        screen_rect: &DeviceIntRect,
         device_pixel_ratio: f32,
-        packed_layers: &mut Vec<PackedLayer>,
         clip_store: &mut ClipStore,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
     ) {
-        self.coordinate_system_id = state.current_coordinate_system_id;
-
         let current_clip_chain = state.parent_clip_chain.clone();
         let clip_info = match self.node_type {
             NodeType::Clip(ref mut info) if info.is_masking => info,
@@ -306,29 +304,9 @@ impl ClipScrollNode {
             }
         };
 
-        // The coordinates of the mask are relative to the origin of the node itself,
-        // so we need to account for that origin in the transformation we assign to
-        // the packed layer.
-        let transform = self.world_viewport_transform
-            .pre_translate(self.local_viewport_rect.origin.to_vector().to_3d());
-
-        let packed_layer = &mut packed_layers[clip_info.packed_layer_index.0];
-        if packed_layer.set_transform(transform) {
-            // Meanwhile, the combined viewport rect is relative to the reference frame, so
-            // we move it into the local coordinate system of the node.
-            let local_viewport_rect = self.combined_local_viewport_rect
-                .translate(&-self.local_viewport_rect.origin.to_vector());
-
-            packed_layer.set_rect(
-                &local_viewport_rect,
-                screen_rect,
-                device_pixel_ratio,
-            );
-        }
-
         let clip_sources = clip_store.get_mut(&clip_info.clip_sources);
         clip_sources.update(
-            &transform,
+            &self.world_viewport_transform,
             gpu_cache,
             resource_cache,
             device_pixel_ratio,
@@ -345,7 +323,7 @@ impl ClipScrollNode {
         // TODO: Combine rectangles in the same axis-aligned clip space here?
         self.clip_chain_node = Some(Rc::new(ClipChainNode {
             work_item: ClipWorkItem {
-                layer_index: clip_info.packed_layer_index,
+                scroll_node_id: self.id,
                 clip_sources: clip_info.clip_sources.weak(),
                 coordinate_system_id: state.current_coordinate_system_id,
             },
@@ -356,7 +334,11 @@ impl ClipScrollNode {
         state.parent_clip_chain = self.clip_chain_node.clone();
     }
 
-    pub fn update_transform(&mut self, state: &mut TransformUpdateState) {
+    pub fn update_transform(
+        &mut self,
+        state: &mut TransformUpdateState,
+        node_data: &mut Vec<ClipScrollNodeData>,
+    ) {
         // We calculate this here to avoid a double-borrow later.
         let sticky_offset = self.calculate_sticky_offset(
             &state.nearest_scrolling_ancestor_offset,
@@ -365,9 +347,17 @@ impl ClipScrollNode {
 
         let (local_transform, accumulated_scroll_offset) = match self.node_type {
             NodeType::ReferenceFrame(ref info) => {
-                self.combined_local_viewport_rect = info.transform
-                    .with_destination::<LayerPixel>()
-                    .inverse_rect_footprint(&state.parent_combined_viewport_rect);
+                if info.transform.has_perspective_component() ||
+                   !info.transform.preserves_2d_axis_alignment() {
+                    self.combined_local_viewport_rect = LayerRect::new(
+                        LayerPoint::new(-MAX_LOCAL_VIEWPORT, -MAX_LOCAL_VIEWPORT),
+                        LayerSize::new(2.0 * MAX_LOCAL_VIEWPORT, 2.0 * MAX_LOCAL_VIEWPORT)
+                    );
+                } else {
+                    self.combined_local_viewport_rect = info.transform
+                        .with_destination::<LayerPixel>()
+                        .inverse_rect_footprint(&state.parent_combined_viewport_rect);
+                }
                 self.reference_frame_relative_scroll_offset = LayerVector2D::zero();
                 (info.transform, state.parent_accumulated_scroll_offset)
             }
@@ -452,6 +442,19 @@ impl ClipScrollNode {
                     info.current_offset + state.parent_accumulated_scroll_offset;
             }
         }
+
+        // Store coord system ID, and also the ID used for shaders to reference this node.
+        self.coordinate_system_id = state.current_coordinate_system_id;
+        self.id = ClipScrollNodeId(node_data.len() as u32);
+
+        // Write the data that will be made available to the GPU for this node.
+        node_data.push(ClipScrollNodeData {
+            transform: self.world_content_transform,
+            inv_transform: self.world_content_transform.inverse().unwrap_or(WorldToLayerTransform::identity()),
+            local_clip_rect: self.combined_local_viewport_rect,
+            reference_frame_relative_scroll_offset: self.reference_frame_relative_scroll_offset,
+            scroll_offset: self.scroll_offset(),
+        });
     }
 
     fn calculate_sticky_offset(
