@@ -1141,6 +1141,7 @@ impl FrameBuilder {
             font.font_key,
             font.size,
             *color,
+            font.bg_color,
             render_mode,
             font.subpx_dir,
             font.platform_options,

@@ -57,9 +57,13 @@ impl AlphaBatchHelpers for PrimitiveStore {
 
         match metadata.prim_kind {
             PrimitiveKind::TextRun => {
-                let text_run_cpu = &self.cpu_text_runs[metadata.cpu_prim_index.0];
-                match text_run_cpu.font.render_mode {
-                    FontRenderMode::Subpixel => BlendMode::Subpixel,
+                let font = &self.cpu_text_runs[metadata.cpu_prim_index.0].font;
+                match font.render_mode {
+                    FontRenderMode::Subpixel => if font.bg_color.a != 0 {
+                        BlendMode::SubpixelWithBgColor
+                    } else {
+                        BlendMode::Subpixel
+                    },
                     FontRenderMode::Alpha |
                     FontRenderMode::Mono |
                     FontRenderMode::Bitmap => BlendMode::PremultipliedAlpha,
@@ -277,7 +281,8 @@ impl BatchList {
         match key.blend_mode {
             BlendMode::None => self.opaque_batch_list.get_suitable_batch(key),
             BlendMode::Alpha | BlendMode::PremultipliedAlpha |
-            BlendMode::PremultipliedDestOut | BlendMode::Subpixel => {
+            BlendMode::PremultipliedDestOut | BlendMode::Subpixel |
+            BlendMode::SubpixelWithBgColor => {
                 self.alpha_batch_list
                     .get_suitable_batch(key, item_bounding_rect)
             }

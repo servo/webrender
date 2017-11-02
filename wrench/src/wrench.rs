@@ -243,6 +243,7 @@ impl Wrench {
             font_key,
             size,
             ColorF::new(0.0, 0.0, 0.0, 1.0),
+            ColorU::new(0, 0, 0, 0),
             FontRenderMode::Alpha,
             SubpixelDirection::Horizontal,
             None,

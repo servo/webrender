@@ -611,6 +611,7 @@ impl TextRunPrimitiveCpu {
 
     fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
         request.push(ColorF::from(self.font.color).premultiplied());
+        request.push(ColorF::from(self.font.bg_color));
         request.push([
             self.offset.x,
             self.offset.y,
