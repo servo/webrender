@@ -447,14 +447,31 @@ impl ClipScrollNode {
         self.coordinate_system_id = state.current_coordinate_system_id;
         self.id = ClipScrollNodeId(node_data.len() as u32);
 
+        let data = match self.world_content_transform.inverse() {
+            Some(inverse) => {
+                ClipScrollNodeData {
+                    transform: self.world_content_transform,
+                    inv_transform: inverse,
+                    local_clip_rect: self.combined_local_viewport_rect,
+                    reference_frame_relative_scroll_offset: self.reference_frame_relative_scroll_offset,
+                    scroll_offset: self.scroll_offset(),
+                }
+            }
+            None => {
+                state.combined_outer_clip_bounds = DeviceIntRect::zero();
+
+                ClipScrollNodeData {
+                    transform: LayerToWorldTransform::identity(),
+                    inv_transform: WorldToLayerTransform::identity(),
+                    local_clip_rect: LayerRect::zero(),
+                    reference_frame_relative_scroll_offset: LayerVector2D::zero(),
+                    scroll_offset: LayerVector2D::zero(),
+                }
+            }
+        };
+
         // Write the data that will be made available to the GPU for this node.
-        node_data.push(ClipScrollNodeData {
-            transform: self.world_content_transform,
-            inv_transform: self.world_content_transform.inverse().unwrap_or(WorldToLayerTransform::identity()),
-            local_clip_rect: self.combined_local_viewport_rect,
-            reference_frame_relative_scroll_offset: self.reference_frame_relative_scroll_offset,
-            scroll_offset: self.scroll_offset(),
-        });
+        node_data.push(data);
     }
 
     fn calculate_sticky_offset(
