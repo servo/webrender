@@ -347,17 +347,9 @@ impl ClipScrollNode {
 
         let (local_transform, accumulated_scroll_offset) = match self.node_type {
             NodeType::ReferenceFrame(ref info) => {
-                if info.transform.has_perspective_component() ||
-                   !info.transform.preserves_2d_axis_alignment() {
-                    self.combined_local_viewport_rect = LayerRect::new(
-                        LayerPoint::new(-MAX_LOCAL_VIEWPORT, -MAX_LOCAL_VIEWPORT),
-                        LayerSize::new(2.0 * MAX_LOCAL_VIEWPORT, 2.0 * MAX_LOCAL_VIEWPORT)
-                    );
-                } else {
-                    self.combined_local_viewport_rect = info.transform
-                        .with_destination::<LayerPixel>()
-                        .inverse_rect_footprint(&state.parent_combined_viewport_rect);
-                }
+                self.combined_local_viewport_rect = info.transform
+                    .with_destination::<LayerPixel>()
+                    .inverse_rect_footprint(&state.parent_combined_viewport_rect);
                 self.reference_frame_relative_scroll_offset = LayerVector2D::zero();
                 (info.transform, state.parent_accumulated_scroll_offset)
             }
@@ -447,12 +439,21 @@ impl ClipScrollNode {
         self.coordinate_system_id = state.current_coordinate_system_id;
         self.id = ClipScrollNodeId(node_data.len() as u32);
 
+        let local_clip_rect = if self.world_content_transform.has_perspective_component() {
+            LayerRect::new(
+                LayerPoint::new(-MAX_LOCAL_VIEWPORT, -MAX_LOCAL_VIEWPORT),
+                LayerSize::new(2.0 * MAX_LOCAL_VIEWPORT, 2.0 * MAX_LOCAL_VIEWPORT)
+            )
+        } else {
+            self.combined_local_viewport_rect
+        };
+
         let data = match self.world_content_transform.inverse() {
             Some(inverse) => {
                 ClipScrollNodeData {
                     transform: self.world_content_transform,
                     inv_transform: inverse,
-                    local_clip_rect: self.combined_local_viewport_rect,
+                    local_clip_rect,
                     reference_frame_relative_scroll_offset: self.reference_frame_relative_scroll_offset,
                     scroll_offset: self.scroll_offset(),
                 }
