@@ -1221,7 +1221,8 @@ impl PrimitiveStore {
         // Try to create a mask if we may need to.
         let prim_clips = clip_store.get(&metadata.clip_sources);
         let is_axis_aligned = transform.transform_kind() == TransformedRectKind::AxisAligned;
-        let clip_task = if prim_context.scroll_node.clip_chain_node.is_some() || prim_clips.is_masking() {
+
+        let clip_task = if prim_context.clip_node.clip_chain_node.is_some() || prim_clips.is_masking() {
             // Take into account the actual clip info of the primitive, and
             // mutate the current bounds accordingly.
             let mask_rect = match prim_clips.bounds.outer {
@@ -1251,7 +1252,7 @@ impl PrimitiveStore {
             RenderTask::new_mask(
                 None,
                 mask_rect,
-                prim_context.scroll_node.clip_chain_node.clone(),
+                prim_context.clip_node.clip_chain_node.clone(),
                 extra_clip,
                 prim_screen_rect,
                 clip_store,
