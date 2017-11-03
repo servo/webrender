@@ -51,11 +51,12 @@ impl<'de> Deserialize<'de> for NativeFontHandle {
     }
 }
 
-/// Native fonts are not used on Linux; all fonts are raw.
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-#[cfg_attr(not(any(target_os = "macos", target_os = "windows")),
-           derive(Clone, Serialize, Deserialize))]
-pub struct NativeFontHandle;
+#[derive(Clone, Serialize, Deserialize)]
+pub struct NativeFontHandle {
+    pub pathname: String,
+    pub index: u32,
+}
 
 #[cfg(target_os = "windows")]
 pub type NativeFontHandle = FontDescriptor;
