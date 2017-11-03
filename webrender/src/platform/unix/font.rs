@@ -11,7 +11,7 @@ use freetype::freetype::{FT_BBox, FT_Outline_Translate, FT_Pixel_Mode, FT_Render
 use freetype::freetype::{FT_Done_Face, FT_Error, FT_Get_Char_Index, FT_Int32};
 use freetype::freetype::{FT_Done_FreeType, FT_Library_SetLcdFilter, FT_Pos};
 use freetype::freetype::{FT_F26Dot6, FT_Face, FT_Glyph_Format, FT_Long, FT_UInt};
-use freetype::freetype::{FT_GlyphSlot, FT_LcdFilter, FT_New_Memory_Face};
+use freetype::freetype::{FT_GlyphSlot, FT_LcdFilter, FT_New_Face, FT_New_Memory_Face};
 use freetype::freetype::{FT_Init_FreeType, FT_Load_Glyph, FT_Render_Glyph};
 use freetype::freetype::{FT_Library, FT_Outline_Get_CBox, FT_Set_Char_Size, FT_Select_Size};
 use freetype::freetype::{FT_LOAD_COLOR, FT_LOAD_DEFAULT, FT_LOAD_FORCE_AUTOHINT};
@@ -21,8 +21,9 @@ use freetype::freetype::{FT_FACE_FLAG_SCALABLE, FT_FACE_FLAG_FIXED_SIZES, FT_Err
 use glyph_rasterizer::{GlyphFormat, RasterizedGlyph};
 use internal_types::FastHashMap;
 use std::{cmp, mem, ptr, slice};
-use std::sync::Arc;
 use std::cmp::max;
+use std::ffi::CString;
+use std::sync::Arc;
 
 // These constants are not present in the freetype
 // bindings due to bindgen not handling the way
@@ -37,7 +38,7 @@ struct Face {
     face: FT_Face,
     // Raw byte data has to live until the font is deleted, according to
     // https://www.freetype.org/freetype2/docs/reference/ft2-base_interface.html#FT_New_Memory_Face
-    _bytes: Arc<Vec<u8>>,
+    _bytes: Option<Arc<Vec<u8>>>,
 }
 
 pub struct FontContext {
@@ -104,7 +105,7 @@ impl FontContext {
                     *font_key,
                     Face {
                         face,
-                        _bytes: bytes,
+                        _bytes: Some(bytes),
                     },
                 );
             } else {
@@ -113,8 +114,30 @@ impl FontContext {
         }
     }
 
-    pub fn add_native_font(&mut self, _font_key: &FontKey, _native_font_handle: NativeFontHandle) {
-        panic!("TODO: Not supported on Linux");
+    pub fn add_native_font(&mut self, font_key: &FontKey, native_font_handle: NativeFontHandle) {
+        if !self.faces.contains_key(&font_key) {
+            let mut face: FT_Face = ptr::null_mut();
+            let pathname = CString::new(native_font_handle.pathname).unwrap();
+            let result = unsafe {
+                FT_New_Face(
+                    self.lib,
+                    pathname.as_ptr(),
+                    native_font_handle.index as FT_Long,
+                    &mut face,
+                )
+            };
+            if result.succeeded() && !face.is_null() {
+                self.faces.insert(
+                    *font_key,
+                    Face {
+                        face,
+                        _bytes: None,
+                    },
+                );
+            } else {
+                println!("WARN: webrender failed to load font {:?}", font_key);
+            }
+        }
     }
 
     pub fn delete_font(&mut self, font_key: &FontKey) {
