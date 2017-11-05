@@ -179,7 +179,7 @@ fn maybe_radius_yaml(radius: &BorderRadius) -> Option<Yaml> {
     }
 }
 
-fn write_sc(parent: &mut Table, sc: &StackingContext) {
+fn write_sc(parent: &mut Table, sc: &StackingContext, filter_iter: AuxIter<FilterOp>) {
     enum_node(parent, "scroll-policy", sc.scroll_policy);
 
     match sc.transform {
@@ -199,6 +199,27 @@ fn write_sc(parent: &mut Table, sc: &StackingContext) {
         enum_node(parent, "mix-blend-mode", sc.mix_blend_mode)
     }
     // filters
+    let mut filters = vec![];
+    for filter in filter_iter {
+        match filter {
+            FilterOp::Blur(x) => { filters.push(Yaml::String(format!("blur({})", x))) }
+            FilterOp::Brightness(x) => { filters.push(Yaml::String(format!("brightness({})", x))) }
+            FilterOp::Contrast(x) => { filters.push(Yaml::String(format!("contrast({})", x))) }
+            FilterOp::Grayscale(x) => { filters.push(Yaml::String(format!("grayscale({})", x))) }
+            FilterOp::HueRotate(x) => { filters.push(Yaml::String(format!("hue-rotate({})", x))) }
+            FilterOp::Invert(x) => { filters.push(Yaml::String(format!("invert({})", x))) }
+            FilterOp::Opacity(x) => {
+                match x {
+                    PropertyBinding::Value(o) => filters.push(Yaml::String(format!("opacity({})", o))),
+                    PropertyBinding::Binding(_) => println!("unhandled opacity property binding")
+                }
+            }
+            FilterOp::Saturate(x) => { filters.push(Yaml::String(format!("saturate({})", x))) }
+            FilterOp::Sepia(x) => { filters.push(Yaml::String(format!("sepia({})", x))) }
+        }
+    }
+
+    yaml_node(parent, "filters", Yaml::Array(filters));
 }
 
 #[cfg(target_os = "windows")]
@@ -927,7 +948,8 @@ impl YamlFrameWriter {
                 }
                 PushStackingContext(item) => {
                     str_node(&mut v, "type", "stacking-context");
-                    write_sc(&mut v, &item.stacking_context);
+                    let filters = display_list.get(base.filters());
+                    write_sc(&mut v, &item.stacking_context, filters);
 
                     let mut sub_iter = base.sub_iter();
                     self.write_display_list(&mut v, display_list, &mut sub_iter, clip_id_mapper);
