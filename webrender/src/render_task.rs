@@ -8,11 +8,12 @@ use api::{LayerRect, PipelineId};
 use clip::{ClipSource, ClipSourcesWeakHandle, ClipStore};
 use clip_scroll_tree::CoordinateSystemId;
 use gpu_cache::GpuCacheHandle;
+use gpu_types::{ClipScrollNodeIndex};
 use internal_types::HardwareCompositeOp;
 use prim_store::PrimitiveIndex;
 use std::{cmp, usize, f32, i32};
 use std::rc::Rc;
-use tiling::{ClipScrollGroupIndex, PackedLayerIndex, RenderPass, RenderTargetIndex};
+use tiling::{RenderPass, RenderTargetIndex};
 use tiling::{RenderTargetKind, StackingContextIndex};
 
 const FLOATS_PER_RENDER_TASK_INFO: usize = 12;
@@ -151,7 +152,7 @@ pub enum RenderTaskLocation {
 
 #[derive(Debug)]
 pub enum AlphaRenderItem {
-    Primitive(Option<ClipScrollGroupIndex>, PrimitiveIndex, i32),
+    Primitive(ClipScrollNodeIndex, ClipScrollNodeIndex, PrimitiveIndex, i32),
     Blend(StackingContextIndex, RenderTaskId, FilterOp, i32),
     Composite(
         StackingContextIndex,
@@ -200,7 +201,7 @@ pub enum MaskGeometryKind {
 
 #[derive(Debug, Clone)]
 pub struct ClipWorkItem {
-    pub layer_index: PackedLayerIndex,
+    pub scroll_node_id: ClipScrollNodeIndex,
     pub clip_sources: ClipSourcesWeakHandle,
     pub coordinate_system_id: CoordinateSystemId,
 }
