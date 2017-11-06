@@ -8,7 +8,7 @@ use app_units::Au;
 use euclid::{TypedPoint2D, TypedRect, TypedSize2D, TypedTransform3D, TypedVector2D};
 use image::{save_buffer, ColorType};
 use premultiply::unpremultiply;
-use scene::Scene;
+use scene::{Scene, SceneProperties};
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::io::Write;
@@ -179,14 +179,10 @@ fn maybe_radius_yaml(radius: &BorderRadius) -> Option<Yaml> {
     }
 }
 
-fn write_sc(parent: &mut Table, sc: &StackingContext, filter_iter: AuxIter<FilterOp>) {
+fn write_sc(parent: &mut Table, sc: &StackingContext, properties: &SceneProperties, filter_iter: AuxIter<FilterOp>) {
     enum_node(parent, "scroll-policy", sc.scroll_policy);
 
-    match sc.transform {
-        Some(PropertyBinding::Value(transform)) => matrix4d_node(parent, "transform", &transform),
-        Some(PropertyBinding::Binding(..)) => println!("TODO: Handle property bindings in wrench!"),
-        None => {}
-    };
+    matrix4d_node(parent, "transform", &properties.resolve_layout_transform(&sc.transform));
 
     enum_node(parent, "transform-style", sc.transform_style);
 
@@ -209,10 +205,8 @@ fn write_sc(parent: &mut Table, sc: &StackingContext, filter_iter: AuxIter<Filte
             FilterOp::HueRotate(x) => { filters.push(Yaml::String(format!("hue-rotate({})", x))) }
             FilterOp::Invert(x) => { filters.push(Yaml::String(format!("invert({})", x))) }
             FilterOp::Opacity(x) => {
-                match x {
-                    PropertyBinding::Value(o) => filters.push(Yaml::String(format!("opacity({})", o))),
-                    PropertyBinding::Binding(_) => println!("unhandled opacity property binding")
-                }
+                filters.push(Yaml::String(format!("opacity({})",
+                                                  properties.resolve_float(&x, 1.0))))
             }
             FilterOp::Saturate(x) => { filters.push(Yaml::String(format!("saturate({})", x))) }
             FilterOp::Sepia(x) => { filters.push(Yaml::String(format!("sepia({})", x))) }
@@ -347,9 +341,8 @@ impl YamlFrameWriter {
         let mut root_dl_table = new_table();
         {
             let mut iter = dl.iter();
-            self.write_display_list(&mut root_dl_table, &dl, &mut iter, &mut ClipIdMapper::new());
+            self.write_display_list(&mut root_dl_table, &dl, scene, &mut iter, &mut ClipIdMapper::new());
         }
-
 
         let mut root = new_table();
         if let Some(root_pipeline_id) = scene.root_pipeline_id {
@@ -377,7 +370,7 @@ impl YamlFrameWriter {
 
                 let dl = scene.display_lists.get(&pipeline_id).unwrap();
                 let mut iter = dl.iter();
-                self.write_display_list(&mut pipeline, &dl, &mut iter, &mut ClipIdMapper::new());
+                self.write_display_list(&mut pipeline, &dl, scene, &mut iter, &mut ClipIdMapper::new());
                 pipelines.push(Yaml::Hash(pipeline));
             }
 
@@ -608,6 +601,7 @@ impl YamlFrameWriter {
         &mut self,
         list: &mut Vec<Yaml>,
         display_list: &BuiltDisplayList,
+        scene: &Scene,
         list_iterator: &mut BuiltDisplayListIter,
         clip_id_mapper: &mut ClipIdMapper,
     ) {
@@ -949,10 +943,10 @@ impl YamlFrameWriter {
                 PushStackingContext(item) => {
                     str_node(&mut v, "type", "stacking-context");
                     let filters = display_list.get(base.filters());
-                    write_sc(&mut v, &item.stacking_context, filters);
+                    write_sc(&mut v, &item.stacking_context, &scene.properties, filters);
 
                     let mut sub_iter = base.sub_iter();
-                    self.write_display_list(&mut v, display_list, &mut sub_iter, clip_id_mapper);
+                    self.write_display_list(&mut v, display_list, scene, &mut sub_iter, clip_id_mapper);
                     continue_traversal = Some(sub_iter);
                 }
                 Clip(item) => {
@@ -1051,11 +1045,12 @@ impl YamlFrameWriter {
         &mut self,
         parent: &mut Table,
         display_list: &BuiltDisplayList,
+        scene: &Scene,
         list_iterator: &mut BuiltDisplayListIter,
         clip_id_mapper: &mut ClipIdMapper,
     ) {
         let mut list = vec![];
-        self.write_display_list_items(&mut list, display_list, list_iterator, clip_id_mapper);
+        self.write_display_list_items(&mut list, display_list, scene, list_iterator, clip_id_mapper);
         parent.insert(Yaml::String("items".to_owned()), Yaml::Array(list));
     }
 }
@@ -1094,6 +1089,9 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
             }
             ApiMsg::UpdateDocument(_, DocumentMsg::RemovePipeline(ref pipeline_id)) => {
                 self.scene.remove_pipeline(pipeline_id);
+            }
+            ApiMsg::UpdateDocument(_, DocumentMsg::GenerateFrame(Some(ref properties))) => {
+                self.scene.properties.set_properties(properties);
             }
             ApiMsg::UpdateDocument(..) => {}
             _ => {}
