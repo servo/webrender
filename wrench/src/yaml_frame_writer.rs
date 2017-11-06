@@ -1021,6 +1021,12 @@ impl YamlFrameWriter {
 
                     yaml_node(&mut v, "horizontal-offset-bounds", Yaml::Array(horizontal));
                     yaml_node(&mut v, "vertical-offset-bounds", Yaml::Array(vertical));
+
+                    let applied = vec![
+                        Yaml::Real(item.previously_applied_offset.x.to_string()),
+                        Yaml::Real(item.previously_applied_offset.y.to_string()),
+                    ];
+                    yaml_node(&mut v, "previously-applied-offset", Yaml::Array(applied));
                 }
 
                 PopStackingContext => return,
