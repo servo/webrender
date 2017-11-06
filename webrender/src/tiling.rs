@@ -58,11 +58,15 @@ impl AlphaBatchHelpers for PrimitiveStore {
             PrimitiveKind::TextRun => {
                 let font = &self.cpu_text_runs[metadata.cpu_prim_index.0].font;
                 match font.render_mode {
-                    FontRenderMode::Subpixel => if font.bg_color.a != 0 {
-                        BlendMode::SubpixelWithBgColor
-                    } else {
-                        BlendMode::Subpixel
-                    },
+                    FontRenderMode::Subpixel => {
+                        if font.bg_color.a != 0 {
+                            BlendMode::SubpixelWithBgColor
+                        } else if font.color.a != 255 || metadata.clip_task_id.is_some() {
+                            BlendMode::SubpixelWithAlpha
+                        } else {
+                            BlendMode::SubpixelOpaque(font.color)
+                        }
+                    }
                     FontRenderMode::Alpha |
                     FontRenderMode::Mono |
                     FontRenderMode::Bitmap => BlendMode::PremultipliedAlpha,
@@ -156,14 +160,15 @@ impl AlphaBatchList {
     ) -> &mut Vec<PrimitiveInstance> {
         let mut selected_batch_index = None;
 
-        match key.kind {
-            BatchKind::Composite { .. } => {
+        match (key.kind, key.blend_mode) {
+            (BatchKind::Composite { .. }, _) => {
                 // Composites always get added to their own batch.
                 // This is because the result of a composite can affect
                 // the input to the next composite. Perhaps we can
                 // optimize this in the future.
             }
-            BatchKind::Transformable(_, TransformBatchKind::TextRun(_)) => {
+            (BatchKind::Transformable(_, TransformBatchKind::TextRun(_)), BlendMode::SubpixelWithBgColor) |
+            (BatchKind::Transformable(_, TransformBatchKind::TextRun(_)), BlendMode::SubpixelWithAlpha) => {
                 'outer_text: for (batch_index, batch) in self.batches.iter().enumerate().rev().take(10) {
                     // Subpixel text is drawn in two passes. Because of this, we need
                     // to check for overlaps with every batch (which is a bit different
@@ -280,7 +285,9 @@ impl BatchList {
         match key.blend_mode {
             BlendMode::None => self.opaque_batch_list.get_suitable_batch(key),
             BlendMode::Alpha | BlendMode::PremultipliedAlpha |
-            BlendMode::PremultipliedDestOut | BlendMode::Subpixel |
+            BlendMode::PremultipliedDestOut |
+            BlendMode::SubpixelOpaque(..) |
+            BlendMode::SubpixelWithAlpha |
             BlendMode::SubpixelWithBgColor => {
                 self.alpha_batch_list
                     .get_suitable_batch(key, item_bounding_rect)

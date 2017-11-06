@@ -10,7 +10,7 @@
 //! [renderer]: struct.Renderer.html
 
 use api::{channel, BlobImageRenderer, FontRenderMode};
-use api::{ColorF, Epoch, PipelineId, RenderApiSender, RenderNotifier};
+use api::{ColorF, ColorU, Epoch, PipelineId, RenderApiSender, RenderNotifier};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
 use api::{ExternalImageId, ExternalImageType, ImageFormat};
 use api::{YUV_COLOR_SPACES, YUV_FORMATS};
@@ -221,12 +221,13 @@ type ShaderMode = i32;
 #[repr(C)]
 enum TextShaderMode {
     Alpha = 0,
-    SubpixelPass0 = 1,
-    SubpixelPass1 = 2,
-    SubpixelWithBgColorPass0 = 3,
-    SubpixelWithBgColorPass1 = 4,
-    SubpixelWithBgColorPass2 = 5,
-    ColorBitmap = 6,
+    SubpixelOpaque = 1,
+    SubpixelPass0 = 2,
+    SubpixelPass1 = 3,
+    SubpixelWithBgColorPass0 = 4,
+    SubpixelWithBgColorPass1 = 5,
+    SubpixelWithBgColorPass2 = 6,
+    ColorBitmap = 7,
 }
 
 impl Into<ShaderMode> for TextShaderMode {
@@ -640,7 +641,8 @@ pub enum BlendMode {
     Alpha,
     PremultipliedAlpha,
     PremultipliedDestOut,
-    Subpixel,
+    SubpixelOpaque(ColorU),
+    SubpixelWithAlpha,
     SubpixelWithBgColor,
 }
 
@@ -1013,7 +1015,8 @@ impl BrushShader {
             BlendMode::Alpha |
             BlendMode::PremultipliedAlpha |
             BlendMode::PremultipliedDestOut |
-            BlendMode::Subpixel |
+            BlendMode::SubpixelOpaque(..) |
+            BlendMode::SubpixelWithAlpha |
             BlendMode::SubpixelWithBgColor => {
                 self.alpha.bind(device, projection, mode, renderer_errors)
             }
@@ -2492,7 +2495,8 @@ impl Renderer {
                             BlendMode::Alpha |
                             BlendMode::PremultipliedAlpha |
                             BlendMode::PremultipliedDestOut |
-                            BlendMode::Subpixel |
+                            BlendMode::SubpixelOpaque(..) |
+                            BlendMode::SubpixelWithAlpha |
                             BlendMode::SubpixelWithBgColor => true,
                             BlendMode::None => false,
                         }
@@ -2832,12 +2836,13 @@ impl Renderer {
             for batch in &target.alpha_batcher.batch_list.alpha_batch_list.batches {
                 if self.debug_flags.contains(DebugFlags::ALPHA_PRIM_DBG) {
                     let color = match batch.key.blend_mode {
-                        BlendMode::None => ColorF::new(0.3, 0.3, 0.3, 1.0),
-                        BlendMode::Alpha => ColorF::new(0.0, 0.9, 0.1, 1.0),
-                        BlendMode::PremultipliedAlpha => ColorF::new(0.0, 0.3, 0.7, 1.0),
-                        BlendMode::PremultipliedDestOut => ColorF::new(0.6, 0.2, 0.0, 1.0),
-                        BlendMode::Subpixel => ColorF::new(0.5, 0.0, 0.4, 1.0),
-                        BlendMode::SubpixelWithBgColor => ColorF::new(0.6, 0.0, 0.5, 1.0),
+                        BlendMode::None => debug_colors::BLACK,
+                        BlendMode::Alpha => debug_colors::YELLOW,
+                        BlendMode::PremultipliedAlpha => debug_colors::GREY,
+                        BlendMode::PremultipliedDestOut => debug_colors::SALMON,
+                        BlendMode::SubpixelOpaque(..) => debug_colors::GREEN,
+                        BlendMode::SubpixelWithAlpha => debug_colors::RED,
+                        BlendMode::SubpixelWithBgColor => debug_colors::BLUE,
                     }.into();
                     for item_rect in &batch.item_rects {
                         self.debug.add_rect(item_rect, color);
@@ -2875,7 +2880,24 @@ impl Renderer {
                                     &batch.key.textures
                                 );
                             }
-                            BlendMode::Subpixel => {
+                            BlendMode::SubpixelOpaque(color) => {
+                                self.device.set_blend_mode_subpixel_opaque(color.into());
+
+                                self.ps_text_run.bind(
+                                    &mut self.device,
+                                    transform_kind,
+                                    projection,
+                                    TextShaderMode::SubpixelOpaque,
+                                    &mut self.renderer_errors,
+                                );
+
+                                self.draw_instanced_batch(
+                                    &batch.instances,
+                                    VertexArrayKind::Primitive,
+                                    &batch.key.textures
+                                );
+                            }
+                            BlendMode::SubpixelWithAlpha => {
                                 // Using the two pass component alpha rendering technique:
                                 //
                                 // http://anholt.livejournal.com/32058.html
@@ -2991,7 +3013,9 @@ impl Renderer {
                                     self.device.set_blend(true);
                                     self.device.set_blend_mode_premultiplied_dest_out();
                                 }
-                                BlendMode::Subpixel | BlendMode::SubpixelWithBgColor => {
+                                BlendMode::SubpixelOpaque(..) |
+                                BlendMode::SubpixelWithAlpha |
+                                BlendMode::SubpixelWithBgColor => {
                                     unreachable!("bug: subpx text handled earlier");
                                 }
                             }
