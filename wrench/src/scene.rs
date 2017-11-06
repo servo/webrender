@@ -5,6 +5,76 @@
 use std::collections::HashMap;
 use webrender::api::{BuiltDisplayList, ColorF, Epoch};
 use webrender::api::{LayerSize, PipelineId};
+use webrender::api::{PropertyBinding, PropertyBindingId, LayoutTransform, DynamicProperties};
+
+/// Stores a map of the animated property bindings for the current display list. These
+/// can be used to animate the transform and/or opacity of a display list without
+/// re-submitting the display list itself.
+pub struct SceneProperties {
+    transform_properties: HashMap<PropertyBindingId, LayoutTransform>,
+    float_properties: HashMap<PropertyBindingId, f32>,
+}
+
+impl SceneProperties {
+    pub fn new() -> SceneProperties {
+        SceneProperties {
+            transform_properties: HashMap::default(),
+            float_properties: HashMap::default(),
+        }
+    }
+
+    /// Set the current property list for this display list.
+    pub fn set_properties(&mut self, properties: &DynamicProperties) {
+        self.transform_properties.clear();
+        self.float_properties.clear();
+
+        for property in &properties.transforms {
+            self.transform_properties
+                .insert(property.key.id, property.value);
+        }
+
+        for property in &properties.floats {
+            self.float_properties
+                .insert(property.key.id, property.value);
+        }
+    }
+
+    /// Get the current value for a transform property.
+    pub fn resolve_layout_transform(
+        &self,
+        property: &Option<PropertyBinding<LayoutTransform>>,
+    ) -> LayoutTransform {
+        let property = match *property {
+            Some(property) => property,
+            None => return LayoutTransform::identity(),
+        };
+
+        match property {
+            PropertyBinding::Value(matrix) => matrix,
+            PropertyBinding::Binding(ref key) => self.transform_properties
+                .get(&key.id)
+                .cloned()
+                .unwrap_or_else(|| {
+                    println!("Property binding {:?} has an invalid value.", key);
+                    LayoutTransform::identity()
+                }),
+        }
+    }
+
+    /// Get the current value for a float property.
+    pub fn resolve_float(&self, property: &PropertyBinding<f32>, default_value: f32) -> f32 {
+        match *property {
+            PropertyBinding::Value(value) => value,
+            PropertyBinding::Binding(ref key) => self.float_properties
+                .get(&key.id)
+                .cloned()
+                .unwrap_or_else(|| {
+                    println!("Property binding {:?} has an invalid value.", key);
+                    default_value
+                }),
+        }
+    }
+}
 
 /// A representation of the layout within the display port for a given document or iframe.
 #[derive(Debug)]
@@ -16,6 +86,7 @@ pub struct ScenePipeline {
 
 /// A complete representation of the layout bundling visible pipelines together.
 pub struct Scene {
+    pub properties: SceneProperties,
     pub root_pipeline_id: Option<PipelineId>,
     pub pipeline_map: HashMap<PipelineId, ScenePipeline>,
     pub display_lists: HashMap<PipelineId, BuiltDisplayList>,
@@ -24,6 +95,7 @@ pub struct Scene {
 impl Scene {
     pub fn new() -> Scene {
         Scene {
+            properties: SceneProperties::new(),
             root_pipeline_id: None,
             pipeline_map: HashMap::default(),
             display_lists: HashMap::default(),
