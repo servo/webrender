@@ -6,4 +6,5 @@ transforms-simple.yaml
 text-rendering.yaml
 many-images.yaml
 large-blur-radius.yaml
+small-blur-radius.yaml
 

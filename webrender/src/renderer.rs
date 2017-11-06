@@ -1222,6 +1222,8 @@ pub struct Renderer {
     cs_line: LazilyCompiledShader,
     cs_blur_a8: LazilyCompiledShader,
     cs_blur_rgba8: LazilyCompiledShader,
+    cs_blur_2d_a8: LazilyCompiledShader,
+    cs_blur_2d_rgba8: LazilyCompiledShader,
 
     // Brush shaders
     brush_mask_corner: LazilyCompiledShader,
@@ -1459,6 +1461,22 @@ impl Renderer {
             LazilyCompiledShader::new(ShaderKind::Cache(VertexArrayKind::Blur),
                                      "cs_blur",
                                       &["COLOR_TARGET"],
+                                      &mut device,
+                                      options.precache_shaders)
+        };
+
+        let cs_blur_2d_a8 = try!{
+            LazilyCompiledShader::new(ShaderKind::Cache(VertexArrayKind::Blur),
+                                     "cs_blur",
+                                      &["ALPHA_TARGET", "BLUR_2D"],
+                                      &mut device,
+                                      options.precache_shaders)
+        };
+
+        let cs_blur_2d_rgba8 = try!{
+            LazilyCompiledShader::new(ShaderKind::Cache(VertexArrayKind::Blur),
+                                     "cs_blur",
+                                      &["COLOR_TARGET", "BLUR_2D"],
                                       &mut device,
                                       options.precache_shaders)
         };
@@ -1880,6 +1898,8 @@ impl Renderer {
             cs_line,
             cs_blur_a8,
             cs_blur_rgba8,
+            cs_blur_2d_a8,
+            cs_blur_2d_rgba8,
             brush_mask_corner,
             brush_mask_rounded_rect,
             brush_image_rgba8,
@@ -2849,6 +2869,22 @@ impl Renderer {
             }
         }
 
+        if !target.blurs.is_empty() {
+            let _gm = self.gpu_profile.start_timer(GPU_TAG_BLUR);
+
+            self.device.set_blend(false);
+            self.cs_blur_2d_rgba8
+                .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+
+            if !target.blurs.is_empty() {
+                self.draw_instanced_batch(
+                    &target.blurs,
+                    VertexArrayKind::Blur,
+                    &BatchTextures::no_texture(),
+                );
+            }
+        }
+
         self.handle_scaling(render_tasks, &target.scalings, SourceTexture::CacheRGBA8);
 
         // Draw any textrun caches for this target. For now, this
@@ -3220,6 +3256,22 @@ impl Renderer {
             if !target.horizontal_blurs.is_empty() {
                 self.draw_instanced_batch(
                     &target.horizontal_blurs,
+                    VertexArrayKind::Blur,
+                    &BatchTextures::no_texture(),
+                );
+            }
+        }
+
+        if !target.blurs.is_empty() {
+            let _gm = self.gpu_profile.start_timer(GPU_TAG_BLUR);
+
+            self.device.set_blend(false);
+            self.cs_blur_2d_a8
+                .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+
+            if !target.blurs.is_empty() {
+                self.draw_instanced_batch(
+                    &target.blurs,
                     VertexArrayKind::Blur,
                     &BatchTextures::no_texture(),
                 );
@@ -3788,6 +3840,8 @@ impl Renderer {
         self.cs_line.deinit(&mut self.device);
         self.cs_blur_a8.deinit(&mut self.device);
         self.cs_blur_rgba8.deinit(&mut self.device);
+        self.cs_blur_2d_a8.deinit(&mut self.device);
+        self.cs_blur_2d_rgba8.deinit(&mut self.device);
         self.brush_mask_rounded_rect.deinit(&mut self.device);
         self.brush_mask_corner.deinit(&mut self.device);
         self.brush_image_rgba8.deinit(&mut self.device);
