@@ -258,6 +258,7 @@ struct BlurTask {
     RectWithSize target_rect;
     float render_target_layer_index;
     float blur_radius;
+    float scale_factor;
     vec4 color;
 };
 
@@ -268,6 +269,7 @@ BlurTask fetch_blur_task(int address) {
         RectWithSize(task_data.data0.xy, task_data.data0.zw),
         task_data.data1.x,
         task_data.data1.y,
+        task_data.data1.z,
         task_data.data2
     );
 }
@@ -420,6 +422,8 @@ struct CompositeInstance {
     int user_data0;
     int user_data1;
     float z;
+    int user_data2;
+    int user_data3;
 };
 
 CompositeInstance fetch_composite_instance() {
@@ -432,6 +436,8 @@ CompositeInstance fetch_composite_instance() {
 
     ci.user_data0 = aData1.x;
     ci.user_data1 = aData1.y;
+    ci.user_data2 = aData1.z;
+    ci.user_data3 = aData1.w;
 
     return ci;
 }
@@ -770,10 +776,9 @@ Image fetch_image(int address) {
 }
 
 void write_clip(vec2 global_pos, ClipArea area) {
-    vec2 texture_size = vec2(textureSize(sSharedCacheA8, 0).xy);
     vec2 uv = global_pos + area.task_bounds.xy - area.screen_origin_target_index.xy;
-    vClipMaskUvBounds = area.task_bounds / texture_size.xyxy;
-    vClipMaskUv = vec3(uv / texture_size, area.screen_origin_target_index.z);
+    vClipMaskUvBounds = area.task_bounds;
+    vClipMaskUv = vec3(uv, area.screen_origin_target_index.z);
 }
 #endif //WR_VERTEX_SHADER
 
@@ -838,7 +843,7 @@ float do_clip() {
         vec4(vClipMaskUv.xy, vClipMaskUvBounds.zw));
     // check for the dummy bounds, which are given to the opaque objects
     return vClipMaskUvBounds.xy == vClipMaskUvBounds.zw ? 1.0:
-        all(inside) ? textureLod(sSharedCacheA8, vClipMaskUv, 0.0).r : 0.0;
+        all(inside) ? texelFetch(sSharedCacheA8, ivec3(vClipMaskUv), 0).r : 0.0;
 }
 
 #ifdef WR_FEATURE_DITHERING

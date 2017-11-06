@@ -8,7 +8,7 @@ fuzzy(1,396) == inset-large-offset.yaml inset-large-offset-ref.png
 == inset-border-radius.yaml inset-border-radius.png
 == box-shadow-suite-no-blur.yaml box-shadow-suite-no-blur.png
 == box-shadow-suite-blur.yaml box-shadow-suite-blur.png
-== rounding.yaml rounding-ref.yaml
+fuzzy(2,6186) == rounding.yaml rounding-ref.yaml
 == box-shadow-border-radii.yaml box-shadow-border-radii.png
 == box-shadow-spread.yaml box-shadow-spread.png
 == invalid.yaml invalid-ref.yaml
