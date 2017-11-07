@@ -1350,7 +1350,7 @@ impl FrameBuilder {
         let scroll_node = &clip_scroll_tree.nodes[&run.clip_and_scroll.scroll_node_id];
         let clip_node = &clip_scroll_tree.nodes[&run.clip_and_scroll.clip_node_id()];
 
-        if clip_node.combined_clip_outer_bounds == DeviceIntRect::zero() {
+        if !clip_node.is_visible() {
             debug!("{:?} of clipped out {:?}", run.base_prim_index, stacking_context_index);
             return;
         }
@@ -1840,8 +1840,11 @@ impl FrameBuilder {
 
                     debug!("\trun of {} items", run.count);
 
-                    let scroll_node = &clip_scroll_tree.nodes[&run.clip_and_scroll.scroll_node_id];
                     let clip_node = &clip_scroll_tree.nodes[&run.clip_and_scroll.clip_node_id()];
+                    if !clip_node.is_visible() {
+                        continue;
+                    }
+                    let scroll_node = &clip_scroll_tree.nodes[&run.clip_and_scroll.scroll_node_id];
 
                     for i in 0 .. run.count {
                         let prim_index = PrimitiveIndex(run.base_prim_index.0 + i);
