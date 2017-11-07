@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderRadiusKind, ClipAndScrollInfo, ClipId, ColorF, DeviceIntPoint, ImageKey};
+use api::{BorderRadiusKind, ClipId, ColorF, DeviceIntPoint, ImageKey};
 use api::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintSize};
 use api::{ExternalImageType, FilterOp, FontRenderMode, ImageRendering, LayerRect};
 use api::{MixBlendMode, PipelineId, PropertyBinding, TransformStyle};
@@ -20,7 +20,7 @@ use internal_types::{FastHashMap, SourceTexture};
 use internal_types::BatchTextures;
 use picture::PictureKind;
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
-use prim_store::{BrushMaskKind, BrushKind, DeferredResolve, RectangleContent};
+use prim_store::{BrushMaskKind, BrushKind, DeferredResolve, PrimitiveRun, RectangleContent};
 use profiler::FrameProfileCounters;
 use render_task::{AlphaRenderItem, ClipWorkItem, MaskGeometryKind, MaskSegment};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKey, RenderTaskKind};
@@ -121,7 +121,7 @@ pub struct ScrollbarPrimitive {
 pub enum PrimitiveRunCmd {
     PushStackingContext(StackingContextIndex),
     PopStackingContext,
-    PrimitiveRun(PrimitiveIndex, usize, ClipAndScrollInfo),
+    PrimitiveRun(PrimitiveRun),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -1245,7 +1245,7 @@ impl RenderTarget for ColorRenderTarget {
 
                         for run in &prim.prim_runs {
                             for i in 0 .. run.count {
-                                let sub_prim_index = PrimitiveIndex(run.prim_index.0 + i);
+                                let sub_prim_index = PrimitiveIndex(run.base_prim_index.0 + i);
 
                                 let sub_metadata = ctx.prim_store.get_metadata(sub_prim_index);
                                 let sub_prim_address =
@@ -1414,7 +1414,7 @@ impl RenderTarget for AlphaRenderTarget {
 
                         for run in &prim.prim_runs {
                             for i in 0 .. run.count {
-                                let sub_prim_index = PrimitiveIndex(run.prim_index.0 + i);
+                                let sub_prim_index = PrimitiveIndex(run.base_prim_index.0 + i);
 
                                 let sub_metadata = ctx.prim_store.get_metadata(sub_prim_index);
                                 let sub_prim_address =
