@@ -555,7 +555,7 @@ impl BorderCornerClipSource {
             BorderCornerClipKind::Dot => {
                 // The centers of dots follow an ellipse along the middle of the
                 // border radius.
-                let inner_radius = corner_radius - widths * 0.5;
+                let inner_radius = (corner_radius - widths * 0.5).abs();
                 let ellipse = Ellipse::new(inner_radius);
 
                 // Allocate a "worst case" number of dot clips. This can be
