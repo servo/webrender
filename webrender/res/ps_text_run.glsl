@@ -14,14 +14,14 @@ varying vec3 vLocalPos;
 
 #ifdef WR_VERTEX_SHADER
 
-#define MODE_ALPHA          0
-#define MODE_SUBPX_OPAQUE   1
-#define MODE_SUBPX_PASS0    2
-#define MODE_SUBPX_PASS1    3
-#define MODE_SUBPX_BG_PASS0 4
-#define MODE_SUBPX_BG_PASS1 5
-#define MODE_SUBPX_BG_PASS2 6
-#define MODE_COLOR_BITMAP   7
+#define MODE_ALPHA              0
+#define MODE_SUBPX_CONST_COLOR  1
+#define MODE_SUBPX_PASS0        2
+#define MODE_SUBPX_PASS1        3
+#define MODE_SUBPX_BG_PASS0     4
+#define MODE_SUBPX_BG_PASS1     5
+#define MODE_SUBPX_BG_PASS2     6
+#define MODE_COLOR_BITMAP       7
 
 void main(void) {
     Primitive prim = load_primitive();
@@ -72,15 +72,11 @@ void main(void) {
         case MODE_SUBPX_BG_PASS2:
             vColor = text.color;
             break;
+        case MODE_SUBPX_CONST_COLOR:
         case MODE_SUBPX_PASS0:
         case MODE_SUBPX_BG_PASS0:
         case MODE_COLOR_BITMAP:
             vColor = vec4(text.color.a);
-            break;
-        case MODE_SUBPX_OPAQUE:
-            // The text foreground color is handled by the constant
-            // color blend mode.
-            vColor = vec4(1.0);
             break;
         case MODE_SUBPX_BG_PASS1:
             // This should never be reached.

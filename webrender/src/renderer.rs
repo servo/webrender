@@ -221,7 +221,7 @@ type ShaderMode = i32;
 #[repr(C)]
 enum TextShaderMode {
     Alpha = 0,
-    SubpixelOpaque = 1,
+    SubpixelConstantTextColor = 1,
     SubpixelPass0 = 2,
     SubpixelPass1 = 3,
     SubpixelWithBgColorPass0 = 4,
@@ -636,14 +636,15 @@ impl SourceTextureResolver {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
+#[allow(dead_code)] // SubpixelVariableTextColor is not used at the moment.
 pub enum BlendMode {
     None,
     Alpha,
     PremultipliedAlpha,
     PremultipliedDestOut,
-    SubpixelOpaque(ColorU),
-    SubpixelWithAlpha,
+    SubpixelConstantTextColor(ColorU),
     SubpixelWithBgColor,
+    SubpixelVariableTextColor,
 }
 
 // Tracks the state of each row in the GPU cache texture.
@@ -1015,8 +1016,8 @@ impl BrushShader {
             BlendMode::Alpha |
             BlendMode::PremultipliedAlpha |
             BlendMode::PremultipliedDestOut |
-            BlendMode::SubpixelOpaque(..) |
-            BlendMode::SubpixelWithAlpha |
+            BlendMode::SubpixelConstantTextColor(..) |
+            BlendMode::SubpixelVariableTextColor |
             BlendMode::SubpixelWithBgColor => {
                 self.alpha.bind(device, projection, mode, renderer_errors)
             }
@@ -2495,8 +2496,8 @@ impl Renderer {
                             BlendMode::Alpha |
                             BlendMode::PremultipliedAlpha |
                             BlendMode::PremultipliedDestOut |
-                            BlendMode::SubpixelOpaque(..) |
-                            BlendMode::SubpixelWithAlpha |
+                            BlendMode::SubpixelConstantTextColor(..) |
+                            BlendMode::SubpixelVariableTextColor |
                             BlendMode::SubpixelWithBgColor => true,
                             BlendMode::None => false,
                         }
@@ -2866,8 +2867,8 @@ impl Renderer {
                         BlendMode::Alpha => debug_colors::YELLOW,
                         BlendMode::PremultipliedAlpha => debug_colors::GREY,
                         BlendMode::PremultipliedDestOut => debug_colors::SALMON,
-                        BlendMode::SubpixelOpaque(..) => debug_colors::GREEN,
-                        BlendMode::SubpixelWithAlpha => debug_colors::RED,
+                        BlendMode::SubpixelConstantTextColor(..) => debug_colors::GREEN,
+                        BlendMode::SubpixelVariableTextColor => debug_colors::RED,
                         BlendMode::SubpixelWithBgColor => debug_colors::BLUE,
                     }.into();
                     for item_rect in &batch.item_rects {
@@ -2906,14 +2907,14 @@ impl Renderer {
                                     &batch.key.textures
                                 );
                             }
-                            BlendMode::SubpixelOpaque(color) => {
-                                self.device.set_blend_mode_subpixel_opaque(color.into());
+                            BlendMode::SubpixelConstantTextColor(color) => {
+                                self.device.set_blend_mode_subpixel_constant_text_color(color.into());
 
                                 self.ps_text_run.bind(
                                     &mut self.device,
                                     transform_kind,
                                     projection,
-                                    TextShaderMode::SubpixelOpaque,
+                                    TextShaderMode::SubpixelConstantTextColor,
                                     &mut self.renderer_errors,
                                 );
 
@@ -2923,7 +2924,7 @@ impl Renderer {
                                     &batch.key.textures
                                 );
                             }
-                            BlendMode::SubpixelWithAlpha => {
+                            BlendMode::SubpixelVariableTextColor => {
                                 // Using the two pass component alpha rendering technique:
                                 //
                                 // http://anholt.livejournal.com/32058.html
@@ -3039,8 +3040,8 @@ impl Renderer {
                                     self.device.set_blend(true);
                                     self.device.set_blend_mode_premultiplied_dest_out();
                                 }
-                                BlendMode::SubpixelOpaque(..) |
-                                BlendMode::SubpixelWithAlpha |
+                                BlendMode::SubpixelConstantTextColor(..) |
+                                BlendMode::SubpixelVariableTextColor |
                                 BlendMode::SubpixelWithBgColor => {
                                     unreachable!("bug: subpx text handled earlier");
                                 }
