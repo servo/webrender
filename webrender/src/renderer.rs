@@ -2811,7 +2811,7 @@ impl Renderer {
             // TODO(gw): Technically, we don't need blend for solid
             //           lines. We could check that here?
             self.device.set_blend(true);
-            self.device.set_blend_mode_alpha();
+            self.device.set_blend_mode_premultiplied_alpha();
 
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_LINE);
             self.cs_line
