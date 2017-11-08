@@ -3826,6 +3826,11 @@ pub trait OutputImageHandler {
     fn unlock(&mut self, pipeline_id: PipelineId);
 }
 
+pub trait ThreadListener {
+    fn thread_started(&self, thread_name: &str);
+    fn thread_stopped(&self, thread_name: &str);
+}
+
 pub struct RendererOptions {
     pub device_pixel_ratio: f32,
     pub resource_override_path: Option<PathBuf>,
@@ -3845,6 +3850,7 @@ pub struct RendererOptions {
     pub workers: Option<Arc<ThreadPool>>,
     pub blob_image_renderer: Option<Box<BlobImageRenderer>>,
     pub recorder: Option<Box<ApiRecordingReceiver>>,
+    pub thread_listener: Option<Box<ThreadListener + Send + Sync>>,
     pub enable_render_on_scroll: bool,
     pub debug_flags: DebugFlags,
 }
@@ -3871,6 +3877,7 @@ impl Default for RendererOptions {
             workers: None,
             blob_image_renderer: None,
             recorder: None,
+            thread_listener: None,
             enable_render_on_scroll: true,
         }
     }
