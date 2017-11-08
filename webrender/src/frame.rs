@@ -116,6 +116,20 @@ impl<'a> FlattenContext<'a> {
 
         self.flatten_items(traversal, pipeline_id, LayerVector2D::zero());
 
+        if self.builder.config.enable_scrollbars {
+            // Draw the root scrollbar
+            let scrollbar_rect = LayerRect::new(LayerPoint::zero(), LayerSize::new(10.0, 70.0));
+            let info = LayerPrimitiveInfo::new(scrollbar_rect);
+
+            self.builder.add_solid_rectangle(
+                ClipAndScrollInfo::simple(clip_id),
+                &info,
+                &RectangleContent::Fill(DEFAULT_SCROLLBAR_COLOR),
+                PrimitiveFlags::Scrollbar(self.clip_scroll_tree.topmost_scrolling_node_id(), 4.0),
+            );
+        }
+
+        // Draw scrollars for other scroll frames
         for (clip_id, clip_node) in &self.clip_scroll_tree.nodes {
             if let NodeType::ScrollFrame(ref info) = clip_node.node_type {
                 if info.enable_scrollbar {

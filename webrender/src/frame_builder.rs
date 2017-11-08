@@ -78,6 +78,7 @@ fn make_polygon(
 
 #[derive(Clone, Copy)]
 pub struct FrameBuilderConfig {
+    pub enable_scrollbars: bool,
     pub default_font_render_mode: FontRenderMode,
     pub debug: bool,
 }
@@ -457,7 +458,7 @@ impl FrameBuilder {
             &viewport_rect,
             content_size,
             ScrollSensitivity::ScriptAndInputEvents,
-            true,
+            false,
             clip_scroll_tree,
         );
 
