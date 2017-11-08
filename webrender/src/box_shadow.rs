@@ -4,7 +4,7 @@
 
 use api::{BorderRadiusKind, ColorF, LayerPoint, LayerRect, LayerSize, LayerVector2D};
 use api::{BorderRadius, BoxShadowClipMode, LayoutSize, LayerPrimitiveInfo};
-use api::{ClipMode, ComplexClipRegion, LocalClip, ClipAndScrollInfo};
+use api::{ClipMode, ComplexClipRegion, EdgeAaSegmentMask, LocalClip, ClipAndScrollInfo};
 use clip::ClipSource;
 use frame_builder::FrameBuilder;
 use prim_store::{PrimitiveContainer, RectangleContent, RectanglePrimitive};
@@ -104,6 +104,7 @@ impl FrameBuilder {
                 clips,
                 PrimitiveContainer::Rectangle(RectanglePrimitive {
                     content: RectangleContent::Fill(*color),
+                    edge_aa_segment_mask: EdgeAaSegmentMask::empty(),
                 }),
             );
         } else {

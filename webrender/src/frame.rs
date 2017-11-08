@@ -109,7 +109,7 @@ impl<'a> FlattenContext<'a> {
                     self.builder.add_solid_rectangle(
                         ClipAndScrollInfo::simple(clip_id),
                         &info,
-                        &RectangleContent::Fill(bg_color),
+                        RectangleContent::Fill(bg_color),
                         PrimitiveFlags::None,
                     );
                 }
@@ -126,7 +126,7 @@ impl<'a> FlattenContext<'a> {
             self.builder.add_solid_rectangle(
                 ClipAndScrollInfo::simple(clip_id),
                 &info,
-                &RectangleContent::Fill(DEFAULT_SCROLLBAR_COLOR),
+                RectangleContent::Fill(DEFAULT_SCROLLBAR_COLOR),
                 PrimitiveFlags::Scrollbar(self.clip_scroll_tree.topmost_scrolling_node_id(), 4.0),
             );
         }
@@ -449,13 +449,13 @@ impl<'a> FlattenContext<'a> {
             SpecificDisplayItem::Rectangle(ref info) => {
                 if !self.try_to_add_rectangle_splitting_on_clip(
                     &prim_info,
-                    &RectangleContent::Fill(info.color),
+                    RectangleContent::Fill(info.color),
                     &clip_and_scroll,
                 ) {
                     self.builder.add_solid_rectangle(
                         clip_and_scroll,
                         &prim_info,
-                        &RectangleContent::Fill(info.color),
+                        RectangleContent::Fill(info.color),
                         PrimitiveFlags::None,
                     );
                 }
@@ -464,7 +464,7 @@ impl<'a> FlattenContext<'a> {
                 self.builder.add_solid_rectangle(
                     clip_and_scroll,
                     &prim_info,
-                    &RectangleContent::Clear,
+                    RectangleContent::Clear,
                     PrimitiveFlags::None,
                 );
             }
@@ -638,13 +638,13 @@ impl<'a> FlattenContext<'a> {
     fn try_to_add_rectangle_splitting_on_clip(
         &mut self,
         info: &LayerPrimitiveInfo,
-        content: &RectangleContent,
+        content: RectangleContent,
         clip_and_scroll: &ClipAndScrollInfo,
     ) -> bool {
         // If this rectangle is not opaque, splitting the rectangle up
         // into an inner opaque region just ends up hurting batching and
         // doing more work than necessary.
-        if let &RectangleContent::Fill(ColorF{a, ..}) = content {
+        if let RectangleContent::Fill(ColorF{a, ..}) = content {
             if a != 1.0 {
                 return false;
             }

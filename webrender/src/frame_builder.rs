@@ -564,10 +564,10 @@ impl FrameBuilder {
         &mut self,
         clip_and_scroll: ClipAndScrollInfo,
         info: &LayerPrimitiveInfo,
-        content: &RectangleContent,
+        content: RectangleContent,
         flags: PrimitiveFlags,
     ) {
-        if let &RectangleContent::Fill(ColorF{a, ..}) = content {
+        if let RectangleContent::Fill(ColorF{a, ..}) = content {
             if a == 0.0 {
                 // Don't add transparent rectangles to the draw list, but do consider them for hit
                 // testing. This allows specifying invisible hit testing areas.
@@ -575,7 +575,10 @@ impl FrameBuilder {
                 return;
             }
         }
-        let prim = RectanglePrimitive { content: *content };
+        let prim = RectanglePrimitive {
+            content,
+            edge_aa_segment_mask: info.edge_aa_segment_mask,
+        };
 
         let prim_index = self.add_primitive(
             clip_and_scroll,
