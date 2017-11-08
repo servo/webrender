@@ -1778,7 +1778,6 @@ impl Renderer {
         };
 
         let config = FrameBuilderConfig {
-            enable_scrollbars: options.enable_scrollbars,
             default_font_render_mode,
             debug: options.debug,
         };
@@ -3833,7 +3832,6 @@ pub struct RendererOptions {
     pub enable_dithering: bool,
     pub max_recorded_profiles: usize,
     pub debug: bool,
-    pub enable_scrollbars: bool,
     pub precache_shaders: bool,
     pub renderer_kind: RendererKind,
     pub enable_subpixel_aa: bool,
@@ -3859,7 +3857,6 @@ impl Default for RendererOptions {
             debug_flags: DebugFlags::empty(),
             max_recorded_profiles: 0,
             debug: false,
-            enable_scrollbars: false,
             precache_shaders: false,
             renderer_kind: RendererKind::Native,
             enable_subpixel_aa: false,

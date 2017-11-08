@@ -78,7 +78,6 @@ fn make_polygon(
 
 #[derive(Clone, Copy)]
 pub struct FrameBuilderConfig {
-    pub enable_scrollbars: bool,
     pub default_font_render_mode: FontRenderMode,
     pub debug: bool,
 }
@@ -458,6 +457,7 @@ impl FrameBuilder {
             &viewport_rect,
             content_size,
             ScrollSensitivity::ScriptAndInputEvents,
+            true,
             clip_scroll_tree,
         );
 
@@ -489,6 +489,7 @@ impl FrameBuilder {
         frame_rect: &LayerRect,
         content_size: &LayerSize,
         scroll_sensitivity: ScrollSensitivity,
+        enable_scrollbars: bool,
         clip_scroll_tree: &mut ClipScrollTree,
     ) {
         let node = ClipScrollNode::new_scroll_frame(
@@ -497,6 +498,7 @@ impl FrameBuilder {
             frame_rect,
             content_size,
             scroll_sensitivity,
+            enable_scrollbars
         );
 
         clip_scroll_tree.add_node(node, new_node_id);

@@ -11,7 +11,7 @@ use api::{LocalClip, PipelineId, ScrollClamping, ScrollEventPhase, ScrollLayerSt
 use api::{ScrollLocation, ScrollPolicy, ScrollSensitivity, SpecificDisplayItem, StackingContext};
 use api::{ClipMode, TileOffset, TransformStyle, WorldPoint};
 use clip::ClipRegion;
-use clip_scroll_node::StickyFrameInfo;
+use clip_scroll_node::{StickyFrameInfo, NodeType};
 use clip_scroll_tree::{ClipScrollTree, ScrollStates};
 use euclid::rect;
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
@@ -116,16 +116,20 @@ impl<'a> FlattenContext<'a> {
 
         self.flatten_items(traversal, pipeline_id, LayerVector2D::zero());
 
-        if self.builder.config.enable_scrollbars {
-            let scrollbar_rect = LayerRect::new(LayerPoint::zero(), LayerSize::new(10.0, 70.0));
-            let info = LayerPrimitiveInfo::new(scrollbar_rect);
+        for (clip_id, clip_node) in &self.clip_scroll_tree.nodes {
+            if let NodeType::ScrollFrame(ref info) = clip_node.node_type {
+                if info.enable_scrollbar {
+                    let scrollbar_rect = LayerRect::new(LayerPoint::zero(), LayerSize::new(10.0, 70.0));
+                    let info = LayerPrimitiveInfo::new(scrollbar_rect);
 
-            self.builder.add_solid_rectangle(
-                ClipAndScrollInfo::simple(clip_id),
-                &info,
-                &RectangleContent::Fill(DEFAULT_SCROLLBAR_COLOR),
-                PrimitiveFlags::Scrollbar(self.clip_scroll_tree.topmost_scrolling_node_id(), 4.0),
-            );
+                    self.builder.add_solid_rectangle(
+                        ClipAndScrollInfo::simple(*clip_id),
+                        &info,
+                        &RectangleContent::Fill(DEFAULT_SCROLLBAR_COLOR),
+                        PrimitiveFlags::Scrollbar(*clip_id, 4.0),
+                    );
+                }
+            }
         }
 
         self.builder.pop_stacking_context();
@@ -184,6 +188,7 @@ impl<'a> FlattenContext<'a> {
         content_rect: &LayerRect,
         clip_region: ClipRegion,
         scroll_sensitivity: ScrollSensitivity,
+        enable_scrollbar: bool
     ) {
         let clip_id = self.clip_scroll_tree.generate_new_clip_id(pipeline_id);
         self.builder.add_clip_node(
@@ -201,6 +206,7 @@ impl<'a> FlattenContext<'a> {
             &frame_rect,
             &content_rect.size,
             scroll_sensitivity,
+            enable_scrollbar,
             self.clip_scroll_tree,
         );
     }
@@ -359,6 +365,7 @@ impl<'a> FlattenContext<'a> {
             &iframe_rect,
             &pipeline.content_size,
             ScrollSensitivity::ScriptAndInputEvents,
+            false,
             self.clip_scroll_tree,
         );
 
@@ -591,6 +598,7 @@ impl<'a> FlattenContext<'a> {
                     &content_rect,
                     clip_region,
                     info.scroll_sensitivity,
+                    info.enable_scrollbar
                 );
             }
             SpecificDisplayItem::StickyFrame(ref info) => {
