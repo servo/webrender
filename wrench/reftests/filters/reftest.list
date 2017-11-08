@@ -11,3 +11,5 @@
 == filter-brightness-4.yaml filter-brightness-4-ref.yaml
 == filter-invert.yaml filter-invert-ref.yaml
 == filter-invert-2.yaml filter-invert-2-ref.yaml
+== filter-large-blur-radius.yaml filter-large-blur-radius.png
+== filter-small-blur-radius.yaml filter-small-blur-radius.png
