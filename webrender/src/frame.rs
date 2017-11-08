@@ -6,7 +6,8 @@
 use api::{BuiltDisplayListIter, ClipAndScrollInfo, ClipId, ColorF, ComplexClipRegion};
 use api::{DeviceUintRect, DeviceUintSize, DisplayItemRef, Epoch, FilterOp};
 use api::{ImageDisplayItem, ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect};
-use api::{LayerSize, LayerToScrollTransform, LayerVector2D, LayoutSize, LayoutTransform};
+use api::{LayerSize, LayerToScrollTransform, LayerVector2D};
+use api::{LayoutRect, LayoutSize, LayoutTransform};
 use api::{LocalClip, PipelineId, ScrollClamping, ScrollEventPhase, ScrollLayerState};
 use api::{ScrollLocation, ScrollPolicy, ScrollSensitivity, SpecificDisplayItem, StackingContext};
 use api::{ClipMode, TileOffset, TransformStyle, WorldPoint};
@@ -22,7 +23,7 @@ use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
 use resource_cache::{FontInstanceMap,ResourceCache, TiledImageMap};
 use scene::{Scene, StackingContextHelpers, ScenePipeline};
 use tiling::{CompositeOps, Frame, PrimitiveFlags};
-use util::{subtract_rect, ComplexClipRegionHelpers};
+use util::ComplexClipRegionHelpers;
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Eq, Ord)]
 pub struct FrameId(pub u32);
@@ -42,6 +43,8 @@ struct FlattenContext<'a> {
     tiled_image_map: TiledImageMap,
     pipeline_epochs: Vec<(PipelineId, Epoch)>,
     replacements: Vec<(ClipId, ClipId)>,
+    opaque_parts: Vec<LayoutRect>,
+    transparent_parts: Vec<LayoutRect>,
 }
 
 impl<'a> FlattenContext<'a> {
@@ -647,46 +650,58 @@ impl<'a> FlattenContext<'a> {
             }
         }
 
-        let inner_unclipped_rect = match &info.local_clip {
-            &LocalClip::Rect(_) => return false,
-            &LocalClip::RoundedRect(_, ref region) => {
+        self.opaque_parts.clear();
+        self.transparent_parts.clear();
+
+        match info.local_clip {
+            LocalClip::Rect(_) => return false,
+            LocalClip::RoundedRect(_, ref region) => {
                 if region.mode == ClipMode::ClipOut {
                     return false;
                 }
-                region.get_inner_rect_full()
+                region.split_rectangles(
+                    &mut self.opaque_parts,
+                    &mut self.transparent_parts,
+                );
             }
         };
-        let inner_unclipped_rect = match inner_unclipped_rect {
-            Some(rect) => rect,
-            None => return false,
-        };
 
-        // The inner rectangle is not clipped by its assigned clipping node, so we can
-        // let it be clipped by the parent of the clipping node, which may result in
-        // less masking some cases.
-        let mut clipped_rects = Vec::new();
-        subtract_rect(&info.rect, &inner_unclipped_rect, &mut clipped_rects);
+        let local_clip = LocalClip::from(*info.local_clip.clip_rect());
+        let mut has_opaque = false;
 
-        let prim_info = LayerPrimitiveInfo {
-            rect: inner_unclipped_rect,
-            local_clip: LocalClip::from(*info.local_clip.clip_rect()),
-            is_backface_visible: info.is_backface_visible,
-            tag: None,
-        };
-
-        self.builder.add_solid_rectangle(
-            *clip_and_scroll,
-            &prim_info,
-            content,
-            PrimitiveFlags::None,
-        );
-
-        for clipped_rect in &clipped_rects {
-            let mut info = info.clone();
-            info.rect = *clipped_rect;
+        for opaque in &self.opaque_parts {
+            let prim_info = LayerPrimitiveInfo {
+                rect: match opaque.intersection(&info.rect) {
+                    Some(rect) => rect,
+                    None => continue,
+                },
+                local_clip,
+                .. info.clone()
+            };
             self.builder.add_solid_rectangle(
                 *clip_and_scroll,
-                &info,
+                &prim_info,
+                content,
+                PrimitiveFlags::None,
+            );
+            has_opaque = true;
+        }
+
+        if !has_opaque {
+            return false
+        }
+
+        for transparent in &self.transparent_parts {
+            let prim_info = LayerPrimitiveInfo {
+                rect: match transparent.intersection(&info.rect) {
+                    Some(rect) => rect,
+                    None => continue,
+                },
+                .. info.clone()
+            };
+            self.builder.add_solid_rectangle(
+                *clip_and_scroll,
+                &prim_info,
                 content,
                 PrimitiveFlags::None,
             );
@@ -1102,6 +1117,8 @@ impl FrameContext {
                 tiled_image_map: resource_cache.get_tiled_image_map(),
                 pipeline_epochs: Vec::new(),
                 replacements: Vec::new(),
+                opaque_parts: Vec::new(),
+                transparent_parts: Vec::new(),
             };
 
             roller.builder.push_root(
