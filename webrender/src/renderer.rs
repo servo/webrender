@@ -2735,7 +2735,6 @@ impl Renderer {
             self.device.disable_depth();
             self.device.enable_depth_write();
             self.device.set_blend(false);
-            self.device.set_blend_mode_alpha();
             match render_target {
                 Some(..) if self.enable_clear_scissor => {
                     // TODO(gw): Applying a scissor rect and minimal clear here
