@@ -34,12 +34,17 @@ use render_task::RenderTaskTree;
 use resource_cache::ResourceCache;
 use scene::ScenePipeline;
 use std::{mem, usize, f32, i32};
-use tiling::{CompositeOps, Frame};
-use tiling::{ContextIsolation, RenderTargetKind, StackingContextIndex};
-use tiling::{PrimitiveFlags, PrimitiveRunCmd, RenderPass};
-use tiling::{RenderTargetContext, ScrollbarPrimitive, StackingContext};
+use tiling::{CompositeOps, ContextIsolation, Frame, PrimitiveRunCmd, RenderPass};
+use tiling::{RenderTargetContext, RenderTargetKind, ScrollbarPrimitive, StackingContext};
+use tiling::StackingContextIndex;
 use util::{self, pack_as_float, RectHelpers, recycle_vec};
 use box_shadow::BLUR_SAMPLE_SCALE;
+
+#[derive(Debug, Copy, Clone)]
+pub enum PrimitiveFlags {
+    None,
+    Scrollbar(ClipId, LayerRect),
+}
 
 /// Construct a polygon from stacking context boundaries.
 /// `anchor` here is an index that's going to be preserved in all the
@@ -589,11 +594,11 @@ impl FrameBuilder {
 
         match flags {
             PrimitiveFlags::None => {}
-            PrimitiveFlags::Scrollbar(clip_id, border_radius) => {
+            PrimitiveFlags::Scrollbar(clip_id, frame_rect) => {
                 self.scrollbar_prims.push(ScrollbarPrimitive {
                     prim_index,
                     clip_id,
-                    border_radius,
+                    frame_rect,
                 });
             }
         }
@@ -1515,45 +1520,31 @@ impl FrameBuilder {
     }
 
     fn update_scroll_bars(&mut self, clip_scroll_tree: &ClipScrollTree, gpu_cache: &mut GpuCache) {
-        let distance_from_edge = 8.0;
+        static SCROLLBAR_PADDING: f32 = 8.0;
 
         for scrollbar_prim in &self.scrollbar_prims {
             let metadata = &mut self.prim_store.cpu_metadata[scrollbar_prim.prim_index.0];
-            let clip_scroll_node = &clip_scroll_tree.nodes[&scrollbar_prim.clip_id];
+            let scroll_frame = &clip_scroll_tree.nodes[&scrollbar_prim.clip_id];
 
             // Invalidate what's in the cache so it will get rebuilt.
             gpu_cache.invalidate(&metadata.gpu_location);
 
-            let scrollable_distance = clip_scroll_node.scrollable_size().height;
-
+            let scrollable_distance = scroll_frame.scrollable_size().height;
             if scrollable_distance <= 0.0 {
                 metadata.local_clip_rect.size = LayerSize::zero();
                 continue;
             }
+            let amount_scrolled = -scroll_frame.scroll_offset().y / scrollable_distance;
 
-            let scroll_offset = clip_scroll_node.scroll_offset();
-            let f = -scroll_offset.y / scrollable_distance;
+            let frame_rect = scrollbar_prim.frame_rect;
+            let min_y = frame_rect.origin.y + SCROLLBAR_PADDING;
+            let max_y = frame_rect.origin.y + frame_rect.size.height -
+                (SCROLLBAR_PADDING + metadata.local_rect.size.height);
 
-            let min_y = clip_scroll_node.local_viewport_rect.origin.y - scroll_offset.y +
-                distance_from_edge;
-
-            let max_y = clip_scroll_node.local_viewport_rect.origin.y +
-                clip_scroll_node.local_viewport_rect.size.height -
-                scroll_offset.y - metadata.local_rect.size.height -
-                distance_from_edge;
-
-            metadata.local_rect.origin.x = clip_scroll_node.local_viewport_rect.origin.x +
-                clip_scroll_node.local_viewport_rect.size.width -
-                metadata.local_rect.size.width -
-                distance_from_edge;
-
-            metadata.local_rect.origin.y = util::lerp(min_y, max_y, f);
+            metadata.local_rect.origin.x = frame_rect.origin.x + frame_rect.size.width -
+                (metadata.local_rect.size.width + SCROLLBAR_PADDING);
+            metadata.local_rect.origin.y = util::lerp(min_y, max_y, amount_scrolled);
             metadata.local_clip_rect = metadata.local_rect;
-
-            // TODO(gw): The code to set / update border clips on scroll bars
-            //           has been broken for a long time, so I've removed it
-            //           for now. We can re-add that code once the clips
-            //           data is moved over to the GPU cache!
         }
     }
 

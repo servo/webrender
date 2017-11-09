@@ -7,10 +7,9 @@ use api::{EdgeAaSegmentMask, LayerPoint, LayerRect};
 use api::{LayerPrimitiveInfo, LayerSize, NormalBorder, RepeatMode};
 use clip::ClipSource;
 use ellipse::Ellipse;
-use frame_builder::FrameBuilder;
+use frame_builder::{FrameBuilder, PrimitiveFlags};
 use gpu_cache::GpuDataRequest;
 use prim_store::{BorderPrimitiveCpu, RectangleContent, PrimitiveContainer, TexelRect};
-use tiling::PrimitiveFlags;
 use util::{lerp, pack_as_float};
 
 #[repr(u8)]
