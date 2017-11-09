@@ -15,8 +15,8 @@ use api::{WorldPixel, WorldPoint, YuvColorSpace, YuvData, device_length};
 use app_units::Au;
 use border::ImageBorderSegment;
 use clip::{ClipRegion, ClipSource, ClipSources, ClipStore, Contains};
-use clip_scroll_node::{ClipInfo, ClipScrollNode, NodeType};
-use clip_scroll_tree::{ClipScrollTree};
+use clip_scroll_node::{ClipScrollNode, NodeType};
+use clip_scroll_tree::ClipScrollTree;
 use euclid::{SideOffsets2D, TypedTransform3D, vec2, vec3};
 use frame::FrameId;
 use gpu_cache::GpuCache;
@@ -473,11 +473,12 @@ impl FrameBuilder {
         clip_scroll_tree: &mut ClipScrollTree,
     ) {
         let clip_rect = clip_region.main;
-        let clip_info = ClipInfo::new(
-            clip_region,
-            &mut self.clip_store,
-        );
-        let node = ClipScrollNode::new_clip_node(pipeline_id, parent_id, clip_info, clip_rect);
+        let clip_sources = ClipSources::from(clip_region);
+        debug_assert!(clip_sources.has_clips());
+
+        let handle = self.clip_store.insert(clip_sources);
+
+        let node = ClipScrollNode::new_clip_node(pipeline_id, parent_id, handle, clip_rect);
         clip_scroll_tree.add_node(node, new_node_id);
     }
 

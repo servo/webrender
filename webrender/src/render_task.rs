@@ -399,7 +399,7 @@ impl RenderTask {
                 let clip_info = clip_store
                     .get_opt(&node.work_item.clip_sources)
                     .expect("bug: clip item should exist");
-                debug_assert!(clip_info.is_masking());
+                debug_assert!(clip_info.has_clips());
 
                 match clip_info.bounds.inner {
                     Some(ref inner) if !inner.device_rect.is_empty() => {

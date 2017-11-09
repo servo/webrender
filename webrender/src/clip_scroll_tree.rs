@@ -180,8 +180,8 @@ impl ClipScrollTree {
         };
 
         let point_in_layer = transformed_point - node.local_viewport_rect.origin.to_vector();
-        let clip_info = match node.node_type {
-            NodeType::Clip(ref info) => info,
+        let clip_sources_handle = match node.node_type {
+            NodeType::Clip(ref clip_sources_handle) => clip_sources_handle,
             _ => {
                 cache.insert(*node_id, Some(point_in_layer));
                 return true;
@@ -194,7 +194,7 @@ impl ClipScrollTree {
         }
 
         let point_in_clips = transformed_point - node.local_clip_rect.origin.to_vector();
-        for &(ref clip, _) in clip_store.get(&clip_info.clip_sources).clips() {
+        for &(ref clip, _) in clip_store.get(&clip_sources_handle).clips() {
             if !clip.contains(&point_in_clips) {
                 cache.insert(*node_id, None);
                 return false;
@@ -507,11 +507,11 @@ impl ClipScrollTree {
         let node = self.nodes.get(id).unwrap();
 
         match node.node_type {
-            NodeType::Clip(ref info) => {
+            NodeType::Clip(ref clip_sources_handle) => {
                 pt.new_level("Clip".to_owned());
 
                 pt.add_item(format!("id: {:?}", id));
-                let clips = clip_store.get(&info.clip_sources).clips();
+                let clips = clip_store.get(&clip_sources_handle).clips();
                 pt.new_level(format!("Clip Sources [{}]", clips.len()));
                 for source in clips {
                     pt.add_item(format!("{:?}", source));
