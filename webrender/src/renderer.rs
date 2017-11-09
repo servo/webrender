@@ -2794,7 +2794,7 @@ impl Renderer {
         // to multiple tiles in the normal text run case.
         if !target.text_run_cache_prims.is_empty() {
             self.device.set_blend(true);
-            self.device.set_blend_mode_alpha();
+            self.device.set_blend_mode_premultiplied_alpha();
 
             let _gm = self.gpu_profile.add_marker(GPU_TAG_CACHE_TEXT_RUN);
             self.cs_text_run

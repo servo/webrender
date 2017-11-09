@@ -206,7 +206,7 @@ impl PicturePrimitive {
                     prim_index,
                     RenderTargetKind::Color,
                     self.content_rect.origin,
-                    shadow.color,
+                    shadow.color.premultiplied(),
                     ClearMode::Transparent,
                 );
 
@@ -219,7 +219,7 @@ impl PicturePrimitive {
                     RenderTargetKind::Color,
                     &[],
                     ClearMode::Transparent,
-                    shadow.color,
+                    shadow.color.premultiplied(),
                 );
 
                 self.render_task_id = Some(render_tasks.add(render_task));
