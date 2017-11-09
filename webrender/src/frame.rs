@@ -43,7 +43,10 @@ struct FlattenContext<'a> {
     tiled_image_map: TiledImageMap,
     pipeline_epochs: Vec<(PipelineId, Epoch)>,
     replacements: Vec<(ClipId, ClipId)>,
+    /// Opaque rectangle vector, stored here in order to
+    /// avoid re-allocation on each use.
     opaque_parts: Vec<LayoutRect>,
+    /// Same for the transparent rectangles.
     transparent_parts: Vec<LayoutRect>,
 }
 
@@ -641,6 +644,10 @@ impl<'a> FlattenContext<'a> {
         content: RectangleContent,
         clip_and_scroll: &ClipAndScrollInfo,
     ) -> bool {
+        if info.rect.size.area() < 200.0 { // arbitrary threshold
+            // too few pixels, don't bother adding instances
+            return false;
+        }
         // If this rectangle is not opaque, splitting the rectangle up
         // into an inner opaque region just ends up hurting batching and
         // doing more work than necessary.
