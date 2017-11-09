@@ -1,0 +1,12 @@
+---
+root: 
+  items: 
+    - bounds: [5, 5, 490, 490]
+      "clip-rect": [5, 5, 490, 490]
+      "clip-and-scroll": 0
+      "backface-visible": true
+      type: border
+      width: 25
+      "border-type": normal
+      color: black
+      style: dotted
