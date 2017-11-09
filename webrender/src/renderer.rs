@@ -639,7 +639,6 @@ impl SourceTextureResolver {
 #[allow(dead_code)] // SubpixelVariableTextColor is not used at the moment.
 pub enum BlendMode {
     None,
-    Alpha,
     PremultipliedAlpha,
     PremultipliedDestOut,
     SubpixelConstantTextColor(ColorU),
@@ -1013,7 +1012,6 @@ impl BrushShader {
             BlendMode::None => {
                 self.opaque.bind(device, projection, mode, renderer_errors)
             }
-            BlendMode::Alpha |
             BlendMode::PremultipliedAlpha |
             BlendMode::PremultipliedDestOut |
             BlendMode::SubpixelConstantTextColor(..) |
@@ -2493,7 +2491,6 @@ impl Renderer {
                 TransformBatchKind::Rectangle(needs_clipping) => {
                     debug_assert!(
                         !needs_clipping || match key.blend_mode {
-                            BlendMode::Alpha |
                             BlendMode::PremultipliedAlpha |
                             BlendMode::PremultipliedDestOut |
                             BlendMode::SubpixelConstantTextColor(..) |
@@ -2863,7 +2860,6 @@ impl Renderer {
                 if self.debug_flags.contains(DebugFlags::ALPHA_PRIM_DBG) {
                     let color = match batch.key.blend_mode {
                         BlendMode::None => debug_colors::BLACK,
-                        BlendMode::Alpha => debug_colors::YELLOW,
                         BlendMode::PremultipliedAlpha => debug_colors::GREY,
                         BlendMode::PremultipliedDestOut => debug_colors::SALMON,
                         BlendMode::SubpixelConstantTextColor(..) => debug_colors::GREEN,
@@ -3013,7 +3009,7 @@ impl Renderer {
                                 self.device
                                     .draw_indexed_triangles_instanced_u16(6, batch.instances.len() as i32);
                             }
-                            BlendMode::Alpha | BlendMode::PremultipliedDestOut | BlendMode::None => {
+                            BlendMode::PremultipliedDestOut | BlendMode::None => {
                                 unreachable!("bug: bad blend mode for text");
                             }
                         }
@@ -3026,10 +3022,6 @@ impl Renderer {
                             match batch.key.blend_mode {
                                 BlendMode::None => {
                                     self.device.set_blend(false);
-                                }
-                                BlendMode::Alpha => {
-                                    self.device.set_blend(true);
-                                    self.device.set_blend_mode_alpha();
                                 }
                                 BlendMode::PremultipliedAlpha => {
                                     self.device.set_blend(true);
