@@ -204,7 +204,7 @@ pub enum MaskGeometryKind {
 
 #[derive(Debug, Clone)]
 pub struct ClipWorkItem {
-    pub scroll_node_id: ClipScrollNodeIndex,
+    pub scroll_node_data_index: ClipScrollNodeIndex,
     pub clip_sources: ClipSourcesWeakHandle,
     pub coordinate_system_id: CoordinateSystemId,
 }

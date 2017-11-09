@@ -1257,7 +1257,7 @@ impl PrimitiveStore {
             let extra_clip = if prim_clips.has_clips() {
                 Some(Rc::new(ClipChainNode {
                     work_item: ClipWorkItem {
-                        scroll_node_id: prim_context.scroll_node.id,
+                        scroll_node_data_index: prim_context.scroll_node.node_data_index,
                         clip_sources: metadata.clip_sources.weak(),
                         coordinate_system_id: prim_context.scroll_node.coordinate_system_id,
                     },

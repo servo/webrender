@@ -127,7 +127,7 @@ pub struct ClipScrollNode {
 
     /// A linear ID / index of this clip-scroll node. Used as a reference to
     /// pass to shaders, to allow them to fetch a given clip-scroll node.
-    pub id: ClipScrollNodeIndex,
+    pub node_data_index: ClipScrollNodeIndex,
 }
 
 impl ClipScrollNode {
@@ -151,7 +151,7 @@ impl ClipScrollNode {
             clip_chain_node: None,
             combined_clip_outer_bounds: DeviceIntRect::max_rect(),
             coordinate_system_id: CoordinateSystemId(0),
-            id: ClipScrollNodeIndex(0),
+            node_data_index: ClipScrollNodeIndex(0),
         }
     }
 
@@ -265,6 +265,58 @@ impl ClipScrollNode {
         true
     }
 
+    pub fn update(
+        &mut self,
+        state: &mut TransformUpdateState,
+        node_data: &mut Vec<ClipScrollNodeData>,
+        device_pixel_ratio: f32,
+        clip_store: &mut ClipStore,
+        resource_cache: &mut ResourceCache,
+        gpu_cache: &mut GpuCache,
+    ) {
+        // We set this earlier so that we can use it before we have all the data necessary
+        // to populate the ClipScrollNodeData.
+        self.node_data_index = ClipScrollNodeIndex(node_data.len() as u32);
+
+        self.update_transform(state);
+        self.update_clip_work_item(
+            state,
+            device_pixel_ratio,
+            clip_store,
+            resource_cache,
+            gpu_cache,
+        );
+
+        let local_clip_rect = if self.world_content_transform.has_perspective_component() {
+            LayerRect::new(
+                LayerPoint::new(-MAX_LOCAL_VIEWPORT, -MAX_LOCAL_VIEWPORT),
+                LayerSize::new(2.0 * MAX_LOCAL_VIEWPORT, 2.0 * MAX_LOCAL_VIEWPORT)
+            )
+        } else {
+            self.combined_local_viewport_rect
+        };
+
+        let data = match self.world_content_transform.inverse() {
+            Some(inverse) => {
+                ClipScrollNodeData {
+                    transform: self.world_content_transform,
+                    inv_transform: inverse,
+                    local_clip_rect,
+                    reference_frame_relative_scroll_offset:
+                        self.reference_frame_relative_scroll_offset,
+                    scroll_offset: self.scroll_offset(),
+                }
+            }
+            None => {
+                state.combined_outer_clip_bounds = DeviceIntRect::zero();
+                ClipScrollNodeData::invalid()
+            }
+        };
+
+        // Write the data that will be made available to the GPU for this node.
+        node_data.push(data);
+    }
+
     pub fn update_clip_work_item(
         &mut self,
         state: &mut TransformUpdateState,
@@ -302,7 +354,7 @@ impl ClipScrollNode {
         // TODO: Combine rectangles in the same axis-aligned clip space here?
         self.clip_chain_node = Some(Rc::new(ClipChainNode {
             work_item: ClipWorkItem {
-                scroll_node_id: self.id,
+                scroll_node_data_index: self.node_data_index,
                 clip_sources: clip_sources_handle.weak(),
                 coordinate_system_id: state.current_coordinate_system_id,
             },
@@ -313,11 +365,7 @@ impl ClipScrollNode {
         state.parent_clip_chain = self.clip_chain_node.clone();
     }
 
-    pub fn update_transform(
-        &mut self,
-        state: &mut TransformUpdateState,
-        node_data: &mut Vec<ClipScrollNodeData>,
-    ) {
+    pub fn update_transform(&mut self, state: &mut TransformUpdateState) {
         // We calculate this here to avoid a double-borrow later.
         let sticky_offset = self.calculate_sticky_offset(
             &state.nearest_scrolling_ancestor_offset,
@@ -416,36 +464,6 @@ impl ClipScrollNode {
 
         // Store coord system ID, and also the ID used for shaders to reference this node.
         self.coordinate_system_id = state.current_coordinate_system_id;
-        self.id = ClipScrollNodeIndex(node_data.len() as u32);
-
-        let local_clip_rect = if self.world_content_transform.has_perspective_component() {
-            LayerRect::new(
-                LayerPoint::new(-MAX_LOCAL_VIEWPORT, -MAX_LOCAL_VIEWPORT),
-                LayerSize::new(2.0 * MAX_LOCAL_VIEWPORT, 2.0 * MAX_LOCAL_VIEWPORT)
-            )
-        } else {
-            self.combined_local_viewport_rect
-        };
-
-        let data = match self.world_content_transform.inverse() {
-            Some(inverse) => {
-                ClipScrollNodeData {
-                    transform: self.world_content_transform,
-                    inv_transform: inverse,
-                    local_clip_rect,
-                    reference_frame_relative_scroll_offset: self.reference_frame_relative_scroll_offset,
-                    scroll_offset: self.scroll_offset(),
-                }
-            }
-            None => {
-                state.combined_outer_clip_bounds = DeviceIntRect::zero();
-
-                ClipScrollNodeData::invalid()
-            }
-        };
-
-        // Write the data that will be made available to the GPU for this node.
-        node_data.push(data);
     }
 
     fn calculate_sticky_offset(

@@ -875,7 +875,7 @@ impl ClipBatcher {
         for work_item in clips.iter() {
             let instance = ClipMaskInstance {
                 render_task_address: task_address,
-                scroll_node_id: work_item.scroll_node_id,
+                scroll_node_data_index: work_item.scroll_node_data_index,
                 segment: 0,
                 clip_data_address: GpuCacheAddress::invalid(),
                 resource_address: GpuCacheAddress::invalid(),
