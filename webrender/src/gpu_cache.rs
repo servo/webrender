@@ -24,7 +24,7 @@
 //! address in the GPU cache of a given resource slot
 //! for this frame.
 
-use api::{ColorF, LayerRect};
+use api::{LayerRect, PremultipliedColorF};
 use device::FrameId;
 use internal_types::UvRect;
 use profiler::GpuCacheProfileCounters;
@@ -64,11 +64,9 @@ impl GpuBlockData {
 }
 
 /// Conversion helpers for GpuBlockData
-impl Into<GpuBlockData> for ColorF {
+impl Into<GpuBlockData> for PremultipliedColorF {
     fn into(self) -> GpuBlockData {
-        GpuBlockData {
-            data: [self.r, self.g, self.b, self.a],
-        }
+        GpuBlockData { data: self.0 }
     }
 }
 

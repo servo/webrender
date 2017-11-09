@@ -438,7 +438,7 @@ impl<'a> FlattenContext<'a> {
                             reference_frame_relative_offset,
                             &prim_info,
                             instance,
-                            &text_info.color,
+                            text_info.color,
                             item.glyphs(),
                             item.display_list().get(item.glyphs()).count(),
                             text_info.glyph_options,
@@ -477,7 +477,7 @@ impl<'a> FlattenContext<'a> {
                     &prim_info,
                     info.wavy_line_thickness,
                     info.orientation,
-                    &info.color,
+                    info.color,
                     info.style,
                 );
             }

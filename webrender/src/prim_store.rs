@@ -6,7 +6,8 @@ use api::{BorderRadius, BuiltDisplayList, ColorF, ComplexClipRegion, DeviceIntRe
 use api::{DevicePoint, ExtendMode, FontInstance, GlyphInstance, GlyphKey};
 use api::{GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerRect};
 use api::{ClipMode, LayerSize, LayerVector2D, LineOrientation, LineStyle};
-use api::{ClipAndScrollInfo, EdgeAaSegmentMask, TileOffset, YuvColorSpace, YuvFormat};
+use api::{ClipAndScrollInfo, EdgeAaSegmentMask, PremultipliedColorF, TileOffset};
+use api::{YuvColorSpace, YuvFormat};
 use border::BorderCornerInstance;
 use clip::{ClipSourcesHandle, ClipStore, Geometry};
 use frame_builder::PrimitiveContext;
@@ -180,15 +181,11 @@ pub struct RectanglePrimitive {
 
 impl ToGpuBlocks for RectanglePrimitive {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        match &self.content {
-            &RectangleContent::Fill(ref color) => {
-                request.push(color.premultiplied());
-            }
-            &RectangleContent::Clear => {
-                // Opaque black with operator dest out
-                request.push(ColorF::new(0.0, 0.0, 0.0, 1.0));
-            }
-        }
+        request.push(match self.content {
+            RectangleContent::Fill(color) => color.premultiplied(),
+            // Opaque black with operator dest out
+            RectangleContent::Clear => PremultipliedColorF::BLACK_OPAQUE,
+        });
         request.extend_from_slice(&[GpuBlockData {
             data: [self.edge_aa_segment_mask.bits() as f32, 0.0, 0.0, 0.0],
         }]);
@@ -254,7 +251,7 @@ impl ToGpuBlocks for BrushPrimitive {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct LinePrimitive {
-    pub color: ColorF,
+    pub color: PremultipliedColorF,
     pub wavy_line_thickness: f32,
     pub style: LineStyle,
     pub orientation: LineOrientation,
@@ -262,7 +259,7 @@ pub struct LinePrimitive {
 
 impl ToGpuBlocks for LinePrimitive {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        request.push(self.color.premultiplied());
+        request.push(self.color);
         request.push([
             self.wavy_line_thickness,
             pack_as_float(self.style as u32),
@@ -377,8 +374,8 @@ pub const GRADIENT_DATA_SIZE: usize = GRADIENT_DATA_TABLE_SIZE + 2;
 #[repr(C)]
 // An entry in a gradient data table representing a segment of the gradient color space.
 pub struct GradientDataEntry {
-    pub start_color: ColorF,
-    pub end_color: ColorF,
+    pub start_color: PremultipliedColorF,
+    pub end_color: PremultipliedColorF,
 }
 
 struct GradientGpuBlockBuilder<'a> {
@@ -390,7 +387,7 @@ impl<'a> GradientGpuBlockBuilder<'a> {
     fn new(
         stops_range: ItemRange<GradientStop>,
         display_list: &'a BuiltDisplayList,
-    ) -> GradientGpuBlockBuilder<'a> {
+    ) -> Self {
         GradientGpuBlockBuilder {
             stops_range,
             display_list,
@@ -403,16 +400,16 @@ impl<'a> GradientGpuBlockBuilder<'a> {
         &self,
         start_idx: usize,
         end_idx: usize,
-        start_color: &ColorF,
-        end_color: &ColorF,
+        start_color: &PremultipliedColorF,
+        end_color: &PremultipliedColorF,
         entries: &mut [GradientDataEntry; GRADIENT_DATA_SIZE],
     ) {
         // Calculate the color difference for individual steps in the ramp.
         let inv_steps = 1.0 / (end_idx - start_idx) as f32;
-        let step_r = (end_color.r - start_color.r) * inv_steps;
-        let step_g = (end_color.g - start_color.g) * inv_steps;
-        let step_b = (end_color.b - start_color.b) * inv_steps;
-        let step_a = (end_color.a - start_color.a) * inv_steps;
+        let step_r = (end_color.0[0] - start_color.0[0]) * inv_steps;
+        let step_g = (end_color.0[1] - start_color.0[1]) * inv_steps;
+        let step_b = (end_color.0[2] - start_color.0[2]) * inv_steps;
+        let step_a = (end_color.0[3] - start_color.0[3]) * inv_steps;
 
         let mut cur_color = *start_color;
 
@@ -420,10 +417,10 @@ impl<'a> GradientGpuBlockBuilder<'a> {
         for index in start_idx .. end_idx {
             let entry = &mut entries[index];
             entry.start_color = cur_color;
-            cur_color.r += step_r;
-            cur_color.g += step_g;
-            cur_color.b += step_b;
-            cur_color.a += step_a;
+            cur_color.0[0] += step_r;
+            cur_color.0[1] += step_g;
+            cur_color.0[2] += step_b;
+            cur_color.0[3] += step_a;
             entry.end_color = cur_color;
         }
     }
@@ -628,8 +625,10 @@ impl TextRunPrimitiveCpu {
     }
 
     fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
-        request.push(ColorF::from(self.font.color).premultiplied());
-        request.push(ColorF::from(self.font.bg_color));
+        let mut bg_color = self.font.bg_color;
+        bg_color.a = 0xFF; // not actually affecting the shader
+        request.push(self.font.color);
+        request.push(ColorF::from(bg_color).premultiplied());
         request.push([
             self.offset.x,
             self.offset.y,

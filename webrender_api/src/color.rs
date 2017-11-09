@@ -2,7 +2,38 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use std::cmp;
 use std::hash::{Hash, Hasher};
+
+/// Represents pre-multiplied RGBA colors with floating point numbers.
+///
+/// All components must be between 0.0 and 1.0.
+/// An alpha value of 1.0 is opaque while 0.0 is fully transparent.
+///
+/// In premultiplied colors transitions to transparent always look "nice"
+/// therefore they are used in CSS gradients.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, PartialOrd, Serialize)]
+pub struct PremultipliedColorF(pub [f32; 4]);
+
+impl PremultipliedColorF {
+    ///
+    pub const WHITE: Self = PremultipliedColorF([1.0; 4]);
+    ///
+    pub const BLACK_OPAQUE: Self = PremultipliedColorF([0.0, 0.0, 0.0, 1.0]);
+    ///
+    pub const BLACK_TRANSPARENT: Self = PremultipliedColorF([0.0; 4]);
+    /// inverse alpha pre-multiplication
+    /// hopefully to be removed one day :)
+    pub fn unpremultiply(&self) -> ColorF {
+        let a = self.0[3];
+        if a > 0.0 {
+            ColorF::new(self.0[0]/a, self.0[1]/a, self.0[2]/a, a)
+        } else {
+            ColorF::new(0.0, 0.0, 0.0, 0.0)
+        }
+    }
+}
 
 /// Represents RGBA screen colors with floating point numbers.
 ///
@@ -38,33 +69,24 @@ impl ColorF {
     }
 
     /// Multiply the RGB components with the alpha channel.
-    ///
-    /// In premultiplied colors transistions to transparent always look "nice"
-    /// therefore they are used in CSS gradients.
-    pub fn premultiplied(&self) -> ColorF {
-        self.scale_rgb(self.a)
+    pub fn premultiplied(&self) -> PremultipliedColorF {
+        PremultipliedColorF(self.scale_rgb(self.a).to_array())
     }
 }
 
-// Floats don't impl Hash/Eq...
-impl Eq for ColorF {}
-impl Hash for ColorF {
+// Floats don't impl Hash/Eq/Ord...
+impl Eq for PremultipliedColorF {}
+impl Ord for PremultipliedColorF {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.partial_cmp(other).unwrap_or(cmp::Ordering::Equal)
+    }
+}
+impl Hash for PremultipliedColorF {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Note: this is inconsistent with the Eq impl for -0.0 (don't care).
-        self.r._to_bits().hash(state);
-        self.g._to_bits().hash(state);
-        self.b._to_bits().hash(state);
-        self.a._to_bits().hash(state);
-    }
-}
-
-// FIXME: remove this when Rust 1.21 is stable (float_bits_conv)
-pub trait ToBits {
-    fn _to_bits(self) -> u32;
-}
-impl ToBits for f32 {
-    fn _to_bits(self) -> u32 {
-        unsafe { ::std::mem::transmute(self) }
+        for v in &self.0 {
+            v.to_bits().hash(state)
+        }
     }
 }
 

@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use {ColorF, ColorU, IdNamespace, LayoutPoint, ToBits};
+use {ColorF, ColorU, IdNamespace, LayoutPoint, PremultipliedColorF};
 use app_units::Au;
 #[cfg(target_os = "macos")]
 use core_foundation::string::CFString;
@@ -178,14 +178,14 @@ pub struct FontVariation {
 impl Ord for FontVariation {
     fn cmp(&self, other: &FontVariation) -> Ordering {
         self.tag.cmp(&other.tag)
-            .then(self.value._to_bits().cmp(&other.value._to_bits()))
+            .then(self.value.to_bits().cmp(&other.value.to_bits()))
     }
 }
 
 impl PartialEq for FontVariation {
     fn eq(&self, other: &FontVariation) -> bool {
         self.tag == other.tag &&
-        self.value._to_bits() == other.value._to_bits()
+        self.value.to_bits() == other.value.to_bits()
     }
 }
 
@@ -194,7 +194,7 @@ impl Eq for FontVariation {}
 impl Hash for FontVariation {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.tag.hash(state);
-        self.value._to_bits().hash(state);
+        self.value.to_bits().hash(state);
     }
 }
 
@@ -318,7 +318,7 @@ pub struct FontInstance {
     // TODO(gw): Perhaps consider having LogicalAu and DeviceAu
     //           or something similar to that.
     pub size: Au,
-    pub color: ColorU,
+    pub color: PremultipliedColorF,
     pub bg_color: ColorU,
     pub render_mode: FontRenderMode,
     pub subpx_dir: SubpixelDirection,
@@ -338,11 +338,11 @@ impl FontInstance {
         platform_options: Option<FontInstancePlatformOptions>,
         variations: Vec<FontVariation>,
         synthetic_italics: bool,
-    ) -> FontInstance {
+    ) -> Self {
         FontInstance {
             font_key,
             size,
-            color: color.into(),
+            color: color.premultiplied(),
             bg_color,
             render_mode,
             subpx_dir,
