@@ -45,10 +45,10 @@ void main(void) {
 #ifdef WR_FEATURE_TRANSFORM
     TransformVertexInfo vi = write_transform_vertex(local_rect,
                                                     prim.local_clip_rect,
+                                                    vec4(0.0),
                                                     prim.z,
                                                     prim.layer,
-                                                    prim.task,
-                                                    local_rect);
+                                                    prim.task);
     vLocalPos = vi.local_pos;
     vec2 f = (vi.local_pos.xy / vi.local_pos.z - local_rect.p0) / local_rect.size;
 #else

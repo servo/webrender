@@ -3750,6 +3750,7 @@ impl Renderer {
         self.ps_rectangle.deinit(&mut self.device);
         self.ps_rectangle_clip.deinit(&mut self.device);
         self.ps_text_run.deinit(&mut self.device);
+        self.ps_text_run_subpx_bg_pass1.deinit(&mut self.device);
         for shader in self.ps_image {
             if let Some(shader) = shader {
                 shader.deinit(&mut self.device);

@@ -6,7 +6,7 @@ use api::{BorderRadius, BuiltDisplayList, ColorF, ComplexClipRegion, DeviceIntRe
 use api::{DevicePoint, ExtendMode, FontInstance, GlyphInstance, GlyphKey};
 use api::{GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerRect};
 use api::{ClipMode, LayerSize, LayerVector2D, LineOrientation, LineStyle};
-use api::{ClipAndScrollInfo, TileOffset, YuvColorSpace, YuvFormat};
+use api::{ClipAndScrollInfo, EdgeAaSegmentMask, TileOffset, YuvColorSpace, YuvFormat};
 use border::BorderCornerInstance;
 use clip::{ClipSourcesHandle, ClipStore, Geometry};
 use frame_builder::PrimitiveContext;
@@ -175,6 +175,7 @@ pub enum RectangleContent {
 #[derive(Debug)]
 pub struct RectanglePrimitive {
     pub content: RectangleContent,
+    pub edge_aa_segment_mask: EdgeAaSegmentMask,
 }
 
 impl ToGpuBlocks for RectanglePrimitive {
@@ -188,6 +189,9 @@ impl ToGpuBlocks for RectanglePrimitive {
                 request.push(ColorF::new(0.0, 0.0, 0.0, 1.0));
             }
         }
+        request.extend_from_slice(&[GpuBlockData {
+            data: [self.edge_aa_segment_mask.bits() as f32, 0.0, 0.0, 0.0],
+        }]);
     }
 }
 
@@ -904,7 +908,6 @@ impl PrimitiveStore {
             is_backface_visible: is_backface_visible,
             screen_rect: None,
             tag,
-
             opacity: PrimitiveOpacity::translucent(),
             prim_kind: PrimitiveKind::Rectangle,
             cpu_prim_index: SpecificPrimitiveIndex(0),
