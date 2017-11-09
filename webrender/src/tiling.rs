@@ -112,7 +112,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
 pub struct ScrollbarPrimitive {
     pub clip_id: ClipId,
     pub prim_index: PrimitiveIndex,
-    pub border_radius: f32,
+    pub frame_rect: LayerRect,
 }
 
 #[derive(Debug)]
@@ -120,12 +120,6 @@ pub enum PrimitiveRunCmd {
     PushStackingContext(StackingContextIndex),
     PopStackingContext,
     PrimitiveRun(PrimitiveRun),
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum PrimitiveFlags {
-    None,
-    Scrollbar(ClipId, f32),
 }
 
 #[derive(Debug, Copy, Clone)]
