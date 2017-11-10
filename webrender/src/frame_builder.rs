@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderDetails, BorderDisplayItem, BuiltDisplayList};
-use api::{ClipAndScrollInfo, ClipId, ColorF};
+use api::{ClipAndScrollInfo, ClipId, ColorF, PremultipliedColorF};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
 use api::{ExtendMode, FilterOp, FontInstance, FontRenderMode};
 use api::{GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem, HitTestResult};
@@ -21,7 +21,7 @@ use euclid::{SideOffsets2D, TypedTransform3D, vec2, vec3};
 use frame::FrameId;
 use gpu_cache::GpuCache;
 use internal_types::{FastHashMap, FastHashSet, HardwareCompositeOp};
-use picture::{PicturePrimitive};
+use picture::{PictureKind, PicturePrimitive};
 use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{TexelRect, YuvImagePrimitiveCpu};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, LinePrimitive, PrimitiveKind};
@@ -605,31 +605,34 @@ impl FrameBuilder {
         info: &LayerPrimitiveInfo,
         wavy_line_thickness: f32,
         orientation: LineOrientation,
-        color: &ColorF,
+        line_color: &ColorF,
         style: LineStyle,
     ) {
         let line = LinePrimitive {
             wavy_line_thickness,
-            color: *color,
-            style: style,
-            orientation: orientation,
+            color: line_color.premultiplied(),
+            style,
+            orientation,
         };
 
         let mut fast_shadow_prims = Vec::new();
         for (idx, &(shadow_prim_index, _)) in self.shadow_prim_stack.iter().enumerate() {
             let shadow_metadata = &self.prim_store.cpu_metadata[shadow_prim_index.0];
             let picture = &self.prim_store.cpu_pictures[shadow_metadata.cpu_prim_index.0];
-            let shadow = picture.as_text_shadow();
-            if shadow.blur_radius == 0.0 {
-                fast_shadow_prims.push((idx, shadow.clone()));
+            match picture.kind {
+                PictureKind::TextShadow { offset, color, blur_radius } if blur_radius == 0.0 => {
+                    fast_shadow_prims.push((idx, offset, color));
+                },
+                PictureKind::TextShadow { .. } => (),
+                PictureKind::BoxShadow { .. } => unreachable!(),
             }
         }
 
-        for (idx, shadow) in fast_shadow_prims {
+        for (idx, shadow_offset, shadow_color) in fast_shadow_prims {
             let mut line = line.clone();
-            line.color = shadow.color;
+            line.color = shadow_color.premultiplied();
             let mut info = info.clone();
-            info.rect = info.rect.translate(&shadow.offset);
+            info.rect = info.rect.translate(&shadow_offset);
             let prim_index = self.create_primitive(
                 &info,
                 Vec::new(),
@@ -644,7 +647,7 @@ impl FrameBuilder {
             PrimitiveContainer::Line(line),
         );
 
-        if color.a > 0.0 {
+        if line_color.a > 0.0 {
             if self.shadow_prim_stack.is_empty() {
                 self.add_primitive_to_hit_testing_list(&info, clip_and_scroll);
                 self.add_primitive_to_draw_list(prim_index, clip_and_scroll);
@@ -658,15 +661,17 @@ impl FrameBuilder {
             debug_assert_eq!(shadow_metadata.prim_kind, PrimitiveKind::Picture);
             let picture =
                 &mut self.prim_store.cpu_pictures[shadow_metadata.cpu_prim_index.0];
-            let blur_radius = picture.as_text_shadow().blur_radius;
 
-            // Only run real blurs here (fast path zero blurs are handled above).
-            if blur_radius > 0.0 {
-                picture.add_primitive(
-                    prim_index,
-                    &info.rect,
-                    clip_and_scroll,
-                );
+            match picture.kind {
+                // Only run real blurs here (fast path zero blurs are handled above).
+                PictureKind::TextShadow { blur_radius, .. } if blur_radius > 0.0 => {
+                    picture.add_primitive(
+                        prim_index,
+                        &info.rect,
+                        clip_and_scroll,
+                    );
+                }
+                _ => {}
             }
         }
     }
@@ -1043,12 +1048,12 @@ impl FrameBuilder {
         run_offset: LayoutVector2D,
         info: &LayerPrimitiveInfo,
         font: &FontInstance,
-        color: &ColorF,
+        text_color: &ColorF,
         glyph_range: ItemRange<GlyphInstance>,
         glyph_count: usize,
         glyph_options: Option<GlyphOptions>,
     ) {
-        let rect = info.rect;
+        let original_rect = info.rect;
         // Trivial early out checks
         if font.size.0 <= 0 {
             return;
@@ -1093,7 +1098,7 @@ impl FrameBuilder {
         let prim_font = FontInstance::new(
             font.font_key,
             font.size,
-            *color,
+            *text_color,
             font.bg_color,
             render_mode,
             font.subpx_dir,
@@ -1122,12 +1127,15 @@ impl FrameBuilder {
         for (idx, &(shadow_prim_index, _)) in self.shadow_prim_stack.iter().enumerate() {
             let shadow_metadata = &self.prim_store.cpu_metadata[shadow_prim_index.0];
             let picture_prim = &self.prim_store.cpu_pictures[shadow_metadata.cpu_prim_index.0];
-            let shadow = picture_prim.as_text_shadow();
-            if shadow.blur_radius == 0.0 {
-                let mut text_prim = prim.clone();
-                text_prim.font.color = shadow.color.into();
-                text_prim.offset += shadow.offset;
-                fast_shadow_prims.push((idx, text_prim));
+            match picture_prim.kind {
+                PictureKind::TextShadow { offset, color, blur_radius } if blur_radius == 0.0 => {
+                    let mut text_prim = prim.clone();
+                    text_prim.font.color = color.into();
+                    text_prim.offset += offset;
+                    fast_shadow_prims.push((idx, text_prim));
+                },
+                PictureKind::TextShadow { .. } => (),
+                PictureKind::BoxShadow { .. } => unreachable!(),
             }
         }
 
@@ -1152,7 +1160,7 @@ impl FrameBuilder {
         );
 
         // Only add a visual element if it can contribute to the scene.
-        if color.a > 0.0 {
+        if text_color.a > 0.0 {
             if self.shadow_prim_stack.is_empty() {
                 self.add_primitive_to_hit_testing_list(info, clip_and_scroll);
                 self.add_primitive_to_draw_list(prim_index, clip_and_scroll);
@@ -1171,17 +1179,19 @@ impl FrameBuilder {
         for &(shadow_prim_index, _) in &self.shadow_prim_stack {
             let shadow_metadata = &mut self.prim_store.cpu_metadata[shadow_prim_index.0];
             debug_assert_eq!(shadow_metadata.prim_kind, PrimitiveKind::Picture);
-            let picture_prim =
+            let picture =
                 &mut self.prim_store.cpu_pictures[shadow_metadata.cpu_prim_index.0];
 
-            // Only run real blurs here (fast path zero blurs are handled above).
-            let blur_radius = picture_prim.as_text_shadow().blur_radius;
-            if blur_radius > 0.0 {
-                picture_prim.add_primitive(
-                    prim_index,
-                    &rect,
-                    clip_and_scroll,
-                );
+            match picture.kind {
+                // Only run real blurs here (fast path zero blurs are handled above).
+                PictureKind::TextShadow { blur_radius, .. } if blur_radius > 0.0 => {
+                    picture.add_primitive(
+                        prim_index,
+                        &original_rect,
+                        clip_and_scroll,
+                    );
+                }
+                _ => {}
             }
         }
     }
@@ -1702,7 +1712,7 @@ impl FrameBuilder {
                                     RenderTargetKind::Color,
                                     &[],
                                     ClearMode::Transparent,
-                                    ColorF::new(0.0, 0.0, 0.0, 0.0),
+                                    PremultipliedColorF::BLACK_TRANSPARENT,
                                 );
                                 let blur_render_task_id = render_tasks.add(blur_render_task);
                                 let item = AlphaRenderItem::HardwareComposite(

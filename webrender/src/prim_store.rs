@@ -6,7 +6,8 @@ use api::{BorderRadius, BuiltDisplayList, ColorF, ComplexClipRegion, DeviceIntRe
 use api::{DevicePoint, ExtendMode, FontInstance, GlyphInstance, GlyphKey};
 use api::{GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerRect};
 use api::{ClipMode, LayerSize, LayerVector2D, LineOrientation, LineStyle};
-use api::{ClipAndScrollInfo, EdgeAaSegmentMask, TileOffset, YuvColorSpace, YuvFormat};
+use api::{ClipAndScrollInfo, EdgeAaSegmentMask, PremultipliedColorF, TileOffset};
+use api::{YuvColorSpace, YuvFormat};
 use border::BorderCornerInstance;
 use clip::{ClipSourcesHandle, ClipStore, Geometry};
 use frame_builder::PrimitiveContext;
@@ -180,15 +181,11 @@ pub struct RectanglePrimitive {
 
 impl ToGpuBlocks for RectanglePrimitive {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        match &self.content {
-            &RectangleContent::Fill(ref color) => {
-                request.push(color.premultiplied());
-            }
-            &RectangleContent::Clear => {
-                // Opaque black with operator dest out
-                request.push(ColorF::new(0.0, 0.0, 0.0, 1.0));
-            }
-        }
+        request.push(match self.content {
+            RectangleContent::Fill(color) => color.premultiplied(),
+            // Opaque black with operator dest out
+            RectangleContent::Clear => PremultipliedColorF::BLACK_OPAQUE,
+        });
         request.extend_from_slice(&[GpuBlockData {
             data: [self.edge_aa_segment_mask.bits() as f32, 0.0, 0.0, 0.0],
         }]);
@@ -254,7 +251,7 @@ impl ToGpuBlocks for BrushPrimitive {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct LinePrimitive {
-    pub color: ColorF,
+    pub color: PremultipliedColorF,
     pub wavy_line_thickness: f32,
     pub style: LineStyle,
     pub orientation: LineOrientation,
@@ -262,7 +259,7 @@ pub struct LinePrimitive {
 
 impl ToGpuBlocks for LinePrimitive {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        request.push(self.color.premultiplied());
+        request.push(self.color);
         request.push([
             self.wavy_line_thickness,
             pack_as_float(self.style as u32),
@@ -377,8 +374,8 @@ pub const GRADIENT_DATA_SIZE: usize = GRADIENT_DATA_TABLE_SIZE + 2;
 #[repr(C)]
 // An entry in a gradient data table representing a segment of the gradient color space.
 pub struct GradientDataEntry {
-    pub start_color: ColorF,
-    pub end_color: ColorF,
+    pub start_color: PremultipliedColorF,
+    pub end_color: PremultipliedColorF,
 }
 
 struct GradientGpuBlockBuilder<'a> {
@@ -390,7 +387,7 @@ impl<'a> GradientGpuBlockBuilder<'a> {
     fn new(
         stops_range: ItemRange<GradientStop>,
         display_list: &'a BuiltDisplayList,
-    ) -> GradientGpuBlockBuilder<'a> {
+    ) -> Self {
         GradientGpuBlockBuilder {
             stops_range,
             display_list,
@@ -403,8 +400,8 @@ impl<'a> GradientGpuBlockBuilder<'a> {
         &self,
         start_idx: usize,
         end_idx: usize,
-        start_color: &ColorF,
-        end_color: &ColorF,
+        start_color: &PremultipliedColorF,
+        end_color: &PremultipliedColorF,
         entries: &mut [GradientDataEntry; GRADIENT_DATA_SIZE],
     ) {
         // Calculate the color difference for individual steps in the ramp.
@@ -628,8 +625,12 @@ impl TextRunPrimitiveCpu {
     }
 
     fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
+        let bg_color = ColorF::from(self.font.bg_color);
         request.push(ColorF::from(self.font.color).premultiplied());
-        request.push(ColorF::from(self.font.bg_color));
+        // this is the only case where we need to provide plain color to GPU
+        request.extend_from_slice(&[
+            GpuBlockData { data: [bg_color.r, bg_color.g, bg_color.b, 1.0] }
+        ]);
         request.push([
             self.offset.x,
             self.offset.y,
