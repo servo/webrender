@@ -1842,7 +1842,12 @@ impl FrameBuilder {
                             self.prim_store
                                 .add_render_tasks_for_prim(prim_index, &mut current_task);
                             let item =
-                                AlphaRenderItem::Primitive(clip_node.id, scroll_node.id, prim_index, next_z);
+                                AlphaRenderItem::Primitive(
+                                    clip_node.node_data_index,
+                                    scroll_node.node_data_index,
+                                    prim_index,
+                                    next_z
+                                );
                             current_task.as_alpha_batch_mut().items.push(item);
                             next_z += 1;
                         }
@@ -1889,7 +1894,7 @@ impl FrameBuilder {
 
         let mut node_data = Vec::new();
 
-        clip_scroll_tree.update_all_node_transforms(
+        clip_scroll_tree.update_tree(
             &screen_rect,
             device_pixel_ratio,
             &mut self.clip_store,

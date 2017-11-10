@@ -325,7 +325,7 @@ impl ClipScrollTree {
             .scroll(scroll_location, phase)
     }
 
-    pub fn update_all_node_transforms(
+    pub fn update_tree(
         &mut self,
         screen_rect: &DeviceIntRect,
         device_pixel_ratio: f32,
@@ -357,7 +357,7 @@ impl ClipScrollTree {
             current_coordinate_system_id: CoordinateSystemId(0),
             next_coordinate_system_id: CoordinateSystemId(0).next(),
         };
-        self.update_node_transform(
+        self.update_node(
             root_reference_frame_id,
             &mut state,
             device_pixel_ratio,
@@ -368,7 +368,7 @@ impl ClipScrollTree {
         );
     }
 
-    fn update_node_transform(
+    fn update_node(
         &mut self,
         layer_id: ClipId,
         state: &mut TransformUpdateState,
@@ -387,12 +387,9 @@ impl ClipScrollTree {
                 None => return,
             };
 
-            node.update_transform(
+            node.update(
                 &mut state,
-                node_data
-            );
-            node.update_clip_work_item(
-                &mut state,
+                node_data,
                 device_pixel_ratio,
                 clip_store,
                 resource_cache,
@@ -403,7 +400,7 @@ impl ClipScrollTree {
         };
 
         for child_layer_id in node_children {
-            self.update_node_transform(
+            self.update_node(
                 child_layer_id,
                 &mut state,
                 device_pixel_ratio,
