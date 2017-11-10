@@ -262,7 +262,7 @@ pub struct LinePrimitive {
 
 impl ToGpuBlocks for LinePrimitive {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        request.push(self.color);
+        request.push(self.color.premultiplied());
         request.push([
             self.wavy_line_thickness,
             pack_as_float(self.style as u32),

@@ -89,18 +89,14 @@ impl AlphaBatchHelpers for PrimitiveStore {
             },
             PrimitiveKind::Border |
             PrimitiveKind::Image |
+            PrimitiveKind::YuvImage |
             PrimitiveKind::AlignedGradient |
             PrimitiveKind::AngleGradient |
             PrimitiveKind::RadialGradient |
+            PrimitiveKind::Line |
+            PrimitiveKind::Brush |
             PrimitiveKind::Picture => if needs_blending {
                 BlendMode::PremultipliedAlpha
-            } else {
-                BlendMode::None
-            },
-            PrimitiveKind::YuvImage |
-            PrimitiveKind::Line |
-            PrimitiveKind::Brush => if needs_blending {
-                BlendMode::Alpha
             } else {
                 BlendMode::None
             },
@@ -276,7 +272,7 @@ impl BatchList {
     ) -> &mut Vec<PrimitiveInstance> {
         match key.blend_mode {
             BlendMode::None => self.opaque_batch_list.get_suitable_batch(key),
-            BlendMode::Alpha | BlendMode::PremultipliedAlpha |
+            BlendMode::PremultipliedAlpha |
             BlendMode::PremultipliedDestOut |
             BlendMode::SubpixelConstantTextColor(..) |
             BlendMode::SubpixelVariableTextColor |
@@ -393,7 +389,7 @@ impl AlphaRenderItem {
                         source_id,
                         backdrop_id,
                     },
-                    BlendMode::Alpha,
+                    BlendMode::PremultipliedAlpha,
                     BatchTextures::no_texture(),
                 );
                 let batch = batch_list.get_suitable_batch(key, &stacking_context.screen_bounds);

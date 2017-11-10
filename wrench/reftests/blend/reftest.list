@@ -1,6 +1,7 @@
 == multiply.yaml multiply-ref.yaml
 == multiply-2.yaml multiply-2-ref.yaml
 == difference.yaml difference-ref.yaml
+fuzzy(1,10000) == difference-transparent.yaml difference-transparent-ref.yaml
 == darken.yaml darken-ref.yaml
 == lighten.yaml lighten-ref.yaml
 
