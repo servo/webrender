@@ -117,6 +117,9 @@ fn round_to_int(x: f32) -> u8 {
     val as u8
 }
 
+// TODO: We shouldn't really convert back to `ColorU` ever,
+// since it's lossy. One of the blockers is that all of our debug colors
+// are specified in `ColorF`. Changing it to `ColorU` would be nice.
 impl From<ColorF> for ColorU {
     fn from(color: ColorF) -> ColorU {
         ColorU {

@@ -10,7 +10,7 @@
 //! [renderer]: struct.Renderer.html
 
 use api::{channel, BlobImageRenderer, FontRenderMode};
-use api::{ColorF, ColorU, Epoch, PipelineId, RenderApiSender, RenderNotifier};
+use api::{ColorF, Epoch, PipelineId, RenderApiSender, RenderNotifier};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
 use api::{ExternalImageId, ExternalImageType, ImageFormat};
 use api::{YUV_COLOR_SPACES, YUV_FORMATS};
@@ -641,7 +641,7 @@ pub enum BlendMode {
     None,
     PremultipliedAlpha,
     PremultipliedDestOut,
-    SubpixelConstantTextColor(ColorU),
+    SubpixelConstantTextColor(ColorF),
     SubpixelWithBgColor,
     SubpixelVariableTextColor,
 }
@@ -2903,7 +2903,7 @@ impl Renderer {
                                 );
                             }
                             BlendMode::SubpixelConstantTextColor(color) => {
-                                self.device.set_blend_mode_subpixel_constant_text_color(color.into());
+                                self.device.set_blend_mode_subpixel_constant_text_color(color);
 
                                 self.ps_text_run.bind(
                                     &mut self.device,

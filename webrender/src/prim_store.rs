@@ -625,10 +625,12 @@ impl TextRunPrimitiveCpu {
     }
 
     fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
-        let mut bg_color = self.font.bg_color;
-        bg_color.a = 0xFF; // not actually affecting the shader
+        let bg_color = ColorF::from(self.font.bg_color);
         request.push(self.font.color);
-        request.push(ColorF::from(bg_color).premultiplied());
+        // this is the only case where we need to provide plain color to GPU
+        request.extend_from_slice(&[
+            GpuBlockData { data: [bg_color.r, bg_color.g, bg_color.b, bg_color.a] }
+        ]);
         request.push([
             self.offset.x,
             self.offset.y,
