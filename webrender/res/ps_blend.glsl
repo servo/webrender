@@ -44,14 +44,15 @@ void main(void) {
     float oneMinusAmount = 1.0 - vAmount;
 
     switch (vOp) {
-        case 2:
+        case 2: {
             // Grayscale
             vColorMat = mat4(vec4(lumR + oneMinusLumR * oneMinusAmount, lumR - lumR * oneMinusAmount, lumR - lumR * oneMinusAmount, 0.0),
                              vec4(lumG - lumG * oneMinusAmount, lumG + oneMinusLumG * oneMinusAmount, lumG - lumG * oneMinusAmount, 0.0),
                              vec4(lumB - lumB * oneMinusAmount, lumB - lumB * oneMinusAmount, lumB + oneMinusLumB * oneMinusAmount, 0.0),
                              vec4(0.0, 0.0, 0.0, 1.0));
             break;
-        case 3:
+        }
+        case 3: {
             // HueRotate
             float c = cos(vAmount * 0.01745329251);
             float s = sin(vAmount * 0.01745329251);
@@ -60,20 +61,23 @@ void main(void) {
                             vec4(lumB - lumB * c + oneMinusLumB * s, lumB - lumB * c - 0.283 * s, lumB + oneMinusLumB * c + lumB * s, 0.0),
                             vec4(0.0, 0.0, 0.0, 1.0));
             break;
-        case 5:
+        }
+        case 5: {
             // Saturate
             vColorMat = mat4(vec4(oneMinusAmount * lumR + vAmount, oneMinusAmount * lumR, oneMinusAmount * lumR, 0.0),
                              vec4(oneMinusAmount * lumG, oneMinusAmount * lumG + vAmount, oneMinusAmount * lumG, 0.0),
                              vec4(oneMinusAmount * lumB, oneMinusAmount * lumB, oneMinusAmount * lumB + vAmount, 0.0),
                              vec4(0.0, 0.0, 0.0, 1.0));
             break;
-        case 6:
+        }
+        case 6: {
             // Sepia
             vColorMat = mat4(vec4(0.393 + 0.607 * oneMinusAmount, 0.349 - 0.349 * oneMinusAmount, 0.272 - 0.272 * oneMinusAmount, 0.0),
                              vec4(0.769 - 0.769 * oneMinusAmount, 0.686 + 0.314 * oneMinusAmount, 0.534 - 0.534 * oneMinusAmount, 0.0),
                              vec4(0.189 - 0.189 * oneMinusAmount, 0.168 - 0.168 * oneMinusAmount, 0.131 + 0.869 * oneMinusAmount, 0.0),
                              vec4(0.0, 0.0, 0.0, 1.0));
             break;
+        }
     }
 
 
