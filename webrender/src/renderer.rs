@@ -1787,33 +1787,57 @@ impl Renderer {
         let debug_flags = options.debug_flags;
         let payload_tx_for_backend = payload_tx.clone();
         let recorder = options.recorder;
-        let worker_config = ThreadPoolConfig::new()
-            .thread_name(|idx| format!("WebRender:Worker#{}", idx))
-            .start_handler(|idx| {
-                register_thread_with_profiler(format!("WebRender:Worker#{}", idx));
-            });
+        let thread_listener = Arc::new(options.thread_listener);
+        let thread_listener_for_rayon_start = thread_listener.clone();
+        let thread_listener_for_rayon_end = thread_listener.clone();
         let workers = options
             .workers
             .take()
-            .unwrap_or_else(|| Arc::new(ThreadPool::new(worker_config).unwrap()));
+            .unwrap_or_else(|| {
+                let worker_config = ThreadPoolConfig::new()
+                    .thread_name(|idx|{ format!("WRWorker#{}", idx) })
+                    .start_handler(move |idx| {
+                        register_thread_with_profiler(format!("WRWorker#{}", idx));
+                        if let Some(ref thread_listener) = *thread_listener_for_rayon_start {
+                            thread_listener.thread_started(&format!("WRWorker#{}", idx));
+                        }
+                    })
+                    .exit_handler(move |idx| {
+                        if let Some(ref thread_listener) = *thread_listener_for_rayon_end {
+                            thread_listener.thread_stopped(&format!("WRWorker#{}", idx));
+                        }
+                    });
+                Arc::new(ThreadPool::new(worker_config).unwrap())
+            });
         let enable_render_on_scroll = options.enable_render_on_scroll;
 
         let blob_image_renderer = options.blob_image_renderer.take();
-        try!{ thread::Builder::new().name("RenderBackend".to_string()).spawn(move || {
-            let mut backend = RenderBackend::new(api_rx,
-                                                 payload_rx,
-                                                 payload_tx_for_backend,
-                                                 result_tx,
-                                                 device_pixel_ratio,
-                                                 texture_cache,
-                                                 workers,
-                                                 backend_notifier,
-                                                 config,
-                                                 recorder,
-                                                 blob_image_renderer,
-                                                 enable_render_on_scroll);
-            backend.run(backend_profile_counters);
-        })};
+        let thread_listener_for_render_backend = thread_listener.clone();
+        let thread_name = format!("WRRenderBackend#{}", options.renderer_id.unwrap_or(0));
+        try!{
+            thread::Builder::new().name(thread_name.clone()).spawn(move || {
+                register_thread_with_profiler(thread_name.clone());
+                if let Some(ref thread_listener) = *thread_listener_for_render_backend {
+                    thread_listener.thread_started(&thread_name);
+                }
+                let mut backend = RenderBackend::new(api_rx,
+                                                     payload_rx,
+                                                     payload_tx_for_backend,
+                                                     result_tx,
+                                                     device_pixel_ratio,
+                                                     texture_cache,
+                                                     workers,
+                                                     backend_notifier,
+                                                     config,
+                                                     recorder,
+                                                     blob_image_renderer,
+                                                     enable_render_on_scroll);
+                backend.run(backend_profile_counters);
+                if let Some(ref thread_listener) = *thread_listener_for_render_backend {
+                    thread_listener.thread_stopped(&thread_name);
+                }
+            })
+        };
 
         let gpu_cache_texture = CacheTexture::new(&mut device);
 
@@ -3827,6 +3851,11 @@ pub trait OutputImageHandler {
     fn unlock(&mut self, pipeline_id: PipelineId);
 }
 
+pub trait ThreadListener {
+    fn thread_started(&self, thread_name: &str);
+    fn thread_stopped(&self, thread_name: &str);
+}
+
 pub struct RendererOptions {
     pub device_pixel_ratio: f32,
     pub resource_override_path: Option<PathBuf>,
@@ -3846,8 +3875,10 @@ pub struct RendererOptions {
     pub workers: Option<Arc<ThreadPool>>,
     pub blob_image_renderer: Option<Box<BlobImageRenderer>>,
     pub recorder: Option<Box<ApiRecordingReceiver>>,
+    pub thread_listener: Option<Box<ThreadListener + Send + Sync>>,
     pub enable_render_on_scroll: bool,
     pub debug_flags: DebugFlags,
+    pub renderer_id: Option<u64>,
 }
 
 impl Default for RendererOptions {
@@ -3872,7 +3903,9 @@ impl Default for RendererOptions {
             workers: None,
             blob_image_renderer: None,
             recorder: None,
+            thread_listener: None,
             enable_render_on_scroll: true,
+            renderer_id: None,
         }
     }
 }
