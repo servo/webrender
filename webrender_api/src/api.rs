@@ -387,13 +387,14 @@ impl RenderApiSender {
 
     /// Creates a new resource API object with a dedicated namespace.
     pub fn create_api(&self) -> RenderApi {
-        let (sync_tx, sync_rx) = channel::msg_channel().unwrap();
+        let (sync_tx, sync_rx) =
+            channel::msg_channel().expect("Failed to create channel");
         let msg = ApiMsg::CloneApi(sync_tx);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send(msg).expect("Failed to send CloneApi message");
         RenderApi {
             api_sender: self.api_sender.clone(),
             payload_sender: self.payload_sender.clone(),
-            namespace_id: sync_rx.recv().unwrap(),
+            namespace_id: sync_rx.recv().expect("Failed to receive API response"),
             next_id: Cell::new(ResourceId(0)),
         }
     }
