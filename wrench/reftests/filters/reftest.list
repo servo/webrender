@@ -13,3 +13,17 @@
 == filter-invert-2.yaml filter-invert-2-ref.yaml
 == filter-large-blur-radius.yaml filter-large-blur-radius.png
 == filter-small-blur-radius.yaml filter-small-blur-radius.png
+== filter-saturate-red-1.yaml filter-saturate-red-1-ref.yaml
+== filter-saturate-red-2.yaml filter-saturate-red-2-ref.yaml
+== filter-saturate-red-3.yaml filter-saturate-red-3-ref.yaml
+== filter-saturate-green-1.yaml filter-saturate-green-1-ref.yaml
+== filter-saturate-green-2.yaml filter-saturate-green-2-ref.yaml
+== filter-saturate-green-3.yaml filter-saturate-green-3-ref.yaml
+== filter-saturate-blue-1.yaml filter-saturate-blue-1-ref.yaml
+== filter-saturate-blue-2.yaml filter-saturate-blue-2-ref.yaml
+== filter-saturate-blue-3.yaml filter-saturate-blue-3-ref.yaml
+== filter-saturate-red-alpha-1.yaml filter-saturate-red-alpha-1-ref.yaml
+== filter-saturate-green-alpha-1.yaml filter-saturate-green-alpha-1-ref.yaml
+== filter-saturate-blue-alpha-1.yaml filter-saturate-blue-alpha-1-ref.yaml
+== filter-hue-rotate-1.yaml filter-hue-rotate-1-ref.yaml
+== filter-hue-rotate-alpha-1.yaml filter-hue-rotate-alpha-1-ref.yaml
