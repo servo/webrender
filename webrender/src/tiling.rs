@@ -395,7 +395,7 @@ impl AlphaRenderItem {
                         source_id,
                         backdrop_id,
                     },
-                    BlendMode::Alpha,
+                    BlendMode::PremultipliedAlpha,
                     BatchTextures::no_texture(),
                 );
                 let batch = batch_list.get_suitable_batch(key, &stacking_context.screen_bounds);
