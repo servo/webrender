@@ -62,7 +62,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                         if font.bg_color.a != 0 {
                             BlendMode::SubpixelWithBgColor
                         } else {
-                            BlendMode::SubpixelConstantTextColor(font.color)
+                            BlendMode::SubpixelConstantTextColor(font.color.into())
                         }
                     }
                     FontRenderMode::Alpha |
