@@ -5,7 +5,7 @@
 use api::{BorderDetails, BorderDisplayItem, BuiltDisplayList};
 use api::{ClipAndScrollInfo, ClipId, ColorF, PremultipliedColorF};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
-use api::{ExtendMode, FilterOp, FontInstance, FontRenderMode};
+use api::{ExtendMode, FilterOp, FontRenderMode};
 use api::{GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem, HitTestResult};
 use api::{ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect};
 use api::{LayerPixel, LayerSize, LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation};
@@ -19,6 +19,7 @@ use clip_scroll_node::{ClipScrollNode, NodeType};
 use clip_scroll_tree::ClipScrollTree;
 use euclid::{SideOffsets2D, TypedTransform3D, vec2, vec3};
 use frame::FrameId;
+use glyph_rasterizer::FontInstance;
 use gpu_cache::GpuCache;
 use internal_types::{FastHashMap, FastHashSet, HardwareCompositeOp};
 use picture::{PictureKind, PicturePrimitive};
