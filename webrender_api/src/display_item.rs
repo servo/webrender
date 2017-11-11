@@ -194,6 +194,7 @@ pub struct ScrollFrameDisplayItem {
     pub id: ClipId,
     pub image_mask: Option<ImageMask>,
     pub scroll_sensitivity: ScrollSensitivity,
+    pub enable_scrollbars: bool
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]

@@ -12,7 +12,7 @@ use api::{LocalClip, PipelineId, ScrollClamping, ScrollEventPhase, ScrollLayerSt
 use api::{ScrollLocation, ScrollPolicy, ScrollSensitivity, SpecificDisplayItem, StackingContext};
 use api::{ClipMode, TileOffset, TransformStyle, WorldPoint};
 use clip::ClipRegion;
-use clip_scroll_node::StickyFrameInfo;
+use clip_scroll_node::{StickyFrameInfo, NodeType};
 use clip_scroll_tree::{ClipScrollTree, ScrollStates};
 use euclid::rect;
 use frame_builder::{FrameBuilder, FrameBuilderConfig, ScrollbarInfo};
@@ -134,6 +134,24 @@ impl<'a> FlattenContext<'a> {
             );
         }
 
+        let mut latest_scroll_frame_id = root_scroll_frame_id;
+        for (clip_id, clip_node) in &self.clip_scroll_tree.nodes {
+            if let NodeType::ScrollFrame(ref info) = clip_node.node_type {
+                if info.enable_scrollbars {
+                    let scrollbar_rect = LayerRect::new(LayerPoint::zero(), LayerSize::new(10.0, 70.0));
+
+                    self.builder.add_solid_rectangle(
+                        ClipAndScrollInfo::simple(latest_scroll_frame_id),
+                        &LayerPrimitiveInfo::new(scrollbar_rect),
+                        RectangleContent::Fill(DEFAULT_SCROLLBAR_COLOR),
+                        Some(ScrollbarInfo(*clip_id, clip_node.local_clip_rect))
+                    );
+                }
+
+                latest_scroll_frame_id = *clip_id;
+            }
+        }
+
         self.builder.pop_stacking_context();
     }
 
@@ -190,6 +208,7 @@ impl<'a> FlattenContext<'a> {
         content_rect: &LayerRect,
         clip_region: ClipRegion,
         scroll_sensitivity: ScrollSensitivity,
+        enable_scrollbars: bool
     ) {
         let clip_id = self.clip_scroll_tree.generate_new_clip_id(pipeline_id);
         self.builder.add_clip_node(
@@ -207,6 +226,7 @@ impl<'a> FlattenContext<'a> {
             &frame_rect,
             &content_rect.size,
             scroll_sensitivity,
+            enable_scrollbars,
             self.clip_scroll_tree,
         );
     }
@@ -365,6 +385,7 @@ impl<'a> FlattenContext<'a> {
             &iframe_rect,
             &pipeline.content_size,
             ScrollSensitivity::ScriptAndInputEvents,
+            false,
             self.clip_scroll_tree,
         );
 
@@ -599,6 +620,7 @@ impl<'a> FlattenContext<'a> {
                     &content_rect,
                     clip_region,
                     info.scroll_sensitivity,
+                    info.enable_scrollbars
                 );
             }
             SpecificDisplayItem::StickyFrame(ref info) => {

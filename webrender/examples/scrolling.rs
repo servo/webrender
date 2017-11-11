@@ -61,6 +61,7 @@ impl Example for App {
                 vec![],
                 None,
                 ScrollSensitivity::ScriptAndInputEvents,
+                true
             );
             builder.push_clip_id(clip_id);
 
@@ -89,6 +90,7 @@ impl Example for App {
                 vec![],
                 None,
                 ScrollSensitivity::ScriptAndInputEvents,
+                true
             );
             builder.push_clip_id(nested_clip_id);
 

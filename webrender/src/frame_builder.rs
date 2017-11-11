@@ -460,6 +460,7 @@ impl FrameBuilder {
             &viewport_rect,
             content_size,
             ScrollSensitivity::ScriptAndInputEvents,
+            false,
             clip_scroll_tree,
         );
 
@@ -492,6 +493,7 @@ impl FrameBuilder {
         frame_rect: &LayerRect,
         content_size: &LayerSize,
         scroll_sensitivity: ScrollSensitivity,
+        enable_scrollbars: bool,
         clip_scroll_tree: &mut ClipScrollTree,
     ) {
         let node = ClipScrollNode::new_scroll_frame(
@@ -500,6 +502,7 @@ impl FrameBuilder {
             frame_rect,
             content_size,
             scroll_sensitivity,
+            enable_scrollbars
         );
 
         clip_scroll_tree.add_node(node, new_node_id);

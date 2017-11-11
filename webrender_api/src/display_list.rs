@@ -1162,6 +1162,7 @@ impl DisplayListBuilder {
         complex_clips: I,
         image_mask: Option<ImageMask>,
         scroll_sensitivity: ScrollSensitivity,
+        enable_scrollbars: bool
     ) -> ClipId
     where
         I: IntoIterator<Item = ComplexClipRegion>,
@@ -1175,7 +1176,8 @@ impl DisplayListBuilder {
             clip_rect,
             complex_clips,
             image_mask,
-            scroll_sensitivity)
+            scroll_sensitivity,
+            enable_scrollbars)
     }
 
     pub fn define_scroll_frame_with_parent<I>(
@@ -1187,6 +1189,7 @@ impl DisplayListBuilder {
         complex_clips: I,
         image_mask: Option<ImageMask>,
         scroll_sensitivity: ScrollSensitivity,
+        enable_scrollbars: bool
     ) -> ClipId
     where
         I: IntoIterator<Item = ComplexClipRegion>,
@@ -1197,6 +1200,7 @@ impl DisplayListBuilder {
             id: id,
             image_mask: image_mask,
             scroll_sensitivity,
+            enable_scrollbars
         });
         let info = LayoutPrimitiveInfo::with_clip_rect(content_rect, clip_rect);
 
