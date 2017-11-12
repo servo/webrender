@@ -224,7 +224,7 @@ impl Wrench {
     }
 
     pub fn layout_simple_ascii(
-        &self,
+        &mut self,
         font_key: FontKey,
         text: &str,
         size: Au,
@@ -239,17 +239,7 @@ impl Wrench {
             .collect();
 
         // Retrieve the metrics for each glyph.
-        let font = FontInstance::new(
-            font_key,
-            size,
-            ColorF::new(0.0, 0.0, 0.0, 1.0),
-            ColorU::new(0, 0, 0, 0),
-            FontRenderMode::Alpha,
-            SubpixelDirection::Horizontal,
-            None,
-            Vec::new(),
-            false,
-        );
+        let instance_key = self.add_font_instance(font_key, size, false, Some(FontRenderMode::Alpha));
         let mut keys = Vec::new();
         for glyph_index in &indices {
             keys.push(GlyphKey::new(
@@ -259,7 +249,9 @@ impl Wrench {
                 SubpixelDirection::Horizontal,
             ));
         }
-        let metrics = self.api.get_glyph_dimensions(font, keys);
+        let metrics = self.api.get_glyph_dimensions(instance_key, keys);
+        self.delete_font_instance(instance_key);
+
         let mut bounding_rect = LayoutRect::zero();
         let mut positions = Vec::new();
 
@@ -418,6 +410,12 @@ impl Wrench {
         update.add_font_instance(key, font_key, size, Some(options), None, Vec::new());
         self.api.update_resources(update);
         key
+    }
+
+    pub fn delete_font_instance(&mut self, key: FontInstanceKey) {
+        let mut update = ResourceUpdates::new();
+        update.delete_font_instance(key);
+        self.api.update_resources(update);
     }
 
     pub fn update(&mut self, dim: DeviceUintSize) {

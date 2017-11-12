@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorU, GlyphDimensions, GlyphKey, FontInstance, FontKey, FontRenderMode};
+use api::{ColorU, GlyphDimensions, GlyphKey, FontKey, FontRenderMode};
 use api::{FontInstancePlatformOptions, FontLCDFilter, FontHinting};
 use api::{NativeFontHandle, SubpixelDirection};
 use api::{FONT_FORCE_AUTOHINT, FONT_NO_AUTOHINT, FONT_EMBEDDED_BITMAP};
@@ -18,7 +18,7 @@ use freetype::freetype::{FT_LOAD_COLOR, FT_LOAD_DEFAULT, FT_LOAD_FORCE_AUTOHINT}
 use freetype::freetype::{FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH, FT_LOAD_NO_AUTOHINT};
 use freetype::freetype::{FT_LOAD_NO_BITMAP, FT_LOAD_NO_HINTING, FT_LOAD_VERTICAL_LAYOUT};
 use freetype::freetype::{FT_FACE_FLAG_SCALABLE, FT_FACE_FLAG_FIXED_SIZES, FT_Err_Cannot_Render_Glyph};
-use glyph_rasterizer::{GlyphFormat, RasterizedGlyph};
+use glyph_rasterizer::{FontInstance, GlyphFormat, RasterizedGlyph};
 use internal_types::FastHashMap;
 use std::{cmp, mem, ptr, slice};
 use std::cmp::max;

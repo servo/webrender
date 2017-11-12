@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderRadius, BuiltDisplayList, ColorF, ComplexClipRegion, DeviceIntRect};
-use api::{DevicePoint, ExtendMode, FontInstance, GlyphInstance, GlyphKey};
+use api::{DevicePoint, ExtendMode, GlyphInstance, GlyphKey};
 use api::{GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerRect};
 use api::{ClipMode, LayerSize, LayerVector2D, LineOrientation, LineStyle};
 use api::{ClipAndScrollInfo, EdgeAaSegmentMask, PremultipliedColorF, TileOffset};
@@ -11,6 +11,7 @@ use api::{YuvColorSpace, YuvFormat};
 use border::BorderCornerInstance;
 use clip::{ClipSourcesHandle, ClipStore, Geometry};
 use frame_builder::PrimitiveContext;
+use glyph_rasterizer::FontInstance;
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
 use picture::PicturePrimitive;
