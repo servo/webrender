@@ -4,7 +4,8 @@
 
 use api::{BorderRadiusKind, ColorF, LayerPoint, LayerRect, LayerSize, LayerVector2D};
 use api::{BorderRadius, BoxShadowClipMode, LayoutSize, LayerPrimitiveInfo};
-use api::{ClipMode, ComplexClipRegion, EdgeAaSegmentMask, LocalClip, ClipAndScrollInfo};
+use api::{ClipMode, ClipAndScrollInfo, ComplexClipRegion, EdgeAaSegmentMask, LocalClip};
+use api::{PipelineId};
 use clip::ClipSource;
 use frame_builder::FrameBuilder;
 use prim_store::{PrimitiveContainer, RectangleContent, RectanglePrimitive};
@@ -24,6 +25,7 @@ pub const MASK_CORNER_PADDING: f32 = 4.0;
 impl FrameBuilder {
     pub fn add_box_shadow(
         &mut self,
+        pipeline_id: PipelineId,
         clip_and_scroll: ClipAndScrollInfo,
         prim_info: &LayerPrimitiveInfo,
         box_offset: &LayerVector2D,
@@ -51,8 +53,8 @@ impl FrameBuilder {
             spread_amount,
         );
         let shadow_rect = prim_info.rect
-                                   .translate(box_offset)
-                                   .inflate(spread_amount, spread_amount);
+            .translate(box_offset)
+            .inflate(spread_amount, spread_amount);
 
         if blur_radius == 0.0 {
             let mut clips = Vec::new();
@@ -109,7 +111,6 @@ impl FrameBuilder {
                 }),
             );
         } else {
-            let pipeline_id = self.sc_stack.last().unwrap().pipeline_id;
             let blur_offset = BLUR_SAMPLE_SCALE * blur_radius;
             let mut extra_clips = vec![];
 

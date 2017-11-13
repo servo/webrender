@@ -45,27 +45,27 @@ pub struct ScrollbarInfo(pub ClipId, pub LayerRect);
 /// Properties of a stacking context that are maintained
 /// during creation of the scene. These structures are
 /// not persisted after the initial scene build.
-pub struct StackingContext {
+struct StackingContext {
     /// Pipeline this stacking context belongs to.
-    pub pipeline_id: PipelineId,
+    pipeline_id: PipelineId,
 
     /// Filters / mix-blend-mode effects
-    pub composite_ops: CompositeOps,
+    composite_ops: CompositeOps,
 
     /// If true, visible when backface is visible.
-    pub is_backface_visible: bool,
+    is_backface_visible: bool,
 
     /// Allow subpixel AA for text runs on this stacking context.
     /// This is a temporary hack while we don't support subpixel AA
     /// on transparent stacking contexts.
-    pub allow_subpixel_aa: bool,
+    allow_subpixel_aa: bool,
 
     /// CSS transform-style property.
-    pub transform_style: TransformStyle,
+    transform_style: TransformStyle,
 
     /// The primitive index for the root Picture primitive
     /// that this stacking context is mapped to.
-    pub pic_prim_index: PrimitiveIndex,
+    pic_prim_index: PrimitiveIndex,
 }
 
 #[derive(Clone, Copy)]
@@ -121,7 +121,7 @@ pub struct FrameBuilder {
 
     /// A temporary stack of stacking context properties, used only
     /// during scene building.
-    pub sc_stack: Vec<StackingContext>,
+    sc_stack: Vec<StackingContext>,
 }
 
 pub struct PrimitiveContext<'a> {
