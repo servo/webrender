@@ -709,7 +709,7 @@ fn add_to_batch(
                                         }
                                     }
                                 }
-                                PictureCompositeMode::MixBlendMode(mode) => {
+                                PictureCompositeMode::MixBlend(mode) => {
                                     let backdrop_id = readback_render_task_id.expect("no backdrop!?");
 
                                     let key = BatchKey::new(

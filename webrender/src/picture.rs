@@ -30,7 +30,7 @@ pub enum PictureCompositeMode {
     /// Don't composite - just draw directly on parent surface.
     None,
     /// Apply CSS mix-blend-mode effect.
-    MixBlendMode(MixBlendMode),
+    MixBlend(MixBlendMode),
     /// Apply a CSS filter.
     Filter(FilterOp),
     /// Draw to intermediate surface, copy straight across. This
@@ -296,7 +296,7 @@ impl PicturePrimitive {
                         let blur_render_task_id = render_tasks.add(blur_render_task);
                         self.render_task_id = Some(blur_render_task_id);
                     }
-                    PictureCompositeMode::MixBlendMode(..) => {
+                    PictureCompositeMode::MixBlend(..) => {
                         let picture_task = RenderTask::new_dynamic_alpha_batch(
                             screen_rect,
                             prim_index,

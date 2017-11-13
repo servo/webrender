@@ -14,7 +14,7 @@ use api::{ScrollSensitivity, Shadow, TileOffset, TransformStyle};
 use api::{WorldPoint, YuvColorSpace, YuvData};
 use app_units::Au;
 use border::ImageBorderSegment;
-use clip::{ClipRegion, ClipSource, ClipSources, ClipStore, Contains};
+use clip::{ClipRegion, ClipSource, ClipSources, ClipStore, Contains, MAX_CLIP};
 use clip_scroll_node::{ClipScrollNode, NodeType};
 use clip_scroll_tree::ClipScrollTree;
 use euclid::{SideOffsets2D, vec2};
@@ -29,7 +29,7 @@ use prim_store::{PrimitiveContainer, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
 use prim_store::{RectangleContent, RectanglePrimitive, TextRunPrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
-use render_task::{RenderTask, RenderTaskId, RenderTaskLocation};
+use render_task::{RenderTask, RenderTaskLocation};
 use render_task::RenderTaskTree;
 use resource_cache::ResourceCache;
 use scene::ScenePipeline;
@@ -297,15 +297,15 @@ impl FrameBuilder {
         // to them, as for a normal primitive. This is needed
         // to correctly handle some CSS cases (see #1957).
         let max_clip = LayerRect::new(
-            LayerPoint::new(-1000000.0, -1000000.0),
-            LayerSize::new(  2000000.0,  2000000.0),
+            LayerPoint::new(-MAX_CLIP, -MAX_CLIP),
+            LayerSize::new(2.0 * MAX_CLIP, 2.0 * MAX_CLIP),
         );
 
         // If there is no root picture, create one for the main framebuffer.
         if self.sc_stack.is_empty() {
             // Should be no pictures at all if the stack is empty...
             debug_assert!(self.prim_store.cpu_pictures.is_empty());
-            debug_assert!(transform_style == TransformStyle::Flat);
+            debug_assert_eq!(transform_style, TransformStyle::Flat);
 
             // This picture stores primitive runs for items on the
             // main framebuffer.
@@ -347,9 +347,11 @@ impl FrameBuilder {
 
             match parent_pic.kind {
                 PictureKind::Image { ref mut composite_mode, .. } => {
-                    // TODO(gw): Handle isolation conflicts here by
-                    //           creating a new picture.
-                    *composite_mode = PictureCompositeMode::Blit;
+                    // If not already isolated for some other reason,
+                    // make this picture as isolated.
+                    if *composite_mode == PictureCompositeMode::None {
+                        *composite_mode = PictureCompositeMode::Blit;
+                    }
                 }
                 PictureKind::TextShadow { .. } |
                 PictureKind::BoxShadow { .. } => {
@@ -422,7 +424,7 @@ impl FrameBuilder {
             // Same for mix-blend-mode.
             if let Some(mix_blend_mode) = composite_ops.mix_blend_mode {
                 let src_prim = PicturePrimitive::new_image(
-                    PictureCompositeMode::MixBlendMode(mix_blend_mode),
+                    PictureCompositeMode::MixBlend(mix_blend_mode),
                     false,
                     pipeline_id,
                     current_reference_frame_id,
@@ -1608,15 +1610,6 @@ impl FrameBuilder {
         }
     }
 
-    fn build_render_task(&mut self) -> RenderTaskId {
-        profile_scope!("build_render_task");
-
-        self.prim_store
-            .cpu_pictures[0]
-            .render_task_id
-            .expect("bug: no root render task!")
-    }
-
     pub fn build(
         &mut self,
         resource_cache: &mut ResourceCache,
@@ -1673,7 +1666,10 @@ impl FrameBuilder {
             device_pixel_ratio,
         );
 
-        let main_render_task_id = self.build_render_task();
+        let main_render_task_id = self.prim_store
+                                      .cpu_pictures[0]
+                                      .render_task_id
+                                      .expect("bug: no root render task!");
 
         let mut required_pass_count = 0;
         render_tasks.max_depth(main_render_task_id, 0, &mut required_pass_count);
