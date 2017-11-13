@@ -90,11 +90,6 @@ void main(void) {
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-vec4 Blur(float radius, vec2 direction) {
-    // TODO(gw): Support blur in WR2!
-    return vec4(1.0);
-}
-
 vec4 Contrast(vec4 Cs, float amount) {
     return vec4(Cs.rgb * amount - 0.5 * amount + 0.5, 1.0);
 }
@@ -135,8 +130,7 @@ void main(void) {
 
     switch (vOp) {
         case 0:
-            // Gaussian blur is specially handled:
-            oFragColor = Cs;// Blur(vAmount, vec2(0,0));
+            oFragColor = Cs;
             break;
         case 1:
             oFragColor = Contrast(Cs, vAmount);

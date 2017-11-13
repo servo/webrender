@@ -109,6 +109,7 @@ impl FrameBuilder {
                 }),
             );
         } else {
+            let pipeline_id = self.sc_stack.last().unwrap().pipeline_id;
             let blur_offset = BLUR_SAMPLE_SCALE * blur_radius;
             let mut extra_clips = vec![];
 
@@ -185,13 +186,12 @@ impl FrameBuilder {
                         Vec::new(),
                         clip_mode,
                         radii_kind,
+                        pipeline_id,
                     );
                     pic_prim.add_primitive(
                         brush_prim_index,
-                        &brush_rect,
                         clip_and_scroll
                     );
-                    pic_prim.build();
 
                     // TODO(gw): Right now, we always use a clip out
                     //           mask for outset shadows. We can make this
@@ -264,13 +264,12 @@ impl FrameBuilder {
                         BoxShadowClipMode::Inset,
                         // TODO(gw): Make use of optimization for inset.
                         BorderRadiusKind::NonUniform,
+                        pipeline_id,
                     );
                     pic_prim.add_primitive(
                         brush_prim_index,
-                        &brush_rect,
                         clip_and_scroll
                     );
-                    pic_prim.build();
 
                     // Draw the picture one pixel outside the original
                     // rect to account for the inflate above. This

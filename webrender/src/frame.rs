@@ -87,21 +87,19 @@ impl<'a> FlattenContext<'a> {
         frame_size: &LayoutSize,
         root_reference_frame_id: ClipId,
         root_scroll_frame_id: ClipId,
+        output_pipelines: &FastHashSet<PipelineId>,
     ) {
+        let clip_id = ClipId::root_scroll_node(pipeline_id);
+
         self.builder.push_stacking_context(
-            &LayerVector2D::zero(),
             pipeline_id,
             CompositeOps::default(),
             TransformStyle::Flat,
             true,
             true,
+            ClipAndScrollInfo::simple(clip_id),
+            output_pipelines,
         );
-
-        // We do this here, rather than above because we want any of the top-level
-        // stacking contexts in the display list to be treated like root stacking contexts.
-        // FIXME(mrobinson): Currently only the first one will, which for the moment is
-        // sufficient for all our use cases.
-        self.builder.notify_waiting_for_root_stacking_context();
 
         // For the root pipeline, there's no need to add a full screen rectangle
         // here, as it's handled by the framebuffer clear.
@@ -121,7 +119,12 @@ impl<'a> FlattenContext<'a> {
         }
 
 
-        self.flatten_items(traversal, pipeline_id, LayerVector2D::zero());
+        self.flatten_items(
+            traversal,
+            pipeline_id,
+            LayerVector2D::zero(),
+            output_pipelines,
+        );
 
         if self.builder.config.enable_scrollbars {
             let scrollbar_rect = LayerRect::new(LayerPoint::zero(), LayerSize::new(10.0, 70.0));
@@ -142,6 +145,7 @@ impl<'a> FlattenContext<'a> {
         traversal: &mut BuiltDisplayListIter<'a>,
         pipeline_id: PipelineId,
         reference_frame_relative_offset: LayerVector2D,
+        output_pipelines: &FastHashSet<PipelineId>,
     ) {
         loop {
             let subtraversal = {
@@ -154,7 +158,12 @@ impl<'a> FlattenContext<'a> {
                     return;
                 }
 
-                self.flatten_item(item, pipeline_id, reference_frame_relative_offset)
+                self.flatten_item(
+                    item,
+                    pipeline_id,
+                    reference_frame_relative_offset,
+                    output_pipelines,
+                )
             };
 
             // If flatten_item created a sub-traversal, we need `traversal` to have the
@@ -221,6 +230,7 @@ impl<'a> FlattenContext<'a> {
         stacking_context: &StackingContext,
         filters: ItemRange<FilterOp>,
         is_backface_visible: bool,
+        output_pipelines: &FastHashSet<PipelineId>,
     ) {
         // Avoid doing unnecessary work for empty stacking contexts.
         if traversal.current_stacking_context_empty() {
@@ -257,7 +267,7 @@ impl<'a> FlattenContext<'a> {
         // that fixed position stacking contexts are positioned relative to us.
         let is_reference_frame =
             stacking_context.transform.is_some() || stacking_context.perspective.is_some();
-        if is_reference_frame {
+        let sc_scroll_node_id = if is_reference_frame {
             let transform = stacking_context.transform.as_ref();
             let transform = self.scene.properties.resolve_layout_transform(transform);
             let perspective = stacking_context
@@ -281,26 +291,32 @@ impl<'a> FlattenContext<'a> {
             );
             self.replacements.push((context_scroll_node_id, clip_id));
             reference_frame_relative_offset = LayerVector2D::zero();
+
+            clip_id
         } else {
             reference_frame_relative_offset = LayerVector2D::new(
                 reference_frame_relative_offset.x + bounds.origin.x,
                 reference_frame_relative_offset.y + bounds.origin.y,
             );
-        }
+
+            context_scroll_node_id
+        };
 
         self.builder.push_stacking_context(
-            &reference_frame_relative_offset,
             pipeline_id,
             composition_operations,
             stacking_context.transform_style,
             is_backface_visible,
             false,
+            ClipAndScrollInfo::simple(sc_scroll_node_id),
+            output_pipelines,
         );
 
         self.flatten_items(
             traversal,
             pipeline_id,
             reference_frame_relative_offset,
+            output_pipelines,
         );
 
         if stacking_context.scroll_policy == ScrollPolicy::Fixed {
@@ -322,6 +338,7 @@ impl<'a> FlattenContext<'a> {
         bounds: &LayerRect,
         local_clip: &LocalClip,
         reference_frame_relative_offset: LayerVector2D,
+        output_pipelines: &FastHashSet<PipelineId>,
     ) {
         let pipeline = match self.scene.pipelines.get(&pipeline_id) {
             Some(pipeline) => pipeline,
@@ -374,6 +391,7 @@ impl<'a> FlattenContext<'a> {
             &iframe_rect.size,
             iframe_reference_frame_id,
             ClipId::root_scroll_node(pipeline_id),
+            output_pipelines,
         );
 
         self.builder.pop_reference_frame();
@@ -384,6 +402,7 @@ impl<'a> FlattenContext<'a> {
         item: DisplayItemRef<'a, 'b>,
         pipeline_id: PipelineId,
         reference_frame_relative_offset: LayerVector2D,
+        output_pipelines: &FastHashSet<PipelineId>,
     ) -> Option<BuiltDisplayListIter<'a>> {
         let mut clip_and_scroll = item.clip_and_scroll();
 
@@ -548,6 +567,7 @@ impl<'a> FlattenContext<'a> {
                     &info.stacking_context,
                     item.filters(),
                     prim_info.is_backface_visible,
+                    output_pipelines,
                 );
                 return Some(subtraversal);
             }
@@ -558,6 +578,7 @@ impl<'a> FlattenContext<'a> {
                     &item.rect(),
                     &item.local_clip(),
                     reference_frame_relative_offset,
+                    output_pipelines,
                 );
             }
             SpecificDisplayItem::Clip(ref info) => {
@@ -1088,6 +1109,7 @@ impl FrameContext {
         window_size: DeviceUintSize,
         inner_rect: DeviceUintRect,
         device_pixel_ratio: f32,
+        output_pipelines: &FastHashSet<PipelineId>,
     ) -> Option<FrameBuilder> {
         let root_pipeline_id = match scene.root_pipeline_id {
             Some(root_pipeline_id) => root_pipeline_id,
@@ -1152,7 +1174,10 @@ impl FrameContext {
                 &root_pipeline.viewport_size,
                 reference_frame_id,
                 scroll_frame_id,
+                output_pipelines,
             );
+
+            debug_assert!(roller.builder.picture_stack.is_empty());
 
             self.pipeline_epoch_map.extend(roller.pipeline_epochs.drain(..));
             roller.builder
@@ -1180,7 +1205,6 @@ impl FrameContext {
         pipelines: &FastHashMap<PipelineId, ScenePipeline>,
         device_pixel_ratio: f32,
         pan: LayerPoint,
-        output_pipelines: &FastHashSet<PipelineId>,
         texture_cache_profile: &mut TextureCacheProfileCounters,
         gpu_cache_profile: &mut GpuCacheProfileCounters,
     ) -> RendererFrame {
@@ -1192,7 +1216,6 @@ impl FrameContext {
             pipelines,
             device_pixel_ratio,
             pan,
-            output_pipelines,
             texture_cache_profile,
             gpu_cache_profile,
         );

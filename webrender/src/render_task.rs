@@ -3,18 +3,16 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{ClipId, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use api::{FilterOp, LayerPoint, LayerRect, MixBlendMode};
+use api::{LayerPoint, LayerRect};
 use api::{PipelineId, PremultipliedColorF};
 use clip::{ClipSource, ClipSourcesWeakHandle, ClipStore};
 use clip_scroll_tree::CoordinateSystemId;
-use gpu_cache::GpuCacheHandle;
 use gpu_types::{ClipScrollNodeIndex};
-use internal_types::HardwareCompositeOp;
-use prim_store::PrimitiveIndex;
+use prim_store::{PrimitiveIndex};
 use std::{cmp, usize, f32, i32};
 use std::rc::Rc;
 use tiling::{RenderPass, RenderTargetIndex};
-use tiling::{RenderTargetKind, StackingContextIndex};
+use tiling::{RenderTargetKind};
 
 const FLOATS_PER_RENDER_TASK_INFO: usize = 12;
 pub const MAX_BLUR_STD_DEVIATION: f32 = 4.0;
@@ -153,31 +151,9 @@ pub enum RenderTaskLocation {
 }
 
 #[derive(Debug)]
-pub enum AlphaRenderItem {
-    Primitive(ClipScrollNodeIndex, ClipScrollNodeIndex, PrimitiveIndex, i32),
-    Blend(StackingContextIndex, RenderTaskId, FilterOp, i32),
-    Composite(
-        StackingContextIndex,
-        RenderTaskId,
-        RenderTaskId,
-        MixBlendMode,
-        i32,
-    ),
-    SplitComposite(StackingContextIndex, RenderTaskId, GpuCacheHandle, i32),
-    HardwareComposite(
-        StackingContextIndex,
-        RenderTaskId,
-        HardwareCompositeOp,
-        DeviceIntPoint,
-        i32,
-        DeviceIntSize,
-    ),
-}
-
-#[derive(Debug)]
 pub struct AlphaRenderTask {
     pub screen_origin: DeviceIntPoint,
-    pub items: Vec<AlphaRenderItem>,
+    pub prim_index: PrimitiveIndex,
     // If this render task is a registered frame output, this
     // contains the pipeline ID it maps to.
     pub frame_output_pipeline_id: Option<PipelineId>,
@@ -312,18 +288,23 @@ pub struct RenderTask {
 }
 
 impl RenderTask {
+    // TODO(gw): In the future we'll remove this
+    //           completely and convert everything
+    //           that is an alpha task to a Picture.
     pub fn new_alpha_batch(
         screen_origin: DeviceIntPoint,
         location: RenderTaskLocation,
+        prim_index: PrimitiveIndex,
         frame_output_pipeline_id: Option<PipelineId>,
+        children: Vec<RenderTaskId>,
     ) -> Self {
         RenderTask {
             cache_key: None,
-            children: Vec::new(),
+            children,
             location,
             kind: RenderTaskKind::Alpha(AlphaRenderTask {
                 screen_origin,
-                items: Vec::new(),
+                prim_index,
                 frame_output_pipeline_id,
             }),
             clear_mode: ClearMode::Transparent,
@@ -332,10 +313,18 @@ impl RenderTask {
 
     pub fn new_dynamic_alpha_batch(
         rect: &DeviceIntRect,
+        prim_index: PrimitiveIndex,
         frame_output_pipeline_id: Option<PipelineId>,
+        children: Vec<RenderTaskId>,
     ) -> Self {
         let location = RenderTaskLocation::Dynamic(None, rect.size);
-        Self::new_alpha_batch(rect.origin, location, frame_output_pipeline_id)
+        Self::new_alpha_batch(
+            rect.origin,
+            location,
+            prim_index,
+            frame_output_pipeline_id,
+            children,
+        )
     }
 
     pub fn new_picture(
@@ -553,19 +542,6 @@ impl RenderTask {
         }
     }
 
-    pub fn as_alpha_batch_mut<'a>(&'a mut self) -> &'a mut AlphaRenderTask {
-        match self.kind {
-            RenderTaskKind::Alpha(ref mut task) => task,
-            RenderTaskKind::Picture(..) |
-            RenderTaskKind::CacheMask(..) |
-            RenderTaskKind::VerticalBlur(..) |
-            RenderTaskKind::Readback(..) |
-            RenderTaskKind::HorizontalBlur(..) |
-            RenderTaskKind::Alias(..) |
-            RenderTaskKind::Scaling(..) => unreachable!(),
-        }
-    }
-
     pub fn as_alpha_batch<'a>(&'a self) -> &'a AlphaRenderTask {
         match self.kind {
             RenderTaskKind::Alpha(ref task) => task,
@@ -690,34 +666,6 @@ impl RenderTask {
                 }
             }
             RenderTaskKind::Alias(..) => RenderTaskData { data: [0.0; 12] },
-        }
-    }
-
-    pub fn inflate(&mut self, device_radius: i32) {
-        match self.kind {
-            RenderTaskKind::Alpha(ref mut info) => {
-                match self.location {
-                    RenderTaskLocation::Fixed => {
-                        panic!("bug: inflate only supported for dynamic tasks");
-                    }
-                    RenderTaskLocation::Dynamic(_, ref mut size) => {
-                        size.width += device_radius * 2;
-                        size.height += device_radius * 2;
-                        info.screen_origin.x -= device_radius;
-                        info.screen_origin.y -= device_radius;
-                    }
-                }
-            }
-
-            RenderTaskKind::Readback(..) |
-            RenderTaskKind::CacheMask(..) |
-            RenderTaskKind::VerticalBlur(..) |
-            RenderTaskKind::HorizontalBlur(..) |
-            RenderTaskKind::Picture(..) |
-            RenderTaskKind::Alias(..) |
-            RenderTaskKind::Scaling(..) => {
-                panic!("bug: inflate only supported for alpha tasks");
-            }
         }
     }
 
