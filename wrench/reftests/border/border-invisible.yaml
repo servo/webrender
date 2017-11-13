@@ -14,4 +14,4 @@ root:
             bottom-right: 0
             top-right: 0
             bottom-left: 3
-          color: [red, red, red, black]
+          color: [red, black, red, red]
