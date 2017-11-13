@@ -225,8 +225,8 @@ fn native_font_handle_to_yaml(handle: &NativeFontHandle, parent: &mut yaml_rust:
 }
 
 #[cfg(not(target_os = "windows"))]
-fn native_font_handle_to_yaml(_: &NativeFontHandle, _: &mut yaml_rust::yaml::Hash) {
-    panic!("Can't native_handle_to_yaml on this platform");
+fn native_font_handle_to_yaml(handle: &NativeFontHandle, parent: &mut yaml_rust::yaml::Hash) {
+    str_node(parent, "font", &handle.pathname);
 }
 
 enum CachedFont {
