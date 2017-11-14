@@ -160,12 +160,10 @@ impl ClipScrollNode {
         parent_id: ClipId,
         frame_rect: &LayerRect,
         content_size: &LayerSize,
-        scroll_sensitivity: ScrollSensitivity,
-        enable_scrollbars: bool
+        scroll_sensitivity: ScrollSensitivity
     ) -> Self {
         let node_type = NodeType::ScrollFrame(ScrollingState::new(
             scroll_sensitivity,
-            enable_scrollbars,
             LayerSize::new(
                 (content_size.width - frame_rect.size.width).max(0.0),
                 (content_size.height - frame_rect.size.height).max(0.0)
@@ -720,7 +718,6 @@ pub struct ScrollingState {
     pub bouncing_back: bool,
     pub should_handoff_scroll: bool,
     pub scroll_sensitivity: ScrollSensitivity,
-    pub enable_scrollbars: bool,
 
     /// Amount that this ScrollFrame can scroll in both directions.
     pub scrollable_size: LayerSize,
@@ -730,7 +727,6 @@ pub struct ScrollingState {
 /// Manages scrolling offset, overscroll state, etc.
 impl ScrollingState {
     pub fn new(scroll_sensitivity: ScrollSensitivity,
-               enable_scrollbars: bool,
                scrollable_size: LayerSize,
     ) -> ScrollingState {
         ScrollingState {
@@ -740,7 +736,6 @@ impl ScrollingState {
             bouncing_back: false,
             should_handoff_scroll: false,
             scroll_sensitivity,
-            enable_scrollbars,
             scrollable_size,
         }
     }

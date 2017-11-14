@@ -18,7 +18,7 @@ use clip::{ClipRegion, ClipSource, ClipSources, ClipStore, Contains};
 use clip_scroll_node::{ClipScrollNode, NodeType};
 use clip_scroll_tree::ClipScrollTree;
 use euclid::{SideOffsets2D, TypedTransform3D, vec2, vec3};
-use frame::FrameId;
+use frame::{FrameId, DEFAULT_SCROLLBAR_COLOR};
 use gpu_cache::GpuCache;
 use internal_types::{FastHashMap, FastHashSet, HardwareCompositeOp};
 use picture::{PictureKind, PicturePrimitive};
@@ -129,6 +129,9 @@ pub struct FrameBuilder {
     /// parent new scroll nodes.
     reference_frame_stack: Vec<ClipId>,
 
+    parent_scroll_frame_id: Option<ClipId>,
+    pending_scroll_frame_stack: Vec<(ClipId, ClipId, LayerRect)>,
+
     /// A stack of stacking contexts used for creating ClipScrollGroups as
     /// primitives are added to the frame.
     stacking_context_stack: Vec<StackingContextIndex>,
@@ -177,6 +180,8 @@ impl FrameBuilder {
                 scrollbar_prims: recycle_vec(prev.scrollbar_prims),
                 reference_frame_stack: recycle_vec(prev.reference_frame_stack),
                 stacking_context_stack: recycle_vec(prev.stacking_context_stack),
+                parent_scroll_frame_id: prev.parent_scroll_frame_id,
+                pending_scroll_frame_stack: recycle_vec(prev.pending_scroll_frame_stack),
                 prim_store: prev.prim_store.recycle(),
                 clip_store: prev.clip_store.recycle(),
                 screen_size,
@@ -193,6 +198,8 @@ impl FrameBuilder {
                 scrollbar_prims: Vec::new(),
                 reference_frame_stack: Vec::new(),
                 stacking_context_stack: Vec::new(),
+                parent_scroll_frame_id: None,
+                pending_scroll_frame_stack: Vec::new(),
                 prim_store: PrimitiveStore::new(),
                 clip_store: ClipStore::new(),
                 screen_size,
@@ -358,6 +365,11 @@ impl FrameBuilder {
             self.shadow_prim_stack.is_empty(),
             "Found unpopped text shadows when popping stacking context!"
         );
+
+        self.add_pending_scrollbars();
+        assert!(self.pending_scroll_frame_stack.is_empty(),
+            "Found unpopped pending scroll frames when popping stacking context!"
+        );
     }
 
     pub fn push_reference_frame(
@@ -501,11 +513,32 @@ impl FrameBuilder {
             parent_id,
             frame_rect,
             content_size,
-            scroll_sensitivity,
-            enable_scrollbars
+            scroll_sensitivity
         );
-
+        
         clip_scroll_tree.add_node(node, new_node_id);
+        
+        if enable_scrollbars {
+            self.add_pending_scrollbars();
+
+            // The root scroll node will never have enable_scrollbars set to true, so there will a parent_scroll_frame id
+            let parent_scroll_frame_id = self.parent_scroll_frame_id.unwrap();
+            self.pending_scroll_frame_stack.push((parent_scroll_frame_id, new_node_id, *frame_rect));
+        }
+
+        self.parent_scroll_frame_id = Some(new_node_id);
+    }
+
+    fn add_pending_scrollbars(&mut self) {
+        if let Some((parent_scroll_frame_id, clip_id, frame_rect)) = self.pending_scroll_frame_stack.pop() {
+            let scrollbar_rect = LayerRect::new(LayerPoint::zero(), LayerSize::new(10.0, 70.0));
+            self.add_solid_rectangle(
+                ClipAndScrollInfo::simple(parent_scroll_frame_id),
+                &LayerPrimitiveInfo::new(scrollbar_rect),
+                RectangleContent::Fill(DEFAULT_SCROLLBAR_COLOR),
+                Some(ScrollbarInfo(clip_id, frame_rect))
+            );
+        }
     }
 
     pub fn pop_reference_frame(&mut self) {

@@ -11,7 +11,7 @@ use {LayoutTransform, LayoutVector2D, LineDisplayItem, LineOrientation, LineStyl
 use {MixBlendMode, PipelineId, PropertyBinding, PushStackingContextDisplayItem, RadialGradient};
 use {RadialGradientDisplayItem, RectangleDisplayItem, ScrollFrameDisplayItem, ScrollPolicy};
 use {ScrollSensitivity, Shadow, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem};
-use {StickyOffsetBounds, TextDisplayItem, TransformStyle, YuvColorSpace, YuvData};
+use {StickyOffsetBounds, IframeScrollbars, TextDisplayItem, TransformStyle, YuvColorSpace, YuvData};
 use YuvImageDisplayItem;
 use bincode;
 use euclid::SideOffsets2D;
@@ -1162,7 +1162,7 @@ impl DisplayListBuilder {
         complex_clips: I,
         image_mask: Option<ImageMask>,
         scroll_sensitivity: ScrollSensitivity,
-        enable_scrollbars: bool
+        enable_scrollbars: IframeScrollbars
     ) -> ClipId
     where
         I: IntoIterator<Item = ComplexClipRegion>,
@@ -1189,7 +1189,7 @@ impl DisplayListBuilder {
         complex_clips: I,
         image_mask: Option<ImageMask>,
         scroll_sensitivity: ScrollSensitivity,
-        enable_scrollbars: bool
+        enable_scrollbars: IframeScrollbars
     ) -> ClipId
     where
         I: IntoIterator<Item = ComplexClipRegion>,

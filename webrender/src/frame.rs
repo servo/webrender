@@ -8,11 +8,11 @@ use api::{DeviceUintRect, DeviceUintSize, DisplayItemRef, Epoch, FilterOp};
 use api::{ImageDisplayItem, ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect};
 use api::{LayerSize, LayerToScrollTransform, LayerVector2D};
 use api::{LayoutRect, LayoutSize, LayoutTransform};
-use api::{LocalClip, PipelineId, ScrollClamping, ScrollEventPhase, ScrollLayerState};
+use api::{LocalClip, PipelineId, ScrollClamping, ScrollEventPhase, ScrollLayerState, IframeScrollbars};
 use api::{ScrollLocation, ScrollPolicy, ScrollSensitivity, SpecificDisplayItem, StackingContext};
 use api::{ClipMode, TileOffset, TransformStyle, WorldPoint};
 use clip::ClipRegion;
-use clip_scroll_node::{StickyFrameInfo, NodeType};
+use clip_scroll_node::StickyFrameInfo;
 use clip_scroll_tree::{ClipScrollTree, ScrollStates};
 use euclid::rect;
 use frame_builder::{FrameBuilder, FrameBuilderConfig, ScrollbarInfo};
@@ -28,7 +28,7 @@ use util::ComplexClipRegionHelpers;
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Eq, Ord)]
 pub struct FrameId(pub u32);
 
-static DEFAULT_SCROLLBAR_COLOR: ColorF = ColorF {
+pub static DEFAULT_SCROLLBAR_COLOR: ColorF = ColorF {
     r: 0.3,
     g: 0.3,
     b: 0.3,
@@ -132,24 +132,6 @@ impl<'a> FlattenContext<'a> {
                 RectangleContent::Fill(DEFAULT_SCROLLBAR_COLOR),
                 Some(ScrollbarInfo(root_scroll_frame_id, container_rect)),
             );
-        }
-
-        let mut latest_scroll_frame_id = root_scroll_frame_id;
-        for (clip_id, clip_node) in &self.clip_scroll_tree.nodes {
-            if let NodeType::ScrollFrame(ref info) = clip_node.node_type {
-                if info.enable_scrollbars {
-                    let scrollbar_rect = LayerRect::new(LayerPoint::zero(), LayerSize::new(10.0, 70.0));
-
-                    self.builder.add_solid_rectangle(
-                        ClipAndScrollInfo::simple(latest_scroll_frame_id),
-                        &LayerPrimitiveInfo::new(scrollbar_rect),
-                        RectangleContent::Fill(DEFAULT_SCROLLBAR_COLOR),
-                        Some(ScrollbarInfo(*clip_id, clip_node.local_clip_rect))
-                    );
-                }
-
-                latest_scroll_frame_id = *clip_id;
-            }
         }
 
         self.builder.pop_stacking_context();
@@ -612,6 +594,9 @@ impl<'a> FlattenContext<'a> {
                     .clip_rect()
                     .translate(&reference_frame_relative_offset);
                 let content_rect = item.rect().translate(&reference_frame_relative_offset);
+
+                let enable_scrollbars = IframeScrollbars::Enabled == info.enable_scrollbars;
+
                 self.flatten_scroll_frame(
                     pipeline_id,
                     &clip_and_scroll.scroll_node_id,
@@ -620,7 +605,7 @@ impl<'a> FlattenContext<'a> {
                     &content_rect,
                     clip_region,
                     info.scroll_sensitivity,
-                    info.enable_scrollbars
+                    enable_scrollbars
                 );
             }
             SpecificDisplayItem::StickyFrame(ref info) => {
