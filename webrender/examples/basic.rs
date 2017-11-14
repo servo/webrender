@@ -317,7 +317,7 @@ impl Example for App {
             let info = LayoutPrimitiveInfo::new(text_bounds);
             builder.push_text(
                 &info,
-                &glyphs,
+                glyphs.iter().cloned(),
                 font_instance_key,
                 ColorF::new(1.0, 1.0, 0.0, 1.0),
                 None,

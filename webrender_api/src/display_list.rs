@@ -898,23 +898,26 @@ impl DisplayListBuilder {
         self.push_item(item, info);
     }
 
-    pub fn push_text(
+    pub fn push_text<I>(
         &mut self,
         info: &LayoutPrimitiveInfo,
-        glyphs: &[GlyphInstance],
+        mut glyphs: I,
         font_key: FontInstanceKey,
         color: ColorF,
         glyph_options: Option<GlyphOptions>,
-    ) {
+    ) where 
+        I: ExactSizeIterator<Item=GlyphInstance>,
+    {
         let item = SpecificDisplayItem::Text(TextDisplayItem {
             color,
             font_key,
             glyph_options,
         });
 
-        for split_glyphs in glyphs.chunks(MAX_TEXT_RUN_LENGTH) {
+        // Consumed in chunks to avoid problems in the backend
+        while glyphs.len() > 0 {
             self.push_item(item, info);
-            self.push_iter(split_glyphs);
+            self.push_iter(glyphs.by_ref().take(MAX_TEXT_RUN_LENGTH));
         }
     }
 
