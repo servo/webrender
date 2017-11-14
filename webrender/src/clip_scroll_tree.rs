@@ -193,9 +193,8 @@ impl ClipScrollTree {
             return false;
         }
 
-        let point_in_clips = transformed_point - node.local_clip_rect.origin.to_vector();
         for &(ref clip, _) in clip_store.get(&clip_sources_handle).clips() {
-            if !clip.contains(&point_in_clips) {
+            if !clip.contains(&transformed_point) {
                 cache.insert(*node_id, None);
                 return false;
             }
