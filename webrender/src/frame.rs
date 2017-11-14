@@ -263,7 +263,7 @@ impl<'a> FlattenContext<'a> {
         // that fixed position stacking contexts are positioned relative to us.
         let is_reference_frame =
             stacking_context.transform.is_some() || stacking_context.perspective.is_some();
-        let sc_scroll_node_id = if is_reference_frame {
+        if is_reference_frame {
             let transform = stacking_context.transform.as_ref();
             let transform = self.scene.properties.resolve_layout_transform(transform);
             let perspective = stacking_context
@@ -287,16 +287,14 @@ impl<'a> FlattenContext<'a> {
             );
             self.replacements.push((context_scroll_node_id, clip_id));
             reference_frame_relative_offset = LayerVector2D::zero();
-
-            clip_id
         } else {
             reference_frame_relative_offset = LayerVector2D::new(
                 reference_frame_relative_offset.x + bounds.origin.x,
                 reference_frame_relative_offset.y + bounds.origin.y,
             );
-
-            context_scroll_node_id
         };
+
+        let sc_scroll_node_id = self.apply_scroll_frame_id_replacement(context_scroll_node_id);
 
         self.builder.push_stacking_context(
             pipeline_id,

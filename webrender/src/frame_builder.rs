@@ -378,7 +378,7 @@ impl FrameBuilder {
         //           by creating a chain of pictures for the effects, and ensuring
         //           that the last composited picture is what's used as the input to
         //           the plane splitting code.
-        let parent_pic_prim_index = if is_in_3d_context {
+        let mut parent_pic_prim_index = if is_in_3d_context {
             // If we're in a 3D context, we will parent the picture
             // to the first stacking context we find in the stack that
             // is transform-style: flat. This follows the spec
@@ -391,68 +391,70 @@ impl FrameBuilder {
                 .map(|sc| sc.pic_prim_index)
                 .unwrap()
         } else {
-            // For each filter, create a new image with that composite mode.
-            for filter in &composite_ops.filters {
-                let src_prim = PicturePrimitive::new_image(
-                    Some(PictureCompositeMode::Filter(*filter)),
-                    false,
-                    pipeline_id,
-                    current_reference_frame_id,
-                    None,
-                );
-                let src_clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
-
-                let src_prim_index = self.prim_store.add_primitive(
-                    &LayerRect::zero(),
-                    &max_clip,
-                    is_backface_visible,
-                    src_clip_sources,
-                    None,
-                    PrimitiveContainer::Picture(src_prim),
-                );
-
-                let pic_prim_index = self.prim_store.cpu_metadata[self.picture_stack.last().unwrap().0].cpu_prim_index;
-                let pic = &mut self.prim_store.cpu_pictures[pic_prim_index.0];
-                pic.add_primitive(
-                    src_prim_index,
-                    clip_and_scroll,
-                );
-
-                self.picture_stack.push(src_prim_index);
-            }
-
-            // Same for mix-blend-mode.
-            if let Some(mix_blend_mode) = composite_ops.mix_blend_mode {
-                let src_prim = PicturePrimitive::new_image(
-                    Some(PictureCompositeMode::MixBlend(mix_blend_mode)),
-                    false,
-                    pipeline_id,
-                    current_reference_frame_id,
-                    None,
-                );
-                let src_clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
-
-                let src_prim_index = self.prim_store.add_primitive(
-                    &LayerRect::zero(),
-                    &max_clip,
-                    is_backface_visible,
-                    src_clip_sources,
-                    None,
-                    PrimitiveContainer::Picture(src_prim),
-                );
-
-                let pic_prim_index = self.prim_store.cpu_metadata[self.picture_stack.last().unwrap().0].cpu_prim_index;
-                let pic = &mut self.prim_store.cpu_pictures[pic_prim_index.0];
-                pic.add_primitive(
-                    src_prim_index,
-                    clip_and_scroll,
-                );
-
-                self.picture_stack.push(src_prim_index);
-            }
-
             *self.picture_stack.last().unwrap()
         };
+
+        // For each filter, create a new image with that composite mode.
+        for filter in &composite_ops.filters {
+            let src_prim = PicturePrimitive::new_image(
+                Some(PictureCompositeMode::Filter(*filter)),
+                false,
+                pipeline_id,
+                current_reference_frame_id,
+                None,
+            );
+            let src_clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
+
+            let src_prim_index = self.prim_store.add_primitive(
+                &LayerRect::zero(),
+                &max_clip,
+                is_backface_visible,
+                src_clip_sources,
+                None,
+                PrimitiveContainer::Picture(src_prim),
+            );
+
+            let pic_prim_index = self.prim_store.cpu_metadata[parent_pic_prim_index.0].cpu_prim_index;
+            parent_pic_prim_index = src_prim_index;
+            let pic = &mut self.prim_store.cpu_pictures[pic_prim_index.0];
+            pic.add_primitive(
+                src_prim_index,
+                clip_and_scroll,
+            );
+
+            self.picture_stack.push(src_prim_index);
+        }
+
+        // Same for mix-blend-mode.
+        if let Some(mix_blend_mode) = composite_ops.mix_blend_mode {
+            let src_prim = PicturePrimitive::new_image(
+                Some(PictureCompositeMode::MixBlend(mix_blend_mode)),
+                false,
+                pipeline_id,
+                current_reference_frame_id,
+                None,
+            );
+            let src_clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
+
+            let src_prim_index = self.prim_store.add_primitive(
+                &LayerRect::zero(),
+                &max_clip,
+                is_backface_visible,
+                src_clip_sources,
+                None,
+                PrimitiveContainer::Picture(src_prim),
+            );
+
+            let pic_prim_index = self.prim_store.cpu_metadata[parent_pic_prim_index.0].cpu_prim_index;
+            parent_pic_prim_index = src_prim_index;
+            let pic = &mut self.prim_store.cpu_pictures[pic_prim_index.0];
+            pic.add_primitive(
+                src_prim_index,
+                clip_and_scroll,
+            );
+
+            self.picture_stack.push(src_prim_index);
+        }
 
         // By default, this picture will be collapsed into
         // the owning target.
@@ -533,19 +535,9 @@ impl FrameBuilder {
         // Remove the picture for this stacking contents.
         self.picture_stack.pop().expect("bug");
 
-        let parent_transform_style = match self.sc_stack.last() {
-            Some(sc) => sc.transform_style,
-            None => TransformStyle::Flat,
-        };
-
-        let is_in_3d_context = parent_transform_style == TransformStyle::Preserve3D ||
-                               sc.transform_style == TransformStyle::Preserve3D;
-
-        if !is_in_3d_context {
-            // Remove the picture for any filter/mix-blend-mode effects.
-            for _ in 0 .. sc.composite_ops.count() {
-                self.picture_stack.pop().expect("bug: mismatched picture stack");
-            }
+        // Remove the picture for any filter/mix-blend-mode effects.
+        for _ in 0 .. sc.composite_ops.count() {
+            self.picture_stack.pop().expect("bug: mismatched picture stack");
         }
 
         // By the time the stacking context stack is empty, we should
