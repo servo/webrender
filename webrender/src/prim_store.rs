@@ -5,7 +5,7 @@
 use api::{BorderRadius, BuiltDisplayList, ColorF, ComplexClipRegion, DeviceIntRect};
 use api::{DevicePoint, ExtendMode, GlyphInstance, GlyphKey};
 use api::{GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerRect};
-use api::{ClipMode, LayerSize, LayerVector2D, LineOrientation, LineStyle};
+use api::{ClipMode, LayerSize, LayerVector2D, LayerToWorldTransform, LineOrientation, LineStyle};
 use api::{ClipAndScrollInfo, EdgeAaSegmentMask, PremultipliedColorF, TileOffset};
 use api::{ClipId, LayerTransform, PipelineId, YuvColorSpace, YuvFormat};
 use border::BorderCornerInstance;
@@ -591,9 +591,14 @@ pub struct TextRunPrimitiveCpu {
 
 
 impl TextRunPrimitiveCpu {
-    pub fn get_font(&self, device_pixel_ratio: f32) -> FontInstance {
+    pub fn get_font(
+        &self,
+        device_pixel_ratio: f32,
+        transform: &LayerToWorldTransform,
+    ) -> FontInstance {
         let mut font = self.font.clone();
         font.size = font.size.scale_by(device_pixel_ratio);
+        font.transform = transform.into();
         font
     }
 
@@ -601,10 +606,11 @@ impl TextRunPrimitiveCpu {
         &mut self,
         resource_cache: &mut ResourceCache,
         device_pixel_ratio: f32,
+        transform: &LayerToWorldTransform,
         display_list: &BuiltDisplayList,
         gpu_cache: &mut GpuCache,
     ) {
-        let font = self.get_font(device_pixel_ratio);
+        let font = self.get_font(device_pixel_ratio, transform);
 
         // Cache the glyph positions, if not in the cache already.
         // TODO(gw): In the future, remove `glyph_instances`
@@ -1110,6 +1116,7 @@ impl PrimitiveStore {
                 text.prepare_for_render(
                     resource_cache,
                     prim_context.device_pixel_ratio,
+                    &prim_context.scroll_node.world_content_transform,
                     prim_context.display_list,
                     gpu_cache,
                 );

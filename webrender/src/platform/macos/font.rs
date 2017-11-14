@@ -12,9 +12,9 @@ use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
 use core_foundation::number::{CFNumber, CFNumberRef};
 use core_foundation::string::{CFString, CFStringRef};
 use core_graphics::base::{kCGImageAlphaNoneSkipFirst, kCGImageAlphaPremultipliedFirst};
-use core_graphics::base::kCGBitmapByteOrder32Little;
+use core_graphics::base::{kCGBitmapByteOrder32Little, CGFloat};
 use core_graphics::color_space::CGColorSpace;
-use core_graphics::context::{CGContext, CGTextDrawingMode};
+use core_graphics::context::{CGContext, CGContextRef, CGTextDrawingMode};
 use core_graphics::data_provider::CGDataProvider;
 use core_graphics::font::{CGFont, CGFontRef, CGGlyph};
 use core_graphics::geometry::{CGPoint, CGRect, CGSize};
@@ -22,10 +22,9 @@ use core_text;
 use core_text::font::{CTFont, CTFontRef};
 use core_text::font_descriptor::{kCTFontDefaultOrientation, kCTFontColorGlyphsTrait};
 use gamma_lut::{ColorLut, GammaLut};
-use glyph_rasterizer::{FontInstance, GlyphFormat, RasterizedGlyph};
+use glyph_rasterizer::{FontInstance, RasterizedGlyph};
 use internal_types::FastHashMap;
 use std::collections::hash_map::Entry;
-use std::ptr;
 use std::sync::Arc;
 
 pub struct FontContext {
@@ -79,13 +78,37 @@ fn should_use_white_on_black(color: ColorU) -> bool {
     r >= 85 && g >= 85 && b >= 85 && r + g + b >= 2 * 255
 }
 
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+struct CGAffineTransform {
+    a: CGFloat,
+    b: CGFloat,
+    c: CGFloat,
+    d: CGFloat,
+    tx: CGFloat,
+    ty: CGFloat,
+}
+
+#[link(name = "CoreGraphics", kind = "framework")]
+extern {
+   fn CGAffineTransformInvert(t: CGAffineTransform) -> CGAffineTransform;
+   fn CGPointApplyAffineTransform(point: CGPoint, t: CGAffineTransform) -> CGPoint;
+   fn CGRectApplyAffineTransform(rect: CGRect, t: CGAffineTransform) -> CGRect;
+   fn CGSizeApplyAffineTransform(size: CGSize, t: CGAffineTransform) -> CGSize;
+
+   fn CGFontCreateCopyWithVariations(font: CGFontRef, vars: CFDictionaryRef) -> CGFontRef;
+
+   fn CGContextSetTextMatrix(context: CGContextRef, t: CGAffineTransform);
+}
+
 fn get_glyph_metrics(
     ct_font: &CTFont,
+    transform: Option<&CGAffineTransform>,
     glyph: CGGlyph,
     x_offset: f64,
     y_offset: f64,
 ) -> GlyphMetrics {
-    let bounds = ct_font.get_bounding_rects_for_glyphs(kCTFontDefaultOrientation, &[glyph]);
+    let mut bounds = ct_font.get_bounding_rects_for_glyphs(kCTFontDefaultOrientation, &[glyph]);
 
     if bounds.origin.x.is_nan() || bounds.origin.y.is_nan() || bounds.size.width.is_nan() ||
         bounds.size.height.is_nan()
@@ -103,6 +126,14 @@ fn get_glyph_metrics(
             rasterized_descent: 0,
             advance: 0.0,
         };
+    }
+
+    let mut advance = CGSize { width: 0.0, height: 0.0 };
+    ct_font.get_advances_for_glyphs(kCTFontDefaultOrientation, &glyph, &mut advance, 1);
+
+    if let Some(transform) = transform {
+        bounds = unsafe { CGRectApplyAffineTransform(bounds, *transform) };
+        advance = unsafe { CGSizeApplyAffineTransform(advance, *transform) };
     }
 
     // First round out to pixel boundaries
@@ -124,16 +155,13 @@ fn get_glyph_metrics(
     let width = right - left;
     let height = top - bottom;
 
-    let advance =
-        ct_font.get_advances_for_glyphs(kCTFontDefaultOrientation, &glyph, ptr::null_mut(), 1);
-
     let metrics = GlyphMetrics {
         rasterized_left: left,
         rasterized_width: width as u32,
         rasterized_height: height as u32,
         rasterized_ascent: top,
         rasterized_descent: -bottom,
-        advance: advance as f32,
+        advance: advance.width as f32,
     };
 
     metrics
@@ -148,13 +176,11 @@ extern {
     static kCTFontVariationAxisDefaultValueKey: CFStringRef;
 
     fn CTFontCopyVariationAxes(font: CTFontRef) -> CFArrayRef;
-
-    fn CGFontCreateCopyWithVariations(font: CGFontRef, vars: CFDictionaryRef) -> CGFontRef;
 }
 
-fn new_ct_font_with_variations(cg_font: &CGFont, size: Au, variations: &[FontVariation]) -> CTFont {
+fn new_ct_font_with_variations(cg_font: &CGFont, size: f64, variations: &[FontVariation]) -> CTFont {
     unsafe {
-        let ct_font = core_text::font::new_from_CGFont(cg_font, size.to_f64_px());
+        let ct_font = core_text::font::new_from_CGFont(cg_font, size);
         if variations.is_empty() {
             return ct_font;
         }
@@ -246,7 +272,7 @@ fn new_ct_font_with_variations(cg_font: &CGFont, size: Au, variations: &[FontVar
         let vals_dict = CFDictionary::from_CFType_pairs(&vals);
         let cg_var_font_ref = CGFontCreateCopyWithVariations(cg_font.as_concrete_TypeRef(), vals_dict.as_concrete_TypeRef());
         let cg_var_font: CGFont = TCFType::wrap_under_create_rule(cg_var_font_ref);
-        core_text::font::new_from_CGFont(&cg_var_font, size.to_f64_px())
+        core_text::font::new_from_CGFont(&cg_var_font, size)
     }
 }
 
@@ -320,7 +346,7 @@ impl FontContext {
                     None => return None,
                     Some(cg_font) => cg_font,
                 };
-                let ct_font = new_ct_font_with_variations(cg_font, size, variations);
+                let ct_font = new_ct_font_with_variations(cg_font, size.to_f64_px(), variations);
                 entry.insert(ct_font.clone());
                 Some(ct_font)
             }
@@ -331,7 +357,7 @@ impl FontContext {
         let character = ch as u16;
         let mut glyph = 0;
 
-        self.get_ct_font(font_key, Au(16 * 60), &[])
+        self.get_ct_font(font_key, Au::from_px(16), &[])
             .and_then(|ref ct_font| {
                 let result = ct_font.get_glyphs_for_characters(&character, &mut glyph, 1);
 
@@ -352,7 +378,7 @@ impl FontContext {
             .and_then(|ref ct_font| {
                 let glyph = key.index as CGGlyph;
                 let (x_offset, y_offset) = font.get_subpx_offset(key);
-                let metrics = get_glyph_metrics(ct_font, glyph, x_offset, y_offset);
+                let metrics = get_glyph_metrics(ct_font, None, glyph, x_offset, y_offset);
                 if metrics.rasterized_width == 0 || metrics.rasterized_height == 0 {
                     None
                 } else {
@@ -450,14 +476,29 @@ impl FontContext {
         font: &FontInstance,
         key: &GlyphKey,
     ) -> Option<RasterizedGlyph> {
-        let ct_font = match self.get_ct_font(font.font_key, font.size, &font.variations) {
+        let (.., minor) = font.transform.compute_scale().unwrap_or((1.0, 1.0));
+        let size = font.size.scale_by(minor as f32);
+        let ct_font = match self.get_ct_font(font.font_key, size, &font.variations) {
             Some(font) => font,
             None => return None,
         };
 
+        let shape = font.transform.pre_scale(minor.recip() as f32, minor.recip() as f32);
+        let transform = if shape.is_identity() {
+            None
+        } else {
+            Some(CGAffineTransform {
+                a: shape.scale_x as f64,
+                b: -shape.skew_y as f64,
+                c: -shape.skew_x as f64,
+                d: shape.scale_y as f64,
+                tx: 0.0,
+                ty: 0.0
+            })
+        };
         let glyph = key.index as CGGlyph;
         let (x_offset, y_offset) = font.get_subpx_offset(key);
-        let metrics = get_glyph_metrics(&ct_font, glyph, x_offset, y_offset);
+        let metrics = get_glyph_metrics(&ct_font, transform.as_ref(), glyph, x_offset, y_offset);
         if metrics.rasterized_width == 0 || metrics.rasterized_height == 0 {
             return None;
         }
@@ -555,12 +596,6 @@ impl FontContext {
         cg_context.set_allows_antialiasing(antialias);
         cg_context.set_should_antialias(antialias);
 
-        // CG Origin is bottom left, WR is top left. Need -y offset
-        let rasterization_origin = CGPoint {
-            x: -metrics.rasterized_left as f64 + x_offset,
-            y: metrics.rasterized_descent as f64 - y_offset,
-        };
-
         // Fill the background. This could be opaque white, opaque black, or
         // transparency.
         cg_context.set_rgb_fill_color(bg_color, bg_color, bg_color, bg_alpha);
@@ -576,7 +611,23 @@ impl FontContext {
         // Set the text color and draw the glyphs.
         cg_context.set_rgb_fill_color(text_color, text_color, text_color, 1.0);
         cg_context.set_text_drawing_mode(CGTextDrawingMode::CGTextFill);
-        ct_font.draw_glyphs(&[glyph], &[rasterization_origin], cg_context.clone());
+
+        // CG Origin is bottom left, WR is top left. Need -y offset
+        let mut draw_origin = CGPoint {
+            x: -metrics.rasterized_left as f64 + x_offset,
+            y: metrics.rasterized_descent as f64 - y_offset,
+        };
+
+        if let Some(transform) = transform {
+            unsafe {
+                CGContextSetTextMatrix(cg_context.as_concrete_TypeRef(), transform);
+
+                let inv_transform = CGAffineTransformInvert(transform);
+                draw_origin = CGPointApplyAffineTransform(draw_origin, inv_transform);
+            }
+        }
+
+        ct_font.draw_glyphs(&[glyph], &[draw_origin], cg_context.clone());
 
         let mut rasterized_pixels = cg_context.data().to_vec();
 
@@ -633,7 +684,7 @@ impl FontContext {
             width: metrics.rasterized_width,
             height: metrics.rasterized_height,
             scale: 1.0,
-            format: GlyphFormat::from(font.render_mode),
+            format: font.get_glyph_format(),
             bytes: rasterized_pixels,
         })
     }
