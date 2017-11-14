@@ -552,7 +552,6 @@ vec4 get_layer_pos(vec2 pos, Layer layer) {
 // Compute a snapping offset in world space (adjusted to pixel ratio),
 // given local position on the layer and a snap rectangle.
 vec2 compute_snap_offset(vec2 local_pos,
-                         RectWithSize local_clip_rect,
                          Layer layer,
                          RectWithSize snap_rect) {
     // Ensure that the snap rect is at *least* one device pixel in size.
@@ -597,9 +596,9 @@ VertexInfo write_vertex(RectWithSize instance_rect,
     vec2 clamped_local_pos = clamp_rect(clamp_rect(local_pos, local_clip_rect), layer.local_clip_rect);
 
     /// Compute the snapping offset.
-    vec2 snap_offset = compute_snap_offset(clamped_local_pos, local_clip_rect, layer, snap_rect);
+    vec2 snap_offset = compute_snap_offset(clamped_local_pos, layer, snap_rect);
 
-    // Transform the current vertex to the world cpace.
+    // Transform the current vertex to world space.
     vec4 world_pos = layer.transform * vec4(clamped_local_pos, 0.0, 1.0);
 
     // Convert the world positions to device pixel space.

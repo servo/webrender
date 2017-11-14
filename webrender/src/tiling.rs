@@ -543,7 +543,10 @@ fn add_to_batch(
             let text_cpu =
                 &ctx.prim_store.cpu_text_runs[prim_metadata.cpu_prim_index.0];
 
-            let font = text_cpu.get_font(ctx.device_pixel_ratio);
+            let font = text_cpu.get_font(
+                ctx.device_pixel_ratio,
+                &scroll_node.transform,
+            );
 
             ctx.resource_cache.fetch_glyphs(
                 font,
@@ -1487,7 +1490,10 @@ impl RenderTarget for ColorRenderTarget {
                                                     [sub_metadata.cpu_prim_index.0];
                                                 let text_run_cache_prims = &mut self.text_run_cache_prims;
 
-                                                let font = text.get_font(ctx.device_pixel_ratio);
+                                                let font = text.get_font(
+                                                    ctx.device_pixel_ratio,
+                                                    &LayerToWorldTransform::identity(),
+                                                );
 
                                                 ctx.resource_cache.fetch_glyphs(
                                                     font,
