@@ -370,8 +370,9 @@ impl FrameBuilder {
 
         // If either the parent or this stacking context is preserve-3d
         // then we are in a 3D context.
-        let is_in_3d_context = parent_transform_style == TransformStyle::Preserve3D ||
-                               transform_style == TransformStyle::Preserve3D;
+        let is_in_3d_context = composite_ops.count() == 0 &&
+                               (parent_transform_style == TransformStyle::Preserve3D ||
+                                transform_style == TransformStyle::Preserve3D);
 
         // TODO(gw): For now, we don't handle filters and mix-blend-mode when there
         //           is a 3D rendering context. We can easily do this in the future
