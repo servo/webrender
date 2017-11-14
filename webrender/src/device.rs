@@ -1138,15 +1138,14 @@ impl Device {
         let (internal_format, gl_format) = gl_texture_formats_for_image_format(self.gl(), format);
         let type_ = gl_type_for_texture_format(format);
 
+        self.bind_texture(DEFAULT_TEXTURE, texture);
+        self.set_texture_parameters(texture.target, filter);
+
         match mode {
             RenderTargetMode::RenderTarget => {
-                self.bind_texture(DEFAULT_TEXTURE, texture);
-                self.set_texture_parameters(texture.target, filter);
-                self.update_texture_storage(texture, layer_count, resized);
+                self.update_texture_storage(texture, resized);
             }
             RenderTargetMode::None => {
-                self.bind_texture(DEFAULT_TEXTURE, texture);
-                self.set_texture_parameters(texture.target, filter);
                 let expanded_data: Vec<u8>;
                 let actual_pixels = if pixels.is_some() && format == ImageFormat::A8 &&
                     cfg!(any(target_arch = "arm", target_arch = "aarch64"))
@@ -1197,13 +1196,13 @@ impl Device {
 
     /// Updates the texture storage for the texture, creating
     /// FBOs as required.
-    fn update_texture_storage(&mut self, texture: &mut Texture, layer_count: i32, resized: bool) {
-        assert!(layer_count > 0);
+    fn update_texture_storage(&mut self, texture: &mut Texture, resized: bool) {
+        assert!(texture.layer_count > 0);
         assert_eq!(texture.target, gl::TEXTURE_2D_ARRAY);
 
-        let current_layer_count = texture.fbo_ids.len() as i32;
+        let needed_layer_count = texture.layer_count - texture.fbo_ids.len() as i32;
         // If the texture is already the required size skip.
-        if current_layer_count == layer_count && !resized {
+        if needed_layer_count == 0 && !resized {
             return;
         }
 
@@ -1217,42 +1216,45 @@ impl Device {
             internal_format as gl::GLint,
             texture.width as gl::GLint,
             texture.height as gl::GLint,
-            layer_count,
+            texture.layer_count,
             0,
             gl_format,
             type_,
             None,
         );
 
-        let needed_layer_count = layer_count - current_layer_count;
         if needed_layer_count > 0 {
             // Create more framebuffers to fill the gap
             let new_fbos = self.gl.gen_framebuffers(needed_layer_count);
             texture
                 .fbo_ids
-                .extend(new_fbos.into_iter().map(|id| FBOId(id)));
+                .extend(new_fbos.into_iter().map(FBOId));
         } else if needed_layer_count < 0 {
             // Remove extra framebuffers
-            for old in texture.fbo_ids.drain(layer_count as usize ..) {
+            for old in texture.fbo_ids.drain(texture.layer_count as usize ..) {
                 self.gl.delete_framebuffers(&[old.0]);
             }
         }
 
-        let depth_rb = if let Some(rbo) = texture.depth_rb {
-            rbo.0
-        } else {
-            let renderbuffer_ids = self.gl.gen_renderbuffers(1);
-            let depth_rb = renderbuffer_ids[0];
-            texture.depth_rb = Some(RBOId(depth_rb));
-            depth_rb
+        let (depth_rb, depth_alloc) = match texture.depth_rb {
+            Some(rbo) => (rbo.0, resized),
+            None => {
+                let renderbuffer_ids = self.gl.gen_renderbuffers(1);
+                let depth_rb = renderbuffer_ids[0];
+                texture.depth_rb = Some(RBOId(depth_rb));
+                (depth_rb, true)
+            }
         };
-        self.gl.bind_renderbuffer(gl::RENDERBUFFER, depth_rb);
-        self.gl.renderbuffer_storage(
-            gl::RENDERBUFFER,
-            gl::DEPTH_COMPONENT24,
-            texture.width as gl::GLsizei,
-            texture.height as gl::GLsizei,
-        );
+
+        if depth_alloc {
+            self.gl.bind_renderbuffer(gl::RENDERBUFFER, depth_rb);
+            self.gl.renderbuffer_storage(
+                gl::RENDERBUFFER,
+                gl::DEPTH_COMPONENT24,
+                texture.width as gl::GLsizei,
+                texture.height as gl::GLsizei,
+            );
+        }
 
         for (fbo_index, fbo_id) in texture.fbo_ids.iter().enumerate() {
             self.gl.bind_framebuffer(gl::FRAMEBUFFER, fbo_id.0);

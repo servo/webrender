@@ -555,10 +555,9 @@ impl SourceTextureResolver {
 
     fn end_pass(
         &mut self,
-        pass_index: usize,
-        pass_count: usize,
-        mut a8_texture: Option<Texture>,
-        mut rgba8_texture: Option<Texture>,
+        is_last: bool,
+        a8_texture: Option<Texture>,
+        rgba8_texture: Option<Texture>,
         a8_pool: &mut Vec<Texture>,
         rgba8_pool: &mut Vec<Texture>,
     ) {
@@ -566,19 +565,15 @@ impl SourceTextureResolver {
         rgba8_pool.extend(self.cache_rgba8_texture.take());
         a8_pool.extend(self.cache_a8_texture.take());
 
-        if pass_index == pass_count - 1 {
+        if is_last {
             // On the last pass, return the textures from this pass to the pool.
-            if let Some(texture) = rgba8_texture.take() {
-                rgba8_pool.push(texture);
-            }
-            if let Some(texture) = a8_texture.take() {
-                a8_pool.push(texture);
-            }
+            rgba8_pool.extend(rgba8_texture);
+            a8_pool.extend(a8_texture);
         } else {
             // We have another pass to process, make these textures available
             // as inputs to the next pass.
-            self.cache_rgba8_texture = rgba8_texture.take();
-            self.cache_a8_texture = a8_texture.take();
+            self.cache_rgba8_texture = rgba8_texture;
+            self.cache_a8_texture = a8_texture;
         }
     }
 
@@ -3464,7 +3459,10 @@ impl Renderer {
                 .clear_target(Some(self.clear_color.to_array()), Some(1.0));
         } else {
             self.start_frame(frame);
+
             let pass_count = frame.passes.len();
+            let base_color_target_count = self.color_render_targets.len();
+            let base_alpha_target_count = self.alpha_render_targets.len();
 
             for (pass_index, pass) in frame.passes.iter_mut().enumerate() {
                 self.texture_resolver.bind(
@@ -3549,8 +3547,7 @@ impl Renderer {
                 }
 
                 self.texture_resolver.end_pass(
-                    pass_index,
-                    pass_count,
+                    pass_index == pass_count - 1,
                     pass.alpha_texture.take(),
                     pass.color_texture.take(),
                     &mut self.alpha_render_targets,
@@ -3569,8 +3566,8 @@ impl Renderer {
                 }
             }
 
-            self.color_render_targets.reverse();
-            self.alpha_render_targets.reverse();
+            self.color_render_targets[base_color_target_count..].reverse();
+            self.alpha_render_targets[base_alpha_target_count..].reverse();
             self.draw_render_target_debug(framebuffer_size);
             self.draw_texture_cache_debug(framebuffer_size);
 
