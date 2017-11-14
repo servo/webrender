@@ -161,7 +161,7 @@ impl ClipScrollNode {
         parent_id: ClipId,
         frame_rect: &LayerRect,
         content_size: &LayerSize,
-        scroll_sensitivity: ScrollSensitivity,
+        scroll_sensitivity: ScrollSensitivity
     ) -> Self {
         let node_type = NodeType::ScrollFrame(ScrollingState::new(
             scroll_sensitivity,
@@ -747,7 +747,7 @@ pub struct ScrollingState {
 /// Manages scrolling offset, overscroll state, etc.
 impl ScrollingState {
     pub fn new(scroll_sensitivity: ScrollSensitivity,
-               scrollable_size: LayerSize
+               scrollable_size: LayerSize,
     ) -> ScrollingState {
         ScrollingState {
             offset: LayerVector2D::zero(),

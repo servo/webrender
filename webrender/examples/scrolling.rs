@@ -63,6 +63,7 @@ impl Example for App {
                 vec![],
                 None,
                 ScrollSensitivity::ScriptAndInputEvents,
+                IframeScrollbars::Disabled
             );
             builder.push_clip_id(clip_id);
 
@@ -91,6 +92,7 @@ impl Example for App {
                 vec![],
                 None,
                 ScrollSensitivity::ScriptAndInputEvents,
+                IframeScrollbars::Enabled
             );
             builder.push_clip_id(nested_clip_id);
 

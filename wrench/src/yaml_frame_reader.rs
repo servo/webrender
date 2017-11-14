@@ -1179,6 +1179,10 @@ impl YamlFrameReader {
         let complex_clips = self.to_complex_clip_regions(&yaml["complex"]);
         let image_mask = self.to_image_mask(&yaml["image-mask"], wrench);
 
+        let iframe_scrollbars = yaml["iframe-scrollbars"]
+            .as_iframe_scrollbars()
+            .unwrap_or(IframeScrollbars::Disabled);
+
         let id = dl.define_scroll_frame(
             id,
             content_rect,
@@ -1186,6 +1190,7 @@ impl YamlFrameReader {
             complex_clips,
             image_mask,
             ScrollSensitivity::Script,
+            iframe_scrollbars
         );
 
         if let Some(size) = yaml["scroll-offset"].as_point() {

@@ -8,7 +8,7 @@ use api::{DeviceUintRect, DeviceUintSize, DisplayItemRef, DocumentLayer, Epoch, 
 use api::{ImageDisplayItem, ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect};
 use api::{LayerSize, LayerVector2D};
 use api::{LayoutRect, LayoutSize};
-use api::{LocalClip, PipelineId, ScrollClamping, ScrollEventPhase, ScrollLayerState};
+use api::{LocalClip, PipelineId, ScrollClamping, ScrollEventPhase, ScrollLayerState, IframeScrollbars};
 use api::{ScrollLocation, ScrollPolicy, ScrollSensitivity, SpecificDisplayItem, StackingContext};
 use api::{ClipMode, TileOffset, TransformStyle, WorldPoint};
 use clip::ClipRegion;
@@ -28,7 +28,7 @@ use util::ComplexClipRegionHelpers;
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Eq, Ord)]
 pub struct FrameId(pub u32);
 
-static DEFAULT_SCROLLBAR_COLOR: ColorF = ColorF {
+pub static DEFAULT_SCROLLBAR_COLOR: ColorF = ColorF {
     r: 0.3,
     g: 0.3,
     b: 0.3,
@@ -196,6 +196,7 @@ impl<'a> FlattenContext<'a> {
         content_rect: &LayerRect,
         clip_region: ClipRegion,
         scroll_sensitivity: ScrollSensitivity,
+        enable_scrollbars: bool
     ) {
         let clip_id = self.clip_scroll_tree.generate_new_clip_id(pipeline_id);
         self.builder.add_clip_node(
@@ -213,6 +214,7 @@ impl<'a> FlattenContext<'a> {
             &frame_rect,
             &content_rect.size,
             scroll_sensitivity,
+            enable_scrollbars,
             self.clip_scroll_tree,
         );
     }
@@ -362,6 +364,7 @@ impl<'a> FlattenContext<'a> {
             &iframe_rect,
             &pipeline.content_size,
             ScrollSensitivity::ScriptAndInputEvents,
+            false,
             self.clip_scroll_tree,
         );
 
@@ -589,6 +592,9 @@ impl<'a> FlattenContext<'a> {
                     .clip_rect()
                     .translate(&reference_frame_relative_offset);
                 let content_rect = item.rect().translate(&reference_frame_relative_offset);
+
+                let enable_scrollbars = IframeScrollbars::Enabled == info.enable_scrollbars;
+
                 self.flatten_scroll_frame(
                     pipeline_id,
                     &clip_and_scroll.scroll_node_id,
@@ -597,6 +603,7 @@ impl<'a> FlattenContext<'a> {
                     &content_rect,
                     clip_region,
                     info.scroll_sensitivity,
+                    enable_scrollbars
                 );
             }
             SpecificDisplayItem::StickyFrame(ref info) => {
