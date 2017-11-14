@@ -1361,13 +1361,8 @@ impl PrimitiveStore {
 
             let local_rect = match local_rect {
                 Some(local_rect) => local_rect,
-                None => {
-                    if perform_culling {
-                        return None;
-                    } else {
-                        LayerRect::zero()
-                    }
-                }
+                None if perform_culling => return None,
+                None => LayerRect::zero(),
             };
 
             let xf_rect = TransformedRect::new(
@@ -1403,10 +1398,8 @@ impl PrimitiveStore {
             render_tasks,
             clip_store,
             parent_tasks,
-        ) {
-            if perform_culling {
-                return None;
-            }
+        ) && perform_culling {
+            return None;
         }
 
         self.prepare_prim_for_render_inner(

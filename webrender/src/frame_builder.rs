@@ -310,7 +310,7 @@ impl FrameBuilder {
             // This picture stores primitive runs for items on the
             // main framebuffer.
             let pic = PicturePrimitive::new_image(
-                PictureCompositeMode::None,
+                None,
                 false,
                 pipeline_id,
                 current_reference_frame_id,
@@ -349,8 +349,8 @@ impl FrameBuilder {
                 PictureKind::Image { ref mut composite_mode, .. } => {
                     // If not already isolated for some other reason,
                     // make this picture as isolated.
-                    if *composite_mode == PictureCompositeMode::None {
-                        *composite_mode = PictureCompositeMode::Blit;
+                    if composite_mode.is_none() {
+                        *composite_mode = Some(PictureCompositeMode::Blit);
                     }
                 }
                 PictureKind::TextShadow { .. } |
@@ -394,7 +394,7 @@ impl FrameBuilder {
             // For each filter, create a new image with that composite mode.
             for filter in &composite_ops.filters {
                 let src_prim = PicturePrimitive::new_image(
-                    PictureCompositeMode::Filter(*filter),
+                    Some(PictureCompositeMode::Filter(*filter)),
                     false,
                     pipeline_id,
                     current_reference_frame_id,
@@ -424,7 +424,7 @@ impl FrameBuilder {
             // Same for mix-blend-mode.
             if let Some(mix_blend_mode) = composite_ops.mix_blend_mode {
                 let src_prim = PicturePrimitive::new_image(
-                    PictureCompositeMode::MixBlend(mix_blend_mode),
+                    Some(PictureCompositeMode::MixBlend(mix_blend_mode)),
                     false,
                     pipeline_id,
                     current_reference_frame_id,
@@ -456,13 +456,13 @@ impl FrameBuilder {
 
         // By default, this picture will be collapsed into
         // the owning target.
-        let mut composite_mode = PictureCompositeMode::None;
+        let mut composite_mode = None;
         let mut frame_output_pipeline_id = None;
 
         // If this stacking context if the root of a pipeline, and the caller
         // has requested it as an output frame, create a render task to isolate it.
         if is_pipeline_root && output_pipelines.contains(&pipeline_id) {
-            composite_mode = PictureCompositeMode::Blit;
+            composite_mode = Some(PictureCompositeMode::Blit);
             frame_output_pipeline_id = Some(pipeline_id);
         }
 
@@ -474,7 +474,7 @@ impl FrameBuilder {
             //           During culling, we can check if there is actually
             //           perspective present, and skip the plane splitting
             //           completely when that is not the case.
-            composite_mode = PictureCompositeMode::Blit;
+            composite_mode = Some(PictureCompositeMode::Blit);
         }
 
         // Add picture for this actual stacking context contents to render into.
