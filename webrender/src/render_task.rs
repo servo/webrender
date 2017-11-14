@@ -678,11 +678,28 @@ impl RenderTask {
 
     pub fn get_target_rect(&self) -> (DeviceIntRect, RenderTargetIndex) {
         match self.location {
-            RenderTaskLocation::Fixed => (DeviceIntRect::zero(), RenderTargetIndex(0)),
-            RenderTaskLocation::Dynamic(origin_and_target_index, size) => {
-                let (origin, target_index) =
-                    origin_and_target_index.expect("Should have been allocated by now!");
+            RenderTaskLocation::Fixed => {
+                (DeviceIntRect::zero(), RenderTargetIndex(0))
+            }
+            // Previously, we only added render tasks after the entire
+            // primitive chain was determined visible. This meant that
+            // we could assert any render task in the list was also
+            // allocated (assigned to passes). Now, we add render
+            // tasks earlier, and the picture they belong to may be
+            // culled out later, so we can't assert that the task
+            // has been allocated.
+            // Render tasks that are created but not assigned to
+            // passes consume a row in the render task texture, but
+            // don't allocate any space in render targets nor
+            // draw any pixels.
+            // TODO(gw): Consider some kind of tag or other method
+            //           to mark a task as unused explicitly. This
+            //           would allow us to restore this debug check.
+            RenderTaskLocation::Dynamic(Some((origin, target_index)), size) => {
                 (DeviceIntRect::new(origin, size), target_index)
+            }
+            RenderTaskLocation::Dynamic(None, _) => {
+                (DeviceIntRect::zero(), RenderTargetIndex(0))
             }
         }
     }
