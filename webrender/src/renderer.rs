@@ -1344,10 +1344,13 @@ impl Renderer {
             notifier: notifier.clone(),
         };
 
+        let enable_program_binary = options.enable_program_binary;
+
         let mut device = Device::new(
             gl,
             options.resource_override_path.clone(),
             Box::new(file_watch_handler),
+            enable_program_binary,
         );
 
         let device_max_size = device.max_texture_size();
@@ -3791,6 +3794,11 @@ impl Renderer {
         self.ps_composite.deinit(&mut self.device);
         self.device.end_frame();
     }
+
+    #[allow(dead_code)]
+    pub fn clear_cached_program_binaries() {
+        Device::clear_cached_program_binaries();
+    }
 }
 
 pub enum ExternalImageSource<'a> {
@@ -3868,6 +3876,7 @@ pub struct RendererOptions {
     pub recorder: Option<Box<ApiRecordingReceiver>>,
     pub thread_listener: Option<Box<ThreadListener + Send + Sync>>,
     pub enable_render_on_scroll: bool,
+    pub enable_program_binary: bool,
     pub debug_flags: DebugFlags,
     pub renderer_id: Option<u64>,
 }
@@ -3897,6 +3906,7 @@ impl Default for RendererOptions {
             thread_listener: None,
             enable_render_on_scroll: true,
             renderer_id: None,
+            enable_program_binary: false,
         }
     }
 }

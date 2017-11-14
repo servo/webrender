@@ -8,6 +8,7 @@ use api::{DeviceIntRect, DeviceUintSize};
 use euclid::Transform3D;
 use gleam::gl;
 use internal_types::RenderTargetMode;
+use internal_types::FastHashMap;
 use std::fs::File;
 use std::io::Read;
 use std::iter::repeat;
@@ -16,6 +17,7 @@ use std::ops::Add;
 use std::path::PathBuf;
 use std::ptr;
 use std::rc::Rc;
+use std::sync::RwLock;
 use std::thread;
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, Eq, PartialOrd)]
@@ -485,6 +487,41 @@ pub struct VBOId(gl::GLuint);
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 struct IBOId(gl::GLuint);
 
+struct ProgramBinary {
+    pub binary: Vec<u8>,
+    pub format: gl::GLenum
+}
+
+impl ProgramBinary {
+    pub fn new(binary: Vec<u8>, format: gl::GLenum) -> Self {
+        ProgramBinary {
+            binary,
+            format
+        }
+    }
+}
+
+#[derive(PartialEq, Eq, Hash, Debug)]
+struct ProgramSources {
+    pub renderer_name: String,
+    pub vs_source: String,
+    pub fs_source: String
+}
+
+impl ProgramSources {
+    pub fn new(renderer_name: String, vs_source: String, fs_source: String) -> Self {
+        ProgramSources {
+            renderer_name,
+            vs_source,
+            fs_source,
+        }
+    }
+}
+
+lazy_static! {
+    static ref PROGRAM_BINARIES: RwLock<FastHashMap<ProgramSources, ProgramBinary>> = RwLock::new(FastHashMap::default());
+}
+
 #[cfg(feature = "query")]
 const MAX_PROFILE_FRAMES: usize = 4;
 
@@ -846,6 +883,8 @@ pub struct Device {
     resource_override_path: Option<PathBuf>,
 
     max_texture_size: u32,
+    renderer_name: String,
+    enable_program_binary: bool,
 
     // Frame counter. This is used to map between CPU
     // frames and GPU frames.
@@ -857,8 +896,10 @@ impl Device {
         gl: Rc<gl::Gl>,
         resource_override_path: Option<PathBuf>,
         _file_changed_handler: Box<FileWatcherHandler>,
+        enable_program_binary: bool,
     ) -> Device {
         let max_texture_size = gl.get_integer_v(gl::MAX_TEXTURE_SIZE) as u32;
+        let renderer_name = gl.get_string(gl::RENDERER);
 
         Device {
             gl,
@@ -882,6 +923,8 @@ impl Device {
             default_draw_fbo: 0,
 
             max_texture_size,
+            renderer_name,
+            enable_program_binary,
             frame_id: FrameId(0),
         }
     }
@@ -914,7 +957,7 @@ impl Device {
         gl: &gl::Gl,
         name: &str,
         shader_type: gl::GLenum,
-        source: String,
+        source: &String,
     ) -> Result<gl::GLuint, ShaderError> {
         debug!("compile {:?}", name);
         let id = gl.create_shader(shader_type);
@@ -1386,59 +1429,109 @@ impl Device {
             &self.resource_override_path,
         );
 
-        // Compile the vertex shader
-        let vs_id =
-            match Device::compile_shader(&*self.gl, base_filename, gl::VERTEX_SHADER, vs_source) {
-                Ok(vs_id) => vs_id,
-                Err(err) => return Err(err),
-            };
+        let sources = ProgramSources::new(self.renderer_name.clone(), vs_source, fs_source);
 
-        // Compiler the fragment shader
-        let fs_id =
-            match Device::compile_shader(&*self.gl, base_filename, gl::FRAGMENT_SHADER, fs_source) {
-                Ok(fs_id) => fs_id,
-                Err(err) => {
-                    self.gl.delete_shader(vs_id);
-                    return Err(err);
-                }
-            };
-
-        // Create program and attach shaders
+        // Create program
         let pid = self.gl.create_program();
-        self.gl.attach_shader(pid, vs_id);
-        self.gl.attach_shader(pid, fs_id);
 
-        // Bind vertex attributes
-        for (i, attr) in descriptor
-            .vertex_attributes
-            .iter()
-            .chain(descriptor.instance_attributes.iter())
-            .enumerate()
-        {
-            self.gl
-                .bind_attrib_location(pid, i as gl::GLuint, attr.name);
+        let mut loaded = false;
+
+        if self.enable_program_binary {
+            if let Some(binary) = PROGRAM_BINARIES.read().unwrap().get(&sources)
+            {
+                self.gl.program_binary(pid, binary.format, &binary.binary);
+
+                if self.gl.get_program_iv(pid, gl::LINK_STATUS) == (0 as gl::GLint) {
+                    let error_log = self.gl.get_program_info_log(pid);
+                    println!(
+                      "Failed to load a program object with a program binary: {:?} renderer {}\n{}",
+                      base_filename,
+                      self.renderer_name,
+                      error_log
+                    );
+                } else {
+                    // Bind vertex attributes
+                    for (i, attr) in descriptor
+                        .vertex_attributes
+                        .iter()
+                        .chain(descriptor.instance_attributes.iter())
+                        .enumerate()
+                    {
+                        self.gl
+                            .bind_attrib_location(pid, i as gl::GLuint, attr.name);
+                    }
+                    loaded = true;
+                }
+            }
         }
 
-        // Link!
-        self.gl.link_program(pid);
+        if loaded == false {
+            // Compile the vertex shader
+            let vs_id =
+                match Device::compile_shader(&*self.gl, base_filename, gl::VERTEX_SHADER, &sources.vs_source) {
+                    Ok(vs_id) => vs_id,
+                    Err(err) => return Err(err),
+                };
 
-        // GL recommends detaching and deleting shaders once the link
-        // is complete (whether successful or not). This allows the driver
-        // to free any memory associated with the parsing and compilation.
-        self.gl.detach_shader(pid, vs_id);
-        self.gl.detach_shader(pid, fs_id);
-        self.gl.delete_shader(vs_id);
-        self.gl.delete_shader(fs_id);
+            // Compiler the fragment shader
+            let fs_id =
+                match Device::compile_shader(&*self.gl, base_filename, gl::FRAGMENT_SHADER, &sources.fs_source) {
+                    Ok(fs_id) => fs_id,
+                    Err(err) => {
+                        self.gl.delete_shader(vs_id);
+                        return Err(err);
+                    }
+                };
 
-        if self.gl.get_program_iv(pid, gl::LINK_STATUS) == (0 as gl::GLint) {
-            let error_log = self.gl.get_program_info_log(pid);
-            println!(
-                "Failed to link shader program: {:?}\n{}",
-                base_filename,
-                error_log
-            );
-            self.gl.delete_program(pid);
-            return Err(ShaderError::Link(base_filename.to_string(), error_log));
+            // Attach shaders
+            self.gl.attach_shader(pid, vs_id);
+            self.gl.attach_shader(pid, fs_id);
+
+            // Bind vertex attributes
+            for (i, attr) in descriptor
+                .vertex_attributes
+                .iter()
+                .chain(descriptor.instance_attributes.iter())
+                .enumerate()
+            {
+                self.gl
+                    .bind_attrib_location(pid, i as gl::GLuint, attr.name);
+            }
+
+            if self.enable_program_binary {
+                self.gl.program_parameter_i(pid, gl::PROGRAM_BINARY_RETRIEVABLE_HINT, gl::TRUE as gl::GLint);
+            }
+
+            // Link!
+            self.gl.link_program(pid);
+
+            // GL recommends detaching and deleting shaders once the link
+            // is complete (whether successful or not). This allows the driver
+            // to free any memory associated with the parsing and compilation.
+            self.gl.detach_shader(pid, vs_id);
+            self.gl.detach_shader(pid, fs_id);
+            self.gl.delete_shader(vs_id);
+            self.gl.delete_shader(fs_id);
+
+            if self.gl.get_program_iv(pid, gl::LINK_STATUS) == (0 as gl::GLint) {
+                let error_log = self.gl.get_program_info_log(pid);
+                println!(
+                    "Failed to link shader program: {:?}\n{}",
+                    base_filename,
+                    error_log
+                );
+                self.gl.delete_program(pid);
+                return Err(ShaderError::Link(base_filename.to_string(), error_log));
+            }
+        }
+
+        if self.enable_program_binary {
+            if !PROGRAM_BINARIES.read().unwrap().contains_key(&sources) {
+                let (buffer, format) = self.gl.get_program_binary(pid);
+                if buffer.len() > 0 {
+                  PROGRAM_BINARIES.write().unwrap().insert(sources, ProgramBinary::new(buffer, format));
+                }
+            }
         }
 
         let u_transform = self.gl.get_uniform_location(pid, "uTransform");
@@ -1921,6 +2014,10 @@ impl Device {
         self.gl
             .blend_func(gl::CONSTANT_COLOR, gl::ONE_MINUS_SRC_COLOR);
         self.gl.blend_equation(gl::FUNC_ADD);
+    }
+
+    pub fn clear_cached_program_binaries() {
+        PROGRAM_BINARIES.write().unwrap().clear();
     }
 }
 
