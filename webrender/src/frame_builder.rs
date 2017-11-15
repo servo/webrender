@@ -1544,6 +1544,8 @@ impl FrameBuilder {
 
         let mut child_tasks = Vec::new();
 
+        self.prim_store.reset_prim_visibility();
+
         self.prim_store.prepare_prim_runs(
             &prim_run_cmds,
             root_clip_scroll_node.pipeline_id,

@@ -1435,6 +1435,14 @@ impl PrimitiveStore {
         Some(local_rect)
     }
 
+    // TODO(gw): Make this simpler / more efficient by tidying
+    //           up the logic that early outs from prepare_prim_for_render.
+    pub fn reset_prim_visibility(&mut self) {
+        for md in &mut self.cpu_metadata {
+            md.screen_rect = None;
+        }
+    }
+
     pub fn prepare_prim_runs(
         &mut self,
         runs: &[PrimitiveRun],
