@@ -56,7 +56,7 @@ impl PrimitiveRun {
         task_address: RenderTaskAddress,
         deferred_resolves: &mut Vec<DeferredResolve>,
         glyph_fetch_buffer: &mut Vec<GlyphFetchResult>,
-        splitter: &mut Option<BspSplitter<f64, WorldPixel>>,
+        splitter: &mut BspSplitter<f64, WorldPixel>,
     ) {
         for i in 0 .. self.count {
             let prim_index = PrimitiveIndex(self.base_prim_index.0 + i);
@@ -353,7 +353,7 @@ fn add_to_batch(
     task_address: RenderTaskAddress,
     deferred_resolves: &mut Vec<DeferredResolve>,
     glyph_fetch_buffer: &mut Vec<GlyphFetchResult>,
-    splitter: &mut Option<BspSplitter<f64, WorldPixel>>,
+    splitter: &mut BspSplitter<f64, WorldPixel>,
 ) {
     let z = prim_index.0 as i32;
     let prim_metadata = ctx.prim_store.get_metadata(prim_index);
@@ -633,7 +633,7 @@ fn add_to_batch(
                                     prim_index.0,
                                 );
 
-                                splitter.as_mut().unwrap().add(polygon);
+                                splitter.add(polygon);
 
                                 return;
                             }
@@ -646,7 +646,7 @@ fn add_to_batch(
                             // to picture compositing operations.
                             let source_id = picture.render_task_id.expect("no source!?");
 
-                            match composite_mode {
+                            match composite_mode.expect("bug: only composites here") {
                                 PictureCompositeMode::Filter(filter) => {
                                     match filter {
                                         FilterOp::Blur(..) => {
@@ -709,7 +709,7 @@ fn add_to_batch(
                                         }
                                     }
                                 }
-                                PictureCompositeMode::MixBlendMode(mode) => {
+                                PictureCompositeMode::MixBlend(mode) => {
                                     let backdrop_id = readback_render_task_id.expect("no backdrop!?");
 
                                     let key = BatchKey::new(
@@ -758,9 +758,6 @@ fn add_to_batch(
                                     );
 
                                     batch.push(PrimitiveInstance::from(instance));
-                                }
-                                PictureCompositeMode::None => {
-                                    unreachable!();
                                 }
                             }
                         }
@@ -910,9 +907,9 @@ impl PicturePrimitive {
     ) {
         let task_address = render_tasks.get_task_address(task_id);
 
-        // TODO(gw): We could avoid creating the splitter here if we know
-        // that nothing will add plane split pictures here.
-        let mut splitter = Some(BspSplitter::new());
+        // Even though most of the time a splitter isn't used or needed,
+        // they are cheap to construct so we will always pass one down.
+        let mut splitter = BspSplitter::new();
 
         // Add each run in this picture to the batch.
         for run in &self.runs {
@@ -939,41 +936,39 @@ impl PicturePrimitive {
 
         // Flush the accumulated plane splits onto the task tree.
         // Z axis is directed at the screen, `sort` is ascending, and we need back-to-front order.
-        if let Some(mut splitter) = splitter {
-            for poly in splitter.sort(vec3(0.0, 0.0, 1.0)) {
-                let prim_index = PrimitiveIndex(poly.anchor);
-                debug!("process sorted poly {:?} {:?}", prim_index, poly.points);
-                let pp = &poly.points;
-                let gpu_blocks = [
-                    [pp[0].x as f32, pp[0].y as f32, pp[0].z as f32, pp[1].x as f32].into(),
-                    [pp[1].y as f32, pp[1].z as f32, pp[2].x as f32, pp[2].y as f32].into(),
-                    [pp[2].z as f32, pp[3].x as f32, pp[3].y as f32, pp[3].z as f32].into(),
-                ];
-                let gpu_handle = gpu_cache.push_per_frame_blocks(&gpu_blocks);
-                let key = BatchKey::new(
-                    BatchKind::SplitComposite,
-                    BlendMode::PremultipliedAlpha,
-                    BatchTextures::no_texture(),
-                );
-                let pic_metadata = &ctx.prim_store.cpu_metadata[prim_index.0];
-                let pic = &ctx.prim_store.cpu_pictures[pic_metadata.cpu_prim_index.0];
-                let batch = batch_list.get_suitable_batch(key, pic_metadata.screen_rect.as_ref().expect("bug"));
-                let source_task_address = render_tasks.get_task_address(pic.render_task_id.expect("bug"));
-                let gpu_address = gpu_handle.as_int(gpu_cache);
+        for poly in splitter.sort(vec3(0.0, 0.0, 1.0)) {
+            let prim_index = PrimitiveIndex(poly.anchor);
+            debug!("process sorted poly {:?} {:?}", prim_index, poly.points);
+            let pp = &poly.points;
+            let gpu_blocks = [
+                [pp[0].x as f32, pp[0].y as f32, pp[0].z as f32, pp[1].x as f32].into(),
+                [pp[1].y as f32, pp[1].z as f32, pp[2].x as f32, pp[2].y as f32].into(),
+                [pp[2].z as f32, pp[3].x as f32, pp[3].y as f32, pp[3].z as f32].into(),
+            ];
+            let gpu_handle = gpu_cache.push_per_frame_blocks(&gpu_blocks);
+            let key = BatchKey::new(
+                BatchKind::SplitComposite,
+                BlendMode::PremultipliedAlpha,
+                BatchTextures::no_texture(),
+            );
+            let pic_metadata = &ctx.prim_store.cpu_metadata[prim_index.0];
+            let pic = &ctx.prim_store.cpu_pictures[pic_metadata.cpu_prim_index.0];
+            let batch = batch_list.get_suitable_batch(key, pic_metadata.screen_rect.as_ref().expect("bug"));
+            let source_task_address = render_tasks.get_task_address(pic.render_task_id.expect("bug"));
+            let gpu_address = gpu_handle.as_int(gpu_cache);
 
-                let instance = CompositePrimitiveInstance::new(
-                    task_address,
-                    source_task_address,
-                    RenderTaskAddress(0),
-                    gpu_address,
-                    0,
-                    prim_index.0 as i32,
-                    0,
-                    0,
-                );
+            let instance = CompositePrimitiveInstance::new(
+                task_address,
+                source_task_address,
+                RenderTaskAddress(0),
+                gpu_address,
+                0,
+                prim_index.0 as i32,
+                0,
+                0,
+            );
 
-                batch.push(PrimitiveInstance::from(instance));
-            }
+            batch.push(PrimitiveInstance::from(instance));
         }
     }
 }

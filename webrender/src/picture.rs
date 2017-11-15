@@ -9,7 +9,7 @@ use api::{ClipId, PremultipliedColorF};
 use box_shadow::BLUR_SAMPLE_SCALE;
 use frame_builder::PrimitiveContext;
 use gpu_cache::GpuDataRequest;
-use prim_store::{PrimitiveIndex, PrimitiveRun};
+use prim_store::{PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
 use render_task::{ClearMode, RenderTask, RenderTaskId, RenderTaskTree};
 use tiling::RenderTargetKind;
 
@@ -27,10 +27,8 @@ use tiling::RenderTargetKind;
 /// onto the target it belongs to.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum PictureCompositeMode {
-    /// Don't composite - just draw directly on parent surface.
-    None,
     /// Apply CSS mix-blend-mode effect.
-    MixBlendMode(MixBlendMode),
+    MixBlend(MixBlendMode),
     /// Apply a CSS filter.
     Filter(FilterOp),
     /// Draw to intermediate surface, copy straight across. This
@@ -59,8 +57,9 @@ pub enum PictureKind {
         // the readback of the framebuffer that we use to sample
         // from in the mix-blend-mode shader.
         readback_render_task_id: Option<RenderTaskId>,
-        // How this picture should be composited.
-        composite_mode: PictureCompositeMode,
+        /// How this picture should be composited.
+        /// If None, don't composite - just draw directly on parent surface.
+        composite_mode: Option<PictureCompositeMode>,
         // If true, this picture is part of a 3D context.
         is_in_3d_context: bool,
         // If requested as a frame output (for rendering
@@ -141,7 +140,7 @@ impl PicturePrimitive {
     }
 
     pub fn new_image(
-        composite_mode: PictureCompositeMode,
+        composite_mode: Option<PictureCompositeMode>,
         is_in_3d_context: bool,
         pipeline_id: PipelineId,
         reference_frame_id: ClipId,
@@ -184,16 +183,17 @@ impl PicturePrimitive {
     }
 
     pub fn update_local_rect(&mut self,
-        local_rect: LayerRect,
-        local_content_rect: LayerRect,
-        local_content_rect2: LayerRect,
+        prim_local_rect: LayerRect,
+        prim_run_rect: PrimitiveRunLocalRect,
     ) -> LayerRect {
+        let local_content_rect = prim_run_rect.local_rect_in_actual_parent_space;
+
         match self.kind {
             PictureKind::Image { composite_mode, ref mut real_local_rect, .. } => {
-                *real_local_rect = local_content_rect2;
+                *real_local_rect = prim_run_rect.local_rect_in_original_parent_space;
 
                 match composite_mode {
-                    PictureCompositeMode::Filter(FilterOp::Blur(blur_radius)) => {
+                    Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
                         let inflate_size = blur_radius * BLUR_SAMPLE_SCALE;
                         local_content_rect.inflate(inflate_size, inflate_size)
                     }
@@ -249,7 +249,7 @@ impl PicturePrimitive {
                     }
                 }
 
-                local_rect
+                prim_local_rect
             }
         }
     }
@@ -271,7 +271,7 @@ impl PicturePrimitive {
                 ..
             } => {
                 match composite_mode {
-                    PictureCompositeMode::Filter(FilterOp::Blur(blur_radius)) => {
+                    Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
                         let picture_task = RenderTask::new_dynamic_alpha_batch(
                             screen_rect,
                             prim_index,
@@ -296,7 +296,7 @@ impl PicturePrimitive {
                         let blur_render_task_id = render_tasks.add(blur_render_task);
                         self.render_task_id = Some(blur_render_task_id);
                     }
-                    PictureCompositeMode::MixBlendMode(..) => {
+                    Some(PictureCompositeMode::MixBlend(..)) => {
                         let picture_task = RenderTask::new_dynamic_alpha_batch(
                             screen_rect,
                             prim_index,
@@ -311,7 +311,7 @@ impl PicturePrimitive {
 
                         self.render_task_id = Some(render_tasks.add(picture_task));
                     }
-                    PictureCompositeMode::Filter(..) | PictureCompositeMode::Blit => {
+                    Some(PictureCompositeMode::Filter(..)) | Some(PictureCompositeMode::Blit) => {
                         let picture_task = RenderTask::new_dynamic_alpha_batch(
                             screen_rect,
                             prim_index,
@@ -321,7 +321,7 @@ impl PicturePrimitive {
 
                         self.render_task_id = Some(render_tasks.add(picture_task));
                     }
-                    PictureCompositeMode::None => {
+                    None => {
                         parent_tasks.extend(child_tasks);
                         self.render_task_id = None;
                     }

@@ -48,6 +48,7 @@ struct FlattenContext<'a> {
     opaque_parts: Vec<LayoutRect>,
     /// Same for the transparent rectangles.
     transparent_parts: Vec<LayoutRect>,
+    output_pipelines: &'a FastHashSet<PipelineId>,
 }
 
 impl<'a> FlattenContext<'a> {
@@ -87,7 +88,6 @@ impl<'a> FlattenContext<'a> {
         frame_size: &LayoutSize,
         root_reference_frame_id: ClipId,
         root_scroll_frame_id: ClipId,
-        output_pipelines: &FastHashSet<PipelineId>,
     ) {
         let clip_id = ClipId::root_scroll_node(pipeline_id);
 
@@ -98,7 +98,7 @@ impl<'a> FlattenContext<'a> {
             true,
             true,
             ClipAndScrollInfo::simple(clip_id),
-            output_pipelines,
+            self.output_pipelines,
         );
 
         // For the root pipeline, there's no need to add a full screen rectangle
@@ -123,7 +123,6 @@ impl<'a> FlattenContext<'a> {
             traversal,
             pipeline_id,
             LayerVector2D::zero(),
-            output_pipelines,
         );
 
         if self.builder.config.enable_scrollbars {
@@ -145,7 +144,6 @@ impl<'a> FlattenContext<'a> {
         traversal: &mut BuiltDisplayListIter<'a>,
         pipeline_id: PipelineId,
         reference_frame_relative_offset: LayerVector2D,
-        output_pipelines: &FastHashSet<PipelineId>,
     ) {
         loop {
             let subtraversal = {
@@ -162,7 +160,6 @@ impl<'a> FlattenContext<'a> {
                     item,
                     pipeline_id,
                     reference_frame_relative_offset,
-                    output_pipelines,
                 )
             };
 
@@ -230,7 +227,6 @@ impl<'a> FlattenContext<'a> {
         stacking_context: &StackingContext,
         filters: ItemRange<FilterOp>,
         is_backface_visible: bool,
-        output_pipelines: &FastHashSet<PipelineId>,
     ) {
         // Avoid doing unnecessary work for empty stacking contexts.
         if traversal.current_stacking_context_empty() {
@@ -267,7 +263,7 @@ impl<'a> FlattenContext<'a> {
         // that fixed position stacking contexts are positioned relative to us.
         let is_reference_frame =
             stacking_context.transform.is_some() || stacking_context.perspective.is_some();
-        let sc_scroll_node_id = if is_reference_frame {
+        if is_reference_frame {
             let transform = stacking_context.transform.as_ref();
             let transform = self.scene.properties.resolve_layout_transform(transform);
             let perspective = stacking_context
@@ -291,16 +287,14 @@ impl<'a> FlattenContext<'a> {
             );
             self.replacements.push((context_scroll_node_id, clip_id));
             reference_frame_relative_offset = LayerVector2D::zero();
-
-            clip_id
         } else {
             reference_frame_relative_offset = LayerVector2D::new(
                 reference_frame_relative_offset.x + bounds.origin.x,
                 reference_frame_relative_offset.y + bounds.origin.y,
             );
-
-            context_scroll_node_id
         };
+
+        let sc_scroll_node_id = self.apply_scroll_frame_id_replacement(context_scroll_node_id);
 
         self.builder.push_stacking_context(
             pipeline_id,
@@ -309,14 +303,13 @@ impl<'a> FlattenContext<'a> {
             is_backface_visible,
             false,
             ClipAndScrollInfo::simple(sc_scroll_node_id),
-            output_pipelines,
+            self.output_pipelines,
         );
 
         self.flatten_items(
             traversal,
             pipeline_id,
             reference_frame_relative_offset,
-            output_pipelines,
         );
 
         if stacking_context.scroll_policy == ScrollPolicy::Fixed {
@@ -338,7 +331,6 @@ impl<'a> FlattenContext<'a> {
         bounds: &LayerRect,
         local_clip: &LocalClip,
         reference_frame_relative_offset: LayerVector2D,
-        output_pipelines: &FastHashSet<PipelineId>,
     ) {
         let pipeline = match self.scene.pipelines.get(&pipeline_id) {
             Some(pipeline) => pipeline,
@@ -391,7 +383,6 @@ impl<'a> FlattenContext<'a> {
             &iframe_rect.size,
             iframe_reference_frame_id,
             ClipId::root_scroll_node(pipeline_id),
-            output_pipelines,
         );
 
         self.builder.pop_reference_frame();
@@ -402,7 +393,6 @@ impl<'a> FlattenContext<'a> {
         item: DisplayItemRef<'a, 'b>,
         pipeline_id: PipelineId,
         reference_frame_relative_offset: LayerVector2D,
-        output_pipelines: &FastHashSet<PipelineId>,
     ) -> Option<BuiltDisplayListIter<'a>> {
         let mut clip_and_scroll = item.clip_and_scroll();
 
@@ -568,7 +558,6 @@ impl<'a> FlattenContext<'a> {
                     &info.stacking_context,
                     item.filters(),
                     prim_info.is_backface_visible,
-                    output_pipelines,
                 );
                 return Some(subtraversal);
             }
@@ -579,7 +568,6 @@ impl<'a> FlattenContext<'a> {
                     &item.rect(),
                     &item.local_clip(),
                     reference_frame_relative_offset,
-                    output_pipelines,
                 );
             }
             SpecificDisplayItem::Clip(ref info) => {
@@ -1151,6 +1139,7 @@ impl FrameContext {
                 replacements: Vec::new(),
                 opaque_parts: Vec::new(),
                 transparent_parts: Vec::new(),
+                output_pipelines,
             };
 
             roller.builder.push_root(
@@ -1175,7 +1164,6 @@ impl FrameContext {
                 &root_pipeline.viewport_size,
                 reference_frame_id,
                 scroll_frame_id,
-                output_pipelines,
             );
 
             debug_assert!(roller.builder.picture_stack.is_empty());

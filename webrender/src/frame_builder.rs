@@ -14,7 +14,7 @@ use api::{ScrollSensitivity, Shadow, TileOffset, TransformStyle};
 use api::{WorldPoint, YuvColorSpace, YuvData};
 use app_units::Au;
 use border::ImageBorderSegment;
-use clip::{ClipRegion, ClipSource, ClipSources, ClipStore, Contains};
+use clip::{ClipRegion, ClipSource, ClipSources, ClipStore, Contains, MAX_CLIP};
 use clip_scroll_node::{ClipScrollNode, NodeType};
 use clip_scroll_tree::ClipScrollTree;
 use euclid::{SideOffsets2D, vec2};
@@ -29,7 +29,7 @@ use prim_store::{PrimitiveContainer, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
 use prim_store::{RectangleContent, RectanglePrimitive, TextRunPrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
-use render_task::{RenderTask, RenderTaskId, RenderTaskLocation};
+use render_task::{RenderTask, RenderTaskLocation};
 use render_task::RenderTaskTree;
 use resource_cache::ResourceCache;
 use scene::ScenePipeline;
@@ -297,20 +297,20 @@ impl FrameBuilder {
         // to them, as for a normal primitive. This is needed
         // to correctly handle some CSS cases (see #1957).
         let max_clip = LayerRect::new(
-            LayerPoint::new(-1000000.0, -1000000.0),
-            LayerSize::new(  2000000.0,  2000000.0),
+            LayerPoint::new(-MAX_CLIP, -MAX_CLIP),
+            LayerSize::new(2.0 * MAX_CLIP, 2.0 * MAX_CLIP),
         );
 
         // If there is no root picture, create one for the main framebuffer.
         if self.sc_stack.is_empty() {
             // Should be no pictures at all if the stack is empty...
             debug_assert!(self.prim_store.cpu_pictures.is_empty());
-            debug_assert!(transform_style == TransformStyle::Flat);
+            debug_assert_eq!(transform_style, TransformStyle::Flat);
 
             // This picture stores primitive runs for items on the
             // main framebuffer.
             let pic = PicturePrimitive::new_image(
-                PictureCompositeMode::None,
+                None,
                 false,
                 pipeline_id,
                 current_reference_frame_id,
@@ -347,9 +347,11 @@ impl FrameBuilder {
 
             match parent_pic.kind {
                 PictureKind::Image { ref mut composite_mode, .. } => {
-                    // TODO(gw): Handle isolation conflicts here by
-                    //           creating a new picture.
-                    *composite_mode = PictureCompositeMode::Blit;
+                    // If not already isolated for some other reason,
+                    // make this picture as isolated.
+                    if composite_mode.is_none() {
+                        *composite_mode = Some(PictureCompositeMode::Blit);
+                    }
                 }
                 PictureKind::TextShadow { .. } |
                 PictureKind::BoxShadow { .. } => {
@@ -368,15 +370,16 @@ impl FrameBuilder {
 
         // If either the parent or this stacking context is preserve-3d
         // then we are in a 3D context.
-        let is_in_3d_context = parent_transform_style == TransformStyle::Preserve3D ||
-                               transform_style == TransformStyle::Preserve3D;
+        let is_in_3d_context = composite_ops.count() == 0 &&
+                               (parent_transform_style == TransformStyle::Preserve3D ||
+                                transform_style == TransformStyle::Preserve3D);
 
         // TODO(gw): For now, we don't handle filters and mix-blend-mode when there
         //           is a 3D rendering context. We can easily do this in the future
         //           by creating a chain of pictures for the effects, and ensuring
         //           that the last composited picture is what's used as the input to
         //           the plane splitting code.
-        let parent_pic_prim_index = if is_in_3d_context {
+        let mut parent_pic_prim_index = if is_in_3d_context {
             // If we're in a 3D context, we will parent the picture
             // to the first stacking context we find in the stack that
             // is transform-style: flat. This follows the spec
@@ -389,78 +392,80 @@ impl FrameBuilder {
                 .map(|sc| sc.pic_prim_index)
                 .unwrap()
         } else {
-            // For each filter, create a new image with that composite mode.
-            for filter in &composite_ops.filters {
-                let src_prim = PicturePrimitive::new_image(
-                    PictureCompositeMode::Filter(*filter),
-                    false,
-                    pipeline_id,
-                    current_reference_frame_id,
-                    None,
-                );
-                let src_clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
-
-                let src_prim_index = self.prim_store.add_primitive(
-                    &LayerRect::zero(),
-                    &max_clip,
-                    is_backface_visible,
-                    src_clip_sources,
-                    None,
-                    PrimitiveContainer::Picture(src_prim),
-                );
-
-                let pic_prim_index = self.prim_store.cpu_metadata[self.picture_stack.last().unwrap().0].cpu_prim_index;
-                let pic = &mut self.prim_store.cpu_pictures[pic_prim_index.0];
-                pic.add_primitive(
-                    src_prim_index,
-                    clip_and_scroll,
-                );
-
-                self.picture_stack.push(src_prim_index);
-            }
-
-            // Same for mix-blend-mode.
-            if let Some(mix_blend_mode) = composite_ops.mix_blend_mode {
-                let src_prim = PicturePrimitive::new_image(
-                    PictureCompositeMode::MixBlendMode(mix_blend_mode),
-                    false,
-                    pipeline_id,
-                    current_reference_frame_id,
-                    None,
-                );
-                let src_clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
-
-                let src_prim_index = self.prim_store.add_primitive(
-                    &LayerRect::zero(),
-                    &max_clip,
-                    is_backface_visible,
-                    src_clip_sources,
-                    None,
-                    PrimitiveContainer::Picture(src_prim),
-                );
-
-                let pic_prim_index = self.prim_store.cpu_metadata[self.picture_stack.last().unwrap().0].cpu_prim_index;
-                let pic = &mut self.prim_store.cpu_pictures[pic_prim_index.0];
-                pic.add_primitive(
-                    src_prim_index,
-                    clip_and_scroll,
-                );
-
-                self.picture_stack.push(src_prim_index);
-            }
-
             *self.picture_stack.last().unwrap()
         };
 
+        // For each filter, create a new image with that composite mode.
+        for filter in &composite_ops.filters {
+            let src_prim = PicturePrimitive::new_image(
+                Some(PictureCompositeMode::Filter(*filter)),
+                false,
+                pipeline_id,
+                current_reference_frame_id,
+                None,
+            );
+            let src_clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
+
+            let src_prim_index = self.prim_store.add_primitive(
+                &LayerRect::zero(),
+                &max_clip,
+                is_backface_visible,
+                src_clip_sources,
+                None,
+                PrimitiveContainer::Picture(src_prim),
+            );
+
+            let pic_prim_index = self.prim_store.cpu_metadata[parent_pic_prim_index.0].cpu_prim_index;
+            parent_pic_prim_index = src_prim_index;
+            let pic = &mut self.prim_store.cpu_pictures[pic_prim_index.0];
+            pic.add_primitive(
+                src_prim_index,
+                clip_and_scroll,
+            );
+
+            self.picture_stack.push(src_prim_index);
+        }
+
+        // Same for mix-blend-mode.
+        if let Some(mix_blend_mode) = composite_ops.mix_blend_mode {
+            let src_prim = PicturePrimitive::new_image(
+                Some(PictureCompositeMode::MixBlend(mix_blend_mode)),
+                false,
+                pipeline_id,
+                current_reference_frame_id,
+                None,
+            );
+            let src_clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
+
+            let src_prim_index = self.prim_store.add_primitive(
+                &LayerRect::zero(),
+                &max_clip,
+                is_backface_visible,
+                src_clip_sources,
+                None,
+                PrimitiveContainer::Picture(src_prim),
+            );
+
+            let pic_prim_index = self.prim_store.cpu_metadata[parent_pic_prim_index.0].cpu_prim_index;
+            parent_pic_prim_index = src_prim_index;
+            let pic = &mut self.prim_store.cpu_pictures[pic_prim_index.0];
+            pic.add_primitive(
+                src_prim_index,
+                clip_and_scroll,
+            );
+
+            self.picture_stack.push(src_prim_index);
+        }
+
         // By default, this picture will be collapsed into
         // the owning target.
-        let mut composite_mode = PictureCompositeMode::None;
+        let mut composite_mode = None;
         let mut frame_output_pipeline_id = None;
 
         // If this stacking context if the root of a pipeline, and the caller
         // has requested it as an output frame, create a render task to isolate it.
         if is_pipeline_root && output_pipelines.contains(&pipeline_id) {
-            composite_mode = PictureCompositeMode::Blit;
+            composite_mode = Some(PictureCompositeMode::Blit);
             frame_output_pipeline_id = Some(pipeline_id);
         }
 
@@ -472,7 +477,7 @@ impl FrameBuilder {
             //           During culling, we can check if there is actually
             //           perspective present, and skip the plane splitting
             //           completely when that is not the case.
-            composite_mode = PictureCompositeMode::Blit;
+            composite_mode = Some(PictureCompositeMode::Blit);
         }
 
         // Add picture for this actual stacking context contents to render into.
@@ -531,19 +536,9 @@ impl FrameBuilder {
         // Remove the picture for this stacking contents.
         self.picture_stack.pop().expect("bug");
 
-        let parent_transform_style = match self.sc_stack.last() {
-            Some(sc) => sc.transform_style,
-            None => TransformStyle::Flat,
-        };
-
-        let is_in_3d_context = parent_transform_style == TransformStyle::Preserve3D ||
-                               sc.transform_style == TransformStyle::Preserve3D;
-
-        if !is_in_3d_context {
-            // Remove the picture for any filter/mix-blend-mode effects.
-            for _ in 0 .. sc.composite_ops.count() {
-                self.picture_stack.pop().expect("bug: mismatched picture stack");
-            }
+        // Remove the picture for any filter/mix-blend-mode effects.
+        for _ in 0 .. sc.composite_ops.count() {
+            self.picture_stack.pop().expect("bug: mismatched picture stack");
         }
 
         // By the time the stacking context stack is empty, we should
@@ -1549,6 +1544,8 @@ impl FrameBuilder {
 
         let mut child_tasks = Vec::new();
 
+        self.prim_store.reset_prim_visibility();
+
         self.prim_store.prepare_prim_runs(
             &prim_run_cmds,
             root_clip_scroll_node.pipeline_id,
@@ -1608,15 +1605,6 @@ impl FrameBuilder {
         }
     }
 
-    fn build_render_task(&mut self) -> RenderTaskId {
-        profile_scope!("build_render_task");
-
-        self.prim_store
-            .cpu_pictures[0]
-            .render_task_id
-            .expect("bug: no root render task!")
-    }
-
     pub fn build(
         &mut self,
         resource_cache: &mut ResourceCache,
@@ -1673,7 +1661,10 @@ impl FrameBuilder {
             device_pixel_ratio,
         );
 
-        let main_render_task_id = self.build_render_task();
+        let main_render_task_id = self.prim_store
+                                      .cpu_pictures[0]
+                                      .render_task_id
+                                      .expect("bug: no root render task!");
 
         let mut required_pass_count = 0;
         render_tasks.max_depth(main_render_task_id, 0, &mut required_pass_count);

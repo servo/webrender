@@ -309,6 +309,7 @@ impl ClipScrollNode {
             }
             None => {
                 state.combined_outer_clip_bounds = DeviceIntRect::zero();
+                self.combined_clip_outer_bounds = DeviceIntRect::zero();
                 ClipScrollNodeData::invalid()
             }
         };

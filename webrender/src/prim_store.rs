@@ -7,7 +7,7 @@ use api::{DevicePoint, ExtendMode, GlyphInstance, GlyphKey};
 use api::{GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerRect};
 use api::{ClipMode, LayerSize, LayerVector2D, LineOrientation, LineStyle};
 use api::{ClipAndScrollInfo, EdgeAaSegmentMask, PremultipliedColorF, TileOffset};
-use api::{ClipId, PipelineId, YuvColorSpace, YuvFormat};
+use api::{ClipId, LayerTransform, PipelineId, YuvColorSpace, YuvFormat};
 use border::BorderCornerInstance;
 use clip_scroll_tree::ClipScrollTree;
 use clip::{ClipSourcesHandle, ClipStore};
@@ -57,6 +57,27 @@ impl PrimitiveOpacity {
     pub fn accumulate(&mut self, alpha: f32) {
         self.is_opaque = self.is_opaque && alpha == 1.0;
     }
+}
+
+// Represents the local space rect of a list of
+// primitive runs. For most primitive runs, the
+// primitive runs are attached to the parent they
+// are declared in. However, when a primitive run
+// is part of a 3d rendering context, it may get
+// hoisted to a higher level in the picture tree.
+// When this happens, we need to also calculate the
+// local space rects in the original space. This
+// allows constructing the true world space polygons
+// for the primitive, to enable the plane splitting
+// logic to work correctly.
+// TODO(gw) In the future, we can probably simplify
+//          this - perhaps calculate the world space
+//          polygons directly and store internally
+//          in the picture structure.
+#[derive(Debug)]
+pub struct PrimitiveRunLocalRect {
+    pub local_rect_in_actual_parent_space: LayerRect,
+    pub local_rect_in_original_parent_space: LayerRect,
 }
 
 /// Stores two coordinates in texel space. The coordinates
@@ -1318,7 +1339,7 @@ impl PrimitiveStore {
         // picture target, if being composited.
         let mut child_tasks = Vec::new();
         if let Some((pipeline_id, dependencies, rfid)) = dependencies {
-            let (child_local_rect, child_local_rect2) = self.prepare_prim_runs(
+            let result = self.prepare_prim_runs(
                 &dependencies,
                 pipeline_id,
                 gpu_cache,
@@ -1342,8 +1363,7 @@ impl PrimitiveStore {
 
             metadata.local_rect = pic.update_local_rect(
                 metadata.local_rect,
-                child_local_rect,
-                child_local_rect2,
+                result,
             );
         }
 
@@ -1361,13 +1381,8 @@ impl PrimitiveStore {
 
             let local_rect = match local_rect {
                 Some(local_rect) => local_rect,
-                None => {
-                    if perform_culling {
-                        return None;
-                    } else {
-                        LayerRect::zero()
-                    }
-                }
+                None if perform_culling => return None,
+                None => LayerRect::zero(),
             };
 
             let xf_rect = TransformedRect::new(
@@ -1403,10 +1418,8 @@ impl PrimitiveStore {
             render_tasks,
             clip_store,
             parent_tasks,
-        ) {
-            if perform_culling {
-                return None;
-            }
+        ) && perform_culling {
+            return None;
         }
 
         self.prepare_prim_for_render_inner(
@@ -1420,6 +1433,14 @@ impl PrimitiveStore {
         );
 
         Some(local_rect)
+    }
+
+    // TODO(gw): Make this simpler / more efficient by tidying
+    //           up the logic that early outs from prepare_prim_for_render.
+    pub fn reset_prim_visibility(&mut self) {
+        for md in &mut self.cpu_metadata {
+            md.screen_rect = None;
+        }
     }
 
     pub fn prepare_prim_runs(
@@ -1436,10 +1457,12 @@ impl PrimitiveStore {
         perform_culling: bool,
         parent_tasks: &mut Vec<RenderTaskId>,
         profile_counters: &mut FrameProfileCounters,
-        reference_frame_id: Option<ClipId>,
-    ) -> (LayerRect, LayerRect) {
-        let mut local_rect_in_moved_space = LayerRect::zero();
-        let mut local_rect_in_original_space = LayerRect::zero();
+        original_reference_frame_id: Option<ClipId>,
+    ) -> PrimitiveRunLocalRect {
+        let mut result = PrimitiveRunLocalRect {
+            local_rect_in_actual_parent_space: LayerRect::zero(),
+            local_rect_in_original_parent_space: LayerRect::zero(),
+        };
 
         for run in runs {
             // TODO(gw): Perhaps we can restructure this to not need to create
@@ -1448,10 +1471,29 @@ impl PrimitiveStore {
             let scroll_node = &clip_scroll_tree.nodes[&run.clip_and_scroll.scroll_node_id];
             let clip_node = &clip_scroll_tree.nodes[&run.clip_and_scroll.clip_node_id()];
 
-            if !clip_node.is_visible() {
+            if perform_culling && !clip_node.is_visible() {
                 debug!("{:?} of clipped out {:?}", run.base_prim_index, pipeline_id);
                 continue;
             }
+
+            let parent_relative_transform = parent_prim_context
+                .scroll_node
+                .world_content_transform
+                .inverse()
+                .map(|inv_parent| {
+                    inv_parent.pre_mul(&scroll_node.world_content_transform)
+                });
+
+            let original_relative_transform = original_reference_frame_id
+                .and_then(|original_reference_frame_id| {
+                    let parent = clip_scroll_tree
+                        .nodes[&original_reference_frame_id]
+                        .world_content_transform;
+                    parent.inverse()
+                        .map(|inv_parent| {
+                            inv_parent.pre_mul(&scroll_node.world_content_transform)
+                        })
+                });
 
             let display_list = &pipelines
                 .get(&pipeline_id)
@@ -1483,68 +1525,22 @@ impl PrimitiveStore {
                 ) {
                     profile_counters.visible_primitives.inc();
 
-                    if let Some(reference_frame_id) = reference_frame_id {
-                        if let Some(m0) = clip_scroll_tree.nodes[&reference_frame_id].world_content_transform.inverse() {
-                            let m1 = scroll_node.world_content_transform;
-                            let m = m0.pre_mul(&m1);
-
-                            let vertices = [
-                                m.transform_point3d(&prim_local_rect.origin.to_3d()),
-                                m.transform_point3d(&prim_local_rect.bottom_left().to_3d()),
-                                m.transform_point3d(&prim_local_rect.bottom_right().to_3d()),
-                                m.transform_point3d(&prim_local_rect.top_right().to_3d()),
-                            ];
-
-                            let mut x0 = vertices[0].x;
-                            let mut y0 = vertices[0].y;
-                            let mut x1 = vertices[0].x;
-                            let mut y1 = vertices[0].y;
-
-                            for v in &vertices {
-                                x0 = x0.min(v.x);
-                                y0 = y0.min(v.y);
-                                x1 = x1.max(v.x);
-                                y1 = y1.max(v.y);
-                            }
-
-                            let bounds = LayerRect::new(LayerPoint::new(x0, y0), LayerSize::new(x1 - x0, y1 - y0));
-
-                            local_rect_in_original_space = local_rect_in_original_space.union(&bounds);
-                        }
+                    if let Some(ref matrix) = original_relative_transform {
+                        let bounds = get_local_bounding_rect(&prim_local_rect, matrix);
+                        result.local_rect_in_original_parent_space =
+                            result.local_rect_in_original_parent_space.union(&bounds);
                     }
 
-                    if let Some(m0) = parent_prim_context.scroll_node.world_content_transform.inverse() {
-                        let m1 = scroll_node.world_content_transform;
-                        let m = m0.pre_mul(&m1);
-
-                        let vertices = [
-                            m.transform_point3d(&prim_local_rect.origin.to_3d()),
-                            m.transform_point3d(&prim_local_rect.bottom_left().to_3d()),
-                            m.transform_point3d(&prim_local_rect.bottom_right().to_3d()),
-                            m.transform_point3d(&prim_local_rect.top_right().to_3d()),
-                        ];
-
-                        let mut x0 = vertices[0].x;
-                        let mut y0 = vertices[0].y;
-                        let mut x1 = vertices[0].x;
-                        let mut y1 = vertices[0].y;
-
-                        for v in &vertices {
-                            x0 = x0.min(v.x);
-                            y0 = y0.min(v.y);
-                            x1 = x1.max(v.x);
-                            y1 = y1.max(v.y);
-                        }
-
-                        let bounds = LayerRect::new(LayerPoint::new(x0, y0), LayerSize::new(x1 - x0, y1 - y0));
-
-                        local_rect_in_moved_space = local_rect_in_moved_space.union(&bounds);
+                    if let Some(ref matrix) = parent_relative_transform {
+                        let bounds = get_local_bounding_rect(&prim_local_rect, matrix);
+                        result.local_rect_in_actual_parent_space =
+                            result.local_rect_in_actual_parent_space.union(&bounds);
                     }
                 }
             }
         }
 
-        (local_rect_in_moved_space, local_rect_in_original_space)
+        result
     }
 }
 
@@ -1571,4 +1567,30 @@ impl InsideTest<ComplexClipRegion> for ComplexClipRegion {
             clip.radii.bottom_right.width >= self.radii.bottom_right.width - delta_right &&
             clip.radii.bottom_right.height >= self.radii.bottom_right.height - delta_bottom
     }
+}
+
+fn get_local_bounding_rect(
+    local_rect: &LayerRect,
+    matrix: &LayerTransform
+) -> LayerRect {
+    let vertices = [
+        matrix.transform_point3d(&local_rect.origin.to_3d()),
+        matrix.transform_point3d(&local_rect.bottom_left().to_3d()),
+        matrix.transform_point3d(&local_rect.bottom_right().to_3d()),
+        matrix.transform_point3d(&local_rect.top_right().to_3d()),
+    ];
+
+    let mut x0 = vertices[0].x;
+    let mut y0 = vertices[0].y;
+    let mut x1 = vertices[0].x;
+    let mut y1 = vertices[0].y;
+
+    for v in &vertices[1..] {
+        x0 = x0.min(v.x);
+        y0 = y0.min(v.y);
+        x1 = x1.max(v.x);
+        y1 = y1.max(v.y);
+    }
+
+    LayerRect::new(LayerPoint::new(x0, y0), LayerSize::new(x1 - x0, y1 - y0))
 }
