@@ -577,7 +577,7 @@ fn main() {
             }
 
             glutin::Event::KeyboardInput(ElementState::Pressed, _scan_code, Some(vk)) => match vk {
-                VirtualKeyCode::Escape | VirtualKeyCode::Q => {
+                VirtualKeyCode::Escape => {
                     break 'outer;
                 }
                 VirtualKeyCode::P => {
@@ -599,6 +599,9 @@ fn main() {
                     let mut flags = wrench.renderer.get_debug_flags();
                     flags.toggle(webrender::DebugFlags::ALPHA_PRIM_DBG);
                     wrench.renderer.set_debug_flags(flags);
+                }
+                VirtualKeyCode::Q => {
+                    wrench.renderer.toggle_queries_enabled();
                 }
                 VirtualKeyCode::M => {
                     wrench.api.notify_memory_pressure();
