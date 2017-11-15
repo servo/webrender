@@ -93,6 +93,7 @@ impl Document {
             self.window_size,
             self.inner_rect,
             accumulated_scale_factor,
+            &self.output_pipelines,
         );
     }
 
@@ -116,7 +117,6 @@ impl Document {
                     &self.scene.pipelines,
                     accumulated_scale_factor,
                     pan,
-                    &self.output_pipelines,
                     &mut resource_profile.texture_cache,
                     &mut resource_profile.gpu_cache,
                 )

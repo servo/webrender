@@ -48,6 +48,7 @@ struct FlattenContext<'a> {
     opaque_parts: Vec<LayoutRect>,
     /// Same for the transparent rectangles.
     transparent_parts: Vec<LayoutRect>,
+    output_pipelines: &'a FastHashSet<PipelineId>,
 }
 
 impl<'a> FlattenContext<'a> {
@@ -88,20 +89,17 @@ impl<'a> FlattenContext<'a> {
         root_reference_frame_id: ClipId,
         root_scroll_frame_id: ClipId,
     ) {
+        let clip_id = ClipId::root_scroll_node(pipeline_id);
+
         self.builder.push_stacking_context(
-            &LayerVector2D::zero(),
             pipeline_id,
             CompositeOps::default(),
             TransformStyle::Flat,
             true,
             true,
+            ClipAndScrollInfo::simple(clip_id),
+            self.output_pipelines,
         );
-
-        // We do this here, rather than above because we want any of the top-level
-        // stacking contexts in the display list to be treated like root stacking contexts.
-        // FIXME(mrobinson): Currently only the first one will, which for the moment is
-        // sufficient for all our use cases.
-        self.builder.notify_waiting_for_root_stacking_context();
 
         // For the root pipeline, there's no need to add a full screen rectangle
         // here, as it's handled by the framebuffer clear.
@@ -121,7 +119,11 @@ impl<'a> FlattenContext<'a> {
         }
 
 
-        self.flatten_items(traversal, pipeline_id, LayerVector2D::zero());
+        self.flatten_items(
+            traversal,
+            pipeline_id,
+            LayerVector2D::zero(),
+        );
 
         if self.builder.config.enable_scrollbars {
             let scrollbar_rect = LayerRect::new(LayerPoint::zero(), LayerSize::new(10.0, 70.0));
@@ -154,7 +156,11 @@ impl<'a> FlattenContext<'a> {
                     return;
                 }
 
-                self.flatten_item(item, pipeline_id, reference_frame_relative_offset)
+                self.flatten_item(
+                    item,
+                    pipeline_id,
+                    reference_frame_relative_offset,
+                )
             };
 
             // If flatten_item created a sub-traversal, we need `traversal` to have the
@@ -286,15 +292,18 @@ impl<'a> FlattenContext<'a> {
                 reference_frame_relative_offset.x + bounds.origin.x,
                 reference_frame_relative_offset.y + bounds.origin.y,
             );
-        }
+        };
+
+        let sc_scroll_node_id = self.apply_scroll_frame_id_replacement(context_scroll_node_id);
 
         self.builder.push_stacking_context(
-            &reference_frame_relative_offset,
             pipeline_id,
             composition_operations,
             stacking_context.transform_style,
             is_backface_visible,
             false,
+            ClipAndScrollInfo::simple(sc_scroll_node_id),
+            self.output_pipelines,
         );
 
         self.flatten_items(
@@ -518,6 +527,7 @@ impl<'a> FlattenContext<'a> {
                 let mut prim_info = prim_info.clone();
                 prim_info.rect = bounds;
                 self.builder.add_box_shadow(
+                    pipeline_id,
                     clip_and_scroll,
                     &prim_info,
                     &box_shadow_info.offset,
@@ -1088,6 +1098,7 @@ impl FrameContext {
         window_size: DeviceUintSize,
         inner_rect: DeviceUintRect,
         device_pixel_ratio: f32,
+        output_pipelines: &FastHashSet<PipelineId>,
     ) -> Option<FrameBuilder> {
         let root_pipeline_id = match scene.root_pipeline_id {
             Some(root_pipeline_id) => root_pipeline_id,
@@ -1128,6 +1139,7 @@ impl FrameContext {
                 replacements: Vec::new(),
                 opaque_parts: Vec::new(),
                 transparent_parts: Vec::new(),
+                output_pipelines,
             };
 
             roller.builder.push_root(
@@ -1153,6 +1165,8 @@ impl FrameContext {
                 reference_frame_id,
                 scroll_frame_id,
             );
+
+            debug_assert!(roller.builder.picture_stack.is_empty());
 
             self.pipeline_epoch_map.extend(roller.pipeline_epochs.drain(..));
             roller.builder
@@ -1180,7 +1194,6 @@ impl FrameContext {
         pipelines: &FastHashMap<PipelineId, ScenePipeline>,
         device_pixel_ratio: f32,
         pan: LayerPoint,
-        output_pipelines: &FastHashSet<PipelineId>,
         texture_cache_profile: &mut TextureCacheProfileCounters,
         gpu_cache_profile: &mut GpuCacheProfileCounters,
     ) -> RendererFrame {
@@ -1192,7 +1205,6 @@ impl FrameContext {
             pipelines,
             device_pixel_ratio,
             pan,
-            output_pipelines,
             texture_cache_profile,
             gpu_cache_profile,
         );
