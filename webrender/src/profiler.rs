@@ -879,20 +879,6 @@ impl Profiler {
             false,
         );
 
-        if false {
-            // this would display the timer queries in numbers
-            // shouldn't need it, given that we have a colored graph
-            let gpu_time_counters = gpu_timers
-                .iter()
-                .map(|timer| TimeProfileCounter {
-                    description: timer.tag.label,
-                    nanoseconds: timer.time_ns,
-                    invert: false,
-                })
-                .collect::<Vec<_>>();
-            self.draw_counters(&gpu_time_counters, debug_renderer, false);
-        }
-
         let mut samplers = Vec::<FloatProfileCounter>::new();
         // Gathering unique GPU samplers. This has O(N^2) complexity,
         // but we only have a few samplers per target.
