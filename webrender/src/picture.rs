@@ -9,7 +9,7 @@ use api::{ClipId, PremultipliedColorF};
 use box_shadow::BLUR_SAMPLE_SCALE;
 use frame_builder::PrimitiveContext;
 use gpu_cache::GpuDataRequest;
-use prim_store::{PrimitiveIndex, PrimitiveRun};
+use prim_store::{PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
 use render_task::{ClearMode, RenderTask, RenderTaskId, RenderTaskTree};
 use tiling::RenderTargetKind;
 
@@ -183,13 +183,14 @@ impl PicturePrimitive {
     }
 
     pub fn update_local_rect(&mut self,
-        local_rect: LayerRect,
-        local_content_rect: LayerRect,
-        local_content_rect2: LayerRect,
+        prim_local_rect: LayerRect,
+        prim_run_rect: PrimitiveRunLocalRect,
     ) -> LayerRect {
+        let local_content_rect = prim_run_rect.local_rect_in_actual_parent_space;
+
         match self.kind {
             PictureKind::Image { composite_mode, ref mut real_local_rect, .. } => {
-                *real_local_rect = local_content_rect2;
+                *real_local_rect = prim_run_rect.local_rect_in_original_parent_space;
 
                 match composite_mode {
                     Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
@@ -248,7 +249,7 @@ impl PicturePrimitive {
                     }
                 }
 
-                local_rect
+                prim_local_rect
             }
         }
     }
