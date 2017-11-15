@@ -147,6 +147,20 @@ Vue.component('options', {
                 connection.send("disable_alpha_rects_debug");
             }
         }
+        setGpuTimeQueries(enabled) {
+            if (enabled) {
+                connection.send("enable_gpu_time_queries");
+            } else {
+                connection.send("disable_gpu_time_queries");
+            }
+        }
+        setGpuSampleQueries(enabled) {
+            if (enabled) {
+                connection.send("enable_gpu_sample_queries");
+            } else {
+                connection.send("disable_gpu_sample_queries");
+            }
+        }
     },
     template: `
         <div class="box">
@@ -172,6 +186,18 @@ Vue.component('options', {
                 <label class="checkbox">
                     <input type="checkbox" v-on:click="setAlphaRectsDebugger($event.target.checked)">
                     Alpha primitive rects debugger
+                </label>
+            </div>
+            <div class="field">
+                <label class="checkbox">
+                    <input type="checkbox" v-on:click="setGpuTimeQueries($event.target.checked)">
+                    Enable GPU time queries
+                </label>
+            </div>
+            <div class="field">
+                <label class="checkbox">
+                    <input type="checkbox" v-on:click="setGpuSampleQueries($event.target.checked)">
+                    Enable GPU sample queries
                 </label>
             </div>
         </div>

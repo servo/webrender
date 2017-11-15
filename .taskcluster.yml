@@ -98,7 +98,7 @@ tasks:
           servo-tidy &&
           (cd webrender_api && cargo test --verbose --features "ipc") &&
           (cd webrender && cargo build --verbose --no-default-features) &&
-          (cd webrender && cargo build --verbose --features profiler,query) &&
+          (cd webrender && cargo build --verbose --features profiler) &&
           (cargo test --all --verbose)
     routes:
       - "index.garbage.webrender.ci.{{event.head.user.login}}.{{event.head.repo.branch}}.linux-debug"
@@ -171,7 +171,7 @@ tasks:
           export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH" &&
           (cd webrender_api && cargo test --verbose --features "ipc") &&
           (cd webrender && cargo build --verbose --no-default-features) &&
-          (cd webrender && cargo build --verbose --features profiler,query) &&
+          (cd webrender && cargo build --verbose --features profiler) &&
           (cargo test --all --verbose)
     routes:
       - "index.garbage.webrender.ci.{{event.head.user.login}}.{{event.head.repo.branch}}.osx-debug"
