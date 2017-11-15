@@ -224,9 +224,14 @@ fn native_font_handle_to_yaml(handle: &NativeFontHandle, parent: &mut yaml_rust:
     u32_node(parent, "stretch", handle.stretch.to_u32());
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
 fn native_font_handle_to_yaml(_: &NativeFontHandle, _: &mut yaml_rust::yaml::Hash) {
     panic!("Can't native_handle_to_yaml on this platform");
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn native_font_handle_to_yaml(handle: &NativeFontHandle, parent: &mut yaml_rust::yaml::Hash) {
+    str_node(parent, "font", &handle.pathname);
 }
 
 enum CachedFont {
