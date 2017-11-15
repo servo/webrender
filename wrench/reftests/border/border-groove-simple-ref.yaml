@@ -9,7 +9,7 @@ root:
           width: [ 6, 6, 6, 6 ]
           border-type: normal
           style: [ solid, solid, solid, solid ]
-          color: [ 0 0 178 1.0, 0 0 178 1.0, 0 0 255 1.0, 0 0 255 1.0 ]
+          color: [ 0 0 178 1.0, 0 0 255 1.0, 0 0 255 1.0, 0 0 178 1.0 ]
     - type: stacking-context
       bounds: [6, 6, 38, 38]
       items:
@@ -18,4 +18,4 @@ root:
           width: [ 6, 6, 6, 6 ]
           border-type: normal
           style: [ solid, solid, solid, solid ]
-          color: [ 0 0 255 1.0, 0 0 255 1.0, 0 0 178 1.0, 0 0 178 1.0 ]
+          color: [ 0 0 255 1.0, 0 0 178 1.0, 0 0 178 1.0, 0 0 255 1.0 ]
