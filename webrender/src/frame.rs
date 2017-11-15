@@ -6,8 +6,8 @@
 use api::{BuiltDisplayListIter, ClipAndScrollInfo, ClipId, ColorF, ComplexClipRegion};
 use api::{DeviceUintRect, DeviceUintSize, DisplayItemRef, Epoch, FilterOp};
 use api::{ImageDisplayItem, ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect};
-use api::{LayerSize, LayerToScrollTransform, LayerVector2D};
-use api::{LayoutRect, LayoutSize, LayoutTransform};
+use api::{LayerSize, LayerVector2D};
+use api::{LayoutRect, LayoutSize};
 use api::{LocalClip, PipelineId, ScrollClamping, ScrollEventPhase, ScrollLayerState};
 use api::{ScrollLocation, ScrollPolicy, ScrollSensitivity, SpecificDisplayItem, StackingContext};
 use api::{ClipMode, TileOffset, TransformStyle, WorldPoint};
@@ -21,7 +21,7 @@ use internal_types::{FastHashMap, FastHashSet, RendererFrame};
 use prim_store::RectangleContent;
 use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
 use resource_cache::{FontInstanceMap,ResourceCache, TiledImageMap};
-use scene::{Scene, StackingContextHelpers, ScenePipeline};
+use scene::{Scene, StackingContextHelpers, ScenePipeline, SceneProperties};
 use tiling::{CompositeOps, Frame};
 use util::ComplexClipRegionHelpers;
 
@@ -246,7 +246,6 @@ impl<'a> FlattenContext<'a> {
                 stacking_context.filter_ops_for_compositing(
                     display_list,
                     filters,
-                    &self.scene.properties,
                 ),
                 stacking_context.mix_blend_mode_for_compositing(),
             )
@@ -264,23 +263,15 @@ impl<'a> FlattenContext<'a> {
         let is_reference_frame =
             stacking_context.transform.is_some() || stacking_context.perspective.is_some();
         if is_reference_frame {
-            let transform = stacking_context.transform.as_ref();
-            let transform = self.scene.properties.resolve_layout_transform(transform);
-            let perspective = stacking_context
-                .perspective
-                .unwrap_or_else(LayoutTransform::identity);
             let origin = reference_frame_relative_offset + bounds.origin.to_vector();
-            let transform = LayerToScrollTransform::create_translation(origin.x, origin.y, 0.0)
-                .pre_mul(&transform)
-                .pre_mul(&perspective);
-
             let reference_frame_bounds = LayerRect::new(LayerPoint::zero(), bounds.size);
             let mut clip_id = self.apply_scroll_frame_id_replacement(context_scroll_node_id);
             clip_id = self.builder.push_reference_frame(
                 Some(clip_id),
                 pipeline_id,
                 &reference_frame_bounds,
-                &transform,
+                stacking_context.transform,
+                stacking_context.perspective,
                 origin,
                 false,
                 self.clip_scroll_tree,
@@ -356,12 +347,12 @@ impl<'a> FlattenContext<'a> {
 
         let iframe_rect = LayerRect::new(LayerPoint::zero(), bounds.size);
         let origin = reference_frame_relative_offset + bounds.origin.to_vector();
-        let transform = LayerToScrollTransform::create_translation(origin.x, origin.y, 0.0);
         let iframe_reference_frame_id = self.builder.push_reference_frame(
             Some(clip_id),
             pipeline_id,
             &iframe_rect,
-            &transform,
+            None,
+            None,
             origin,
             true,
             self.clip_scroll_tree,
@@ -1196,6 +1187,7 @@ impl FrameContext {
         pan: LayerPoint,
         texture_cache_profile: &mut TextureCacheProfileCounters,
         gpu_cache_profile: &mut GpuCacheProfileCounters,
+        scene_properties: &SceneProperties,
     ) -> RendererFrame {
         let frame = frame_builder.build(
             resource_cache,
@@ -1207,6 +1199,7 @@ impl FrameContext {
             pan,
             texture_cache_profile,
             gpu_cache_profile,
+            scene_properties,
         );
 
         self.get_renderer_frame_impl(Some(frame))
