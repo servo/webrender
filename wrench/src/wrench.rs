@@ -478,13 +478,14 @@ impl Wrench {
 
     pub fn show_onscreen_help(&mut self) {
         let help_lines = [
-            "Esc, Q - Quit",
+            "Esc - Quit",
             "H - Toggle help",
             "R - Toggle recreating display items each frame",
             "P - Toggle profiler",
             "O - Toggle showing intermediate targets",
             "I - Toggle showing texture caches",
             "B - Toggle showing alpha primitive rects",
+            "Q - Toggle GPU queries for time and samples",
             "M - Trigger memory pressure event",
         ];
 
