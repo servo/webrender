@@ -794,7 +794,7 @@ impl Profiler {
 
     pub fn draw_profile(
         &mut self,
-        frame_profile: &FrameProfileCounters,
+        frame_profiles: &[FrameProfileCounters],
         backend_profile: &BackendProfileCounters,
         renderer_profile: &RendererProfileCounters,
         renderer_timers: &mut RendererProfileTimers,

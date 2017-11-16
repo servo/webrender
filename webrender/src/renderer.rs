@@ -11,7 +11,8 @@
 
 use api::{channel, BlobImageRenderer, FontRenderMode};
 use api::{ColorF, DocumentId, Epoch, PipelineId, RenderApiSender, RenderNotifier};
-use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
+use api::{DevicePixel, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
+use api::{DeviceUintRect, DeviceUintSize};
 use api::{ExternalImageId, ExternalImageType, ImageFormat};
 use api::{YUV_COLOR_SPACES, YUV_FORMATS};
 use api::{YuvColorSpace, YuvFormat};
@@ -31,14 +32,14 @@ use device::{get_gl_format_bgra, ExternalTexture, FBOId, TextureSlot, VertexAttr
 use device::{FileWatcherHandler, ShaderError, TextureFilter, TextureTarget,
              VertexUsageHint, VAO};
 use device::ProgramCache;
-use euclid::{rect, Transform3D};
+use euclid::{rect, ScaleFactor, Transform3D};
 use frame_builder::FrameBuilderConfig;
 use gleam::gl;
 use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
 use gpu_types::PrimitiveInstance;
 use internal_types::{BatchTextures, SourceTexture, ORTHO_FAR_PLANE, ORTHO_NEAR_PLANE};
-use internal_types::{CacheTextureId, FastHashMap, RendererFrame, ResultMsg, TextureUpdateOp};
+use internal_types::{CacheTextureId, FastHashMap, RenderedDocument, ResultMsg, TextureUpdateOp};
 use internal_types::{DebugOutput, RenderTargetMode, TextureUpdateList, TextureUpdateSource};
 use profiler::{BackendProfileCounters, Profiler};
 use profiler::{GpuProfileTag, RendererProfileCounters, RendererProfileTimers};
@@ -1062,7 +1063,7 @@ struct FileWatcher {
 impl FileWatcherHandler for FileWatcher {
     fn file_changed(&self, path: PathBuf) {
         self.result_tx.send(ResultMsg::RefreshShader(path)).ok();
-        self.notifier.new_frame_ready();
+        self.notifier.wakeup();
     }
 }
 
@@ -1212,7 +1213,7 @@ pub struct Renderer<'a> {
     pending_texture_updates: Vec<TextureUpdateList>,
     pending_gpu_cache_updates: Vec<GpuCacheUpdateList>,
     pending_shader_updates: Vec<PathBuf>,
-    active_frames: FastHashMap<DocumentId, RendererFrame>,
+    active_documents: Vec<(DocumentId, RenderedDocument)>,
 
     // These are "cache shaders". These shaders are used to
     // draw intermediate results to cache targets. The results
@@ -1263,8 +1264,7 @@ pub struct Renderer<'a> {
     max_texture_size: u32,
 
     max_recorded_profiles: usize,
-    clear_framebuffer: bool,
-    clear_color: ColorF,
+    clear_color: Option<ColorF>,
     enable_clear_scissor: bool,
     debug: DebugRenderer,
     debug_flags: DebugFlags,
@@ -1872,7 +1872,7 @@ impl<'a> Renderer<'a> {
             result_rx,
             debug_server,
             device,
-            active_frames: FastHashMap::default(),
+            active_documents: Vec::default(),
             pending_texture_updates: Vec::new(),
             pending_gpu_cache_updates: Vec::new(),
             pending_shader_updates: Vec::new(),
@@ -1911,7 +1911,6 @@ impl<'a> Renderer<'a> {
             profiler: Profiler::new(),
             max_texture_size: max_texture_size,
             max_recorded_profiles: options.max_recorded_profiles,
-            clear_framebuffer: options.clear_framebuffer,
             clear_color: options.clear_color,
             enable_clear_scissor: options.enable_clear_scissor,
             last_time: 0,
@@ -1987,16 +1986,16 @@ impl<'a> Renderer<'a> {
         // Pull any pending results and return the most recent.
         while let Ok(msg) = self.result_rx.try_recv() {
             match msg {
-                ResultMsg::NewFrame(
+                ResultMsg::PublishDocument(
                     document_id,
-                    mut frame,
+                    mut doc,
                     texture_update_list,
                     profile_counters,
                 ) => {
                     //TODO: associate `document_id` with target window
                     self.pending_texture_updates.push(texture_update_list);
-                    if let Some(ref mut frame) = frame.frame {
-                        // TODO(gw): This whole message / Frame / RendererFrame stuff
+                    if let Some(ref mut frame) = doc.frame {
+                        // TODO(gw): This whole message / Frame / RenderedDocument stuff
                         //           is really messy and needs to be refactored!!
                         if let Some(update_list) = frame.gpu_cache_updates.take() {
                             self.pending_gpu_cache_updates.push(update_list);
@@ -2006,11 +2005,16 @@ impl<'a> Renderer<'a> {
 
                     // Update the list of available epochs for use during reftests.
                     // This is a workaround for https://github.com/servo/servo/issues/13149.
-                    for (pipeline_id, epoch) in &frame.pipeline_epoch_map {
+                    for (pipeline_id, epoch) in &doc.pipeline_epoch_map {
                         self.pipeline_epoch_map.insert(*pipeline_id, *epoch);
                     }
 
-                    self.active_frames.insert(document_id, frame);
+                    // Add a new document to the active set, expressed as a `Vec` in order
+                    // to re-order based on `DocumentLayer` during rendering.
+                    match self.active_documents.iter().position(|&(id, _)| id == document_id) {
+                        Some(pos) => self.active_documents[pos].1 = doc,
+                        None => self.active_documents.push((document_id, doc)),
+                    }
                 }
                 ResultMsg::UpdateResources {
                     updates,
@@ -2018,12 +2022,12 @@ impl<'a> Renderer<'a> {
                 } => {
                     self.pending_texture_updates.push(updates);
                     self.update_texture_cache();
-                    // If we receive a NewFrame message followed by this one within
-                    // the same update we need ot cancel the frame because we might
-                    // have deleted the resources in use in the frame due to a memory
-                    // pressure event.
+                    // If we receive a `PublishDocument` message followed by this one
+                    // within the same update we need ot cancel the frame because we
+                    // might have deleted the resources in use in the frame due to a
+                    // memory pressure event.
                     if cancel_rendering {
-                        self.active_frames.clear();
+                        self.active_documents.clear();
                     }
                 }
                 ResultMsg::RefreshShader(path) => {
@@ -2053,8 +2057,8 @@ impl<'a> Renderer<'a> {
     fn get_passes_for_debugger(&self) -> String {
         let mut debug_passes = debug_server::PassList::new();
 
-        for rendered_frame in self.active_frames.values() {
-            let frame = match rendered_frame.frame {
+        for &(_, ref render_doc) in &self.active_documents {
+            let frame = match render_doc.frame {
                 Some(ref frame) => frame,
                 None => continue,
             };
@@ -2236,7 +2240,7 @@ impl<'a> Renderer<'a> {
     pub fn render(&mut self, framebuffer_size: DeviceUintSize) -> Result<(), Vec<RendererError>> {
         profile_scope!("render");
 
-        if !self.active_frames.values().any(|rendered_frame| rendered_frame.frame.is_some()) {
+        if !self.active_documents.iter().any(|&(_, ref render_doc)| render_doc.frame.is_some()) {
             self.last_time = precise_time_ns();
             return Ok(())
         }
@@ -2263,7 +2267,7 @@ impl<'a> Renderer<'a> {
 
 
         let cpu_frame_id = profile_timers.cpu_time.profile(|| {
-            let _gm = GpuMarker::new(self.device.rc_gl(), "begin frame");
+            let _gm = self.gpu_profile.start_marker("begin frame");
             let frame_id = self.device.begin_frame();
             self.gpu_profile.begin_frame(frame_id);
 
@@ -2284,20 +2288,30 @@ impl<'a> Renderer<'a> {
 
         profile_timers.cpu_time.profile(|| {
             //Note: another borrowck dance
-            let mut active_frames = mem::replace(&mut self.active_frames, FastHashMap::default());
+            let mut active_documents = mem::replace(&mut self.active_documents, Vec::default());
+            // sort by the document layer id
+            active_documents.sort_by_key(|&(_, ref render_doc)|
+                render_doc.frame.as_ref().map_or(0, |frame| frame.layer)
+            );
 
-            for rendered_frame in active_frames.values_mut() {
-                if let Some(ref mut frame) = rendered_frame.frame {
-                    self.device.device_pixel_ratio = frame.device_pixel_ratio;
+            let clear_color = self.clear_color.map(|color| color.to_array());
+            self.device.bind_draw_target(None, None);
+            self.device.clear_target(clear_color, None);
+
+            for &mut (_, ref mut render_doc) in &mut active_documents {
+                if let Some(ref mut frame) = render_doc.frame {
                     self.update_gpu_cache(frame);
+
                     self.draw_tile_frame(frame, framebuffer_size, cpu_frame_id);
+
                     if self.debug_flags.contains(DebugFlags::PROFILER_DBG) {
                         frame_profiles.push(frame.profile_counters.clone());
                     }
                 }
             }
 
-            self.active_frames = active_frames;
+            self.unlock_external_images();
+            self.active_documents = active_documents;
         });
 
         let current_time = precise_time_ns();
@@ -2321,7 +2335,6 @@ impl<'a> Renderer<'a> {
             //TODO: take device/pixel ratio into equation?
             let screen_fraction = 1.0 / framebuffer_size.to_f32().area();
             self.profiler.draw_profile(
-                &mut self.device,
                 &frame_profiles,
                 &self.backend_profile_counters,
                 &self.profile_counters,
@@ -2337,7 +2350,7 @@ impl<'a> Renderer<'a> {
 
         self.debug.render(&mut self.device, &framebuffer_size);
         profile_timers.cpu_time.profile(|| {
-            let _gm = GpuMarker::new(self.device.rc_gl(), "end frame");
+            let _gm = self.gpu_profile.start_marker("end frame");
             self.gpu_profile.end_frame();
             self.device.end_frame();
         });
@@ -2351,12 +2364,12 @@ impl<'a> Renderer<'a> {
     }
 
     pub fn layers_are_bouncing_back(&self) -> bool {
-        self.active_frames
-            .values()
-            .any(|rendered_frame| !rendered_frame.layers_bouncing_back.is_empty())
+        self.active_documents
+            .iter()
+            .any(|&(_, ref render_doc)| !render_doc.layers_bouncing_back.is_empty())
     }
 
-    fn update_gpu_cache(&mut self, frame: &mut Frame) {
+    fn update_gpu_cache(&mut self, frame: &Frame) {
         let _gm = self.gpu_profile.start_marker("gpu cache update");
         for update_list in self.pending_gpu_cache_updates.drain(..) {
             self.gpu_cache_texture
@@ -2519,7 +2532,7 @@ impl<'a> Renderer<'a> {
         projection: &Transform3D<f32>,
         render_tasks: &RenderTaskTree,
         render_target: Option<(&Texture, i32)>,
-        target_dimensions: DeviceUintSize,
+        framebuffer_size: DeviceUintSize,
     ) {
         match key.kind {
             BatchKind::Composite { .. } => {
@@ -2675,85 +2688,66 @@ impl<'a> Renderer<'a> {
         };
 
         // Handle special case readback for composites.
-        match key.kind {
-            BatchKind::Composite {
-                task_id,
-                source_id,
-                backdrop_id,
-            } => {
-                // composites can't be grouped together because
-                // they may overlap and affect each other.
-                debug_assert!(instances.len() == 1);
-                let cache_texture = self.texture_resolver
-                    .resolve(&SourceTexture::CacheRGBA8)
-                    .unwrap();
+        if let BatchKind::Composite { task_id, source_id, backdrop_id } = key.kind {
+            // composites can't be grouped together because
+            // they may overlap and affect each other.
+            debug_assert_eq!(instances.len(), 1);
+            let cache_texture = self.texture_resolver
+                .resolve(&SourceTexture::CacheRGBA8)
+                .unwrap();
 
-                // Before submitting the composite batch, do the
-                // framebuffer readbacks that are needed for each
-                // composite operation in this batch.
-                let cache_texture_dimensions = cache_texture.get_dimensions();
+            // Before submitting the composite batch, do the
+            // framebuffer readbacks that are needed for each
+            // composite operation in this batch.
+            let source = render_tasks.get(source_id);
+            let backdrop = render_tasks.get(task_id);
+            let readback = render_tasks.get(backdrop_id);
 
-                let source = render_tasks.get(source_id);
-                let backdrop = render_tasks.get(task_id);
-                let readback = render_tasks.get(backdrop_id);
+            let (readback_rect, readback_layer) = readback.get_target_rect();
+            let (backdrop_rect, _) = backdrop.get_target_rect();
+            let content_to_device_scale = ScaleFactor::<_, _, DevicePixel>::new(1i32);
+            let backdrop_screen_origin = match backdrop.kind {
+                RenderTaskKind::Picture(ref task_info) => task_info
+                    .content_origin
+                    .to_i32()
+                    * content_to_device_scale,
+                _ => panic!("bug: composite on non-picture?"),
+            };
+            let source_screen_origin = match source.kind {
+                RenderTaskKind::Picture(ref task_info) => task_info
+                    .content_origin
+                    .to_i32()
+                    * content_to_device_scale,
+                _ => panic!("bug: composite on non-picture?"),
+            };
 
-                let (readback_rect, readback_layer) = readback.get_target_rect();
-                let (backdrop_rect, _) = backdrop.get_target_rect();
-                let backdrop_screen_origin = match backdrop.kind {
-                    RenderTaskKind::Picture(ref task_info) => task_info.content_origin,
-                    _ => panic!("bug: composite on non-picture?"),
-                };
-                let source_screen_origin = match source.kind {
-                    RenderTaskKind::Picture(ref task_info) => task_info.content_origin,
-                    _ => panic!("bug: composite on non-picture?"),
-                };
+            // Bind the FBO to blit the backdrop to.
+            // Called per-instance in case the layer (and therefore FBO)
+            // changes. The device will skip the GL call if the requested
+            // target is already bound.
+            let cache_draw_target = (cache_texture, readback_layer.0 as i32);
+            self.device.bind_draw_target(Some(cache_draw_target), None);
 
-                // Bind the FBO to blit the backdrop to.
-                // Called per-instance in case the layer (and therefore FBO)
-                // changes. The device will skip the GL call if the requested
-                // target is already bound.
-                let cache_draw_target = (cache_texture, readback_layer.0 as i32);
-                self.device
-                    .bind_draw_target(Some(cache_draw_target), Some(cache_texture_dimensions));
+            let mut src = DeviceIntRect::new(
+                source_screen_origin + (backdrop_rect.origin - backdrop_screen_origin),
+                readback_rect.size,
+            );
+            let mut dest = readback_rect.to_i32();
 
-                let src_x = backdrop_rect.origin.x -
-                            backdrop_screen_origin.x as i32 +
-                            source_screen_origin.x as i32;
-                let src_y = backdrop_rect.origin.y -
-                            backdrop_screen_origin.y as i32 +
-                            source_screen_origin.y as i32;
-
-                let dest_x = readback_rect.origin.x;
-                let dest_y = readback_rect.origin.y;
-
-                let width = readback_rect.size.width;
-                let height = readback_rect.size.height;
-
-                let mut src = DeviceIntRect::new(
-                    DeviceIntPoint::new(src_x as i32, src_y as i32),
-                    DeviceIntSize::new(width as i32, height as i32),
-                );
-                let mut dest = DeviceIntRect::new(
-                    DeviceIntPoint::new(dest_x as i32, dest_y as i32),
-                    DeviceIntSize::new(width as i32, height as i32),
-                );
-
-                // Need to invert the y coordinates and flip the image vertically when
-                // reading back from the framebuffer.
-                if render_target.is_none() {
-                    src.origin.y = target_dimensions.height as i32 - src.size.height - src.origin.y;
-                    dest.origin.y += dest.size.height;
-                    dest.size.height = -dest.size.height;
-                }
-
-                self.device.bind_read_target(render_target);
-                self.device.blit_render_target(src, dest);
-
-                // Restore draw target to current pass render target + layer.
-                self.device
-                    .bind_draw_target(render_target, Some(target_dimensions));
+            // Need to invert the y coordinates and flip the image vertically when
+            // reading back from the framebuffer.
+            if render_target.is_none() {
+                src.origin.y = framebuffer_size.height as i32 - src.size.height - src.origin.y;
+                dest.origin.y += dest.size.height;
+                dest.size.height = -dest.size.height;
             }
-            _ => {}
+
+            self.device.bind_read_target(render_target);
+            self.device.blit_render_target(src, dest);
+
+            // Restore draw target to current pass render target + layer.
+            // Note: leaving the viewport unchanged, it's not a part of FBO state
+            self.device.bind_draw_target(render_target, None);
         }
 
         let _timer = self.gpu_profile.start_timer(key.kind.gpu_sampler_tag());
@@ -2788,6 +2782,7 @@ impl<'a> Renderer<'a> {
         &mut self,
         render_target: Option<(&Texture, i32)>,
         target: &ColorRenderTarget,
+        framebuffer_target_rect: DeviceUintRect,
         target_size: DeviceUintSize,
         clear_color: Option<[f32; 4]>,
         render_tasks: &RenderTaskTree,
@@ -2801,8 +2796,9 @@ impl<'a> Renderer<'a> {
             self.device.disable_depth();
             self.device.enable_depth_write();
             self.device.set_blend(false);
-            match render_target {
-                Some(..) if self.enable_clear_scissor => {
+
+            if render_target.is_some() {
+                if self.enable_clear_scissor {
                     // TODO(gw): Applying a scissor rect and minimal clear here
                     // is a very large performance win on the Intel and nVidia
                     // GPUs that I have tested with. It's possible it may be a
@@ -2810,10 +2806,17 @@ impl<'a> Renderer<'a> {
                     // and consider different code paths.
                     self.device
                         .clear_target_rect(clear_color, Some(1.0), target.used_rect());
-                }
-                _ => {
+                } else {
                     self.device.clear_target(clear_color, Some(1.0));
                 }
+            } else {
+                // Note: for non-intersecting document rectangles,
+                // we can omit clearing the depth here, and instead
+                // just clear it for the whole framebuffer at start of the frame.
+                // Note: `framebuffer_target_rect` needs a Y-flip before going to GL
+                let mut clear_rect = framebuffer_target_rect;
+                clear_rect.origin.y = target_size.height - clear_rect.origin.y - clear_rect.size.height;
+                self.device.clear_target_rect(clear_color, Some(1.0), clear_rect.to_i32());
             }
 
             self.device.disable_depth_write();
@@ -3329,7 +3332,7 @@ impl<'a> Renderer<'a> {
         self.gpu_profile.finish_sampler(alpha_sampler);
     }
 
-    fn update_deferred_resolves(&mut self, frame: &mut Frame) {
+    fn update_deferred_resolves(&mut self, frame: &Frame) {
         // The first thing we do is run through any pending deferred
         // resolves, and use a callback to get the UV rect for this
         // custom item. Then we patch the resource_rects structure
@@ -3410,8 +3413,9 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    fn start_frame(&mut self, frame: &mut Frame) {
+    fn prepare_frame(&mut self, frame: &mut Frame) {
         let _timer = self.gpu_profile.start_timer(GPU_TAG_SETUP_DATA);
+        self.device.device_pixel_ratio = frame.device_pixel_ratio;
 
         // Assign render targets to the passes.
         for pass in &mut frame.passes {
@@ -3495,145 +3499,129 @@ impl<'a> Renderer<'a> {
     ) {
         let _gm = self.gpu_profile.start_marker("tile frame draw");
 
-        // Some tests use a restricted viewport smaller than the main screen size.
-        // Ensure we clear the framebuffer in these tests.
-        // TODO(gw): Find a better solution for this?
-        let needs_clear = frame.window_size.width < framebuffer_size.width ||
-            frame.window_size.height < framebuffer_size.height;
+        if frame.passes.is_empty() {
+            return;
+        }
 
         self.device.disable_depth_write();
         self.device.disable_stencil();
         self.device.set_blend(false);
 
-        if frame.passes.is_empty() {
-            self.device
-                .clear_target(Some(self.clear_color.to_array()), Some(1.0));
-        } else {
-            self.start_frame(frame);
+        self.prepare_frame(frame);
 
-            let pass_count = frame.passes.len();
-            let base_color_target_count = self.color_render_targets.len();
-            let base_alpha_target_count = self.alpha_render_targets.len();
+        let pass_count = frame.passes.len();
+        let base_color_target_count = self.color_render_targets.len();
+        let base_alpha_target_count = self.alpha_render_targets.len();
 
-            for (pass_index, pass) in frame.passes.iter_mut().enumerate() {
-                self.texture_resolver.bind(
-                    &SourceTexture::CacheA8,
-                    TextureSampler::CacheA8,
-                    &mut self.device,
+        for (pass_index, pass) in frame.passes.iter_mut().enumerate() {
+            self.texture_resolver.bind(
+                &SourceTexture::CacheA8,
+                TextureSampler::CacheA8,
+                &mut self.device,
+            );
+            self.texture_resolver.bind(
+                &SourceTexture::CacheRGBA8,
+                TextureSampler::CacheRGBA8,
+                &mut self.device,
+            );
+
+            for (target_index, target) in pass.alpha_targets.targets.iter().enumerate() {
+                let projection = Transform3D::ortho(
+                    0.0,
+                    pass.max_alpha_target_size.width as f32,
+                    0.0,
+                    pass.max_alpha_target_size.height as f32,
+                    ORTHO_NEAR_PLANE,
+                    ORTHO_FAR_PLANE,
                 );
-                self.texture_resolver.bind(
-                    &SourceTexture::CacheRGBA8,
-                    TextureSampler::CacheRGBA8,
-                    &mut self.device,
-                );
 
-                for (target_index, target) in pass.alpha_targets.targets.iter().enumerate() {
-                    let projection = Transform3D::ortho(
+                self.draw_alpha_target(
+                    (pass.alpha_texture.as_ref().unwrap(), target_index as i32),
+                    target,
+                    pass.max_alpha_target_size,
+                    &projection,
+                    &frame.render_tasks,
+                );
+            }
+
+            for (target_index, target) in pass.color_targets.targets.iter().enumerate() {
+                let size;
+                let clear_color;
+                let projection;
+
+                if pass.is_framebuffer {
+                    size = framebuffer_size;
+                    clear_color = frame.background_color.map(|color| color.to_array());
+                    projection = Transform3D::ortho(
                         0.0,
-                        pass.max_alpha_target_size.width as f32,
+                        framebuffer_size.width as f32,
+                        framebuffer_size.height as f32,
                         0.0,
-                        pass.max_alpha_target_size.height as f32,
+                        ORTHO_NEAR_PLANE,
+                        ORTHO_FAR_PLANE,
+                    )
+                } else {
+                    size = pass.max_color_target_size;
+                    clear_color = Some([0.0, 0.0, 0.0, 0.0]);
+                    projection = Transform3D::ortho(
+                        0.0,
+                        size.width as f32,
+                        0.0,
+                        size.height as f32,
                         ORTHO_NEAR_PLANE,
                         ORTHO_FAR_PLANE,
                     );
-
-                    self.draw_alpha_target(
-                        (pass.alpha_texture.as_ref().unwrap(), target_index as i32),
-                        target,
-                        pass.max_alpha_target_size,
-                        &projection,
-                        &frame.render_tasks,
-                    );
                 }
 
-                for (target_index, target) in pass.color_targets.targets.iter().enumerate() {
-                    let size;
-                    let clear_color;
-                    let projection;
-
-                    if pass.is_framebuffer {
-                        clear_color = if self.clear_framebuffer || needs_clear {
-                            Some(
-                                frame
-                                    .background_color
-                                    .map_or(self.clear_color.to_array(), |color| color.to_array()),
-                            )
-                        } else {
-                            None
-                        };
-                        size = framebuffer_size;
-                        projection = Transform3D::ortho(
-                            0.0,
-                            size.width as f32,
-                            size.height as f32,
-                            0.0,
-                            ORTHO_NEAR_PLANE,
-                            ORTHO_FAR_PLANE,
-                        )
-                    } else {
-                        size = pass.max_color_target_size;
-                        clear_color = Some([0.0, 0.0, 0.0, 0.0]);
-                        projection = Transform3D::ortho(
-                            0.0,
-                            size.width as f32,
-                            0.0,
-                            size.height as f32,
-                            ORTHO_NEAR_PLANE,
-                            ORTHO_FAR_PLANE,
-                        );
-                    }
-
-                    let render_target = pass.color_texture
-                        .as_ref()
-                        .map(|texture| (texture, target_index as i32));
-                    self.draw_color_target(
-                        render_target,
-                        target,
-                        size,
-                        clear_color,
-                        &frame.render_tasks,
-                        &projection,
-                        frame_id,
-                    );
-                }
-
-                self.texture_resolver.end_pass(
-                    pass_index == pass_count - 1,
-                    pass.alpha_texture.take(),
-                    pass.color_texture.take(),
-                    &mut self.alpha_render_targets,
-                    &mut self.color_render_targets,
+                let render_target = pass.color_texture
+                    .as_ref()
+                    .map(|texture| (texture, target_index as i32));
+                self.draw_color_target(
+                    render_target,
+                    target,
+                    frame.inner_rect,
+                    size,
+                    clear_color,
+                    &frame.render_tasks,
+                    &projection,
+                    frame_id,
                 );
-
-                // After completing the first pass, make the A8 target available as an
-                // input to any subsequent passes.
-                if pass_index == 0 {
-                    if let Some(shared_alpha_texture) =
-                        self.texture_resolver.resolve(&SourceTexture::CacheA8)
-                    {
-                        self.device
-                            .bind_texture(TextureSampler::SharedCacheA8, shared_alpha_texture);
-                    }
-                }
             }
 
-            self.color_render_targets[base_color_target_count..].reverse();
-            self.alpha_render_targets[base_alpha_target_count..].reverse();
-            self.draw_render_target_debug(framebuffer_size);
-            self.draw_texture_cache_debug(framebuffer_size);
+            self.texture_resolver.end_pass(
+                pass_index == pass_count - 1,
+                pass.alpha_texture.take(),
+                pass.color_texture.take(),
+                &mut self.alpha_render_targets,
+                &mut self.color_render_targets,
+            );
 
-            // Garbage collect any frame outputs that weren't used this frame.
-            let device = &mut self.device;
-            self.output_targets
-                .retain(|_, target| if target.last_access != frame_id {
-                    device.delete_fbo(target.fbo_id);
-                    false
-                } else {
-                    true
-                });
+            // After completing the first pass, make the A8 target available as an
+            // input to any subsequent passes.
+            if pass_index == 0 {
+                if let Some(shared_alpha_texture) =
+                    self.texture_resolver.resolve(&SourceTexture::CacheA8)
+                {
+                    self.device
+                        .bind_texture(TextureSampler::SharedCacheA8, shared_alpha_texture);
+                }
+            }
         }
 
-        self.unlock_external_images();
+        self.color_render_targets[base_color_target_count..].reverse();
+        self.alpha_render_targets[base_alpha_target_count..].reverse();
+        self.draw_render_target_debug(framebuffer_size);
+        self.draw_texture_cache_debug(framebuffer_size);
+
+        // Garbage collect any frame outputs that weren't used this frame.
+        let device = &mut self.device;
+        self.output_targets
+            .retain(|_, target| if target.last_access != frame_id {
+                device.delete_fbo(target.fbo_id);
+                false
+            } else {
+                true
+            });
     }
 
     pub fn debug_renderer<'b>(&'b mut self) -> &'b mut DebugRenderer {
@@ -3906,8 +3894,7 @@ pub struct RendererOptions<'a> {
     pub precache_shaders: bool,
     pub renderer_kind: RendererKind,
     pub enable_subpixel_aa: bool,
-    pub clear_framebuffer: bool,
-    pub clear_color: ColorF,
+    pub clear_color: Option<ColorF>,
     pub enable_clear_scissor: bool,
     pub enable_batcher: bool,
     pub max_texture_size: Option<u32>,
@@ -3935,8 +3922,7 @@ impl<'a> Default for RendererOptions<'a> {
             precache_shaders: false,
             renderer_kind: RendererKind::Native,
             enable_subpixel_aa: false,
-            clear_framebuffer: true,
-            clear_color: ColorF::new(1.0, 1.0, 1.0, 1.0),
+            clear_color: Some(ColorF::new(1.0, 1.0, 1.0, 1.0)),
             enable_clear_scissor: true,
             enable_batcher: true,
             max_texture_size: None,
