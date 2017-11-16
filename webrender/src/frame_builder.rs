@@ -1388,11 +1388,21 @@ impl FrameBuilder {
     ) {
         let sub_rect_block = sub_rect.unwrap_or(TexelRect::invalid()).into();
 
+        // If the tile spacing is the same as the rect size,
+        // then it is effectively zero. We use this later on
+        // in prim_store to detect if an image can be considered
+        // opaque.
+        let tile_spacing = if *tile_spacing == info.rect.size {
+            LayerSize::zero()
+        } else {
+            *tile_spacing
+        };
+
         let prim_cpu = ImagePrimitiveCpu {
             image_key,
             image_rendering,
             tile_offset: tile,
-            tile_spacing: *tile_spacing,
+            tile_spacing,
             gpu_blocks: [
                 [
                     stretch_size.width,
@@ -1678,7 +1688,10 @@ impl FrameBuilder {
         // Do the allocations now, assigning each tile's tasks to a render
         // pass and target as required.
         for index in 0 .. required_pass_count {
-            passes.push(RenderPass::new(index == required_pass_count - 1));
+            passes.push(RenderPass::new(
+                index == required_pass_count - 1,
+                screen_rect.size,
+            ));
         }
 
         render_tasks.assign_to_passes(main_render_task_id, passes.len() - 1, &mut passes);
