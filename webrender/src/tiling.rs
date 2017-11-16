@@ -250,23 +250,43 @@ impl AlphaBatchList {
 }
 
 pub struct OpaqueBatchList {
+    pub pixel_area_threshold_for_new_batch: i32,
     pub batches: Vec<OpaquePrimitiveBatch>,
 }
 
 impl OpaqueBatchList {
-    fn new() -> OpaqueBatchList {
+    fn new(pixel_area_threshold_for_new_batch: i32) -> OpaqueBatchList {
         OpaqueBatchList {
             batches: Vec::new(),
+            pixel_area_threshold_for_new_batch,
         }
     }
 
-    fn get_suitable_batch(&mut self, key: BatchKey) -> &mut Vec<PrimitiveInstance> {
+    fn get_suitable_batch(
+        &mut self,
+        key: BatchKey,
+        item_bounding_rect: &DeviceIntRect
+    ) -> &mut Vec<PrimitiveInstance> {
         let mut selected_batch_index = None;
+        let item_area = item_bounding_rect.size.area();
 
-        for (batch_index, batch) in self.batches.iter().enumerate().rev().take(10) {
-            if batch.key.is_compatible_with(&key) {
-                selected_batch_index = Some(batch_index);
-                break;
+        // If the area of this primitive is larger than the given threshold,
+        // then it is large enough to warrant breaking a batch for. In this
+        // case we just see if it can be added to the existing batch or
+        // create a new one.
+        if item_area > self.pixel_area_threshold_for_new_batch {
+            if let Some(ref batch) = self.batches.last() {
+                if batch.key.is_compatible_with(&key) {
+                    selected_batch_index = Some(self.batches.len() - 1);
+                }
+            }
+        } else {
+            // Otherwise, look back through a reasonable number of batches.
+            for (batch_index, batch) in self.batches.iter().enumerate().rev().take(10) {
+                if batch.key.is_compatible_with(&key) {
+                    selected_batch_index = Some(batch_index);
+                    break;
+                }
             }
         }
 
@@ -300,10 +320,14 @@ pub struct BatchList {
 }
 
 impl BatchList {
-    fn new() -> BatchList {
+    fn new(screen_size: DeviceIntSize) -> BatchList {
+        // The threshold for creating a new batch is
+        // one quarter the screen size.
+        let batch_area_threshold = screen_size.width * screen_size.height / 4;
+
         BatchList {
             alpha_batch_list: AlphaBatchList::new(),
-            opaque_batch_list: OpaqueBatchList::new(),
+            opaque_batch_list: OpaqueBatchList::new(batch_area_threshold),
         }
     }
 
@@ -313,7 +337,10 @@ impl BatchList {
         item_bounding_rect: &DeviceIntRect,
     ) -> &mut Vec<PrimitiveInstance> {
         match key.blend_mode {
-            BlendMode::None => self.opaque_batch_list.get_suitable_batch(key),
+            BlendMode::None => {
+                self.opaque_batch_list
+                    .get_suitable_batch(key, item_bounding_rect)
+            }
             BlendMode::PremultipliedAlpha |
             BlendMode::PremultipliedDestOut |
             BlendMode::SubpixelConstantTextColor(..) |
@@ -974,10 +1001,10 @@ impl PicturePrimitive {
 }
 
 impl AlphaBatcher {
-    fn new() -> AlphaBatcher {
+    fn new(screen_size: DeviceIntSize) -> AlphaBatcher {
         AlphaBatcher {
             tasks: Vec::new(),
-            batch_list: BatchList::new(),
+            batch_list: BatchList::new(screen_size),
             glyph_fetch_buffer: Vec::new(),
         }
     }
@@ -1188,7 +1215,10 @@ impl TextureAllocator {
 }
 
 pub trait RenderTarget {
-    fn new(size: Option<DeviceUintSize>) -> Self;
+    fn new(
+        size: Option<DeviceUintSize>,
+        screen_size: DeviceIntSize,
+    ) -> Self;
     fn allocate(&mut self, size: DeviceUintSize) -> Option<DeviceUintPoint>;
     fn build(
         &mut self,
@@ -1216,17 +1246,24 @@ pub enum RenderTargetKind {
 }
 
 pub struct RenderTargetList<T> {
+    screen_size: DeviceIntSize,
     pub targets: Vec<T>,
 }
 
 impl<T: RenderTarget> RenderTargetList<T> {
-    fn new(create_initial_target: bool) -> RenderTargetList<T> {
+    fn new(
+        create_initial_target: bool,
+        screen_size: DeviceIntSize
+    ) -> RenderTargetList<T> {
         let mut targets = Vec::new();
         if create_initial_target {
-            targets.push(T::new(None));
+            targets.push(T::new(None, screen_size));
         }
 
-        RenderTargetList { targets }
+        RenderTargetList {
+            targets,
+            screen_size,
+        }
     }
 
     pub fn target_count(&self) -> usize {
@@ -1274,7 +1311,7 @@ impl<T: RenderTarget> RenderTargetList<T> {
         let origin = match existing_origin {
             Some(origin) => origin,
             None => {
-                let mut new_target = T::new(Some(target_size));
+                let mut new_target = T::new(Some(target_size), self.screen_size);
                 let origin = new_target.allocate(alloc_size).expect(&format!(
                     "Each render task must allocate <= size of one target! ({:?})",
                     alloc_size
@@ -1327,9 +1364,12 @@ impl RenderTarget for ColorRenderTarget {
             .allocate(&size)
     }
 
-    fn new(size: Option<DeviceUintSize>) -> ColorRenderTarget {
+    fn new(
+        size: Option<DeviceUintSize>,
+        screen_size: DeviceIntSize,
+    ) -> Self {
         ColorRenderTarget {
-            alpha_batcher: AlphaBatcher::new(),
+            alpha_batcher: AlphaBatcher::new(screen_size),
             text_run_cache_prims: FastHashMap::default(),
             line_cache_prims: Vec::new(),
             vertical_blurs: Vec::new(),
@@ -1509,7 +1549,10 @@ impl RenderTarget for AlphaRenderTarget {
         self.allocator.allocate(&size)
     }
 
-    fn new(size: Option<DeviceUintSize>) -> AlphaRenderTarget {
+    fn new(
+        size: Option<DeviceUintSize>,
+        _: DeviceIntSize,
+    ) -> Self {
         AlphaRenderTarget {
             clip_batcher: ClipBatcher::new(),
             brush_mask_corners: Vec::new(),
@@ -1671,11 +1714,14 @@ pub struct RenderPass {
 }
 
 impl RenderPass {
-    pub fn new(is_framebuffer: bool) -> RenderPass {
+    pub fn new(
+        is_framebuffer: bool,
+        screen_size: DeviceIntSize
+    ) -> RenderPass {
         RenderPass {
             is_framebuffer,
-            color_targets: RenderTargetList::new(is_framebuffer),
-            alpha_targets: RenderTargetList::new(false),
+            color_targets: RenderTargetList::new(is_framebuffer, screen_size),
+            alpha_targets: RenderTargetList::new(false, screen_size),
             tasks: vec![],
             color_texture: None,
             alpha_texture: None,

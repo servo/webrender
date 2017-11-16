@@ -1688,7 +1688,10 @@ impl FrameBuilder {
         // Do the allocations now, assigning each tile's tasks to a render
         // pass and target as required.
         for index in 0 .. required_pass_count {
-            passes.push(RenderPass::new(index == required_pass_count - 1));
+            passes.push(RenderPass::new(
+                index == required_pass_count - 1,
+                screen_rect.size,
+            ));
         }
 
         render_tasks.assign_to_passes(main_render_task_id, passes.len() - 1, &mut passes);
