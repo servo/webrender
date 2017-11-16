@@ -73,8 +73,6 @@ pub struct GpuFrameProfile<T> {
 
 impl<T> GpuFrameProfile<T> {
     fn new(gl: Rc<gl::Gl>) -> Self {
-        assert_eq!(gl.get_type(), gl::GlType::Gl);
-
         GpuFrameProfile {
             gl,
             timers: QuerySet::new(),
