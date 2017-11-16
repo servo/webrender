@@ -201,6 +201,7 @@ pub struct ClipScrollNodeData {
     pub transform: LayerToWorldTransform,
     pub inv_transform: WorldToLayerTransform,
     pub local_clip_rect: LayerRect,
+    pub combined_clip_outer_bounds: LayerRect,
     pub reference_frame_relative_scroll_offset: LayerVector2D,
     pub scroll_offset: LayerVector2D,
 }
@@ -211,6 +212,7 @@ impl ClipScrollNodeData {
             transform: LayerToWorldTransform::identity(),
             inv_transform: WorldToLayerTransform::identity(),
             local_clip_rect: LayerRect::zero(),
+            combined_clip_outer_bounds: LayerRect::zero(),
             reference_frame_relative_scroll_offset: LayerVector2D::zero(),
             scroll_offset: LayerVector2D::zero(),
         }

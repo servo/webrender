@@ -74,6 +74,8 @@ uniform sampler2DArray sColor2;
 uniform sampler2D sDither;
 #endif
 
+uniform float uBufferHeight;
+
 //======================================================================================
 // Interpolator definitions
 //======================================================================================

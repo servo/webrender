@@ -15,6 +15,7 @@ void main(void) {
     Primitive prim = load_primitive();
     Rectangle rect = fetch_rectangle(prim.specific_prim_address);
     vColor = rect.color;
+
 #ifdef WR_FEATURE_TRANSFORM
     TransformVertexInfo vi = write_transform_vertex(prim.local_rect,
                                                     prim.local_clip_rect,
@@ -49,6 +50,9 @@ void main(void) {
 #ifdef WR_FEATURE_CLIP
     alpha *= do_clip();
 #endif
+
+    alpha *= apply_rectangular_screen_space_clip(vScreenClipRect);
+
     oFragColor = vColor * alpha;
 }
 #endif

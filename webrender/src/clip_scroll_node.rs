@@ -25,8 +25,6 @@ const CAN_OVERSCROLL: bool = true;
 #[cfg(not(target_os = "macos"))]
 const CAN_OVERSCROLL: bool = false;
 
-const MAX_LOCAL_VIEWPORT: f32 = 1000000.0;
-
 #[derive(Debug)]
 pub struct StickyFrameInfo {
     pub margins: SideOffsets2D<Option<f32>>,
@@ -294,10 +292,7 @@ impl ClipScrollNode {
         );
 
         let local_clip_rect = if self.world_content_transform.has_perspective_component() {
-            LayerRect::new(
-                LayerPoint::new(-MAX_LOCAL_VIEWPORT, -MAX_LOCAL_VIEWPORT),
-                LayerSize::new(2.0 * MAX_LOCAL_VIEWPORT, 2.0 * MAX_LOCAL_VIEWPORT)
-            )
+            LayerRect::max_rect()
         } else {
             self.combined_local_viewport_rect
         };
@@ -311,6 +306,13 @@ impl ClipScrollNode {
                     reference_frame_relative_scroll_offset:
                         self.reference_frame_relative_scroll_offset,
                     scroll_offset: self.scroll_offset(),
+                    combined_clip_outer_bounds: LayerRect::new(
+                        LayerPoint::new(
+                            self.combined_clip_outer_bounds.origin.x as f32,
+                            self.combined_clip_outer_bounds.origin.y as f32),
+                        LayerSize::new(
+                            self.combined_clip_outer_bounds.size.width as f32,
+                            self.combined_clip_outer_bounds.size.height as f32)),
                 }
             }
             None => {
@@ -343,28 +345,28 @@ impl ClipScrollNode {
         };
 
         let clip_sources = clip_store.get_mut(clip_sources_handle);
-        clip_sources.update(
-            &self.world_viewport_transform,
-            gpu_cache,
-            resource_cache,
-            device_pixel_ratio,
-        );
+        clip_sources.update(gpu_cache, resource_cache);
+        let (screen_inner_rect, screen_outer_rect) =
+            clip_sources.get_screen_bounds(&self.world_viewport_transform, device_pixel_ratio);
 
-        let outer_bounds = clip_sources.bounds.outer.as_ref().map_or_else(
-            DeviceIntRect::zero,
-            |rect| rect.device_rect
-        );
+        let combined_outer_screen_rect = match screen_outer_rect.as_ref() {
+            Some(bounds) => {
+                bounds.intersection(&state.combined_outer_clip_bounds)
+                    .unwrap_or_else(DeviceIntRect::zero)
+            }
+            None => state.combined_outer_clip_bounds,
+        };
+        state.combined_outer_clip_bounds = combined_outer_screen_rect;
+        self.combined_clip_outer_bounds = combined_outer_screen_rect;
 
-        self.combined_clip_outer_bounds = outer_bounds.intersection(
-            &state.combined_outer_clip_bounds).unwrap_or_else(DeviceIntRect::zero);
-
-        // TODO: Combine rectangles in the same axis-aligned clip space here?
         self.clip_chain_node = Some(Rc::new(ClipChainNode {
             work_item: ClipWorkItem {
                 scroll_node_data_index: self.node_data_index,
                 clip_sources: clip_sources_handle.weak(),
                 coordinate_system_id: state.current_coordinate_system_id,
             },
+            screen_inner_rect,
+            combined_outer_screen_rect,
             prev: current_clip_chain,
         }));
 

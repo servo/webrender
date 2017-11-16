@@ -110,6 +110,8 @@ void main(void) {
                                  offset,
                                  vGradientRepeat);
 
-    oFragColor = color * do_clip();
+    float alpha = do_clip() * apply_rectangular_screen_space_clip(vScreenClipRect);
+
+    oFragColor = color * alpha;
 }
 #endif

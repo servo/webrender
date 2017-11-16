@@ -80,6 +80,7 @@ void main(void) {
 
 #ifdef WR_FRAGMENT_SHADER
 void main(void) {
+
 #ifdef WR_FEATURE_TRANSFORM
     float alpha = 0.0;
     vec2 pos = init_transform_fs(vLocalPos, alpha);
@@ -108,7 +109,8 @@ void main(void) {
     vec2 st = vTextureOffset + ((position_in_tile / vStretchSize) * vTextureSize);
     st = clamp(st, vStRect.xy, vStRect.zw);
 
-    alpha = alpha * float(all(bvec2(step(position_in_tile, vStretchSize))));
+    alpha *= float(all(bvec2(step(position_in_tile, vStretchSize))));
+    alpha *= apply_rectangular_screen_space_clip(vScreenClipRect);
 
     oFragColor = vec4(alpha) * TEX_SAMPLE(sColor0, vec3(st, vLayer));
 }

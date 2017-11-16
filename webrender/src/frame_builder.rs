@@ -14,7 +14,7 @@ use api::{ScrollSensitivity, Shadow, TileOffset, TransformStyle};
 use api::{WorldPoint, YuvColorSpace, YuvData};
 use app_units::Au;
 use border::ImageBorderSegment;
-use clip::{ClipRegion, ClipSource, ClipSources, ClipStore, Contains, MAX_CLIP};
+use clip::{ClipRegion, ClipSource, ClipSources, ClipStore, Contains};
 use clip_scroll_node::{ClipScrollNode, NodeType};
 use clip_scroll_tree::ClipScrollTree;
 use euclid::{SideOffsets2D, vec2};
@@ -37,7 +37,7 @@ use std::{mem, usize, f32, i32};
 use tiling::{CompositeOps, Frame};
 use tiling::{RenderPass};
 use tiling::{RenderTargetContext, ScrollbarPrimitive};
-use util::{self, pack_as_float, RectHelpers, recycle_vec};
+use util::{self, MaxRect, pack_as_float, RectHelpers, recycle_vec};
 
 #[derive(Debug)]
 pub struct ScrollbarInfo(pub ClipId, pub LayerRect);
@@ -296,10 +296,7 @@ impl FrameBuilder {
         // primitives, we can apply any kind of clip mask
         // to them, as for a normal primitive. This is needed
         // to correctly handle some CSS cases (see #1957).
-        let max_clip = LayerRect::new(
-            LayerPoint::new(-MAX_CLIP, -MAX_CLIP),
-            LayerSize::new(2.0 * MAX_CLIP, 2.0 * MAX_CLIP),
-        );
+        let max_clip = LayerRect::max_rect();
 
         // If there is no root picture, create one for the main framebuffer.
         if self.sc_stack.is_empty() {
@@ -1536,6 +1533,7 @@ impl FrameBuilder {
         profile_counters: &mut FrameProfileCounters,
         device_pixel_ratio: f32,
         scene_properties: &SceneProperties,
+        screen_rect: &DeviceIntRect,
     ) {
         profile_scope!("cull");
 
@@ -1574,11 +1572,11 @@ impl FrameBuilder {
             profile_counters,
             None,
             scene_properties,
+            screen_rect,
         );
 
         let pic = &mut self.prim_store.cpu_pictures[0];
         pic.runs = prim_run_cmds;
-
         let root_render_task = RenderTask::new_alpha_batch(
             DeviceIntPoint::zero(),
             RenderTaskLocation::Fixed,
@@ -1676,6 +1674,7 @@ impl FrameBuilder {
             &mut profile_counters,
             device_pixel_ratio,
             scene_properties,
+            &screen_rect,
         );
 
         let main_render_task_id = self.prim_store

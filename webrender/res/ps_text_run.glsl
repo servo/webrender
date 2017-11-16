@@ -108,6 +108,8 @@ void main(void) {
     mask.rgb = vec3(mask.a) - mask.rgb;
 #endif
 
+    alpha *= apply_rectangular_screen_space_clip(vScreenClipRect);
+
     oFragColor = vColor * mask * alpha;
 }
 #endif

@@ -112,6 +112,8 @@ void main(void) {
                     prim.local_rect.p0 + prim.local_rect.size,
                     aPosition.xy);
 
+    vScreenClipRect = vec4(0.0, 0.0, WR_MAX_VERTEX_TEXTURE_WIDTH, WR_MAX_VERTEX_TEXTURE_WIDTH);
+
     gl_Position = uTransform * vec4(device_pos, 0.0, 1.0);
 #else
     vColor = line.color;
@@ -259,6 +261,7 @@ void main(void) {
         }
     }
 
+    alpha *= apply_rectangular_screen_space_clip(vScreenClipRect);
     oFragColor = vColor * alpha;
 }
 #endif
