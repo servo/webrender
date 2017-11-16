@@ -146,14 +146,14 @@ Vue.component('options', {
             } else {
                 connection.send("disable_alpha_rects_debug");
             }
-        }
+        },
         setGpuTimeQueries(enabled) {
             if (enabled) {
                 connection.send("enable_gpu_time_queries");
             } else {
                 connection.send("disable_gpu_time_queries");
             }
-        }
+        },
         setGpuSampleQueries(enabled) {
             if (enabled) {
                 connection.send("enable_gpu_sample_queries");
