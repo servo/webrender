@@ -1388,11 +1388,21 @@ impl FrameBuilder {
     ) {
         let sub_rect_block = sub_rect.unwrap_or(TexelRect::invalid()).into();
 
+        // If the tile spacing is the same as the rect size,
+        // then it is effectively zero. We use this later on
+        // in prim_store to detect if an image can be considered
+        // opaque.
+        let tile_spacing = if *tile_spacing == info.rect.size {
+            LayerSize::zero()
+        } else {
+            *tile_spacing
+        };
+
         let prim_cpu = ImagePrimitiveCpu {
             image_key,
             image_rendering,
             tile_offset: tile,
-            tile_spacing: *tile_spacing,
+            tile_spacing,
             gpu_blocks: [
                 [
                     stretch_size.width,
