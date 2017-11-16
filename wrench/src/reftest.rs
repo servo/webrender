@@ -253,13 +253,13 @@ impl ReftestManifest {
     }
 }
 
-pub struct ReftestHarness<'a> {
-    wrench: &'a mut Wrench,
+pub struct ReftestHarness<'a, 'b> where 'b: 'a {
+    wrench: &'a mut Wrench<'b>,
     window: &'a mut WindowWrapper,
     rx: Receiver<()>,
 }
-impl<'a> ReftestHarness<'a> {
-    pub fn new(wrench: &'a mut Wrench, window: &'a mut WindowWrapper, rx: Receiver<()>) -> ReftestHarness<'a> {
+impl<'a, 'b> ReftestHarness<'a, 'b> {
+    pub fn new(wrench: &'a mut Wrench<'b>, window: &'a mut WindowWrapper, rx: Receiver<()>) -> Self {
         ReftestHarness { wrench, window, rx }
     }
 
