@@ -94,7 +94,7 @@ impl HitTestingItem {
 
 pub struct HitTestingRun(Vec<HitTestingItem>, ClipAndScrollInfo);
 
-/// A builder structure for `RendererFrame`
+/// A builder structure for `tiling::Frame`
 pub struct FrameBuilder {
     screen_rect: DeviceUintRect,
     background_color: Option<ColorF>,

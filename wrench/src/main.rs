@@ -291,10 +291,16 @@ impl RenderNotifier for Notifier {
         })
     }
 
-    fn new_frame_ready(&self) {
+    fn wakeup(&self) {
         self.tx.send(()).unwrap();
     }
-    fn new_scroll_frame_ready(&self, _composite_needed: bool) {}
+
+    fn new_document_ready(&self, _: DocumentId) {
+        self.tx.send(()).unwrap();
+    }
+
+    fn new_scroll_document_ready(&self, _: DocumentId, _composite_needed: bool) {
+    }
 }
 
 fn create_notifier() -> (Box<RenderNotifier>, Receiver<()>) {

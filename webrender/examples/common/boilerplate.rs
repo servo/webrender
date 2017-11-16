@@ -28,14 +28,17 @@ impl RenderNotifier for Notifier {
         })
     }
 
-    fn new_frame_ready(&self) {
+    fn wakeup(&self) {
         #[cfg(not(target_os = "android"))]
         self.window_proxy.wakeup_event_loop();
     }
 
-    fn new_scroll_frame_ready(&self, _composite_needed: bool) {
-        #[cfg(not(target_os = "android"))]
-        self.window_proxy.wakeup_event_loop();
+    fn new_document_ready(&self, _: DocumentId) {
+        self.wakeup();
+    }
+
+    fn new_scroll_document_ready(&self, _: DocumentId, _composite_needed: bool) {
+        self.wakeup();
     }
 }
 

@@ -588,8 +588,8 @@ impl RenderApi {
     /// Supplies a new frame to WebRender.
     ///
     /// Non-blocking, it notifies a worker process which processes the display list.
-    /// When it's done and a RenderNotifier has been set in `webrender::Renderer`,
-    /// [new_frame_ready()][notifier] gets called.
+    /// When it's done and a `RenderNotifier` has been set in `webrender::Renderer`,
+    /// [new_document_ready()][notifier] gets called.
     ///
     /// Note: Scrolling doesn't require an own Frame.
     ///
@@ -608,7 +608,7 @@ impl RenderApi {
     /// * `resources`: A set of resource updates that must be applied at the same time as the
     ///                display list.
     ///
-    /// [notifier]: trait.RenderNotifier.html#tymethod.new_frame_ready
+    /// [notifier]: trait.RenderNotifier.html#tymethod.new_document_ready
     pub fn set_display_list(
         &self,
         document_id: DocumentId,
@@ -884,8 +884,9 @@ pub struct DynamicProperties {
 
 pub trait RenderNotifier: Send {
     fn clone(&self) -> Box<RenderNotifier>;
-    fn new_frame_ready(&self);
-    fn new_scroll_frame_ready(&self, composite_needed: bool);
+    fn wakeup(&self);
+    fn new_document_ready(&self, DocumentId);
+    fn new_scroll_document_ready(&self, DocumentId, composite_needed: bool);
     fn external_event(&self, _evt: ExternalEvent) {
         unimplemented!()
     }
