@@ -5,7 +5,7 @@
 use api::{BorderRadiusKind, ClipId, ColorF, DeviceIntPoint, ImageKey};
 use api::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintSize};
 use api::{ExternalImageType, FilterOp, FontRenderMode, ImageRendering, LayerRect};
-use api::{MixBlendMode, PipelineId, PropertyBinding};
+use api::{MixBlendMode, PipelineId};
 use api::{TileOffset, YuvColorSpace, YuvFormat};
 use api::{LayerToWorldTransform, WorldPixel};
 use border::{BorderCornerInstance, BorderCornerSide};
@@ -687,8 +687,7 @@ fn add_to_batch(
                                                 FilterOp::Saturate(amount) => (5, amount),
                                                 FilterOp::Sepia(amount) => (6, amount),
                                                 FilterOp::Brightness(amount) => (7, amount),
-                                                FilterOp::Opacity(PropertyBinding::Value(amount)) => (8, amount),
-                                                FilterOp::Opacity(_) => unreachable!(),
+                                                FilterOp::Opacity(_, amount) => (8, amount),
                                             };
 
                                             let amount = (amount * 65535.0).round() as i32;

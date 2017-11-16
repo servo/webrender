@@ -22,7 +22,7 @@ use render_task::{ClipWorkItem, ClipChainNode};
 use render_task::{RenderTask, RenderTaskId, RenderTaskTree};
 use renderer::MAX_VERTEX_TEXTURE_WIDTH;
 use resource_cache::{ImageProperties, ResourceCache};
-use scene::ScenePipeline;
+use scene::{ScenePipeline, SceneProperties};
 use std::{mem, usize};
 use std::rc::Rc;
 use util::{pack_as_float, recycle_vec, MatrixHelpers, TransformedRect, TransformedRectKind};
@@ -1300,6 +1300,7 @@ impl PrimitiveStore {
         pipelines: &FastHashMap<PipelineId, ScenePipeline>,
         perform_culling: bool,
         parent_tasks: &mut Vec<RenderTaskId>,
+        scene_properties: &SceneProperties,
         profile_counters: &mut FrameProfileCounters,
     ) -> Option<LayerRect> {
         // Reset the visibility of this primitive.
@@ -1318,6 +1319,11 @@ impl PrimitiveStore {
             let (dependencies, cull_children) = match metadata.prim_kind {
                 PrimitiveKind::Picture => {
                     let pic = &mut self.cpu_pictures[metadata.cpu_prim_index.0];
+
+                    if !pic.resolve_scene_properties(scene_properties) {
+                        return None;
+                    }
+
                     let rfid = match pic.kind {
                         PictureKind::Image { reference_frame_id, .. } => Some(reference_frame_id),
                         _ => None,
@@ -1353,6 +1359,7 @@ impl PrimitiveStore {
                 &mut child_tasks,
                 profile_counters,
                 rfid,
+                scene_properties,
             );
 
             let metadata = &mut self.cpu_metadata[prim_index.0];
@@ -1458,6 +1465,7 @@ impl PrimitiveStore {
         parent_tasks: &mut Vec<RenderTaskId>,
         profile_counters: &mut FrameProfileCounters,
         original_reference_frame_id: Option<ClipId>,
+        scene_properties: &SceneProperties,
     ) -> PrimitiveRunLocalRect {
         let mut result = PrimitiveRunLocalRect {
             local_rect_in_actual_parent_space: LayerRect::zero(),
@@ -1521,6 +1529,7 @@ impl PrimitiveStore {
                     pipelines,
                     perform_culling,
                     parent_tasks,
+                    scene_properties,
                     profile_counters,
                 ) {
                     profile_counters.visible_primitives.inc();

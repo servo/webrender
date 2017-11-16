@@ -11,6 +11,7 @@ use frame_builder::PrimitiveContext;
 use gpu_cache::GpuDataRequest;
 use prim_store::{PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
 use render_task::{ClearMode, RenderTask, RenderTaskId, RenderTaskTree};
+use scene::{FilterOpHelpers, SceneProperties};
 use tiling::RenderTargetKind;
 
 /*
@@ -112,6 +113,27 @@ impl PicturePrimitive {
             },
             pipeline_id,
             cull_children: false,
+        }
+    }
+
+    pub fn resolve_scene_properties(&mut self, properties: &SceneProperties) -> bool {
+        match self.kind {
+            PictureKind::Image { ref mut composite_mode, .. } => {
+                match composite_mode {
+                    &mut Some(PictureCompositeMode::Filter(ref mut filter)) => {
+                        match filter {
+                            &mut FilterOp::Opacity(ref binding, ref mut value) => {
+                                *value = properties.resolve_float(binding, *value);
+                            }
+                            _ => {}
+                        }
+
+                        filter.is_visible()
+                    }
+                    _ => true,
+                }
+            }
+            _ => true
         }
     }
 

@@ -3,9 +3,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderDetails, BorderDisplayItem, BuiltDisplayList};
-use api::{ClipAndScrollInfo, ClipId, ColorF};
+use api::{ClipAndScrollInfo, ClipId, ColorF, PropertyBinding};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
-use api::{ExtendMode, FontRenderMode};
+use api::{ExtendMode, FontRenderMode, LayoutTransform};
 use api::{GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem, HitTestResult};
 use api::{ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect};
 use api::{LayerSize, LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation};
@@ -32,7 +32,7 @@ use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfil
 use render_task::{RenderTask, RenderTaskLocation};
 use render_task::RenderTaskTree;
 use resource_cache::ResourceCache;
-use scene::ScenePipeline;
+use scene::{ScenePipeline, SceneProperties};
 use std::{mem, usize, f32, i32};
 use tiling::{CompositeOps, Frame};
 use tiling::{RenderPass};
@@ -559,14 +559,16 @@ impl FrameBuilder {
         parent_id: Option<ClipId>,
         pipeline_id: PipelineId,
         rect: &LayerRect,
-        transform: &LayerToScrollTransform,
+        source_transform: Option<PropertyBinding<LayoutTransform>>,
+        source_perspective: Option<LayoutTransform>,
         origin_in_parent_reference_frame: LayerVector2D,
         root_for_pipeline: bool,
         clip_scroll_tree: &mut ClipScrollTree,
     ) -> ClipId {
         let new_id = clip_scroll_tree.add_reference_frame(
             rect,
-            transform,
+            source_transform,
+            source_perspective,
             origin_in_parent_reference_frame,
             pipeline_id,
             parent_id,
@@ -610,7 +612,7 @@ impl FrameBuilder {
         let root_id = clip_scroll_tree.root_reference_frame_id();
         if let Some(root_node) = clip_scroll_tree.nodes.get_mut(&root_id) {
             if let NodeType::ReferenceFrame(ref mut info) = root_node.node_type {
-                info.transform = LayerToScrollTransform::create_translation(
+                info.resolved_transform = LayerToScrollTransform::create_translation(
                     viewport_offset.x,
                     viewport_offset.y,
                     0.0,
@@ -633,12 +635,12 @@ impl FrameBuilder {
         clip_scroll_tree: &mut ClipScrollTree,
     ) -> ClipId {
         let viewport_rect = LayerRect::new(LayerPoint::zero(), *viewport_size);
-        let identity = &LayerToScrollTransform::identity();
         self.push_reference_frame(
             None,
             pipeline_id,
             &viewport_rect,
-            identity,
+            None,
+            None,
             LayerVector2D::zero(),
             true,
             clip_scroll_tree,
@@ -1523,6 +1525,7 @@ impl FrameBuilder {
         render_tasks: &mut RenderTaskTree,
         profile_counters: &mut FrameProfileCounters,
         device_pixel_ratio: f32,
+        scene_properties: &SceneProperties,
     ) {
         profile_scope!("cull");
 
@@ -1560,6 +1563,7 @@ impl FrameBuilder {
             &mut child_tasks,
             profile_counters,
             None,
+            scene_properties,
         );
 
         let pic = &mut self.prim_store.cpu_pictures[0];
@@ -1616,6 +1620,7 @@ impl FrameBuilder {
         pan: LayerPoint,
         texture_cache_profile: &mut TextureCacheProfileCounters,
         gpu_cache_profile: &mut GpuCacheProfileCounters,
+        scene_properties: &SceneProperties,
     ) -> Frame {
         profile_scope!("build");
 
@@ -1645,6 +1650,7 @@ impl FrameBuilder {
             gpu_cache,
             pan,
             &mut node_data,
+            scene_properties,
         );
 
         self.update_scroll_bars(clip_scroll_tree, gpu_cache);
@@ -1659,6 +1665,7 @@ impl FrameBuilder {
             &mut render_tasks,
             &mut profile_counters,
             device_pixel_ratio,
+            scene_properties,
         );
 
         let main_render_task_id = self.prim_store

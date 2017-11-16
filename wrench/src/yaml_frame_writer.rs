@@ -204,7 +204,7 @@ fn write_sc(parent: &mut Table, sc: &StackingContext, properties: &SceneProperti
             FilterOp::Grayscale(x) => { filters.push(Yaml::String(format!("grayscale({})", x))) }
             FilterOp::HueRotate(x) => { filters.push(Yaml::String(format!("hue-rotate({})", x))) }
             FilterOp::Invert(x) => { filters.push(Yaml::String(format!("invert({})", x))) }
-            FilterOp::Opacity(x) => {
+            FilterOp::Opacity(x, _) => {
                 filters.push(Yaml::String(format!("opacity({})",
                                                   properties.resolve_float(&x, 1.0))))
             }
