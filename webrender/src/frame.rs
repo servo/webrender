@@ -1024,6 +1024,7 @@ impl<'a> FlattenContext<'a> {
 /// Frame context contains the information required to update
 /// (e.g. scroll) a renderer frame builder (`FrameBuilder`).
 pub struct FrameContext {
+    window_size: DeviceUintSize,
     clip_scroll_tree: ClipScrollTree,
     pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
     id: FrameId,
@@ -1033,6 +1034,7 @@ pub struct FrameContext {
 impl FrameContext {
     pub fn new(config: FrameBuilderConfig) -> Self {
         FrameContext {
+            window_size: DeviceUintSize::zero(),
             pipeline_epoch_map: FastHashMap::default(),
             clip_scroll_tree: ClipScrollTree::new(),
             id: FrameId(0),
@@ -1104,6 +1106,7 @@ impl FrameContext {
         if window_size.width == 0 || window_size.height == 0 {
             error!("ERROR: Invalid window dimensions! Please call api.set_window_size()");
         }
+        self.window_size = window_size;
 
         let old_scrolling_states = self.reset();
 
@@ -1119,7 +1122,7 @@ impl FrameContext {
                 scene,
                 builder: FrameBuilder::new(
                     old_builder,
-                    window_size,
+                    inner_rect,
                     background_color,
                     self.frame_builder_config,
                 ),
@@ -1195,6 +1198,7 @@ impl FrameContext {
             self.id,
             &mut self.clip_scroll_tree,
             pipelines,
+            self.window_size,
             device_pixel_ratio,
             pan,
             texture_cache_profile,

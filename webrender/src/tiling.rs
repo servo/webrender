@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderRadiusKind, ClipId, ColorF, DeviceIntPoint, ImageKey};
-use api::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintSize};
+use api::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{ExternalImageType, FilterOp, FontRenderMode, ImageRendering, LayerRect};
 use api::{MixBlendMode, PipelineId};
 use api::{TileOffset, YuvColorSpace, YuvFormat};
@@ -1994,6 +1994,7 @@ impl CompositeOps {
 /// and presented to the renderer.
 pub struct Frame {
     pub window_size: DeviceUintSize,
+    pub inner_rect: DeviceUintRect,
     pub background_color: Option<ColorF>,
     pub device_pixel_ratio: f32,
     pub passes: Vec<RenderPass>,

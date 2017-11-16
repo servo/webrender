@@ -4,7 +4,7 @@
 
 use api::{BorderDetails, BorderDisplayItem, BuiltDisplayList};
 use api::{ClipAndScrollInfo, ClipId, ColorF, PropertyBinding};
-use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
+use api::{DeviceIntPoint, DeviceUintRect, DeviceUintSize};
 use api::{ExtendMode, FontRenderMode, LayoutTransform};
 use api::{GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem, HitTestResult};
 use api::{ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect};
@@ -32,7 +32,7 @@ use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfil
 use render_task::{ClearMode, RenderTask, RenderTaskTree};
 use resource_cache::ResourceCache;
 use scene::{ScenePipeline, SceneProperties};
-use std::{mem, usize, f32, i32};
+use std::{mem, usize, f32};
 use tiling::{CompositeOps, Frame};
 use tiling::{RenderPass, RenderTargetKind};
 use tiling::{RenderTargetContext, ScrollbarPrimitive};
@@ -95,7 +95,7 @@ pub struct HitTestingRun(Vec<HitTestingItem>, ClipAndScrollInfo);
 
 /// A builder structure for `RendererFrame`
 pub struct FrameBuilder {
-    screen_size: DeviceUintSize,
+    screen_rect: DeviceUintRect,
     background_color: Option<ColorF>,
     prim_store: PrimitiveStore,
     pub clip_store: ClipStore,
@@ -149,7 +149,7 @@ impl<'a> PrimitiveContext<'a> {
 impl FrameBuilder {
     pub fn new(
         previous: Option<Self>,
-        screen_size: DeviceUintSize,
+        screen_rect: DeviceUintRect,
         background_color: Option<ColorF>,
         config: FrameBuilderConfig,
     ) -> Self {
@@ -164,7 +164,7 @@ impl FrameBuilder {
                 sc_stack: recycle_vec(prev.sc_stack),
                 prim_store: prev.prim_store.recycle(),
                 clip_store: prev.clip_store.recycle(),
-                screen_size,
+                screen_rect,
                 background_color,
                 config,
             },
@@ -178,7 +178,7 @@ impl FrameBuilder {
                 sc_stack: Vec::new(),
                 prim_store: PrimitiveStore::new(),
                 clip_store: ClipStore::new(),
-                screen_size,
+                screen_rect,
                 background_color,
                 config,
             },
@@ -1629,6 +1629,7 @@ impl FrameBuilder {
         frame_id: FrameId,
         clip_scroll_tree: &mut ClipScrollTree,
         pipelines: &FastHashMap<PipelineId, ScenePipeline>,
+        window_size: DeviceUintSize,
         device_pixel_ratio: f32,
         pan: LayerPoint,
         texture_cache_profile: &mut TextureCacheProfileCounters,
@@ -1636,6 +1637,10 @@ impl FrameBuilder {
         scene_properties: &SceneProperties,
     ) -> Frame {
         profile_scope!("build");
+        debug_assert!(
+            DeviceUintRect::new(DeviceUintPoint::zero(), window_size)
+                .contains_rect(&self.screen_rect)
+        );
 
         let mut profile_counters = FrameProfileCounters::new();
         profile_counters
@@ -1645,18 +1650,10 @@ impl FrameBuilder {
         resource_cache.begin_frame(frame_id);
         gpu_cache.begin_frame();
 
-        let screen_rect = DeviceIntRect::new(
-            DeviceIntPoint::zero(),
-            DeviceIntSize::new(
-                self.screen_size.width as i32,
-                self.screen_size.height as i32,
-            ),
-        );
-
         let mut node_data = Vec::new();
 
         clip_scroll_tree.update_tree(
-            &screen_rect,
+            &self.screen_rect.to_i32(),
             device_pixel_ratio,
             &mut self.clip_store,
             resource_cache,
@@ -1682,9 +1679,9 @@ impl FrameBuilder {
         );
 
         let main_render_task_id = self.prim_store
-                                      .cpu_pictures[0]
-                                      .render_task_id
-                                      .expect("bug: no root render task!");
+            .cpu_pictures[0]
+            .render_task_id
+            .expect("bug: no root render task!");
 
         let mut required_pass_count = 0;
         render_tasks.max_depth(main_render_task_id, 0, &mut required_pass_count);
@@ -1739,9 +1736,10 @@ impl FrameBuilder {
         resource_cache.end_frame();
 
         Frame {
+            window_size,
+            inner_rect: self.screen_rect,
             device_pixel_ratio,
             background_color: self.background_color,
-            window_size: self.screen_size,
             profile_counters,
             passes,
             node_data,
