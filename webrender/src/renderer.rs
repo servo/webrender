@@ -931,6 +931,7 @@ impl LazilyCompiledShader {
         device: &mut Device,
         projection: &Transform3D<f32>,
         mode: M,
+        target_height: u32,
         renderer_errors: &mut Vec<RendererError>,
     ) where M: Into<ShaderMode> {
         let program = match self.get(device) {
@@ -941,7 +942,7 @@ impl LazilyCompiledShader {
             }
         };
         device.bind_program(program);
-        device.set_uniforms(program, projection, mode.into());
+        device.set_uniforms(program, projection, mode.into(), target_height);
     }
 
     fn get(&mut self, device: &mut Device) -> Result<&Program, ShaderError> {
@@ -1029,18 +1030,19 @@ impl BrushShader {
         blend_mode: BlendMode,
         projection: &Transform3D<f32>,
         mode: M,
+        target_height: u32,
         renderer_errors: &mut Vec<RendererError>,
     ) where M: Into<ShaderMode> {
         match blend_mode {
             BlendMode::None => {
-                self.opaque.bind(device, projection, mode, renderer_errors)
+                self.opaque.bind(device, projection, mode, target_height, renderer_errors)
             }
             BlendMode::PremultipliedAlpha |
             BlendMode::PremultipliedDestOut |
             BlendMode::SubpixelConstantTextColor(..) |
             BlendMode::SubpixelVariableTextColor |
             BlendMode::SubpixelWithBgColor => {
-                self.alpha.bind(device, projection, mode, renderer_errors)
+                self.alpha.bind(device, projection, mode, target_height, renderer_errors)
             }
         }
     }
@@ -1091,14 +1093,15 @@ impl PrimitiveShader {
         transform_kind: TransformedRectKind,
         projection: &Transform3D<f32>,
         mode: M,
+        target_height: u32,
         renderer_errors: &mut Vec<RendererError>,
     ) where M: Into<ShaderMode> {
         match transform_kind {
             TransformedRectKind::AxisAligned => {
-                self.simple.bind(device, projection, mode, renderer_errors)
+                self.simple.bind(device, projection, mode, target_height, renderer_errors)
             }
             TransformedRectKind::Complex => {
-                self.transform.bind(device, projection, mode, renderer_errors)
+                self.transform.bind(device, projection, mode, target_height, renderer_errors)
             }
         }
     }
@@ -1162,6 +1165,7 @@ impl TextShader {
         transform_kind: TransformedRectKind,
         projection: &Transform3D<f32>,
         mode: M,
+        target_height: u32,
         renderer_errors: &mut Vec<RendererError>,
     ) where M: Into<ShaderMode> {
         match glyph_format {
@@ -1170,15 +1174,21 @@ impl TextShader {
             GlyphFormat::ColorBitmap => {
                 match transform_kind {
                     TransformedRectKind::AxisAligned => {
-                        self.simple.bind(device, projection, mode, renderer_errors)
+                        self.simple.bind(device, projection, mode, target_height, renderer_errors)
                     }
                     TransformedRectKind::Complex => {
-                        self.transform.bind(device, projection, mode, renderer_errors)
+                        self.transform.bind(
+                            device,
+                            projection,
+                            mode,
+                            target_height,
+                            renderer_errors,
+                        )
                     }
                 }
             }
             GlyphFormat::TransformedSubpixel => {
-                self.glyph_transform.bind(device, projection, mode, renderer_errors)
+                self.glyph_transform.bind(device, projection, mode, target_height, renderer_errors)
             }
         }
     }
@@ -2613,22 +2623,40 @@ impl Renderer {
     ) {
         match key.kind {
             BatchKind::Composite { .. } => {
-                self.ps_composite.bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+                self.ps_composite.bind(
+                    &mut self.device,
+                    projection,
+                    0,
+                    framebuffer_size.height,
+                    &mut self.renderer_errors
+                );
             }
             BatchKind::HardwareComposite => {
-                self.ps_hw_composite
-                    .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+                self.ps_hw_composite .bind(
+                    &mut self.device,
+                    projection,
+                    0,
+                    framebuffer_size.height,
+                    &mut self.renderer_errors
+                );
             }
             BatchKind::SplitComposite => {
                 self.ps_split_composite.bind(
                     &mut self.device,
                     projection,
                     0,
+                    framebuffer_size.height,
                     &mut self.renderer_errors,
                 );
             }
             BatchKind::Blend => {
-                self.ps_blend.bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+                self.ps_blend.bind(
+                    &mut self.device,
+                    projection,
+                    0,
+                    framebuffer_size.height,
+                    &mut self.renderer_errors
+                );
             }
             BatchKind::Brush(brush_kind) => {
                 match brush_kind {
@@ -2642,6 +2670,7 @@ impl Renderer {
                             key.blend_mode,
                             projection,
                             0,
+                            framebuffer_size.height,
                             &mut self.renderer_errors,
                         );
                     }
@@ -2666,6 +2695,7 @@ impl Renderer {
                             transform_kind,
                             projection,
                             0,
+                            framebuffer_size.height,
                             &mut self.renderer_errors,
                         );
                     } else {
@@ -2674,6 +2704,7 @@ impl Renderer {
                             transform_kind,
                             projection,
                             0,
+                            framebuffer_size.height,
                             &mut self.renderer_errors,
                         );
                     }
@@ -2684,6 +2715,7 @@ impl Renderer {
                         transform_kind,
                         projection,
                         0,
+                        framebuffer_size.height,
                         &mut self.renderer_errors,
                     );
                 }
@@ -2699,6 +2731,7 @@ impl Renderer {
                             transform_kind,
                             projection,
                             0,
+                            framebuffer_size.height,
                             &mut self.renderer_errors,
                         );
                 }
@@ -2713,6 +2746,7 @@ impl Renderer {
                             transform_kind,
                             projection,
                             0,
+                            framebuffer_size.height,
                             &mut self.renderer_errors,
                         );
                 }
@@ -2722,6 +2756,7 @@ impl Renderer {
                         transform_kind,
                         projection,
                         0,
+                        framebuffer_size.height,
                         &mut self.renderer_errors,
                     );
                 }
@@ -2731,6 +2766,7 @@ impl Renderer {
                         transform_kind,
                         projection,
                         0,
+                        framebuffer_size.height,
                         &mut self.renderer_errors,
                     );
                 }
@@ -2740,6 +2776,7 @@ impl Renderer {
                         transform_kind,
                         projection,
                         0,
+                        framebuffer_size.height,
                         &mut self.renderer_errors,
                     );
                 }
@@ -2749,6 +2786,7 @@ impl Renderer {
                         transform_kind,
                         projection,
                         0,
+                        framebuffer_size.height,
                         &mut self.renderer_errors,
                     );
                 }
@@ -2758,6 +2796,7 @@ impl Renderer {
                         transform_kind,
                         projection,
                         0,
+                        framebuffer_size.height,
                         &mut self.renderer_errors,
                     );
                 }
@@ -2868,8 +2907,7 @@ impl Renderer {
     ) {
         {
             let _timer = self.gpu_profile.start_timer(GPU_TAG_SETUP_TARGET);
-            self.device
-                .bind_draw_target(render_target, Some(target_size));
+            self.device.bind_draw_target(render_target, Some(target_size));
             self.device.disable_depth();
             self.device.enable_depth_write();
             self.device.set_blend(false);
@@ -2911,8 +2949,13 @@ impl Renderer {
             let _timer = self.gpu_profile.start_timer(GPU_TAG_BLUR);
 
             self.device.set_blend(false);
-            self.cs_blur_rgba8
-                .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+            self.cs_blur_rgba8.bind(
+                &mut self.device,
+                projection,
+                0,
+                target_size.height,
+                &mut self.renderer_errors
+            );
 
             if !target.vertical_blurs.is_empty() {
                 self.draw_instanced_batch(
@@ -2944,8 +2987,13 @@ impl Renderer {
             self.device.set_blend_mode_premultiplied_alpha();
 
             let _timer = self.gpu_profile.start_timer(GPU_TAG_CACHE_TEXT_RUN);
-            self.cs_text_run
-                .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+            self.cs_text_run.bind(
+                &mut self.device,
+                projection,
+                0,
+                target_size.height,
+                &mut self.renderer_errors
+            );
             for (texture_id, instances) in &target.text_run_cache_prims {
                 self.draw_instanced_batch(
                     instances,
@@ -2961,8 +3009,13 @@ impl Renderer {
             self.device.set_blend_mode_premultiplied_alpha();
 
             let _timer = self.gpu_profile.start_timer(GPU_TAG_CACHE_LINE);
-            self.cs_line
-                .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+            self.cs_line.bind(
+                &mut self.device,
+                projection,
+                0,
+                target_size.height,
+                &mut self.renderer_errors
+            );
             self.draw_instanced_batch(
                 &target.line_cache_prims,
                 VertexArrayKind::Primitive,
@@ -3046,6 +3099,7 @@ impl Renderer {
                                     transform_kind,
                                     projection,
                                     TextShaderMode::from(glyph_format),
+                                    target_size.height,
                                     &mut self.renderer_errors,
                                 );
 
@@ -3064,6 +3118,7 @@ impl Renderer {
                                     transform_kind,
                                     projection,
                                     TextShaderMode::SubpixelConstantTextColor,
+                                    target_size.height,
                                     &mut self.renderer_errors,
                                 );
 
@@ -3086,6 +3141,7 @@ impl Renderer {
                                     transform_kind,
                                     projection,
                                     TextShaderMode::SubpixelPass0,
+                                    target_size.height,
                                     &mut self.renderer_errors,
                                 );
 
@@ -3103,6 +3159,7 @@ impl Renderer {
                                     transform_kind,
                                     projection,
                                     TextShaderMode::SubpixelPass1,
+                                    target_size.height,
                                     &mut self.renderer_errors,
                                 );
 
@@ -3127,6 +3184,7 @@ impl Renderer {
                                     transform_kind,
                                     projection,
                                     TextShaderMode::SubpixelWithBgColorPass0,
+                                    target_size.height,
                                     &mut self.renderer_errors,
                                 );
 
@@ -3144,6 +3202,7 @@ impl Renderer {
                                     transform_kind,
                                     projection,
                                     TextShaderMode::SubpixelWithBgColorPass1,
+                                    target_size.height,
                                     &mut self.renderer_errors,
                                 );
 
@@ -3162,6 +3221,7 @@ impl Renderer {
                                     transform_kind,
                                     projection,
                                     TextShaderMode::SubpixelWithBgColorPass2,
+                                    target_size.height,
                                     &mut self.renderer_errors,
                                 );
 
@@ -3295,8 +3355,13 @@ impl Renderer {
             let _timer = self.gpu_profile.start_timer(GPU_TAG_BLUR);
 
             self.device.set_blend(false);
-            self.cs_blur_a8
-                .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+            self.cs_blur_a8.bind(
+                &mut self.device,
+                projection,
+                0,
+                target_size.height,
+                &mut self.renderer_errors
+            );
 
             if !target.vertical_blurs.is_empty() {
                 self.draw_instanced_batch(
@@ -3321,8 +3386,13 @@ impl Renderer {
             self.device.set_blend(false);
 
             let _timer = self.gpu_profile.start_timer(GPU_TAG_BRUSH_MASK);
-            self.brush_mask_corner
-                .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+            self.brush_mask_corner.bind(
+                &mut self.device,
+                projection,
+                0,
+                target_size.height,
+                &mut self.renderer_errors
+            );
             self.draw_instanced_batch(
                 &target.brush_mask_corners,
                 VertexArrayKind::Primitive,
@@ -3334,8 +3404,13 @@ impl Renderer {
             self.device.set_blend(false);
 
             let _timer = self.gpu_profile.start_timer(GPU_TAG_BRUSH_MASK);
-            self.brush_mask_rounded_rect
-                .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+            self.brush_mask_rounded_rect.bind(
+                &mut self.device,
+                projection,
+                0,
+                target_size.height,
+                &mut self.renderer_errors
+            );
             self.draw_instanced_batch(
                 &target.brush_mask_rounded_rects,
                 VertexArrayKind::Primitive,
@@ -3353,8 +3428,13 @@ impl Renderer {
             if !target.clip_batcher.border_clears.is_empty() {
                 let _gm = self.gpu_profile.start_marker("clip borders [clear]");
                 self.device.set_blend(false);
-                self.cs_clip_border
-                    .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+                self.cs_clip_border.bind(
+                    &mut self.device,
+                    projection,
+                    0,
+                    target_size.height,
+                    &mut self.renderer_errors
+                );
                 self.draw_instanced_batch(
                     &target.clip_batcher.border_clears,
                     VertexArrayKind::Clip,
@@ -3371,8 +3451,13 @@ impl Renderer {
                 // a max blend mode here is fine.
                 self.device.set_blend(true);
                 self.device.set_blend_mode_max();
-                self.cs_clip_border
-                    .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+                self.cs_clip_border.bind(
+                    &mut self.device,
+                    projection,
+                    0,
+                    target_size.height,
+                    &mut self.renderer_errors
+                );
                 self.draw_instanced_batch(
                     &target.clip_batcher.borders,
                     VertexArrayKind::Clip,
@@ -3391,6 +3476,7 @@ impl Renderer {
                     &mut self.device,
                     projection,
                     0,
+                    target_size.height,
                     &mut self.renderer_errors,
                 );
                 self.draw_instanced_batch(
@@ -3409,8 +3495,13 @@ impl Renderer {
                         SourceTexture::Invalid,
                     ],
                 };
-                self.cs_clip_image
-                    .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+                self.cs_clip_image.bind(
+                    &mut self.device,
+                    projection,
+                    0,
+                    target_size.height,
+                    &mut self.renderer_errors
+                );
                 self.draw_instanced_batch(items, VertexArrayKind::Clip, &textures);
             }
         }
