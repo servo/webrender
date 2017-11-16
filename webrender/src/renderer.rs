@@ -10,7 +10,7 @@
 //! [renderer]: struct.Renderer.html
 
 use api::{channel, BlobImageRenderer, FontRenderMode};
-use api::{ColorF, Epoch, PipelineId, RenderApiSender, RenderNotifier};
+use api::{ColorF, DocumentId, Epoch, PipelineId, RenderApiSender, RenderNotifier};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceUintRect, DeviceUintSize};
 use api::{ExternalImageId, ExternalImageType, ImageFormat};
 use api::{YUV_COLOR_SPACES, YUV_FORMATS};
@@ -1183,7 +1183,7 @@ pub struct Renderer<'a> {
     pending_texture_updates: Vec<TextureUpdateList>,
     pending_gpu_cache_updates: Vec<GpuCacheUpdateList>,
     pending_shader_updates: Vec<PathBuf>,
-    current_frame: Option<RendererFrame>,
+    active_frames: FastHashMap<DocumentId, RendererFrame>,
 
     // These are "cache shaders". These shaders are used to
     // draw intermediate results to cache targets. The results
@@ -1370,8 +1370,7 @@ impl<'a> Renderer<'a> {
 
         register_thread_with_profiler("Compositor".to_owned());
 
-        // device-pixel ratio doesn't matter here - we are just creating resources.
-        device.begin_frame(1.0);
+        device.begin_frame();
 
         let cs_text_run = try!{
             LazilyCompiledShader::new(ShaderKind::Cache(VertexArrayKind::Primitive),
@@ -1816,18 +1815,20 @@ impl<'a> Renderer<'a> {
                 if let Some(ref thread_listener) = *thread_listener_for_render_backend {
                     thread_listener.thread_started(&thread_name);
                 }
-                let mut backend = RenderBackend::new(api_rx,
-                                                     payload_rx,
-                                                     payload_tx_for_backend,
-                                                     result_tx,
-                                                     device_pixel_ratio,
-                                                     texture_cache,
-                                                     workers,
-                                                     backend_notifier,
-                                                     config,
-                                                     recorder,
-                                                     blob_image_renderer,
-                                                     enable_render_on_scroll);
+                let mut backend = RenderBackend::new(
+                    api_rx,
+                    payload_rx,
+                    payload_tx_for_backend,
+                    result_tx,
+                    device_pixel_ratio,
+                    texture_cache,
+                    workers,
+                    backend_notifier,
+                    config,
+                    recorder,
+                    blob_image_renderer,
+                    enable_render_on_scroll,
+                );
                 backend.run(backend_profile_counters);
                 if let Some(ref thread_listener) = *thread_listener_for_render_backend {
                     thread_listener.thread_stopped(&thread_name);
@@ -1842,7 +1843,7 @@ impl<'a> Renderer<'a> {
             result_rx,
             debug_server,
             device,
-            current_frame: None,
+            active_frames: FastHashMap::default(),
             pending_texture_updates: Vec::new(),
             pending_gpu_cache_updates: Vec::new(),
             pending_shader_updates: Vec::new(),
@@ -1958,7 +1959,7 @@ impl<'a> Renderer<'a> {
         while let Ok(msg) = self.result_rx.try_recv() {
             match msg {
                 ResultMsg::NewFrame(
-                    _document_id,
+                    document_id,
                     mut frame,
                     texture_update_list,
                     profile_counters,
@@ -1980,7 +1981,7 @@ impl<'a> Renderer<'a> {
                         self.pipeline_epoch_map.insert(*pipeline_id, *epoch);
                     }
 
-                    self.current_frame = Some(frame);
+                    self.active_frames.insert(document_id, frame);
                 }
                 ResultMsg::UpdateResources {
                     updates,
@@ -1990,10 +1991,10 @@ impl<'a> Renderer<'a> {
                     self.update_texture_cache();
                     // If we receive a NewFrame message followed by this one within
                     // the same update we need ot cancel the frame because we might
-                    // have deleted the resources in use in the frame dut to a memory
+                    // have deleted the resources in use in the frame due to a memory
                     // pressure event.
                     if cancel_rendering {
-                        self.current_frame = None;
+                        self.active_frames.clear();
                     }
                 }
                 ResultMsg::RefreshShader(path) => {
@@ -2023,10 +2024,12 @@ impl<'a> Renderer<'a> {
     fn get_passes_for_debugger(&self) -> String {
         let mut debug_passes = debug_server::PassList::new();
 
-        if let Some(frame) = self.current_frame
-            .as_ref()
-            .and_then(|frame| frame.frame.as_ref())
-        {
+        for rendered_frame in self.active_frames.values() {
+            let frame = match rendered_frame.frame {
+                Some(ref frame) => frame,
+                None => continue,
+            };
+
             for pass in &frame.passes {
                 let mut debug_pass = debug_server::Pass::new();
 
@@ -2204,120 +2207,124 @@ impl<'a> Renderer<'a> {
     pub fn render(&mut self, framebuffer_size: DeviceUintSize) -> Result<(), Vec<RendererError>> {
         profile_scope!("render");
 
-        if let Some(mut frame) = self.current_frame.take() {
-            if let Some(ref mut frame) = frame.frame {
-                let mut profile_timers = RendererProfileTimers::new();
-                let profile_samplers = {
-                    let _gm = self.gpu_profile.start_marker("build samples");
-                    // Block CPU waiting for last frame's GPU profiles to arrive.
-                    // In general this shouldn't block unless heavily GPU limited.
-                    let (gpu_frame_id, timers, samplers) = self.gpu_profile.build_samples();
+        if !self.active_frames.values().any(|rendered_frame| rendered_frame.frame.is_some()) {
+            self.last_time = precise_time_ns();
+            return Ok(())
+        }
 
-                    if self.max_recorded_profiles > 0 {
-                        while self.gpu_profiles.len() >= self.max_recorded_profiles {
-                            self.gpu_profiles.pop_front();
-                        }
-                        self.gpu_profiles
-                            .push_back(GpuProfile::new(gpu_frame_id, &timers));
-                    }
-                    profile_timers.gpu_samples = timers;
-                    samplers
-                };
+        let mut frame_profiles = Vec::new();
+        let mut profile_timers = RendererProfileTimers::new();
 
-                let cpu_frame_id = profile_timers.cpu_time.profile(|| {
-                    let cpu_frame_id = {
-                        let _gm = self.gpu_profile.start_marker("begin frame");
-                        let frame_id = self.device.begin_frame(frame.device_pixel_ratio);
-                        self.gpu_profile.begin_frame(frame_id);
+        let profile_samplers = {
+            let _gm = self.gpu_profile.start_marker("build samples");
+            // Block CPU waiting for last frame's GPU profiles to arrive.
+            // In general this shouldn't block unless heavily GPU limited.
+            let (gpu_frame_id, timers, samplers) = self.gpu_profile.build_samples();
 
-                        self.device.disable_scissor();
-                        self.device.disable_depth();
-                        self.device.set_blend(false);
-                        //self.update_shaders();
+            if self.max_recorded_profiles > 0 {
+                while self.gpu_profiles.len() >= self.max_recorded_profiles {
+                    self.gpu_profiles.pop_front();
+                }
+                self.gpu_profiles
+                    .push_back(GpuProfile::new(gpu_frame_id, &timers));
+            }
+            profile_timers.gpu_samples = timers;
+            samplers
+        };
 
-                        self.update_texture_cache();
 
-                        self.update_gpu_cache(frame);
+        let cpu_frame_id = profile_timers.cpu_time.profile(|| {
+            let _gm = GpuMarker::new(self.device.rc_gl(), "begin frame");
+            let frame_id = self.device.begin_frame();
+            self.gpu_profile.begin_frame(frame_id);
 
-                        self.device.bind_texture(
-                            TextureSampler::ResourceCache,
-                            &self.gpu_cache_texture.texture,
-                        );
+            self.device.disable_scissor();
+            self.device.disable_depth();
+            self.device.set_blend(false);
+            //self.update_shaders();
 
-                        frame_id
-                    };
+            self.update_texture_cache();
 
+            self.device.bind_texture(
+                TextureSampler::ResourceCache,
+                &self.gpu_cache_texture.texture,
+            );
+
+            frame_id
+        });
+
+        profile_timers.cpu_time.profile(|| {
+            //Note: another borrowck dance
+            let mut active_frames = mem::replace(&mut self.active_frames, FastHashMap::default());
+
+            for rendered_frame in active_frames.values_mut() {
+                if let Some(ref mut frame) = rendered_frame.frame {
+                    self.device.device_pixel_ratio = frame.device_pixel_ratio;
+                    self.update_gpu_cache(frame);
                     self.draw_tile_frame(frame, framebuffer_size, cpu_frame_id);
-
-                    self.gpu_profile.end_frame();
-                    cpu_frame_id
-                });
-
-                let current_time = precise_time_ns();
-                let ns = current_time - self.last_time;
-                self.profile_counters.frame_time.set(ns);
-
-                if self.max_recorded_profiles > 0 {
-                    while self.cpu_profiles.len() >= self.max_recorded_profiles {
-                        self.cpu_profiles.pop_front();
+                    if self.debug_flags.contains(DebugFlags::PROFILER_DBG) {
+                        frame_profiles.push(frame.profile_counters.clone());
                     }
-                    let cpu_profile = CpuProfile::new(
-                        cpu_frame_id,
-                        self.backend_profile_counters.total_time.get(),
-                        profile_timers.cpu_time.get(),
-                        self.profile_counters.draw_calls.get(),
-                    );
-                    self.cpu_profiles.push_back(cpu_profile);
                 }
-
-                if self.debug_flags.contains(DebugFlags::PROFILER_DBG) {
-                    let _gm = self.gpu_profile.start_marker("profile");
-                    let screen_fraction = 1.0 / //TODO: take device/pixel ratio into equation?
-                        (framebuffer_size.width as f32 * framebuffer_size.height as f32);
-                    self.profiler.draw_profile(
-                        &frame.profile_counters,
-                        &self.backend_profile_counters,
-                        &self.profile_counters,
-                        &mut profile_timers,
-                        &profile_samplers,
-                        screen_fraction,
-                        &mut self.debug,
-                    );
-                }
-
-                self.profile_counters.reset();
-                self.profile_counters.frame_counter.inc();
-
-                {
-                    let _gm = self.gpu_profile.start_marker("debug");
-                    let debug_size = DeviceUintSize::new(
-                        framebuffer_size.width as u32,
-                        framebuffer_size.height as u32,
-                    );
-                    self.debug.render(&mut self.device, &debug_size);
-                }
-                {
-                    let _gm = self.gpu_profile.start_marker("end frame");
-                    self.device.end_frame();
-                }
-                self.last_time = current_time;
             }
 
-            // Restore frame - avoid borrow checker!
-            self.current_frame = Some(frame);
+            self.active_frames = active_frames;
+        });
+
+        let current_time = precise_time_ns();
+        let ns = current_time - self.last_time;
+        self.profile_counters.frame_time.set(ns);
+
+        if self.max_recorded_profiles > 0 {
+            while self.cpu_profiles.len() >= self.max_recorded_profiles {
+                self.cpu_profiles.pop_front();
+            }
+            let cpu_profile = CpuProfile::new(
+                cpu_frame_id,
+                self.backend_profile_counters.total_time.get(),
+                profile_timers.cpu_time.get(),
+                self.profile_counters.draw_calls.get(),
+            );
+            self.cpu_profiles.push_back(cpu_profile);
         }
-        if !self.renderer_errors.is_empty() {
-            let errors = mem::replace(&mut self.renderer_errors, Vec::new());
-            return Err(errors);
+
+        if self.debug_flags.contains(DebugFlags::PROFILER_DBG) {
+            //TODO: take device/pixel ratio into equation?
+            let screen_fraction = 1.0 / framebuffer_size.to_f32().area();
+            self.profiler.draw_profile(
+                &mut self.device,
+                &frame_profiles,
+                &self.backend_profile_counters,
+                &self.profile_counters,
+                &mut profile_timers,
+                &profile_samplers,
+                screen_fraction,
+                &mut self.debug,
+            );
         }
-        Ok(())
+
+        self.profile_counters.reset();
+        self.profile_counters.frame_counter.inc();
+
+        self.debug.render(&mut self.device, &framebuffer_size);
+        profile_timers.cpu_time.profile(|| {
+            let _gm = GpuMarker::new(self.device.rc_gl(), "end frame");
+            self.gpu_profile.end_frame();
+            self.device.end_frame();
+        });
+        self.last_time = current_time;
+
+        if self.renderer_errors.is_empty() {
+            Ok(())
+        } else {
+            Err(mem::replace(&mut self.renderer_errors, Vec::new()))
+        }
     }
 
     pub fn layers_are_bouncing_back(&self) -> bool {
-        match self.current_frame {
-            None => false,
-            Some(ref current_frame) => !current_frame.layers_bouncing_back.is_empty(),
-        }
+        self.active_frames
+            .values()
+            .any(|rendered_frame| !rendered_frame.layers_bouncing_back.is_empty())
     }
 
     fn update_gpu_cache(&mut self, frame: &mut Frame) {
@@ -3752,7 +3759,7 @@ impl<'a> Renderer<'a> {
     // De-initialize the Renderer safely, assuming the GL is still alive and active.
     pub fn deinit(mut self) {
         //Note: this is a fake frame, only needed because texture deletion is require to happen inside a frame
-        self.device.begin_frame(1.0);
+        self.device.begin_frame();
         self.gpu_cache_texture.deinit(&mut self.device);
         if let Some(dither_matrix_texture) = self.dither_matrix_texture {
             self.device.delete_texture(dither_matrix_texture);
