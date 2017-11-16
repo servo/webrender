@@ -4,7 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BuiltDisplayListIter, ClipAndScrollInfo, ClipId, ColorF, ComplexClipRegion};
-use api::{DeviceUintRect, DeviceUintSize, DisplayItemRef, Epoch, FilterOp};
+use api::{DeviceUintRect, DeviceUintSize, DisplayItemRef, DocumentLayer, Epoch, FilterOp};
 use api::{ImageDisplayItem, ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect};
 use api::{LayerSize, LayerVector2D};
 use api::{LayoutRect, LayoutSize};
@@ -17,7 +17,7 @@ use clip_scroll_tree::{ClipScrollTree, ScrollStates};
 use euclid::rect;
 use frame_builder::{FrameBuilder, FrameBuilderConfig, ScrollbarInfo};
 use gpu_cache::GpuCache;
-use internal_types::{FastHashMap, FastHashSet, RendererFrame};
+use internal_types::{FastHashMap, FastHashSet, RenderedDocument};
 use prim_store::RectangleContent;
 use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
 use resource_cache::{FontInstanceMap,ResourceCache, TiledImageMap};
@@ -1175,23 +1175,24 @@ impl FrameContext {
         self.pipeline_epoch_map.insert(pipeline_id, epoch);
     }
 
-    fn get_renderer_frame_impl(&self, frame: Option<Frame>) -> RendererFrame {
+    fn get_rendered_doc_impl(&self, frame: Option<Frame>) -> RenderedDocument {
         let nodes_bouncing_back = self.clip_scroll_tree.collect_nodes_bouncing_back();
-        RendererFrame::new(self.pipeline_epoch_map.clone(), nodes_bouncing_back, frame)
+        RenderedDocument::new(self.pipeline_epoch_map.clone(), nodes_bouncing_back, frame)
     }
 
-    pub fn build_renderer_frame(
+    pub fn build_rendered_document(
         &mut self,
         frame_builder: &mut FrameBuilder,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
         pipelines: &FastHashMap<PipelineId, ScenePipeline>,
         device_pixel_ratio: f32,
+        layer: DocumentLayer,
         pan: LayerPoint,
         texture_cache_profile: &mut TextureCacheProfileCounters,
         gpu_cache_profile: &mut GpuCacheProfileCounters,
-        scene_properties: &SceneProperties,
-    ) -> RendererFrame {
+		scene_properties: &SceneProperties,
+    ) -> RenderedDocument {
         let frame = frame_builder.build(
             resource_cache,
             gpu_cache,
@@ -1200,16 +1201,17 @@ impl FrameContext {
             pipelines,
             self.window_size,
             device_pixel_ratio,
+            layer,
             pan,
             texture_cache_profile,
             gpu_cache_profile,
             scene_properties,
         );
 
-        self.get_renderer_frame_impl(Some(frame))
+        self.get_rendered_doc_impl(Some(frame))
     }
 
-    pub fn get_renderer_frame(&self) -> RendererFrame {
-        self.get_renderer_frame_impl(None)
+    pub fn get_rendered_document(&self) -> RenderedDocument {
+        self.get_rendered_doc_impl(None)
     }
 }

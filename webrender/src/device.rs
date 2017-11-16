@@ -803,8 +803,8 @@ impl<'a> Device<'a> {
             self.gl.viewport(
                 0,
                 0,
-                dimensions.width as gl::GLint,
-                dimensions.height as gl::GLint,
+                dimensions.width as _,
+                dimensions.height as _,
             );
         }
     }
