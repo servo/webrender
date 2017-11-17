@@ -62,7 +62,8 @@ void main(void) {
 
         // Right now - pictures only support local positions. In the future, this
         // will be expanded to support transform picture types (the common kind).
-        device_pos = pic_task.target_rect.p0 + uDevicePixelRatio * (local_pos - pic_task.content_origin);
+        device_pos = pic_task.common_data.task_rect.p0 +
+                     uDevicePixelRatio * (local_pos - pic_task.content_origin);
 
         // Write the final position transformed by the orthographic device-pixel projection.
         gl_Position = uTransform * vec4(device_pos, 0.0, 1.0);

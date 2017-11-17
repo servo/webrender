@@ -567,105 +567,92 @@ impl RenderTask {
         //           more type-safe. Although, it will always need
         //           to be kept in sync with the GLSL code anyway.
 
-        match self.kind {
+        let (data1, data2) = match self.kind {
             RenderTaskKind::Alpha(ref task) => {
-                let (target_rect, target_index) = self.get_target_rect();
-                RenderTaskData {
-                    data: [
-                        target_rect.origin.x as f32,
-                        target_rect.origin.y as f32,
-                        target_rect.size.width as f32,
-                        target_rect.size.height as f32,
+                (
+                    [
                         task.screen_origin.x as f32,
                         task.screen_origin.y as f32,
-                        target_index.0 as f32,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
+                        0.0
                     ],
-                }
+                    [
+                        0.0; 4
+                    ],
+                )
             }
             RenderTaskKind::Picture(ref task) => {
-                let (target_rect, target_index) = self.get_target_rect();
-                RenderTaskData {
-                    data: [
-                        target_rect.origin.x as f32,
-                        target_rect.origin.y as f32,
-                        target_rect.size.width as f32,
-                        target_rect.size.height as f32,
-                        target_index.0 as f32,
+                (
+                    [
                         task.content_origin.x,
                         task.content_origin.y,
-                        0.0,
+                        0.0
+                    ],
+                    [
                         task.color.r,
                         task.color.g,
                         task.color.b,
                         task.color.a,
                     ],
-                }
+                )
             }
             RenderTaskKind::CacheMask(ref task) => {
-                let (target_rect, target_index) = self.get_target_rect();
-                RenderTaskData {
-                    data: [
-                        target_rect.origin.x as f32,
-                        target_rect.origin.y as f32,
-                        (target_rect.origin.x + target_rect.size.width) as f32,
-                        (target_rect.origin.y + target_rect.size.height) as f32,
+                (
+                    [
                         task.actual_rect.origin.x as f32,
                         task.actual_rect.origin.y as f32,
-                        target_index.0 as f32,
                         0.0,
+                    ],
+                    [
                         task.inner_rect.origin.x as f32,
                         task.inner_rect.origin.y as f32,
                         (task.inner_rect.origin.x + task.inner_rect.size.width) as f32,
                         (task.inner_rect.origin.y + task.inner_rect.size.height) as f32,
                     ],
-                }
+                )
             }
             RenderTaskKind::VerticalBlur(ref task) |
             RenderTaskKind::HorizontalBlur(ref task) => {
-                let (target_rect, target_index) = self.get_target_rect();
-                RenderTaskData {
-                    data: [
-                        target_rect.origin.x as f32,
-                        target_rect.origin.y as f32,
-                        target_rect.size.width as f32,
-                        target_rect.size.height as f32,
-                        target_index.0 as f32,
+                (
+                    [
                         task.blur_std_deviation,
                         task.scale_factor,
                         0.0,
+                    ],
+                    [
                         task.color.r,
                         task.color.g,
                         task.color.b,
                         task.color.a,
                     ],
-                }
+                )
             }
             RenderTaskKind::Readback(..) |
-            RenderTaskKind::Scaling(..) => {
-                let (target_rect, target_index) = self.get_target_rect();
-                RenderTaskData {
-                    data: [
-                        target_rect.origin.x as f32,
-                        target_rect.origin.y as f32,
-                        target_rect.size.width as f32,
-                        target_rect.size.height as f32,
-                        target_index.0 as f32,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                    ],
-                }
+            RenderTaskKind::Scaling(..) |
+            RenderTaskKind::Alias(..) => {
+                (
+                    [0.0; 3],
+                    [0.0; 4],
+                )
             }
-            RenderTaskKind::Alias(..) => RenderTaskData { data: [0.0; 12] },
+        };
+
+        let (target_rect, target_index) = self.get_target_rect();
+
+        RenderTaskData {
+            data: [
+                target_rect.origin.x as f32,
+                target_rect.origin.y as f32,
+                target_rect.size.width as f32,
+                target_rect.size.height as f32,
+                target_index.0 as f32,
+                data1[0],
+                data1[1],
+                data1[2],
+                data2[0],
+                data2[1],
+                data2[2],
+                data2[3],
+            ]
         }
     }
 
