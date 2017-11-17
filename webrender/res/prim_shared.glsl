@@ -245,6 +245,7 @@ RenderTaskCommonData fetch_render_task_common_data(int index) {
 struct PictureTask {
     RenderTaskCommonData common_data;
     vec2 content_origin;
+    float rasterization_mode;
     vec4 color;
 };
 
@@ -256,6 +257,7 @@ PictureTask fetch_picture_task(int address) {
     PictureTask task = PictureTask(
         common_data,
         data1.xy,
+        data1.z,
         data2
     );
 
@@ -285,24 +287,6 @@ BlurTask fetch_blur_task(int address) {
         data1.y,
         data2
     );
-}
-
-struct AlphaBatchTask {
-    RenderTaskCommonData common_data;
-    vec2 screen_space_origin;
-};
-
-AlphaBatchTask fetch_alpha_batch_task(int index) {
-    vec3 data1;
-    vec4 data2;
-    RenderTaskCommonData common_data = fetch_render_task_data(index, data1, data2);
-
-    AlphaBatchTask task = AlphaBatchTask(
-        common_data,
-        data1.xy
-    );
-
-    return task;
 }
 
 struct ClipArea {
@@ -461,11 +445,7 @@ CompositeInstance fetch_composite_instance() {
 struct Primitive {
     Layer layer;
     ClipArea clip_area;
-#ifdef PRIMITIVE_HAS_PICTURE_TASK
     PictureTask task;
-#else
-    AlphaBatchTask task;
-#endif
     RectWithSize local_rect;
     RectWithSize local_clip_rect;
     int specific_prim_address;
@@ -493,11 +473,7 @@ Primitive load_primitive() {
 
     prim.layer = fetch_layer(pi.clip_node_id, pi.scroll_node_id);
     prim.clip_area = fetch_clip_area(pi.clip_task_index);
-#ifdef PRIMITIVE_HAS_PICTURE_TASK
     prim.task = fetch_picture_task(pi.render_task_index);
-#else
-    prim.task = fetch_alpha_batch_task(pi.render_task_index);
-#endif
 
     PrimitiveGeometry geom = fetch_primitive_geometry(pi.prim_address);
     prim.local_rect = geom.local_rect;
@@ -593,7 +569,7 @@ VertexInfo write_vertex(RectWithSize instance_rect,
                         RectWithSize local_clip_rect,
                         float z,
                         Layer layer,
-                        AlphaBatchTask task,
+                        PictureTask task,
                         RectWithSize snap_rect) {
 
     // Select the corner of the local rect that we are processing.
@@ -613,7 +589,7 @@ VertexInfo write_vertex(RectWithSize instance_rect,
 
     // Apply offsets for the render task to get correct screen location.
     vec2 final_pos = device_pos + snap_offset -
-                     task.screen_space_origin +
+                     task.content_origin +
                      task.common_data.task_rect.p0;
 
     gl_Position = uTransform * vec4(final_pos, z, 1.0);
@@ -653,7 +629,7 @@ TransformVertexInfo write_transform_vertex(RectWithSize instance_rect,
                                            vec4 clip_edge_mask,
                                            float z,
                                            Layer layer,
-                                           AlphaBatchTask task) {
+                                           PictureTask task) {
     RectWithEndpoint local_rect = to_rect_with_endpoint(instance_rect);
     RectWithSize clip_rect;
     clip_rect.p0 = clamp_rect(local_clip_rect.p0, layer.local_clip_rect);
@@ -723,7 +699,7 @@ TransformVertexInfo write_transform_vertex(RectWithSize instance_rect,
 
     // Apply offsets for the render task to get correct screen location.
     vec2 final_pos = device_pos - //Note: `snap_rect` is not used
-                     task.screen_space_origin +
+                     task.content_origin +
                      task.common_data.task_rect.p0;
 
 

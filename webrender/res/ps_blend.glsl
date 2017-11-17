@@ -13,12 +13,12 @@ flat varying mat4 vColorMat;
 #ifdef WR_VERTEX_SHADER
 void main(void) {
     CompositeInstance ci = fetch_composite_instance();
-    AlphaBatchTask dest_task = fetch_alpha_batch_task(ci.render_task_index);
-    AlphaBatchTask src_task = fetch_alpha_batch_task(ci.src_task_index);
+    PictureTask dest_task = fetch_picture_task(ci.render_task_index);
+    PictureTask src_task = fetch_picture_task(ci.src_task_index);
 
     vec2 dest_origin = dest_task.common_data.task_rect.p0 -
-                       dest_task.screen_space_origin +
-                       src_task.screen_space_origin;
+                       dest_task.content_origin +
+                       src_task.content_origin;
 
     vec2 local_pos = mix(dest_origin,
                          dest_origin + src_task.common_data.task_rect.size,

@@ -10,11 +10,11 @@ flat varying vec4 vUvBounds;
 #ifdef WR_VERTEX_SHADER
 void main(void) {
     CompositeInstance ci = fetch_composite_instance();
-    AlphaBatchTask dest_task = fetch_alpha_batch_task(ci.render_task_index);
-    AlphaBatchTask src_task = fetch_alpha_batch_task(ci.src_task_index);
+    PictureTask dest_task = fetch_picture_task(ci.render_task_index);
+    PictureTask src_task = fetch_picture_task(ci.src_task_index);
 
     vec2 dest_origin = dest_task.common_data.task_rect.p0 -
-                       dest_task.screen_space_origin +
+                       dest_task.content_origin +
                        vec2(ci.user_data0, ci.user_data1);
 
     vec2 local_pos = mix(dest_origin,

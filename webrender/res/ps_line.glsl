@@ -2,10 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifdef WR_FEATURE_CACHE
-    #define PRIMITIVE_HAS_PICTURE_TASK
-#endif
-
 #include shared,prim_shared
 
 varying vec4 vColor;

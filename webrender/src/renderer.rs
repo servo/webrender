@@ -46,7 +46,7 @@ use rayon::Configuration as ThreadPoolConfig;
 use rayon::ThreadPool;
 use record::ApiRecordingReceiver;
 use render_backend::RenderBackend;
-use render_task::RenderTaskTree;
+use render_task::{RenderTaskKind, RenderTaskTree};
 #[cfg(feature = "debugger")]
 use serde_json;
 use std;
@@ -2671,8 +2671,14 @@ impl Renderer {
 
                 let (readback_rect, readback_layer) = readback.get_target_rect();
                 let (backdrop_rect, _) = backdrop.get_target_rect();
-                let backdrop_screen_origin = backdrop.as_alpha_batch().screen_origin;
-                let source_screen_origin = source.as_alpha_batch().screen_origin;
+                let backdrop_screen_origin = match backdrop.kind {
+                    RenderTaskKind::Picture(ref task_info) => task_info.content_origin,
+                    _ => panic!("bug: composite on non-picture?"),
+                };
+                let source_screen_origin = match source.kind {
+                    RenderTaskKind::Picture(ref task_info) => task_info.content_origin,
+                    _ => panic!("bug: composite on non-picture?"),
+                };
 
                 // Bind the FBO to blit the backdrop to.
                 // Called per-instance in case the layer (and therefore FBO)
@@ -2682,10 +2688,12 @@ impl Renderer {
                 self.device
                     .bind_draw_target(Some(cache_draw_target), Some(cache_texture_dimensions));
 
-                let src_x =
-                    backdrop_rect.origin.x - backdrop_screen_origin.x + source_screen_origin.x;
-                let src_y =
-                    backdrop_rect.origin.y - backdrop_screen_origin.y + source_screen_origin.y;
+                let src_x = backdrop_rect.origin.x -
+                            backdrop_screen_origin.x as i32 +
+                            source_screen_origin.x as i32;
+                let src_y = backdrop_rect.origin.y -
+                            backdrop_screen_origin.y as i32 +
+                            source_screen_origin.y as i32;
 
                 let dest_x = readback_rect.origin.x;
                 let dest_y = readback_rect.origin.y;
