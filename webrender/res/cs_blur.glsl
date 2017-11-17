@@ -34,7 +34,7 @@ void main(void) {
 #else
     vec2 texture_size = vec2(textureSize(sCacheA8, 0).xy);
 #endif
-    vUv.z = src_task.render_target_layer_index;
+    vUv.z = src_task.texture_layer_index;
     vBlurRadius = int(3.0 * blur_task.blur_radius);
     vSigma = blur_task.blur_radius;
 
