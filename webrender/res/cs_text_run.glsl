@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#define PRIMITIVE_HAS_PICTURE_TASK
-
 #include shared,prim_shared
 
 varying vec3 vUv;

@@ -32,7 +32,7 @@ void brush_vs(
     //           the normal texture cache and unify this
     //           with the normal image shader.
     BlurTask blur_task = fetch_blur_task(user_data.x);
-    vUv.z = blur_task.common_data.render_target_layer_index;
+    vUv.z = blur_task.common_data.texture_layer_index;
     vImageKind = user_data.y;
 
 #if defined WR_FEATURE_COLOR_TARGET
