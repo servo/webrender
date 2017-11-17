@@ -8,18 +8,18 @@ use std::sync::mpsc::Receiver;
 use webrender::api::*;
 use wrench::Wrench;
 
-pub struct RawtestHarness<'a> {
-    wrench: &'a mut Wrench,
+pub struct RawtestHarness<'a, 'b> where 'b: 'a {
+    wrench: &'a mut Wrench<'b>,
     rx: Receiver<()>,
     window: &'a mut WindowWrapper,
 }
 
-impl<'a> RawtestHarness<'a> {
-    pub fn new(wrench: &'a mut Wrench, window: &'a mut WindowWrapper, rx: Receiver<()>) -> RawtestHarness<'a> {
+impl<'a, 'b> RawtestHarness<'a, 'b> {
+    pub fn new(wrench: &'a mut Wrench<'b>, window: &'a mut WindowWrapper, rx: Receiver<()>) -> Self {
         RawtestHarness {
-            wrench: wrench,
-            rx: rx,
-            window: window,
+            wrench,
+            rx,
+            window,
         }
     }
 
