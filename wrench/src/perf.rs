@@ -120,14 +120,14 @@ impl Profile {
     }
 }
 
-pub struct PerfHarness<'a> {
-    wrench: &'a mut Wrench,
+pub struct PerfHarness<'a, 'b> where 'b: 'a {
+    wrench: &'a mut Wrench<'b>,
     window: &'a mut WindowWrapper,
     rx: Receiver<()>,
 }
 
-impl<'a> PerfHarness<'a> {
-    pub fn new(wrench: &'a mut Wrench, window: &'a mut WindowWrapper, rx: Receiver<()>) -> PerfHarness<'a> {
+impl<'a, 'b> PerfHarness<'a, 'b> {
+    pub fn new(wrench: &'a mut Wrench<'b>, window: &'a mut WindowWrapper, rx: Receiver<()>) -> Self {
         PerfHarness { wrench, window, rx }
     }
 

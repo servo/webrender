@@ -30,6 +30,7 @@ use device::{get_gl_format_bgra, ExternalTexture, FBOId, TextureSlot, VertexAttr
              VertexAttributeKind};
 use device::{FileWatcherHandler, ShaderError, TextureFilter, TextureTarget,
              VertexUsageHint, VAO};
+use device::ProgramCache;
 use euclid::{rect, Transform3D};
 use frame_builder::FrameBuilderConfig;
 use gleam::gl;
@@ -1175,10 +1176,10 @@ struct FrameOutput {
 
 /// The renderer is responsible for submitting to the GPU the work prepared by the
 /// RenderBackend.
-pub struct Renderer {
+pub struct Renderer<'a> {
     result_rx: Receiver<ResultMsg>,
     debug_server: DebugServer,
-    device: Device,
+    device: Device<'a>,
     pending_texture_updates: Vec<TextureUpdateList>,
     pending_gpu_cache_updates: Vec<GpuCacheUpdateList>,
     pending_shader_updates: Vec<PathBuf>,
@@ -1305,7 +1306,7 @@ impl From<std::io::Error> for RendererError {
     }
 }
 
-impl Renderer {
+impl<'a> Renderer<'a> {
     /// Initializes webrender and creates a `Renderer` and `RenderApiSender`.
     ///
     /// # Examples
@@ -1344,6 +1345,7 @@ impl Renderer {
             gl,
             options.resource_override_path.clone(),
             Box::new(file_watch_handler),
+            options.cached_programs,
         );
 
         let device_max_size = device.max_texture_size();
@@ -1938,6 +1940,12 @@ impl Renderer {
     /// their respective epochs since the last time the method was called.
     pub fn flush_rendered_epochs(&mut self) -> FastHashMap<PipelineId, Epoch> {
         mem::replace(&mut self.pipeline_epoch_map, FastHashMap::default())
+    }
+
+    // update the program cache with new binaries, e.g. when some of the lazy loaded
+    // shader programs got activated in the mean time
+    pub fn update_program_cache(&mut self, cached_programs: &'a mut ProgramCache) {
+        self.device.update_program_cache(cached_programs);
     }
 
     /// Processes the result queue.
@@ -3600,7 +3608,7 @@ impl Renderer {
         self.unlock_external_images();
     }
 
-    pub fn debug_renderer<'a>(&'a mut self) -> &'a mut DebugRenderer {
+    pub fn debug_renderer<'b>(&'b mut self) -> &'b mut DebugRenderer {
         &mut self.debug
     }
 
@@ -3859,7 +3867,7 @@ pub trait ThreadListener {
     fn thread_stopped(&self, thread_name: &str);
 }
 
-pub struct RendererOptions {
+pub struct RendererOptions<'a> {
     pub device_pixel_ratio: f32,
     pub resource_override_path: Option<PathBuf>,
     pub enable_aa: bool,
@@ -3880,12 +3888,13 @@ pub struct RendererOptions {
     pub recorder: Option<Box<ApiRecordingReceiver>>,
     pub thread_listener: Option<Box<ThreadListener + Send + Sync>>,
     pub enable_render_on_scroll: bool,
+    pub cached_programs: Option<&'a mut ProgramCache>,
     pub debug_flags: DebugFlags,
     pub renderer_id: Option<u64>,
 }
 
-impl Default for RendererOptions {
-    fn default() -> RendererOptions {
+impl<'a> Default for RendererOptions<'a> {
+    fn default() -> RendererOptions<'a> {
         RendererOptions {
             device_pixel_ratio: 1.0,
             resource_override_path: None,
@@ -3909,6 +3918,7 @@ impl Default for RendererOptions {
             thread_listener: None,
             enable_render_on_scroll: true,
             renderer_id: None,
+            cached_programs: None,
         }
     }
 }

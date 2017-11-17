@@ -116,11 +116,11 @@ pub trait WrenchThing {
     }
 }
 
-pub struct Wrench {
+pub struct Wrench<'a> {
     window_size: DeviceUintSize,
     device_pixel_ratio: f32,
 
-    pub renderer: webrender::Renderer,
+    pub renderer: webrender::Renderer<'a>,
     pub api: RenderApi,
     pub document_id: DocumentId,
     pub root_pipeline_id: PipelineId,
@@ -135,7 +135,7 @@ pub struct Wrench {
     pub frame_start_sender: chase_lev::Worker<time::SteadyTime>,
 }
 
-impl Wrench {
+impl<'a> Wrench<'a> {
     pub fn new(
         window: &mut WindowWrapper,
         shader_override_path: Option<PathBuf>,
@@ -149,7 +149,7 @@ impl Wrench {
         no_scissor: bool,
         no_batch: bool,
         notifier: Option<Box<RenderNotifier>>,
-    ) -> Wrench {
+    ) -> Self {
         println!("Shader override path: {:?}", shader_override_path);
 
         let recorder = save_type.map(|save_type| match save_type {
