@@ -99,7 +99,7 @@ void main(void) {
     }
 
 #ifdef WR_FEATURE_CACHE
-    vec2 device_origin = prim.task.target_rect.p0 +
+    vec2 device_origin = prim.task.common_data.task_rect.p0 +
                          uDevicePixelRatio * (prim.local_rect.p0 - prim.task.content_origin);
     vec2 device_size = uDevicePixelRatio * prim.local_rect.size;
 

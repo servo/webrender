@@ -206,22 +206,35 @@ Layer fetch_layer(int clip_node_id, int scroll_node_id) {
     return layer;
 }
 
-struct RenderTaskData {
-    vec4 data0;
-    vec4 data1;
-    vec4 data2;
+struct RenderTaskCommonData {
+    RectWithSize task_rect;
+    float render_target_layer_index;
 };
 
-RenderTaskData fetch_render_task(int index) {
-    RenderTaskData task;
-
+RenderTaskCommonData fetch_render_task_data(
+    int index,
+    out vec3 data1,
+    out vec4 data2
+) {
     ivec2 uv = get_fetch_uv(index, VECS_PER_RENDER_TASK);
 
-    task.data0 = TEXEL_FETCH(sRenderTasks, uv, 0, ivec2(0, 0));
-    task.data1 = TEXEL_FETCH(sRenderTasks, uv, 0, ivec2(1, 0));
-    task.data2 = TEXEL_FETCH(sRenderTasks, uv, 0, ivec2(2, 0));
+    vec4 texel0 = TEXEL_FETCH(sRenderTasks, uv, 0, ivec2(0, 0));
+    vec4 texel1 = TEXEL_FETCH(sRenderTasks, uv, 0, ivec2(1, 0));
+    vec4 texel2 = TEXEL_FETCH(sRenderTasks, uv, 0, ivec2(2, 0));
 
-    return task;
+    data1 = texel1.yzw;
+    data2 = texel2;
+
+    return RenderTaskCommonData(RectWithSize(texel0.xy, texel0.zw), texel1.x);
+}
+
+RenderTaskCommonData fetch_render_task_common_data(int index) {
+    ivec2 uv = get_fetch_uv(index, VECS_PER_RENDER_TASK);
+
+    vec4 texel0 = TEXEL_FETCH(sRenderTasks, uv, 0, ivec2(0, 0));
+    vec4 texel1 = TEXEL_FETCH(sRenderTasks, uv, 0, ivec2(1, 0));
+
+    return RenderTaskCommonData(RectWithSize(texel0.xy, texel0.zw), texel1.x);
 }
 
 /*
@@ -230,72 +243,71 @@ RenderTaskData fetch_render_task(int index) {
  the transform mode of primitives on this picture, among other things.
  */
 struct PictureTask {
-    RectWithSize target_rect;
-    float render_target_layer_index;
+    RenderTaskCommonData common_data;
     vec2 content_origin;
     vec4 color;
 };
 
 PictureTask fetch_picture_task(int address) {
-    RenderTaskData task_data = fetch_render_task(address);
-
-    RectWithSize target_rect = RectWithSize(
-        task_data.data0.xy,
-        task_data.data0.zw
-    );
+    vec3 data1;
+    vec4 data2;
+    RenderTaskCommonData common_data = fetch_render_task_data(address, data1, data2);
 
     PictureTask task = PictureTask(
-        target_rect,
-        task_data.data1.x,
-        task_data.data1.yz,
-        task_data.data2
+        common_data,
+        data1.xy,
+        data2
     );
 
     return task;
 }
 
 struct BlurTask {
-    RectWithSize target_rect;
-    float render_target_layer_index;
+    RenderTaskCommonData common_data;
     float blur_radius;
     float scale_factor;
     vec4 color;
 };
 
 BlurTask fetch_blur_task(int address) {
-    RenderTaskData task_data = fetch_render_task(address);
+    vec3 data1;
+    vec4 data2;
+
+    RenderTaskCommonData common_data = fetch_render_task_data(
+        address,
+        data1,
+        data2
+    );
 
     return BlurTask(
-        RectWithSize(task_data.data0.xy, task_data.data0.zw),
-        task_data.data1.x,
-        task_data.data1.y,
-        task_data.data1.z,
-        task_data.data2
+        common_data,
+        data1.x,
+        data1.y,
+        data2
     );
 }
 
 struct AlphaBatchTask {
+    RenderTaskCommonData common_data;
     vec2 screen_space_origin;
-    vec2 render_target_origin;
-    vec2 size;
-    float render_target_layer_index;
 };
 
 AlphaBatchTask fetch_alpha_batch_task(int index) {
-    RenderTaskData data = fetch_render_task(index);
+    vec3 data1;
+    vec4 data2;
+    RenderTaskCommonData common_data = fetch_render_task_data(index, data1, data2);
 
-    AlphaBatchTask task;
-    task.render_target_origin = data.data0.xy;
-    task.size = data.data0.zw;
-    task.screen_space_origin = data.data1.xy;
-    task.render_target_layer_index = data.data1.z;
+    AlphaBatchTask task = AlphaBatchTask(
+        common_data,
+        data1.xy
+    );
 
     return task;
 }
 
 struct ClipArea {
-    vec4 task_bounds;
-    vec4 screen_origin_target_index;
+    RenderTaskCommonData common_data;
+    vec2 screen_origin;
     vec4 inner_rect;
 };
 
@@ -303,14 +315,18 @@ ClipArea fetch_clip_area(int index) {
     ClipArea area;
 
     if (index == 0x7FFFFFFF) { //special sentinel task index
-        area.task_bounds = vec4(0.0, 0.0, 0.0, 0.0);
-        area.screen_origin_target_index = vec4(0.0, 0.0, 0.0, 0.0);
+        area.common_data = RenderTaskCommonData(
+            RectWithSize(vec2(0.0), vec2(0.0)),
+            0.0
+        );
+        area.screen_origin = vec2(0.0);
         area.inner_rect = vec4(0.0);
     } else {
-        RenderTaskData task = fetch_render_task(index);
-        area.task_bounds = task.data0;
-        area.screen_origin_target_index = task.data1;
-        area.inner_rect = task.data2;
+        vec3 data1;
+        vec4 data2;
+        area.common_data = fetch_render_task_data(index, data1, data2);
+        area.screen_origin = data1.xy;
+        area.inner_rect = data2;
     }
 
     return area;
@@ -598,7 +614,7 @@ VertexInfo write_vertex(RectWithSize instance_rect,
     // Apply offsets for the render task to get correct screen location.
     vec2 final_pos = device_pos + snap_offset -
                      task.screen_space_origin +
-                     task.render_target_origin;
+                     task.common_data.task_rect.p0;
 
     gl_Position = uTransform * vec4(final_pos, z, 1.0);
 
@@ -708,7 +724,7 @@ TransformVertexInfo write_transform_vertex(RectWithSize instance_rect,
     // Apply offsets for the render task to get correct screen location.
     vec2 final_pos = device_pos - //Note: `snap_rect` is not used
                      task.screen_space_origin +
-                     task.render_target_origin;
+                     task.common_data.task_rect.p0;
 
 
     gl_Position = uTransform * vec4(final_pos, z, 1.0);
@@ -797,9 +813,14 @@ Image fetch_image(int address) {
 }
 
 void write_clip(vec2 global_pos, ClipArea area) {
-    vec2 uv = global_pos + area.task_bounds.xy - area.screen_origin_target_index.xy;
-    vClipMaskUvBounds = area.task_bounds;
-    vClipMaskUv = vec3(uv, area.screen_origin_target_index.z);
+    vec2 uv = global_pos +
+              area.common_data.task_rect.p0 -
+              area.screen_origin;
+    vClipMaskUvBounds = vec4(
+        area.common_data.task_rect.p0,
+        area.common_data.task_rect.p0 + area.common_data.task_rect.size
+    );
+    vClipMaskUv = vec3(uv, area.common_data.render_target_layer_index);
 }
 #endif //WR_VERTEX_SHADER
 
