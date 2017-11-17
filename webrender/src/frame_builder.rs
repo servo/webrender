@@ -4,8 +4,8 @@
 
 use api::{BorderDetails, BorderDisplayItem, BuiltDisplayList};
 use api::{ClipAndScrollInfo, ClipId, ColorF, PropertyBinding};
-use api::{DeviceIntPoint, DeviceUintRect, DeviceUintSize};
-use api::{ExtendMode, FontRenderMode, LayoutTransform};
+use api::{DeviceIntPoint, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
+use api::{DocumentLayer, ExtendMode, FontRenderMode, LayoutTransform};
 use api::{GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem, HitTestResult};
 use api::{ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect};
 use api::{LayerSize, LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation};
@@ -1628,6 +1628,7 @@ impl FrameBuilder {
         pipelines: &FastHashMap<PipelineId, ScenePipeline>,
         window_size: DeviceUintSize,
         device_pixel_ratio: f32,
+        layer: DocumentLayer,
         pan: LayerPoint,
         texture_cache_profile: &mut TextureCacheProfileCounters,
         gpu_cache_profile: &mut GpuCacheProfileCounters,
@@ -1694,7 +1695,7 @@ impl FrameBuilder {
         for index in 0 .. required_pass_count {
             passes.push(RenderPass::new(
                 index == required_pass_count - 1,
-                screen_rect.size,
+                self.screen_rect.size.to_i32(),
             ));
         }
 
@@ -1737,6 +1738,7 @@ impl FrameBuilder {
             inner_rect: self.screen_rect,
             device_pixel_ratio,
             background_color: self.background_color,
+            layer,
             profile_counters,
             passes,
             node_data,

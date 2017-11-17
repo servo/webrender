@@ -1183,7 +1183,7 @@ pub struct Renderer<'a> {
     pending_texture_updates: Vec<TextureUpdateList>,
     pending_gpu_cache_updates: Vec<GpuCacheUpdateList>,
     pending_shader_updates: Vec<PathBuf>,
-    active_documents: FastHashMap<DocumentId, RenderedDocument>,
+    active_documents: Vec<(DocumentId, RenderedDocument)>,
 
     // These are "cache shaders". These shaders are used to
     // draw intermediate results to cache targets. The results
@@ -1842,7 +1842,7 @@ impl<'a> Renderer<'a> {
             result_rx,
             debug_server,
             device,
-            active_documents: FastHashMap::default(),
+            active_documents: Vec::default(),
             pending_texture_updates: Vec::new(),
             pending_gpu_cache_updates: Vec::new(),
             pending_shader_updates: Vec::new(),
@@ -1979,10 +1979,12 @@ impl<'a> Renderer<'a> {
                         self.pipeline_epoch_map.insert(*pipeline_id, *epoch);
                     }
 
-                    // Note: a hash map here doesn't have specific ordering, which
-                    // means the documents are rendered on screen in arbitrary order.
-                    // We can change it to a `Vec` to enforce some order.
-                    self.active_documents.insert(document_id, doc);
+                    // Add a new document to the active set, expressed as a `Vec` in order
+                    // to re-order based on `DocumentLayer` during rendering.
+                    match self.active_documents.iter().position(|&(id, _)| id == document_id) {
+                        Some(pos) => self.active_documents[pos].1 = doc,
+                        None => self.active_documents.push((document_id, doc)),
+                    }
                 }
                 ResultMsg::UpdateResources {
                     updates,
@@ -2025,7 +2027,7 @@ impl<'a> Renderer<'a> {
     fn get_passes_for_debugger(&self) -> String {
         let mut debug_passes = debug_server::PassList::new();
 
-        for render_doc in self.active_documents.values() {
+        for &(_, ref render_doc) in &self.active_documents {
             let frame = match render_doc.frame {
                 Some(ref frame) => frame,
                 None => continue,
@@ -2208,7 +2210,7 @@ impl<'a> Renderer<'a> {
     pub fn render(&mut self, framebuffer_size: DeviceUintSize) -> Result<(), Vec<RendererError>> {
         profile_scope!("render");
 
-        if !self.active_documents.values().any(|render_doc| render_doc.frame.is_some()) {
+        if !self.active_documents.iter().any(|&(_, ref render_doc)| render_doc.frame.is_some()) {
             self.last_time = precise_time_ns();
             return Ok(())
         }
@@ -2256,15 +2258,18 @@ impl<'a> Renderer<'a> {
 
         profile_timers.cpu_time.profile(|| {
             //Note: another borrowck dance
-            let mut active_documents = mem::replace(&mut self.active_documents, FastHashMap::default());
+            let mut active_documents = mem::replace(&mut self.active_documents, Vec::default());
+            // sort by the document layer id
+            active_documents.sort_by_key(|&(_, ref render_doc)|
+                render_doc.frame.as_ref().map_or(0, |frame| frame.layer)
+            );
 
             let clear_color = self.clear_color.map(|color| color.to_array());
             self.device.bind_draw_target(None, None);
             self.device.clear_target(clear_color, None);
 
-            for render_doc in active_documents.values_mut() {
+            for &mut (_, ref mut render_doc) in &mut active_documents {
                 if let Some(ref mut frame) = render_doc.frame {
-                    self.device.device_pixel_ratio = frame.device_pixel_ratio;
                     self.update_gpu_cache(frame);
 
                     self.draw_tile_frame(frame, framebuffer_size, cpu_frame_id);
@@ -2330,11 +2335,11 @@ impl<'a> Renderer<'a> {
 
     pub fn layers_are_bouncing_back(&self) -> bool {
         self.active_documents
-            .values()
-            .any(|render_doc| !render_doc.layers_bouncing_back.is_empty())
+            .iter()
+            .any(|&(_, ref render_doc)| !render_doc.layers_bouncing_back.is_empty())
     }
 
-    fn update_gpu_cache(&mut self, frame: &mut Frame) {
+    fn update_gpu_cache(&mut self, frame: &Frame) {
         let _gm = self.gpu_profile.start_marker("gpu cache update");
         for update_list in self.pending_gpu_cache_updates.drain(..) {
             self.gpu_cache_texture
@@ -3302,7 +3307,7 @@ impl<'a> Renderer<'a> {
         self.gpu_profile.finish_sampler(alpha_sampler);
     }
 
-    fn update_deferred_resolves(&mut self, frame: &mut Frame) {
+    fn update_deferred_resolves(&mut self, frame: &Frame) {
         // The first thing we do is run through any pending deferred
         // resolves, and use a callback to get the UV rect for this
         // custom item. Then we patch the resource_rects structure
@@ -3385,6 +3390,7 @@ impl<'a> Renderer<'a> {
 
     fn prepare_frame(&mut self, frame: &mut Frame) {
         let _timer = self.gpu_profile.start_timer(GPU_TAG_SETUP_DATA);
+        self.device.device_pixel_ratio = frame.device_pixel_ratio;
 
         // Assign render targets to the passes.
         for pass in &mut frame.passes {

@@ -197,7 +197,7 @@ impl<'a> Wrench<'a> {
 
         let (renderer, sender) = webrender::Renderer::new(window.clone_gl(), notifier, opts).unwrap();
         let api = sender.create_api();
-        let document_id = api.add_document(size);
+        let document_id = api.add_document(size, 0);
 
         let graphics_api = renderer.get_graphics_api_info();
 

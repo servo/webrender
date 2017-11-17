@@ -5,7 +5,8 @@
 use api::{ApiMsg, BlobImageRenderer, BuiltDisplayList, DebugCommand, DeviceIntPoint};
 #[cfg(feature = "debugger")]
 use api::{BuiltDisplayListIter, SpecificDisplayItem};
-use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentId, DocumentMsg};
+use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize};
+use api::{DocumentId, DocumentLayer, DocumentMsg};
 use api::{HitTestResult, IdNamespace, LayerPoint, PipelineId, RenderNotifier};
 use api::channel::{MsgReceiver, PayloadReceiver, PayloadReceiverHelperMethods};
 use api::channel::{PayloadSender, PayloadSenderHelperMethods};
@@ -36,6 +37,7 @@ struct Document {
     frame_builder: Option<FrameBuilder>,
     window_size: DeviceUintSize,
     inner_rect: DeviceUintRect,
+    layer: DocumentLayer,
     pan: DeviceIntPoint,
     device_pixel_ratio: f32,
     page_zoom_factor: f32,
@@ -54,7 +56,8 @@ struct Document {
 impl Document {
     pub fn new(
         config: FrameBuilderConfig,
-        initial_size: DeviceUintSize,
+        window_size: DeviceUintSize,
+        layer: DocumentLayer,
         enable_render_on_scroll: bool,
         default_device_pixel_ratio: f32,
     ) -> Self {
@@ -67,8 +70,9 @@ impl Document {
             scene: Scene::new(),
             frame_ctx: FrameContext::new(config),
             frame_builder: None,
-            window_size: initial_size,
-            inner_rect: DeviceUintRect::new(DeviceUintPoint::zero(), initial_size),
+            window_size,
+            inner_rect: DeviceUintRect::new(DeviceUintPoint::zero(), window_size),
+            layer,
             pan: DeviceIntPoint::zero(),
             page_zoom_factor: 1.0,
             pinch_zoom_factor: 1.0,
@@ -116,6 +120,7 @@ impl Document {
                     gpu_cache,
                     &self.scene.pipelines,
                     accumulated_scale_factor,
+                    self.layer,
                     pan,
                     &mut resource_profile.texture_cache,
                     &mut resource_profile.gpu_cache,
@@ -482,10 +487,11 @@ impl RenderBackend {
                 ApiMsg::CloneApi(sender) => {
                     sender.send(self.next_namespace_id()).unwrap();
                 }
-                ApiMsg::AddDocument(document_id, initial_size) => {
+                ApiMsg::AddDocument(document_id, initial_size, layer) => {
                     let document = Document::new(
                         self.frame_config.clone(),
                         initial_size,
+                        layer,
                         self.enable_render_on_scroll,
                         self.default_device_pixel_ratio,
                     );

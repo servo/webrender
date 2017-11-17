@@ -4,7 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BuiltDisplayListIter, ClipAndScrollInfo, ClipId, ColorF, ComplexClipRegion};
-use api::{DeviceUintRect, DeviceUintSize, DisplayItemRef, Epoch, FilterOp};
+use api::{DeviceUintRect, DeviceUintSize, DisplayItemRef, DocumentLayer, Epoch, FilterOp};
 use api::{ImageDisplayItem, ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect};
 use api::{LayerSize, LayerVector2D};
 use api::{LayoutRect, LayoutSize};
@@ -1187,6 +1187,7 @@ impl FrameContext {
         gpu_cache: &mut GpuCache,
         pipelines: &FastHashMap<PipelineId, ScenePipeline>,
         device_pixel_ratio: f32,
+        layer: DocumentLayer,
         pan: LayerPoint,
         texture_cache_profile: &mut TextureCacheProfileCounters,
         gpu_cache_profile: &mut GpuCacheProfileCounters,
@@ -1200,6 +1201,7 @@ impl FrameContext {
             pipelines,
             self.window_size,
             device_pixel_ratio,
+            layer,
             pan,
             texture_cache_profile,
             gpu_cache_profile,

@@ -14,6 +14,7 @@ use std::fmt;
 use std::marker::PhantomData;
 
 pub type TileSize = u16;
+pub type DocumentLayer = i8;
 
 /// The resource updates for a given transaction (they must be applied in the same frame).
 #[derive(Clone, Deserialize, Serialize)]
@@ -278,7 +279,7 @@ pub enum ApiMsg {
     /// Adds a new document namespace.
     CloneApi(MsgSender<IdNamespace>),
     /// Adds a new document with given initial size.
-    AddDocument(DocumentId, DeviceUintSize),
+    AddDocument(DocumentId, DeviceUintSize, DocumentLayer),
     /// A message targeted at a particular document.
     UpdateDocument(DocumentId, DocumentMsg),
     /// Deletes an existing document.
@@ -420,11 +421,11 @@ impl RenderApi {
         RenderApiSender::new(self.api_sender.clone(), self.payload_sender.clone())
     }
 
-    pub fn add_document(&self, initial_size: DeviceUintSize) -> DocumentId {
+    pub fn add_document(&self, initial_size: DeviceUintSize, layer: DocumentLayer) -> DocumentId {
         let new_id = self.next_unique_id();
         let document_id = DocumentId(self.namespace_id, new_id);
 
-        let msg = ApiMsg::AddDocument(document_id, initial_size);
+        let msg = ApiMsg::AddDocument(document_id, initial_size, layer);
         self.api_sender.send(msg).unwrap();
 
         document_id
@@ -569,7 +570,7 @@ impl RenderApi {
     /// # use webrender_api::{DeviceUintSize, PipelineId, RenderApiSender};
     /// # fn example(sender: RenderApiSender) {
     /// let api = sender.create_api();
-    /// let document_id = api.add_document(DeviceUintSize::zero());
+    /// let document_id = api.add_document(DeviceUintSize::zero(), 0);
     /// let pipeline_id = PipelineId(0, 0);
     /// api.set_root_pipeline(document_id, pipeline_id);
     /// # }
