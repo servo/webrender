@@ -244,7 +244,7 @@ fn new_ct_font_with_variations(cg_font: &CGFont, size: Au, variations: &[FontVar
             return ct_font;
         }
         let vals_dict = CFDictionary::from_CFType_pairs(&vals);
-        let cg_font = cg_font.create_copy_with_variations( &vals_dict );
+        let cg_font = cg_font.create_copy_from_variations( &vals_dict );
         match cg_font {
                 Ok(f) => return core_text::font::new_from_CGFont(&f, size.to_f64_px()),
                 Err(e) => return ct_font,
