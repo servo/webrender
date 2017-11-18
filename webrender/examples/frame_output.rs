@@ -56,7 +56,7 @@ impl Example for App {
         api: &RenderApi,
         builder: &mut DisplayListBuilder,
         _resources: &mut ResourceUpdates,
-        _layout_size: LayoutSize,
+        _framebuffer_size: DeviceUintSize,
         _pipeline_id: PipelineId,
         document_id: DocumentId,
     ) {
@@ -144,15 +144,6 @@ impl Example for App {
         gl.delete_vertex_arrays(&[vao]);
         gl.delete_buffers(&[vbo]);
         gl.delete_program(pid);
-    }
-
-    fn on_event(
-        &mut self,
-        _event: glutin::Event,
-        _api: &RenderApi,
-        _document_id: DocumentId,
-    ) -> bool {
-        false
     }
 
     fn get_output_image_handler(

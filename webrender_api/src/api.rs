@@ -14,6 +14,7 @@ use std::fmt;
 use std::marker::PhantomData;
 
 pub type TileSize = u16;
+/// Documents are rendered in the ascending order of their associated layer values.
 pub type DocumentLayer = i8;
 
 /// The resource updates for a given transaction (they must be applied in the same frame).
@@ -885,9 +886,8 @@ pub struct DynamicProperties {
 
 pub trait RenderNotifier: Send {
     fn clone(&self) -> Box<RenderNotifier>;
-    fn wakeup(&self);
-    fn new_document_ready(&self, DocumentId);
-    fn new_scroll_document_ready(&self, DocumentId, composite_needed: bool);
+    fn wake_up(&self);
+    fn new_document_ready(&self, DocumentId, scrolled: bool, composite_needed: bool);
     fn external_event(&self, _evt: ExternalEvent) {
         unimplemented!()
     }

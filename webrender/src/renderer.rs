@@ -12,7 +12,7 @@
 use api::{channel, BlobImageRenderer, FontRenderMode};
 use api::{ColorF, DocumentId, Epoch, PipelineId, RenderApiSender, RenderNotifier};
 use api::{DevicePixel, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use api::{DeviceUintRect, DeviceUintSize};
+use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{ExternalImageId, ExternalImageType, ImageFormat};
 use api::{YUV_COLOR_SPACES, YUV_FORMATS};
 use api::{YuvColorSpace, YuvFormat};
@@ -1063,7 +1063,7 @@ struct FileWatcher {
 impl FileWatcherHandler for FileWatcher {
     fn file_changed(&self, path: PathBuf) {
         self.result_tx.send(ResultMsg::RefreshShader(path)).ok();
-        self.notifier.wakeup();
+        self.notifier.wake_up();
     }
 }
 
@@ -1872,7 +1872,7 @@ impl<'a> Renderer<'a> {
             result_rx,
             debug_server,
             device,
-            active_documents: Vec::default(),
+            active_documents: Vec::new(),
             pending_texture_updates: Vec::new(),
             pending_gpu_cache_updates: Vec::new(),
             pending_shader_updates: Vec::new(),
@@ -1994,13 +1994,7 @@ impl<'a> Renderer<'a> {
                 ) => {
                     //TODO: associate `document_id` with target window
                     self.pending_texture_updates.push(texture_update_list);
-                    if let Some(ref mut frame) = doc.frame {
-                        // TODO(gw): This whole message / Frame / RenderedDocument stuff
-                        //           is really messy and needs to be refactored!!
-                        if let Some(update_list) = frame.gpu_cache_updates.take() {
-                            self.pending_gpu_cache_updates.push(update_list);
-                        }
-                    }
+                    self.pending_gpu_cache_updates.extend(doc.frame.gpu_cache_updates.take());
                     self.backend_profile_counters = profile_counters;
 
                     // Update the list of available epochs for use during reftests.
@@ -2058,12 +2052,7 @@ impl<'a> Renderer<'a> {
         let mut debug_passes = debug_server::PassList::new();
 
         for &(_, ref render_doc) in &self.active_documents {
-            let frame = match render_doc.frame {
-                Some(ref frame) => frame,
-                None => continue,
-            };
-
-            for pass in &frame.passes {
+            for pass in &render_doc.frame.passes {
                 let mut debug_pass = debug_server::Pass::new();
 
                 for target in &pass.alpha_targets.targets {
@@ -2240,7 +2229,7 @@ impl<'a> Renderer<'a> {
     pub fn render(&mut self, framebuffer_size: DeviceUintSize) -> Result<(), Vec<RendererError>> {
         profile_scope!("render");
 
-        if !self.active_documents.iter().any(|&(_, ref render_doc)| render_doc.frame.is_some()) {
+        if self.active_documents.is_empty() {
             self.last_time = precise_time_ns();
             return Ok(())
         }
@@ -2290,23 +2279,29 @@ impl<'a> Renderer<'a> {
             //Note: another borrowck dance
             let mut active_documents = mem::replace(&mut self.active_documents, Vec::default());
             // sort by the document layer id
-            active_documents.sort_by_key(|&(_, ref render_doc)|
-                render_doc.frame.as_ref().map_or(0, |frame| frame.layer)
-            );
+            active_documents.sort_by_key(|&(_, ref render_doc)| render_doc.frame.layer);
 
-            let clear_color = self.clear_color.map(|color| color.to_array());
-            self.device.bind_draw_target(None, None);
-            self.device.clear_target(clear_color, None);
+            let needs_clear = !active_documents
+                .iter()
+                .any(|&(_, RenderedDocument { ref frame, .. })| {
+                    frame.background_color.is_some() &&
+                    frame.inner_rect.origin == DeviceUintPoint::zero() &&
+                    frame.inner_rect.size == framebuffer_size
+                });
+            // don't clear the framebuffer if one of the rendered documents will overwrite it
+            if needs_clear {
+                let clear_color = self.clear_color.map(|color| color.to_array());
+                self.device.bind_draw_target(None, None);
+                self.device.clear_target(clear_color, None);
+            }
 
-            for &mut (_, ref mut render_doc) in &mut active_documents {
-                if let Some(ref mut frame) = render_doc.frame {
-                    self.update_gpu_cache(frame);
+            for &mut (_, RenderedDocument { ref mut frame, .. }) in &mut active_documents {
+                self.update_gpu_cache(frame);
 
-                    self.draw_tile_frame(frame, framebuffer_size, cpu_frame_id);
+                self.draw_tile_frame(frame, framebuffer_size, cpu_frame_id);
 
-                    if self.debug_flags.contains(DebugFlags::PROFILER_DBG) {
-                        frame_profiles.push(frame.profile_counters.clone());
-                    }
+                if self.debug_flags.contains(DebugFlags::PROFILER_DBG) {
+                    frame_profiles.push(frame.profile_counters.clone());
                 }
             }
 
@@ -2804,11 +2799,13 @@ impl<'a> Renderer<'a> {
                     // GPUs that I have tested with. It's possible it may be a
                     // performance penalty on other GPU types - we should test this
                     // and consider different code paths.
-                    self.device
-                        .clear_target_rect(clear_color, Some(1.0), target.used_rect());
+                    self.device.clear_target_rect(clear_color, Some(1.0), target.used_rect());
                 } else {
                     self.device.clear_target(clear_color, Some(1.0));
                 }
+            } else if framebuffer_target_rect == DeviceUintRect::new(DeviceUintPoint::zero(), target_size) {
+                // whole screen is covered, no need for scissor
+                self.device.clear_target(clear_color, Some(1.0));
             } else {
                 // Note: for non-intersecting document rectangles,
                 // we can omit clearing the depth here, and instead

@@ -291,15 +291,14 @@ impl RenderNotifier for Notifier {
         })
     }
 
-    fn wakeup(&self) {
+    fn wake_up(&self) {
         self.tx.send(()).unwrap();
     }
 
-    fn new_document_ready(&self, _: DocumentId) {
-        self.tx.send(()).unwrap();
-    }
-
-    fn new_scroll_document_ready(&self, _: DocumentId, _composite_needed: bool) {
+    fn new_document_ready(&self, _: DocumentId, scrolled: bool, _composite_needed: bool) {
+        if !scrolled {
+            self.wake_up();
+        }
     }
 }
 
