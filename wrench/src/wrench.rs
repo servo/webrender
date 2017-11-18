@@ -73,7 +73,7 @@ impl RenderNotifier for Notifier {
         Box::new(Notifier(self.0.clone()))
     }
 
-    fn wakeup(&self) {
+    fn wake_up(&self) {
         let mut data = self.0.lock();
         let data = data.as_mut().unwrap();
         match data.timing_receiver.steal() {
@@ -98,15 +98,15 @@ impl RenderNotifier for Notifier {
         }
     }
 
-    fn new_document_ready(&self, _: DocumentId) {
-        self.wakeup();
-    }
-
-    fn new_scroll_document_ready(&self, _: DocumentId, _composite_needed: bool) {
-        let data = self.0.lock();
-        if let Some(ref window_proxy) = data.unwrap().window_proxy {
-            #[cfg(not(target_os = "android"))]
-            window_proxy.wakeup_event_loop();
+    fn new_document_ready(&self, _: DocumentId, scrolled: bool, _composite_needed: bool) {
+        if scrolled {
+            let data = self.0.lock();
+            if let Some(ref window_proxy) = data.unwrap().window_proxy {
+                #[cfg(not(target_os = "android"))]
+                window_proxy.wakeup_event_loop();
+            }
+        } else {
+            self.wake_up();
         }
     }
 }

@@ -148,14 +148,14 @@ pub struct RenderedDocument {
     /// The layers that are currently affected by the over-scrolling animation.
     pub layers_bouncing_back: FastHashSet<ClipId>,
 
-    pub frame: Option<tiling::Frame>,
+    pub frame: tiling::Frame,
 }
 
 impl RenderedDocument {
     pub fn new(
         pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
         layers_bouncing_back: FastHashSet<ClipId>,
-        frame: Option<tiling::Frame>,
+        frame: tiling::Frame,
     ) -> Self {
         RenderedDocument {
             pipeline_epoch_map,
