@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 extern crate env_logger;
+extern crate euclid;
 
 use gleam::gl;
 use glutin;
@@ -65,16 +66,20 @@ impl HandyDandyRectBuilder for (i32, i32) {
 }
 
 pub trait Example {
+    const TITLE: &'static str = "WebRender Sample App";
+    const PRECACHE_SHADERS: bool = false;
     fn render(
         &mut self,
         api: &RenderApi,
         builder: &mut DisplayListBuilder,
         resources: &mut ResourceUpdates,
-        layout_size: LayoutSize,
+        framebuffer_size: DeviceUintSize,
         pipeline_id: PipelineId,
         document_id: DocumentId,
     );
-    fn on_event(&mut self, event: glutin::Event, api: &RenderApi, document_id: DocumentId) -> bool;
+    fn on_event(&mut self, glutin::Event, &RenderApi, DocumentId) -> bool {
+        false
+    }
     fn get_external_image_handler(&self) -> Option<Box<webrender::ExternalImageHandler>> {
         None
     }
@@ -84,10 +89,14 @@ pub trait Example {
     ) -> Option<Box<webrender::OutputImageHandler>> {
         None
     }
-    fn draw_custom(&self, _gl: &gl::Gl) {}
+    fn draw_custom(&self, _gl: &gl::Gl) {
+    }
 }
 
-pub fn main_wrapper(example: &mut Example, options: Option<webrender::RendererOptions>) {
+pub fn main_wrapper<E: Example>(
+    example: &mut E,
+    options: Option<webrender::RendererOptions>,
+) {
     env_logger::init().unwrap();
 
     let args: Vec<String> = env::args().collect();
@@ -98,7 +107,7 @@ pub fn main_wrapper(example: &mut Example, options: Option<webrender::RendererOp
     };
 
     let window = glutin::WindowBuilder::new()
-        .with_title("WebRender Sample App")
+        .with_title(E::TITLE)
         .with_multitouch()
         .with_gl(glutin::GlRequest::GlThenGles {
             opengl_version: (3, 2),
@@ -122,22 +131,26 @@ pub fn main_wrapper(example: &mut Example, options: Option<webrender::RendererOp
 
     println!("OpenGL version {}", gl.get_string(gl::VERSION));
     println!("Shader resource path: {:?}", res_path);
-
-    let (width, height) = window.get_inner_size_pixels().unwrap();
+    let device_pixel_ratio = window.hidpi_factor();
+    println!("Device pixel ratio: {}", device_pixel_ratio);
 
     let opts = webrender::RendererOptions {
         resource_override_path: res_path,
         debug: true,
-        precache_shaders: true,
-        device_pixel_ratio: window.hidpi_factor(),
+        precache_shaders: E::PRECACHE_SHADERS,
+        device_pixel_ratio,
+        clear_color: Some(ColorF::new(0.3, 0.0, 0.0, 1.0)),
         ..options.unwrap_or(webrender::RendererOptions::default())
     };
 
-    let size = DeviceUintSize::new(width, height);
+    let framebuffer_size = {
+        let (width, height) = window.get_inner_size_pixels().unwrap();
+        DeviceUintSize::new(width, height)
+    };
     let notifier = Box::new(Notifier::new(window.create_window_proxy()));
     let (mut renderer, sender) = webrender::Renderer::new(gl.clone(), notifier, opts).unwrap();
     let api = sender.create_api();
-    let document_id = api.add_document(size, 0);
+    let document_id = api.add_document(framebuffer_size, 0);
 
     if let Some(external_image_handler) = example.get_external_image_handler() {
         renderer.set_external_image_handler(external_image_handler);
@@ -147,10 +160,8 @@ pub fn main_wrapper(example: &mut Example, options: Option<webrender::RendererOp
     }
 
     let epoch = Epoch(0);
-    let root_background_color = ColorF::new(0.3, 0.0, 0.0, 1.0);
-
     let pipeline_id = PipelineId(0, 0);
-    let layout_size = LayoutSize::new(width as f32, height as f32);
+    let layout_size = framebuffer_size.to_f32() / euclid::ScaleFactor::new(device_pixel_ratio);
     let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);
     let mut resources = ResourceUpdates::new();
 
@@ -158,15 +169,15 @@ pub fn main_wrapper(example: &mut Example, options: Option<webrender::RendererOp
         &api,
         &mut builder,
         &mut resources,
-        layout_size,
+        framebuffer_size,
         pipeline_id,
         document_id,
     );
     api.set_display_list(
         document_id,
         epoch,
-        Some(root_background_color),
-        LayoutSize::new(width as f32, height as f32),
+        None,
+        layout_size,
         builder.finalize(),
         true,
         resources,
@@ -177,10 +188,7 @@ pub fn main_wrapper(example: &mut Example, options: Option<webrender::RendererOp
     'outer: for event in window.wait_events() {
         let mut events = Vec::new();
         events.push(event);
-
-        for event in window.poll_events() {
-            events.push(event);
-        }
+        events.extend(window.poll_events());
 
         for event in events {
             match event {
@@ -235,9 +243,10 @@ pub fn main_wrapper(example: &mut Example, options: Option<webrender::RendererOp
                     _,
                     Some(glutin::VirtualKeyCode::Key1),
                 ) => {
-                    api.set_window_parameters(document_id,
-                        size,
-                        DeviceUintRect::new(DeviceUintPoint::zero(), size),
+                    api.set_window_parameters(
+                        document_id,
+                        framebuffer_size,
+                        DeviceUintRect::new(DeviceUintPoint::zero(), framebuffer_size),
                         1.0
                     );
                 }
@@ -246,9 +255,10 @@ pub fn main_wrapper(example: &mut Example, options: Option<webrender::RendererOp
                     _,
                     Some(glutin::VirtualKeyCode::Key2),
                 ) => {
-                    api.set_window_parameters(document_id,
-                        size,
-                        DeviceUintRect::new(DeviceUintPoint::zero(), size),
+                    api.set_window_parameters(
+                        document_id,
+                        framebuffer_size,
+                        DeviceUintRect::new(DeviceUintPoint::zero(), framebuffer_size),
                         2.0
                     );
                 }
@@ -267,15 +277,15 @@ pub fn main_wrapper(example: &mut Example, options: Option<webrender::RendererOp
                         &api,
                         &mut builder,
                         &mut resources,
-                        layout_size,
+                        framebuffer_size,
                         pipeline_id,
                         document_id,
                     );
                     api.set_display_list(
                         document_id,
                         epoch,
-                        Some(root_background_color),
-                        LayoutSize::new(width as f32, height as f32),
+                        None,
+                        layout_size,
                         builder.finalize(),
                         true,
                         resources,
@@ -286,7 +296,7 @@ pub fn main_wrapper(example: &mut Example, options: Option<webrender::RendererOp
         }
 
         renderer.update();
-        renderer.render(DeviceUintSize::new(width, height)).unwrap();
+        renderer.render(framebuffer_size).unwrap();
         example.draw_custom(&*gl);
         window.swap_buffers().ok();
     }

@@ -14,6 +14,7 @@ use std::fmt;
 use std::marker::PhantomData;
 
 pub type TileSize = u16;
+/// Documents are rendered in the ascending order of their associated layer values.
 pub type DocumentLayer = i8;
 
 /// The resource updates for a given transaction (they must be applied in the same frame).

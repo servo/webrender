@@ -2755,7 +2755,7 @@ impl<'a> Renderer<'a> {
         &mut self,
         render_target: Option<(&Texture, i32)>,
         target: &ColorRenderTarget,
-        target_rect: DeviceUintRect,
+        framebuffer_target_rect: DeviceUintRect,
         target_size: DeviceUintSize,
         clear_color: Option<[f32; 4]>,
         render_tasks: &RenderTaskTree,
@@ -2771,16 +2771,13 @@ impl<'a> Renderer<'a> {
             self.device.set_blend(false);
 
             if render_target.is_some() {
-                assert!(target_rect.to_i32().contains_rect(&target.used_rect()));
-
                 if self.enable_clear_scissor {
                     // TODO(gw): Applying a scissor rect and minimal clear here
                     // is a very large performance win on the Intel and nVidia
                     // GPUs that I have tested with. It's possible it may be a
                     // performance penalty on other GPU types - we should test this
                     // and consider different code paths.
-                    self.device
-                        .clear_target_rect(clear_color, Some(1.0), target.used_rect());
+                    self.device.clear_target_rect(clear_color, Some(1.0), target.used_rect());
                 } else {
                     self.device.clear_target(clear_color, Some(1.0));
                 }

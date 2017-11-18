@@ -262,8 +262,8 @@ impl<'a> FlattenContext<'a> {
         // that fixed position stacking contexts are positioned relative to us.
         let is_reference_frame =
             stacking_context.transform.is_some() || stacking_context.perspective.is_some();
-        if is_reference_frame {
-            let origin = reference_frame_relative_offset + bounds.origin.to_vector();
+        let origin = reference_frame_relative_offset + bounds.origin.to_vector();
+        reference_frame_relative_offset = if is_reference_frame {
             let reference_frame_bounds = LayerRect::new(LayerPoint::zero(), bounds.size);
             let mut clip_id = self.apply_scroll_frame_id_replacement(context_scroll_node_id);
             clip_id = self.builder.push_reference_frame(
@@ -277,12 +277,9 @@ impl<'a> FlattenContext<'a> {
                 self.clip_scroll_tree,
             );
             self.replacements.push((context_scroll_node_id, clip_id));
-            reference_frame_relative_offset = LayerVector2D::zero();
+            LayerVector2D::zero()
         } else {
-            reference_frame_relative_offset = LayerVector2D::new(
-                reference_frame_relative_offset.x + bounds.origin.x,
-                reference_frame_relative_offset.y + bounds.origin.y,
-            );
+            origin
         };
 
         let sc_scroll_node_id = self.apply_scroll_frame_id_replacement(context_scroll_node_id);
