@@ -29,8 +29,7 @@ use prim_store::{PrimitiveContainer, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
 use prim_store::{RectangleContent, RectanglePrimitive, TextRunPrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
-use render_task::{RenderTask, RenderTaskLocation};
-use render_task::RenderTaskTree;
+use render_task::{RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree};
 use resource_cache::ResourceCache;
 use scene::{ScenePipeline, SceneProperties};
 use std::{mem, usize, f32};
@@ -1541,8 +1540,12 @@ impl FrameBuilder {
         profile_counters: &mut FrameProfileCounters,
         device_pixel_ratio: f32,
         scene_properties: &SceneProperties,
-    ) {
+    ) -> Option<RenderTaskId> {
         profile_scope!("cull");
+
+        if self.prim_store.cpu_pictures.is_empty() {
+            return None
+        }
 
         // The root picture is always the first one added.
         let prim_run_cmds = mem::replace(&mut self.prim_store.cpu_pictures[0].runs, Vec::new());
@@ -1593,6 +1596,7 @@ impl FrameBuilder {
         );
 
         pic.render_task_id = Some(render_tasks.add(root_render_task));
+        pic.render_task_id
     }
 
     fn update_scroll_bars(&mut self, clip_scroll_tree: &ClipScrollTree, gpu_cache: &mut GpuCache) {
@@ -1670,7 +1674,7 @@ impl FrameBuilder {
 
         let mut render_tasks = RenderTaskTree::new();
 
-        self.build_layer_screen_rects_and_cull_layers(
+        let main_render_task_id = self.build_layer_screen_rects_and_cull_layers(
             clip_scroll_tree,
             pipelines,
             resource_cache,
@@ -1681,30 +1685,30 @@ impl FrameBuilder {
             scene_properties,
         );
 
-        let main_render_task_id = self.prim_store
-            .cpu_pictures[0]
-            .render_task_id
-            .expect("bug: no root render task!");
-
-        let mut required_pass_count = 0;
-        render_tasks.max_depth(main_render_task_id, 0, &mut required_pass_count);
-
+        let mut passes = Vec::new();
         resource_cache.block_until_all_resources_added(gpu_cache, texture_cache_profile);
 
-        let mut deferred_resolves = vec![];
+        if let Some(main_render_task_id) = main_render_task_id {
+            let mut required_pass_count = 0;
+            render_tasks.max_depth(main_render_task_id, 0, &mut required_pass_count);
 
-        let mut passes = Vec::new();
+            // Do the allocations now, assigning each tile's tasks to a render
+            // pass and target as required.
+            for index in 0 .. required_pass_count {
+                passes.push(RenderPass::new(
+                    index == required_pass_count - 1,
+                    self.screen_rect.size.to_i32(),
+                ));
+            }
 
-        // Do the allocations now, assigning each tile's tasks to a render
-        // pass and target as required.
-        for index in 0 .. required_pass_count {
-            passes.push(RenderPass::new(
-                index == required_pass_count - 1,
-                self.screen_rect.size.to_i32(),
-            ));
+            render_tasks.assign_to_passes(
+                main_render_task_id,
+                required_pass_count - 1,
+                &mut passes,
+            );
         }
 
-        render_tasks.assign_to_passes(main_render_task_id, passes.len() - 1, &mut passes);
+        let mut deferred_resolves = vec![];
 
         for pass in &mut passes {
             let ctx = RenderTargetContext {
