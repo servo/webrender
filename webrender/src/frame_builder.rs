@@ -148,41 +148,46 @@ impl<'a> PrimitiveContext<'a> {
 }
 
 impl FrameBuilder {
-    pub fn new(
-        previous: Option<Self>,
+    pub fn empty() -> Self {
+        FrameBuilder {
+            hit_testing_runs: Vec::new(),
+            shadow_prim_stack: Vec::new(),
+            pending_shadow_contents: Vec::new(),
+            scrollbar_prims: Vec::new(),
+            reference_frame_stack: Vec::new(),
+            picture_stack: Vec::new(),
+            sc_stack: Vec::new(),
+            prim_store: PrimitiveStore::new(),
+            clip_store: ClipStore::new(),
+            screen_rect: DeviceUintRect::zero(),
+            background_color: None,
+            config: FrameBuilderConfig {
+                enable_scrollbars: false,
+                default_font_render_mode: FontRenderMode::Mono,
+                debug: false,
+            },
+        }
+    }
+
+    pub fn recycle(
+        self,
         screen_rect: DeviceUintRect,
         background_color: Option<ColorF>,
         config: FrameBuilderConfig,
     ) -> Self {
-        match previous {
-            Some(prev) => FrameBuilder {
-                hit_testing_runs: recycle_vec(prev.hit_testing_runs),
-                shadow_prim_stack: recycle_vec(prev.shadow_prim_stack),
-                pending_shadow_contents: recycle_vec(prev.pending_shadow_contents),
-                scrollbar_prims: recycle_vec(prev.scrollbar_prims),
-                reference_frame_stack: recycle_vec(prev.reference_frame_stack),
-                picture_stack: recycle_vec(prev.picture_stack),
-                sc_stack: recycle_vec(prev.sc_stack),
-                prim_store: prev.prim_store.recycle(),
-                clip_store: prev.clip_store.recycle(),
-                screen_rect,
-                background_color,
-                config,
-            },
-            None => FrameBuilder {
-                hit_testing_runs: Vec::new(),
-                shadow_prim_stack: Vec::new(),
-                pending_shadow_contents: Vec::new(),
-                scrollbar_prims: Vec::new(),
-                reference_frame_stack: Vec::new(),
-                picture_stack: Vec::new(),
-                sc_stack: Vec::new(),
-                prim_store: PrimitiveStore::new(),
-                clip_store: ClipStore::new(),
-                screen_rect,
-                background_color,
-                config,
-            },
+        FrameBuilder {
+            hit_testing_runs: recycle_vec(self.hit_testing_runs),
+            shadow_prim_stack: recycle_vec(self.shadow_prim_stack),
+            pending_shadow_contents: recycle_vec(self.pending_shadow_contents),
+            scrollbar_prims: recycle_vec(self.scrollbar_prims),
+            reference_frame_stack: recycle_vec(self.reference_frame_stack),
+            picture_stack: recycle_vec(self.picture_stack),
+            sc_stack: recycle_vec(self.sc_stack),
+            prim_store: self.prim_store.recycle(),
+            clip_store: self.clip_store.recycle(),
+            screen_rect,
+            background_color,
+            config,
         }
     }
 
@@ -1521,7 +1526,7 @@ impl FrameBuilder {
         }
 
         result.items.dedup();
-        return result;
+        result
     }
 
     /// Compute the contribution (bounding rectangles, and resources) of layers and their

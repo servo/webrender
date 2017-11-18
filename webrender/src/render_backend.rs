@@ -7,7 +7,7 @@ use api::{ApiMsg, BlobImageRenderer, BuiltDisplayList, DebugCommand, DeviceIntPo
 use api::{BuiltDisplayListIter, SpecificDisplayItem};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{DocumentId, DocumentLayer, DocumentMsg};
-use api::{HitTestResult, IdNamespace, LayerPoint, PipelineId, RenderNotifier};
+use api::{IdNamespace, LayerPoint, PipelineId, RenderNotifier};
 use api::channel::{MsgReceiver, PayloadReceiver, PayloadReceiverHelperMethods};
 use api::channel::{PayloadSender, PayloadSenderHelperMethods};
 #[cfg(feature = "debugger")]
@@ -34,6 +34,7 @@ use time::precise_time_ns;
 struct Document {
     scene: Scene,
     frame_ctx: FrameContext,
+    // the `Option` here is only to deal with borrow checker
     frame_builder: Option<FrameBuilder>,
     window_size: DeviceUintSize,
     inner_rect: DeviceUintRect,
@@ -69,7 +70,7 @@ impl Document {
         Document {
             scene: Scene::new(),
             frame_ctx: FrameContext::new(config),
-            frame_builder: None,
+            frame_builder: Some(FrameBuilder::empty()),
             window_size,
             inner_rect: DeviceUintRect::new(DeviceUintPoint::zero(), window_size),
             layer,
@@ -90,8 +91,9 @@ impl Document {
 
     fn build_scene(&mut self, resource_cache: &mut ResourceCache) {
         let accumulated_scale_factor = self.accumulated_scale_factor();
-        self.frame_builder = self.frame_ctx.create(
-            self.frame_builder.take(),
+        // this code is why we have `Option`, which is never `None`
+        let frame_builder = self.frame_ctx.create(
+            self.frame_builder.take().unwrap(),
             &self.scene,
             resource_cache,
             self.window_size,
@@ -99,6 +101,7 @@ impl Document {
             accumulated_scale_factor,
             &self.output_pipelines,
         );
+        self.frame_builder = Some(frame_builder);
     }
 
     fn render(
@@ -112,25 +115,18 @@ impl Document {
             self.pan.x as f32 / accumulated_scale_factor,
             self.pan.y as f32 / accumulated_scale_factor,
         );
-        match self.frame_builder {
-            Some(ref mut builder) => {
-                self.frame_ctx.build_rendered_document(
-                    builder,
-                    resource_cache,
-                    gpu_cache,
-                    &self.scene.pipelines,
-                    accumulated_scale_factor,
-                    self.layer,
-                    pan,
-                    &mut resource_profile.texture_cache,
-                    &mut resource_profile.gpu_cache,
-                    &self.scene.properties,
-                )
-            }
-            None => {
-                self.frame_ctx.get_rendered_document()
-            }
-        }
+        self.frame_ctx.build_rendered_document(
+            self.frame_builder.as_mut().unwrap(),
+            resource_cache,
+            gpu_cache,
+            &self.scene.pipelines,
+            accumulated_scale_factor,
+            self.layer,
+            pan,
+            &mut resource_profile.texture_cache,
+            &mut resource_profile.gpu_cache,
+            &self.scene.properties,
+        )
     }
 }
 
@@ -366,13 +362,11 @@ impl RenderBackend {
             }
             DocumentMsg::HitTest(pipeline_id, point, flags, tx) => {
                 profile_scope!("HitTest");
-                let result = match doc.frame_builder {
-                    Some(ref builder) => {
-                        let cst = doc.frame_ctx.get_clip_scroll_tree();
-                        builder.hit_test(cst, pipeline_id, point, flags)
-                    },
-                    None => HitTestResult::default(),
-                };
+                let cst = doc.frame_ctx.get_clip_scroll_tree();
+                let result = doc.frame_builder
+                    .as_ref()
+                    .unwrap()
+                    .hit_test(cst, pipeline_id, point, flags);
                 tx.send(result).unwrap();
                 DocumentOp::Nop
             }
@@ -683,11 +677,10 @@ impl RenderBackend {
 
             // TODO(gw): Restructure the storage of clip-scroll tree, clip store
             //           etc so this isn't so untidy.
-            if let Some(ref frame_builder) = doc.frame_builder {
-                doc.frame_ctx
-                    .get_clip_scroll_tree()
-                    .print_with(&frame_builder.clip_store, &mut builder);
-            }
+            let clip_store = &doc.frame_builder.as_ref().unwrap().clip_store;
+            doc.frame_ctx
+                .get_clip_scroll_tree()
+                .print_with(clip_store, &mut builder);
 
             debug_root.add(builder.build());
         }
