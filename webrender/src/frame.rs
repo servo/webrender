@@ -1200,6 +1200,6 @@ impl FrameContext {
         );
 
         let nodes_bouncing_back = self.clip_scroll_tree.collect_nodes_bouncing_back();
-        RenderedDocument::new(self.pipeline_epoch_map.clone(), nodes_bouncing_back, Some(frame))
+        RenderedDocument::new(self.pipeline_epoch_map.clone(), nodes_bouncing_back, frame)
     }
 }
