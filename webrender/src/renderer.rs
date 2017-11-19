@@ -172,36 +172,65 @@ const GPU_SAMPLER_TAG_TRANSPARENT: GpuProfileTag = GpuProfileTag {
     color: debug_colors::BLACK,
 };
 
-#[cfg(feature = "debugger")]
+impl TransformBatchKind {
+    #[cfg(feature = "debugger")]
+    fn debug_name(&self) -> &'static str {
+        match *self {
+            TransformBatchKind::Rectangle(..) => "Rectangle",
+            TransformBatchKind::TextRun(..) => "TextRun",
+            TransformBatchKind::Image(image_buffer_kind, ..) => match image_buffer_kind {
+                ImageBufferKind::Texture2D => "Image (2D)",
+                ImageBufferKind::TextureRect => "Image (Rect)",
+                ImageBufferKind::TextureExternal => "Image (External)",
+                ImageBufferKind::Texture2DArray => "Image (Array)",
+            },
+            TransformBatchKind::YuvImage(..) => "YuvImage",
+            TransformBatchKind::AlignedGradient => "AlignedGradient",
+            TransformBatchKind::AngleGradient => "AngleGradient",
+            TransformBatchKind::RadialGradient => "RadialGradient",
+            TransformBatchKind::BorderCorner => "BorderCorner",
+            TransformBatchKind::BorderEdge => "BorderEdge",
+            TransformBatchKind::Line => "Line",
+        }
+    }
+
+    fn gpu_sampler_tag(&self) -> GpuProfileTag {
+        match *self {
+            TransformBatchKind::Rectangle(_) => GPU_TAG_PRIM_RECT,
+            TransformBatchKind::Line => GPU_TAG_PRIM_LINE,
+            TransformBatchKind::TextRun(..) => GPU_TAG_PRIM_TEXT_RUN,
+            TransformBatchKind::Image(..) => GPU_TAG_PRIM_IMAGE,
+            TransformBatchKind::YuvImage(..) => GPU_TAG_PRIM_YUV_IMAGE,
+            TransformBatchKind::BorderCorner => GPU_TAG_PRIM_BORDER_CORNER,
+            TransformBatchKind::BorderEdge => GPU_TAG_PRIM_BORDER_EDGE,
+            TransformBatchKind::AlignedGradient => GPU_TAG_PRIM_GRADIENT,
+            TransformBatchKind::AngleGradient => GPU_TAG_PRIM_ANGLE_GRADIENT,
+            TransformBatchKind::RadialGradient => GPU_TAG_PRIM_RADIAL_GRADIENT,
+        }
+    }
+}
+
 impl BatchKind {
+    #[cfg(feature = "debugger")]
     fn debug_name(&self) -> &'static str {
         match *self {
             BatchKind::Composite { .. } => "Composite",
             BatchKind::HardwareComposite => "HardwareComposite",
             BatchKind::SplitComposite => "SplitComposite",
             BatchKind::Blend => "Blend",
-            BatchKind::Brush(kind) => {
-                match kind {
-                    BrushBatchKind::Image(..) => "Brush (Image)",
-                }
-            }
-            BatchKind::Transformable(_, kind) => match kind {
-                TransformBatchKind::Rectangle(..) => "Rectangle",
-                TransformBatchKind::TextRun(..) => "TextRun",
-                TransformBatchKind::Image(image_buffer_kind, ..) => match image_buffer_kind {
-                    ImageBufferKind::Texture2D => "Image (2D)",
-                    ImageBufferKind::TextureRect => "Image (Rect)",
-                    ImageBufferKind::TextureExternal => "Image (External)",
-                    ImageBufferKind::Texture2DArray => "Image (Array)",
-                },
-                TransformBatchKind::YuvImage(..) => "YuvImage",
-                TransformBatchKind::AlignedGradient => "AlignedGradient",
-                TransformBatchKind::AngleGradient => "AngleGradient",
-                TransformBatchKind::RadialGradient => "RadialGradient",
-                TransformBatchKind::BorderCorner => "BorderCorner",
-                TransformBatchKind::BorderEdge => "BorderEdge",
-                TransformBatchKind::Line => "Line",
-            },
+            BatchKind::Brush(BrushBatchKind::Image(..)) => "Brush (Image)",
+            BatchKind::Transformable(_, batch_kind) => batch_kind.debug_name(),
+        }
+    }
+
+    fn gpu_sampler_tag(&self) -> GpuProfileTag {
+        match *self {
+            BatchKind::Composite { .. } => GPU_TAG_PRIM_COMPOSITE,
+            BatchKind::HardwareComposite => GPU_TAG_PRIM_HW_COMPOSITE,
+            BatchKind::SplitComposite => GPU_TAG_PRIM_SPLIT_COMPOSITE,
+            BatchKind::Blend => GPU_TAG_PRIM_BLEND,
+            BatchKind::Brush(BrushBatchKind::Image(_)) => GPU_TAG_BRUSH_IMAGE,
+            BatchKind::Transformable(_, batch_kind) => batch_kind.gpu_sampler_tag(),
         }
     }
 }
@@ -2485,16 +2514,13 @@ impl<'a> Renderer<'a> {
         render_target: Option<(&Texture, i32)>,
         target_dimensions: DeviceUintSize,
     ) {
-        let marker = match key.kind {
+        match key.kind {
             BatchKind::Composite { .. } => {
-                self.ps_composite
-                    .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
-                GPU_TAG_PRIM_COMPOSITE
+                self.ps_composite.bind(&mut self.device, projection, 0, &mut self.renderer_errors);
             }
             BatchKind::HardwareComposite => {
                 self.ps_hw_composite
                     .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
-                GPU_TAG_PRIM_HW_COMPOSITE
             }
             BatchKind::SplitComposite => {
                 self.ps_split_composite.bind(
@@ -2503,12 +2529,9 @@ impl<'a> Renderer<'a> {
                     0,
                     &mut self.renderer_errors,
                 );
-                GPU_TAG_PRIM_SPLIT_COMPOSITE
             }
             BatchKind::Blend => {
-                self.ps_blend
-                    .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
-                GPU_TAG_PRIM_BLEND
+                self.ps_blend.bind(&mut self.device, projection, 0, &mut self.renderer_errors);
             }
             BatchKind::Brush(brush_kind) => {
                 match brush_kind {
@@ -2524,7 +2547,6 @@ impl<'a> Renderer<'a> {
                             0,
                             &mut self.renderer_errors,
                         );
-                        GPU_TAG_BRUSH_IMAGE
                     }
                 }
             }
@@ -2558,7 +2580,6 @@ impl<'a> Renderer<'a> {
                             &mut self.renderer_errors,
                         );
                     }
-                    GPU_TAG_PRIM_RECT
                 }
                 TransformBatchKind::Line => {
                     self.ps_line.bind(
@@ -2568,7 +2589,6 @@ impl<'a> Renderer<'a> {
                         0,
                         &mut self.renderer_errors,
                     );
-                    GPU_TAG_PRIM_LINE
                 }
                 TransformBatchKind::TextRun(..) => {
                     unreachable!("bug: text batches are special cased");
@@ -2584,7 +2604,6 @@ impl<'a> Renderer<'a> {
                             0,
                             &mut self.renderer_errors,
                         );
-                    GPU_TAG_PRIM_IMAGE
                 }
                 TransformBatchKind::YuvImage(image_buffer_kind, format, color_space) => {
                     let shader_index =
@@ -2599,7 +2618,6 @@ impl<'a> Renderer<'a> {
                             0,
                             &mut self.renderer_errors,
                         );
-                    GPU_TAG_PRIM_YUV_IMAGE
                 }
                 TransformBatchKind::BorderCorner => {
                     self.ps_border_corner.bind(
@@ -2609,7 +2627,6 @@ impl<'a> Renderer<'a> {
                         0,
                         &mut self.renderer_errors,
                     );
-                    GPU_TAG_PRIM_BORDER_CORNER
                 }
                 TransformBatchKind::BorderEdge => {
                     self.ps_border_edge.bind(
@@ -2619,7 +2636,6 @@ impl<'a> Renderer<'a> {
                         0,
                         &mut self.renderer_errors,
                     );
-                    GPU_TAG_PRIM_BORDER_EDGE
                 }
                 TransformBatchKind::AlignedGradient => {
                     self.ps_gradient.bind(
@@ -2629,7 +2645,6 @@ impl<'a> Renderer<'a> {
                         0,
                         &mut self.renderer_errors,
                     );
-                    GPU_TAG_PRIM_GRADIENT
                 }
                 TransformBatchKind::AngleGradient => {
                     self.ps_angle_gradient.bind(
@@ -2639,7 +2654,6 @@ impl<'a> Renderer<'a> {
                         0,
                         &mut self.renderer_errors,
                     );
-                    GPU_TAG_PRIM_ANGLE_GRADIENT
                 }
                 TransformBatchKind::RadialGradient => {
                     self.ps_radial_gradient.bind(
@@ -2649,7 +2663,6 @@ impl<'a> Renderer<'a> {
                         0,
                         &mut self.renderer_errors,
                     );
-                    GPU_TAG_PRIM_RADIAL_GRADIENT
                 }
             },
         };
@@ -2728,7 +2741,7 @@ impl<'a> Renderer<'a> {
             _ => {}
         }
 
-        let _timer = self.gpu_profile.start_timer(marker);
+        let _timer = self.gpu_profile.start_timer(key.kind.gpu_sampler_tag());
         self.draw_instanced_batch(instances, VertexArrayKind::Primitive, &key.textures);
     }
 
