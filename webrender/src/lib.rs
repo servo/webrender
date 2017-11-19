@@ -123,6 +123,8 @@ extern crate core_foundation;
 extern crate core_graphics;
 #[cfg(target_os = "macos")]
 extern crate core_text;
+#[cfg(target_os = "macos")]
+extern crate foreign_types;
 
 #[cfg(all(unix, not(target_os = "macos")))]
 extern crate freetype;
