@@ -72,6 +72,39 @@ fn broadcast<T: Clone>(base_vals: &[T], num_items: usize) -> Vec<T> {
     vals
 }
 
+fn generate_checkerboard_image(
+    border: u32,
+    tile_size: u32,
+    tile_count: u32
+) -> (ImageDescriptor, ImageData) {
+    let size = 2 * border + tile_size * tile_count;
+    let mut pixels = Vec::new();
+
+    for y in 0 .. size {
+        for x in 0 .. size {
+            if y < border || y >= (size-border) ||
+               x < border || x >= (size-border) {
+                pixels.push(0);
+                pixels.push(0);
+                pixels.push(0xff);
+                pixels.push(0xff);
+            } else {
+                let xon = ((x - border) % (2 * tile_size)) < tile_size;
+                let yon = ((y - border) % (2 * tile_size)) < tile_size;
+                let value = if xon ^ yon { 0xff } else { 0x7f };
+                pixels.push(value);
+                pixels.push(value);
+                pixels.push(value);
+                pixels.push(0xff);
+            }
+        }
+    }
+
+    (
+        ImageDescriptor::new(size, size, ImageFormat::BGRA8, true),
+        ImageData::new(pixels),
+    )
+}
 
 fn generate_xy_gradient_image(w: u32, h: u32) -> (ImageDescriptor, ImageData) {
     let mut pixels = Vec::with_capacity((w * h * 4) as usize);
@@ -350,6 +383,11 @@ impl YamlFrameReader {
                         args.get(3).unwrap_or(&"255").parse::<u8>().unwrap(),
                         args.get(4).unwrap_or(&"1000").parse::<u32>().unwrap(),
                         args.get(5).unwrap_or(&"1000").parse::<u32>().unwrap(),
+                    ),
+                    ("checkerboard", args, _) => generate_checkerboard_image(
+                        args.get(0).unwrap_or(&"4").parse::<u32>().unwrap(),
+                        args.get(1).unwrap_or(&"32").parse::<u32>().unwrap(),
+                        args.get(2).unwrap_or(&"8").parse::<u32>().unwrap(),
                     ),
                     _ => {
                         panic!("Failed to load image {:?}", file.to_str());
