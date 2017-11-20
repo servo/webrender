@@ -1206,10 +1206,10 @@ struct FrameOutput {
 
 /// The renderer is responsible for submitting to the GPU the work prepared by the
 /// RenderBackend.
-pub struct Renderer<'a> {
+pub struct Renderer {
     result_rx: Receiver<ResultMsg>,
     debug_server: DebugServer,
-    device: Device<'a>,
+    device: Device,
     pending_texture_updates: Vec<TextureUpdateList>,
     pending_gpu_cache_updates: Vec<GpuCacheUpdateList>,
     pending_shader_updates: Vec<PathBuf>,
@@ -1335,7 +1335,7 @@ impl From<std::io::Error> for RendererError {
     }
 }
 
-impl<'a> Renderer<'a> {
+impl Renderer {
     /// Initializes webrender and creates a `Renderer` and `RenderApiSender`.
     ///
     /// # Examples
@@ -1973,7 +1973,7 @@ impl<'a> Renderer<'a> {
 
     // update the program cache with new binaries, e.g. when some of the lazy loaded
     // shader programs got activated in the mean time
-    pub fn update_program_cache(&mut self, cached_programs: &'a mut ProgramCache) {
+    pub fn update_program_cache(&mut self, cached_programs: Rc<ProgramCache>) {
         self.device.update_program_cache(cached_programs);
     }
 
@@ -3880,7 +3880,7 @@ pub trait ThreadListener {
     fn thread_stopped(&self, thread_name: &str);
 }
 
-pub struct RendererOptions<'a> {
+pub struct RendererOptions {
     pub device_pixel_ratio: f32,
     pub resource_override_path: Option<PathBuf>,
     pub enable_aa: bool,
@@ -3900,13 +3900,13 @@ pub struct RendererOptions<'a> {
     pub recorder: Option<Box<ApiRecordingReceiver>>,
     pub thread_listener: Option<Box<ThreadListener + Send + Sync>>,
     pub enable_render_on_scroll: bool,
-    pub cached_programs: Option<&'a mut ProgramCache>,
+    pub cached_programs: Option<Rc<ProgramCache>>,
     pub debug_flags: DebugFlags,
     pub renderer_id: Option<u64>,
 }
 
-impl<'a> Default for RendererOptions<'a> {
-    fn default() -> RendererOptions<'a> {
+impl Default for RendererOptions {
+    fn default() -> RendererOptions {
         RendererOptions {
             device_pixel_ratio: 1.0,
             resource_override_path: None,

@@ -9,6 +9,7 @@ use euclid::Transform3D;
 use gleam::gl;
 use internal_types::RenderTargetMode;
 use internal_types::FastHashMap;
+use std::cell::RefCell;
 use std::fs::File;
 use std::io::Read;
 use std::iter::repeat;
@@ -489,7 +490,7 @@ pub struct VBOId(gl::GLuint);
 struct IBOId(gl::GLuint);
 
 #[derive(PartialEq, Eq, Hash, Debug)]
-struct ProgramSources {
+pub struct ProgramSources {
     renderer_name: String,
     vs_source: String,
     fs_source: String,
@@ -505,7 +506,7 @@ impl ProgramSources {
     }
 }
 
-struct ProgramBinary {
+pub struct ProgramBinary {
     binary: Vec<u8>,
     format: gl::GLenum,
 }
@@ -520,26 +521,16 @@ impl ProgramBinary {
 }
 
 pub struct ProgramCache {
-    binaries: FastHashMap<ProgramSources, ProgramBinary>,
+    pub binaries: RefCell<FastHashMap<ProgramSources, ProgramBinary>>,
 }
 
 impl ProgramCache {
-    pub fn new() -> Self {
-        ProgramCache {
-            binaries: FastHashMap::default(),
-        }
-    }
-
-    fn get(&self, sources: &ProgramSources) -> Option<&ProgramBinary> {
-      self.binaries.get(&sources)
-    }
-
-    fn contains(&self, sources: &ProgramSources) -> bool {
-      self.binaries.contains_key(&sources)
-    }
-
-    fn insert(&mut self, sources: ProgramSources, binary: ProgramBinary) {
-      self.binaries.insert(sources, binary);
+    pub fn new() -> Rc<Self> {
+        Rc::new(
+            ProgramCache {
+                binaries: RefCell::new(FastHashMap::default()),
+            }
+        )
     }
 }
 
@@ -579,7 +570,7 @@ pub enum ShaderError {
     Link(String, String),        // name, error message
 }
 
-pub struct Device<'a> {
+pub struct Device {
     gl: Rc<gl::Gl>,
     // device state
     bound_textures: [gl::GLuint; 16],
@@ -604,19 +595,19 @@ pub struct Device<'a> {
 
     max_texture_size: u32,
     renderer_name: String,
-    cached_programs: Option<&'a mut ProgramCache>,
+    cached_programs: Option<Rc<ProgramCache>>,
 
     // Frame counter. This is used to map between CPU
     // frames and GPU frames.
     frame_id: FrameId,
 }
 
-impl<'a> Device<'a> {
+impl Device {
     pub fn new(
         gl: Rc<gl::Gl>,
         resource_override_path: Option<PathBuf>,
         _file_changed_handler: Box<FileWatcherHandler>,
-        cached_programs: Option<&mut ProgramCache>,
+        cached_programs: Option<Rc<ProgramCache>>,
     ) -> Device {
         let max_texture_size = gl.get_integer_v(gl::MAX_TEXTURE_SIZE) as u32;
         let renderer_name = gl.get_string(gl::RENDERER);
@@ -657,7 +648,7 @@ impl<'a> Device<'a> {
         &self.gl
     }
 
-    pub fn update_program_cache(&mut self, cached_programs: &'a mut ProgramCache) {
+    pub fn update_program_cache(&mut self, cached_programs: Rc<ProgramCache>) {
         self.cached_programs = Some(cached_programs);
     }
 
@@ -1162,7 +1153,7 @@ impl<'a> Device<'a> {
         let mut loaded = false;
 
         if let Some(ref cached_programs) = self.cached_programs {
-            if let Some(binary) = cached_programs.get(&sources)
+            if let Some(binary) = cached_programs.binaries.borrow().get(&sources)
             {
                 self.gl.program_binary(pid, binary.format, &binary.binary);
 
@@ -1240,11 +1231,11 @@ impl<'a> Device<'a> {
             }
         }
 
-        if let Some(ref mut cached_programs) = self.cached_programs {
-            if !cached_programs.contains(&sources) {
+        if let Some(ref cached_programs) = self.cached_programs {
+            if !cached_programs.binaries.borrow().contains_key(&sources) {
                 let (buffer, format) = self.gl.get_program_binary(pid);
                 if buffer.len() > 0 {
-                  cached_programs.insert(sources, ProgramBinary::new(buffer, format));
+                  cached_programs.binaries.borrow_mut().insert(sources, ProgramBinary::new(buffer, format));
                 }
             }
         }
