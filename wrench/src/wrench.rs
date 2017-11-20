@@ -116,11 +116,11 @@ pub trait WrenchThing {
     }
 }
 
-pub struct Wrench<'a> {
+pub struct Wrench {
     window_size: DeviceUintSize,
     device_pixel_ratio: f32,
 
-    pub renderer: webrender::Renderer<'a>,
+    pub renderer: webrender::Renderer,
     pub api: RenderApi,
     pub document_id: DocumentId,
     pub root_pipeline_id: PipelineId,
@@ -135,7 +135,7 @@ pub struct Wrench<'a> {
     pub frame_start_sender: chase_lev::Worker<time::SteadyTime>,
 }
 
-impl<'a> Wrench<'a> {
+impl Wrench {
     pub fn new(
         window: &mut WindowWrapper,
         shader_override_path: Option<PathBuf>,
