@@ -1,6 +1,6 @@
 [package]
 name = "wrench"
-version = "0.2.3"
+version = "0.2.4"
 authors = ["Vladimir Vukicevic <vladimir@pobox.com>"]
 build = "build.rs"
 license = "MPL-2.0"
@@ -12,7 +12,7 @@ byteorder = "1.0"
 env_logger = { version = "0.4", optional = true }
 euclid = "0.15"
 gleam = "0.4"
-servo-glutin = "0.12"
+servo-glutin = "0.13"
 app_units = "0.5.6"
 image = "0.17"
 clap = { version = "2", features = ["yaml"] }
@@ -35,4 +35,4 @@ logging = [ "env_logger" ]
 dwrote = "0.4"
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
-font-loader = "0.4"
+font-loader = "0.5"
