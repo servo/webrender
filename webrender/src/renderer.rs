@@ -1900,7 +1900,9 @@ impl Renderer {
         };
 
         let device_pixel_ratio = options.device_pixel_ratio;
-        let debug_flags = options.debug_flags;
+        // First set the flags to default and later call set_debug_flags to ensure any
+        // potential transition when enabling a flag is run.
+        let debug_flags = DebugFlags::default();
         let payload_tx_for_backend = payload_tx.clone();
         let recorder = options.recorder;
         let thread_listener = Arc::new(options.thread_listener);
@@ -1960,7 +1962,7 @@ impl Renderer {
         let gpu_cache_texture = CacheTexture::new(&mut device);
         let gpu_profile = GpuProfiler::new(Rc::clone(device.rc_gl()));
 
-        let renderer = Renderer {
+        let mut renderer = Renderer {
             result_rx,
             debug_server,
             device,
@@ -2025,6 +2027,8 @@ impl Renderer {
             texture_resolver,
             renderer_errors: Vec::new(),
         };
+
+        renderer.set_debug_flags(options.debug_flags);
 
         let sender = RenderApiSender::new(api_tx, payload_tx);
         Ok((renderer, sender))
