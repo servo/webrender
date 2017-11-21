@@ -65,6 +65,7 @@ use std::ptr;
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use webrender::api::*;
+use webrender::DebugFlags;
 use wrench::{Wrench, WrenchThing};
 use yaml_frame_reader::YamlFrameReader;
 
@@ -586,27 +587,21 @@ fn main() {
                     break 'outer;
                 }
                 VirtualKeyCode::P => {
-                    let mut flags = wrench.renderer.get_debug_flags();
-                    flags.toggle(webrender::DebugFlags::PROFILER_DBG);
-                    wrench.renderer.set_debug_flags(flags);
+                    wrench.renderer.toggle_debug_flags(DebugFlags::PROFILER_DBG);
                 }
                 VirtualKeyCode::O => {
-                    let mut flags = wrench.renderer.get_debug_flags();
-                    flags.toggle(webrender::DebugFlags::RENDER_TARGET_DBG);
-                    wrench.renderer.set_debug_flags(flags);
+                    wrench.renderer.toggle_debug_flags(DebugFlags::RENDER_TARGET_DBG);
                 }
                 VirtualKeyCode::I => {
-                    let mut flags = wrench.renderer.get_debug_flags();
-                    flags.toggle(webrender::DebugFlags::TEXTURE_CACHE_DBG);
-                    wrench.renderer.set_debug_flags(flags);
+                    wrench.renderer.toggle_debug_flags(DebugFlags::TEXTURE_CACHE_DBG);
                 }
                 VirtualKeyCode::B => {
-                    let mut flags = wrench.renderer.get_debug_flags();
-                    flags.toggle(webrender::DebugFlags::ALPHA_PRIM_DBG);
-                    wrench.renderer.set_debug_flags(flags);
+                    wrench.renderer.toggle_debug_flags(DebugFlags::ALPHA_PRIM_DBG);
                 }
                 VirtualKeyCode::Q => {
-                    wrench.renderer.toggle_queries_enabled();
+                    wrench.renderer.toggle_debug_flags(
+                        DebugFlags::GPU_TIME_QUERIES | DebugFlags::GPU_SAMPLE_QUERIES
+                    );
                 }
                 VirtualKeyCode::M => {
                     wrench.api.notify_memory_pressure();

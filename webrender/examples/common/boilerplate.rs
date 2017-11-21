@@ -196,43 +196,36 @@ pub fn main_wrapper<E: Example>(
                     _,
                     Some(glutin::VirtualKeyCode::P),
                 ) => {
-                    let mut flags = renderer.get_debug_flags();
-                    flags.toggle(webrender::DebugFlags::PROFILER_DBG);
-                    renderer.set_debug_flags(flags);
+                    renderer.toggle_debug_flags(webrender::DebugFlags::PROFILER_DBG);
                 }
                 glutin::Event::KeyboardInput(
                     glutin::ElementState::Pressed,
                     _,
                     Some(glutin::VirtualKeyCode::O),
                 ) => {
-                    let mut flags = renderer.get_debug_flags();
-                    flags.toggle(webrender::DebugFlags::RENDER_TARGET_DBG);
-                    renderer.set_debug_flags(flags);
+                    renderer.toggle_debug_flags(webrender::DebugFlags::RENDER_TARGET_DBG);
                 }
                 glutin::Event::KeyboardInput(
                     glutin::ElementState::Pressed,
                     _,
                     Some(glutin::VirtualKeyCode::I),
                 ) => {
-                    let mut flags = renderer.get_debug_flags();
-                    flags.toggle(webrender::DebugFlags::TEXTURE_CACHE_DBG);
-                    renderer.set_debug_flags(flags);
+                    renderer.toggle_debug_flags(webrender::DebugFlags::TEXTURE_CACHE_DBG);
                 }
                 glutin::Event::KeyboardInput(
                     glutin::ElementState::Pressed,
                     _,
                     Some(glutin::VirtualKeyCode::B),
                 ) => {
-                    let mut flags = renderer.get_debug_flags();
-                    flags.toggle(webrender::DebugFlags::ALPHA_PRIM_DBG);
-                    renderer.set_debug_flags(flags);
+                    renderer.toggle_debug_flags(webrender::DebugFlags::ALPHA_PRIM_DBG);
                 }
                 glutin::Event::KeyboardInput(
                     glutin::ElementState::Pressed,
                     _,
                     Some(glutin::VirtualKeyCode::Q),
                 ) => {
-                    renderer.toggle_queries_enabled();
+                    renderer.toggle_debug_flags(webrender::DebugFlags::GPU_TIME_QUERIES
+                        | webrender::DebugFlags::GPU_SAMPLE_QUERIES);
                 }
                 glutin::Event::KeyboardInput(
                     glutin::ElementState::Pressed,

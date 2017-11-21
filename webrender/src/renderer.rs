@@ -2283,11 +2283,6 @@ impl Renderer {
         }
     }
 
-    pub fn toggle_queries_enabled(&mut self) {
-        self.gpu_profile.toggle_timers_enabled();
-        self.gpu_profile.toggle_samplers_enabled();
-    }
-
     /// Set a callback for handling external images.
     pub fn set_external_image_handler(&mut self, handler: Box<ExternalImageHandler>) {
         self.external_image_handler = Some(handler);
@@ -3743,6 +3738,12 @@ impl Renderer {
     pub fn set_debug_flag(&mut self, flag: DebugFlags, enabled: bool) {
         let mut new_flags = self.debug_flags;
         new_flags.set(flag, enabled);
+        self.set_debug_flags(new_flags);
+    }
+
+    pub fn toggle_debug_flags(&mut self, toggle: DebugFlags) {
+        let mut new_flags = self.debug_flags;
+        new_flags.toggle(toggle);
         self.set_debug_flags(new_flags);
     }
 
