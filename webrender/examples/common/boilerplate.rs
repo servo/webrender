@@ -148,11 +148,12 @@ pub fn main_wrapper<E: Example>(
     let api = sender.create_api();
     let document_id = api.add_document(framebuffer_size, 0);
 
-    if let Some(external_image_handler) = example.get_external_image_handler() {
-        renderer.set_external_image_handler(external_image_handler);
-    }
     if let Some(output_image_handler) = example.get_output_image_handler(&*gl) {
         renderer.set_output_image_handler(output_image_handler);
+    }
+
+    if let Some(external_image_handler) = example.get_external_image_handler() {
+        renderer.set_external_image_handler(external_image_handler);
     }
 
     let epoch = Epoch(0);
