@@ -243,6 +243,17 @@ bitflags! {
         const RENDER_TARGET_DBG = 1 << 1;
         const TEXTURE_CACHE_DBG = 1 << 2;
         const ALPHA_PRIM_DBG    = 1 << 3;
+        const GPU_TIME_QUERIES  = 1 << 4;
+        const GPU_SAMPLE_QUERIES= 1 << 5;
+        const DISABLE_BATCHING  = 1 << 6;
+    }
+}
+
+fn flag_changed(before: DebugFlags, after: DebugFlags, select: DebugFlags) -> Option<bool> {
+    if before & select != after & select {
+        Some(after.contains(select))
+    } else {
+        None
     }
 }
 
@@ -1350,7 +1361,6 @@ pub struct Renderer {
     enable_clear_scissor: bool,
     debug: DebugRenderer,
     debug_flags: DebugFlags,
-    enable_batcher: bool,
     backend_profile_counters: BackendProfileCounters,
     profile_counters: RendererProfileCounters,
     profiler: Profiler,
@@ -1987,7 +1997,6 @@ impl Renderer {
             ps_line,
             debug: debug_renderer,
             debug_flags,
-            enable_batcher: options.enable_batcher,
             backend_profile_counters: BackendProfileCounters::new(),
             profile_counters: RendererProfileCounters::new(),
             profiler: Profiler::new(),
@@ -2243,36 +2252,24 @@ impl Renderer {
 
     fn handle_debug_command(&mut self, command: DebugCommand) {
         match command {
-            DebugCommand::EnableProfiler(enable) => if enable {
-                self.debug_flags.insert(DebugFlags::PROFILER_DBG);
-            } else {
-                self.debug_flags.remove(DebugFlags::PROFILER_DBG);
-            },
-            DebugCommand::EnableTextureCacheDebug(enable) => if enable {
-                self.debug_flags.insert(DebugFlags::TEXTURE_CACHE_DBG);
-            } else {
-                self.debug_flags.remove(DebugFlags::TEXTURE_CACHE_DBG);
-            },
-            DebugCommand::EnableRenderTargetDebug(enable) => if enable {
-                self.debug_flags.insert(DebugFlags::RENDER_TARGET_DBG);
-            } else {
-                self.debug_flags.remove(DebugFlags::RENDER_TARGET_DBG);
-            },
-            DebugCommand::EnableAlphaRectsDebug(enable) => if enable {
-                self.debug_flags.insert(DebugFlags::ALPHA_PRIM_DBG);
-            } else {
-                self.debug_flags.remove(DebugFlags::ALPHA_PRIM_DBG);
-            },
-            DebugCommand::EnableGpuTimeQueries(enable) => if enable {
-                self.gpu_profile.enable_timers();
-            } else {
-                self.gpu_profile.disable_timers();
-            },
-            DebugCommand::EnableGpuSampleQueries(enable) => if enable {
-                self.gpu_profile.enable_samplers();
-            } else {
-                self.gpu_profile.disable_samplers();
-            },
+            DebugCommand::EnableProfiler(enable) => {
+                self.set_debug_flag(DebugFlags::PROFILER_DBG, enable);
+            }
+            DebugCommand::EnableTextureCacheDebug(enable) => {
+                self.set_debug_flag(DebugFlags::TEXTURE_CACHE_DBG, enable);
+            }
+            DebugCommand::EnableRenderTargetDebug(enable) => {
+                self.set_debug_flag(DebugFlags::RENDER_TARGET_DBG, enable);
+            }
+            DebugCommand::EnableAlphaRectsDebug(enable) => {
+                self.set_debug_flag(DebugFlags::ALPHA_PRIM_DBG, enable);
+            }
+            DebugCommand::EnableGpuTimeQueries(enable) => {
+                self.set_debug_flag(DebugFlags::GPU_TIME_QUERIES, enable);
+            }
+            DebugCommand::EnableGpuSampleQueries(enable) => {
+                self.set_debug_flag(DebugFlags::GPU_SAMPLE_QUERIES, enable);
+            }
             DebugCommand::FetchDocuments => {}
             DebugCommand::FetchClipScrollTree => {}
             DebugCommand::FetchPasses => {
@@ -2584,7 +2581,9 @@ impl Renderer {
 
         self.device.bind_vao(vao);
 
-        if self.enable_batcher {
+        let batched = !self.debug_flags.contains(DebugFlags::DISABLE_BATCHING);
+
+        if batched {
             self.device
                 .update_vao_instances(vao, data, VertexUsageHint::Stream);
             self.device
@@ -3719,7 +3718,28 @@ impl Renderer {
     }
 
     pub fn set_debug_flags(&mut self, flags: DebugFlags) {
+        if let Some(enabled) = flag_changed(self.debug_flags, flags, DebugFlags::GPU_TIME_QUERIES) {
+            if enabled {
+                self.gpu_profile.enable_timers();
+            } else {
+                self.gpu_profile.disable_timers();
+            }
+        }
+        if let Some(enabled) = flag_changed(self.debug_flags, flags, DebugFlags::GPU_SAMPLE_QUERIES) {
+            if enabled {
+                self.gpu_profile.enable_samplers();
+            } else {
+                self.gpu_profile.disable_samplers();
+            }
+        }
+
         self.debug_flags = flags;
+    }
+
+    pub fn set_debug_flag(&mut self, flag: DebugFlags, enabled: bool) {
+        let mut new_flags = self.debug_flags;
+        new_flags.set(flag, enabled);
+        self.set_debug_flags(new_flags);
     }
 
     pub fn save_cpu_profile(&self, filename: &str) {
@@ -3982,7 +4002,6 @@ pub struct RendererOptions {
     pub enable_subpixel_aa: bool,
     pub clear_color: Option<ColorF>,
     pub enable_clear_scissor: bool,
-    pub enable_batcher: bool,
     pub max_texture_size: Option<u32>,
     pub workers: Option<Arc<ThreadPool>>,
     pub blob_image_renderer: Option<Box<BlobImageRenderer>>,
@@ -4010,7 +4029,6 @@ impl Default for RendererOptions {
             enable_subpixel_aa: false,
             clear_color: Some(ColorF::new(1.0, 1.0, 1.0, 1.0)),
             enable_clear_scissor: true,
-            enable_batcher: true,
             max_texture_size: None,
             workers: None,
             blob_image_renderer: None,
