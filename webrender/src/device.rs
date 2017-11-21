@@ -153,7 +153,9 @@ fn get_shader_source(shader_name: &str, base_path: &Option<PathBuf>) -> Option<S
 // Parse a shader string for imports. Imports are recursively processed, and
 // prepended to the list of outputs.
 fn parse_shader_source(source: String, base_path: &Option<PathBuf>, output: &mut String) {
-    for line in source.lines() {
+    output.push_str(SHADER_LINE_MARKER);
+
+    for (line_num, line) in source.lines().enumerate() {
         if line.starts_with(SHADER_IMPORT) {
             let imports = line[SHADER_IMPORT.len() ..].split(",");
 
@@ -163,6 +165,8 @@ fn parse_shader_source(source: String, base_path: &Option<PathBuf>, output: &mut
                     parse_shader_source(include, base_path, output);
                 }
             }
+
+            output.push_str(&format!("#line {}\n", line_num+1));
         } else {
             output.push_str(line);
             output.push_str("\n");
@@ -204,9 +208,7 @@ pub fn build_shader_strings(
         parse_shader_source(shared_source, override_path, &mut shared_result);
     }
 
-    vs_source.push_str(SHADER_LINE_MARKER);
     vs_source.push_str(&shared_result);
-    fs_source.push_str(SHADER_LINE_MARKER);
     fs_source.push_str(&shared_result);
 
     // Append legacy (.vs and .fs) files if they exist.
