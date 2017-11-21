@@ -34,7 +34,7 @@ use resource_cache::ResourceCache;
 use scene::{ScenePipeline, SceneProperties};
 use std::{mem, usize, f32};
 use tiling::{CompositeOps, Frame};
-use tiling::{RenderPass, RenderTargetKind};
+use tiling::{RenderPass, RenderPassKind, RenderTargetKind};
 use tiling::{RenderTargetContext, ScrollbarPrimitive};
 use util::{self, pack_as_float, RectHelpers, recycle_vec};
 
@@ -1695,15 +1695,14 @@ impl FrameBuilder {
         if let Some(main_render_task_id) = main_render_task_id {
             let mut required_pass_count = 0;
             render_tasks.max_depth(main_render_task_id, 0, &mut required_pass_count);
+            assert_ne!(required_pass_count, 0);
 
             // Do the allocations now, assigning each tile's tasks to a render
             // pass and target as required.
-            for index in 0 .. required_pass_count {
-                passes.push(RenderPass::new(
-                    index == required_pass_count - 1,
-                    self.screen_rect.size.to_i32(),
-                ));
+            for _ in 0 .. required_pass_count - 1 {
+                passes.push(RenderPass::new_off_screen(self.screen_rect.size.to_i32()));
             }
+            passes.push(RenderPass::new_main_framebuffer(self.screen_rect.size.to_i32()));
 
             render_tasks.assign_to_passes(
                 main_render_task_id,
@@ -1732,12 +1731,20 @@ impl FrameBuilder {
             );
 
             profile_counters.passes.inc();
-            profile_counters
-                .color_targets
-                .add(pass.color_targets.target_count());
-            profile_counters
-                .alpha_targets
-                .add(pass.alpha_targets.target_count());
+
+            match pass.kind {
+                RenderPassKind::MainFramebuffer(_) => {
+                    profile_counters.color_targets.add(1);
+                }
+                RenderPassKind::OffScreen { ref color, ref alpha } => {
+                    profile_counters
+                        .color_targets
+                        .add(color.targets.len());
+                    profile_counters
+                        .alpha_targets
+                        .add(alpha.targets.len());
+                }
+            }
         }
 
         let gpu_cache_updates = gpu_cache.end_frame(gpu_cache_profile);

@@ -665,14 +665,4 @@ impl RenderTask {
             }
         }
     }
-
-    pub fn set_alias(&mut self, id: RenderTaskId) {
-        debug_assert!(self.cache_key.is_some());
-        // TODO(gw): We can easily handle invalidation of tasks that
-        //           contain children in the future. Since we don't
-        //           have any cases of that yet, just assert to simplify
-        //           the current implementation.
-        debug_assert!(self.children.is_empty());
-        self.kind = RenderTaskKind::Alias(id);
-    }
 }

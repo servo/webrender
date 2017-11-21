@@ -64,7 +64,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::TextureCache;
 use thread_profiler::{register_thread_with_profiler, write_profile};
-use tiling::{AlphaRenderTarget, ColorRenderTarget, RenderTargetKind};
+use tiling::{AlphaRenderTarget, ColorRenderTarget, RenderPassKind, RenderTargetKind, RenderTargetList};
 use tiling::{BatchKey, BatchKind, BrushBatchKind, Frame, RenderTarget, ScalingInfo, TransformBatchKind};
 use time::precise_time_ns;
 use util::TransformedRectKind;
@@ -587,7 +587,6 @@ impl SourceTextureResolver {
 
     fn end_pass(
         &mut self,
-        is_last: bool,
         a8_texture: Option<Texture>,
         rgba8_texture: Option<Texture>,
         a8_pool: &mut Vec<Texture>,
@@ -597,16 +596,10 @@ impl SourceTextureResolver {
         rgba8_pool.extend(self.cache_rgba8_texture.take());
         a8_pool.extend(self.cache_a8_texture.take());
 
-        if is_last {
-            // On the last pass, return the textures from this pass to the pool.
-            rgba8_pool.extend(rgba8_texture);
-            a8_pool.extend(a8_texture);
-        } else {
-            // We have another pass to process, make these textures available
-            // as inputs to the next pass.
-            self.cache_rgba8_texture = rgba8_texture;
-            self.cache_a8_texture = a8_texture;
-        }
+        // We have another pass to process, make these textures available
+        // as inputs to the next pass.
+        self.cache_rgba8_texture = rgba8_texture;
+        self.cache_a8_texture = a8_texture;
     }
 
     // Bind a source texture to the device.
@@ -2130,111 +2123,122 @@ impl Renderer {
     }
 
     #[cfg(feature = "debugger")]
+    fn debug_alpha_target(target: &AlphaRenderTarget) -> debug_server::Target {
+        let mut debug_target = debug_server::Target::new("A8");
+
+        debug_target.add(
+            debug_server::BatchKind::Clip,
+            "Clear",
+            target.clip_batcher.border_clears.len(),
+        );
+        debug_target.add(
+            debug_server::BatchKind::Clip,
+            "Borders",
+            target.clip_batcher.borders.len(),
+        );
+        debug_target.add(
+            debug_server::BatchKind::Cache,
+            "Vertical Blur",
+            target.vertical_blurs.len(),
+        );
+        debug_target.add(
+            debug_server::BatchKind::Cache,
+            "Horizontal Blur",
+            target.horizontal_blurs.len(),
+        );
+        debug_target.add(
+            debug_server::BatchKind::Clip,
+            "Rectangles",
+            target.clip_batcher.rectangles.len(),
+        );
+        debug_target.add(
+            debug_server::BatchKind::Cache,
+            "Rectangle Brush (Corner)",
+            target.brush_mask_corners.len(),
+        );
+        debug_target.add(
+            debug_server::BatchKind::Cache,
+            "Rectangle Brush (Rounded Rect)",
+            target.brush_mask_rounded_rects.len(),
+        );
+        for (_, items) in target.clip_batcher.images.iter() {
+            debug_target.add(debug_server::BatchKind::Clip, "Image mask", items.len());
+        }
+
+        debug_target
+    }
+
+    #[cfg(feature = "debugger")]
+    fn debug_color_target(target: &ColorRenderTarget) -> debug_server::Target {
+        let mut debug_target = debug_server::Target::new("RGBA8");
+
+        debug_target.add(
+            debug_server::BatchKind::Cache,
+            "Vertical Blur",
+            target.vertical_blurs.len(),
+        );
+        debug_target.add(
+            debug_server::BatchKind::Cache,
+            "Horizontal Blur",
+            target.horizontal_blurs.len(),
+        );
+        for (_, batch) in &target.text_run_cache_prims {
+            debug_target.add(
+                debug_server::BatchKind::Cache,
+                "Text Shadow",
+                batch.len(),
+            );
+        }
+        debug_target.add(
+            debug_server::BatchKind::Cache,
+            "Lines",
+            target.line_cache_prims.len(),
+        );
+
+        for batch in target
+            .alpha_batcher
+            .batch_list
+            .opaque_batch_list
+            .batches
+            .iter()
+            .rev()
+        {
+            debug_target.add(
+                debug_server::BatchKind::Opaque,
+                batch.key.kind.debug_name(),
+                batch.instances.len(),
+            );
+        }
+
+        for batch in &target.alpha_batcher.batch_list.alpha_batch_list.batches {
+            debug_target.add(
+                debug_server::BatchKind::Alpha,
+                batch.key.kind.debug_name(),
+                batch.instances.len(),
+            );
+        }
+
+        debug_target
+    }
+
+    #[cfg(feature = "debugger")]
     fn get_passes_for_debugger(&self) -> String {
         let mut debug_passes = debug_server::PassList::new();
 
         for &(_, ref render_doc) in &self.active_documents {
             for pass in &render_doc.frame.passes {
-                let mut debug_pass = debug_server::Pass::new();
-
-                for target in &pass.alpha_targets.targets {
-                    let mut debug_target = debug_server::Target::new("A8");
-
-                    debug_target.add(
-                        debug_server::BatchKind::Clip,
-                        "Clear",
-                        target.clip_batcher.border_clears.len(),
-                    );
-                    debug_target.add(
-                        debug_server::BatchKind::Clip,
-                        "Borders",
-                        target.clip_batcher.borders.len(),
-                    );
-                    debug_target.add(
-                        debug_server::BatchKind::Cache,
-                        "Vertical Blur",
-                        target.vertical_blurs.len(),
-                    );
-                    debug_target.add(
-                        debug_server::BatchKind::Cache,
-                        "Horizontal Blur",
-                        target.horizontal_blurs.len(),
-                    );
-                    debug_target.add(
-                        debug_server::BatchKind::Clip,
-                        "Rectangles",
-                        target.clip_batcher.rectangles.len(),
-                    );
-                    debug_target.add(
-                        debug_server::BatchKind::Cache,
-                        "Rectangle Brush (Corner)",
-                        target.brush_mask_corners.len(),
-                    );
-                    debug_target.add(
-                        debug_server::BatchKind::Cache,
-                        "Rectangle Brush (Rounded Rect)",
-                        target.brush_mask_rounded_rects.len(),
-                    );
-                    for (_, items) in target.clip_batcher.images.iter() {
-                        debug_target.add(debug_server::BatchKind::Clip, "Image mask", items.len());
+                let mut debug_targets = Vec::new();
+                match pass.kind {
+                    RenderPassKind::MainFramebuffer(ref target) => {
+                        debug_targets.push(Self::debug_color_target(target));
                     }
-
-                    debug_pass.add(debug_target);
+                    RenderPassKind::OffScreen { ref alpha, ref color } => {
+                        debug_targets.extend(alpha.targets.iter().map(Self::debug_alpha_target));
+                        debug_targets.extend(color.targets.iter().map(Self::debug_color_target));
+                    }
                 }
 
-                for target in &pass.color_targets.targets {
-                    let mut debug_target = debug_server::Target::new("RGBA8");
-
-                    debug_target.add(
-                        debug_server::BatchKind::Cache,
-                        "Vertical Blur",
-                        target.vertical_blurs.len(),
-                    );
-                    debug_target.add(
-                        debug_server::BatchKind::Cache,
-                        "Horizontal Blur",
-                        target.horizontal_blurs.len(),
-                    );
-                    for (_, batch) in &target.text_run_cache_prims {
-                        debug_target.add(
-                            debug_server::BatchKind::Cache,
-                            "Text Shadow",
-                            batch.len(),
-                        );
-                    }
-                    debug_target.add(
-                        debug_server::BatchKind::Cache,
-                        "Lines",
-                        target.line_cache_prims.len(),
-                    );
-
-                    for batch in target
-                        .alpha_batcher
-                        .batch_list
-                        .opaque_batch_list
-                        .batches
-                        .iter()
-                        .rev()
-                    {
-                        debug_target.add(
-                            debug_server::BatchKind::Opaque,
-                            batch.key.kind.debug_name(),
-                            batch.instances.len(),
-                        );
-                    }
-
-                    for batch in &target.alpha_batcher.batch_list.alpha_batch_list.batches {
-                        debug_target.add(
-                            debug_server::BatchKind::Alpha,
-                            batch.key.kind.debug_name(),
-                            batch.instances.len(),
-                        );
-                    }
-
-                    debug_pass.add(debug_target);
-                }
-
-                debug_passes.add(debug_pass);
+                debug_passes.add(debug_server::Pass { targets: debug_targets });
             }
         }
 
@@ -3501,65 +3505,43 @@ impl Renderer {
         }
     }
 
+    fn prepare_target_list<T>(
+        list: &mut RenderTargetList<T>,
+        device: &mut Device,
+        target_pool: &mut Vec<Texture>,
+        format: ImageFormat,
+    ) {
+        debug_assert_ne!(list.max_size, DeviceUintSize::zero());
+        debug_assert!(list.texture.is_none());
+        if list.targets.is_empty() {
+            return;
+        }
+        let mut texture = match target_pool.pop() {
+            Some(texture) => texture,
+            None => device.create_texture(TextureTarget::Array),
+        };
+        device.init_texture(
+            &mut texture,
+            list.max_size.width,
+            list.max_size.height,
+            format,
+            TextureFilter::Linear,
+            RenderTargetMode::RenderTarget,
+            list.targets.len() as _,
+            None,
+        );
+        list.texture = Some(texture);
+    }
+
     fn prepare_frame(&mut self, frame: &mut Frame) {
         let _timer = self.gpu_profile.start_timer(GPU_TAG_SETUP_DATA);
         self.device.device_pixel_ratio = frame.device_pixel_ratio;
 
-        // Assign render targets to the passes.
-        for pass in &mut frame.passes {
-            debug_assert!(pass.color_texture.is_none());
-            debug_assert!(pass.alpha_texture.is_none());
-
-            if pass.needs_render_target_kind(RenderTargetKind::Color) {
-                pass.color_texture = Some(
-                    self.color_render_targets
-                        .pop()
-                        .unwrap_or_else(|| self.device.create_texture(TextureTarget::Array)),
-                );
-            }
-
-            if pass.needs_render_target_kind(RenderTargetKind::Alpha) {
-                pass.alpha_texture = Some(
-                    self.alpha_render_targets
-                        .pop()
-                        .unwrap_or_else(|| self.device.create_texture(TextureTarget::Array)),
-                );
-            }
-        }
-
-
         // Init textures and render targets to match this scene.
         for pass in &mut frame.passes {
-            let color_target_count = pass.required_target_count(RenderTargetKind::Color);
-            let alpha_target_count = pass.required_target_count(RenderTargetKind::Alpha);
-
-            if let Some(texture) = pass.color_texture.as_mut() {
-                debug_assert!(pass.max_color_target_size.width > 0);
-                debug_assert!(pass.max_color_target_size.height > 0);
-                self.device.init_texture(
-                    texture,
-                    pass.max_color_target_size.width,
-                    pass.max_color_target_size.height,
-                    ImageFormat::BGRA8,
-                    TextureFilter::Linear,
-                    RenderTargetMode::RenderTarget,
-                    color_target_count as i32,
-                    None,
-                );
-            }
-            if let Some(texture) = pass.alpha_texture.as_mut() {
-                debug_assert!(pass.max_alpha_target_size.width > 0);
-                debug_assert!(pass.max_alpha_target_size.height > 0);
-                self.device.init_texture(
-                    texture,
-                    pass.max_alpha_target_size.width,
-                    pass.max_alpha_target_size.height,
-                    ImageFormat::A8,
-                    TextureFilter::Linear,
-                    RenderTargetMode::RenderTarget,
-                    alpha_target_count as i32,
-                    None,
-                );
+            if let RenderPassKind::OffScreen { ref mut alpha, ref mut color } = pass.kind {
+                Self::prepare_target_list(alpha, &mut self.device, &mut self.alpha_render_targets, ImageFormat::A8);
+                Self::prepare_target_list(color, &mut self.device, &mut self.color_render_targets, ImageFormat::BGRA8);
             }
         }
 
@@ -3597,7 +3579,6 @@ impl Renderer {
 
         self.prepare_frame(frame);
 
-        let pass_count = frame.passes.len();
         let base_color_target_count = self.color_render_targets.len();
         let base_alpha_target_count = self.alpha_render_targets.len();
 
@@ -3613,73 +3594,83 @@ impl Renderer {
                 &mut self.device,
             );
 
-            for (target_index, target) in pass.alpha_targets.targets.iter().enumerate() {
-                let projection = Transform3D::ortho(
-                    0.0,
-                    pass.max_alpha_target_size.width as f32,
-                    0.0,
-                    pass.max_alpha_target_size.height as f32,
-                    ORTHO_NEAR_PLANE,
-                    ORTHO_FAR_PLANE,
-                );
-
-                self.draw_alpha_target(
-                    (pass.alpha_texture.as_ref().unwrap(), target_index as i32),
-                    target,
-                    pass.max_alpha_target_size,
-                    &projection,
-                    &frame.render_tasks,
-                );
-            }
-
-            for (target_index, target) in pass.color_targets.targets.iter().enumerate() {
-                let size;
-                let clear_color;
-                let projection;
-
-                if pass.is_framebuffer {
-                    size = framebuffer_size;
-                    clear_color = frame.background_color.map(|color| color.to_array());
-                    projection = Transform3D::ortho(
+            let (cur_alpha, cur_color) = match pass.kind {
+                RenderPassKind::MainFramebuffer(ref target) => {
+                    let clear_color = frame.background_color.map(|color| color.to_array());
+                    let projection = Transform3D::ortho(
                         0.0,
                         framebuffer_size.width as f32,
                         framebuffer_size.height as f32,
                         0.0,
                         ORTHO_NEAR_PLANE,
                         ORTHO_FAR_PLANE,
-                    )
-                } else {
-                    size = pass.max_color_target_size;
-                    clear_color = Some([0.0, 0.0, 0.0, 0.0]);
-                    projection = Transform3D::ortho(
-                        0.0,
-                        size.width as f32,
-                        0.0,
-                        size.height as f32,
-                        ORTHO_NEAR_PLANE,
-                        ORTHO_FAR_PLANE,
                     );
-                }
 
-                let render_target = pass.color_texture
-                    .as_ref()
-                    .map(|texture| (texture, target_index as i32));
-                self.draw_color_target(
-                    render_target,
-                    target,
-                    frame.inner_rect,
-                    size,
-                    clear_color,
-                    &frame.render_tasks,
-                    &projection,
-                    frame_id,
-                );
-            }
+                    self.draw_color_target(
+                        None,
+                        target,
+                        frame.inner_rect,
+                        framebuffer_size,
+                        clear_color,
+                        &frame.render_tasks,
+                        &projection,
+                        frame_id,
+                    );
+
+                    (None, None)
+                }
+                RenderPassKind::OffScreen { ref mut alpha, ref mut color } => {
+                    assert!(alpha.targets.is_empty() || alpha.texture.is_some());
+                    assert!(color.targets.is_empty() || color.texture.is_some());
+
+                    for (target_index, target) in alpha.targets.iter().enumerate() {
+                        let projection = Transform3D::ortho(
+                            0.0,
+                            alpha.max_size.width as f32,
+                            0.0,
+                            alpha.max_size.height as f32,
+                            ORTHO_NEAR_PLANE,
+                            ORTHO_FAR_PLANE,
+                        );
+
+                        self.draw_alpha_target(
+                            (alpha.texture.as_ref().unwrap(), target_index as i32),
+                            target,
+                            alpha.max_size,
+                            &projection,
+                            &frame.render_tasks,
+                        );
+                    }
+
+                    for (target_index, target) in color.targets.iter().enumerate() {
+                        let projection = Transform3D::ortho(
+                            0.0,
+                            color.max_size.width as f32,
+                            0.0,
+                            color.max_size.height as f32,
+                            ORTHO_NEAR_PLANE,
+                            ORTHO_FAR_PLANE,
+                        );
+
+                        self.draw_color_target(
+                            Some((color.texture.as_ref().unwrap(), target_index as i32)),
+                            target,
+                            frame.inner_rect,
+                            color.max_size,
+                            Some([0.0, 0.0, 0.0, 0.0]),
+                            &frame.render_tasks,
+                            &projection,
+                            frame_id,
+                        );
+                    }
+
+                    (alpha.texture.take(), color.texture.take())
+                }
+            };
 
             self.texture_resolver.end_pass(
-                pass_index == pass_count - 1,
-                pass.alpha_texture.take(),
-                pass.color_texture.take(),
+                cur_alpha,
+                cur_color,
                 &mut self.alpha_render_targets,
                 &mut self.color_render_targets,
             );

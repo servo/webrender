@@ -177,7 +177,7 @@ pub struct AlphaBatchList {
 }
 
 impl AlphaBatchList {
-    fn new() -> AlphaBatchList {
+    fn new() -> Self {
         AlphaBatchList {
             batches: Vec::new(),
         }
@@ -255,7 +255,7 @@ pub struct OpaqueBatchList {
 }
 
 impl OpaqueBatchList {
-    fn new(pixel_area_threshold_for_new_batch: i32) -> OpaqueBatchList {
+    fn new(pixel_area_threshold_for_new_batch: i32) -> Self {
         OpaqueBatchList {
             batches: Vec::new(),
             pixel_area_threshold_for_new_batch,
@@ -320,7 +320,7 @@ pub struct BatchList {
 }
 
 impl BatchList {
-    fn new(screen_size: DeviceIntSize) -> BatchList {
+    fn new(screen_size: DeviceIntSize) -> Self {
         // The threshold for creating a new batch is
         // one quarter the screen size.
         let batch_area_threshold = screen_size.width * screen_size.height / 4;
@@ -1003,7 +1003,7 @@ impl PicturePrimitive {
 }
 
 impl AlphaBatcher {
-    fn new(screen_size: DeviceIntSize) -> AlphaBatcher {
+    fn new(screen_size: DeviceIntSize) -> Self {
         AlphaBatcher {
             tasks: Vec::new(),
             batch_list: BatchList::new(screen_size),
@@ -1066,7 +1066,7 @@ pub struct ClipBatcher {
 }
 
 impl ClipBatcher {
-    fn new() -> ClipBatcher {
+    fn new() -> Self {
         ClipBatcher {
             rectangles: Vec::new(),
             images: FastHashMap::default(),
@@ -1200,7 +1200,7 @@ struct TextureAllocator {
 }
 
 impl TextureAllocator {
-    fn new(size: DeviceUintSize) -> TextureAllocator {
+    fn new(size: DeviceUintSize) -> Self {
         TextureAllocator {
             allocator: GuillotineAllocator::new(size),
             used_rect: DeviceIntRect::zero(),
@@ -1257,27 +1257,21 @@ pub enum RenderTargetKind {
 
 pub struct RenderTargetList<T> {
     screen_size: DeviceIntSize,
+    pub max_size: DeviceUintSize,
     pub targets: Vec<T>,
+    pub texture: Option<Texture>,
 }
 
 impl<T: RenderTarget> RenderTargetList<T> {
     fn new(
-        create_initial_target: bool,
-        screen_size: DeviceIntSize
-    ) -> RenderTargetList<T> {
-        let mut targets = Vec::new();
-        if create_initial_target {
-            targets.push(T::new(None, screen_size));
-        }
-
+        screen_size: DeviceIntSize,
+    ) -> Self {
         RenderTargetList {
-            targets,
             screen_size,
+            max_size: DeviceUintSize::new(MIN_TARGET_SIZE, MIN_TARGET_SIZE),
+            targets: Vec::new(),
+            texture: None,
         }
-    }
-
-    pub fn target_count(&self) -> usize {
-        self.targets.len()
     }
 
     fn build(
@@ -1312,7 +1306,6 @@ impl<T: RenderTarget> RenderTargetList<T> {
     fn allocate(
         &mut self,
         alloc_size: DeviceUintSize,
-        target_size: DeviceUintSize,
     ) -> (DeviceUintPoint, RenderTargetIndex) {
         let existing_origin = self.targets
             .last_mut()
@@ -1321,7 +1314,7 @@ impl<T: RenderTarget> RenderTargetList<T> {
         let origin = match existing_origin {
             Some(origin) => origin,
             None => {
-                let mut new_target = T::new(Some(target_size), self.screen_size);
+                let mut new_target = T::new(Some(self.max_size), self.screen_size);
                 let origin = new_target.allocate(alloc_size).expect(&format!(
                     "Each render task must allocate <= size of one target! ({:?})",
                     alloc_size
@@ -1713,38 +1706,44 @@ impl RenderTarget for AlphaRenderTarget {
     }
 }
 
+
+pub enum RenderPassKind {
+    MainFramebuffer(ColorRenderTarget),
+    OffScreen {
+        alpha: RenderTargetList<AlphaRenderTarget>,
+        color: RenderTargetList<ColorRenderTarget>,
+    },
+}
+
 /// A render pass represents a set of rendering operations that don't depend on one
 /// another.
 ///
 /// A render pass can have several render targets if there wasn't enough space in one
 /// target to do all of the rendering for that pass.
 pub struct RenderPass {
-    pub is_framebuffer: bool,
+    pub kind: RenderPassKind,
     tasks: Vec<RenderTaskId>,
-    pub color_targets: RenderTargetList<ColorRenderTarget>,
-    pub alpha_targets: RenderTargetList<AlphaRenderTarget>,
-    pub color_texture: Option<Texture>,
-    pub alpha_texture: Option<Texture>,
     dynamic_tasks: FastHashMap<RenderTaskKey, DynamicTaskInfo>,
-    pub max_color_target_size: DeviceUintSize,
-    pub max_alpha_target_size: DeviceUintSize,
 }
 
 impl RenderPass {
-    pub fn new(
-        is_framebuffer: bool,
-        screen_size: DeviceIntSize
-    ) -> RenderPass {
+    pub fn new_main_framebuffer(screen_size: DeviceIntSize) -> Self {
+        let target = ColorRenderTarget::new(None, screen_size);
         RenderPass {
-            is_framebuffer,
-            color_targets: RenderTargetList::new(is_framebuffer, screen_size),
-            alpha_targets: RenderTargetList::new(false, screen_size),
+            kind: RenderPassKind::MainFramebuffer(target),
             tasks: vec![],
-            color_texture: None,
-            alpha_texture: None,
             dynamic_tasks: FastHashMap::default(),
-            max_color_target_size: DeviceUintSize::new(MIN_TARGET_SIZE, MIN_TARGET_SIZE),
-            max_alpha_target_size: DeviceUintSize::new(MIN_TARGET_SIZE, MIN_TARGET_SIZE),
+        }
+    }
+
+    pub fn new_off_screen(screen_size: DeviceIntSize) -> Self {
+        RenderPass {
+            kind: RenderPassKind::OffScreen {
+                color: RenderTargetList::new(screen_size),
+                alpha: RenderTargetList::new(screen_size),
+            },
+            tasks: vec![],
+            dynamic_tasks: FastHashMap::default(),
         }
     }
 
@@ -1754,37 +1753,16 @@ impl RenderPass {
         size: DeviceIntSize,
         target_kind: RenderTargetKind,
     ) {
-        match target_kind {
-            RenderTargetKind::Color => {
-                self.max_color_target_size.width =
-                    cmp::max(self.max_color_target_size.width, size.width as u32);
-                self.max_color_target_size.height =
-                    cmp::max(self.max_color_target_size.height, size.height as u32);
-            }
-            RenderTargetKind::Alpha => {
-                self.max_alpha_target_size.width =
-                    cmp::max(self.max_alpha_target_size.width, size.width as u32);
-                self.max_alpha_target_size.height =
-                    cmp::max(self.max_alpha_target_size.height, size.height as u32);
-            }
+        if let RenderPassKind::OffScreen { ref mut color, ref mut alpha } = self.kind {
+            let max_size = match target_kind {
+                RenderTargetKind::Color => &mut color.max_size,
+                RenderTargetKind::Alpha => &mut alpha.max_size,
+            };
+            max_size.width = cmp::max(max_size.width, size.width as u32);
+            max_size.height = cmp::max(max_size.height, size.height as u32);
         }
 
         self.tasks.push(task_id);
-    }
-
-    pub fn needs_render_target_kind(&self, kind: RenderTargetKind) -> bool {
-        if self.is_framebuffer {
-            false
-        } else {
-            self.required_target_count(kind) > 0
-        }
-    }
-
-    pub fn required_target_count(&self, kind: RenderTargetKind) -> usize {
-        match kind {
-            RenderTargetKind::Color => self.color_targets.target_count(),
-            RenderTargetKind::Alpha => self.alpha_targets.target_count(),
-        }
     }
 
     pub fn build(
@@ -1798,9 +1776,7 @@ impl RenderPass {
         profile_scope!("RenderPass::build");
 
         // Step through each task, adding to batches as appropriate.
-        for task_id in &self.tasks {
-            let task_id = *task_id;
-
+        for &task_id in &self.tasks {
             let target_kind = {
                 let task = render_tasks.get_mut(task_id);
                 let target_kind = task.target_kind();
@@ -1809,30 +1785,32 @@ impl RenderPass {
                 // one if required.
                 match task.location {
                     RenderTaskLocation::Fixed => {}
-                    RenderTaskLocation::Dynamic(_, size) => {
+                    RenderTaskLocation::Dynamic(ref mut origin, size) => {
                         if let Some(cache_key) = task.cache_key {
                             // See if this task is a duplicate.
                             // If so, just skip adding it!
                             if let Some(task_info) = self.dynamic_tasks.get(&cache_key) {
-                                task.set_alias(task_info.task_id);
+                                // TODO(gw): We can easily handle invalidation of tasks that
+                                // contain children in the future. Since we don't
+                                // have any cases of that yet, just assert to simplify
+                                // the current implementation.
+                                debug_assert!(task.children.is_empty());
                                 debug_assert_eq!(task_info.rect.size, size);
+                                task.kind = RenderTaskKind::Alias(task_info.task_id);
                                 continue;
                             }
                         }
 
                         let alloc_size = DeviceUintSize::new(size.width as u32, size.height as u32);
-                        let (alloc_origin, target_index) = match target_kind {
-                            RenderTargetKind::Color => self.color_targets
-                                .allocate(alloc_size, self.max_color_target_size),
-                            RenderTargetKind::Alpha => self.alpha_targets
-                                .allocate(alloc_size, self.max_alpha_target_size),
+                        let (alloc_origin, target_index) = match self.kind {
+                            RenderPassKind::MainFramebuffer(_) => panic!("Unable to add a dynamic task to the main framebuffer"),
+                            RenderPassKind::OffScreen { ref mut alpha, ref mut color } => match target_kind {
+                                RenderTargetKind::Color => color.allocate(alloc_size),
+                                RenderTargetKind::Alpha => alpha.allocate(alloc_size),
+                            },
                         };
 
-                        let origin = Some((
-                            DeviceIntPoint::new(alloc_origin.x as i32, alloc_origin.y as i32),
-                            target_index,
-                        ));
-                        task.location = RenderTaskLocation::Dynamic(origin, size);
+                        *origin = Some((alloc_origin.to_i32(), target_index));
 
                         // If this task is cacheable / sharable, store it in the task hash
                         // for this pass.
@@ -1841,17 +1819,7 @@ impl RenderPass {
                                 cache_key,
                                 DynamicTaskInfo {
                                     task_id,
-                                    rect: match task.location {
-                                        RenderTaskLocation::Fixed => {
-                                            panic!("Dynamic tasks should not have fixed locations!")
-                                        }
-                                        RenderTaskLocation::Dynamic(Some((origin, _)), size) => {
-                                            DeviceIntRect::new(origin, size)
-                                        }
-                                        RenderTaskLocation::Dynamic(None, _) => {
-                                            panic!("Expect the task to be already allocated here")
-                                        }
-                                    },
+                                    rect: DeviceIntRect::new(alloc_origin.to_i32(), size),
                                 },
                             );
                         }
@@ -1861,22 +1829,27 @@ impl RenderPass {
                 target_kind
             };
 
-            match target_kind {
-                RenderTargetKind::Color => {
-                    self.color_targets
-                        .add_task(task_id, ctx, gpu_cache, render_tasks, clip_store)
+            match self.kind {
+                RenderPassKind::MainFramebuffer(ref mut target) => {
+                    assert_eq!(target_kind, RenderTargetKind::Color);
+                    target.add_task(task_id, ctx, gpu_cache, render_tasks, clip_store);
                 }
-                RenderTargetKind::Alpha => {
-                    self.alpha_targets
-                        .add_task(task_id, ctx, gpu_cache, render_tasks, clip_store)
+                RenderPassKind::OffScreen { ref mut alpha, ref mut color } => match target_kind {
+                    RenderTargetKind::Color => color.add_task(task_id, ctx, gpu_cache, render_tasks, clip_store),
+                    RenderTargetKind::Alpha => alpha.add_task(task_id, ctx, gpu_cache, render_tasks, clip_store),
                 }
             }
         }
 
-        self.color_targets
-            .build(ctx, gpu_cache, render_tasks, deferred_resolves);
-        self.alpha_targets
-            .build(ctx, gpu_cache, render_tasks, deferred_resolves);
+        match self.kind {
+            RenderPassKind::MainFramebuffer(ref mut target) => {
+                target.build(ctx, gpu_cache, render_tasks, deferred_resolves);
+            }
+            RenderPassKind::OffScreen { ref mut color, ref mut alpha } => {
+                color.build(ctx, gpu_cache, render_tasks, deferred_resolves);
+                alpha.build(ctx, gpu_cache, render_tasks, deferred_resolves);
+            }
+        }
     }
 }
 
@@ -1921,7 +1894,7 @@ pub struct BatchKey {
 }
 
 impl BatchKey {
-    fn new(kind: BatchKind, blend_mode: BlendMode, textures: BatchTextures) -> BatchKey {
+    fn new(kind: BatchKind, blend_mode: BlendMode, textures: BatchTextures) -> Self {
         BatchKey {
             kind,
             blend_mode,
