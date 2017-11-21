@@ -649,12 +649,10 @@ VertexInfo write_transform_vertex(RectWithSize instance_rect,
 
     // Calculate a clip rect from local_rect + local clip + layer clip.
     RectWithEndpoint local_rect = to_rect_with_endpoint(instance_rect);
-    local_rect.p0 = clamp_rect(local_rect.p0, local_clip_rect);
-    local_rect.p0 = clamp_rect(local_rect.p0, layer.local_clip_rect);
-    local_rect.p1 = clamp_rect(local_rect.p1, local_clip_rect);
-    local_rect.p1 = clamp_rect(local_rect.p1, layer.local_clip_rect);
+    local_rect.p0 = clamp(local_rect.p0, clip_rect.p0, clip_rect.p1);
+    local_rect.p1 = clamp(local_rect.p1, clip_rect.p0, clip_rect.p1);
 
-    // As this is a transform shader, extrude by 4 (local space) pixels
+    // As this is a transform shader, extrude by 2 (local space) pixels
     // in each direction. This gives enough space around the edge to
     // apply distance anti-aliasing. Technically, it:
     // (a) slightly over-estimates the number of required pixels in the simple case.
@@ -662,7 +660,7 @@ VertexInfo write_transform_vertex(RectWithSize instance_rect,
     // However, it's fast and simple. If / when we ever run into issues, we
     // can do some math on the projection matrix to work out a variable
     // amount to extrude.
-    float extrude_distance = 4.0;
+    float extrude_distance = 2.0;
     instance_rect.p0 -= vec2(extrude_distance);
     instance_rect.size += vec2(2.0 * extrude_distance);
 
@@ -679,13 +677,10 @@ VertexInfo write_transform_vertex(RectWithSize instance_rect,
     // We also want that to apply to any interpolators. However, we
     // want a constant Z across the primitive, since we're using it
     // for draw ordering - so scale by the W coord to ensure this.
-    vec4 final_pos = vec4(world_pos.xy,
+    vec4 final_pos = vec4(world_pos.xy + task.common_data.task_rect.p0 - task.content_origin,
                           z * world_pos.w,
                           world_pos.w);
     gl_Position = uTransform * final_pos;
-
-    // Apply offsets for the render task to get correct screen location.
-    gl_Position.xy += task.common_data.task_rect.p0 - task.content_origin;
 
     vLocalBounds = mix(
         vec4(clip_rect.p0, clip_rect.p1),
