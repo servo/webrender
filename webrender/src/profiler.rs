@@ -303,6 +303,7 @@ impl ProfileCounter for AverageTimeProfileCounter {
 }
 
 
+#[derive(Clone)]
 pub struct FrameProfileCounters {
     pub total_primitives: IntProfileCounter,
     pub visible_primitives: IntProfileCounter,
@@ -793,7 +794,7 @@ impl Profiler {
 
     pub fn draw_profile(
         &mut self,
-        frame_profile: &FrameProfileCounters,
+        frame_profiles: &[FrameProfileCounters],
         backend_profile: &BackendProfileCounters,
         renderer_profile: &RendererProfileCounters,
         renderer_timers: &mut RendererProfileTimers,
@@ -818,11 +819,6 @@ impl Profiler {
         self.draw_counters(
             &[
                 &renderer_profile.frame_counter,
-                &frame_profile.total_primitives,
-                &frame_profile.visible_primitives,
-                &frame_profile.passes,
-                &frame_profile.color_targets,
-                &frame_profile.alpha_targets,
                 &backend_profile.resources.gpu_cache.allocated_rows,
                 &backend_profile.resources.gpu_cache.allocated_blocks,
             ],
@@ -862,6 +858,20 @@ impl Profiler {
             debug_renderer,
             true,
         );
+
+        for frame_profile in frame_profiles {
+            self.draw_counters(
+                &[
+                    &frame_profile.total_primitives,
+                    &frame_profile.visible_primitives,
+                    &frame_profile.passes,
+                    &frame_profile.color_targets,
+                    &frame_profile.alpha_targets,
+                ],
+                debug_renderer,
+                true,
+            );
+        }
 
         self.draw_counters(
             &[&renderer_profile.draw_calls, &renderer_profile.vertices],

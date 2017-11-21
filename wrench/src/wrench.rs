@@ -56,7 +56,7 @@ impl NotifierData {
         window_proxy: Option<WindowProxy>,
         timing_receiver: chase_lev::Stealer<time::SteadyTime>,
         verbose: bool,
-    ) -> NotifierData {
+    ) -> Self {
         NotifierData {
             window_proxy,
             frames_notified: 0,
@@ -73,7 +73,7 @@ impl RenderNotifier for Notifier {
         Box::new(Notifier(self.0.clone()))
     }
 
-    fn new_frame_ready(&self) {
+    fn wake_up(&self) {
         let mut data = self.0.lock();
         let data = data.as_mut().unwrap();
         match data.timing_receiver.steal() {
@@ -98,11 +98,15 @@ impl RenderNotifier for Notifier {
         }
     }
 
-    fn new_scroll_frame_ready(&self, _composite_needed: bool) {
-        let data = self.0.lock();
-        if let Some(ref window_proxy) = data.unwrap().window_proxy {
-            #[cfg(not(target_os = "android"))]
-            window_proxy.wakeup_event_loop();
+    fn new_document_ready(&self, _: DocumentId, scrolled: bool, _composite_needed: bool) {
+        if scrolled {
+            let data = self.0.lock();
+            if let Some(ref window_proxy) = data.unwrap().window_proxy {
+                #[cfg(not(target_os = "android"))]
+                window_proxy.wakeup_event_loop();
+            }
+        } else {
+            self.wake_up();
         }
     }
 }
@@ -193,7 +197,7 @@ impl<'a> Wrench<'a> {
 
         let (renderer, sender) = webrender::Renderer::new(window.clone_gl(), notifier, opts).unwrap();
         let api = sender.create_api();
-        let document_id = api.add_document(size);
+        let document_id = api.add_document(size, 0);
 
         let graphics_api = renderer.get_graphics_api_info();
 

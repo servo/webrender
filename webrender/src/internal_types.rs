@@ -140,7 +140,7 @@ impl TextureUpdateList {
 }
 
 /// Mostly wraps a tiling::Frame, adding a bit of extra information.
-pub struct RendererFrame {
+pub struct RenderedDocument {
     /// The last rendered epoch for each pipeline present in the frame.
     /// This information is used to know if a certain transformation on the layout has
     /// been rendered, which is necessary for reftests.
@@ -148,16 +148,16 @@ pub struct RendererFrame {
     /// The layers that are currently affected by the over-scrolling animation.
     pub layers_bouncing_back: FastHashSet<ClipId>,
 
-    pub frame: Option<tiling::Frame>,
+    pub frame: tiling::Frame,
 }
 
-impl RendererFrame {
+impl RenderedDocument {
     pub fn new(
         pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
         layers_bouncing_back: FastHashSet<ClipId>,
-        frame: Option<tiling::Frame>,
+        frame: tiling::Frame,
     ) -> Self {
-        RendererFrame {
+        RenderedDocument {
             pipeline_epoch_map,
             layers_bouncing_back,
             frame,
@@ -174,9 +174,9 @@ pub enum ResultMsg {
     DebugCommand(DebugCommand),
     DebugOutput(DebugOutput),
     RefreshShader(PathBuf),
-    NewFrame(
+    PublishDocument(
         DocumentId,
-        RendererFrame,
+        RenderedDocument,
         TextureUpdateList,
         BackendProfileCounters,
     ),

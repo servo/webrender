@@ -3,9 +3,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderRadiusKind, ClipId, ColorF, DeviceIntPoint, ImageKey};
-use api::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintSize};
-use api::{ExternalImageType, FilterOp, FontRenderMode, ImageRendering, LayerRect};
-use api::{MixBlendMode, PipelineId};
+use api::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
+use api::{DocumentLayer, ExternalImageType, FilterOp, FontRenderMode, ImageRendering};
+use api::{LayerRect, MixBlendMode, PipelineId};
 use api::{TileOffset, YuvColorSpace, YuvFormat};
 use api::{LayerToWorldTransform, WorldPixel};
 use border::{BorderCornerInstance, BorderCornerSide};
@@ -1978,10 +1978,10 @@ pub struct CompositeOps {
 }
 
 impl CompositeOps {
-    pub fn new(filters: Vec<FilterOp>, mix_blend_mode: Option<MixBlendMode>) -> CompositeOps {
+    pub fn new(filters: Vec<FilterOp>, mix_blend_mode: Option<MixBlendMode>) -> Self {
         CompositeOps {
             filters,
-            mix_blend_mode: mix_blend_mode,
+            mix_blend_mode,
         }
     }
 
@@ -1994,7 +1994,9 @@ impl CompositeOps {
 /// and presented to the renderer.
 pub struct Frame {
     pub window_size: DeviceUintSize,
+    pub inner_rect: DeviceUintRect,
     pub background_color: Option<ColorF>,
+    pub layer: DocumentLayer,
     pub device_pixel_ratio: f32,
     pub passes: Vec<RenderPass>,
     pub profile_counters: FrameProfileCounters,

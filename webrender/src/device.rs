@@ -588,7 +588,8 @@ pub struct Device<'a> {
     bound_draw_fbo: FBOId,
     default_read_fbo: gl::GLuint,
     default_draw_fbo: gl::GLuint,
-    device_pixel_ratio: f32,
+
+    pub device_pixel_ratio: f32,
 
     // HW or API capabilties
     capabilities: Capabilities,
@@ -696,10 +697,9 @@ impl<'a> Device<'a> {
         }
     }
 
-    pub fn begin_frame(&mut self, device_pixel_ratio: f32) -> FrameId {
+    pub fn begin_frame(&mut self) -> FrameId {
         debug_assert!(!self.inside_frame);
         self.inside_frame = true;
-        self.device_pixel_ratio = device_pixel_ratio;
 
         // Retrive the currently set FBO.
         let default_read_fbo = self.gl.get_integer_v(gl::READ_FRAMEBUFFER_BINDING);
@@ -803,8 +803,8 @@ impl<'a> Device<'a> {
             self.gl.viewport(
                 0,
                 0,
-                dimensions.width as gl::GLint,
-                dimensions.height as gl::GLint,
+                dimensions.width as _,
+                dimensions.height as _,
             );
         }
     }
