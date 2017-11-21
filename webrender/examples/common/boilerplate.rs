@@ -76,14 +76,12 @@ pub trait Example {
     fn on_event(&mut self, glutin::Event, &RenderApi, DocumentId) -> bool {
         false
     }
-    fn get_external_image_handler(&self) -> Option<Box<webrender::ExternalImageHandler>> {
-        None
-    }
-    fn get_output_image_handler(
+    fn get_image_handlers(
         &mut self,
         _gl: &gl::Gl,
-    ) -> Option<Box<webrender::OutputImageHandler>> {
-        None
+    ) -> (Option<Box<webrender::ExternalImageHandler>>, 
+          Option<Box<webrender::OutputImageHandler>>) {
+        (None, None)
     }
     fn draw_custom(&self, _gl: &gl::Gl) {
     }
@@ -148,11 +146,14 @@ pub fn main_wrapper<E: Example>(
     let api = sender.create_api();
     let document_id = api.add_document(framebuffer_size, 0);
 
-    if let Some(external_image_handler) = example.get_external_image_handler() {
-        renderer.set_external_image_handler(external_image_handler);
-    }
-    if let Some(output_image_handler) = example.get_output_image_handler(&*gl) {
+    let (external, output) = example.get_image_handlers(&*gl);
+
+    if let Some(output_image_handler) = output {
         renderer.set_output_image_handler(output_image_handler);
+    }
+
+    if let Some(external_image_handler) = external {
+        renderer.set_external_image_handler(external_image_handler);
     }
 
     let epoch = Epoch(0);
