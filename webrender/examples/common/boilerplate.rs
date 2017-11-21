@@ -128,6 +128,7 @@ pub fn main_wrapper<E: Example>(
     let device_pixel_ratio = window.hidpi_factor();
     println!("Device pixel ratio: {}", device_pixel_ratio);
 
+    println!("Loading shaders...");
     let opts = webrender::RendererOptions {
         resource_override_path: res_path,
         debug: true,
@@ -182,6 +183,7 @@ pub fn main_wrapper<E: Example>(
     api.set_root_pipeline(document_id, pipeline_id);
     api.generate_frame(document_id, None);
 
+    println!("Entering event loop");
     'outer: for event in window.wait_events() {
         let mut events = Vec::new();
         events.push(event);

@@ -82,9 +82,8 @@ impl BatchTextures {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub enum RenderTargetMode {
-    None,
-    RenderTarget,
+pub struct RenderTargetInfo {
+    pub has_depth: bool,
 }
 
 #[derive(Debug)]
@@ -103,7 +102,7 @@ pub enum TextureUpdateOp {
         height: u32,
         format: ImageFormat,
         filter: TextureFilter,
-        mode: RenderTargetMode,
+        render_target: Option<RenderTargetInfo>,
         layer_count: i32,
     },
     Update {

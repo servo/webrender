@@ -1246,6 +1246,7 @@ pub trait RenderTarget {
         clip_store: &ClipStore,
     );
     fn used_rect(&self) -> DeviceIntRect;
+    fn needs_depth(&self) -> bool;
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
@@ -1325,6 +1326,10 @@ impl<T: RenderTarget> RenderTargetList<T> {
 
         (origin, RenderTargetIndex(self.targets.len() - 1))
     }
+
+    pub fn needs_depth(&self) -> bool {
+        self.targets.iter().any(|target| target.needs_depth())
+    }
 }
 
 /// Frame output information for a given pipeline ID.
@@ -1378,17 +1383,10 @@ impl RenderTarget for ColorRenderTarget {
             horizontal_blurs: Vec::new(),
             readbacks: Vec::new(),
             scalings: Vec::new(),
-            allocator: size.map(|size| TextureAllocator::new(size)),
+            allocator: size.map(TextureAllocator::new),
             glyph_fetch_buffer: Vec::new(),
             outputs: Vec::new(),
         }
-    }
-
-    fn used_rect(&self) -> DeviceIntRect {
-        self.allocator
-            .as_ref()
-            .expect("bug: used_rect called on framebuffer")
-            .used_rect
     }
 
     fn build(
@@ -1540,6 +1538,17 @@ impl RenderTarget for ColorRenderTarget {
             }
         }
     }
+
+    fn used_rect(&self) -> DeviceIntRect {
+        self.allocator
+            .as_ref()
+            .expect("bug: used_rect called on framebuffer")
+            .used_rect
+    }
+
+    fn needs_depth(&self) -> bool {
+        !self.alpha_batcher.batch_list.opaque_batch_list.batches.is_empty()
+    }
 }
 
 pub struct AlphaRenderTarget {
@@ -1573,10 +1582,6 @@ impl RenderTarget for AlphaRenderTarget {
             zero_clears: Vec::new(),
             allocator: TextureAllocator::new(size.expect("bug: alpha targets need size")),
         }
-    }
-
-    fn used_rect(&self) -> DeviceIntRect {
-        self.allocator.used_rect
     }
 
     fn add_task(
@@ -1702,6 +1707,14 @@ impl RenderTarget for AlphaRenderTarget {
                 });
             }
         }
+    }
+
+    fn used_rect(&self) -> DeviceIntRect {
+        self.allocator.used_rect
+    }
+
+    fn needs_depth(&self) -> bool {
+        false
     }
 }
 
