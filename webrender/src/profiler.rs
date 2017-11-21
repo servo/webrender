@@ -7,6 +7,7 @@ use debug_render::DebugRenderer;
 use euclid::{Point2D, Rect, Size2D, vec2};
 use query::{GpuSampler, GpuTimer, NamedTag};
 use std::collections::vec_deque::VecDeque;
+use internal_types::FastHashMap;
 use std::{f32, mem};
 use time::precise_time_ns;
 
@@ -668,6 +669,8 @@ impl GpuFrameCollection {
             .unwrap()
             .total_time as f32;
 
+        let mut tags_present = FastHashMap::default();
+
         for frame in &self.frames {
             let y1 = y0 + GRAPH_FRAME_HEIGHT;
 
@@ -676,7 +679,6 @@ impl GpuFrameCollection {
                 let x0 = graph_rect.origin.x + w * current_ns as f32 / max_time;
                 current_ns += sample.time_ns;
                 let x1 = graph_rect.origin.x + w * current_ns as f32 / max_time;
-
                 let mut bottom_color = sample.tag.color;
                 bottom_color.a *= 0.5;
 
@@ -688,9 +690,43 @@ impl GpuFrameCollection {
                     sample.tag.color.into(),
                     bottom_color.into(),
                 );
+
+                tags_present.insert(sample.tag.label, sample.tag.color);
             }
 
             y0 = y1;
+        }
+
+        // Add a legend to see which color correspond to what primitive.
+        const LEGEND_SIZE: f32 = 20.0;
+        const PADDED_LEGEND_SIZE: f32 = 25.0;
+        if !tags_present.is_empty() {
+            debug_renderer.add_quad(
+                bounding_rect.max_x() + GRAPH_PADDING,
+                bounding_rect.origin.y,
+                bounding_rect.max_x() + GRAPH_PADDING + 200.0,
+                bounding_rect.origin.y + tags_present.len() as f32 * PADDED_LEGEND_SIZE + GRAPH_PADDING,
+                ColorU::new(25, 25, 25, 200),
+                ColorU::new(51, 51, 51, 200),
+            );
+        }
+
+        for (i, (label, &color)) in tags_present.iter().enumerate() {
+            let x0 = bounding_rect.origin.x + bounding_rect.size.width + GRAPH_PADDING * 2.0;
+            let y0 = bounding_rect.origin.y + GRAPH_PADDING + i as f32 * PADDED_LEGEND_SIZE;
+
+            debug_renderer.add_quad(
+                x0, y0, x0 + LEGEND_SIZE, y0 + LEGEND_SIZE,
+                color.into(),
+                color.into(),
+            );
+
+            debug_renderer.add_text(
+                x0 + PADDED_LEGEND_SIZE,
+                y0 + LEGEND_SIZE * 0.75,
+                label,
+                ColorU::new(255, 255, 0, 255),
+            );
         }
 
         bounding_rect
