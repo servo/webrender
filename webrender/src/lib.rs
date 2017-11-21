@@ -147,6 +147,9 @@ extern crate serde_json;
 extern crate time;
 #[cfg(feature = "debugger")]
 extern crate ws;
+#[cfg(feature = "debugger")]
+extern crate image;
+
 pub extern crate webrender_api;
 
 #[doc(hidden)]

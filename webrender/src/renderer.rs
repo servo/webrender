@@ -2129,6 +2129,25 @@ impl Renderer {
     }
 
     #[cfg(not(feature = "debugger"))]
+    fn get_texture_cache_for_debugger(&mut self) -> String {
+        // Avoid unused param warning.
+        let _ = &self.debug_server;
+        String::new()
+    }
+
+
+    #[cfg(feature = "debugger")]
+    fn get_texture_cache_for_debugger(&mut self) -> String {
+        let mut texture_cache = debug_server::TextureCache::new();
+
+        let data = self.device.read_pixels(&self.gpu_cache_texture.texture);
+        //texture_cache.data = data;
+        texture_cache.add(data);
+
+        serde_json::to_string(&texture_cache).unwrap()
+    }
+
+    #[cfg(not(feature = "debugger"))]
     fn get_passes_for_debugger(&self) -> String {
         // Avoid unused param warning.
         let _ = &self.debug_server;
@@ -2282,6 +2301,10 @@ impl Renderer {
             DebugCommand::FetchClipScrollTree => {}
             DebugCommand::FetchPasses => {
                 let json = self.get_passes_for_debugger();
+                self.debug_server.send(json);
+            },
+            DebugCommand::FetchTextureCache => {
+                let json = self.get_texture_cache_for_debugger();
                 self.debug_server.send(json);
             }
         }

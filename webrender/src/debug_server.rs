@@ -58,6 +58,10 @@ impl ws::Handler for Server {
                     "enable_gpu_sample_queries" => DebugCommand::EnableGpuSampleQueries(true),
                     "disable_gpu_sample_queries" => DebugCommand::EnableGpuSampleQueries(false),
                     "fetch_passes" => DebugCommand::FetchPasses,
+                    "fetch_texture_cache" => {
+                        println!("Fetching Texture Cache..");
+                        DebugCommand::FetchTextureCache
+                    },
                     "fetch_documents" => DebugCommand::FetchDocuments,
                     "fetch_clipscrolltree" => DebugCommand::FetchClipScrollTree,
                     msg => {
@@ -264,6 +268,33 @@ impl DocumentList {
 
     pub fn add(&mut self, item: TreeNode) {
         self.root.add_child(item);
+    }
+}
+
+#[derive(Serialize)]
+pub struct TextureCache {
+    kind: &'static str,
+    pub data: Vec<u8>
+}
+
+impl TextureCache {
+    pub fn new() -> TextureCache {
+        TextureCache {
+            kind: "texture-cache",
+            data: vec![]
+        }
+    }
+
+    pub fn add(&mut self, data: Vec<u8>) {
+        use image;
+        let mut output = vec![];
+        {
+            let mut encoder = image::jpeg::JPEGEncoder::new(&mut output);
+            encoder.encode(&data, 200, 200, image::ColorType::RGBA(8)).unwrap();
+        }
+
+        self.data = output;
+        println!("{:#?}", self.data);
     }
 }
 

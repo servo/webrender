@@ -6,6 +6,11 @@ var state = {
     clipscrolltree: [],
 }
 
+function base64encode(binary) {
+    return btoa(unescape(encodeURIComponent(binary)));
+}
+
+
 class Connection {
     constructor() {
         this.ws = null;
@@ -16,6 +21,7 @@ class Connection {
 
         ws.onopen = function() {
             state.connected = true;
+            state.texturecache = [];
             state.page = "options";
         }
 
@@ -27,6 +33,9 @@ class Connection {
                 state.documents = json['root'];
             } else if (json['kind'] == "clipscrolltree") {
                 state.clipscrolltree = json['root'];
+            } else if (json['kind'] == "texture-cache") {
+                state.texturecache = base64encode(json['data']);
+                console.log(state); 
             } else {
                 console.warn("unknown message kind: " + json['kind']);
             }
@@ -70,7 +79,7 @@ Vue.component('app', {
                         </div>
                         <div class="column">
                             <options v-if="state.page == 'options'"></options>
-                            <passview v-if="state.page == 'passes'" :passes=state.passes></passview>
+                            <passview v-if="state.page == 'passes'" :passes=state.passes :texturecache=state.texturecache></passview>
                             <documentview v-if="state.page == 'documents'" :documents=state.documents></documentview>
                             <clipscrolltreeview v-if="state.page == 'clipscrolltree'" :clipscrolltree=state.clipscrolltree></documentview>
                         </div>
@@ -206,11 +215,13 @@ Vue.component('options', {
 
 Vue.component('passview', {
     props: [
-        'passes'
+        'passes',
+        'texturecache'
     ],
     methods: {
         fetch: function() {
-            connection.send("fetch_passes");
+       //     connection.send("fetch_passes");
+            connection.send("fetch_texture_cache");
         }
     },
     template: `
@@ -227,6 +238,7 @@ Vue.component('passview', {
                 </div>
                 <hr/>
             </div>
+            <img width=200 height=200 :src="'data:image/jpeg;base64,' + texturecache" />
         </div>
     `
 })

@@ -263,6 +263,8 @@ pub enum DebugCommand {
     FetchPasses,
     /// Fetch clip-scroll tree.
     FetchClipScrollTree,
+    /// Feth texture cache.
+    FetchTextureCache
 }
 
 #[derive(Clone, Deserialize, Serialize)]
