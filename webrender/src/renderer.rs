@@ -271,9 +271,9 @@ impl Into<ShaderMode> for TextShaderMode {
 impl From<GlyphFormat> for TextShaderMode {
     fn from(format: GlyphFormat) -> TextShaderMode {
         match format {
-            GlyphFormat::Mono | GlyphFormat::Alpha => TextShaderMode::Alpha,
-            GlyphFormat::Subpixel => {
-                panic!("Subpixel glyph format must be handled separately.");
+            GlyphFormat::Alpha => TextShaderMode::Alpha,
+            GlyphFormat::Subpixel | GlyphFormat::TransformedSubpixel => {
+                panic!("Subpixel glyph formats must be handled separately.");
             }
             GlyphFormat::ColorBitmap => TextShaderMode::ColorBitmap,
         }
@@ -894,6 +894,7 @@ enum ShaderKind {
     Cache(VertexArrayKind),
     ClipCache,
     Brush,
+    Text,
 }
 
 struct LazilyCompiledShader {
@@ -947,7 +948,7 @@ impl LazilyCompiledShader {
         if self.program.is_none() {
             let program = try!{
                 match self.kind {
-                    ShaderKind::Primitive | ShaderKind::Brush => {
+                    ShaderKind::Primitive | ShaderKind::Brush | ShaderKind::Text => {
                         create_prim_shader(self.name,
                                            device,
                                            &self.features,
@@ -975,11 +976,6 @@ impl LazilyCompiledShader {
             device.delete_program(program);
         }
     }
-}
-
-struct PrimitiveShader {
-    simple: LazilyCompiledShader,
-    transform: LazilyCompiledShader,
 }
 
 // A brush shader supports two modes:
@@ -1055,16 +1051,9 @@ impl BrushShader {
     }
 }
 
-struct FileWatcher {
-    notifier: Box<RenderNotifier>,
-    result_tx: Sender<ResultMsg>,
-}
-
-impl FileWatcherHandler for FileWatcher {
-    fn file_changed(&self, path: PathBuf) {
-        self.result_tx.send(ResultMsg::RefreshShader(path)).ok();
-        self.notifier.wake_up();
-    }
+struct PrimitiveShader {
+    simple: LazilyCompiledShader,
+    transform: LazilyCompiledShader,
 }
 
 impl PrimitiveShader {
@@ -1117,6 +1106,87 @@ impl PrimitiveShader {
     fn deinit(self, device: &mut Device) {
         self.simple.deinit(device);
         self.transform.deinit(device);
+    }
+}
+
+struct TextShader {
+    simple: LazilyCompiledShader,
+    transform: LazilyCompiledShader,
+    glyph_transform: LazilyCompiledShader,
+}
+
+impl TextShader {
+    fn new(
+        name: &'static str,
+        device: &mut Device,
+        features: &[&'static str],
+        precache: bool,
+    ) -> Result<TextShader, ShaderError> {
+        let simple = try!{
+            LazilyCompiledShader::new(ShaderKind::Text,
+                                      name,
+                                      features,
+                                      device,
+                                      precache)
+        };
+
+        let mut transform_features = features.to_vec();
+        transform_features.push("TRANSFORM");
+
+        let transform = try!{
+            LazilyCompiledShader::new(ShaderKind::Text,
+                                      name,
+                                      &transform_features,
+                                      device,
+                                      precache)
+        };
+
+        let mut glyph_transform_features = features.to_vec();
+        glyph_transform_features.push("GLYPH_TRANSFORM");
+
+        let glyph_transform = try!{
+            LazilyCompiledShader::new(ShaderKind::Text,
+                                      name,
+                                      &glyph_transform_features,
+                                      device,
+                                      precache)
+        };
+
+        Ok(TextShader { simple, transform, glyph_transform })
+    }
+
+    fn bind<M>(
+        &mut self,
+        device: &mut Device,
+        glyph_format: GlyphFormat,
+        transform_kind: TransformedRectKind,
+        projection: &Transform3D<f32>,
+        mode: M,
+        renderer_errors: &mut Vec<RendererError>,
+    ) where M: Into<ShaderMode> {
+        match glyph_format {
+            GlyphFormat::Alpha |
+            GlyphFormat::Subpixel |
+            GlyphFormat::ColorBitmap => {
+                match transform_kind {
+                    TransformedRectKind::AxisAligned => {
+                        self.simple.bind(device, projection, mode, renderer_errors)
+                    }
+                    TransformedRectKind::Complex => {
+                        self.transform.bind(device, projection, mode, renderer_errors)
+                    }
+                }
+            }
+            GlyphFormat::TransformedSubpixel => {
+                self.glyph_transform.bind(device, projection, mode, renderer_errors)
+            }
+        }
+    }
+
+    fn deinit(self, device: &mut Device) {
+        self.simple.deinit(device);
+        self.transform.deinit(device);
+        self.glyph_transform.deinit(device);
     }
 }
 
@@ -1193,6 +1263,18 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program
     program
 }
 
+struct FileWatcher {
+    notifier: Box<RenderNotifier>,
+    result_tx: Sender<ResultMsg>,
+}
+
+impl FileWatcherHandler for FileWatcher {
+    fn file_changed(&self, path: PathBuf) {
+        self.result_tx.send(ResultMsg::RefreshShader(path)).ok();
+        self.notifier.wake_up();
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum ReadPixelsFormat {
     Rgba8,
@@ -1245,8 +1327,8 @@ pub struct Renderer {
     // a cache shader (e.g. blur) to the screen.
     ps_rectangle: PrimitiveShader,
     ps_rectangle_clip: PrimitiveShader,
-    ps_text_run: PrimitiveShader,
-    ps_text_run_subpx_bg_pass1: PrimitiveShader,
+    ps_text_run: TextShader,
+    ps_text_run_subpx_bg_pass1: TextShader,
     ps_image: Vec<Option<PrimitiveShader>>,
     ps_yuv_image: Vec<Option<PrimitiveShader>>,
     ps_border_corner: PrimitiveShader,
@@ -1509,17 +1591,17 @@ impl Renderer {
         };
 
         let ps_text_run = try!{
-            PrimitiveShader::new("ps_text_run",
-                                 &mut device,
-                                 &[],
-                                 options.precache_shaders)
+            TextShader::new("ps_text_run",
+                            &mut device,
+                            &[],
+                           options.precache_shaders)
         };
 
         let ps_text_run_subpx_bg_pass1 = try!{
-            PrimitiveShader::new("ps_text_run",
-                                 &mut device,
-                                 &["SUBPX_BG_PASS1"],
-                                 options.precache_shaders)
+            TextShader::new("ps_text_run",
+                            &mut device,
+                            &["SUBPX_BG_PASS1"],
+                            options.precache_shaders)
         };
 
         // All image configuration.
@@ -2960,6 +3042,7 @@ impl Renderer {
 
                                 self.ps_text_run.bind(
                                     &mut self.device,
+                                    glyph_format,
                                     transform_kind,
                                     projection,
                                     TextShaderMode::from(glyph_format),
@@ -2977,6 +3060,7 @@ impl Renderer {
 
                                 self.ps_text_run.bind(
                                     &mut self.device,
+                                    glyph_format,
                                     transform_kind,
                                     projection,
                                     TextShaderMode::SubpixelConstantTextColor,
@@ -2998,6 +3082,7 @@ impl Renderer {
 
                                 self.ps_text_run.bind(
                                     &mut self.device,
+                                    glyph_format,
                                     transform_kind,
                                     projection,
                                     TextShaderMode::SubpixelPass0,
@@ -3014,6 +3099,7 @@ impl Renderer {
 
                                 self.ps_text_run.bind(
                                     &mut self.device,
+                                    glyph_format,
                                     transform_kind,
                                     projection,
                                     TextShaderMode::SubpixelPass1,
@@ -3037,6 +3123,7 @@ impl Renderer {
 
                                 self.ps_text_run.bind(
                                     &mut self.device,
+                                    glyph_format,
                                     transform_kind,
                                     projection,
                                     TextShaderMode::SubpixelWithBgColorPass0,
@@ -3053,6 +3140,7 @@ impl Renderer {
 
                                 self.ps_text_run_subpx_bg_pass1.bind(
                                     &mut self.device,
+                                    glyph_format,
                                     transform_kind,
                                     projection,
                                     TextShaderMode::SubpixelWithBgColorPass1,
@@ -3070,6 +3158,7 @@ impl Renderer {
 
                                 self.ps_text_run.bind(
                                     &mut self.device,
+                                    glyph_format,
                                     transform_kind,
                                     projection,
                                     TextShaderMode::SubpixelWithBgColorPass2,

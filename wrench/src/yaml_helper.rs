@@ -158,6 +158,15 @@ fn make_rotation(
     pre_transform.pre_mul(&transform).pre_mul(&post_transform)
 }
 
+// Create a skew matrix, specified in degrees.
+fn make_skew(
+    skew_x: f32,
+    skew_y: f32,
+) -> LayoutTransform {
+    let alpha = Radians::new(skew_x.to_radians());
+    let beta = Radians::new(skew_y.to_radians());
+    LayoutTransform::create_skew(alpha, beta)
+}
 
 impl YamlHelper for Yaml {
     fn as_f32(&self) -> Option<f32> {
@@ -334,6 +343,34 @@ impl YamlHelper for Yaml {
                         }
                         "rotate-y" if args.len() == 1 => {
                             make_rotation(transform_origin, args[0].parse().unwrap(), 0.0, 1.0, 0.0)
+                        }
+                        "scale" if args.len() >= 1 => {
+                            let x = args[0].parse().unwrap();
+                            // Default to uniform X/Y scale if Y unspecified.
+                            let y = args.get(1).and_then(|a| a.parse().ok()).unwrap_or(x);
+                            // Default to no Z scale if unspecified.
+                            let z = args.get(2).and_then(|a| a.parse().ok()).unwrap_or(1.0);
+                            LayoutTransform::create_scale(x, y, z)
+                        }
+                        "scale-x" if args.len() == 1 => {
+                            LayoutTransform::create_scale(args[0].parse().unwrap(), 1.0, 1.0)
+                        }
+                        "scale-y" if args.len() == 1 => {
+                            LayoutTransform::create_scale(1.0, args[0].parse().unwrap(), 1.0)
+                        }
+                        "scale-z" if args.len() == 1 => {
+                            LayoutTransform::create_scale(1.0, 1.0, args[0].parse().unwrap())
+                        }
+                        "skew" if args.len() >= 1 => {
+                            // Default to no Y skew if unspecified.
+                            let skew_y = args.get(1).and_then(|a| a.parse().ok()).unwrap_or(0.0);
+                            make_skew(args[0].parse().unwrap(), skew_y)
+                        }
+                        "skew-x" if args.len() == 1 => {
+                            make_skew(args[0].parse().unwrap(), 0.0)
+                        }
+                        "skew-y" if args.len() == 1 => {
+                            make_skew(0.0, args[0].parse().unwrap())
                         }
                         "perspective" if args.len() == 1 => {
                             LayoutTransform::create_perspective(args[0].parse().unwrap())

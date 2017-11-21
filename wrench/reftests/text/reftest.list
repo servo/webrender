@@ -36,3 +36,6 @@ options(disable-aa) == transparent-no-aa.yaml transparent-no-aa-ref.yaml
 != diacritics.yaml diacritics-ref.yaml
 fuzzy(1,1) platform(linux) options(disable-subpixel) == text-masking.yaml text-masking-alpha.png
 fuzzy(1,44) platform(linux) == text-masking.yaml text-masking-subpx.png
+platform(linux) == subpixel-rotate.yaml subpixel-rotate.png
+platform(linux) == subpixel-scale.yaml subpixel-scale.png
+platform(linux) == subpixel-skew.yaml subpixel-skew.png
