@@ -18,6 +18,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use time;
 use webrender;
+use webrender::DebugFlags;
 use webrender::api::*;
 use yaml_frame_writer::YamlFrameWriterReceiver;
 use {WindowWrapper, BLACK_COLOR, WHITE_COLOR};
@@ -169,14 +170,17 @@ impl Wrench {
             )) as Box<webrender::ApiRecordingReceiver>,
         });
 
+        let mut debug_flags = DebugFlags::default();
+        debug_flags.set(DebugFlags::DISABLE_BATCHING, no_batch);
+
         let opts = webrender::RendererOptions {
             device_pixel_ratio: dp_ratio,
             resource_override_path: shader_override_path,
             recorder,
             enable_subpixel_aa: !no_subpixel_aa,
             debug,
+            debug_flags,
             enable_clear_scissor: !no_scissor,
-            enable_batcher: !no_batch,
             max_recorded_profiles: 16,
             blob_image_renderer: Some(Box::new(blob::CheckerboardRenderer::new())),
             ..Default::default()
