@@ -195,7 +195,7 @@ impl ClipWorkItem {
         for &(ref clip, _) in clips {
             match *clip {
                 ClipSource::Rectangle(..) => {
-                    if self.has_compatible_coordinate_system(prim_coordinate_system_id) {
+                    if !self.has_compatible_coordinate_system(prim_coordinate_system_id) {
                         return MaskGeometryKind::Default;
                     }
                 },
