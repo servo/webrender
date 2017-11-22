@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{LayerVector2D, LayerRect, LayerToWorldTransform, WorldToLayerTransform};
+use api::{DeviceRect, LayerRect, LayerToWorldTransform, LayerVector2D, WorldToLayerTransform};
 use gpu_cache::GpuCacheAddress;
 use render_task::RenderTaskAddress;
 
@@ -196,6 +196,7 @@ pub struct ClipScrollNodeData {
     pub transform: LayerToWorldTransform,
     pub inv_transform: WorldToLayerTransform,
     pub local_clip_rect: LayerRect,
+    pub combined_clip_outer_bounds: DeviceRect,
     pub reference_frame_relative_scroll_offset: LayerVector2D,
     pub scroll_offset: LayerVector2D,
 }
@@ -206,6 +207,7 @@ impl ClipScrollNodeData {
             transform: LayerToWorldTransform::identity(),
             inv_transform: WorldToLayerTransform::identity(),
             local_clip_rect: LayerRect::zero(),
+            combined_clip_outer_bounds: DeviceRect::zero(),
             reference_frame_relative_scroll_offset: LayerVector2D::zero(),
             scroll_offset: LayerVector2D::zero(),
         }

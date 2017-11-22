@@ -40,6 +40,8 @@ varying vec3 vClipMaskUv;
     flat varying vec4 vLocalBounds;
 #endif
 
+flat varying vec4 vScreenClipRect;
+
 // TODO(gw): This is here temporarily while we have
 //           both GPU store and cache. When the GPU
 //           store code is removed, we can change the
@@ -71,7 +73,7 @@ vec4[2] fetch_from_resource_cache_2(int address) {
 
 #ifdef WR_VERTEX_SHADER
 
-#define VECS_PER_LAYER              10
+#define VECS_PER_LAYER              11
 #define VECS_PER_RENDER_TASK        3
 #define VECS_PER_PRIM_HEADER        2
 #define VECS_PER_TEXT_RUN           3
@@ -147,6 +149,7 @@ struct ClipScrollNode {
     mat4 transform;
     mat4 inv_transform;
     vec4 local_clip_rect;
+    vec4 screen_rect;
     vec2 reference_frame_relative_scroll_offset;
     vec2 scroll_offset;
 };
@@ -175,7 +178,10 @@ ClipScrollNode fetch_clip_scroll_node(int index) {
     vec4 clip_rect = TEXEL_FETCH(sClipScrollNodes, uv1, 0, ivec2(0, 0));
     node.local_clip_rect = clip_rect;
 
-    vec4 offsets = TEXEL_FETCH(sClipScrollNodes, uv1, 0, ivec2(1, 0));
+    vec4 screen_rect = TEXEL_FETCH(sClipScrollNodes, uv1, 0, ivec2(1, 0));
+    node.screen_rect = screen_rect;
+
+    vec4 offsets = TEXEL_FETCH(sClipScrollNodes, uv1, 0, ivec2(2, 0));
     node.reference_frame_relative_scroll_offset = offsets.xy;
     node.scroll_offset = offsets.zw;
 
@@ -186,6 +192,7 @@ struct Layer {
     mat4 transform;
     mat4 inv_transform;
     RectWithSize local_clip_rect;
+    vec4 screen_clip_rect;
 };
 
 Layer fetch_layer(int clip_node_id, int scroll_node_id) {
@@ -202,6 +209,8 @@ Layer fetch_layer(int clip_node_id, int scroll_node_id) {
     local_clip_rect.xy -= scroll_node.scroll_offset;
 
     layer.local_clip_rect = RectWithSize(local_clip_rect.xy, local_clip_rect.zw);
+
+    layer.screen_clip_rect = clip_node.screen_rect;
 
     return layer;
 }
@@ -582,6 +591,20 @@ struct VertexInfo {
     vec2 screen_pos;
 };
 
+void write_screen_clip_rect(Layer layer, PictureTask task, vec2 snap_offset) {
+    vec2 task_offset = task.common_data.task_rect.p0 + snap_offset - task.content_origin;
+
+    // We need to adjust the screen clipping rect to take into account our task rectangle as well.
+    vec2 screen_clip_rect_position = layer.screen_clip_rect.xy + task_offset;
+    vScreenClipRect = layer.screen_clip_rect;
+
+    // If this task has a size of zero, we are drawing to the screen and need to flip the y-axis.
+    vScreenClipRect.xy += task_offset;
+    if (task.common_data.task_rect.size == vec2(0.0)) {
+        vScreenClipRect.y = (uBufferHeight - vScreenClipRect.y) - vScreenClipRect.w;
+    }
+}
+
 VertexInfo write_vertex(RectWithSize instance_rect,
                         RectWithSize local_clip_rect,
                         float z,
@@ -605,11 +628,10 @@ VertexInfo write_vertex(RectWithSize instance_rect,
     vec2 device_pos = world_pos.xy / world_pos.w * uDevicePixelRatio;
 
     // Apply offsets for the render task to get correct screen location.
-    vec2 final_pos = device_pos + snap_offset -
-                     task.content_origin +
-                     task.common_data.task_rect.p0;
+    vec2 task_offset = snap_offset - task.content_origin + task.common_data.task_rect.p0;
+    gl_Position = uTransform * vec4(device_pos + task_offset, z, 1.0);
 
-    gl_Position = uTransform * vec4(final_pos, z, 1.0);
+    write_screen_clip_rect(layer, task, snap_offset);
 
     VertexInfo vi = VertexInfo(clamped_local_pos, device_pos);
     return vi;
@@ -714,13 +736,13 @@ TransformVertexInfo write_transform_vertex(RectWithSize instance_rect,
 
     vec4 layer_pos = get_layer_pos(device_pos / uDevicePixelRatio, layer);
 
+    // Note: `snap_rect` is not used for transformed content.
+    vec2 task_offset = task.common_data.task_rect.p0 - task.content_origin;
+
     // Apply offsets for the render task to get correct screen location.
-    vec2 final_pos = device_pos - //Note: `snap_rect` is not used
-                     task.content_origin +
-                     task.common_data.task_rect.p0;
+    gl_Position = uTransform * vec4(device_pos + task_offset, z, 1.0);
 
-
-    gl_Position = uTransform * vec4(final_pos, z, 1.0);
+    write_screen_clip_rect(layer, task, vec2(0.0));
 
     vLocalBounds = mix(
         vec4(clip_rect.p0, clip_rect.p0 + clip_rect.size),
@@ -879,6 +901,15 @@ float do_clip() {
     // check for the dummy bounds, which are given to the opaque objects
     return vClipMaskUvBounds.xy == vClipMaskUvBounds.zw ? 1.0:
         all(inside) ? texelFetch(sSharedCacheA8, ivec3(vClipMaskUv), 0).r : 0.0;
+}
+
+float apply_rectangular_screen_space_clip() {
+    // Do the typical inside box test to decide whether or not the fragment
+    // is inside the screen space clipping box.
+    vec2 topLeft = vScreenClipRect.xy;
+    vec2 bottomRight = vScreenClipRect.xy + vScreenClipRect.zw;
+    vec2 inside = step(topLeft, gl_FragCoord.xy) - step(bottomRight, gl_FragCoord.xy);
+    return inside.x * inside.y;
 }
 
 #ifdef WR_FEATURE_DITHERING

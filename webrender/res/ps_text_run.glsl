@@ -43,13 +43,16 @@ VertexInfo write_text_vertex(vec2 local_pos,
     // For transformed subpixels, we just need to align the glyph origin to a device pixel.
     // Only check the layer transform's translation since the scales and axes match.
     vec2 world_snap_p0 = snap_rect.p0 + layer.transform[3].xy * uDevicePixelRatio;
-    final_pos += floor(world_snap_p0 + 0.5) - world_snap_p0;
+    vec2 snap_offset = floor(world_snap_p0 + 0.5) - world_snap_p0;
 #elif !defined(WR_FEATURE_TRANSFORM)
     // Compute the snapping offset only if the layer transform is axis-aligned.
-    final_pos += compute_snap_offset(clamped_local_pos, layer, snap_rect);
+    vec2 snap_offset = compute_snap_offset(clamped_local_pos, layer, snap_rect);
 #endif
 
+    final_pos += snap_offset;
     gl_Position = uTransform * vec4(final_pos, z, 1.0);
+
+    write_screen_clip_rect(layer, task, snap_offset);
 
     VertexInfo vi = VertexInfo(clamped_local_pos, device_pos);
     return vi;
@@ -145,6 +148,8 @@ void main(void) {
 #ifdef WR_FEATURE_SUBPX_BG_PASS1
     mask.rgb = vec3(mask.a) - mask.rgb;
 #endif
+
+    alpha *= apply_rectangular_screen_space_clip();
 
     oFragColor = vColor * mask * alpha;
 }

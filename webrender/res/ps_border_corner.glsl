@@ -410,6 +410,7 @@ void main(void) {
     float m = distance_aa(aa_range, -ld);
     vec4 color = mix(color0, color1, m);
 
+    alpha *= apply_rectangular_screen_space_clip();
     oFragColor = color * alpha;
 }
 #endif

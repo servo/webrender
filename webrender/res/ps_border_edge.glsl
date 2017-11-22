@@ -295,6 +295,8 @@ void main(void) {
     // Select between dot/dash alpha based on clip mode.
     alpha = min(alpha, mix(dash_alpha, dot_alpha, vClipSelect));
 
+    alpha *= apply_rectangular_screen_space_clip();
+
     oFragColor = color * alpha;
 }
 #endif

@@ -107,7 +107,8 @@ void main(void) {
     vec2 local_pos = vPos;
 #endif
 
-    alpha *= do_clip();
+    alpha *= do_clip() * apply_rectangular_screen_space_clip();
+
     oFragColor = dither(vColor * alpha);
 }
 #endif

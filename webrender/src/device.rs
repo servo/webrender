@@ -435,6 +435,7 @@ pub struct Program {
     u_transform: gl::GLint,
     u_device_pixel_ratio: gl::GLint,
     u_mode: gl::GLint,
+    u_buffer_height: gl::GLint,
 }
 
 impl Drop for Program {
@@ -1243,12 +1244,14 @@ impl Device {
         let u_transform = self.gl.get_uniform_location(pid, "uTransform");
         let u_device_pixel_ratio = self.gl.get_uniform_location(pid, "uDevicePixelRatio");
         let u_mode = self.gl.get_uniform_location(pid, "uMode");
+        let u_buffer_height = self.gl.get_uniform_location(pid, "uBufferHeight");
 
         let program = Program {
             id: pid,
             u_transform,
             u_device_pixel_ratio,
             u_mode,
+            u_buffer_height,
         };
 
         self.bind_program(&program);
@@ -1285,14 +1288,14 @@ impl Device {
         program: &Program,
         transform: &Transform3D<f32>,
         mode: i32,
+        buffer_height: u32,
     ) {
         debug_assert!(self.inside_frame);
         self.gl
             .uniform_matrix_4fv(program.u_transform, false, &transform.to_row_major_array());
-        self.gl
-            .uniform_1f(program.u_device_pixel_ratio, self.device_pixel_ratio);
-        self.gl
-            .uniform_1i(program.u_mode, mode);
+        self.gl.uniform_1f(program.u_device_pixel_ratio, self.device_pixel_ratio);
+        self.gl.uniform_1i(program.u_mode, mode);
+        self.gl.uniform_1f(program.u_buffer_height, buffer_height as f32);
     }
 
     pub fn create_pbo(&mut self) -> PBO {
