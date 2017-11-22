@@ -2892,10 +2892,12 @@ impl Renderer {
                 // Note: for non-intersecting document rectangles,
                 // we can omit clearing the depth here, and instead
                 // just clear it for the whole framebuffer at start of the frame.
+                let mut clear_rect = framebuffer_target_rect.to_i32();
                 // Note: `framebuffer_target_rect` needs a Y-flip before going to GL
-                let mut clear_rect = framebuffer_target_rect;
-                clear_rect.origin.y = target_size.height - clear_rect.origin.y - clear_rect.size.height;
-                self.device.clear_target_rect(clear_color, Some(1.0), clear_rect.to_i32());
+                // Note: at this point, the target rectangle is not guaranteed to be within the main framebuffer bounds
+                // but `clear_target_rect` is totally fine with negative origin, as long as width & height are positive
+                clear_rect.origin.y = target_size.height as i32 - clear_rect.origin.y - clear_rect.size.height;
+                self.device.clear_target_rect(clear_color, Some(1.0), clear_rect);
             }
 
             self.device.disable_depth_write();
