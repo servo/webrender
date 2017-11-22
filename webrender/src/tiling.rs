@@ -32,6 +32,7 @@ use renderer::BlendMode;
 use renderer::ImageBufferKind;
 use resource_cache::{GlyphFetchResult, ResourceCache};
 use std::{cmp, usize, f32, i32};
+use std::collections::hash_map::Entry;
 use texture_allocator::GuillotineAllocator;
 use util::{MatrixHelpers, TransformedRectKind};
 
@@ -1022,10 +1023,8 @@ impl AlphaBatcher {
         render_tasks: &RenderTaskTree,
         deferred_resolves: &mut Vec<DeferredResolve>,
     ) {
-        for task_id in &self.tasks {
-            let task_id = *task_id;
-            let task = render_tasks.get(task_id);
-            match task.kind {
+        for &task_id in &self.tasks {
+            match render_tasks[task_id].kind {
                 RenderTaskKind::Picture(ref pic_task) => {
                     let pic_index = ctx.prim_store.cpu_metadata[pic_task.prim_index.0].cpu_prim_index;
                     let pic = &ctx.prim_store.cpu_pictures[pic_index.0];
@@ -1411,7 +1410,7 @@ impl RenderTarget for ColorRenderTarget {
         render_tasks: &RenderTaskTree,
         _: &ClipStore,
     ) {
-        let task = render_tasks.get(task_id);
+        let task = &render_tasks[task_id];
 
         match task.kind {
             RenderTaskKind::Alias(..) => {
@@ -1588,7 +1587,7 @@ impl RenderTarget for AlphaRenderTarget {
         render_tasks: &RenderTaskTree,
         clip_store: &ClipStore,
     ) {
-        let task = render_tasks.get(task_id);
+        let task = &render_tasks[task_id];
 
         match task.clear_mode {
             ClearMode::Zero => {
@@ -1775,77 +1774,72 @@ impl RenderPass {
     ) {
         profile_scope!("RenderPass::build");
 
-        // Step through each task, adding to batches as appropriate.
-        for &task_id in &self.tasks {
-            let target_kind = {
-                let task = render_tasks.get_mut(task_id);
-                let target_kind = task.target_kind();
-
-                // Find a target to assign this task to, or create a new
-                // one if required.
-                match task.location {
-                    RenderTaskLocation::Fixed => {}
-                    RenderTaskLocation::Dynamic(ref mut origin, size) => {
-                        if let Some(cache_key) = task.cache_key {
-                            // See if this task is a duplicate.
-                            // If so, just skip adding it!
-                            if let Some(task_info) = self.dynamic_tasks.get(&cache_key) {
-                                // TODO(gw): We can easily handle invalidation of tasks that
-                                // contain children in the future. Since we don't
-                                // have any cases of that yet, just assert to simplify
-                                // the current implementation.
-                                debug_assert!(task.children.is_empty());
-                                debug_assert_eq!(task_info.rect.size, size);
-                                task.kind = RenderTaskKind::Alias(task_info.task_id);
-                                continue;
-                            }
-                        }
-
-                        let alloc_size = DeviceUintSize::new(size.width as u32, size.height as u32);
-                        let (alloc_origin, target_index) = match self.kind {
-                            RenderPassKind::MainFramebuffer(_) => panic!("Unable to add a dynamic task to the main framebuffer"),
-                            RenderPassKind::OffScreen { ref mut alpha, ref mut color } => match target_kind {
-                                RenderTargetKind::Color => color.allocate(alloc_size),
-                                RenderTargetKind::Alpha => alpha.allocate(alloc_size),
-                            },
-                        };
-
-                        *origin = Some((alloc_origin.to_i32(), target_index));
-
-                        // If this task is cacheable / sharable, store it in the task hash
-                        // for this pass.
-                        if let Some(cache_key) = task.cache_key {
-                            self.dynamic_tasks.insert(
-                                cache_key,
-                                DynamicTaskInfo {
-                                    task_id,
-                                    rect: DeviceIntRect::new(alloc_origin.to_i32(), size),
-                                },
-                            );
-                        }
-                    }
-                }
-
-                target_kind
-            };
-
-            match self.kind {
-                RenderPassKind::MainFramebuffer(ref mut target) => {
-                    assert_eq!(target_kind, RenderTargetKind::Color);
-                    target.add_task(task_id, ctx, gpu_cache, render_tasks, clip_store);
-                }
-                RenderPassKind::OffScreen { ref mut alpha, ref mut color } => match target_kind {
-                    RenderTargetKind::Color => color.add_task(task_id, ctx, gpu_cache, render_tasks, clip_store),
-                    RenderTargetKind::Alpha => alpha.add_task(task_id, ctx, gpu_cache, render_tasks, clip_store),
-                }
-            }
-        }
-
         match self.kind {
             RenderPassKind::MainFramebuffer(ref mut target) => {
+                for &task_id in &self.tasks {
+                    assert_eq!(render_tasks[task_id].target_kind(), RenderTargetKind::Color);
+                    target.add_task(task_id, ctx, gpu_cache, render_tasks, clip_store);
+                }
                 target.build(ctx, gpu_cache, render_tasks, deferred_resolves);
             }
             RenderPassKind::OffScreen { ref mut color, ref mut alpha } => {
+                // Step through each task, adding to batches as appropriate.
+                for &task_id in &self.tasks {
+                    let target_kind = {
+                        let task = &mut render_tasks[task_id];
+                        let target_kind = task.target_kind();
+
+                        // Find a target to assign this task to, or create a new
+                        // one if required.
+                        match task.location {
+                            RenderTaskLocation::Fixed => {}
+                            RenderTaskLocation::Dynamic(ref mut origin, size) => {
+                                let dynamic_entry = match task.cache_key {
+                                    // See if this task is a duplicate.
+                                    // If so, just skip adding it!
+                                    Some(cache_key) => match self.dynamic_tasks.entry(cache_key) {
+                                        Entry::Occupied(entry) => {
+                                            // TODO(gw): We can easily handle invalidation of tasks that
+                                            // contain children in the future. Since we don't
+                                            // have any cases of that yet, just assert to simplify
+                                            // the current implementation.
+                                            debug_assert!(task.children.is_empty());
+                                            debug_assert_eq!(entry.get().rect.size, size);
+                                            task.kind = RenderTaskKind::Alias(entry.get().task_id);
+                                            continue;
+                                        },
+                                        Entry::Vacant(entry) => Some(entry),
+                                    },
+                                    None => None,
+                                };
+
+                                let alloc_size = DeviceUintSize::new(size.width as u32, size.height as u32);
+                                let (alloc_origin, target_index) =  match target_kind {
+                                    RenderTargetKind::Color => color.allocate(alloc_size),
+                                    RenderTargetKind::Alpha => alpha.allocate(alloc_size),
+                                };
+                                *origin = Some((alloc_origin.to_i32(), target_index));
+
+                                // If this task is cacheable / sharable, store it in the task hash
+                                // for this pass.
+                                if let Some(entry) = dynamic_entry {
+                                    entry.insert(DynamicTaskInfo {
+                                        task_id,
+                                        rect: DeviceIntRect::new(alloc_origin.to_i32(), size),
+                                    });
+                                }
+                            }
+                        }
+
+                        target_kind
+                    };
+
+                    match target_kind {
+                        RenderTargetKind::Color => color.add_task(task_id, ctx, gpu_cache, render_tasks, clip_store),
+                        RenderTargetKind::Alpha => alpha.add_task(task_id, ctx, gpu_cache, render_tasks, clip_store),
+                    }
+                }
+
                 color.build(ctx, gpu_cache, render_tasks, deferred_resolves);
                 alpha.build(ctx, gpu_cache, render_tasks, deferred_resolves);
             }
