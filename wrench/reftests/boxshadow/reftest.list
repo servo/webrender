@@ -14,4 +14,5 @@ fuzzy(1,6388) == rounding.yaml rounding-ref.yaml
 == invalid.yaml invalid-ref.yaml
 == inset-subpx.yaml inset-subpx.png
 == inset-downscale.yaml inset-downscale.png
+== box-shadow-cache.yaml box-shadow-cache.png
 

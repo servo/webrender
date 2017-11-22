@@ -137,6 +137,7 @@ extern crate euclid;
 extern crate fxhash;
 extern crate gleam;
 extern crate num_traits;
+extern crate ordered_float;
 extern crate plane_split;
 extern crate rayon;
 #[cfg(feature = "debugger")]

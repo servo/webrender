@@ -27,6 +27,7 @@ rayon = "0.8"
 webrender_api = {path = "../webrender_api"}
 bitflags = "1.0"
 thread_profiler = "0.1.1"
+ordered-float = "0.5.0"
 plane-split = "0.6"
 ws = { optional = true, version = "0.7.3" }
 serde_json = { optional = true, version = "1.0" }

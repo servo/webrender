@@ -187,6 +187,9 @@ impl FrameBuilder {
                         Vec::new(),
                         clip_mode,
                         radii_kind,
+                        box_offset,
+                        border_radius,
+                        spread_radius,
                         pipeline_id,
                     );
                     pic_prim.add_primitive(
@@ -265,6 +268,9 @@ impl FrameBuilder {
                         BoxShadowClipMode::Inset,
                         // TODO(gw): Make use of optimization for inset.
                         BorderRadiusKind::NonUniform,
+                        box_offset,
+                        border_radius,
+                        spread_radius,
                         pipeline_id,
                     );
                     pic_prim.add_primitive(

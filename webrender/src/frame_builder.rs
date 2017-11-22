@@ -1597,6 +1597,7 @@ impl FrameBuilder {
             ClearMode::Transparent,
             RasterizationSpace::Screen,
             child_tasks,
+            None,
         );
 
         pic.render_task_id = Some(render_tasks.add(root_render_task));

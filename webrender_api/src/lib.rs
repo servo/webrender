@@ -28,6 +28,8 @@ extern crate core_graphics;
 #[cfg(target_os = "windows")]
 extern crate dwrote;
 
+extern crate ordered_float;
+
 mod units;
 mod api;
 mod color;

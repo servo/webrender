@@ -6,6 +6,8 @@ use {ColorF, FontInstanceKey, ImageKey, LayerPixel, LayoutPixel, LayoutPoint, La
      LayoutSize, LayoutTransform};
 use {GlyphOptions, LayoutVector2D, PipelineId, PropertyBinding};
 use euclid::{SideOffsets2D, TypedRect};
+use ordered_float::{OrderedFloat};
+use std::hash::{Hash, Hasher};
 use std::ops::Not;
 
 // NOTE: some of these structs have an "IMPLICIT" comment.
@@ -694,6 +696,22 @@ impl BorderRadius {
             false
         }
     }
+}
+
+impl Hash for BorderRadius {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        OrderedFloat(self.top_left.width).hash(state);
+        OrderedFloat(self.top_left.height).hash(state);
+        OrderedFloat(self.top_right.width).hash(state);
+        OrderedFloat(self.top_right.height).hash(state);
+        OrderedFloat(self.bottom_left.width).hash(state);
+        OrderedFloat(self.bottom_left.height).hash(state);
+        OrderedFloat(self.bottom_right.width).hash(state);
+        OrderedFloat(self.bottom_right.height).hash(state);
+    }
+}
+
+impl Eq for BorderRadius {
 }
 
 impl ComplexClipRegion {
