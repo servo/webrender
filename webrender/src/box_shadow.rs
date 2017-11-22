@@ -5,7 +5,8 @@
 use api::{BorderRadiusKind, ColorF, LayerPoint, LayerRect, LayerSize, LayerVector2D};
 use api::{BorderRadius, BoxShadowClipMode, LayoutSize, LayerPrimitiveInfo};
 use api::{ClipMode, ClipAndScrollInfo, ComplexClipRegion, EdgeAaSegmentMask, LocalClip};
-use api::{PipelineId};
+use api::{PipelineId, PremultipliedColorF};
+use app_units::Au;
 use clip::ClipSource;
 use frame_builder::FrameBuilder;
 use prim_store::{PrimitiveContainer, RectangleContent, RectanglePrimitive};
@@ -25,6 +26,17 @@ pub const MAX_BLUR_RADIUS : f32 = 300.;
 // mask. This ensures that we get a few pixels past the corner that can be
 // blurred without being affected by the border radius.
 pub const MASK_CORNER_PADDING: f32 = 4.0;
+
+#[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
+pub struct BoxShadowCacheKey {
+    pub blur_radius: Au,
+    pub spread_radius: Au,
+    pub offset_x: Au,
+    pub offset_y: Au,
+    pub color: PremultipliedColorF,
+    pub clip_mode: BoxShadowClipMode,
+    pub border_radius: BorderRadius,
+}
 
 impl FrameBuilder {
     pub fn add_box_shadow(
@@ -119,6 +131,17 @@ impl FrameBuilder {
             let blur_offset = BLUR_SAMPLE_SCALE * blur_radius;
             let mut extra_clips = vec![];
 
+            // Create a box shadow picture and add the mask primitive to it.
+            let cache_key = BoxShadowCacheKey {
+                blur_radius: Au::from_f32_px(blur_radius),
+                spread_radius: Au::from_f32_px(spread_radius),
+                offset_x: Au::from_f32_px(box_offset.x),
+                offset_y: Au::from_f32_px(box_offset.y),
+                color: color.premultiplied(),
+                clip_mode,
+                border_radius,
+            };
+
             match clip_mode {
                 BoxShadowClipMode::Outset => {
                     let width;
@@ -192,6 +215,7 @@ impl FrameBuilder {
                         Vec::new(),
                         clip_mode,
                         radii_kind,
+                        cache_key,
                         pipeline_id,
                     );
                     pic_prim.add_primitive(
@@ -270,6 +294,7 @@ impl FrameBuilder {
                         BoxShadowClipMode::Inset,
                         // TODO(gw): Make use of optimization for inset.
                         BorderRadiusKind::NonUniform,
+                        cache_key,
                         pipeline_id,
                     );
                     pic_prim.add_primitive(

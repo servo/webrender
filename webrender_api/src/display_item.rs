@@ -2,10 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use app_units::Au;
 use {ColorF, FontInstanceKey, ImageKey, LayerPixel, LayoutPixel, LayoutPoint, LayoutRect,
      LayoutSize, LayoutTransform};
 use {GlyphOptions, LayoutVector2D, PipelineId, PropertyBinding};
 use euclid::{SideOffsets2D, TypedRect};
+use std::hash::{Hash, Hasher};
 use std::ops::Not;
 
 // NOTE: some of these structs have an "IMPLICIT" comment.
@@ -346,7 +348,7 @@ pub enum BorderStyle {
 }
 
 #[repr(u32)]
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum BoxShadowClipMode {
     Outset = 0,
     Inset = 1,
@@ -696,6 +698,22 @@ impl BorderRadius {
             false
         }
     }
+}
+
+impl Hash for BorderRadius {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Au::from_f32_px(self.top_left.width).hash(state);
+        Au::from_f32_px(self.top_left.height).hash(state);
+        Au::from_f32_px(self.top_right.width).hash(state);
+        Au::from_f32_px(self.top_right.height).hash(state);
+        Au::from_f32_px(self.bottom_left.width).hash(state);
+        Au::from_f32_px(self.bottom_left.height).hash(state);
+        Au::from_f32_px(self.bottom_right.width).hash(state);
+        Au::from_f32_px(self.bottom_right.height).hash(state);
+    }
+}
+
+impl Eq for BorderRadius {
 }
 
 impl ComplexClipRegion {
