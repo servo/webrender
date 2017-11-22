@@ -2780,9 +2780,9 @@ impl Renderer {
             // Before submitting the composite batch, do the
             // framebuffer readbacks that are needed for each
             // composite operation in this batch.
-            let source = render_tasks.get(source_id);
-            let backdrop = render_tasks.get(task_id);
-            let readback = render_tasks.get(backdrop_id);
+            let source = &render_tasks[source_id];
+            let backdrop = &render_tasks[task_id];
+            let readback = &render_tasks[backdrop_id];
 
             let (readback_rect, readback_layer) = readback.get_target_rect();
             let (backdrop_rect, _) = backdrop.get_target_rect();
@@ -2845,8 +2845,8 @@ impl Renderer {
             .resolve(&source)
             .unwrap();
         for scaling in scalings {
-            let source = render_tasks.get(scaling.src_task_id);
-            let dest = render_tasks.get(scaling.dest_task_id);
+            let source = &render_tasks[scaling.src_task_id];
+            let dest = &render_tasks[scaling.dest_task_id];
 
             let (source_rect, source_layer) = source.get_target_rect();
             let (dest_rect, _) = dest.get_target_rect();
@@ -3245,8 +3245,7 @@ impl Renderer {
                         target.fbo_id
                     }
                 };
-                let task = render_tasks.get(output.task_id);
-                let (src_rect, _) = task.get_target_rect();
+                let (src_rect, _) = render_tasks[output.task_id].get_target_rect();
                 let dest_rect = DeviceIntRect::new(DeviceIntPoint::zero(), output_size);
                 device.bind_read_target(render_target);
                 device.bind_external_draw_target(fbo_id);
@@ -3283,9 +3282,8 @@ impl Renderer {
                 .clear_target_rect(Some(clear_color), None, target.used_rect());
 
             let zero_color = [0.0, 0.0, 0.0, 0.0];
-            for task_id in &target.zero_clears {
-                let task = render_tasks.get(*task_id);
-                let (rect, _) = task.get_target_rect();
+            for &task_id in &target.zero_clears {
+                let (rect, _) = render_tasks[task_id].get_target_rect();
                 self.device
                     .clear_target_rect(Some(zero_color), None, rect);
             }
