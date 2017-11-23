@@ -624,7 +624,8 @@ fn add_to_batch(
                     match picture.kind {
                         PictureKind::TextShadow { .. } => {
                             let kind = BatchKind::Brush(
-                                BrushBatchKind::Image(picture.target_kind()),
+                                BrushBatchKind::Image(
+                                    BrushImageSourceKind::from_render_target_kind(picture.target_kind())),
                             );
                             let key = BatchKey::new(kind, blend_mode, textures);
                             let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
@@ -644,7 +645,8 @@ fn add_to_batch(
                         }
                         PictureKind::BoxShadow { radii_kind, .. } => {
                             let kind = BatchKind::Brush(
-                                BrushBatchKind::Image(picture.target_kind()),
+                                BrushBatchKind::Image(
+                                    BrushImageSourceKind::from_render_target_kind(picture.target_kind())),
                             );
                             let key = BatchKey::new(kind, blend_mode, textures);
                             let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
@@ -1881,8 +1883,24 @@ pub enum TransformBatchKind {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum BrushImageSourceKind {
+    Alpha,
+    Color,
+    ColorAlphaMask,
+}
+
+impl BrushImageSourceKind {
+    pub fn from_render_target_kind(render_target_kind: RenderTargetKind) -> BrushImageSourceKind {
+        match render_target_kind {
+            RenderTargetKind::Color => BrushImageSourceKind::Color,
+            RenderTargetKind::Alpha => BrushImageSourceKind::Alpha,
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum BrushBatchKind {
-    Image(RenderTargetKind),
+    Image(BrushImageSourceKind),
     Solid,
 }
 

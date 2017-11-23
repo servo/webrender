@@ -65,8 +65,8 @@ use std::thread;
 use texture_cache::TextureCache;
 use thread_profiler::{register_thread_with_profiler, write_profile};
 use tiling::{AlphaRenderTarget, ColorRenderTarget};
-use tiling::{RenderPass, RenderPassKind, RenderTargetKind, RenderTargetList};
-use tiling::{BatchKey, BatchKind, BrushBatchKind, Frame, RenderTarget, ScalingInfo, TransformBatchKind};
+use tiling::{RenderPass, RenderPassKind, RenderTargetList};
+use tiling::{BatchKey, BatchKind, BrushBatchKind, BrushImageSourceKind, Frame, RenderTarget, ScalingInfo, TransformBatchKind};
 use time::precise_time_ns;
 use util::TransformedRectKind;
 
@@ -1402,6 +1402,7 @@ pub struct Renderer {
     brush_mask_corner: LazilyCompiledShader,
     brush_mask_rounded_rect: LazilyCompiledShader,
     brush_image_rgba8: BrushShader,
+    brush_image_rgba8_alpha_mask: BrushShader,
     brush_image_a8: BrushShader,
     brush_solid: BrushShader,
 
@@ -1622,6 +1623,13 @@ impl Renderer {
             BrushShader::new("brush_image",
                              &mut device,
                              &["COLOR_TARGET"],
+                             options.precache_shaders)
+        };
+
+        let brush_image_rgba8_alpha_mask = try!{
+            BrushShader::new("brush_image",
+                             &mut device,
+                             &["COLOR_TARGET_ALPHA_MASK"],
                              options.precache_shaders)
         };
 
@@ -2049,6 +2057,7 @@ impl Renderer {
             brush_mask_corner,
             brush_mask_rounded_rect,
             brush_image_rgba8,
+            brush_image_rgba8_alpha_mask,
             brush_image_a8,
             brush_solid,
             cs_clip_rectangle,
@@ -2828,8 +2837,9 @@ impl Renderer {
                     }
                     BrushBatchKind::Image(target_kind) => {
                         let shader = match target_kind {
-                            RenderTargetKind::Alpha => &mut self.brush_image_a8,
-                            RenderTargetKind::Color => &mut self.brush_image_rgba8,
+                            BrushImageSourceKind::Alpha => &mut self.brush_image_a8,
+                            BrushImageSourceKind::Color => &mut self.brush_image_rgba8,
+                            BrushImageSourceKind::ColorAlphaMask => &mut self.brush_image_rgba8_alpha_mask,
                         };
                         shader.bind(
                             &mut self.device,
@@ -4184,6 +4194,7 @@ impl Renderer {
         self.brush_mask_rounded_rect.deinit(&mut self.device);
         self.brush_mask_corner.deinit(&mut self.device);
         self.brush_image_rgba8.deinit(&mut self.device);
+        self.brush_image_rgba8_alpha_mask.deinit(&mut self.device);
         self.brush_image_a8.deinit(&mut self.device);
         self.brush_solid.deinit(&mut self.device);
         self.cs_clip_rectangle.deinit(&mut self.device);
