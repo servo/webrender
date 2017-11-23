@@ -234,6 +234,11 @@ impl PicturePrimitive {
                         let inflate_size = blur_radius * BLUR_SAMPLE_SCALE;
                         local_content_rect.inflate(inflate_size, inflate_size)
                     }
+                    Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, blur_radius, _))) => {
+                        let inflate_size = blur_radius * BLUR_SAMPLE_SCALE;
+                        local_content_rect.inflate(inflate_size, inflate_size)
+                                          .translate(&offset)
+                    }
                     _ => {
                         local_content_rect
                     }
@@ -333,6 +338,34 @@ impl PicturePrimitive {
                             &[],
                             ClearMode::Transparent,
                             PremultipliedColorF::TRANSPARENT,
+                        );
+
+                        Some(render_tasks.add(blur_render_task))
+                    }
+                    Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, blur_radius, color))) => {
+                        let picture_task = RenderTask::new_picture(
+                            Some(prim_screen_rect.size),
+                            prim_index,
+                            RenderTargetKind::Color,
+                            prim_screen_rect.origin.x as f32 - offset.x,
+                            prim_screen_rect.origin.y as f32 - offset.y,
+                            PremultipliedColorF::TRANSPARENT,
+                            ClearMode::Transparent,
+                            self.rasterization_kind,
+                            child_tasks,
+                        );
+
+                        let blur_std_deviation = blur_radius * prim_context.device_pixel_ratio;
+                        let picture_task_id = render_tasks.add(picture_task);
+
+                        let blur_render_task = RenderTask::new_blur(
+                            blur_std_deviation,
+                            picture_task_id,
+                            render_tasks,
+                            RenderTargetKind::Color,
+                            &[],
+                            ClearMode::Transparent,
+                            color.premultiplied(),
                         );
 
                         Some(render_tasks.add(blur_render_task))

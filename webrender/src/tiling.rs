@@ -708,6 +708,29 @@ fn add_to_batch(
 
                                             batch.push(PrimitiveInstance::from(instance));
                                         }
+                                        FilterOp::DropShadow(..) => {
+                                            let kind = BatchKind::Brush(
+                                                BrushBatchKind::Image(BrushImageSourceKind::ColorAlphaMask),
+                                            );
+                                            let key = BatchKey::new(kind, blend_mode, textures);
+
+                                            let instance = BrushInstance {
+                                                picture_address: task_address,
+                                                prim_address: prim_cache_address,
+                                                clip_id,
+                                                scroll_id,
+                                                clip_task_address,
+                                                z,
+                                                flags: 0,
+                                                user_data0: cache_task_address.0 as i32,
+                                                user_data1: BrushImageKind::Simple as i32,
+                                            };
+
+                                            {
+                                                let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
+                                                batch.push(PrimitiveInstance::from(instance));
+                                            }
+                                        }
                                         _ => {
                                             let key = BatchKey::new(
                                                 BatchKind::Blend,
@@ -726,6 +749,7 @@ fn add_to_batch(
                                                 FilterOp::Sepia(amount) => (6, amount),
                                                 FilterOp::Brightness(amount) => (7, amount),
                                                 FilterOp::Opacity(_, amount) => (8, amount),
+                                                FilterOp::DropShadow(..) => unreachable!(),
                                             };
 
                                             let amount = (amount * 65535.0).round() as i32;

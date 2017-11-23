@@ -5,7 +5,7 @@
 use api::{BorderDetails, BorderDisplayItem, BuiltDisplayList};
 use api::{ClipAndScrollInfo, ClipId, ColorF, PropertyBinding};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize};
-use api::{DocumentLayer, ExtendMode, FontRenderMode, LayoutTransform};
+use api::{DocumentLayer, ExtendMode, FilterOp, FontRenderMode, LayoutTransform};
 use api::{GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem, HitTestResult};
 use api::{ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect};
 use api::{LayerSize, LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation};
@@ -421,13 +421,63 @@ impl FrameBuilder {
 
             let pic_prim_index = self.prim_store.cpu_metadata[parent_pic_prim_index.0].cpu_prim_index;
             parent_pic_prim_index = src_prim_index;
-            let pic = &mut self.prim_store.cpu_pictures[pic_prim_index.0];
-            pic.add_primitive(
-                src_prim_index,
-                clip_and_scroll,
-            );
+            {
+                let pic = &mut self.prim_store.cpu_pictures[pic_prim_index.0];
+                pic.add_primitive(
+                    src_prim_index,
+                    clip_and_scroll,
+                );
+            }
 
             self.picture_stack.push(src_prim_index);
+
+            match filter {
+                &FilterOp::DropShadow(..) => {
+                    self.picture_stack.pop().expect("bug");
+
+                    // For drop shadow filter, add another primitive to draw original image.
+                    let blit_prim = PicturePrimitive::new_image(
+                        Some(PictureCompositeMode::Blit),
+                        false,
+                        pipeline_id,
+                        current_reference_frame_id,
+                        None,
+                    );
+                    let blit_clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
+
+                    let blit_prim_index = self.prim_store.add_primitive(
+                        &LayerRect::zero(),
+                        &max_clip,
+                        is_backface_visible,
+                        blit_clip_sources,
+                        None,
+                        PrimitiveContainer::Picture(blit_prim),
+                    );
+
+                    {
+                        // Add blit primitive to parent.
+                        let pic = &mut self.prim_store.cpu_pictures[pic_prim_index.0];
+                        pic.add_primitive(
+                            blit_prim_index,
+                            clip_and_scroll,
+                        );
+                    }
+
+                    {
+                        // Add blit primitive to blur and blit.
+                        let blur_prim_index = self.prim_store.cpu_metadata[parent_pic_prim_index.0].cpu_prim_index;
+                        let blur = &mut self.prim_store.cpu_pictures[blur_prim_index.0];
+                        blur.add_primitive(
+                            blit_prim_index,
+                            clip_and_scroll,
+                        );
+                    }
+
+                    parent_pic_prim_index = blit_prim_index;
+                    self.picture_stack.push(blit_prim_index);
+                }
+                _ => {}
+            }
         }
 
         // Same for mix-blend-mode.
