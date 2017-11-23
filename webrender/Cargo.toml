@@ -10,7 +10,7 @@ build = "build.rs"
 default = ["freetype-lib"]
 freetype-lib = ["freetype/servo-freetype-sys"]
 profiler = ["thread_profiler/thread_profiler"]
-debugger = ["ws", "serde_json", "serde", "serde_derive", "image"]
+debugger = ["ws", "serde_json", "serde", "serde_derive", "image", "base64"]
 
 [dependencies]
 app_units = "0.5.6"
@@ -32,7 +32,8 @@ ws = { optional = true, version = "0.7.3" }
 serde_json = { optional = true, version = "1.0" }
 serde = { optional = true, version = "1.0" }
 serde_derive = { optional = true, version = "1.0" }
-image = { optional = true, version = "*" }
+image = { optional = true, version = "0.17" }
+base64 = { optional = true, version = "0.3.0" }
 
 [dev-dependencies]
 angle = {git = "https://github.com/servo/angle", branch = "servo"}

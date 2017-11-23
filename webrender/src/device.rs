@@ -1407,25 +1407,13 @@ impl Device {
         }
     }
 
-    pub fn read_pixels(&mut self, texture: &Texture) -> Vec<u8> {
-        let (gl_format, bpp, data_type) = match texture.format {
-            ImageFormat::A8 => (GL_FORMAT_A, 1, gl::UNSIGNED_BYTE),
-            ImageFormat::RGB8 => (gl::RGB, 3, gl::UNSIGNED_BYTE),
-            ImageFormat::BGRA8 => (get_gl_format_bgra(self.gl()), 4, gl::UNSIGNED_BYTE),
-            ImageFormat::RG8 => (gl::RG, 2, gl::UNSIGNED_BYTE),
-            ImageFormat::RGBAF32 => (gl::RGBA, 16, gl::FLOAT),
-            ImageFormat::Invalid => unreachable!(),
-        };
-
-        println!("{:#?}", texture.format);
-
-        let data = self.gl.read_pixels(
+    pub fn read_pixels(&mut self, width: i32, height: i32) -> Vec<u8> {
+        self.gl.read_pixels(
             0, 0, 
-            200 as i32, 200 as i32,
-            gl_format,
-            data_type);
-        
-        data
+            width as i32, height as i32,
+            gl::RGBA,
+            gl::UNSIGNED_BYTE
+        )
     }
 
     pub fn bind_vao(&mut self, vao: &VAO) {
