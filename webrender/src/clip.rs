@@ -103,15 +103,17 @@ impl From<ClipRegion> for ClipSources {
 
 impl ClipSource {
     pub fn contains(&self, point: &LayerPoint) -> bool {
-        // We currently do not handle all types of clip sources, because they
-        // aren't used for ClipScrollNodes and this method is only used during hit testing.
+        // We currently do not handle all BorderCorners, because they aren't used for
+        // ClipScrollNodes and this method is only used during hit testing.
         match self {
             &ClipSource::Rectangle(ref rectangle) => rectangle.contains(point),
             &ClipSource::RoundedRectangle(rect, radii, ClipMode::Clip) =>
                 rounded_rectangle_contains_point(point, &rect, &radii),
             &ClipSource::RoundedRectangle(rect, radii, ClipMode::ClipOut) =>
                 !rounded_rectangle_contains_point(point, &rect, &radii),
-            _ => unreachable!("Tried to call contains on an unsupported ClipSource."),
+            &ClipSource::Image(mask) => mask.rect.contains(point),
+            &ClipSource::BorderCorner(_) =>
+                unreachable!("Tried to call contains on a BorderCornerr."),
         }
     }
 
