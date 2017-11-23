@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderRadiusKind, ClipId, ColorF, DeviceIntPoint, ImageKey};
-use api::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
+use api::{DeviceIntRect, DeviceIntSize, device_length, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{DocumentLayer, ExternalImageType, FilterOp, FontRenderMode};
 use api::{ImageFormat, ImageRendering};
 use api::{LayerRect, MixBlendMode, PipelineId};
@@ -732,6 +732,61 @@ fn add_to_batch(
 
                                             batch.push(PrimitiveInstance::from(instance));
                                         }
+                                        FilterOp::DropShadow(offset, _, _) => {
+                                            let kind = BatchKind::Brush(
+                                                BrushBatchKind::Image(BrushImageSourceKind::ColorAlphaMask),
+                                            );
+                                            let key = BatchKey::new(kind, blend_mode, textures);
+
+                                            let instance = BrushInstance {
+                                                picture_address: task_address,
+                                                prim_address: prim_cache_address,
+                                                clip_id,
+                                                scroll_id,
+                                                clip_task_address,
+                                                z,
+                                                segment_kind: 0,
+                                                user_data0: cache_task_address.0 as i32,
+                                                user_data1: BrushImageKind::Simple as i32,
+                                            };
+
+                                            {
+                                                let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
+                                                batch.push(PrimitiveInstance::from(instance));
+                                            }
+
+                                            let secondary_id = secondary_render_task_id.expect("no secondary!?");
+                                            let render_task = &render_tasks[secondary_id];
+                                            let secondary_task_address = render_tasks.get_task_address(secondary_id);
+                                            let render_pass_index = render_task.pass_index.expect("no render_pass_index!?");
+                                            let secondary_textures = BatchTextures {
+                                                colors: [
+                                                    SourceTexture::RenderTaskCacheRGBA8(render_pass_index),
+                                                    SourceTexture::RenderTaskCacheA8(render_pass_index),
+                                                    SourceTexture::Invalid,
+                                                ],
+                                            };
+                                            let key = BatchKey::new(
+                                                BatchKind::HardwareComposite,
+                                                BlendMode::PremultipliedAlpha,
+                                                secondary_textures,
+                                            );
+                                            let batch = batch_list.get_suitable_batch(key, &item_bounding_rect);
+                                            let device_offset_x = device_length(offset.x, ctx.device_pixel_ratio);
+                                            let device_offset_y = device_length(offset.y, ctx.device_pixel_ratio);
+                                            let instance = CompositePrimitiveInstance::new(
+                                                task_address,
+                                                secondary_task_address,
+                                                RenderTaskAddress(0),
+                                                item_bounding_rect.origin.x - device_offset_x.0,
+                                                item_bounding_rect.origin.y - device_offset_y.0,
+                                                z,
+                                                item_bounding_rect.size.width,
+                                                item_bounding_rect.size.height,
+                                            );
+
+                                            batch.push(PrimitiveInstance::from(instance));
+                                        }
                                         _ => {
                                             let key = BatchKey::new(
                                                 BatchKind::Blend,
@@ -750,6 +805,7 @@ fn add_to_batch(
                                                 FilterOp::Sepia(amount) => (6, amount),
                                                 FilterOp::Brightness(amount) => (7, amount),
                                                 FilterOp::Opacity(_, amount) => (8, amount),
+                                                FilterOp::DropShadow(..) => unreachable!(),
                                             };
 
                                             let amount = (amount * 65535.0).round() as i32;
