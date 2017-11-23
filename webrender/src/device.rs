@@ -7,8 +7,7 @@ use api::{ColorF, ImageFormat};
 use api::{DeviceIntRect, DeviceUintSize};
 use euclid::Transform3D;
 use gleam::gl;
-use internal_types::RenderTargetMode;
-use internal_types::FastHashMap;
+use internal_types::{FastHashMap, RenderTargetInfo};
 use std::cell::RefCell;
 use std::fs::File;
 use std::io::Read;
@@ -394,7 +393,7 @@ pub struct Texture {
     height: u32,
 
     filter: TextureFilter,
-    mode: RenderTargetMode,
+    render_target: Option<RenderTargetInfo>,
     fbo_ids: Vec<FBOId>,
     depth_rb: Option<RBOId>,
 }
@@ -421,6 +420,10 @@ impl Texture {
             ImageFormat::RGBAF32 => 16,
             ImageFormat::Invalid => unreachable!(),
         }
+    }
+
+    pub fn has_depth(&self) -> bool {
+        self.depth_rb.is_some()
     }
 }
 
@@ -805,9 +808,8 @@ impl Device {
     pub fn create_fbo_for_external_texture(&mut self, texture_id: u32) -> FBOId {
         let fbo = FBOId(self.gl.gen_framebuffers(1)[0]);
         self.bind_external_draw_target(fbo);
-        self.gl.bind_framebuffer(gl::FRAMEBUFFER, fbo.0);
         self.gl.framebuffer_texture_2d(
-            gl::FRAMEBUFFER,
+            gl::DRAW_FRAMEBUFFER,
             gl::COLOR_ATTACHMENT0,
             gl::TEXTURE_2D,
             texture_id,
@@ -847,7 +849,7 @@ impl Device {
             layer_count: 0,
             format: ImageFormat::Invalid,
             filter: TextureFilter::Nearest,
-            mode: RenderTargetMode::None,
+            render_target: None,
             fbo_ids: vec![],
             depth_rb: None,
         }
@@ -877,7 +879,7 @@ impl Device {
         height: u32,
         format: ImageFormat,
         filter: TextureFilter,
-        mode: RenderTargetMode,
+        render_target: Option<RenderTargetInfo>,
         layer_count: i32,
         pixels: Option<&[u8]>,
     ) {
@@ -890,7 +892,7 @@ impl Device {
         texture.height = height;
         texture.filter = filter;
         texture.layer_count = layer_count;
-        texture.mode = mode;
+        texture.render_target = render_target;
 
         let (internal_format, gl_format) = gl_texture_formats_for_image_format(self.gl(), format);
         let type_ = gl_type_for_texture_format(format);
@@ -898,11 +900,12 @@ impl Device {
         self.bind_texture(DEFAULT_TEXTURE, texture);
         self.set_texture_parameters(texture.target, filter);
 
-        match mode {
-            RenderTargetMode::RenderTarget => {
-                self.update_texture_storage(texture, resized);
+        match render_target {
+            Some(info) => {
+                assert!(pixels.is_none());
+                self.update_texture_storage(texture, &info, resized);
             }
-            RenderTargetMode::None => {
+            None => {
                 let expanded_data: Vec<u8>;
                 let actual_pixels = if pixels.is_some() && format == ImageFormat::A8 &&
                     cfg!(any(target_arch = "arm", target_arch = "aarch64"))
@@ -951,34 +954,37 @@ impl Device {
         }
     }
 
-    /// Updates the texture storage for the texture, creating
-    /// FBOs as required.
-    fn update_texture_storage(&mut self, texture: &mut Texture, resized: bool) {
+    /// Updates the texture storage for the texture, creating FBOs as required.
+    fn update_texture_storage(
+        &mut self,
+        texture: &mut Texture,
+        rt_info: &RenderTargetInfo,
+        is_resized: bool,
+    ) {
         assert!(texture.layer_count > 0);
         assert_eq!(texture.target, gl::TEXTURE_2D_ARRAY);
 
         let needed_layer_count = texture.layer_count - texture.fbo_ids.len() as i32;
-        // If the texture is already the required size skip.
-        if needed_layer_count == 0 && !resized {
-            return;
+        let allocate_color = needed_layer_count != 0 || is_resized;
+
+        if allocate_color {
+            let (internal_format, gl_format) =
+                gl_texture_formats_for_image_format(&*self.gl, texture.format);
+            let type_ = gl_type_for_texture_format(texture.format);
+
+            self.gl.tex_image_3d(
+                texture.target,
+                0,
+                internal_format as gl::GLint,
+                texture.width as gl::GLint,
+                texture.height as gl::GLint,
+                texture.layer_count,
+                0,
+                gl_format,
+                type_,
+                None,
+            );
         }
-
-        let (internal_format, gl_format) =
-            gl_texture_formats_for_image_format(&*self.gl, texture.format);
-        let type_ = gl_type_for_texture_format(texture.format);
-
-        self.gl.tex_image_3d(
-            texture.target,
-            0,
-            internal_format as gl::GLint,
-            texture.width as gl::GLint,
-            texture.height as gl::GLint,
-            texture.layer_count,
-            0,
-            gl_format,
-            type_,
-            None,
-        );
 
         if needed_layer_count > 0 {
             // Create more framebuffers to fill the gap
@@ -993,48 +999,54 @@ impl Device {
             }
         }
 
-        let (depth_rb, depth_alloc) = match texture.depth_rb {
-            Some(rbo) => (rbo.0, resized),
-            None => {
+        let (mut depth_rb, allocate_depth) = match texture.depth_rb {
+            Some(rbo) => (rbo.0, is_resized || !rt_info.has_depth),
+            None if rt_info.has_depth => {
                 let renderbuffer_ids = self.gl.gen_renderbuffers(1);
                 let depth_rb = renderbuffer_ids[0];
                 texture.depth_rb = Some(RBOId(depth_rb));
                 (depth_rb, true)
-            }
+            },
+            None => (0, false),
         };
 
-        if depth_alloc {
-            self.gl.bind_renderbuffer(gl::RENDERBUFFER, depth_rb);
-            self.gl.renderbuffer_storage(
-                gl::RENDERBUFFER,
-                gl::DEPTH_COMPONENT24,
-                texture.width as gl::GLsizei,
-                texture.height as gl::GLsizei,
-            );
+        if allocate_depth {
+            if rt_info.has_depth {
+                self.gl.bind_renderbuffer(gl::RENDERBUFFER, depth_rb);
+                self.gl.renderbuffer_storage(
+                    gl::RENDERBUFFER,
+                    gl::DEPTH_COMPONENT24,
+                    texture.width as gl::GLsizei,
+                    texture.height as gl::GLsizei,
+                );
+            } else {
+                self.gl.delete_renderbuffers(&[depth_rb]);
+                depth_rb = 0;
+                texture.depth_rb = None;
+            }
         }
 
-        for (fbo_index, fbo_id) in texture.fbo_ids.iter().enumerate() {
-            self.gl.bind_framebuffer(gl::FRAMEBUFFER, fbo_id.0);
-            self.gl.framebuffer_texture_layer(
-                gl::FRAMEBUFFER,
-                gl::COLOR_ATTACHMENT0,
-                texture.id,
-                0,
-                fbo_index as gl::GLint,
-            );
-            self.gl.framebuffer_renderbuffer(
-                gl::FRAMEBUFFER,
-                gl::DEPTH_ATTACHMENT,
-                gl::RENDERBUFFER,
-                depth_rb,
-            );
+        if allocate_color || allocate_depth {
+            for (fbo_index, &fbo_id) in texture.fbo_ids.iter().enumerate() {
+                self.bind_external_draw_target(fbo_id);
+                self.gl.framebuffer_texture_layer(
+                    gl::DRAW_FRAMEBUFFER,
+                    gl::COLOR_ATTACHMENT0,
+                    texture.id,
+                    0,
+                    fbo_index as gl::GLint,
+                );
+                self.gl.framebuffer_renderbuffer(
+                    gl::DRAW_FRAMEBUFFER,
+                    gl::DEPTH_ATTACHMENT,
+                    gl::RENDERBUFFER,
+                    depth_rb,
+                );
+            }
+            // restore the previous FBO
+            let bound_fbo = self.bound_draw_fbo;
+            self.bind_external_draw_target(bound_fbo);
         }
-
-        // TODO(gw): Hack! Modify the code above to use the normal binding interfaces the device exposes.
-        self.gl
-            .bind_framebuffer(gl::READ_FRAMEBUFFER, self.bound_read_fbo.0);
-        self.gl
-            .bind_framebuffer(gl::DRAW_FRAMEBUFFER, self.bound_draw_fbo.0);
     }
 
     pub fn blit_render_target(&mut self, src_rect: DeviceIntRect, dest_rect: DeviceIntRect) {

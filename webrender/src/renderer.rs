@@ -40,7 +40,7 @@ use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
 use gpu_types::PrimitiveInstance;
 use internal_types::{BatchTextures, SourceTexture, ORTHO_FAR_PLANE, ORTHO_NEAR_PLANE};
 use internal_types::{CacheTextureId, FastHashMap, RenderedDocument, ResultMsg, TextureUpdateOp};
-use internal_types::{DebugOutput, RenderTargetMode, TextureUpdateList, TextureUpdateSource};
+use internal_types::{DebugOutput, RenderTargetInfo, TextureUpdateList, TextureUpdateSource};
 use profiler::{BackendProfileCounters, Profiler};
 use profiler::{GpuProfileTag, RendererProfileCounters, RendererProfileTimers};
 use query::{GpuProfiler, GpuTimer};
@@ -574,7 +574,7 @@ impl SourceTextureResolver {
             1,
             ImageFormat::BGRA8,
             TextureFilter::Linear,
-            RenderTargetMode::RenderTarget,
+            None,
             1,
             None,
         );
@@ -758,7 +758,7 @@ impl CacheTexture {
                 updates.height as u32,
                 ImageFormat::RGBAF32,
                 TextureFilter::Nearest,
-                RenderTargetMode::None,
+                None,
                 1,
                 None,
             );
@@ -867,7 +867,7 @@ impl VertexDataTexture {
                 new_height,
                 ImageFormat::RGBAF32,
                 TextureFilter::Nearest,
-                RenderTargetMode::None,
+                None,
                 1,
                 None,
             );
@@ -1836,7 +1836,7 @@ impl Renderer {
                 8,
                 ImageFormat::A8,
                 TextureFilter::Nearest,
-                RenderTargetMode::None,
+                None,
                 1,
                 Some(&dither_matrix),
             );
@@ -2469,7 +2469,7 @@ impl Renderer {
                         layer_count,
                         format,
                         filter,
-                        mode,
+                        render_target,
                     } => {
                         let CacheTextureId(cache_texture_index) = update.id;
                         if self.texture_resolver.cache_texture_map.len() == cache_texture_index {
@@ -2488,7 +2488,7 @@ impl Renderer {
                             height,
                             format,
                             filter,
-                            mode,
+                            render_target,
                             layer_count,
                             None,
                         );
@@ -2868,13 +2868,24 @@ impl Renderer {
         projection: &Transform3D<f32>,
         frame_id: FrameId,
     ) {
+        // sanity check for the depth buffer
+        if let Some((texture, _)) = render_target {
+            assert!(texture.has_depth() >= target.needs_depth());
+        }
+
         {
             let _timer = self.gpu_profile.start_timer(GPU_TAG_SETUP_TARGET);
             self.device
                 .bind_draw_target(render_target, Some(target_size));
             self.device.disable_depth();
-            self.device.enable_depth_write();
             self.device.set_blend(false);
+
+            let depth_clear = if target.needs_depth() {
+                self.device.enable_depth_write();
+                Some(1.0)
+            } else {
+                None
+            };
 
             if render_target.is_some() {
                 if self.enable_clear_scissor {
@@ -2883,13 +2894,13 @@ impl Renderer {
                     // GPUs that I have tested with. It's possible it may be a
                     // performance penalty on other GPU types - we should test this
                     // and consider different code paths.
-                    self.device.clear_target_rect(clear_color, Some(1.0), target.used_rect());
+                    self.device.clear_target_rect(clear_color, depth_clear, target.used_rect());
                 } else {
-                    self.device.clear_target(clear_color, Some(1.0));
+                    self.device.clear_target(clear_color, depth_clear);
                 }
             } else if framebuffer_target_rect == DeviceUintRect::new(DeviceUintPoint::zero(), target_size) {
                 // whole screen is covered, no need for scissor
-                self.device.clear_target(clear_color, Some(1.0));
+                self.device.clear_target(clear_color, depth_clear);
             } else {
                 // Note: for non-intersecting document rectangles,
                 // we can omit clearing the depth here, and instead
@@ -2899,10 +2910,12 @@ impl Renderer {
                 // Note: at this point, the target rectangle is not guaranteed to be within the main framebuffer bounds
                 // but `clear_target_rect` is totally fine with negative origin, as long as width & height are positive
                 clear_rect.origin.y = target_size.height as i32 - clear_rect.origin.y - clear_rect.size.height;
-                self.device.clear_target_rect(clear_color, Some(1.0), clear_rect);
+                self.device.clear_target_rect(clear_color, depth_clear, clear_rect);
             }
 
-            self.device.disable_depth_write();
+            if depth_clear.is_some() {
+                self.device.disable_depth_write();
+            }
         }
 
         // Draw any blurs for this target.
@@ -2981,35 +2994,38 @@ impl Renderer {
             self.device.set_blend(false);
             let mut prev_blend_mode = BlendMode::None;
 
-            let opaque_sampler = self.gpu_profile.start_sampler(GPU_SAMPLER_TAG_OPAQUE);
+            if target.needs_depth() {
+                let opaque_sampler = self.gpu_profile.start_sampler(GPU_SAMPLER_TAG_OPAQUE);
 
-            //Note: depth equality is needed for split planes
-            self.device.set_depth_func(DepthFunction::LessEqual);
-            self.device.enable_depth();
-            self.device.enable_depth_write();
+                //Note: depth equality is needed for split planes
+                self.device.set_depth_func(DepthFunction::LessEqual);
+                self.device.enable_depth();
+                self.device.enable_depth_write();
 
-            // Draw opaque batches front-to-back for maximum
-            // z-buffer efficiency!
-            for batch in target
-                .alpha_batcher
-                .batch_list
-                .opaque_batch_list
-                .batches
-                .iter()
-                .rev()
-            {
-                self.submit_batch(
-                    &batch.key,
-                    &batch.instances,
-                    &projection,
-                    render_tasks,
-                    render_target,
-                    target_size,
-                );
+                // Draw opaque batches front-to-back for maximum
+                // z-buffer efficiency!
+                for batch in target
+                    .alpha_batcher
+                    .batch_list
+                    .opaque_batch_list
+                    .batches
+                    .iter()
+                    .rev()
+                {
+                    self.submit_batch(
+                        &batch.key,
+                        &batch.instances,
+                        &projection,
+                        render_tasks,
+                        render_target,
+                        target_size,
+                    );
+                }
+
+                self.device.disable_depth_write();
+                self.gpu_profile.finish_sampler(opaque_sampler);
             }
 
-            self.device.disable_depth_write();
-            self.gpu_profile.finish_sampler(opaque_sampler);
             let transparent_sampler = self.gpu_profile.start_sampler(GPU_SAMPLER_TAG_TRANSPARENT);
 
             for batch in &target.alpha_batcher.batch_list.alpha_batch_list.batches {
@@ -3501,7 +3517,7 @@ impl Renderer {
         }
     }
 
-    fn prepare_target_list<T>(
+    fn prepare_target_list<T: RenderTarget>(
         list: &mut RenderTargetList<T>,
         device: &mut Device,
         target_pool: &mut Vec<Texture>,
@@ -3522,7 +3538,9 @@ impl Renderer {
             list.max_size.height,
             format,
             TextureFilter::Linear,
-            RenderTargetMode::RenderTarget,
+            Some(RenderTargetInfo {
+                has_depth: list.needs_depth(),
+            }),
             list.targets.len() as _,
             None,
         );
