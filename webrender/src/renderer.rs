@@ -924,7 +924,18 @@ impl LazilyCompiledShader {
         };
 
         if precache {
-            try!{ shader.get(device) };
+            let t0 = precise_time_ns();
+            let program = try!{ shader.get(device) };
+            let t1 = precise_time_ns();
+            device.bind_program(program);
+            device.draw_triangles_u16(0, 3);
+            let t2 = precise_time_ns();
+            println!("[C: {:.1} ms D: {:.1} ms] Precache {} {:?}",
+                (t1 - t0) as f64 / 1000000.0,
+                (t2 - t1) as f64 / 1000000.0,
+                name,
+                features
+            );
         }
 
         Ok(shader)

@@ -4,6 +4,10 @@ author: Vladimir Vukicevic <vladimir@pobox.com>
 about: WebRender testing and debugging utility
 
 args:
+  - precache:
+      short: c
+      long: precache
+      help: Precache shaders
   - verbose:
       short: v
       long: verbose

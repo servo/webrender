@@ -153,6 +153,7 @@ impl Wrench {
         verbose: bool,
         no_scissor: bool,
         no_batch: bool,
+        precache_shaders: bool,
         notifier: Option<Box<RenderNotifier>>,
     ) -> Self {
         println!("Shader override path: {:?}", shader_override_path);
@@ -182,6 +183,7 @@ impl Wrench {
             debug_flags,
             enable_clear_scissor: !no_scissor,
             max_recorded_profiles: 16,
+            precache_shaders,
             blob_image_renderer: Some(Box::new(blob::CheckerboardRenderer::new())),
             ..Default::default()
         };

@@ -374,6 +374,7 @@ fn main() {
         args.is_present("verbose"),
         args.is_present("no_scissor"),
         args.is_present("no_batch"),
+        args.is_present("precache"),
         notifier,
     );
 
