@@ -18,9 +18,9 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>, &str) {
         o: Option<(usize, char)>,
     }
     impl<'a> Parser<'a> {
-        fn skip_whitespace(&mut self) {
+        fn skip_whitespace_and_bracket(&mut self) {
             while let Some(k) = self.o {
-                if !k.1.is_whitespace() {
+                if !k.1.is_whitespace() && k.1 != '[' && k.1 != ']' {
                     break;
                 }
                 self.start = k.0 + k.1.len_utf8();
@@ -36,7 +36,7 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>, &str) {
         o: o,
     };
 
-    p.skip_whitespace();
+    p.skip_whitespace_and_bracket();
 
     let mut end = p.start;
     while let Some(k) = p.o {
@@ -50,7 +50,7 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>, &str) {
     let name = &s[p.start .. end];
     let mut args = Vec::new();
 
-    p.skip_whitespace();
+    p.skip_whitespace_and_bracket();
 
     if let Some(k) = p.o {
         if k.1 != '(' {
@@ -61,7 +61,7 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>, &str) {
     }
 
     loop {
-        p.skip_whitespace();
+        p.skip_whitespace_and_bracket();
 
         let mut end = p.start;
         while let Some(k) = p.o {
@@ -74,7 +74,7 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>, &str) {
 
         args.push(&s[p.start .. end]);
 
-        p.skip_whitespace();
+        p.skip_whitespace_and_bracket();
 
         if let Some(k) = p.o {
             p.start = k.0 + k.1.len_utf8();
@@ -100,4 +100,9 @@ fn test() {
     assert_eq!(parse_function("  rotate  (40)").0, "rotate");
     assert_eq!(parse_function("  rotate  (  40 )").1[0], "40");
     assert_eq!(parse_function("rotate(-40.0)").1[0], "-40.0");
+    assert_eq!(parse_function("drop-shadow(0, [1, 2, 3, 4], 5)").1[0], "0");
+    assert_eq!(parse_function("drop-shadow(0, [1, 2, 3, 4], 5)").1[1], "1");
+    assert_eq!(parse_function("drop-shadow(0, [1, 2, 3, 4], 5)").1[2], "2");
+    assert_eq!(parse_function("drop-shadow(0, [1, 2, 3, 4], 5)").1[3], "3");
+    assert_eq!(parse_function("drop-shadow(0, [1, 2, 3, 4], 5)").1[4], "4");
 }

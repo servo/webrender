@@ -564,6 +564,19 @@ impl YamlHelper for Yaml {
                 ("sepia", ref args, _) if args.len() == 1 => {
                     Some(FilterOp::Sepia(args[0].parse().unwrap()))
                 }
+                ("drop-shadow", ref args, _) if args.len() == 7 => {
+                    Some(FilterOp::DropShadow(LayoutVector2D::new(args[0].parse().unwrap(), args[1].parse().unwrap()),
+                                              args[2].parse().unwrap(),
+                                              ColorF::new(f32::from_str(args[3]).unwrap() / 255.0,
+                                                          f32::from_str(args[4]).unwrap() / 255.0,
+                                                          f32::from_str(args[5]).unwrap() / 255.0,
+                                                          f32::from_str(args[6]).unwrap())))
+                }
+                ("drop-shadow", ref args, _) if args.len() == 4 => {
+                    Some(FilterOp::DropShadow(LayoutVector2D::new(args[0].parse().unwrap(), args[1].parse().unwrap()),
+                                              args[2].parse().unwrap(),
+                                              string_to_color(args[3]).unwrap()))
+                }
                 (_, _, _) => None,
             }
         } else {

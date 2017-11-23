@@ -210,6 +210,12 @@ fn write_sc(parent: &mut Table, sc: &StackingContext, properties: &SceneProperti
             }
             FilterOp::Saturate(x) => { filters.push(Yaml::String(format!("saturate({})", x))) }
             FilterOp::Sepia(x) => { filters.push(Yaml::String(format!("sepia({})", x))) }
+            FilterOp::DropShadow(offset, blur, color) => {
+                filters.push(Yaml::String(format!("drop-shadow({},{},{},{},{},{},{})",
+                                                  offset.x, offset.y,
+                                                  blur,
+                                                  color.r, color.g, color.b, color.a)))
+            }
         }
     }
 
