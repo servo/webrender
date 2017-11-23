@@ -38,6 +38,9 @@ void main(void) {
     vBlurRadius = int(3.0 * blur_task.blur_radius);
     vSigma = blur_task.blur_radius;
 
+#if defined WR_FEATURE_BLUR_2D
+    vOffsetScale = 1.0 / texture_size.xy;
+#else
     switch (aBlurDirection) {
         case DIR_HORIZONTAL:
             vOffsetScale = vec2(1.0 / texture_size.x, 0.0);
@@ -46,6 +49,7 @@ void main(void) {
             vOffsetScale = vec2(0.0, 1.0 / texture_size.y);
             break;
     }
+#endif
 
     vUvRect = vec4(src_rect.p0 + vec2(0.5),
                    src_rect.p0 + src_rect.size - vec2(0.5));
@@ -103,6 +107,59 @@ void main(void) {
     gauss_coefficient.z = gauss_coefficient.y * gauss_coefficient.y;
 
     float gauss_coefficient_sum = 0.0;
+
+#if defined WR_FEATURE_BLUR_2D
+    // Sample center texel.
+    SAMPLE_TYPE avg_color = original_color * gauss_coefficient.x * gauss_coefficient.x;
+    gauss_coefficient_sum += gauss_coefficient.x * gauss_coefficient.x;
+
+    // Cache current coeff.
+    vec3 gauss_coefficient_temp = gauss_coefficient;
+    // Sample center column and center row.
+    for (int i = 1 ; i <= vBlurRadius ; ++i) {
+        gauss_coefficient_temp.xy *= gauss_coefficient_temp.yz;
+
+        vec2 offset = vOffsetScale * float(i);
+        float coeff = gauss_coefficient.x * gauss_coefficient_temp.x;
+
+        vec4 st01 = vUv.xyxy + vec4(offset.x, 0.0, -offset.x, 0.0);
+        st01 = clamp(st01, vUvRect.xyxy, vUvRect.zwzw);
+        vec4 st23 = vUv.xyxy + vec4(0.0, offset.y, 0.0, -offset.y);
+        st23 = clamp(st23, vUvRect.xyxy, vUvRect.zwzw);
+        SAMPLE_TYPE color = SAMPLE_TEXTURE(vec3(st01.xy, vUv.z)) +
+                            SAMPLE_TEXTURE(vec3(st01.zw, vUv.z)) +
+                            SAMPLE_TEXTURE(vec3(st23.xy, vUv.z)) +
+                            SAMPLE_TEXTURE(vec3(st23.zw, vUv.z));
+        avg_color += color * coeff;
+        gauss_coefficient_sum += 4.0 * coeff;
+    }
+
+    // Cache current coeff.
+    vec3 gauss_coefficient_temp_x = gauss_coefficient;
+    // Sample remain texels.
+    for (int i = 1 ; i <= vBlurRadius ; ++i) {
+        gauss_coefficient_temp_x.xy *= gauss_coefficient_temp_x.yz;
+        float offset_x = vOffsetScale.x  * float(i);
+        vec3 gauss_coefficient_temp_y = gauss_coefficient;
+
+        for (int j = 1 ; j <= vBlurRadius ; ++j) {
+            gauss_coefficient_temp_y.xy *= gauss_coefficient_temp_y.yz;
+            float offset_y = vOffsetScale.y * float(j);
+            float coeff = gauss_coefficient_temp_x.x * gauss_coefficient_temp_y.x;
+
+            vec4 st01 = vUv.xyxy + vec4(offset_x, offset_y, offset_x, -offset_y);
+            st01 = clamp(st01, vUvRect.xyxy, vUvRect.zwzw);
+            vec4 st23 = vUv.xyxy + vec4(-offset_x, offset_y, -offset_x, -offset_y);
+            st23 = clamp(st23, vUvRect.xyxy, vUvRect.zwzw);
+            SAMPLE_TYPE color = SAMPLE_TEXTURE(vec3(st01.xy, vUv.z)) +
+                                SAMPLE_TEXTURE(vec3(st01.zw, vUv.z)) +
+                                SAMPLE_TEXTURE(vec3(st23.xy, vUv.z)) +
+                                SAMPLE_TEXTURE(vec3(st23.zw, vUv.z));
+            avg_color += color * coeff;
+            gauss_coefficient_sum += 4.0 * coeff;
+        }
+    }
+#else
     SAMPLE_TYPE avg_color = original_color * gauss_coefficient.x;
     gauss_coefficient_sum += gauss_coefficient.x;
     gauss_coefficient.xy *= gauss_coefficient.yz;
@@ -119,6 +176,7 @@ void main(void) {
         gauss_coefficient_sum += 2.0 * gauss_coefficient.x;
         gauss_coefficient.xy *= gauss_coefficient.yz;
     }
+#endif
 
     oFragColor = vec4(avg_color) / gauss_coefficient_sum;
 }

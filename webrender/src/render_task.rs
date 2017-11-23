@@ -258,6 +258,7 @@ pub enum RenderTaskKind {
     CacheMask(CacheMaskTask),
     VerticalBlur(BlurTask),
     HorizontalBlur(BlurTask),
+    Blur2D(BlurTask),
     Readback(DeviceIntRect),
     Alias(RenderTaskId),
     Scaling(RenderTargetKind),
@@ -457,6 +458,30 @@ impl RenderTask {
         }
         scale_factor = blur_target_size.width as f32 / adjusted_blur_target_size.width as f32;
 
+        const MAX_KERNAL_SIZE: f32 = 5.0;
+        let blur_radius = 3.0 * blur_std_deviation;
+        let kernal_size = 2.0 * blur_radius + 1.0;
+        // This is very small kernal size, apply one-pass 2d gaussian blur.
+        if kernal_size < MAX_KERNAL_SIZE {
+            // Small kernal size should not involve any downscale.
+            debug_assert!(scale_factor == 1.0);
+            let blur_task = RenderTask {
+                cache_key: None,
+                children: vec![downscaling_src_task_id],
+                location: RenderTaskLocation::Dynamic(None, adjusted_blur_target_size),
+                kind: RenderTaskKind::Blur2D(BlurTask {
+                    blur_std_deviation: adjusted_blur_std_deviation,
+                    target_kind,
+                    regions: regions.to_vec(),
+                    color,
+                    scale_factor,
+                }),
+                clear_mode,
+            };
+
+            return blur_task;
+        }
+
         let blur_task_v = RenderTask {
             cache_key: None,
             children: vec![downscaling_src_task_id],
@@ -546,7 +571,8 @@ impl RenderTask {
                 )
             }
             RenderTaskKind::VerticalBlur(ref task) |
-            RenderTaskKind::HorizontalBlur(ref task) => {
+            RenderTaskKind::HorizontalBlur(ref task) |
+            RenderTaskKind::Blur2D(ref task)=> {
                 (
                     [
                         task.blur_std_deviation,
@@ -630,7 +656,8 @@ impl RenderTask {
             }
 
             RenderTaskKind::VerticalBlur(ref task_info) |
-            RenderTaskKind::HorizontalBlur(ref task_info) => {
+            RenderTaskKind::HorizontalBlur(ref task_info) |
+            RenderTaskKind::Blur2D(ref task_info) => {
                 task_info.target_kind
             }
 
@@ -660,6 +687,7 @@ impl RenderTask {
             RenderTaskKind::VerticalBlur(..) |
             RenderTaskKind::Readback(..) |
             RenderTaskKind::HorizontalBlur(..) |
+            RenderTaskKind::Blur2D(..) |
             RenderTaskKind::Scaling(..) => false,
 
             RenderTaskKind::CacheMask(..) => true,

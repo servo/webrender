@@ -1355,6 +1355,7 @@ pub struct ColorRenderTarget {
     // List of blur operations to apply for this render target.
     pub vertical_blurs: Vec<BlurInstance>,
     pub horizontal_blurs: Vec<BlurInstance>,
+    pub blurs: Vec<BlurInstance>,
     pub readbacks: Vec<DeviceIntRect>,
     pub scalings: Vec<ScalingInfo>,
     // List of frame buffer outputs for this render target.
@@ -1381,6 +1382,7 @@ impl RenderTarget for ColorRenderTarget {
             line_cache_prims: Vec::new(),
             vertical_blurs: Vec::new(),
             horizontal_blurs: Vec::new(),
+            blurs: Vec::new(),
             readbacks: Vec::new(),
             scalings: Vec::new(),
             allocator: size.map(TextureAllocator::new),
@@ -1428,6 +1430,16 @@ impl RenderTarget for ColorRenderTarget {
                     &mut self.horizontal_blurs,
                     task_id,
                     task.children[0],
+                    BlurDirection::Horizontal,
+                    render_tasks,
+                );
+            }
+            RenderTaskKind::Blur2D(ref info) => {
+                info.add_instances(
+                    &mut self.blurs,
+                    task_id,
+                    task.children[0],
+                    // Not use for 2d blur.
                     BlurDirection::Horizontal,
                     render_tasks,
                 );
@@ -1558,6 +1570,7 @@ pub struct AlphaRenderTarget {
     // List of blur operations to apply for this render target.
     pub vertical_blurs: Vec<BlurInstance>,
     pub horizontal_blurs: Vec<BlurInstance>,
+    pub blurs: Vec<BlurInstance>,
     pub scalings: Vec<ScalingInfo>,
     pub zero_clears: Vec<RenderTaskId>,
     allocator: TextureAllocator,
@@ -1578,6 +1591,7 @@ impl RenderTarget for AlphaRenderTarget {
             brush_mask_rounded_rects: Vec::new(),
             vertical_blurs: Vec::new(),
             horizontal_blurs: Vec::new(),
+            blurs: Vec::new(),
             scalings: Vec::new(),
             zero_clears: Vec::new(),
             allocator: TextureAllocator::new(size.expect("bug: alpha targets need size")),
@@ -1623,6 +1637,15 @@ impl RenderTarget for AlphaRenderTarget {
             RenderTaskKind::HorizontalBlur(ref info) => {
                 info.add_instances(
                     &mut self.horizontal_blurs,
+                    task_id,
+                    task.children[0],
+                    BlurDirection::Horizontal,
+                    render_tasks,
+                );
+            }
+            RenderTaskKind::Blur2D(ref info) => {
+                info.add_instances(
+                    &mut self.blurs,
                     task_id,
                     task.children[0],
                     BlurDirection::Horizontal,
