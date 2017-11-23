@@ -10,7 +10,7 @@ flat varying vec4 vUvBounds;
 flat varying vec4 vUvBounds_NoClamp;
 flat varying vec4 vParams;
 
-#if defined WR_FEATURE_ALPHA_TARGET
+#if defined WR_FEATURE_ALPHA_TARGET || defined WR_FEATURE_COLOR_TARGET_ALPHA_MASK
 flat varying vec4 vColor;
 #endif
 
@@ -37,6 +37,9 @@ void brush_vs(
 
 #if defined WR_FEATURE_COLOR_TARGET
     vec2 texture_size = vec2(textureSize(sColor0, 0).xy);
+#elif defined WR_FEATURE_COLOR_TARGET_ALPHA_MASK
+    vec2 texture_size = vec2(textureSize(sColor0, 0).xy);
+    vColor = blur_task.color;
 #else
     vec2 texture_size = vec2(textureSize(sColor1, 0).xy);
     vColor = blur_task.color;
@@ -112,6 +115,8 @@ vec4 brush_fs() {
 
 #if defined WR_FEATURE_COLOR_TARGET
     vec4 color = texture(sColor0, vec3(uv, vUv.z));
+#elif defined WR_FEATURE_COLOR_TARGET_ALPHA_MASK
+    vec4 color = vColor * texture(sColor0, vec3(uv, vUv.z)).a;
 #else
     vec4 color = vColor * texture(sColor1, vec3(uv, vUv.z)).r;
 #endif
