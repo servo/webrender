@@ -1582,6 +1582,7 @@ impl FrameBuilder {
             profile_counters,
             None,
             scene_properties,
+            PrimitiveIndex(0),
         );
 
         let pic = &mut self.prim_store.cpu_pictures[0];
@@ -1599,8 +1600,9 @@ impl FrameBuilder {
             child_tasks,
         );
 
-        pic.render_task_id = Some(render_tasks.add(root_render_task));
-        pic.render_task_id
+        let render_task_id = render_tasks.add(root_render_task);
+        pic.render_task_ids.insert(PrimitiveIndex(0), render_task_id);
+        Some(render_task_id)
     }
 
     fn update_scroll_bars(&mut self, clip_scroll_tree: &ClipScrollTree, gpu_cache: &mut GpuCache) {

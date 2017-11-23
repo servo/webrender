@@ -13,6 +13,7 @@ use prim_store::{PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
 use render_task::{ClearMode, RenderTask, RenderTaskId, RenderTaskTree};
 use scene::{FilterOpHelpers, SceneProperties};
 use tiling::RenderTargetKind;
+use internal_types::FastHashMap;
 
 /*
  A picture represents a dynamically rendered image. It consists of:
@@ -88,7 +89,7 @@ pub enum PictureKind {
 pub struct PicturePrimitive {
     // If this picture is drawn to an intermediate surface,
     // the associated render task.
-    pub render_task_id: Option<RenderTaskId>,
+    pub render_task_ids: FastHashMap<PrimitiveIndex, RenderTaskId>,
 
     // Details specific to this type of picture.
     pub kind: PictureKind,
@@ -113,7 +114,7 @@ impl PicturePrimitive {
     pub fn new_text_shadow(shadow: Shadow, pipeline_id: PipelineId) -> Self {
         PicturePrimitive {
             runs: Vec::new(),
-            render_task_id: None,
+            render_task_ids: FastHashMap::default(),
             kind: PictureKind::TextShadow {
                 offset: shadow.offset,
                 color: shadow.color,
@@ -157,7 +158,7 @@ impl PicturePrimitive {
     ) -> Self {
         PicturePrimitive {
             runs: Vec::new(),
-            render_task_id: None,
+            render_task_ids: FastHashMap::default(),
             kind: PictureKind::BoxShadow {
                 blur_radius,
                 color,
@@ -181,7 +182,7 @@ impl PicturePrimitive {
     ) -> PicturePrimitive {
         PicturePrimitive {
             runs: Vec::new(),
-            render_task_id: None,
+            render_task_ids: FastHashMap::default(),
             kind: PictureKind::Image {
                 readback_render_task_id: None,
                 composite_mode,
@@ -298,8 +299,9 @@ impl PicturePrimitive {
         prim_screen_rect: &DeviceIntRect,
         child_tasks: Vec<RenderTaskId>,
         parent_tasks: &mut Vec<RenderTaskId>,
+        parent_prim_index: PrimitiveIndex,
     ) {
-        match self.kind {
+        let render_task_id = match self.kind {
             PictureKind::Image {
                 ref mut readback_render_task_id,
                 composite_mode,
@@ -333,8 +335,7 @@ impl PicturePrimitive {
                             PremultipliedColorF::TRANSPARENT,
                         );
 
-                        let blur_render_task_id = render_tasks.add(blur_render_task);
-                        self.render_task_id = Some(blur_render_task_id);
+                        Some(render_tasks.add(blur_render_task))
                     }
                     Some(PictureCompositeMode::MixBlend(..)) => {
                         let picture_task = RenderTask::new_picture(
@@ -354,7 +355,7 @@ impl PicturePrimitive {
                         *readback_render_task_id = Some(readback_task_id);
                         parent_tasks.push(readback_task_id);
 
-                        self.render_task_id = Some(render_tasks.add(picture_task));
+                        Some(render_tasks.add(picture_task))
                     }
                     Some(PictureCompositeMode::Filter(filter)) => {
                         // If this filter is not currently going to affect
@@ -362,9 +363,9 @@ impl PicturePrimitive {
                         // current render task. This most commonly occurs
                         // when opacity == 1.0, but can also occur on other
                         // filters and be a significant performance win.
-                        if filter.is_noop() {
+                        let task_id = if filter.is_noop() {
                             parent_tasks.extend(child_tasks);
-                            self.render_task_id = None;
+                            None
                         } else {
                             let picture_task = RenderTask::new_picture(
                                 Some(prim_screen_rect.size),
@@ -378,8 +379,10 @@ impl PicturePrimitive {
                                 child_tasks,
                             );
 
-                            self.render_task_id = Some(render_tasks.add(picture_task));
-                        }
+                            Some(render_tasks.add(picture_task))
+                        };
+
+                        task_id
                     }
                     Some(PictureCompositeMode::Blit) => {
                         let picture_task = RenderTask::new_picture(
@@ -394,11 +397,11 @@ impl PicturePrimitive {
                             child_tasks,
                         );
 
-                        self.render_task_id = Some(render_tasks.add(picture_task));
+                        Some(render_tasks.add(picture_task))
                     }
                     None => {
                         parent_tasks.extend(child_tasks);
-                        self.render_task_id = None;
+                        None
                     }
                 }
             }
@@ -450,7 +453,7 @@ impl PicturePrimitive {
                     color.premultiplied(),
                 );
 
-                self.render_task_id = Some(render_tasks.add(render_task));
+                Some(render_tasks.add(render_task))
             }
             PictureKind::BoxShadow { blur_radius, clip_mode, ref blur_regions, color, content_rect, .. } => {
                 let blur_radius = device_length(blur_radius, prim_context.device_pixel_ratio);
@@ -504,12 +507,13 @@ impl PicturePrimitive {
                     color.premultiplied(),
                 );
 
-                self.render_task_id = Some(render_tasks.add(render_task));
+                Some(render_tasks.add(render_task))
             }
-        }
+        };
 
-        if let Some(render_task_id) = self.render_task_id {
+        if let Some(render_task_id) = render_task_id {
             parent_tasks.push(render_task_id);
+            self.render_task_ids.insert(parent_prim_index, render_task_id);
         }
     }
 

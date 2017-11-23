@@ -58,6 +58,7 @@ impl PrimitiveRun {
         deferred_resolves: &mut Vec<DeferredResolve>,
         glyph_fetch_buffer: &mut Vec<GlyphFetchResult>,
         splitter: &mut BspSplitter<f64, WorldPixel>,
+        parent_prim_index: PrimitiveIndex,
     ) {
         for i in 0 .. self.count {
             let prim_index = PrimitiveIndex(self.base_prim_index.0 + i);
@@ -81,6 +82,7 @@ impl PrimitiveRun {
                     deferred_resolves,
                     glyph_fetch_buffer,
                     splitter,
+                    parent_prim_index,
                 );
             }
         }
@@ -382,6 +384,7 @@ fn add_to_batch(
     deferred_resolves: &mut Vec<DeferredResolve>,
     glyph_fetch_buffer: &mut Vec<GlyphFetchResult>,
     splitter: &mut BspSplitter<f64, WorldPixel>,
+    parent_prim_index: PrimitiveIndex,
 ) {
     let z = prim_index.0 as i32;
     let prim_metadata = ctx.prim_store.get_metadata(prim_index);
@@ -586,10 +589,12 @@ fn add_to_batch(
         PrimitiveKind::Picture => {
             let picture =
                 &ctx.prim_store.cpu_pictures[prim_metadata.cpu_prim_index.0];
+            let render_task_id =
+                picture.render_task_ids.get(&parent_prim_index);
 
-            match picture.render_task_id {
+            match render_task_id {
                 Some(cache_task_id) => {
-                    let cache_task_address = render_tasks.get_task_address(cache_task_id);
+                    let cache_task_address = render_tasks.get_task_address(*cache_task_id);
                     let textures = BatchTextures::render_target_cache();
 
                     match picture.kind {
@@ -675,7 +680,7 @@ fn add_to_batch(
                             // This will allow us to unify some of the shaders, apply clip masks
                             // when compositing pictures, and also correctly apply pixel snapping
                             // to picture compositing operations.
-                            let source_id = picture.render_task_id.expect("no source!?");
+                            let source_id = *picture.render_task_ids.get(&parent_prim_index).expect("no source!?");
 
                             match composite_mode.expect("bug: only composites here") {
                                 PictureCompositeMode::Filter(filter) => {
@@ -769,7 +774,8 @@ fn add_to_batch(
                                     batch.push(PrimitiveInstance::from(instance));
                                 }
                                 PictureCompositeMode::Blit => {
-                                    let src_task_address = render_tasks.get_task_address(source_id);
+                                    let source_id = picture.render_task_ids.get(&parent_prim_index);
+                                    let src_task_address = render_tasks.get_task_address(*source_id.unwrap());
                                     let key = BatchKey::new(
                                         BatchKind::HardwareComposite,
                                         BlendMode::PremultipliedAlpha,
@@ -804,6 +810,7 @@ fn add_to_batch(
                         deferred_resolves,
                         batch_list,
                         glyph_fetch_buffer,
+                        prim_index,
                     );
                 }
             }
@@ -934,6 +941,7 @@ impl PicturePrimitive {
         deferred_resolves: &mut Vec<DeferredResolve>,
         batch_list: &mut BatchList,
         glyph_fetch_buffer: &mut Vec<GlyphFetchResult>,
+        parent_prim_index: PrimitiveIndex,
     ) {
         let task_address = render_tasks.get_task_address(task_id);
 
@@ -961,6 +969,7 @@ impl PicturePrimitive {
                 deferred_resolves,
                 glyph_fetch_buffer,
                 &mut splitter,
+                parent_prim_index,
             );
         }
 
@@ -984,7 +993,7 @@ impl PicturePrimitive {
             let pic_metadata = &ctx.prim_store.cpu_metadata[prim_index.0];
             let pic = &ctx.prim_store.cpu_pictures[pic_metadata.cpu_prim_index.0];
             let batch = batch_list.get_suitable_batch(key, pic_metadata.screen_rect.as_ref().expect("bug"));
-            let source_task_address = render_tasks.get_task_address(pic.render_task_id.expect("bug"));
+            let source_task_address = render_tasks.get_task_address(*pic.render_task_ids.get(&parent_prim_index).expect("bug"));
             let gpu_address = gpu_handle.as_int(gpu_cache);
 
             let instance = CompositePrimitiveInstance::new(
@@ -1035,7 +1044,8 @@ impl AlphaBatcher {
                         render_tasks,
                         deferred_resolves,
                         &mut self.batch_list,
-                        &mut self.glyph_fetch_buffer
+                        &mut self.glyph_fetch_buffer,
+                        pic_task.prim_index,
                     );
                 }
                 _ => {

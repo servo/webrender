@@ -1102,6 +1102,7 @@ impl PrimitiveStore {
         render_tasks: &mut RenderTaskTree,
         child_tasks: Vec<RenderTaskId>,
         parent_tasks: &mut Vec<RenderTaskId>,
+        parent_prim_index: PrimitiveIndex,
     ) {
         let metadata = &mut self.cpu_metadata[prim_index.0];
         match metadata.prim_kind {
@@ -1115,6 +1116,7 @@ impl PrimitiveStore {
                         metadata.screen_rect.as_ref().expect("bug: trying to draw an off-screen picture!?"),
                         child_tasks,
                         parent_tasks,
+                        parent_prim_index,
                     );
             }
             PrimitiveKind::TextRun => {
@@ -1315,6 +1317,7 @@ impl PrimitiveStore {
         parent_tasks: &mut Vec<RenderTaskId>,
         scene_properties: &SceneProperties,
         profile_counters: &mut FrameProfileCounters,
+        parent_prim_index: PrimitiveIndex,
     ) -> Option<LayerRect> {
         // Reset the visibility of this primitive.
         // Do some basic checks first, that can early out
@@ -1373,6 +1376,7 @@ impl PrimitiveStore {
                 profile_counters,
                 rfid,
                 scene_properties,
+                prim_index,
             );
 
             let metadata = &mut self.cpu_metadata[prim_index.0];
@@ -1450,6 +1454,7 @@ impl PrimitiveStore {
             render_tasks,
             child_tasks,
             parent_tasks,
+            parent_prim_index,
         );
 
         Some(local_rect)
@@ -1479,6 +1484,7 @@ impl PrimitiveStore {
         profile_counters: &mut FrameProfileCounters,
         original_reference_frame_id: Option<ClipId>,
         scene_properties: &SceneProperties,
+        parent_prim_index: PrimitiveIndex,
     ) -> PrimitiveRunLocalRect {
         let mut result = PrimitiveRunLocalRect {
             local_rect_in_actual_parent_space: LayerRect::zero(),
@@ -1544,6 +1550,7 @@ impl PrimitiveStore {
                     parent_tasks,
                     scene_properties,
                     profile_counters,
+                    parent_prim_index,
                 ) {
                     profile_counters.visible_primitives.inc();
 
