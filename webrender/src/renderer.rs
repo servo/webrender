@@ -2129,7 +2129,7 @@ impl Renderer {
     }
 
     #[cfg(not(feature = "debugger"))]
-    fn get_texture_cache_for_debugger(&mut self) -> String {
+    fn get_screenshot_for_debugger(&mut self) -> String {
         // Avoid unused param warning.
         let _ = &self.debug_server;
         String::new()
@@ -2137,14 +2137,11 @@ impl Renderer {
 
 
     #[cfg(feature = "debugger")]
-    fn get_texture_cache_for_debugger(&mut self) -> String {
-        let mut texture_cache = debug_server::TextureCache::new();
+    fn get_screenshot_for_debugger(&mut self) -> String {
+        let data = self.device.read_pixels(1024, 768);
+        let screenshot = debug_server::Screenshot::new(1024, 768, data);
 
-        let data = self.device.read_pixels(&self.gpu_cache_texture.texture);
-        //texture_cache.data = data;
-        texture_cache.add(data);
-
-        serde_json::to_string(&texture_cache).unwrap()
+        serde_json::to_string(&screenshot).unwrap()
     }
 
     #[cfg(not(feature = "debugger"))]
@@ -2302,9 +2299,9 @@ impl Renderer {
             DebugCommand::FetchPasses => {
                 let json = self.get_passes_for_debugger();
                 self.debug_server.send(json);
-            },
-            DebugCommand::FetchTextureCache => {
-                let json = self.get_texture_cache_for_debugger();
+            }
+            DebugCommand::FetchScreenshot => {
+                let json = self.get_screenshot_for_debugger();
                 self.debug_server.send(json);
             }
         }

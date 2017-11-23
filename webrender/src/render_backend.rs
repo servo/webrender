@@ -552,7 +552,7 @@ impl RenderBackend {
                         DebugCommand::FetchClipScrollTree => {
                             let json = self.get_clip_scroll_tree_for_debugger();
                             ResultMsg::DebugOutput(DebugOutput::FetchClipScrollTree(json))
-                        },
+                        }
                         _ => ResultMsg::DebugCommand(option),
                     };
                     self.result_tx.send(msg).unwrap();
