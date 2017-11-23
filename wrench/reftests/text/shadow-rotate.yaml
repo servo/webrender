@@ -1,4 +1,4 @@
---- checks that transformed text shadows can locate glyphs in the glyph cache
+--- #checks that transformed text shadows can locate glyphs in the glyph cache
 root:
   items:
     - type: stacking-context
