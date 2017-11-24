@@ -9,18 +9,18 @@ After updating shaders in WebRender, go to servo and:
 
 
 ## Use WebRender with Servo
-To use a custom WebRender with servo, go to your servo build directory and:
+To use a local copy of WebRender with servo, go to your servo build directory and:
 
   * Edit Cargo.toml
   * Add at the end of the file:
 
 ```
-[replace]
-"https://github.com/servo/webrender#0.36.0" = { path = 'Path/To/webrender/webrender/' }
-"https://github.com/servo/webrender#webrender_api:0.36.0" = { path = 'Path/To/webrender/webrender_api' }
+[patch."https://github.com/servo/webrender"]
+"webrender" = { path = "<path>/webrender" }
+"webrender_api" = { path = "<path>/webrender_api" }
 ```
 
-The exact replace references can be obtained with `cargo pkgid webrender`/`cargo pkgid webrender_api` command.
+where `<path>` is the path to your local copy of WebRender.
 
   * Build as normal
 
