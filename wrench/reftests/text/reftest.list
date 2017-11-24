@@ -39,3 +39,4 @@ fuzzy(1,44) platform(linux) == text-masking.yaml text-masking-subpx.png
 platform(linux) == subpixel-rotate.yaml subpixel-rotate.png
 platform(linux) == subpixel-scale.yaml subpixel-scale.png
 platform(linux) == subpixel-skew.yaml subpixel-skew.png
+!= shadow-rotate.yaml blank.yaml
