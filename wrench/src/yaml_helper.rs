@@ -34,6 +34,7 @@ pub trait YamlHelper {
     fn as_clip_mode(&self) -> Option<ClipMode>;
     fn as_mix_blend_mode(&self) -> Option<MixBlendMode>;
     fn as_scroll_policy(&self) -> Option<ScrollPolicy>;
+    fn as_iframe_scrollbars(&self) -> Option<IframeScrollbars>;
     fn as_filter_op(&self) -> Option<FilterOp>;
     fn as_vec_filter_op(&self) -> Option<Vec<FilterOp>>;
 }
@@ -122,6 +123,8 @@ define_string_enum!(
 );
 
 define_string_enum!(ScrollPolicy, [Scrollable = "scrollable", Fixed = "fixed"]);
+
+define_string_enum!(IframeScrollbars, [Enabled = "enabled", Disabled = "disabled"]);
 
 define_string_enum!(
     LineOrientation,
@@ -526,6 +529,10 @@ impl YamlHelper for Yaml {
     }
 
     fn as_scroll_policy(&self) -> Option<ScrollPolicy> {
+        self.as_str().and_then(|x| StringEnum::from_str(x))
+    }
+
+    fn as_iframe_scrollbars(&self) -> Option<IframeScrollbars> {
         self.as_str().and_then(|x| StringEnum::from_str(x))
     }
 

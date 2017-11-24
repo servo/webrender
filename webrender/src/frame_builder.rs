@@ -18,7 +18,7 @@ use clip::{ClipRegion, ClipSource, ClipSources, ClipStore, Contains, MAX_CLIP};
 use clip_scroll_node::{ClipScrollNode, NodeType};
 use clip_scroll_tree::ClipScrollTree;
 use euclid::{SideOffsets2D, vec2};
-use frame::FrameId;
+use frame::{FrameId, DEFAULT_SCROLLBAR_COLOR};
 use glyph_rasterizer::FontInstance;
 use gpu_cache::GpuCache;
 use internal_types::{FastHashMap, FastHashSet};
@@ -117,6 +117,8 @@ pub struct FrameBuilder {
 
     /// A stack of the current pictures, used during scene building.
     pub picture_stack: Vec<PrimitiveIndex>,
+    parent_scroll_frame_id: ClipId,
+    pending_scrollbar_info: Option<(ClipId, ClipId, LayerRect)>,
 
     /// A temporary stack of stacking context properties, used only
     /// during scene building.
@@ -147,7 +149,9 @@ impl<'a> PrimitiveContext<'a> {
 }
 
 impl FrameBuilder {
-    pub fn empty() -> Self {
+    pub fn empty() -> Self {        
+        let dummy_pipeline = PipelineId::dummy();
+
         FrameBuilder {
             hit_testing_runs: Vec::new(),
             shadow_prim_stack: Vec::new(),
@@ -155,6 +159,8 @@ impl FrameBuilder {
             scrollbar_prims: Vec::new(),
             reference_frame_stack: Vec::new(),
             picture_stack: Vec::new(),
+            parent_scroll_frame_id: ClipId::root_scroll_node(dummy_pipeline),
+            pending_scrollbar_info: None,
             sc_stack: Vec::new(),
             prim_store: PrimitiveStore::new(),
             clip_store: ClipStore::new(),
@@ -181,6 +187,8 @@ impl FrameBuilder {
             scrollbar_prims: recycle_vec(self.scrollbar_prims),
             reference_frame_stack: recycle_vec(self.reference_frame_stack),
             picture_stack: recycle_vec(self.picture_stack),
+            parent_scroll_frame_id: self.parent_scroll_frame_id,
+            pending_scrollbar_info: self.pending_scrollbar_info,
             sc_stack: recycle_vec(self.sc_stack),
             prim_store: self.prim_store.recycle(),
             clip_store: self.clip_store.recycle(),
@@ -556,6 +564,11 @@ impl FrameBuilder {
             self.shadow_prim_stack.is_empty(),
             "Found unpopped text shadows when popping stacking context!"
         );
+
+        self.add_pending_scrollbars();
+        assert!(self.pending_scrollbar_info.is_none(),
+            "Found pending scrollbar info when popping stacking context!"
+        );
     }
 
     pub fn push_reference_frame(
@@ -660,6 +673,7 @@ impl FrameBuilder {
             &viewport_rect,
             content_size,
             ScrollSensitivity::ScriptAndInputEvents,
+            false,
             clip_scroll_tree,
         );
 
@@ -692,6 +706,7 @@ impl FrameBuilder {
         frame_rect: &LayerRect,
         content_size: &LayerSize,
         scroll_sensitivity: ScrollSensitivity,
+        enable_scrollbars: bool,
         clip_scroll_tree: &mut ClipScrollTree,
     ) {
         let node = ClipScrollNode::new_scroll_frame(
@@ -699,10 +714,34 @@ impl FrameBuilder {
             parent_id,
             frame_rect,
             content_size,
-            scroll_sensitivity,
+            scroll_sensitivity
         );
-
+        
         clip_scroll_tree.add_node(node, new_node_id);
+
+        if enable_scrollbars {
+            self.add_pending_scrollbars();
+
+            // The root scroll node will never have enable_scrollbars set to true, so there will a parent_scroll_frame id
+            let parent_scroll_frame_id = self.parent_scroll_frame_id;
+            self.pending_scrollbar_info = Some((parent_scroll_frame_id, new_node_id, *frame_rect));
+        }
+
+        self.parent_scroll_frame_id = new_node_id;
+    }
+
+    fn add_pending_scrollbars(&mut self) {
+        if let Some((parent_scroll_frame_id, clip_id, frame_rect)) = self.pending_scrollbar_info {
+            let scrollbar_rect = LayerRect::new(LayerPoint::zero(), LayerSize::new(10.0, 70.0));
+            self.add_solid_rectangle(
+                ClipAndScrollInfo::simple(parent_scroll_frame_id),
+                &LayerPrimitiveInfo::new(scrollbar_rect),
+                RectangleContent::Fill(DEFAULT_SCROLLBAR_COLOR),
+                Some(ScrollbarInfo(clip_id, frame_rect))
+            );
+
+            self.pending_scrollbar_info = None;
+        }
     }
 
     pub fn pop_reference_frame(&mut self) {
