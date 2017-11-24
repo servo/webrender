@@ -12,6 +12,7 @@ fuzzy(1,10000) == difference-transparent.yaml difference-transparent-ref.yaml
 == isolated-2.yaml isolated-2-ref.yaml
 == isolated-with-filter.yaml isolated-ref.yaml
 == isolated-premultiplied.yaml blank.yaml
+== isolated-premultiplied-2.yaml isolated-premultiplied-2-ref.yaml
 
 == large.yaml large-ref.yaml
 
