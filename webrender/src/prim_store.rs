@@ -599,15 +599,13 @@ impl TextRunPrimitiveCpu {
     ) -> FontInstance {
         let mut font = self.font.clone();
         font.size = font.size.scale_by(device_pixel_ratio);
-        match (font.render_mode, rasterization_kind) {
-            (FontRenderMode::Subpixel, RasterizationSpace::Screen) => {
-                if transform.has_perspective_component() || !transform.has_2d_inverse() {
-                    font.render_mode = FontRenderMode::Alpha;
-                } else {
-                    font.transform = FontTransform::from(transform).quantize();
-                }
+        if font.render_mode != FontRenderMode::Bitmap &&
+           rasterization_kind == RasterizationSpace::Screen {
+            if transform.has_perspective_component() || !transform.has_2d_inverse() {
+                font.render_mode = font.render_mode.limit_by(FontRenderMode::Alpha);
+            } else {
+                font.transform = FontTransform::from(transform).quantize();
             }
-            _ => {}
         }
         font
     }

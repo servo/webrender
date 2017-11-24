@@ -282,7 +282,7 @@ impl Into<ShaderMode> for TextShaderMode {
 impl From<GlyphFormat> for TextShaderMode {
     fn from(format: GlyphFormat) -> TextShaderMode {
         match format {
-            GlyphFormat::Alpha => TextShaderMode::Alpha,
+            GlyphFormat::Alpha | GlyphFormat::TransformedAlpha => TextShaderMode::Alpha,
             GlyphFormat::Subpixel | GlyphFormat::TransformedSubpixel => {
                 panic!("Subpixel glyph formats must be handled separately.");
             }
@@ -1192,6 +1192,7 @@ impl TextShader {
                     }
                 }
             }
+            GlyphFormat::TransformedAlpha |
             GlyphFormat::TransformedSubpixel => {
                 self.glyph_transform.bind(device, projection, mode, renderer_errors)
             }
