@@ -1286,9 +1286,9 @@ impl FrameBuilder {
             font.bg_color,
             render_mode,
             font.subpx_dir,
+            font.flags,
             font.platform_options,
             font.variations.clone(),
-            font.synthetic_italics,
         );
         let prim = TextRunPrimitiveCpu {
             font: prim_font,

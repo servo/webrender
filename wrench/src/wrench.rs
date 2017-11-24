@@ -249,7 +249,12 @@ impl Wrench {
             .collect();
 
         // Retrieve the metrics for each glyph.
-        let instance_key = self.add_font_instance(font_key, size, false, Some(FontRenderMode::Alpha));
+        let instance_key = self.add_font_instance(
+            font_key,
+            size,
+            FontInstanceFlags::empty(),
+            Some(FontRenderMode::Alpha),
+        );
         let mut keys = Vec::new();
         for glyph_index in &indices {
             keys.push(GlyphKey::new(
@@ -407,16 +412,16 @@ impl Wrench {
     pub fn add_font_instance(&mut self,
         font_key: FontKey,
         size: Au,
-        synthetic_italics: bool,
+        flags: FontInstanceFlags,
         render_mode: Option<FontRenderMode>,
     ) -> FontInstanceKey {
         let key = self.api.generate_font_instance_key();
         let mut update = ResourceUpdates::new();
-        let options = FontInstanceOptions {
-            render_mode: render_mode.unwrap_or(FontRenderMode::Subpixel),
-            synthetic_italics,
-            ..Default::default()
-        };
+        let mut options: FontInstanceOptions = Default::default();
+        options.flags |= flags;
+        if let Some(render_mode) = render_mode {
+            options.render_mode = render_mode;
+        }
         update.add_font_instance(key, font_key, size, Some(options), None, Vec::new());
         self.api.update_resources(update);
         key

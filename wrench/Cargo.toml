@@ -1,6 +1,6 @@
 [package]
 name = "wrench"
-version = "0.2.4"
+version = "0.2.5"
 authors = ["Vladimir Vukicevic <vladimir@pobox.com>"]
 build = "build.rs"
 license = "MPL-2.0"
@@ -32,7 +32,7 @@ headless = [ "osmesa-sys", "osmesa-src" ]
 logging = [ "env_logger" ]
 
 [target.'cfg(target_os = "windows")'.dependencies]
-dwrote = "0.4"
+dwrote = "0.4.1"
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 font-loader = "0.5"

@@ -442,7 +442,7 @@ impl YamlFrameReader {
         &mut self,
         font_key: FontKey,
         size: Au,
-        synthetic_italics: bool,
+        flags: FontInstanceFlags,
         wrench: &mut Wrench,
     ) -> FontInstanceKey {
         let font_render_mode = self.font_render_mode;
@@ -453,7 +453,7 @@ impl YamlFrameReader {
                 wrench.add_font_instance(
                     font_key,
                     size,
-                    synthetic_italics,
+                    flags,
                     font_render_mode,
                 )
             })
@@ -989,7 +989,16 @@ impl YamlFrameReader {
     ) {
         let size = item["size"].as_pt_to_au().unwrap_or(Au::from_f32_px(16.0));
         let color = item["color"].as_colorf().unwrap_or(*BLACK_COLOR);
-        let synthetic_italics = item["synthetic-italics"].as_bool().unwrap_or(false);
+        let mut flags = FontInstanceFlags::empty();
+        if item["synthetic-italics"].as_bool().unwrap_or(false) {
+            flags |= FontInstanceFlags::SYNTHETIC_ITALICS;
+        }
+        if item["synthetic-bold"].as_bool().unwrap_or(false) {
+            flags |= FontInstanceFlags::SYNTHETIC_BOLD;
+        }
+        if item["embedded-bitmaps"].as_bool().unwrap_or(false) {
+            flags |= FontInstanceFlags::EMBEDDED_BITMAPS;
+        }
 
         assert!(
             item["blur-radius"].is_badvalue(),
@@ -1000,7 +1009,7 @@ impl YamlFrameReader {
         let font_key = self.get_or_create_font(desc, wrench);
         let font_instance_key = self.get_or_create_font_instance(font_key,
                                                                  size,
-                                                                 synthetic_italics,
+                                                                 flags,
                                                                  wrench);
 
         assert!(
