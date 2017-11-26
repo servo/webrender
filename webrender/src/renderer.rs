@@ -600,12 +600,11 @@ impl SourceTextureResolver {
         &mut self,
         a8_texture: Option<Texture>,
         rgba8_texture: Option<Texture>,
-        a8_pool: &mut Vec<Texture>,
-        rgba8_pool: &mut Vec<Texture>,
+        pool: &mut Vec<Texture>,
     ) {
         // If we have cache textures from previous pass, return them to the pool.
-        rgba8_pool.extend(self.cache_rgba8_texture.take());
-        a8_pool.extend(self.cache_a8_texture.take());
+        pool.extend(self.cache_rgba8_texture.take());
+        pool.extend(self.cache_a8_texture.take());
 
         // We have another pass to process, make these textures available
         // as inputs to the next pass.
@@ -1302,6 +1301,13 @@ struct FrameOutput {
     fbo_id: FBOId,
 }
 
+#[derive(PartialEq)]
+struct TargetSelector {
+    size: DeviceUintSize,
+    num_layers: usize,
+    format: ImageFormat,
+}
+
 /// The renderer is responsible for submitting to the GPU the work prepared by the
 /// RenderBackend.
 pub struct Renderer {
@@ -1371,8 +1377,7 @@ pub struct Renderer {
     profiler: Profiler,
     last_time: u64,
 
-    color_render_targets: Vec<Texture>,
-    alpha_render_targets: Vec<Texture>,
+    render_target_pool: Vec<Texture>,
 
     gpu_profile: GpuProfiler<GpuProfileTag>,
     prim_vao: VAO,
@@ -2012,8 +2017,7 @@ impl Renderer {
             clear_color: options.clear_color,
             enable_clear_scissor: options.enable_clear_scissor,
             last_time: 0,
-            color_render_targets: Vec::new(),
-            alpha_render_targets: Vec::new(),
+            render_target_pool: Vec::new(),
             gpu_profile,
             prim_vao,
             blur_vao,
@@ -2387,6 +2391,12 @@ impl Renderer {
                 let clear_color = self.clear_color.map(|color| color.to_array());
                 self.device.bind_draw_target(None, None);
                 self.device.clear_target(clear_color, None);
+            }
+
+            // Re-use whatever targets possible from the pool, before
+            // they get changed/re-allocated by the rendered frames.
+            for doc_with_id in &mut active_documents {
+                self.prepare_tile_frame(&mut doc_with_id.1.frame);
             }
 
             for &mut (_, RenderedDocument { ref mut frame, .. }) in &mut active_documents {
@@ -3530,25 +3540,50 @@ impl Renderer {
     }
 
     fn prepare_target_list<T: RenderTarget>(
+        &mut self,
         list: &mut RenderTargetList<T>,
-        device: &mut Device,
-        target_pool: &mut Vec<Texture>,
-        format: ImageFormat,
+        perfect_only: bool,
     ) {
         debug_assert_ne!(list.max_size, DeviceUintSize::zero());
-        debug_assert!(list.texture.is_none());
         if list.targets.is_empty() {
             return;
         }
-        let mut texture = match target_pool.pop() {
-            Some(texture) => texture,
-            None => device.create_texture(TextureTarget::Array),
+        let mut texture = if perfect_only {
+            debug_assert!(list.texture.is_none());
+
+            let selector = TargetSelector {
+                size: list.max_size,
+                num_layers: list.targets.len() as _,
+                format: list.format,
+            };
+            let index = self.render_target_pool
+                .iter()
+                .position(|texture| {
+                    selector == TargetSelector {
+                        size: texture.get_dimensions(),
+                        num_layers: texture.get_render_target_layer_count(),
+                        format: texture.get_format(),
+                    }
+                });
+            match index {
+                Some(pos) => self.render_target_pool.swap_remove(pos),
+                None => return,
+            }
+        } else {
+            if list.texture.is_some() {
+                return
+            }
+            match self.render_target_pool.pop() {
+                Some(texture) => texture,
+                None => self.device.create_texture(TextureTarget::Array),
+            }
         };
-        device.init_texture(
+
+        self.device.init_texture(
             &mut texture,
             list.max_size.width,
             list.max_size.height,
-            format,
+            list.format,
             TextureFilter::Linear,
             Some(RenderTargetInfo {
                 has_depth: list.needs_depth(),
@@ -3559,15 +3594,27 @@ impl Renderer {
         list.texture = Some(texture);
     }
 
-    fn prepare_frame(&mut self, frame: &mut Frame) {
+    fn prepare_tile_frame(&mut self, frame: &mut Frame) {
+        // Init textures and render targets to match this scene.
+        // First pass grabs all the perfectly matching targets from the pool.
+        for pass in &mut frame.passes {
+            if let RenderPassKind::OffScreen { ref mut alpha, ref mut color } = pass.kind {
+                self.prepare_target_list(alpha, true);
+                self.prepare_target_list(color, true);
+            }
+        }
+    }
+
+    fn bind_frame_data(&mut self, frame: &mut Frame) {
         let _timer = self.gpu_profile.start_timer(GPU_TAG_SETUP_DATA);
         self.device.device_pixel_ratio = frame.device_pixel_ratio;
 
-        // Init textures and render targets to match this scene.
+        // Some of the textures are already assigned by `prepare_frame`.
+        // Now re-allocate the space for the rest of the target textures.
         for pass in &mut frame.passes {
             if let RenderPassKind::OffScreen { ref mut alpha, ref mut color } = pass.kind {
-                Self::prepare_target_list(alpha, &mut self.device, &mut self.alpha_render_targets, ImageFormat::A8);
-                Self::prepare_target_list(color, &mut self.device, &mut self.color_render_targets, ImageFormat::BGRA8);
+                self.prepare_target_list(alpha, false);
+                self.prepare_target_list(color, false);
             }
         }
 
@@ -3603,10 +3650,7 @@ impl Renderer {
         self.device.disable_stencil();
         self.device.set_blend(false);
 
-        self.prepare_frame(frame);
-
-        let base_color_target_count = self.color_render_targets.len();
-        let base_alpha_target_count = self.alpha_render_targets.len();
+        self.bind_frame_data(frame);
 
         for (pass_index, pass) in frame.passes.iter_mut().enumerate() {
             self.texture_resolver.bind(
@@ -3697,8 +3741,7 @@ impl Renderer {
             self.texture_resolver.end_pass(
                 cur_alpha,
                 cur_color,
-                &mut self.alpha_render_targets,
-                &mut self.color_render_targets,
+                &mut self.render_target_pool,
             );
 
             // After completing the first pass, make the A8 target available as an
@@ -3713,8 +3756,6 @@ impl Renderer {
             }
         }
 
-        self.color_render_targets[base_color_target_count..].reverse();
-        self.alpha_render_targets[base_alpha_target_count..].reverse();
         self.draw_render_target_debug(framebuffer_size);
         self.draw_texture_cache_debug(framebuffer_size);
 
@@ -3780,9 +3821,8 @@ impl Renderer {
         let mut spacing = 16;
         let mut size = 512;
         let fb_width = framebuffer_size.width as i32;
-        let num_layers: i32 = self.color_render_targets
+        let num_layers: i32 = self.render_target_pool
             .iter()
-            .chain(self.alpha_render_targets.iter())
             .map(|texture| texture.get_render_target_layer_count() as i32)
             .sum();
 
@@ -3793,10 +3833,7 @@ impl Renderer {
         }
 
         let mut target_index = 0;
-        for texture in self.color_render_targets
-            .iter()
-            .chain(self.alpha_render_targets.iter())
-        {
+        for texture in &self.render_target_pool {
             let dimensions = texture.get_dimensions();
             let src_rect = DeviceIntRect::new(DeviceIntPoint::zero(), dimensions.to_i32());
 
@@ -3907,10 +3944,7 @@ impl Renderer {
         }
         self.node_data_texture.deinit(&mut self.device);
         self.render_task_texture.deinit(&mut self.device);
-        for texture in self.alpha_render_targets {
-            self.device.delete_texture(texture);
-        }
-        for texture in self.color_render_targets {
+        for texture in self.render_target_pool {
             self.device.delete_texture(texture);
         }
         self.device.delete_pbo(self.texture_cache_upload_pbo);
