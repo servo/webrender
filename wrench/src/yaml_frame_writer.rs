@@ -254,11 +254,30 @@ struct CachedImage {
     tiling: Option<u16>,
 }
 
+struct ResourceGenerator {
+    base: PathBuf,
+    next_num: u32,
+    prefix: String,
+}
+
+impl ResourceGenerator {
+    fn next_rsrc_paths(&mut self, base: &str, ext: &str, ) -> (PathBuf, PathBuf) {
+        let mut path_file = self.base.to_owned();
+        let mut path = PathBuf::from("res");
+
+        let fstr = format!("{}-{}-{}.{}", self.prefix, base, self.next_num, ext);
+        path_file.push(&fstr);
+        path.push(&fstr);
+
+        self.next_num += 1;
+
+        (path_file, path)
+    }
+}
+
 pub struct YamlFrameWriter {
     frame_base: PathBuf,
-    rsrc_base: PathBuf,
-    next_rsrc_num: u32,
-    rsrc_prefix: String,
+    rsrc_gen: ResourceGenerator,
     images: HashMap<ImageKey, CachedImage>,
     fonts: HashMap<FontKey, CachedFont>,
     font_instances: HashMap<FontInstanceKey, CachedFontInstance>,
@@ -299,9 +318,11 @@ impl YamlFrameWriter {
 
         YamlFrameWriter {
             frame_base: path.to_owned(),
-            rsrc_base,
-            rsrc_prefix,
-            next_rsrc_num: 1,
+            rsrc_gen: ResourceGenerator {
+                base: rsrc_base,
+                prefix: rsrc_prefix,
+                next_num: 1,
+            },
             images: HashMap::new(),
             fonts: HashMap::new(),
             font_instances: HashMap::new(),
@@ -472,24 +493,7 @@ impl YamlFrameWriter {
         }
     }
 
-    fn next_rsrc_paths(
-        prefix: &str,
-        counter: &mut u32,
-        base_path: &Path,
-        base: &str,
-        ext: &str,
-    ) -> (PathBuf, PathBuf) {
-        let mut path_file = base_path.to_owned();
-        let mut path = PathBuf::from("res");
 
-        let fstr = format!("{}-{}-{}.{}", prefix, base, counter, ext);
-        path_file.push(&fstr);
-        path.push(&fstr);
-
-        *counter += 1;
-
-        (path_file, path)
-    }
 
     fn path_for_image(&mut self, key: ImageKey) -> Option<PathBuf> {
         if let Some(ref mut data) = self.images.get_mut(&key) {
@@ -503,10 +507,7 @@ impl YamlFrameWriter {
         // Remove the data to munge it
         let mut data = self.images.remove(&key).unwrap();
         let mut bytes = data.bytes.take().unwrap();
-        let (path_file, path) = Self::next_rsrc_paths(
-            &self.rsrc_prefix,
-            &mut self.next_rsrc_num,
-            &self.rsrc_base,
+        let (path_file, path) = self.rsrc_gen.next_rsrc_paths(
             "img",
             "png",
         );
@@ -693,10 +694,7 @@ impl YamlFrameWriter {
                         }
                         &mut CachedFont::Raw(ref mut bytes_opt, index, ref mut path_opt) => {
                             if let Some(bytes) = bytes_opt.take() {
-                                let (path_file, path) = Self::next_rsrc_paths(
-                                    &self.rsrc_prefix,
-                                    &mut self.next_rsrc_num,
-                                    &self.rsrc_base,
+                                let (path_file, path) = self.rsrc_gen.next_rsrc_paths(
                                     "font",
                                     "ttf",
                                 );
