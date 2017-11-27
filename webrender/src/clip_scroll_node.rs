@@ -17,7 +17,7 @@ use resource_cache::ResourceCache;
 use scene::SceneProperties;
 use spring::{DAMPING, STIFFNESS, Spring};
 use std::rc::Rc;
-use util::{MatrixHelpers, MaxRect};
+use util::{MatrixHelpers, MaxRect, TransformedRectKind};
 
 #[cfg(target_os = "macos")]
 const CAN_OVERSCROLL: bool = true;
@@ -304,6 +304,12 @@ impl ClipScrollNode {
 
         let data = match self.world_content_transform.inverse() {
             Some(inverse) => {
+                let transform_kind = if self.world_content_transform.preserves_2d_axis_alignment() {
+                    TransformedRectKind::AxisAligned
+                } else {
+                    TransformedRectKind::Complex
+                };
+
                 ClipScrollNodeData {
                     transform: self.world_content_transform,
                     inv_transform: inverse,
@@ -311,6 +317,8 @@ impl ClipScrollNode {
                     reference_frame_relative_scroll_offset:
                         self.reference_frame_relative_scroll_offset,
                     scroll_offset: self.scroll_offset(),
+                    transform_kind: transform_kind as u32 as f32,
+                    padding: [0.0; 3],
                 }
             }
             None => {

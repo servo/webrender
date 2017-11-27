@@ -210,7 +210,7 @@ pub fn get_normal(x: f32) -> Option<f32> {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-#[repr(u8)]
+#[repr(u32)]
 pub enum TransformedRectKind {
     AxisAligned = 0,
     Complex = 1,
