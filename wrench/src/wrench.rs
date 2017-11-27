@@ -18,8 +18,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use time;
 use webrender;
-use webrender::DebugFlags;
 use webrender::api::*;
+use webrender::{DebugFlags, RendererStats};
 use yaml_frame_writer::YamlFrameWriterReceiver;
 use {WindowWrapper, BLACK_COLOR, WHITE_COLOR};
 
@@ -476,9 +476,11 @@ impl Wrench {
         self.renderer.get_frame_profiles()
     }
 
-    pub fn render(&mut self) {
+    pub fn render(&mut self) -> RendererStats {
         self.renderer.update();
-        self.renderer.render(self.window_size).unwrap();
+        self.renderer
+            .render(self.window_size)
+            .expect("errors encountered during render!")
     }
 
     pub fn refresh(&mut self) {

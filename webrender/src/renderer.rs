@@ -2324,14 +2324,18 @@ impl Renderer {
     ///
     /// A Frame is supplied by calling [`generate_frame()`][genframe].
     /// [genframe]: ../../webrender_api/struct.DocumentApi.html#method.generate_frame
-    pub fn render(&mut self, framebuffer_size: DeviceUintSize) -> Result<(), Vec<RendererError>> {
+    pub fn render(
+        &mut self,
+        framebuffer_size: DeviceUintSize
+    ) -> Result<RendererStats, Vec<RendererError>> {
         profile_scope!("render");
 
         if self.active_documents.is_empty() {
             self.last_time = precise_time_ns();
-            return Ok(())
+            return Ok(RendererStats::empty());
         }
 
+        let mut stats = RendererStats::empty();
         let mut frame_profiles = Vec::new();
         let mut profile_timers = RendererProfileTimers::new();
 
@@ -2402,7 +2406,12 @@ impl Renderer {
             for &mut (_, RenderedDocument { ref mut frame, .. }) in &mut active_documents {
                 self.update_gpu_cache(frame);
 
-                self.draw_tile_frame(frame, framebuffer_size, cpu_frame_id);
+                self.draw_tile_frame(
+                    frame,
+                    framebuffer_size,
+                    cpu_frame_id,
+                    &mut stats
+                );
 
                 if self.debug_flags.contains(DebugFlags::PROFILER_DBG) {
                     frame_profiles.push(frame.profile_counters.clone());
@@ -2456,7 +2465,7 @@ impl Renderer {
         self.last_time = current_time;
 
         if self.renderer_errors.is_empty() {
-            Ok(())
+            Ok(stats)
         } else {
             Err(mem::replace(&mut self.renderer_errors, Vec::new()))
         }
@@ -2584,6 +2593,7 @@ impl Renderer {
         data: &[T],
         vertex_array_kind: VertexArrayKind,
         textures: &BatchTextures,
+        stats: &mut RendererStats,
     ) {
         for i in 0 .. textures.colors.len() {
             self.texture_resolver.bind(
@@ -2614,12 +2624,14 @@ impl Renderer {
             self.device
                 .draw_indexed_triangles_instanced_u16(6, data.len() as i32);
             self.profile_counters.draw_calls.inc();
+            stats.total_draw_calls += 1;
         } else {
             for i in 0 .. data.len() {
                 self.device
                     .update_vao_instances(vao, &data[i .. i + 1], VertexUsageHint::Stream);
                 self.device.draw_triangles_u16(0, 6);
                 self.profile_counters.draw_calls.inc();
+                stats.total_draw_calls += 1;
             }
         }
 
@@ -2634,6 +2646,7 @@ impl Renderer {
         render_tasks: &RenderTaskTree,
         render_target: Option<(&Texture, i32)>,
         framebuffer_size: DeviceUintSize,
+        stats: &mut RendererStats,
     ) {
         match key.kind {
             BatchKind::Composite { .. } => {
@@ -2852,7 +2865,12 @@ impl Renderer {
         }
 
         let _timer = self.gpu_profile.start_timer(key.kind.gpu_sampler_tag());
-        self.draw_instanced_batch(instances, VertexArrayKind::Primitive, &key.textures);
+        self.draw_instanced_batch(
+            instances,
+            VertexArrayKind::Primitive,
+            &key.textures,
+            stats
+        );
     }
 
     fn handle_scaling(
@@ -2889,6 +2907,7 @@ impl Renderer {
         render_tasks: &RenderTaskTree,
         projection: &Transform3D<f32>,
         frame_id: FrameId,
+        stats: &mut RendererStats,
     ) {
         // sanity check for the depth buffer
         if let Some((texture, _)) = render_target {
@@ -2958,6 +2977,7 @@ impl Renderer {
                     &target.vertical_blurs,
                     VertexArrayKind::Blur,
                     &BatchTextures::no_texture(),
+                    stats,
                 );
             }
 
@@ -2966,6 +2986,7 @@ impl Renderer {
                     &target.horizontal_blurs,
                     VertexArrayKind::Blur,
                     &BatchTextures::no_texture(),
+                    stats,
                 );
             }
         }
@@ -2990,6 +3011,7 @@ impl Renderer {
                     instances,
                     VertexArrayKind::Primitive,
                     &BatchTextures::color(*texture_id),
+                    stats,
                 );
             }
         }
@@ -3006,6 +3028,7 @@ impl Renderer {
                 &target.line_cache_prims,
                 VertexArrayKind::Primitive,
                 &BatchTextures::no_texture(),
+                stats,
             );
         }
 
@@ -3041,6 +3064,7 @@ impl Renderer {
                         render_tasks,
                         render_target,
                         target_size,
+                        stats,
                     );
                 }
 
@@ -3094,7 +3118,8 @@ impl Renderer {
                                 self.draw_instanced_batch(
                                     &batch.instances,
                                     VertexArrayKind::Primitive,
-                                    &batch.key.textures
+                                    &batch.key.textures,
+                                    stats,
                                 );
                             }
                             BlendMode::SubpixelConstantTextColor(color) => {
@@ -3112,7 +3137,8 @@ impl Renderer {
                                 self.draw_instanced_batch(
                                     &batch.instances,
                                     VertexArrayKind::Primitive,
-                                    &batch.key.textures
+                                    &batch.key.textures,
+                                    stats,
                                 );
                             }
                             BlendMode::SubpixelVariableTextColor => {
@@ -3134,7 +3160,8 @@ impl Renderer {
                                 self.draw_instanced_batch(
                                     &batch.instances,
                                     VertexArrayKind::Primitive,
-                                    &batch.key.textures
+                                    &batch.key.textures,
+                                    stats,
                                 );
 
                                 self.device.set_blend_mode_subpixel_pass1();
@@ -3175,7 +3202,8 @@ impl Renderer {
                                 self.draw_instanced_batch(
                                     &batch.instances,
                                     VertexArrayKind::Primitive,
-                                    &batch.key.textures
+                                    &batch.key.textures,
+                                    stats,
                                 );
 
                                 self.device.set_blend_mode_subpixel_with_bg_color_pass1();
@@ -3248,6 +3276,7 @@ impl Renderer {
                             render_tasks,
                             render_target,
                             target_size,
+                            stats,
                         );
                     }
                 }
@@ -3298,6 +3327,7 @@ impl Renderer {
         target_size: DeviceUintSize,
         projection: &Transform3D<f32>,
         render_tasks: &RenderTaskTree,
+        stats: &mut RendererStats,
     ) {
         let alpha_sampler = self.gpu_profile.start_sampler(GPU_SAMPLER_TAG_ALPHA);
 
@@ -3343,6 +3373,7 @@ impl Renderer {
                     &target.vertical_blurs,
                     VertexArrayKind::Blur,
                     &BatchTextures::no_texture(),
+                    stats,
                 );
             }
 
@@ -3351,6 +3382,7 @@ impl Renderer {
                     &target.horizontal_blurs,
                     VertexArrayKind::Blur,
                     &BatchTextures::no_texture(),
+                    stats,
                 );
             }
         }
@@ -3367,6 +3399,7 @@ impl Renderer {
                 &target.brush_mask_corners,
                 VertexArrayKind::Primitive,
                 &BatchTextures::no_texture(),
+                stats,
             );
         }
 
@@ -3380,6 +3413,7 @@ impl Renderer {
                 &target.brush_mask_rounded_rects,
                 VertexArrayKind::Primitive,
                 &BatchTextures::no_texture(),
+                stats,
             );
         }
 
@@ -3399,6 +3433,7 @@ impl Renderer {
                     &target.clip_batcher.border_clears,
                     VertexArrayKind::Clip,
                     &BatchTextures::no_texture(),
+                    stats,
                 );
             }
 
@@ -3417,6 +3452,7 @@ impl Renderer {
                     &target.clip_batcher.borders,
                     VertexArrayKind::Clip,
                     &BatchTextures::no_texture(),
+                    stats,
                 );
             }
 
@@ -3437,6 +3473,7 @@ impl Renderer {
                     &target.clip_batcher.rectangles,
                     VertexArrayKind::Clip,
                     &BatchTextures::no_texture(),
+                    stats,
                 );
             }
             // draw image masks
@@ -3451,7 +3488,12 @@ impl Renderer {
                 };
                 self.cs_clip_image
                     .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
-                self.draw_instanced_batch(items, VertexArrayKind::Clip, &textures);
+                self.draw_instanced_batch(
+                    items,
+                    VertexArrayKind::Clip,
+                    &textures,
+                    stats,
+                );
             }
         }
 
@@ -3639,6 +3681,7 @@ impl Renderer {
         frame: &mut Frame,
         framebuffer_size: DeviceUintSize,
         frame_id: FrameId,
+        stats: &mut RendererStats,
     ) {
         let _gm = self.gpu_profile.start_marker("tile frame draw");
 
@@ -3666,6 +3709,8 @@ impl Renderer {
 
             let (cur_alpha, cur_color) = match pass.kind {
                 RenderPassKind::MainFramebuffer(ref target) => {
+                    stats.color_target_count += 1;
+
                     let clear_color = frame.background_color.map(|color| color.to_array());
                     let projection = Transform3D::ortho(
                         0.0,
@@ -3685,6 +3730,7 @@ impl Renderer {
                         &frame.render_tasks,
                         &projection,
                         frame_id,
+                        stats,
                     );
 
                     (None, None)
@@ -3694,6 +3740,8 @@ impl Renderer {
                     assert!(color.targets.is_empty() || color.texture.is_some());
 
                     for (target_index, target) in alpha.targets.iter().enumerate() {
+                        stats.alpha_target_count += 1;
+
                         let projection = Transform3D::ortho(
                             0.0,
                             alpha.max_size.width as f32,
@@ -3709,10 +3757,13 @@ impl Renderer {
                             alpha.max_size,
                             &projection,
                             &frame.render_tasks,
+                            stats,
                         );
                     }
 
                     for (target_index, target) in color.targets.iter().enumerate() {
+                        stats.color_target_count += 1;
+
                         let projection = Transform3D::ortho(
                             0.0,
                             color.max_size.width as f32,
@@ -3731,6 +3782,7 @@ impl Renderer {
                             &frame.render_tasks,
                             &projection,
                             frame_id,
+                            stats,
                         );
                     }
 
@@ -4111,4 +4163,24 @@ impl DebugServer {
     }
 
     pub fn send(&mut self, _: String) {}
+}
+
+// Some basic statistics about the rendered scene
+// that we can use in wrench reftests to ensure that
+// tests are batching and/or allocating on render
+// targets as we expect them to.
+pub struct RendererStats {
+    pub total_draw_calls: usize,
+    pub alpha_target_count: usize,
+    pub color_target_count: usize,
+}
+
+impl RendererStats {
+    pub fn empty() -> RendererStats {
+        RendererStats {
+            total_draw_calls: 0,
+            alpha_target_count: 0,
+            color_target_count: 0,
+        }
+    }
 }

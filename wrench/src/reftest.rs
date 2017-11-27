@@ -15,6 +15,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
+use webrender::RendererStats;
 use webrender::api::*;
 use wrench::{Wrench, WrenchThing};
 use yaml_frame_reader::YamlFrameReader;
@@ -71,6 +72,9 @@ pub struct Reftest {
     font_render_mode: Option<FontRenderMode>,
     max_difference: usize,
     num_differences: usize,
+    expected_draw_calls: Option<usize>,
+    expected_alpha_targets: Option<usize>,
+    expected_color_targets: Option<usize>,
 }
 
 impl Display for Reftest {
@@ -184,6 +188,9 @@ impl ReftestManifest {
             let mut max_count = 0;
             let mut op = ReftestOp::Equal;
             let mut font_render_mode = None;
+            let mut expected_color_targets = None;
+            let mut expected_alpha_targets = None;
+            let mut expected_draw_calls = None;
 
             for (i, token) in tokens.iter().enumerate() {
                 match *token {
@@ -209,6 +216,18 @@ impl ReftestManifest {
                         max_difference = args[0].parse().unwrap();
                         max_count = args[1].parse().unwrap();
                     }
+                    function if function.starts_with("draw_calls") => {
+                        let (_, args, _) = parse_function(function);
+                        expected_draw_calls = Some(args[0].parse().unwrap());
+                    }
+                    function if function.starts_with("alpha_targets") => {
+                        let (_, args, _) = parse_function(function);
+                        expected_alpha_targets = Some(args[0].parse().unwrap());
+                    }
+                    function if function.starts_with("color_targets") => {
+                        let (_, args, _) = parse_function(function);
+                        expected_color_targets = Some(args[0].parse().unwrap());
+                    }
                     options if options.starts_with("options") => {
                         let (_, args, _) = parse_function(options);
                         if args.iter().any(|arg| arg == &OPTION_DISABLE_SUBPX) {
@@ -232,6 +251,9 @@ impl ReftestManifest {
                             font_render_mode,
                             max_difference: cmp::max(max_difference, options.allow_max_difference),
                             num_differences: cmp::max(max_count, options.allow_num_differences),
+                            expected_draw_calls,
+                            expected_alpha_targets,
+                            expected_color_targets,
                         });
 
                         break;
@@ -304,14 +326,54 @@ impl<'a> ReftestHarness<'a> {
             self.window.get_inner_size_pixels().1,
         );
         let reference = match t.reference.extension().unwrap().to_str().unwrap() {
-            "yaml" => self.render_yaml(t.reference.as_path(), window_size, t.font_render_mode),
-            "png" => self.load_image(t.reference.as_path(), ImageFormat::PNG),
+            "yaml" => {
+                let (reference, _) = self.render_yaml(
+                    t.reference.as_path(),
+                    window_size,
+                    t.font_render_mode
+                );
+                reference
+            }
+            "png" => {
+                self.load_image(t.reference.as_path(), ImageFormat::PNG)
+            }
             other => panic!("Unknown reftest extension: {}", other),
         };
         // the reference can be smaller than the window size,
         // in which case we only compare the intersection
-        let test = self.render_yaml(t.test.as_path(), reference.size, t.font_render_mode);
+        let (test, stats) = self.render_yaml(t.test.as_path(), reference.size, t.font_render_mode);
         let comparison = test.compare(&reference);
+
+        if let Some(expected_draw_calls) = t.expected_draw_calls {
+            if expected_draw_calls != stats.total_draw_calls {
+                println!("REFTEST TEST-UNEXPECTED-FAIL | {}/{} | expected_draw_calls",
+                    stats.total_draw_calls,
+                    expected_draw_calls
+                );
+                println!("REFTEST TEST-END | {}", t);
+                return false;
+            }
+        }
+        if let Some(expected_alpha_targets) = t.expected_alpha_targets {
+            if expected_alpha_targets != stats.alpha_target_count {
+                println!("REFTEST TEST-UNEXPECTED-FAIL | {}/{} | alpha_target_count",
+                    stats.alpha_target_count,
+                    expected_alpha_targets
+                );
+                println!("REFTEST TEST-END | {}", t);
+                return false;
+            }
+        }
+        if let Some(expected_color_targets) = t.expected_color_targets {
+            if expected_color_targets != stats.color_target_count {
+                println!("REFTEST TEST-UNEXPECTED-FAIL | {}/{} | color_target_count",
+                    stats.color_target_count,
+                    expected_color_targets
+                );
+                println!("REFTEST TEST-END | {}", t);
+                return false;
+            }
+        }
 
         match (&t.op, comparison) {
             (&ReftestOp::Equal, ReftestImageComparison::Equal) => true,
@@ -368,14 +430,14 @@ impl<'a> ReftestHarness<'a> {
         filename: &Path,
         size: DeviceUintSize,
         font_render_mode: Option<FontRenderMode>,
-    ) -> ReftestImage {
+    ) -> (ReftestImage, RendererStats) {
         let mut reader = YamlFrameReader::new(filename);
         reader.set_font_render_mode(font_render_mode);
         reader.do_frame(self.wrench);
 
         // wait for the frame
         self.rx.recv().unwrap();
-        self.wrench.render();
+        let stats = self.wrench.render();
 
         let window_size = self.window.get_inner_size_pixels();
         assert!(size.width <= window_size.0 && size.height <= window_size.1);
@@ -393,6 +455,6 @@ impl<'a> ReftestHarness<'a> {
 
         reader.deinit(self.wrench);
 
-        ReftestImage { data: pixels, size }
+        (ReftestImage { data: pixels, size }, stats)
     }
 }

@@ -1,5 +1,5 @@
 == filter-grayscale.yaml filter-grayscale-ref.yaml
-== filter-blur.yaml filter-blur.png
+== draw_calls(4) color_targets(6) alpha_targets(0) filter-blur.yaml filter-blur.png
 == isolated.yaml isolated-ref.yaml
 == invisible.yaml invisible-ref.yaml
 == opacity.yaml opacity-ref.yaml
@@ -13,7 +13,7 @@
 == filter-invert.yaml filter-invert-ref.yaml
 == filter-invert-2.yaml filter-invert-2-ref.yaml
 == filter-large-blur-radius.yaml filter-large-blur-radius.png
-== filter-small-blur-radius.yaml filter-small-blur-radius.png
+== draw_calls(4) color_targets(4) alpha_targets(0) filter-small-blur-radius.yaml filter-small-blur-radius.png
 == filter-saturate-red-1.yaml filter-saturate-red-1-ref.yaml
 == filter-saturate-red-2.yaml filter-saturate-red-2-ref.yaml
 == filter-saturate-red-3.yaml filter-saturate-red-3-ref.yaml
