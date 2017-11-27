@@ -6,3 +6,5 @@
 fuzzy(1,2) == rotated-image.yaml rotated-image.png
 == singular.yaml singular-ref.yaml
 fuzzy(1,41) == perspective.yaml perspective.png
+== prim-suite.yaml prim-suite.png
+
