@@ -446,6 +446,7 @@ fn main() {
     let mut last = time::SteadyTime::now();
     let mut frame_count = 0;
     let frames_between_dumps = 60;
+    let mut cpu_profile_index = 0;
 
     let mut min_time = time::Duration::max_value();
     let mut min_min_time = time::Duration::max_value();
@@ -618,6 +619,11 @@ fn main() {
                 }
                 VirtualKeyCode::H => {
                     show_help = !show_help;
+                }
+                VirtualKeyCode::T => {
+                    let file_name = format!("profile-{}.json", cpu_profile_index);
+                    wrench.renderer.save_cpu_profile(&file_name);
+                    cpu_profile_index += 1;
                 }
                 _ => (),
             },
