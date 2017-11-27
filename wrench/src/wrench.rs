@@ -499,6 +499,7 @@ impl Wrench {
             "B - Toggle showing alpha primitive rects",
             "Q - Toggle GPU queries for time and samples",
             "M - Trigger memory pressure event",
+            "T - Save CPU profile to a file",
         ];
 
         let color_and_offset = [(*BLACK_COLOR, 2.0), (*WHITE_COLOR, 0.0)];
