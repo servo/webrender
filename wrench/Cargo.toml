@@ -27,6 +27,10 @@ osmesa-src = { git = "https://github.com/servo/osmesa-src", optional = true }
 webrender = {path = "../webrender", features=["debugger","profiler"]}
 serde = {version = "1.0", features = ["derive"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.12.4"
+core-foundation = "0.4"
+
 [features]
 headless = [ "osmesa-sys", "osmesa-src" ]
 logging = [ "env_logger" ]

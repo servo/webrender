@@ -8,6 +8,10 @@ extern crate bincode;
 extern crate byteorder;
 #[macro_use]
 extern crate clap;
+#[cfg(target_os = "macos")]
+extern crate core_foundation;
+#[cfg(target_os = "macos")]
+extern crate core_graphics;
 extern crate crossbeam;
 #[cfg(target_os = "windows")]
 extern crate dwrote;
@@ -46,6 +50,8 @@ mod wrench;
 mod yaml_frame_reader;
 mod yaml_frame_writer;
 mod yaml_helper;
+#[cfg(target_os = "macos")]
+mod cgfont_to_data;
 
 use binary_frame_reader::BinaryFrameReader;
 use gleam::gl;
