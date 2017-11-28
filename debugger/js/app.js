@@ -4,6 +4,7 @@ var state = {
     passes: [],
     documents: [],
     clipscrolltree: [],
+    screenshot: []
 }
 
 class Connection {
@@ -27,6 +28,8 @@ class Connection {
                 state.documents = json['root'];
             } else if (json['kind'] == "clipscrolltree") {
                 state.clipscrolltree = json['root'];
+            } else if (json['kind'] == "screenshot") {
+                state.screenshot =  json['data'];
             } else {
                 console.warn("unknown message kind: " + json['kind']);
             }
@@ -72,7 +75,8 @@ Vue.component('app', {
                             <options v-if="state.page == 'options'"></options>
                             <passview v-if="state.page == 'passes'" :passes=state.passes></passview>
                             <documentview v-if="state.page == 'documents'" :documents=state.documents></documentview>
-                            <clipscrolltreeview v-if="state.page == 'clipscrolltree'" :clipscrolltree=state.clipscrolltree></documentview>
+                            <clipscrolltreeview v-if="state.page == 'clipscrolltree'" :clipscrolltree=state.clipscrolltree></clipscrolltreeview>
+                            <screenshotview v-if="state.page == 'screenshot'" :screenshot=state.screenshot></screenshotview>
                         </div>
                     </div>
                 </div>
@@ -309,6 +313,28 @@ Vue.component('clipscrolltreeview', {
     `
 })
 
+Vue.component('screenshotview', {
+    props: [
+        'screenshot'
+    ],
+    methods: {
+        fetch: function() {
+            connection.send("fetch_screenshot");
+        }
+    },
+    template: `
+        <div class="box">
+            <h1 class="title">Screenshot <a v-on:click="fetch" class="button is-info">Refresh</a></h1>
+            <hr/>
+            <div>
+                <ul>
+                    <img v-if="screenshot.length > 0" style="transform: scaleY(-1); width: 1024px; height:768px" :src="'data:image/png;base64,' + screenshot" />
+                </ul>
+            </div>
+        </div>
+    `
+})
+
 Vue.component('mainmenu', {
     props: [
         'page',
@@ -328,6 +354,7 @@ Vue.component('mainmenu', {
                 <li><a v-on:click="setPage('passes')" v-bind:class="{ 'is-active': page == 'passes' }">Passes</a></li>
                 <li><a v-on:click="setPage('documents')" v-bind:class="{ 'is-active': page == 'documents' }">Documents</a></li>
                 <li><a v-on:click="setPage('clipscrolltree')" v-bind:class="{ 'is-active': page == 'clipscrolltree' }">Clip-scroll Tree</a></li>
+                <li><a v-on:click="setPage('screenshot')" v-bind:class="{ 'is-active': page == 'screenshot' }">Screenshot</a></li>
             </ul>
         </aside>
     `

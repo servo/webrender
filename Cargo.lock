@@ -1010,6 +1010,7 @@ version = "0.54.0"
 dependencies = [
  "angle 0.5.0 (git+https://github.com/servo/angle?branch=servo)",
  "app_units 0.5.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "base64 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bincode 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bitflags 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1022,6 +1023,7 @@ dependencies = [
  "freetype 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fxhash 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam 0.4.14 (registry+https://github.com/rust-lang/crates.io-index)",
+ "image 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "num-traits 0.1.37 (registry+https://github.com/rust-lang/crates.io-index)",

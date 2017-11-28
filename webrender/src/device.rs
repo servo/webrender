@@ -1424,6 +1424,15 @@ impl Device {
         }
     }
 
+    pub fn read_pixels(&mut self, width: i32, height: i32) -> Vec<u8> {
+        self.gl.read_pixels(
+            0, 0, 
+            width as i32, height as i32,
+            gl::RGBA,
+            gl::UNSIGNED_BYTE
+        )
+    }
+
     pub fn bind_vao(&mut self, vao: &VAO) {
         debug_assert!(self.inside_frame);
 
