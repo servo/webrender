@@ -9,7 +9,7 @@ use api::{ClipMode, LayerSize, LayerVector2D, LayerToWorldTransform, LineOrienta
 use api::{ClipAndScrollInfo, EdgeAaSegmentMask, PremultipliedColorF, TileOffset};
 use api::{ClipId, LayerTransform, PipelineId, YuvColorSpace, YuvFormat};
 use border::BorderCornerInstance;
-use clip_scroll_tree::ClipScrollTree;
+use clip_scroll_tree::{CoordinateSystemId, ClipScrollTree};
 use clip::{ClipSourcesHandle, ClipStore};
 use frame_builder::PrimitiveContext;
 use glyph_rasterizer::{FontInstance, FontTransform};
@@ -1322,6 +1322,14 @@ impl PrimitiveStore {
             .collect();
 
         if clips.is_empty() {
+            // If this item is in the root coordinate system, then
+            // we know that the local_clip_rect in the clip node
+            // will take care of applying this clip, so no need
+            // for a mask.
+            if prim_coordinate_system_id == CoordinateSystemId::root() {
+                return true;
+            }
+
             // If we have filtered all clips and the screen rect isn't any smaller, we can just
             // skip masking entirely.
             if combined_outer_rect == prim_screen_rect {
@@ -1375,7 +1383,7 @@ impl PrimitiveStore {
         // Reset the visibility of this primitive.
         // Do some basic checks first, that can early out
         // without even knowing the local rect.
-        let (cpu_prim_index, dependencies, cull_children) = {
+        let (cpu_prim_index, dependencies, cull_children, may_need_clip_mask) = {
             let metadata = &mut self.cpu_metadata[prim_index.0];
             metadata.screen_rect = None;
 
@@ -1385,7 +1393,7 @@ impl PrimitiveStore {
                 return None;
             }
 
-            let (dependencies, cull_children) = match metadata.prim_kind {
+            let (dependencies, cull_children, may_need_clip_mask) = match metadata.prim_kind {
                 PrimitiveKind::Picture => {
                     let pic = &mut self.cpu_pictures[metadata.cpu_prim_index.0];
 
@@ -1393,18 +1401,24 @@ impl PrimitiveStore {
                         return None;
                     }
 
-                    let rfid = match pic.kind {
-                        PictureKind::Image { reference_frame_id, .. } => Some(reference_frame_id),
-                        _ => None,
+                    let (rfid, may_need_clip_mask) = match pic.kind {
+                        PictureKind::Image { reference_frame_id, .. } => {
+                            (Some(reference_frame_id), false)
+                        }
+                        _ => {
+                            (None, true)
+                        }
                     };
-                    (Some((pic.pipeline_id, mem::replace(&mut pic.runs, Vec::new()), rfid)), pic.cull_children)
+                    (Some((pic.pipeline_id, mem::replace(&mut pic.runs, Vec::new()), rfid)),
+                     pic.cull_children,
+                     may_need_clip_mask)
                 }
                 _ => {
-                    (None, true)
+                    (None, true, true)
                 }
             };
 
-            (metadata.cpu_prim_index, dependencies, cull_children)
+            (metadata.cpu_prim_index, dependencies, cull_children, may_need_clip_mask)
         };
 
         // If we have dependencies, we need to prepare them first, in order
@@ -1476,7 +1490,7 @@ impl PrimitiveStore {
             (local_rect, xf_rect.bounding_rect)
         };
 
-        if !self.update_clip_task(
+        if perform_culling && may_need_clip_mask && !self.update_clip_task(
             prim_index,
             prim_context,
             &unclipped_device_rect,
@@ -1486,7 +1500,7 @@ impl PrimitiveStore {
             render_tasks,
             clip_store,
             parent_tasks,
-        ) && perform_culling {
+        ) {
             return None;
         }
 
