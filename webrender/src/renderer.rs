@@ -64,7 +64,8 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use texture_cache::TextureCache;
 use thread_profiler::{register_thread_with_profiler, write_profile};
-use tiling::{AlphaRenderTarget, ColorRenderTarget, RenderPassKind, RenderTargetKind, RenderTargetList};
+use tiling::{AlphaRenderTarget, ColorRenderTarget};
+use tiling::{RenderPass, RenderPassKind, RenderTargetKind, RenderTargetList};
 use tiling::{BatchKey, BatchKind, BrushBatchKind, Frame, RenderTarget, ScalingInfo, TransformBatchKind};
 use time::precise_time_ns;
 use util::TransformedRectKind;
@@ -2330,6 +2331,32 @@ impl Renderer {
         (cpu_profiles, gpu_profiles)
     }
 
+    /// Returns `true` if the active rendered documents (that need depth buffer)
+    /// intersect on the main framebuffer, in which case we don't clear
+    /// the whole depth and instead clear each document area separately.
+    fn are_documents_intersecting_depth(&self) -> bool {
+        let document_rects = self.active_documents
+            .iter()
+            .filter_map(|&(_, ref render_doc)| {
+                match render_doc.frame.passes.last() {
+                    Some(&RenderPass { kind: RenderPassKind::MainFramebuffer(ref target), .. })
+                        if target.needs_depth() => Some(render_doc.frame.inner_rect),
+                    _ => None,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        for (i, rect) in document_rects.iter().enumerate() {
+            for other in &document_rects[i+1 ..] {
+                if rect.intersects(other) {
+                    return true
+                }
+            }
+        }
+
+        false
+    }
+
     /// Renders the current frame.
     ///
     /// A Frame is supplied by calling [`generate_frame()`][genframe].
@@ -2388,23 +2415,34 @@ impl Renderer {
         });
 
         profile_timers.cpu_time.profile(|| {
+            let clear_depth_value = if self.are_documents_intersecting_depth() {
+                None
+            } else {
+                Some(1.0)
+            };
+
             //Note: another borrowck dance
             let mut active_documents = mem::replace(&mut self.active_documents, Vec::default());
             // sort by the document layer id
             active_documents.sort_by_key(|&(_, ref render_doc)| render_doc.frame.layer);
 
-            let needs_clear = !active_documents
+            // don't clear the framebuffer if one of the rendered documents will overwrite it
+            let needs_color_clear = !active_documents
                 .iter()
                 .any(|&(_, RenderedDocument { ref frame, .. })| {
                     frame.background_color.is_some() &&
                     frame.inner_rect.origin == DeviceUintPoint::zero() &&
                     frame.inner_rect.size == framebuffer_size
                 });
-            // don't clear the framebuffer if one of the rendered documents will overwrite it
-            if needs_clear {
-                let clear_color = self.clear_color.map(|color| color.to_array());
+
+            if needs_color_clear || clear_depth_value.is_some() {
+                let clear_color = if needs_color_clear {
+                    self.clear_color.map(|color| color.to_array())
+                } else {
+                    None
+                };
                 self.device.bind_draw_target(None, None);
-                self.device.clear_target(clear_color, None);
+                self.device.clear_target(clear_color, clear_depth_value);
             }
 
             // Re-use whatever targets possible from the pool, before
@@ -2419,6 +2457,7 @@ impl Renderer {
                 self.draw_tile_frame(
                     frame,
                     framebuffer_size,
+                    clear_depth_value.is_some(),
                     cpu_frame_id,
                     &mut stats
                 );
@@ -2913,6 +2952,7 @@ impl Renderer {
         target: &ColorRenderTarget,
         framebuffer_target_rect: DeviceUintRect,
         target_size: DeviceUintSize,
+        depth_is_ready: bool,
         clear_color: Option<[f32; 4]>,
         render_tasks: &RenderTaskTree,
         projection: &Transform3D<f32>,
@@ -2933,7 +2973,7 @@ impl Renderer {
             self.device.disable_depth();
             self.device.set_blend(false);
 
-            let depth_clear = if target.needs_depth() {
+            let depth_clear = if !depth_is_ready && target.needs_depth() {
                 self.device.enable_depth_write();
                 Some(1.0)
             } else {
@@ -3693,6 +3733,7 @@ impl Renderer {
         &mut self,
         frame: &mut Frame,
         framebuffer_size: DeviceUintSize,
+        framebuffer_depth_is_ready: bool,
         frame_id: FrameId,
         stats: &mut RendererStats,
     ) {
@@ -3742,6 +3783,7 @@ impl Renderer {
                         target,
                         frame.inner_rect,
                         framebuffer_size,
+                        framebuffer_depth_is_ready,
                         clear_color,
                         &frame.render_tasks,
                         &projection,
@@ -3794,6 +3836,7 @@ impl Renderer {
                             target,
                             frame.inner_rect,
                             color.max_size,
+                            false,
                             Some([0.0, 0.0, 0.0, 0.0]),
                             &frame.render_tasks,
                             &projection,
