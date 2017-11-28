@@ -1,0 +1,23 @@
+# In this case, there is no incompatible transform.
+# Therefore, the clip condition should be handled
+# by the vertex shader via the local_clip_rect, and
+# there should be no clip mask generated.
+---
+root:
+  items:
+    -
+      type: "stacking-context"
+      items:
+        -
+          bounds: [0, 111, 1887, 1365]
+          "clip-rect": [0, 111, 1887, 1365]
+          type: iframe
+          id: [1, 2]
+pipelines:
+  -
+    id: [1, 2]
+    items:
+      -
+        bounds: [1875, -1, 12, 999]
+        "clip-rect": [1875, -1, 12, 999]
+        image: checkerboard(4, 8, 8)
