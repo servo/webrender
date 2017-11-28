@@ -26,6 +26,10 @@ pub type ScrollStates = FastHashMap<ClipId, ScrollingState>;
 pub struct CoordinateSystemId(pub u32);
 
 impl CoordinateSystemId {
+    pub fn root() -> CoordinateSystemId {
+        CoordinateSystemId(0)
+    }
+
     pub fn next(&self) -> CoordinateSystemId {
         let CoordinateSystemId(id) = *self;
         CoordinateSystemId(id + 1)
