@@ -2442,7 +2442,9 @@ impl Renderer {
                     None
                 };
                 self.device.bind_draw_target(None, None);
-                self.device.clear_target(clear_color, clear_depth_value);
+                self.device.enable_depth_write();
+                self.device.clear_target(clear_color, clear_depth_value, None);
+                self.device.disable_depth_write();
             }
 
             // Re-use whatever targets possible from the pool, before
@@ -2980,31 +2982,30 @@ impl Renderer {
                 None
             };
 
-            if render_target.is_some() {
+            let clear_rect = if render_target.is_some() {
                 if self.enable_clear_scissor {
                     // TODO(gw): Applying a scissor rect and minimal clear here
                     // is a very large performance win on the Intel and nVidia
                     // GPUs that I have tested with. It's possible it may be a
                     // performance penalty on other GPU types - we should test this
                     // and consider different code paths.
-                    self.device.clear_target_rect(clear_color, depth_clear, target.used_rect());
+                    Some(target.used_rect())
                 } else {
-                    self.device.clear_target(clear_color, depth_clear);
+                    None
                 }
             } else if framebuffer_target_rect == DeviceUintRect::new(DeviceUintPoint::zero(), target_size) {
                 // whole screen is covered, no need for scissor
-                self.device.clear_target(clear_color, depth_clear);
+                None
             } else {
-                // Note: for non-intersecting document rectangles,
-                // we can omit clearing the depth here, and instead
-                // just clear it for the whole framebuffer at start of the frame.
-                let mut clear_rect = framebuffer_target_rect.to_i32();
+                let mut rect = framebuffer_target_rect.to_i32();
                 // Note: `framebuffer_target_rect` needs a Y-flip before going to GL
                 // Note: at this point, the target rectangle is not guaranteed to be within the main framebuffer bounds
                 // but `clear_target_rect` is totally fine with negative origin, as long as width & height are positive
-                clear_rect.origin.y = target_size.height as i32 - clear_rect.origin.y - clear_rect.size.height;
-                self.device.clear_target_rect(clear_color, depth_clear, clear_rect);
-            }
+                rect.origin.y = target_size.height as i32 - rect.origin.y - rect.size.height;
+                Some(rect)
+            };
+
+            self.device.clear_target(clear_color, depth_clear, clear_rect);
 
             if depth_clear.is_some() {
                 self.device.disable_depth_write();
@@ -3397,14 +3398,20 @@ impl Renderer {
             // performance penalty on other GPU types - we should test this
             // and consider different code paths.
             let clear_color = [1.0, 1.0, 1.0, 0.0];
-            self.device
-                .clear_target_rect(Some(clear_color), None, target.used_rect());
+            self.device.clear_target(
+                Some(clear_color),
+                None,
+                Some(target.used_rect()),
+            );
 
             let zero_color = [0.0, 0.0, 0.0, 0.0];
             for &task_id in &target.zero_clears {
                 let (rect, _) = render_tasks[task_id].get_target_rect();
-                self.device
-                    .clear_target_rect(Some(zero_color), None, rect);
+                self.device.clear_target(
+                    Some(zero_color),
+                    None,
+                    Some(rect),
+                );
             }
         }
 
