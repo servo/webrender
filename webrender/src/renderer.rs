@@ -92,7 +92,7 @@ const GPU_TAG_CACHE_LINE: GpuProfileTag = GpuProfileTag {
     color: debug_colors::BROWN,
 };
 const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag {
-    label: "target",
+    label: "target init",
     color: debug_colors::SLATEGREY,
 };
 const GPU_TAG_SETUP_DATA: GpuProfileTag = GpuProfileTag {
@@ -2909,6 +2909,8 @@ impl Renderer {
         frame_id: FrameId,
         stats: &mut RendererStats,
     ) {
+        let _gm = self.gpu_profile.start_marker("color target");
+
         // sanity check for the depth buffer
         if let Some((texture, _)) = render_target {
             assert!(texture.has_depth() >= target.needs_depth());
@@ -3329,6 +3331,7 @@ impl Renderer {
         render_tasks: &RenderTaskTree,
         stats: &mut RendererStats,
     ) {
+        let _gm = self.gpu_profile.start_marker("alpha target");
         let alpha_sampler = self.gpu_profile.start_sampler(GPU_SAMPLER_TAG_ALPHA);
 
         {
@@ -3425,7 +3428,7 @@ impl Renderer {
             // area in the clip mask. This allows drawing multiple invididual clip
             // in regions below.
             if !target.clip_batcher.border_clears.is_empty() {
-                let _gm = self.gpu_profile.start_marker("clip borders [clear]");
+                let _gm2 = self.gpu_profile.start_marker("clip borders [clear]");
                 self.device.set_blend(false);
                 self.cs_clip_border
                     .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
@@ -3439,7 +3442,7 @@ impl Renderer {
 
             // Draw any dots or dashes for border corners.
             if !target.clip_batcher.borders.is_empty() {
-                let _gm = self.gpu_profile.start_marker("clip borders");
+                let _gm2 = self.gpu_profile.start_marker("clip borders");
                 // We are masking in parts of the corner (dots or dashes) here.
                 // Blend mode is set to max to allow drawing multiple dots.
                 // The individual dots and dashes in a border never overlap, so using
@@ -3462,7 +3465,7 @@ impl Renderer {
 
             // draw rounded cornered rectangles
             if !target.clip_batcher.rectangles.is_empty() {
-                let _gm = self.gpu_profile.start_marker("clip rectangles");
+                let _gm2 = self.gpu_profile.start_marker("clip rectangles");
                 self.cs_clip_rectangle.bind(
                     &mut self.device,
                     projection,
@@ -3478,7 +3481,7 @@ impl Renderer {
             }
             // draw image masks
             for (mask_texture_id, items) in target.clip_batcher.images.iter() {
-                let _gm = self.gpu_profile.start_marker("clip images");
+                let _gm2 = self.gpu_profile.start_marker("clip images");
                 let textures = BatchTextures {
                     colors: [
                         mask_texture_id.clone(),
@@ -3696,6 +3699,8 @@ impl Renderer {
         self.bind_frame_data(frame);
 
         for (pass_index, pass) in frame.passes.iter_mut().enumerate() {
+            self.gpu_profile.place_marker(&format!("pass {}", pass_index));
+
             self.texture_resolver.bind(
                 &SourceTexture::CacheA8,
                 TextureSampler::CacheA8,
