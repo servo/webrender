@@ -1,0 +1,33 @@
+
+--- # tests that clips inside fast-shadows get translated too
+root:
+  items:
+    -
+      type: "shadow"
+      bounds: [0, 0, 200, 200]
+      blur-radius: 0
+      offset: [5, 10]
+      color: black
+    - type: clip
+      bounds: [0, 0, 130, 25]
+      items:
+        -
+          origin: [30, 30]
+          text: "Inner Clip!"
+          size: 18
+          color: [0,0,0,0]
+          font: "VeraBd.ttf"
+    - type: clip
+      bounds: [30, 20, 60, 2]
+      items:
+        - type: line
+          baseline: 20
+          start: 20
+          end: 120
+          width: 3
+          thickness: 1
+          style: wavy
+          orientation: horizontal
+          color: [0,0,0,0]
+    -
+      type: "pop-all-shadows"

@@ -1,0 +1,25 @@
+
+---
+root:
+  items:
+    - type: clip
+      bounds: [5, 10, 130, 25]
+      items:
+        -
+          origin: [35, 40]
+          text: "Inner Clip!"
+          size: 18
+          color: black
+          font: "VeraBd.ttf"
+    - type: clip
+      bounds: [35, 30, 60, 2]
+      items:
+        - type: line
+          baseline: 30
+          start: 25
+          end: 125
+          width: 3
+          thickness: 1
+          style: wavy
+          orientation: horizontal
+          color: black
