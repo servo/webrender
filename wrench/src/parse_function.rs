@@ -64,8 +64,22 @@ pub fn parse_function(s: &str) -> (&str, Vec<&str>, &str) {
         p.skip_whitespace();
 
         let mut end = p.start;
+        let mut bracket_count: i32 = 0;
         while let Some(k) = p.o {
-            if !acceptable_arg_character(k.1) {
+            let prev_bracket_count = bracket_count;
+            if k.1 == '[' {
+                bracket_count = bracket_count + 1;
+            } else if k.1 == ']' {
+                bracket_count = bracket_count - 1;
+            }
+
+            if bracket_count < 0 {
+                println!("Unexpected closing bracket");
+                break;
+            }
+
+            let not_in_bracket = bracket_count == 0 && prev_bracket_count == 0;
+            if !acceptable_arg_character(k.1) && not_in_bracket {
                 break;
             }
             end = k.0 + k.1.len_utf8();
@@ -100,4 +114,8 @@ fn test() {
     assert_eq!(parse_function("  rotate  (40)").0, "rotate");
     assert_eq!(parse_function("  rotate  (  40 )").1[0], "40");
     assert_eq!(parse_function("rotate(-40.0)").1[0], "-40.0");
+    assert_eq!(parse_function("drop-shadow(0, [1, 2, 3, 4], 5)").1[0], "0");
+    assert_eq!(parse_function("drop-shadow(0, [1, 2, 3, 4], 5)").1[1], "[1, 2, 3, 4]");
+    assert_eq!(parse_function("drop-shadow(0, [1, 2, 3, 4], 5)").1[2], "5");
+    assert_eq!(parse_function("drop-shadow(0, [1, 2, [3, 4]], 5)").1[1], "[1, 2, [3, 4]]");
 }
