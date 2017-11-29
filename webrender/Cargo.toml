@@ -1,6 +1,6 @@
 [package]
 name = "webrender"
-version = "0.54.0"
+version = "0.55.0"
 authors = ["Glenn Watson <gw@intuitionlibrary.com>"]
 license = "MPL-2.0"
 repository = "https://github.com/servo/webrender"
@@ -45,7 +45,7 @@ servo-glutin = "0.13"     # for the example apps
 freetype = { version = "0.3", default-features = false }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-dwrote = "0.4"
+dwrote = "0.4.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.4"
