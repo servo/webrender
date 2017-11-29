@@ -22,7 +22,7 @@ use frame::FrameId;
 use glyph_rasterizer::FontInstance;
 use gpu_cache::GpuCache;
 use gpu_types::ClipScrollNodeData;
-use internal_types::{FastHashMap, FastHashSet};
+use internal_types::{FastHashMap, FastHashSet, RenderPassIndex};
 use picture::{PictureCompositeMode, PictureKind, PicturePrimitive, RasterizationSpace};
 use prim_store::{BrushAntiAliasMode, BrushKind, BrushPrimitive, TexelRect, YuvImagePrimitiveCpu};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, LinePrimitive, PrimitiveKind};
@@ -1747,10 +1747,10 @@ impl FrameBuilder {
 
             // Do the allocations now, assigning each tile's tasks to a render
             // pass and target as required.
-            for _ in 0 .. required_pass_count - 1 {
-                passes.push(RenderPass::new_off_screen(self.screen_rect.size.to_i32()));
+            for idx in 0 .. required_pass_count - 1 {
+                passes.push(RenderPass::new_off_screen(self.screen_rect.size.to_i32(), RenderPassIndex(idx)));
             }
-            passes.push(RenderPass::new_main_framebuffer(self.screen_rect.size.to_i32()));
+            passes.push(RenderPass::new_main_framebuffer(self.screen_rect.size.to_i32(), RenderPassIndex(required_pass_count)));
 
             render_tasks.assign_to_passes(
                 main_render_task_id,

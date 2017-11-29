@@ -40,7 +40,7 @@ use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
 use gpu_types::PrimitiveInstance;
 use internal_types::{BatchTextures, SourceTexture, ORTHO_FAR_PLANE, ORTHO_NEAR_PLANE};
 use internal_types::{CacheTextureId, FastHashMap, RenderedDocument, ResultMsg, TextureUpdateOp};
-use internal_types::{DebugOutput, RenderTargetInfo, TextureUpdateList, TextureUpdateSource};
+use internal_types::{DebugOutput, RenderPassIndex, RenderTargetInfo, TextureUpdateList, TextureUpdateSource};
 use profiler::{BackendProfileCounters, Profiler};
 use profiler::{GpuProfileTag, RendererProfileCounters, RendererProfileTimers};
 use query::{GpuProfiler, GpuTimer};
@@ -551,6 +551,8 @@ impl CpuProfile {
     }
 }
 
+struct RenderTargetPoolId(usize);
+
 struct SourceTextureResolver {
     /// A vector for fast resolves of texture cache IDs to
     /// native texture IDs. This maps to a free-list managed
@@ -573,6 +575,11 @@ struct SourceTextureResolver {
     /// The current cache textures.
     cache_rgba8_texture: Option<Texture>,
     cache_a8_texture: Option<Texture>,
+
+    pass_rgba8_textures: FastHashMap<RenderPassIndex, RenderTargetPoolId>,
+    pass_a8_textures: FastHashMap<RenderPassIndex, RenderTargetPoolId>,
+
+    render_target_pool: Vec<Texture>,
 }
 
 impl SourceTextureResolver {
@@ -595,6 +602,9 @@ impl SourceTextureResolver {
             dummy_cache_texture,
             cache_a8_texture: None,
             cache_rgba8_texture: None,
+            pass_rgba8_textures: FastHashMap::default(),
+            pass_a8_textures: FastHashMap::default(),
+            render_target_pool: Vec::new(),
         }
     }
 
@@ -604,27 +614,42 @@ impl SourceTextureResolver {
         for texture in self.cache_texture_map {
             device.delete_texture(texture);
         }
+
+        for texture in self.render_target_pool {
+            device.delete_texture(texture);
+        }
     }
 
-    fn begin_frame(&self) {
+    fn begin_frame(&mut self) {
         assert!(self.cache_rgba8_texture.is_none());
         assert!(self.cache_a8_texture.is_none());
+
+        self.pass_rgba8_textures.clear();
+        self.pass_a8_textures.clear();
     }
 
-    fn end_frame(&mut self, pool: &mut Vec<Texture>) {
+    fn end_frame(&mut self, pass_index: RenderPassIndex) {
         // return the cached targets to the pool
-        self.end_pass(None, None, pool)
+        self.end_pass(None, None, pass_index)
     }
 
     fn end_pass(
         &mut self,
         a8_texture: Option<Texture>,
         rgba8_texture: Option<Texture>,
-        pool: &mut Vec<Texture>,
+        pass_index: RenderPassIndex,
     ) {
         // If we have cache textures from previous pass, return them to the pool.
-        pool.extend(self.cache_rgba8_texture.take());
-        pool.extend(self.cache_a8_texture.take());
+        if self.cache_rgba8_texture.is_some() {
+            self.pass_rgba8_textures.insert(
+                RenderPassIndex(pass_index.0 - 1), RenderTargetPoolId(self.render_target_pool.len()));
+            self.render_target_pool.extend(self.cache_rgba8_texture.take());
+        }
+        if self.cache_a8_texture.is_some() {
+            self.pass_a8_textures.insert(
+                RenderPassIndex(pass_index.0 - 1), RenderTargetPoolId(self.render_target_pool.len()));
+            self.render_target_pool.extend(self.cache_a8_texture.take());
+        }
 
         // We have another pass to process, make these textures available
         // as inputs to the next pass.
@@ -658,6 +683,20 @@ impl SourceTextureResolver {
                 let texture = &self.cache_texture_map[index.0];
                 device.bind_texture(sampler, texture);
             }
+            SourceTexture::RenderTaskCacheRGBA8(pass_index) => {
+                let texture = match self.pass_rgba8_textures.get(&pass_index) {
+                    Some(pool_index) => &self.render_target_pool[pool_index.0],
+                    None => &self.dummy_cache_texture,
+                };
+                device.bind_texture(sampler, texture);
+            }
+            SourceTexture::RenderTaskCacheA8(pass_index) => {
+                let texture = match self.pass_a8_textures.get(&pass_index) {
+                    Some(pool_index) => &self.render_target_pool[pool_index.0],
+                    None => &self.dummy_cache_texture,
+                };
+                device.bind_texture(sampler, texture);
+            }
         }
     }
 
@@ -681,6 +720,18 @@ impl SourceTextureResolver {
                 panic!("BUG: External textures cannot be resolved, they can only be bound.");
             }
             SourceTexture::TextureCache(index) => Some(&self.cache_texture_map[index.0]),
+            SourceTexture::RenderTaskCacheRGBA8(pass_index) => Some(
+                match self.pass_rgba8_textures.get(&pass_index) {
+                    Some(pool_index) => &self.render_target_pool[pool_index.0],
+                    None => &self.dummy_cache_texture,
+                }
+            ),
+            SourceTexture::RenderTaskCacheA8(pass_index) => Some(
+                match self.pass_a8_textures.get(&pass_index) {
+                    Some(pool_index) => &self.render_target_pool[pool_index.0],
+                    None => &self.dummy_cache_texture,
+                }
+            ),
         }
     }
 }
@@ -1394,8 +1445,6 @@ pub struct Renderer {
     profiler: Profiler,
     last_time: u64,
 
-    render_target_pool: Vec<Texture>,
-
     gpu_profile: GpuProfiler<GpuProfileTag>,
     prim_vao: VAO,
     blur_vao: VAO,
@@ -2027,7 +2076,6 @@ impl Renderer {
             clear_color: options.clear_color,
             enable_clear_scissor: options.enable_clear_scissor,
             last_time: 0,
-            render_target_pool: Vec::new(),
             gpu_profile,
             prim_vao,
             blur_vao,
@@ -3684,7 +3732,7 @@ impl Renderer {
                 num_layers: list.targets.len() as _,
                 format: list.format,
             };
-            let index = self.render_target_pool
+            let index = self.texture_resolver.render_target_pool
                 .iter()
                 .position(|texture| {
                     selector == TargetSelector {
@@ -3694,14 +3742,14 @@ impl Renderer {
                     }
                 });
             match index {
-                Some(pos) => self.render_target_pool.swap_remove(pos),
+                Some(pos) => self.texture_resolver.render_target_pool.swap_remove(pos),
                 None => return,
             }
         } else {
             if list.texture.is_some() {
                 return
             }
-            match self.render_target_pool.pop() {
+            match self.texture_resolver.render_target_pool.pop() {
                 Some(texture) => texture,
                 None => self.device.create_texture(TextureTarget::Array),
             }
@@ -3885,7 +3933,7 @@ impl Renderer {
             self.texture_resolver.end_pass(
                 cur_alpha,
                 cur_color,
-                &mut self.render_target_pool,
+                RenderPassIndex(pass_index),
             );
 
             // After completing the first pass, make the A8 target available as an
@@ -3900,7 +3948,7 @@ impl Renderer {
             }
         }
 
-        self.texture_resolver.end_frame(&mut self.render_target_pool);
+        self.texture_resolver.end_frame(RenderPassIndex(frame.passes.len()));
         self.draw_render_target_debug(framebuffer_size);
         self.draw_texture_cache_debug(framebuffer_size);
         self.draw_epoch_debug();
@@ -3967,7 +4015,7 @@ impl Renderer {
         let mut spacing = 16;
         let mut size = 512;
         let fb_width = framebuffer_size.width as i32;
-        let num_layers: i32 = self.render_target_pool
+        let num_layers: i32 = self.texture_resolver.render_target_pool
             .iter()
             .map(|texture| texture.get_render_target_layer_count() as i32)
             .sum();
@@ -3979,7 +4027,7 @@ impl Renderer {
         }
 
         let mut target_index = 0;
-        for texture in &self.render_target_pool {
+        for texture in &self.texture_resolver.render_target_pool {
             let dimensions = texture.get_dimensions();
             let src_rect = DeviceIntRect::new(DeviceIntPoint::zero(), dimensions.to_i32());
 
@@ -4121,9 +4169,6 @@ impl Renderer {
         }
         self.node_data_texture.deinit(&mut self.device);
         self.render_task_texture.deinit(&mut self.device);
-        for texture in self.render_target_pool {
-            self.device.delete_texture(texture);
-        }
         self.device.delete_pbo(self.texture_cache_upload_pbo);
         self.texture_resolver.deinit(&mut self.device);
         self.device.delete_vao(self.prim_vao);

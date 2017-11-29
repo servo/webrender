@@ -17,6 +17,7 @@ use std::{cmp, ops, usize, f32, i32};
 use std::rc::Rc;
 use tiling::{RenderPass, RenderTargetIndex};
 use tiling::{RenderTargetKind};
+use internal_types::RenderPassIndex;
 
 const FLOATS_PER_RENDER_TASK_INFO: usize = 12;
 pub const MAX_BLUR_STD_DEVIATION: f32 = 4.0;
@@ -241,6 +242,7 @@ pub struct RenderTask {
     pub children: Vec<RenderTaskId>,
     pub kind: RenderTaskKind,
     pub clear_mode: ClearMode,
+    pub pass_index: Option<RenderPassIndex>,
 }
 
 impl RenderTask {
@@ -276,6 +278,7 @@ impl RenderTask {
                 rasterization_kind,
             }),
             clear_mode,
+            pass_index: None,
         }
     }
 
@@ -286,6 +289,7 @@ impl RenderTask {
             location: RenderTaskLocation::Dynamic(None, screen_rect.size),
             kind: RenderTaskKind::Readback(screen_rect),
             clear_mode: ClearMode::Transparent,
+            pass_index: None,
         }
     }
 
@@ -305,6 +309,7 @@ impl RenderTask {
                 coordinate_system_id: prim_coordinate_system_id,
             }),
             clear_mode: ClearMode::One,
+            pass_index: None,
         }
     }
 
@@ -375,6 +380,7 @@ impl RenderTask {
                 scale_factor,
             }),
             clear_mode,
+            pass_index: None,
         };
 
         let blur_task_v_id = render_tasks.add(blur_task_v);
@@ -394,6 +400,7 @@ impl RenderTask {
                 scale_factor,
             }),
             clear_mode,
+            pass_index: None,
         };
 
         blur_task_h
@@ -417,6 +424,7 @@ impl RenderTask {
                 RenderTargetKind::Color => ClearMode::Transparent,
                 RenderTargetKind::Alpha => ClearMode::One,
             },
+            pass_index: None,
         }
     }
 
