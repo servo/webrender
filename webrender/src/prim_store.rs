@@ -327,6 +327,8 @@ impl ToGpuBlocks for YuvImagePrimitiveCpu {
 pub struct BorderPrimitiveCpu {
     pub corner_instances: [BorderCornerInstance; 4],
     pub gpu_blocks: [GpuBlockData; 8],
+    pub opacity: PrimitiveOpacity,
+    pub all_edges_simple: bool,
 }
 
 impl ToGpuBlocks for BorderPrimitiveCpu {
@@ -1037,7 +1039,7 @@ impl PrimitiveStore {
             }
             PrimitiveContainer::Border(border_cpu) => {
                 let metadata = PrimitiveMetadata {
-                    opacity: PrimitiveOpacity::translucent(),
+                    opacity: border_cpu.opacity,
                     prim_kind: PrimitiveKind::Border,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_borders.len()),
                     ..base_metadata

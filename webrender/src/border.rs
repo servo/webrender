@@ -9,7 +9,8 @@ use clip::ClipSource;
 use ellipse::Ellipse;
 use frame_builder::FrameBuilder;
 use gpu_cache::GpuDataRequest;
-use prim_store::{BorderPrimitiveCpu, RectangleContent, PrimitiveContainer, TexelRect};
+use prim_store::{BorderPrimitiveCpu, RectangleContent, PrimitiveContainer};
+use prim_store::{PrimitiveOpacity, TexelRect};
 use util::{lerp, pack_as_float};
 
 #[repr(u8)]
@@ -235,6 +236,7 @@ impl FrameBuilder {
         clip_and_scroll: ClipAndScrollInfo,
         corner_instances: [BorderCornerInstance; 4],
         clip_sources: Vec<ClipSource>,
+        all_edges_simple: bool,
     ) {
         let radius = &border.radius;
         let left = &border.left;
@@ -248,8 +250,16 @@ impl FrameBuilder {
         let right_color = right.border_color(2.0 / 3.0, 1.0, 0.7, 0.3).premultiplied();
         let bottom_color = bottom.border_color(2.0 / 3.0, 1.0, 0.7, 0.3).premultiplied();
 
+        let mut opacity = PrimitiveOpacity::opaque();
+        opacity.accumulate(left_color.a);
+        opacity.accumulate(top_color.a);
+        opacity.accumulate(right_color.a);
+        opacity.accumulate(bottom_color.a);
+
         let prim_cpu = BorderPrimitiveCpu {
             corner_instances,
+            opacity,
+            all_edges_simple,
 
             // TODO(gw): In the future, we will build these on demand
             //           from the deserialized display list, rather
@@ -458,6 +468,7 @@ impl FrameBuilder {
                 clip_and_scroll,
                 corner_instances,
                 extra_clips,
+                all_edges_simple,
             );
         }
     }

@@ -415,17 +415,36 @@ fn add_to_batch(
         PrimitiveKind::Border => {
             let border_cpu =
                 &ctx.prim_store.cpu_borders[prim_metadata.cpu_prim_index.0];
-            // TODO(gw): Select correct blend mode for edges and corners!!
             let corner_kind = BatchKind::Transformable(
                 transform_kind,
                 TransformBatchKind::BorderCorner,
             );
-            let corner_key = BatchKey::new(corner_kind, blend_mode, no_textures);
+            // Selecting alpha blend for all corners is conservative,
+            // but no worse than what we previously had.
+            let corner_key = BatchKey::new(
+                corner_kind,
+                BlendMode::PremultipliedAlpha,
+                no_textures
+            );
             let edge_kind = BatchKind::Transformable(
                 transform_kind,
                 TransformBatchKind::BorderEdge,
             );
-            let edge_key = BatchKey::new(edge_kind, blend_mode, no_textures);
+            // If the edges are simple, then we only need blending
+            // if the normal conditions are met (e.g. clip mask
+            // present, or alpha in the color). But if the edges
+            // are of a complex type (dashed, dotted etc) then we
+            // must use blending.
+            let edge_blend_mode = if border_cpu.all_edges_simple {
+                blend_mode
+            } else {
+                BlendMode::PremultipliedAlpha
+            };
+            let edge_key = BatchKey::new(
+                edge_kind,
+                edge_blend_mode,
+                no_textures
+            );
 
             // Work around borrow ck on borrowing batch_list twice.
             {
