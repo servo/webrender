@@ -4,10 +4,11 @@
 
 use api::{BorderRadiusKind, ColorF, LayerPoint, LayerRect, LayerSize, LayerVector2D};
 use api::{BorderRadius, BoxShadowClipMode, LayoutSize, LayerPrimitiveInfo};
-use api::{ClipMode, ClipAndScrollInfo, ComplexClipRegion, EdgeAaSegmentMask, LocalClip};
+use api::{ClipMode, ClipAndScrollInfo, ComplexClipRegion, LocalClip};
 use api::{PipelineId};
 use clip::ClipSource;
 use frame_builder::FrameBuilder;
+use internal_types::EdgeAaSegmentMask;
 use prim_store::{PrimitiveContainer, RectangleContent, RectanglePrimitive};
 use prim_store::{BrushMaskKind, BrushKind, BrushPrimitive};
 use picture::PicturePrimitive;
