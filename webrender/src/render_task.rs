@@ -283,6 +283,7 @@ pub struct RenderTask {
     pub children: Vec<RenderTaskId>,
     pub kind: RenderTaskKind,
     pub clear_mode: ClearMode,
+    pub pass_index: usize,
 }
 
 impl RenderTask {
@@ -314,6 +315,7 @@ impl RenderTask {
                 rasterization_kind,
             }),
             clear_mode,
+            pass_index: 0,
         }
     }
 
@@ -324,6 +326,7 @@ impl RenderTask {
             location: RenderTaskLocation::Dynamic(None, screen_rect.size),
             kind: RenderTaskKind::Readback(screen_rect),
             clear_mode: ClearMode::Transparent,
+            pass_index: 0,
         }
     }
 
@@ -361,6 +364,7 @@ impl RenderTask {
                 coordinate_system_id: prim_coordinate_system_id,
             }),
             clear_mode: ClearMode::One,
+            pass_index: 0,
         })
     }
 
@@ -426,6 +430,7 @@ impl RenderTask {
                 scale_factor,
             }),
             clear_mode,
+            pass_index: 0,
         };
 
         let blur_task_v_id = render_tasks.add(blur_task_v);
@@ -442,6 +447,7 @@ impl RenderTask {
                 scale_factor,
             }),
             clear_mode,
+            pass_index: 0,
         };
 
         blur_task_h
@@ -461,6 +467,7 @@ impl RenderTask {
                 RenderTargetKind::Color => ClearMode::Transparent,
                 RenderTargetKind::Alpha => ClearMode::One,
             },
+            pass_index: 0,
         }
     }
 

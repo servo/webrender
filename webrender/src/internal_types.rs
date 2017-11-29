@@ -45,6 +45,8 @@ pub enum SourceTexture {
     External(ExternalImageData),
     CacheA8,
     CacheRGBA8,
+    RenderTaskCacheA8(usize),
+    RenderTaskCacheRGBA8(usize),
 }
 
 pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;
