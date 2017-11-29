@@ -32,12 +32,17 @@ pub type FastHashSet<K> = HashSet<K, BuildHasherDefault<FxHasher>>;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct CacheTextureId(pub usize);
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct RenderPassIndex(pub usize);
+
 // Represents the source for a texture.
 // These are passed from throughout the
 // pipeline until they reach the rendering
 // thread, where they are resolved to a
 // native texture ID.
 
+// XXX Remove this once RenderTaskCacheA8 is used.
+#[allow(dead_code)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum SourceTexture {
     Invalid,
@@ -45,6 +50,8 @@ pub enum SourceTexture {
     External(ExternalImageData),
     CacheA8,
     CacheRGBA8,
+    RenderTaskCacheA8(RenderPassIndex),
+    RenderTaskCacheRGBA8(RenderPassIndex),
 }
 
 pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;

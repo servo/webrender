@@ -20,7 +20,7 @@ use gpu_types::{BlurDirection, BlurInstance, BrushInstance, BrushImageKind, Clip
 use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
 use gpu_types::{ClipScrollNodeIndex, ClipScrollNodeData};
 use internal_types::{FastHashMap, SourceTexture};
-use internal_types::{BatchTextures};
+use internal_types::{BatchTextures, RenderPassIndex};
 use picture::{PictureCompositeMode, PictureKind, PicturePrimitive, RasterizationSpace};
 use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
@@ -147,9 +147,6 @@ pub struct ScrollbarPrimitive {
 
 #[derive(Debug, Copy, Clone)]
 pub struct RenderTargetIndex(pub usize);
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub struct RenderPassIndex(isize);
 
 #[derive(Debug)]
 struct DynamicTaskInfo {
@@ -676,7 +673,7 @@ fn add_to_batch(
                         }
                         PictureKind::Image {
                             composite_mode,
-                            readback_render_task_id,
+                            secondary_render_task_id,
                             is_in_3d_context,
                             reference_frame_id,
                             real_local_rect,
@@ -717,7 +714,7 @@ fn add_to_batch(
                                             let key = BatchKey::new(
                                                 BatchKind::HardwareComposite,
                                                 BlendMode::PremultipliedAlpha,
-                                                BatchTextures::no_texture(),
+                                                BatchTextures::render_target_cache(),
                                             );
                                             let batch = batch_list.get_suitable_batch(key, &item_bounding_rect);
                                             let instance = CompositePrimitiveInstance::new(
@@ -772,7 +769,7 @@ fn add_to_batch(
                                     }
                                 }
                                 PictureCompositeMode::MixBlend(mode) => {
-                                    let backdrop_id = readback_render_task_id.expect("no backdrop!?");
+                                    let backdrop_id = secondary_render_task_id.expect("no backdrop!?");
 
                                     let key = BatchKey::new(
                                         BatchKind::Composite {
@@ -805,7 +802,7 @@ fn add_to_batch(
                                     let key = BatchKey::new(
                                         BatchKind::HardwareComposite,
                                         BlendMode::PremultipliedAlpha,
-                                        BatchTextures::no_texture(),
+                                        BatchTextures::render_target_cache(),
                                     );
                                     let batch = batch_list.get_suitable_batch(key, &item_bounding_rect);
                                     let instance = CompositePrimitiveInstance::new(
@@ -1796,6 +1793,7 @@ impl RenderPass {
         render_tasks: &mut RenderTaskTree,
         deferred_resolves: &mut Vec<DeferredResolve>,
         clip_store: &ClipStore,
+        pass_index: RenderPassIndex,
     ) {
         profile_scope!("RenderPass::build");
 
@@ -1803,6 +1801,7 @@ impl RenderPass {
             RenderPassKind::MainFramebuffer(ref mut target) => {
                 for &task_id in &self.tasks {
                     assert_eq!(render_tasks[task_id].target_kind(), RenderTargetKind::Color);
+                    render_tasks.tasks.get_mut(task_id.0 as usize).unwrap().pass_index = Some(pass_index);
                     target.add_task(task_id, ctx, gpu_cache, render_tasks, clip_store);
                 }
                 target.build(ctx, gpu_cache, render_tasks, deferred_resolves);
@@ -1812,6 +1811,7 @@ impl RenderPass {
                 for &task_id in &self.tasks {
                     let target_kind = {
                         let task = &mut render_tasks[task_id];
+                        task.pass_index = Some(pass_index);
                         let target_kind = task.target_kind();
 
                         // Find a target to assign this task to, or create a new
