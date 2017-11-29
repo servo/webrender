@@ -9,6 +9,7 @@ use clip::{ClipSourcesWeakHandle};
 use clip_scroll_tree::CoordinateSystemId;
 use euclid::TypedSize2D;
 use gpu_types::{ClipScrollNodeIndex};
+use internal_types::RenderPassIndex;
 use picture::RasterizationSpace;
 use prim_store::{PrimitiveIndex};
 #[cfg(feature = "debugger")]
@@ -134,6 +135,10 @@ impl RenderTaskTree {
             self.task_data.push(task.write_task_data());
         }
     }
+
+    pub fn get_mut(&mut self, id: RenderTaskId) -> &mut RenderTask {
+        &mut self[id]
+    }
 }
 
 impl ops::Index<RenderTaskId> for RenderTaskTree {
@@ -241,6 +246,7 @@ pub struct RenderTask {
     pub children: Vec<RenderTaskId>,
     pub kind: RenderTaskKind,
     pub clear_mode: ClearMode,
+    pub pass_index: Option<RenderPassIndex>,
 }
 
 impl RenderTask {
@@ -276,6 +282,7 @@ impl RenderTask {
                 rasterization_kind,
             }),
             clear_mode,
+            pass_index: None,
         }
     }
 
@@ -286,6 +293,7 @@ impl RenderTask {
             location: RenderTaskLocation::Dynamic(None, screen_rect.size),
             kind: RenderTaskKind::Readback(screen_rect),
             clear_mode: ClearMode::Transparent,
+            pass_index: None,
         }
     }
 
@@ -305,6 +313,7 @@ impl RenderTask {
                 coordinate_system_id: prim_coordinate_system_id,
             }),
             clear_mode: ClearMode::One,
+            pass_index: None,
         }
     }
 
@@ -375,6 +384,7 @@ impl RenderTask {
                 scale_factor,
             }),
             clear_mode,
+            pass_index: None,
         };
 
         let blur_task_v_id = render_tasks.add(blur_task_v);
@@ -394,6 +404,7 @@ impl RenderTask {
                 scale_factor,
             }),
             clear_mode,
+            pass_index: None,
         };
 
         blur_task_h
@@ -417,6 +428,7 @@ impl RenderTask {
                 RenderTargetKind::Color => ClearMode::Transparent,
                 RenderTargetKind::Alpha => ClearMode::One,
             },
+            pass_index: None,
         }
     }
 

@@ -22,7 +22,7 @@ use frame::FrameId;
 use glyph_rasterizer::FontInstance;
 use gpu_cache::GpuCache;
 use gpu_types::ClipScrollNodeData;
-use internal_types::{FastHashMap, FastHashSet};
+use internal_types::{FastHashMap, FastHashSet, RenderPassIndex};
 use picture::{PictureCompositeMode, PictureKind, PicturePrimitive, RasterizationSpace};
 use prim_store::{BrushAntiAliasMode, BrushKind, BrushPrimitive, TexelRect, YuvImagePrimitiveCpu};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, LinePrimitive, PrimitiveKind};
@@ -1761,7 +1761,7 @@ impl FrameBuilder {
 
         let mut deferred_resolves = vec![];
 
-        for pass in &mut passes {
+        for (pass_index, pass) in passes.iter_mut().enumerate() {
             let ctx = RenderTargetContext {
                 device_pixel_ratio,
                 prim_store: &self.prim_store,
@@ -1776,6 +1776,7 @@ impl FrameBuilder {
                 &mut render_tasks,
                 &mut deferred_resolves,
                 &self.clip_store,
+                RenderPassIndex(pass_index),
             );
 
             profile_counters.passes.inc();
