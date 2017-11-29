@@ -9,6 +9,8 @@ use clip_scroll_tree::CoordinateSystemId;
 use gpu_types::{ClipScrollNodeIndex};
 use picture::RasterizationSpace;
 use prim_store::{PrimitiveIndex};
+#[cfg(feature = "debugger")]
+use print_tree::{PrintTreePrinter};
 use std::{cmp, ops, usize, f32, i32};
 use std::rc::Rc;
 use tiling::{RenderPass, RenderTargetIndex};
@@ -248,6 +250,18 @@ pub struct BlurTask {
     pub regions: Vec<LayerRect>,
     pub color: PremultipliedColorF,
     pub scale_factor: f32,
+}
+
+impl BlurTask {
+    #[cfg(feature = "debugger")]
+    fn print_with<T: PrintTreePrinter>(&self, pt: &mut T) {
+        pt.add_item(format!("std deviation: {}", self.blur_std_deviation));
+        pt.add_item(format!("target: {:?}", self.target_kind));
+        pt.add_item(format!("scale: {}", self.scale_factor));
+        for region in &self.regions {
+            pt.add_item(format!("region {:?}", region));
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -625,5 +639,52 @@ impl RenderTask {
                 panic!("BUG: is_shared() called on aliased task");
             }
         }
+    }
+
+    #[cfg(feature = "debugger")]
+    pub fn print_with<T: PrintTreePrinter>(&self, pt: &mut T, tree: &RenderTaskTree) -> bool {
+        match self.kind {
+            RenderTaskKind::Picture(ref task) => {
+                pt.new_level(format!("Picture of {:?}", task.prim_index));
+                pt.add_item(format!("kind: {:?}", task.target_kind));
+                pt.add_item(format!("space: {:?}", task.rasterization_kind));
+            }
+            RenderTaskKind::CacheMask(ref task) => {
+                pt.new_level(format!("CacheMask with {} clips", task.clips.len()));
+                pt.add_item(format!("rect: {:?}", task.actual_rect));
+                pt.add_item(format!("geometry: {:?}", task.geometry_kind));
+            }
+            RenderTaskKind::VerticalBlur(ref task) => {
+                pt.new_level("VerticalBlur".to_owned());
+                task.print_with(pt);
+            }
+            RenderTaskKind::HorizontalBlur(ref task) => {
+                pt.new_level("HorizontalBlur".to_owned());
+                task.print_with(pt);
+            }
+            RenderTaskKind::Readback(ref rect) => {
+                pt.new_level("Readback".to_owned());
+                pt.add_item(format!("rect: {:?}", rect));
+            }
+            RenderTaskKind::Scaling(ref kind) => {
+                pt.new_level("Scaling".to_owned());
+                pt.add_item(format!("kind: {:?}", kind));
+            }
+            RenderTaskKind::Alias(ref alias_id) => {
+                pt.add_item(format!("Alias of {:?}", alias_id));
+                return false
+            }
+        }
+
+        pt.add_item(format!("clear to: {:?}", self.clear_mode));
+
+        for &child_id in &self.children {
+            if tree[child_id].print_with(pt, tree) {
+                pt.add_item(format!("self: {:?}", child_id))
+            }
+        }
+
+        pt.end_level();
+        true
     }
 }
