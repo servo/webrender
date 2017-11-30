@@ -707,7 +707,7 @@ struct CacheTexture {
 }
 
 impl CacheTexture {
-    fn new(device: &mut Device) -> CacheTexture {
+    fn new(device: &mut Device) -> Self {
         let texture = device.create_texture(TextureTarget::Default);
         let pbo = device.create_pbo();
 
@@ -724,7 +724,7 @@ impl CacheTexture {
         device.delete_texture(self.texture);
     }
 
-    fn apply_patch(&mut self, update: &GpuCacheUpdate, blocks: &[GpuBlockData]) {
+    fn apply_patch(&mut self, update: &GpuCacheUpdate, blocks: &[GpuBlockData]) -> usize {
         match update {
             &GpuCacheUpdate::Copy {
                 block_index,
@@ -752,11 +752,13 @@ impl CacheTexture {
                 for i in 0 .. block_count {
                     data[i] = blocks[block_index + i];
                 }
+
+                block_count
             }
         }
     }
 
-    fn update(&mut self, device: &mut Device, updates: &GpuCacheUpdateList) {
+    fn update(&mut self, device: &mut Device, updates: &GpuCacheUpdateList) -> usize {
         // See if we need to create or resize the texture.
         let current_dimensions = self.texture.get_dimensions();
         if updates.height > current_dimensions.height {
@@ -784,49 +786,58 @@ impl CacheTexture {
             }
         }
 
+        let mut updated_blocks = 0;
         for update in &updates.updates {
-            self.apply_patch(update, &updates.blocks);
+            updated_blocks += self.apply_patch(update, &updates.blocks);
         }
+        updated_blocks
     }
 
-    fn flush(&mut self, device: &mut Device) {
+    fn flush(&mut self, device: &mut Device) -> usize {
         // Bind a PBO to do the texture upload.
         // Updating the texture via PBO avoids CPU-side driver stalls.
         device.bind_pbo(Some(&self.pbo));
 
+        let mut rows_dirty = 0;
+
         for (row_index, row) in self.rows.iter_mut().enumerate() {
-            if row.is_dirty {
-                // Get the data for this row and push to the PBO.
-                let block_index = row_index * MAX_VERTEX_TEXTURE_WIDTH;
-                let cpu_blocks =
-                    &self.cpu_blocks[block_index .. (block_index + MAX_VERTEX_TEXTURE_WIDTH)];
-                device.update_pbo_data(cpu_blocks);
-
-                // Insert a command to copy the PBO data to the right place in
-                // the GPU-side cache texture.
-                device.update_texture_from_pbo(
-                    &self.texture,
-                    0,
-                    row_index as u32,
-                    MAX_VERTEX_TEXTURE_WIDTH as u32,
-                    1,
-                    0,
-                    None,
-                    0,
-                );
-
-                // Orphan the PBO. This is the recommended way to hint to the
-                // driver to detach the underlying storage from this PBO id.
-                // Keeping the size the same gives the driver a hint for future
-                // use of this PBO.
-                device.orphan_pbo(mem::size_of::<GpuBlockData>() * MAX_VERTEX_TEXTURE_WIDTH);
-
-                row.is_dirty = false;
+            if !row.is_dirty {
+                continue;
             }
+
+            // Get the data for this row and push to the PBO.
+            let block_index = row_index * MAX_VERTEX_TEXTURE_WIDTH;
+            let cpu_blocks =
+                &self.cpu_blocks[block_index .. (block_index + MAX_VERTEX_TEXTURE_WIDTH)];
+            device.update_pbo_data(cpu_blocks);
+
+            // Insert a command to copy the PBO data to the right place in
+            // the GPU-side cache texture.
+            device.update_texture_from_pbo(
+                &self.texture,
+                0,
+                row_index as u32,
+                MAX_VERTEX_TEXTURE_WIDTH as u32,
+                1,
+                0,
+                None,
+                0,
+            );
+
+            // Orphan the PBO. This is the recommended way to hint to the
+            // driver to detach the underlying storage from this PBO id.
+            // Keeping the size the same gives the driver a hint for future
+            // use of this PBO.
+            device.orphan_pbo(mem::size_of::<GpuBlockData>() * MAX_VERTEX_TEXTURE_WIDTH);
+
+            rows_dirty += 1;
+            row.is_dirty = false;
         }
 
         // Ensure that other texture updates won't read from this PBO.
         device.bind_pbo(None);
+
+        rows_dirty
     }
 }
 
@@ -2579,12 +2590,18 @@ impl Renderer {
 
     fn update_gpu_cache(&mut self, frame: &Frame) {
         let _gm = self.gpu_profile.start_marker("gpu cache update");
+        let mut updated_blocks = 0;
         for update_list in self.pending_gpu_cache_updates.drain(..) {
-            self.gpu_cache_texture
+            updated_blocks += self.gpu_cache_texture
                 .update(&mut self.device, &update_list);
         }
         self.update_deferred_resolves(frame);
-        self.gpu_cache_texture.flush(&mut self.device);
+
+        let updated_rows = self.gpu_cache_texture.flush(&mut self.device);
+
+        let counters = &mut self.backend_profile_counters.resources.gpu_cache;
+        counters.updated_rows.set(updated_rows);
+        counters.updated_blocks.set(updated_blocks);
     }
 
     fn update_texture_cache(&mut self) {
