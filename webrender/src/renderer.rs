@@ -12,7 +12,7 @@
 use api::{channel, BlobImageRenderer, FontRenderMode};
 use api::{ColorF, DocumentId, Epoch, PipelineId, RenderApiSender, RenderNotifier};
 use api::{DevicePixel, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize};
+use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, ColorU};
 use api::{ExternalImageId, ExternalImageType, ImageFormat};
 use api::{YUV_COLOR_SPACES, YUV_FORMATS};
 use api::{YuvColorSpace, YuvFormat};
@@ -247,6 +247,7 @@ bitflags! {
         const GPU_TIME_QUERIES  = 1 << 4;
         const GPU_SAMPLE_QUERIES= 1 << 5;
         const DISABLE_BATCHING  = 1 << 6;
+        const EPOCHS            = 1 << 7;
     }
 }
 
@@ -3943,6 +3944,7 @@ impl Renderer {
         self.texture_resolver.end_frame(&mut self.render_target_pool);
         self.draw_render_target_debug(framebuffer_size);
         self.draw_texture_cache_debug(framebuffer_size);
+        self.draw_epoch_debug();
 
         // Garbage collect any frame outputs that weren't used this frame.
         let device = &mut self.device;
@@ -4085,6 +4087,37 @@ impl Renderer {
                 i += 1;
             }
         }
+    }
+
+    fn draw_epoch_debug(&mut self) {
+        if !self.debug_flags.contains(DebugFlags::EPOCHS) {
+            return;
+        }
+
+        let dy = self.debug.line_height();
+        let x0: f32 = 30.0;
+        let y0: f32 = 30.0;
+        let mut y = y0;
+        let mut text_width = 0.0;
+        for (pipeline, epoch) in  &self.pipeline_epoch_map {
+            y += dy;
+            let w = self.debug.add_text(
+                x0, y,
+                &format!("{:?}: {:?}", pipeline, epoch),
+                ColorU::new(255, 255, 0, 255),
+            ).size.width;
+            text_width = f32::max(text_width, w);
+        }
+
+        let margin = 10.0;
+        self.debug.add_quad(
+            &x0 - margin,
+            y0 - margin,
+            x0 + text_width + margin,
+            y + margin,
+            ColorU::new(25, 25, 25, 200),
+            ColorU::new(51, 51, 51, 200),
+        );
     }
 
     pub fn read_pixels_rgba8(&self, rect: DeviceUintRect) -> Vec<u8> {
