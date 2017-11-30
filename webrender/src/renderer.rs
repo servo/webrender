@@ -2301,6 +2301,31 @@ impl Renderer {
         serde_json::to_string(&debug_passes).unwrap()
     }
 
+    #[cfg(not(feature = "debugger"))]
+    fn get_render_tasks_for_debugger(&self) -> String {
+        String::new()
+    }
+
+    #[cfg(feature = "debugger")]
+    fn get_render_tasks_for_debugger(&self) -> String {
+        let mut debug_root = debug_server::RenderTaskList::new();
+
+        for &(_, ref render_doc) in &self.active_documents {
+            let debug_node = debug_server::TreeNode::new("document render tasks");
+            let mut builder = debug_server::TreeNodeBuilder::new(debug_node);
+
+            let render_tasks = &render_doc.frame.render_tasks;
+            match render_tasks.tasks.last() {
+                Some(main_task) => main_task.print_with(&mut builder, render_tasks),
+                None => continue,
+            };
+
+            debug_root.add(builder.build());
+        }
+
+        serde_json::to_string(&debug_root).unwrap()
+    }
+
     fn handle_debug_command(&mut self, command: DebugCommand) {
         match command {
             DebugCommand::EnableProfiler(enable) => {
@@ -2321,8 +2346,12 @@ impl Renderer {
             DebugCommand::EnableGpuSampleQueries(enable) => {
                 self.set_debug_flag(DebugFlags::GPU_SAMPLE_QUERIES, enable);
             }
-            DebugCommand::FetchDocuments => {}
+            DebugCommand::FetchDocuments |
             DebugCommand::FetchClipScrollTree => {}
+            DebugCommand::FetchRenderTasks => {
+                let json = self.get_render_tasks_for_debugger();
+                self.debug_server.send(json);
+            }
             DebugCommand::FetchPasses => {
                 let json = self.get_passes_for_debugger();
                 self.debug_server.send(json);

@@ -263,8 +263,10 @@ pub enum DebugCommand {
     FetchPasses,
     /// Fetch clip-scroll tree.
     FetchClipScrollTree,
+    /// Fetch render tasks.
+    FetchRenderTasks,
     /// Fetch screenshot.
-    FetchScreenshot
+    FetchScreenshot,
 }
 
 #[derive(Clone, Deserialize, Serialize)]

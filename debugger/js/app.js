@@ -2,8 +2,9 @@ var state = {
     connected: false,
     page: "options",
     passes: [],
+    render_tasks: [],
     documents: [],
-    clipscrolltree: [],
+    clip_scroll_tree: [],
     screenshot: []
 }
 
@@ -24,10 +25,12 @@ class Connection {
             var json = JSON.parse(evt.data);
             if (json['kind'] == "passes") {
                 state.passes = json['passes'];
+            } else if (json['kind'] == "render_tasks") {
+                state.render_tasks = json['root'];
             } else if (json['kind'] == "documents") {
                 state.documents = json['root'];
-            } else if (json['kind'] == "clipscrolltree") {
-                state.clipscrolltree = json['root'];
+            } else if (json['kind'] == "clip_scroll_tree") {
+                state.clip_scroll_tree = json['root'];
             } else if (json['kind'] == "screenshot") {
                 state.screenshot =  json['data'];
             } else {
@@ -74,8 +77,9 @@ Vue.component('app', {
                         <div class="column">
                             <options v-if="state.page == 'options'"></options>
                             <passview v-if="state.page == 'passes'" :passes=state.passes></passview>
+                            <rendertaskview v-if="state.page == 'render_tasks'" :render_tasks=state.render_tasks></rendertaskview>
                             <documentview v-if="state.page == 'documents'" :documents=state.documents></documentview>
-                            <clipscrolltreeview v-if="state.page == 'clipscrolltree'" :clipscrolltree=state.clipscrolltree></clipscrolltreeview>
+                            <clipscrolltreeview v-if="state.page == 'clip_scroll_tree'" :clip_scroll_tree=state.clip_scroll_tree></documentview>
                             <screenshotview v-if="state.page == 'screenshot'" :screenshot=state.screenshot></screenshotview>
                         </div>
                     </div>
@@ -269,6 +273,28 @@ Vue.component('treeview', {
     `
 })
 
+Vue.component('rendertaskview', {
+    props: [
+        'render_tasks'
+    ],
+    methods: {
+        fetch: function() {
+            connection.send("fetch_render_tasks");
+        }
+    },
+    template: `
+        <div class="box">
+            <h1 class="title">Render Tasks <a v-on:click="fetch" class="button is-info">Refresh</a></h1>
+            <hr/>
+            <div>
+                <ul>
+                    <treeview :model=render_tasks></treeview>
+                </ul>
+            </div>
+        </div>
+    `
+})
+
 Vue.component('documentview', {
     props: [
         'documents'
@@ -293,20 +319,20 @@ Vue.component('documentview', {
 
 Vue.component('clipscrolltreeview', {
     props: [
-        'clipscrolltree'
+        'clip_scroll_tree'
     ],
     methods: {
         fetch: function() {
-            connection.send("fetch_clipscrolltree");
+            connection.send("fetch_clip_scroll_tree");
         }
     },
     template: `
         <div class="box">
-            <h1 class="title">Clip-scroll Tree <a v-on:click="fetch" class="button is-info">Refresh</a></h1>
+            <h1 class="title">Clip-Scroll Tree <a v-on:click="fetch" class="button is-info">Refresh</a></h1>
             <hr/>
             <div>
                 <ul>
-                    <treeview :model=clipscrolltree></treeview>
+                    <treeview :model=clip_scroll_tree></treeview>
                 </ul>
             </div>
         </div>
@@ -352,9 +378,8 @@ Vue.component('mainmenu', {
             <ul class="menu-list">
                 <li><a v-on:click="setPage('options')" v-bind:class="{ 'is-active': page == 'options' }">Debug Options</a></li>
                 <li><a v-on:click="setPage('passes')" v-bind:class="{ 'is-active': page == 'passes' }">Passes</a></li>
+                <li><a v-on:click="setPage('render_tasks')" v-bind:class="{ 'is-active': page == 'render_tasks' }">Render Tasks</a></li>
                 <li><a v-on:click="setPage('documents')" v-bind:class="{ 'is-active': page == 'documents' }">Documents</a></li>
-                <li><a v-on:click="setPage('clipscrolltree')" v-bind:class="{ 'is-active': page == 'clipscrolltree' }">Clip-scroll Tree</a></li>
-                <li><a v-on:click="setPage('screenshot')" v-bind:class="{ 'is-active': page == 'screenshot' }">Screenshot</a></li>
             </ul>
         </aside>
     `
