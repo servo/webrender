@@ -7,6 +7,7 @@ use api::{device_length, DeviceIntRect, DeviceIntSize, PipelineId};
 use api::{BoxShadowClipMode, LayerPoint, LayerRect, LayerSize, LayerVector2D, Shadow};
 use api::{ClipId, PremultipliedColorF};
 use box_shadow::{BLUR_SAMPLE_SCALE, BoxShadowCacheKey};
+use api::PropertyBinding;
 use frame_builder::PrimitiveContext;
 use gpu_cache::GpuDataRequest;
 use prim_store::{PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
@@ -50,13 +51,13 @@ pub enum RasterizationSpace {
 pub enum PictureKind {
     TextShadow {
         offset: LayerVector2D,
-        color: ColorF,
+        color: PropertyBinding<ColorF>,
         blur_radius: f32,
         content_rect: LayerRect,
     },
     BoxShadow {
         blur_radius: f32,
-        color: ColorF,
+        color: PropertyBinding<ColorF>,
         blur_regions: Vec<LayerRect>,
         clip_mode: BoxShadowClipMode,
         radii_kind: BorderRadiusKind,
@@ -133,8 +134,8 @@ impl PicturePrimitive {
                 match composite_mode {
                     &mut Some(PictureCompositeMode::Filter(ref mut filter)) => {
                         match filter {
-                            &mut FilterOp::Opacity(ref binding, ref mut value) => {
-                                *value = properties.resolve_float(binding, *value);
+                            &mut FilterOp::Opacity(ref mut property_binding) => {
+                                properties.resolve_float(property_binding);
                             }
                             _ => {}
                         }
@@ -143,14 +144,21 @@ impl PicturePrimitive {
                     }
                     _ => true,
                 }
+            },
+            PictureKind::BoxShadow { ref mut color, .. } => {
+                properties.resolve_color(color);
+                true
+            },
+            PictureKind::TextShadow { ref mut color, .. } => {
+                properties.resolve_color(color);
+                true
             }
-            _ => true
         }
     }
 
     pub fn new_box_shadow(
         blur_radius: f32,
-        color: ColorF,
+        color: PropertyBinding<ColorF>,
         blur_regions: Vec<LayerRect>,
         clip_mode: BoxShadowClipMode,
         radii_kind: BorderRadiusKind,
@@ -434,6 +442,7 @@ impl PicturePrimitive {
                 // Gaussian blur with a standard deviation equal to half the blur radius."
                 let blur_std_deviation = blur_radius.0 as f32 * 0.5;
 
+                let color = color.value();
                 let picture_task = RenderTask::new_picture(
                     Some(cache_size),
                     prim_index,
@@ -490,6 +499,7 @@ impl PicturePrimitive {
                     }
                 };
 
+                let color = color.value();
                 let picture_task = RenderTask::new_picture(
                     Some(cache_size),
                     prim_index,

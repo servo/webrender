@@ -720,7 +720,10 @@ fn add_to_batch(
                                                 FilterOp::Saturate(amount) => (5, amount),
                                                 FilterOp::Sepia(amount) => (6, amount),
                                                 FilterOp::Brightness(amount) => (7, amount),
-                                                FilterOp::Opacity(_, amount) => (8, amount),
+                                                FilterOp::Opacity(ref property_binding) => { 
+                                                    let amount = property_binding.value();
+                                                    (8, amount)
+                                                },
                                             };
 
                                             let amount = (amount * 65535.0).round() as i32;

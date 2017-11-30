@@ -8,6 +8,7 @@ use api::{GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint
 use api::{ClipMode, LayerSize, LayerVector2D, LayerToWorldTransform, LineOrientation, LineStyle};
 use api::{ClipAndScrollInfo, PremultipliedColorF, TileOffset};
 use api::{ClipId, LayerTransform, PipelineId, YuvColorSpace, YuvFormat};
+use api::PropertyBinding;
 use border::BorderCornerInstance;
 use clip_scroll_tree::{CoordinateSystemId, ClipScrollTree};
 use clip::{ClipSourcesHandle, ClipStore};
@@ -189,7 +190,7 @@ pub struct PrimitiveMetadata {
 
 #[derive(Debug,Clone,Copy)]
 pub enum RectangleContent {
-    Fill(ColorF),
+    Fill(PropertyBinding<ColorF>),
     Clear,
 }
 
@@ -202,7 +203,10 @@ pub struct RectanglePrimitive {
 impl ToGpuBlocks for RectanglePrimitive {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
         request.push(match self.content {
-            RectangleContent::Fill(color) => color.premultiplied(),
+            RectangleContent::Fill(ref binding) => {
+                let color = binding.value();
+                color.premultiplied()
+            },
             // Opaque black with operator dest out
             RectangleContent::Clear => PremultipliedColorF::BLACK,
         });
@@ -271,7 +275,7 @@ impl ToGpuBlocks for BrushPrimitive {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct LinePrimitive {
-    pub color: PremultipliedColorF,
+    pub color: PropertyBinding<PremultipliedColorF>,
     pub wavy_line_thickness: f32,
     pub style: LineStyle,
     pub orientation: LineOrientation,
@@ -279,7 +283,8 @@ pub struct LinePrimitive {
 
 impl ToGpuBlocks for LinePrimitive {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        request.push(self.color);
+        let color = self.color.value();
+        request.push(color);
         request.push([
             self.wavy_line_thickness,
             pack_as_float(self.style as u32),
@@ -348,16 +353,19 @@ impl GradientPrimitiveCpu {
     fn build_gpu_blocks_for_aligned(
         &self,
         display_list: &BuiltDisplayList,
+        scene_properties: &SceneProperties,
         mut request: GpuDataRequest,
     ) -> PrimitiveOpacity {
         let mut opacity = PrimitiveOpacity::opaque();
         request.extend_from_slice(&self.gpu_blocks);
         let src_stops = display_list.get(self.stops_range);
 
-        for src in src_stops {
-            request.push(src.color.premultiplied());
+        for mut src in src_stops {
+            let src_color = scene_properties.resolve_color(&mut src.color);
+
+            request.push(src_color.premultiplied());
             request.push([src.offset, 0.0, 0.0, 0.0]);
-            opacity.accumulate(src.color.a);
+            opacity.accumulate(src_color.a);
         }
 
         opacity
@@ -366,12 +374,13 @@ impl GradientPrimitiveCpu {
     fn build_gpu_blocks_for_angle_radial(
         &self,
         display_list: &BuiltDisplayList,
+        scene_properties: &SceneProperties,
         mut request: GpuDataRequest,
     ) {
         request.extend_from_slice(&self.gpu_blocks);
 
         let gradient_builder = GradientGpuBlockBuilder::new(self.stops_range, display_list);
-        gradient_builder.build(self.reverse_stops, &mut request);
+        gradient_builder.build(self.reverse_stops, &scene_properties, &mut request);
     }
 }
 
@@ -455,7 +464,7 @@ impl<'a> GradientGpuBlockBuilder<'a> {
     }
 
     // Build the gradient data from the supplied stops, reversing them if necessary.
-    fn build(&self, reverse_stops: bool, request: &mut GpuDataRequest) {
+    fn build(&self, reverse_stops: bool, scene_properties: &SceneProperties, request: &mut GpuDataRequest) {
         let src_stops = self.display_list.get(self.stops_range);
 
         // Preconditions (should be ensured by DisplayListBuilder):
@@ -464,8 +473,10 @@ impl<'a> GradientGpuBlockBuilder<'a> {
         // * last stop has offset 1.0
 
         let mut src_stops = src_stops.into_iter();
-        let first = src_stops.next().unwrap();
-        let mut cur_color = first.color.premultiplied();
+        let mut first = src_stops.next().unwrap();
+        let first_color = scene_properties.resolve_color(&mut first.color);
+
+        let mut cur_color = first_color.premultiplied();
         debug_assert_eq!(first.offset, 0.0);
 
         // A table of gradient entries, with two colors per entry, that specify the start and end color
@@ -493,8 +504,9 @@ impl<'a> GradientGpuBlockBuilder<'a> {
             // of gradient stops. Each iteration of a loop will fill the indices in [next_idx, cur_idx). The
             // loop will then fill indices in [GRADIENT_DATA_TABLE_BEGIN, GRADIENT_DATA_TABLE_END).
             let mut cur_idx = GRADIENT_DATA_TABLE_END;
-            for next in src_stops {
-                let next_color = next.color.premultiplied();
+            for mut next in src_stops {
+                let next_color = scene_properties.resolve_color(&mut next.color);
+                let next_color = next_color.premultiplied();
                 let next_idx = Self::get_index(1.0 - next.offset);
 
                 if next_idx < cur_idx {
@@ -528,8 +540,9 @@ impl<'a> GradientGpuBlockBuilder<'a> {
             // of gradient stops. Each iteration of a loop will fill the indices in [cur_idx, next_idx). The
             // loop will then fill indices in [GRADIENT_DATA_TABLE_BEGIN, GRADIENT_DATA_TABLE_END).
             let mut cur_idx = GRADIENT_DATA_TABLE_BEGIN;
-            for next in src_stops {
-                let next_color = next.color.premultiplied();
+            for mut next in src_stops {
+                let next_color = scene_properties.resolve_color(&mut next.color);
+                let next_color = next_color.premultiplied();
                 let next_idx = Self::get_index(next.offset);
 
                 if next_idx > cur_idx {
@@ -570,12 +583,13 @@ impl RadialGradientPrimitiveCpu {
     fn build_gpu_blocks_for_angle_radial(
         &self,
         display_list: &BuiltDisplayList,
+        scene_properties: &SceneProperties,
         mut request: GpuDataRequest,
     ) {
         request.extend_from_slice(&self.gpu_blocks);
 
         let gradient_builder = GradientGpuBlockBuilder::new(self.stops_range, display_list);
-        gradient_builder.build(false, &mut request);
+        gradient_builder.build(false, &scene_properties, &mut request);
     }
 }
 
@@ -952,8 +966,9 @@ impl PrimitiveStore {
         let metadata = match container {
             PrimitiveContainer::Rectangle(rect) => {
                 let opacity = match &rect.content {
-                    &RectangleContent::Fill(ref color) => {
-                        PrimitiveOpacity::from_alpha(color.a)
+                    &RectangleContent::Fill(binding) => {
+                        let ColorF { a, ..} = binding.value();
+                        PrimitiveOpacity::from_alpha(a)
                     },
                     &RectangleContent::Clear => PrimitiveOpacity::opaque()
                 };
@@ -1106,6 +1121,7 @@ impl PrimitiveStore {
         child_tasks: Vec<RenderTaskId>,
         parent_tasks: &mut Vec<RenderTaskId>,
         pic_index: SpecificPrimitiveIndex,
+        scene_properties: &SceneProperties
     ) {
         let metadata = &mut self.cpu_metadata[prim_index.0];
         match metadata.prim_kind {
@@ -1203,15 +1219,15 @@ impl PrimitiveStore {
                 }
                 PrimitiveKind::AlignedGradient => {
                     let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];
-                    metadata.opacity = gradient.build_gpu_blocks_for_aligned(prim_context.display_list, request);
+                    metadata.opacity = gradient.build_gpu_blocks_for_aligned(prim_context.display_list, scene_properties, request);
                 }
                 PrimitiveKind::AngleGradient => {
                     let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];
-                    gradient.build_gpu_blocks_for_angle_radial(prim_context.display_list, request);
+                    gradient.build_gpu_blocks_for_angle_radial(prim_context.display_list, scene_properties, request);
                 }
                 PrimitiveKind::RadialGradient => {
                     let gradient = &self.cpu_radial_gradients[metadata.cpu_prim_index.0];
-                    gradient.build_gpu_blocks_for_angle_radial(prim_context.display_list, request);
+                    gradient.build_gpu_blocks_for_angle_radial(prim_context.display_list, scene_properties, request);
                 }
                 PrimitiveKind::TextRun => {
                     let text = &self.cpu_text_runs[metadata.cpu_prim_index.0];
@@ -1412,6 +1428,25 @@ impl PrimitiveStore {
                     (Some((pic.pipeline_id, mem::replace(&mut pic.runs, Vec::new()), rfid)),
                      pic.cull_children,
                      may_need_clip_mask)
+                },
+                PrimitiveKind::Rectangle => {
+                    let mut rect = &mut self.cpu_rectangles[metadata.cpu_prim_index.0];
+                    
+                    if let RectangleContent::Fill(ref mut property_binding) = rect.content {
+                        scene_properties.resolve_color(property_binding);
+                    }
+                    gpu_cache.invalidate(&metadata.gpu_location);
+                    (None, true, true)
+                },
+                PrimitiveKind::Line => {
+                    let mut line = &mut self.cpu_lines[metadata.cpu_prim_index.0];
+                    scene_properties.resolve_color(unsafe { mem::transmute(&mut line.color) });
+                    gpu_cache.invalidate(&metadata.gpu_location);
+                    (None, true, true)
+                }
+                PrimitiveKind::AlignedGradient | PrimitiveKind::AngleGradient | PrimitiveKind::RadialGradient => {
+                    gpu_cache.invalidate(&metadata.gpu_location);
+                    (None, true, true)
                 }
                 _ => {
                     (None, true, true)
@@ -1513,6 +1548,7 @@ impl PrimitiveStore {
             child_tasks,
             parent_tasks,
             pic_index,
+            scene_properties
         );
 
         Some(local_rect)

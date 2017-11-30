@@ -198,7 +198,7 @@ impl<'a> RawtestHarness<'a> {
                                            None::<ComplexClipRegion>, None);
             builder.push_clip_id(clip);
             builder.push_rect(&PrimitiveInfo::new(rect(100., 100., 100., 100.)),
-                              ColorF::new(0.0, 0.0, 1.0, 1.0));
+                              ColorF::new(0.0, 0.0, 1.0, 1.0).into());
 
             if should_try_and_fail {
                 builder.save();
@@ -206,16 +206,16 @@ impl<'a> RawtestHarness<'a> {
                                            None::<ComplexClipRegion>, None);
                 builder.push_clip_id(clip);
                 builder.push_rect(&PrimitiveInfo::new(rect(110., 110., 50., 50.)),
-                              ColorF::new(0.0, 1.0, 0.0, 1.0));
+                              ColorF::new(0.0, 1.0, 0.0, 1.0).into());
                 builder.push_shadow(&PrimitiveInfo::new(rect(100., 100., 100., 100.)),
                     Shadow {
                         offset: LayoutVector2D::new(1.0, 1.0),
                         blur_radius: 1.0,
-                        color: ColorF::new(0.0, 0.0, 0.0, 1.0),
+                        color: ColorF::new(0.0, 0.0, 0.0, 1.0).into(),
                     });
                 builder.push_line(&PrimitiveInfo::new(rect(110., 110., 50., 2.)),
                                   0.0, LineOrientation::Horizontal,
-                                  &ColorF::new(0.0, 0.0, 0.0, 1.0), LineStyle::Solid);
+                                  &ColorF::new(0.0, 0.0, 0.0, 1.0).into(), LineStyle::Solid);
                 builder.restore();
             }
 
@@ -225,7 +225,7 @@ impl<'a> RawtestHarness<'a> {
                                                None::<ComplexClipRegion>, None);
                 builder.push_clip_id(clip);
                 builder.push_rect(&PrimitiveInfo::new(rect(150., 150., 100., 100.)),
-                                  ColorF::new(0.0, 0.0, 1.0, 1.0));
+                                  ColorF::new(0.0, 0.0, 1.0, 1.0).into());
 
                 builder.pop_clip_id();
                 builder.clear_save();

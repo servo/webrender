@@ -14,6 +14,7 @@ use webrender::api::{PropertyBinding, PropertyBindingId, LayoutTransform, Dynami
 pub struct SceneProperties {
     transform_properties: HashMap<PropertyBindingId, LayoutTransform>,
     float_properties: HashMap<PropertyBindingId, f32>,
+    color_properties: HashMap<PropertyBindingId, ColorF>
 }
 
 impl SceneProperties {
@@ -36,36 +37,73 @@ impl SceneProperties {
     /// Get the current value for a transform property.
     pub fn resolve_layout_transform(
         &self,
-        property: &Option<PropertyBinding<LayoutTransform>>,
+        property: &mut Option<PropertyBinding<LayoutTransform>>,
     ) -> LayoutTransform {
-        let property = match *property {
+        let mut property = match *property {
             Some(property) => property,
             None => return LayoutTransform::identity(),
         };
 
         match property {
-            PropertyBinding::Value(matrix) => matrix,
-            PropertyBinding::Binding(ref key) => self.transform_properties
-                .get(&key.id)
-                .cloned()
-                .unwrap_or_else(|| {
-                    println!("Property binding {:?} has an invalid value.", key);
-                    LayoutTransform::identity()
-                }),
+            PropertyBinding::Value(value) => value,
+            PropertyBinding::Binding(ref mut property_value) => {
+                self.transform_properties
+                    .get(&property_value.key.id)
+                    .cloned()
+                    .and_then(|f| {
+                        property_value.value = f.clone();
+                        Some(f)
+                    })
+                    .unwrap_or_else(|| {
+                        println!("Property binding {:?} has an invalid value.", property_value.key);
+                        property_value.value
+                    })
+            }
         }
     }
 
     /// Get the current value for a float property.
-    pub fn resolve_float(&self, property: &PropertyBinding<f32>, default_value: f32) -> f32 {
+    pub fn resolve_float(
+        &self,
+        property: &mut PropertyBinding<f32>
+    ) -> f32 {
         match *property {
             PropertyBinding::Value(value) => value,
-            PropertyBinding::Binding(ref key) => self.float_properties
-                .get(&key.id)
-                .cloned()
-                .unwrap_or_else(|| {
-                    println!("Property binding {:?} has an invalid value.", key);
-                    default_value
-                }),
+            PropertyBinding::Binding(ref mut property_value) => {
+                self.float_properties
+                    .get(&property_value.key.id)
+                    .cloned()
+                    .and_then(|f| {
+                        property_value.value = f.clone();
+                        Some(f)
+                    })
+                    .unwrap_or_else(|| {
+                        println!("Property binding {:?} has an invalid value.", property_value.key);
+                        property_value.value
+                    })
+            }
+        }
+    }
+    /// Get the current value for a color property.
+    pub fn resolve_color(
+        &self,
+        property: &mut PropertyBinding<ColorF>
+    ) -> ColorF {
+        match *property {
+            PropertyBinding::Value(value) => value,
+            PropertyBinding::Binding(ref mut property_value) => {
+                self.color_properties
+                    .get(&property_value.key.id)
+                    .cloned()
+                    .and_then(|f| {
+                        property_value.value = f.clone();
+                        Some(f)
+                    })
+                    .unwrap_or_else(|| {
+                        println!("Property binding {:?} has an invalid value.", property_value.key);
+                        property_value.value
+                    })
+            }
         }
     }
 }

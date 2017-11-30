@@ -230,12 +230,12 @@ impl Example for App {
         builder.push_clip_id(id);
 
         let info = LayoutPrimitiveInfo::new((100, 100).to(200, 200));
-        builder.push_rect(&info, ColorF::new(0.0, 1.0, 0.0, 1.0));
+        builder.push_rect(&info, ColorF::new(0.0, 1.0, 0.0, 1.0).into());
 
         let info = LayoutPrimitiveInfo::new((250, 100).to(350, 200));
-        builder.push_rect(&info, ColorF::new(0.0, 1.0, 0.0, 1.0));
+        builder.push_rect(&info, ColorF::new(0.0, 1.0, 0.0, 1.0).into());
         let border_side = BorderSide {
-            color: ColorF::new(0.0, 0.0, 1.0, 1.0),
+            color: ColorF::new(0.0, 0.0, 1.0, 1.0).into(),
             style: BorderStyle::Groove,
         };
         let border_widths = BorderWidths {
@@ -333,7 +333,7 @@ impl Example for App {
             let simple_box_bounds = (20, 200).by(50, 50);
             let offset = vec2(10.0, 10.0);
             let color = ColorF::new(1.0, 1.0, 1.0, 1.0);
-            let blur_radius = 0.0;
+            let blur_radius = 20.0;
             let spread_radius = 0.0;
             let simple_border_radius = 8.0;
             let box_shadow_type = BoxShadowClipMode::Inset;
@@ -343,7 +343,7 @@ impl Example for App {
                 &info,
                 simple_box_bounds,
                 offset,
-                color,
+                color.into(),
                 blur_radius,
                 spread_radius,
                 BorderRadius::uniform(simple_border_radius),

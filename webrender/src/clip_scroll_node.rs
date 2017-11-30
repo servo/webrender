@@ -410,7 +410,7 @@ impl ClipScrollNode {
         let (local_transform, accumulated_scroll_offset) = match self.node_type {
             NodeType::ReferenceFrame(ref mut info) => {
                 // Resolve the transform against any property bindings.
-                let source_transform = scene_properties.resolve_layout_transform(&info.source_transform);
+                let source_transform = scene_properties.resolve_layout_transform(&mut info.source_transform);
                 info.resolved_transform = LayerToScrollTransform::create_translation(
                     info.origin_in_parent_reference_frame.x,
                     info.origin_in_parent_reference_frame.y,

@@ -841,7 +841,7 @@ impl DisplayListBuilder {
         debug_assert_eq!(len, count);
     }
 
-    pub fn push_rect(&mut self, info: &LayoutPrimitiveInfo, color: ColorF) {
+    pub fn push_rect(&mut self, info: &LayoutPrimitiveInfo, color: PropertyBinding<ColorF>) {
         let item = SpecificDisplayItem::Rectangle(RectangleDisplayItem { color });
         self.push_item(item, info);
     }
@@ -855,7 +855,7 @@ impl DisplayListBuilder {
         info: &LayoutPrimitiveInfo,
         wavy_line_thickness: f32,
         orientation: LineOrientation,
-        color: &ColorF,
+        color: &PropertyBinding<ColorF>,
         style: LineStyle,
     ) {
         let item = SpecificDisplayItem::Line(LineDisplayItem {
@@ -1114,7 +1114,7 @@ impl DisplayListBuilder {
         info: &LayoutPrimitiveInfo,
         box_bounds: LayoutRect,
         offset: LayoutVector2D,
-        color: ColorF,
+        color: PropertyBinding<ColorF>,
         blur_radius: f32,
         spread_radius: f32,
         border_radius: BorderRadius,

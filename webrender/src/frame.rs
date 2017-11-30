@@ -11,6 +11,7 @@ use api::{LayoutRect, LayoutSize};
 use api::{LocalClip, PipelineId, ScrollClamping, ScrollEventPhase, ScrollLayerState};
 use api::{ScrollLocation, ScrollPolicy, ScrollSensitivity, SpecificDisplayItem, StackingContext};
 use api::{ClipMode, TileOffset, TransformStyle, WorldPoint};
+use api::PropertyBinding;
 use clip::ClipRegion;
 use clip_scroll_node::StickyFrameInfo;
 use clip_scroll_tree::{ClipScrollTree, ScrollStates};
@@ -110,7 +111,7 @@ impl<'a> FlattenContext<'a> {
                     self.builder.add_solid_rectangle(
                         ClipAndScrollInfo::simple(root_reference_frame_id),
                         &info,
-                        bg_color,
+                        bg_color.into(),
                         EdgeAaSegmentMask::empty(),
                     );
                 }
@@ -130,7 +131,7 @@ impl<'a> FlattenContext<'a> {
             self.builder.add_scroll_bar(
                 ClipAndScrollInfo::simple(root_reference_frame_id),
                 &LayerPrimitiveInfo::new(scrollbar_rect),
-                DEFAULT_SCROLLBAR_COLOR,
+                DEFAULT_SCROLLBAR_COLOR.into(),
                 ScrollbarInfo(root_scroll_frame_id, container_rect),
             );
         }
@@ -452,7 +453,7 @@ impl<'a> FlattenContext<'a> {
                     &prim_info,
                     info.color,
                     &clip_and_scroll,
-                ) {
+                ) { 
                     self.builder.add_solid_rectangle(
                         clip_and_scroll,
                         &prim_info,
@@ -638,7 +639,7 @@ impl<'a> FlattenContext<'a> {
     fn try_to_add_rectangle_splitting_on_clip(
         &mut self,
         info: &LayerPrimitiveInfo,
-        color: ColorF,
+        color: PropertyBinding<ColorF>,
         clip_and_scroll: &ClipAndScrollInfo,
     ) -> bool {
         if info.rect.size.area() < 200.0 { // arbitrary threshold
@@ -648,9 +649,11 @@ impl<'a> FlattenContext<'a> {
         // If this rectangle is not opaque, splitting the rectangle up
         // into an inner opaque region just ends up hurting batching and
         // doing more work than necessary.
-        if color.a != 1.0 {
+        let ColorF{a, ..} = color.value();
+        if a != 1.0 {
             return false;
         }
+
 
         self.opaque_parts.clear();
         self.transparent_parts.clear();

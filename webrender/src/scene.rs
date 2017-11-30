@@ -13,6 +13,7 @@ use internal_types::FastHashMap;
 pub struct SceneProperties {
     transform_properties: FastHashMap<PropertyBindingId, LayoutTransform>,
     float_properties: FastHashMap<PropertyBindingId, f32>,
+    color_properties: FastHashMap<PropertyBindingId, ColorF>
 }
 
 impl SceneProperties {
@@ -20,6 +21,7 @@ impl SceneProperties {
         SceneProperties {
             transform_properties: FastHashMap::default(),
             float_properties: FastHashMap::default(),
+            color_properties: FastHashMap::default()
         }
     }
 
@@ -37,22 +39,31 @@ impl SceneProperties {
             self.float_properties
                 .insert(property.key.id, property.value);
         }
+
+        for property in properties.colors {
+            self.color_properties
+                .insert(property.key.id, property.value);
+        }
     }
 
     /// Get the current value for a transform property.
     pub fn resolve_layout_transform(
         &self,
-        property: &PropertyBinding<LayoutTransform>,
+        property: &mut PropertyBinding<LayoutTransform>,
     ) -> LayoutTransform {
         match *property {
             PropertyBinding::Value(value) => value,
-            PropertyBinding::Binding(ref key) => {
+            PropertyBinding::Binding(ref mut property_value) => {
                 self.transform_properties
-                    .get(&key.id)
+                    .get(&property_value.key.id)
                     .cloned()
+                    .and_then(|f| {
+                        property_value.value = f.clone();
+                        Some(f)
+                    })
                     .unwrap_or_else(|| {
-                        warn!("Property binding {:?} has an invalid value.", key);
-                        LayoutTransform::identity()
+                        warn!("Property binding {:?} has an invalid value.", property_value.key);
+                        property_value.value
                     })
             }
         }
@@ -61,18 +72,44 @@ impl SceneProperties {
     /// Get the current value for a float property.
     pub fn resolve_float(
         &self,
-        property: &PropertyBinding<f32>,
-        default_value: f32
+        property: &mut PropertyBinding<f32>
     ) -> f32 {
         match *property {
             PropertyBinding::Value(value) => value,
-            PropertyBinding::Binding(ref key) => {
+            PropertyBinding::Binding(ref mut property_value) => {
                 self.float_properties
-                    .get(&key.id)
+                    .get(&property_value.key.id)
                     .cloned()
+                    .and_then(|f| {
+                        property_value.value = f.clone();
+                        Some(f)
+                    })
                     .unwrap_or_else(|| {
-                        warn!("Property binding {:?} has an invalid value.", key);
-                        default_value
+                        warn!("Property binding {:?} has an invalid value.", property_value.key);
+                        property_value.value
+                    })
+            }
+        }
+    }
+
+    /// Get the current value for a color property.
+    pub fn resolve_color(
+        &self,
+        property: &mut PropertyBinding<ColorF>
+    ) -> ColorF {
+        match *property {
+            PropertyBinding::Value(value) => value,
+            PropertyBinding::Binding(ref mut property_value) => {
+                self.color_properties
+                    .get(&property_value.key.id)
+                    .cloned()
+                    .and_then(|f| {
+                        property_value.value = f.clone();
+                        Some(f)
+                    })
+                    .unwrap_or_else(|| {
+                        warn!("Property binding {:?} has an invalid value.", property_value.key);
+                        property_value.value
                     })
             }
         }
@@ -163,7 +200,8 @@ impl FilterOpHelpers for FilterOp {
             FilterOp::Invert(..) |
             FilterOp::Saturate(..) |
             FilterOp::Sepia(..) => true,
-            FilterOp::Opacity(_, amount) => {
+            FilterOp::Opacity(ref binding) => {
+                let amount = binding.value();
                 amount > OPACITY_EPSILON
             }
         }
@@ -177,7 +215,10 @@ impl FilterOpHelpers for FilterOp {
             FilterOp::Grayscale(amount) => amount == 0.0,
             FilterOp::HueRotate(amount) => amount == 0.0,
             FilterOp::Invert(amount) => amount == 0.0,
-            FilterOp::Opacity(_, amount) => amount >= 1.0,
+            FilterOp::Opacity(ref binding) => {
+                let amount = binding.value();
+                amount >= 1.0
+            },
             FilterOp::Saturate(amount) => amount == 1.0,
             FilterOp::Sepia(amount) => amount == 0.0,
         }

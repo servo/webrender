@@ -113,7 +113,7 @@ impl App {
             Vec::new(),
         );
 
-        builder.push_rect(&info, ColorF::new(1.0, 1.0, 0.0, 1.0));
+        builder.push_rect(&info, ColorF::new(1.0, 1.0, 0.0, 1.0).into());
         builder.pop_stacking_context();
 
         api.enable_frame_output(document.id, document.pipeline_id, true);

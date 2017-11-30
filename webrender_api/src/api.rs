@@ -856,7 +856,7 @@ impl<T> PropertyBindingKey<T> {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum PropertyBinding<T> {
     Value(T),
-    Binding(PropertyBindingKey<T>),
+    Binding(PropertyValue<T>),
 }
 
 impl<T> From<T> for PropertyBinding<T> {
@@ -865,15 +865,33 @@ impl<T> From<T> for PropertyBinding<T> {
     }
 }
 
-impl<T> From<PropertyBindingKey<T>> for PropertyBinding<T> {
-    fn from(key: PropertyBindingKey<T>) -> PropertyBinding<T> {
+impl <T> From<(PropertyBindingKey<T>, T)> for PropertyValue<T> {
+    fn from(value: (PropertyBindingKey<T>, T)) -> PropertyValue<T> {
+        PropertyValue {
+            key: value.0,
+            value: value.1
+        }
+    }
+}
+
+impl<T> From<PropertyValue<T>> for PropertyBinding<T> {
+    fn from(key: PropertyValue<T>) -> PropertyBinding<T> {
         PropertyBinding::Binding(key)
+    }
+}
+
+impl<T: Copy> PropertyBinding<T> {
+    pub fn value(&self) -> T {
+        match self {
+            &PropertyBinding::Value(ref value) => *value,
+            &PropertyBinding::Binding(ref binding) => binding.value
+        }
     }
 }
 
 /// The current value of an animated property. This is
 /// supplied by the calling code.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct PropertyValue<T> {
     pub key: PropertyBindingKey<T>,
     pub value: T,
@@ -886,6 +904,7 @@ pub struct PropertyValue<T> {
 pub struct DynamicProperties {
     pub transforms: Vec<PropertyValue<LayoutTransform>>,
     pub floats: Vec<PropertyValue<f32>>,
+    pub colors: Vec<PropertyValue<ColorF>>
 }
 
 pub trait RenderNotifier: Send {

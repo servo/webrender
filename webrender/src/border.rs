@@ -135,8 +135,11 @@ impl NormalBorderHelpers for NormalBorder {
             return BorderCornerKind::None;
         }
 
+        let edge0_color = edge0.color.value();
+        let edge1_color = edge1.color.value();
+
         // If both edges are transparent, no corner is formed.
-        if edge0.color.a == 0.0 && edge1.color.a == 0.0 {
+        if edge0_color.a == 0.0 && edge1_color.a == 0.0 {
             return BorderCornerKind::None;
         }
 
@@ -152,7 +155,7 @@ impl NormalBorderHelpers for NormalBorder {
             // If both borders are solid, we can draw them with a simple rectangle if
             // both the colors match and there is no radius.
             (BorderStyle::Solid, BorderStyle::Solid) => {
-                if edge0.color == edge1.color && radius.width == 0.0 && radius.height == 0.0 {
+                if edge0_color == edge1_color && radius.width == 0.0 && radius.height == 0.0 {
                     BorderCornerKind::Solid
                 } else {
                     BorderCornerKind::Clip(BorderCornerInstance::Single)
@@ -478,22 +481,23 @@ impl BorderSideHelpers for BorderSide {
         black_color_0: f32,
         black_color_1: f32,
     ) -> ColorF {
+        let color = self.color.value();
         match self.style {
             BorderStyle::Inset => {
-                if self.color.r != 0.0 || self.color.g != 0.0 || self.color.b != 0.0 {
-                    self.color.scale_rgb(scale_factor_1)
+                if color.r != 0.0 || color.g != 0.0 || color.b != 0.0 {
+                    color.scale_rgb(scale_factor_1)
                 } else {
-                    ColorF::new(black_color_0, black_color_0, black_color_0, self.color.a)
+                    ColorF::new(black_color_0, black_color_0, black_color_0, color.a)
                 }
             }
             BorderStyle::Outset => {
-                if self.color.r != 0.0 || self.color.g != 0.0 || self.color.b != 0.0 {
-                    self.color.scale_rgb(scale_factor_0)
+                if color.r != 0.0 || color.g != 0.0 || color.b != 0.0 {
+                    color.scale_rgb(scale_factor_0)
                 } else {
-                    ColorF::new(black_color_1, black_color_1, black_color_1, self.color.a)
+                    ColorF::new(black_color_1, black_color_1, black_color_1, color.a)
                 }
             }
-            _ => self.color,
+            _ => color,
         }
     }
 }

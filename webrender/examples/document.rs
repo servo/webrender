@@ -123,7 +123,7 @@ impl Example for App {
             );
             builder.push_rect(
                 &LayoutPrimitiveInfo::new(local_rect),
-                doc.color,
+                doc.color.into(),
             );
             builder.pop_stacking_context();
 

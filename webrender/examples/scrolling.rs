@@ -69,17 +69,17 @@ impl Example for App {
             // now put some content into it.
             // start with a white background
             let info = LayoutPrimitiveInfo::new((0, 0).to(1000, 1000));
-            builder.push_rect(&info, ColorF::new(1.0, 1.0, 1.0, 1.0));
+            builder.push_rect(&info, ColorF::new(1.0, 1.0, 1.0, 1.0).into());
 
             // let's make a 50x50 blue square as a visual reference
             let info = LayoutPrimitiveInfo::new((0, 0).to(50, 50));
-            builder.push_rect(&info, ColorF::new(0.0, 0.0, 1.0, 1.0));
+            builder.push_rect(&info, ColorF::new(0.0, 0.0, 1.0, 1.0).into());
 
             // and a 50x50 green square next to it with an offset clip
             // to see what that looks like
             let info =
                 LayoutPrimitiveInfo::with_clip_rect((50, 0).to(100, 50), (60, 10).to(110, 60));
-            builder.push_rect(&info, ColorF::new(0.0, 1.0, 0.0, 1.0));
+            builder.push_rect(&info, ColorF::new(0.0, 1.0, 0.0, 1.0).into());
 
             // Below the above rectangles, set up a nested scrollbox. It's still in
             // the same stacking context, so note that the rects passed in need to
@@ -97,12 +97,12 @@ impl Example for App {
             // give it a giant gray background just to distinguish it and to easily
             // visually identify the nested scrollbox
             let info = LayoutPrimitiveInfo::new((-1000, -1000).to(5000, 5000));
-            builder.push_rect(&info, ColorF::new(0.5, 0.5, 0.5, 1.0));
+            builder.push_rect(&info, ColorF::new(0.5, 0.5, 0.5, 1.0).into());
 
             // add a teal square to visualize the scrolling/clipping behaviour
             // as you scroll the nested scrollbox
             let info = LayoutPrimitiveInfo::new((0, 200).to(50, 250));
-            builder.push_rect(&info, ColorF::new(0.0, 1.0, 1.0, 1.0));
+            builder.push_rect(&info, ColorF::new(0.0, 1.0, 1.0, 1.0).into());
 
             // Add a sticky frame. It will "stick" twice while scrolling, once
             // at a margin of 10px from the bottom, for 40 pixels of scrolling,
@@ -119,13 +119,13 @@ impl Example for App {
 
             builder.push_clip_id(sticky_id);
             let info = LayoutPrimitiveInfo::new((50, 350).by(50, 50));
-            builder.push_rect(&info, ColorF::new(0.5, 0.5, 1.0, 1.0));
+            builder.push_rect(&info, ColorF::new(0.5, 0.5, 1.0, 1.0).into());
             builder.pop_clip_id(); // sticky_id
 
             // just for good measure add another teal square further down and to
             // the right, which can be scrolled into view by the user
             let info = LayoutPrimitiveInfo::new((250, 350).to(300, 400));
-            builder.push_rect(&info, ColorF::new(0.0, 1.0, 1.0, 1.0));
+            builder.push_rect(&info, ColorF::new(0.0, 1.0, 1.0, 1.0).into());
 
             builder.pop_clip_id(); // nested_clip_id
 

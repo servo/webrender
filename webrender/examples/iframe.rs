@@ -47,7 +47,7 @@ impl Example for App {
         );
 
         // green rect visible == success
-        sub_builder.push_rect(&info, ColorF::new(0.0, 1.0, 0.0, 1.0));
+        sub_builder.push_rect(&info, ColorF::new(0.0, 1.0, 0.0, 1.0).into());
         sub_builder.pop_stacking_context();
 
         api.set_display_list(
@@ -64,14 +64,14 @@ impl Example for App {
         builder.push_stacking_context(
             &info,
             ScrollPolicy::Scrollable,
-            Some(PropertyBinding::Binding(PropertyBindingKey::new(42))),
+            None,
             TransformStyle::Flat,
             None,
             MixBlendMode::Normal,
             Vec::new(),
         );
         // red rect under the iframe: if this is visible, things have gone wrong
-        builder.push_rect(&info, ColorF::new(1.0, 0.0, 0.0, 1.0));
+        builder.push_rect(&info, ColorF::new(1.0, 0.0, 0.0, 1.0).into());
         builder.push_iframe(&info, sub_pipeline_id);
         builder.pop_stacking_context();
     }

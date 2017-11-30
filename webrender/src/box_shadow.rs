@@ -7,6 +7,7 @@ use api::{BorderRadius, BoxShadowClipMode, LayoutSize, LayerPrimitiveInfo};
 use api::{ClipMode, ClipAndScrollInfo, ComplexClipRegion, LocalClip};
 use api::{PipelineId};
 use app_units::Au;
+use api::PropertyBinding;
 use clip::ClipSource;
 use frame_builder::FrameBuilder;
 use internal_types::EdgeAaSegmentMask;
@@ -54,12 +55,13 @@ impl FrameBuilder {
         clip_and_scroll: ClipAndScrollInfo,
         prim_info: &LayerPrimitiveInfo,
         box_offset: &LayerVector2D,
-        color: &ColorF,
+        binding: &PropertyBinding<ColorF>,
         mut blur_radius: f32,
         spread_radius: f32,
         border_radius: BorderRadius,
         clip_mode: BoxShadowClipMode,
     ) {
+        let color = binding.value();
         if color.a == 0.0 {
             return;
         }
@@ -132,7 +134,7 @@ impl FrameBuilder {
                 &fast_info,
                 clips,
                 PrimitiveContainer::Rectangle(RectanglePrimitive {
-                    content: RectangleContent::Fill(*color),
+                    content: RectangleContent::Fill(*binding),
                     edge_aa_segment_mask: EdgeAaSegmentMask::empty(),
                 }),
             );
@@ -227,7 +229,7 @@ impl FrameBuilder {
                     let pic_rect = shadow_rect.inflate(blur_offset, blur_offset);
                     let mut pic_prim = PicturePrimitive::new_box_shadow(
                         blur_radius,
-                        *color,
+                        *binding,
                         Vec::new(),
                         clip_mode,
                         radii_kind,
@@ -305,7 +307,7 @@ impl FrameBuilder {
                     // the brush primitive to it.
                     let mut pic_prim = PicturePrimitive::new_box_shadow(
                         blur_radius,
-                        *color,
+                        *binding,
                         Vec::new(),
                         BoxShadowClipMode::Inset,
                         // TODO(gw): Make use of optimization for inset.

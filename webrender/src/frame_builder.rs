@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderDetails, BorderDisplayItem, BuiltDisplayList};
-use api::{ClipAndScrollInfo, ClipId, ColorF, PropertyBinding};
+use api::{ClipAndScrollInfo, ClipId, ColorF};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{DocumentLayer, ExtendMode, FontRenderMode, LayoutTransform};
 use api::{GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem, HitTestResult};
@@ -12,6 +12,7 @@ use api::{LayerSize, LayerToScrollTransform, LayerVector2D, LayoutVector2D, Line
 use api::{LineStyle, LocalClip, PipelineId, RepeatMode};
 use api::{ScrollSensitivity, Shadow, TileOffset, TransformStyle};
 use api::{PremultipliedColorF, WorldPoint, YuvColorSpace, YuvData};
+use api::{PropertyBinding, PropertyBindingKey, PropertyValue};
 use app_units::Au;
 use border::ImageBorderSegment;
 use clip::{ClipRegion, ClipSource, ClipSources, ClipStore, Contains};
@@ -755,10 +756,11 @@ impl FrameBuilder {
         &mut self,
         clip_and_scroll: ClipAndScrollInfo,
         info: &LayerPrimitiveInfo,
-        color: ColorF,
+        color: PropertyBinding<ColorF>,
         edge_aa_segment_mask: EdgeAaSegmentMask,
     ) {
-        if color.a == 0.0 {
+        let ColorF{a, ..} = color.value();
+        if a == 0.0 {
             // Don't add transparent rectangles to the draw list, but do consider them for hit
             // testing. This allows specifying invisible hit testing areas.
             self.add_primitive_to_hit_testing_list(info, clip_and_scroll);
@@ -800,10 +802,11 @@ impl FrameBuilder {
         &mut self,
         clip_and_scroll: ClipAndScrollInfo,
         info: &LayerPrimitiveInfo,
-        color: ColorF,
+        color: PropertyBinding<ColorF>,
         scrollbar_info: ScrollbarInfo,
     ) {
-        if color.a == 0.0 {
+        let ColorF{a, ..} = color.value();
+        if a == 0.0 {
             return;
         }
 
@@ -832,12 +835,24 @@ impl FrameBuilder {
         info: &LayerPrimitiveInfo,
         wavy_line_thickness: f32,
         orientation: LineOrientation,
-        line_color: &ColorF,
+        line_color_binding: &PropertyBinding<ColorF>,
         style: LineStyle,
     ) {
+       let premultiplied_line_color_binding = match line_color_binding {
+            &PropertyBinding::Value(value) => PropertyBinding::Value(value.premultiplied()),
+            &PropertyBinding::Binding(binding) => {
+                let property_binding_key : PropertyBindingKey<PremultipliedColorF> = unsafe { mem::transmute(binding.key) };
+                let property_value : PropertyValue<PremultipliedColorF> = (property_binding_key, 
+                                                                           binding.value.premultiplied()).into();
+                PropertyBinding::Binding(
+                    property_value.into()
+                )
+            }
+        };
+
         let line = LinePrimitive {
             wavy_line_thickness,
-            color: line_color.premultiplied(),
+            color: premultiplied_line_color_binding,
             style,
             orientation,
         };
@@ -855,8 +870,20 @@ impl FrameBuilder {
         }
 
         for (idx, shadow_offset, shadow_color) in fast_shadow_prims {
+            let shadow_color = match shadow_color {
+                PropertyBinding::Value(value) => PropertyBinding::Value(value.premultiplied()),
+                PropertyBinding::Binding(binding) => {
+                let property_binding_key : PropertyBindingKey<PremultipliedColorF> = unsafe { mem::transmute(binding.key) };
+                let property_value : PropertyValue<PremultipliedColorF> = (property_binding_key, 
+                                                                           binding.value.premultiplied()).into();
+                    PropertyBinding::Binding(
+                        property_value.into()
+                    )
+                }
+            };
+
             let mut line = line.clone();
-            line.color = shadow_color.premultiplied();
+            line.color = shadow_color;
             let mut info = info.clone();
             info.rect = info.rect.translate(&shadow_offset);
             let prim_index = self.create_primitive(
@@ -873,6 +900,7 @@ impl FrameBuilder {
             PrimitiveContainer::Line(line),
         );
 
+        let line_color = premultiplied_line_color_binding.value();
         if line_color.a > 0.0 {
             if self.shadow_prim_stack.is_empty() {
                 self.add_primitive_to_hit_testing_list(&info, clip_and_scroll);
@@ -1352,6 +1380,7 @@ impl FrameBuilder {
             let picture_prim = &self.prim_store.cpu_pictures[shadow_metadata.cpu_prim_index.0];
             match picture_prim.kind {
                 PictureKind::TextShadow { offset, color, blur_radius, .. } if blur_radius == 0.0 => {
+                    let color = color.value();
                     let mut text_prim = prim.clone();
                     text_prim.font.color = color.into();
                     text_prim.offset += offset;

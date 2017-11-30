@@ -492,7 +492,7 @@ impl YamlFrameReader {
                         .expect("gradient stop offset is not f32"),
                     color: chunk[1]
                         .as_colorf()
-                        .expect("gradient stop color is not color"),
+                        .expect("gradient stop color is not color").into(),
                 }
             })
             .collect::<Vec<_>>();
@@ -524,7 +524,7 @@ impl YamlFrameReader {
                             .expect("gradient stop offset is not f32"),
                         color: chunk[1]
                             .as_colorf()
-                            .expect("gradient stop color is not color"),
+                            .expect("gradient stop color is not color").into(),
                     }
                 })
                 .collect::<Vec<_>>();
@@ -560,7 +560,7 @@ impl YamlFrameReader {
                             .expect("gradient stop offset is not f32"),
                         color: chunk[1]
                             .as_colorf()
-                            .expect("gradient stop color is not color"),
+                            .expect("gradient stop color is not color").into(),
                     }
                 })
                 .collect::<Vec<_>>();
@@ -597,7 +597,7 @@ impl YamlFrameReader {
             .as_rect()
             .expect("rect type must have bounds");
         let color = item["color"].as_colorf().unwrap_or(*WHITE_COLOR);
-        dl.push_rect(&info, color);
+        dl.push_rect(&info, color.into());
     }
 
     fn handle_clear_rect(
@@ -667,7 +667,7 @@ impl YamlFrameReader {
             &info,
             wavy_line_thickness,
             orientation,
-            &color,
+            &color.into(),
             style,
         );
     }
@@ -776,19 +776,19 @@ impl YamlFrameReader {
                     let styles = broadcast(&styles, 4);
 
                     let top = BorderSide {
-                        color: colors[0],
+                        color: colors[0].into(),
                         style: styles[0],
                     };
                     let right = BorderSide {
-                        color: colors[1],
+                        color: colors[1].into(),
                         style: styles[1],
                     };
                     let bottom = BorderSide {
-                        color: colors[2],
+                        color: colors[2].into(),
                         style: styles[2],
                     };
                     let left = BorderSide {
-                        color: colors[3],
+                        color: colors[3].into(),
                         style: styles[3],
                     };
                     Some(BorderDetails::Normal(NormalBorder {
@@ -924,7 +924,7 @@ impl YamlFrameReader {
             &info,
             box_bounds,
             offset,
-            color,
+            color.into(),
             blur_radius,
             spread_radius,
             border_radius,
@@ -1263,7 +1263,7 @@ impl YamlFrameReader {
             Shadow {
                 blur_radius,
                 offset,
-                color,
+                color: color.into(),
             },
         );
     }
