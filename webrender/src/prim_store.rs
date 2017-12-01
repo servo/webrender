@@ -7,7 +7,7 @@ use api::{DevicePoint, ExtendMode, FontRenderMode, GlyphInstance, GlyphKey};
 use api::{GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerRect};
 use api::{ClipMode, LayerSize, LayerVector2D, LayerToWorldTransform, LineOrientation, LineStyle};
 use api::{ClipAndScrollInfo, PremultipliedColorF, TileOffset};
-use api::{ClipId, LayerTransform, PipelineId, YuvColorSpace, YuvFormat};
+use api::{ClipId, PipelineId, YuvColorSpace, YuvFormat};
 use border::BorderCornerInstance;
 use clip_scroll_tree::{CoordinateSystemId, ClipScrollTree};
 use clip::{ClipSourcesHandle, ClipStore};
@@ -1615,13 +1615,13 @@ impl PrimitiveStore {
                     profile_counters.visible_primitives.inc();
 
                     if let Some(ref matrix) = original_relative_transform {
-                        let bounds = get_local_bounding_rect(&prim_local_rect, matrix);
+                        let bounds = matrix.transform_rect(&prim_local_rect);
                         result.local_rect_in_original_parent_space =
                             result.local_rect_in_original_parent_space.union(&bounds);
                     }
 
                     if let Some(ref matrix) = parent_relative_transform {
-                        let bounds = get_local_bounding_rect(&prim_local_rect, matrix);
+                        let bounds = matrix.transform_rect(&prim_local_rect);
                         result.local_rect_in_actual_parent_space =
                             result.local_rect_in_actual_parent_space.union(&bounds);
                     }
@@ -1656,30 +1656,4 @@ impl InsideTest<ComplexClipRegion> for ComplexClipRegion {
             clip.radii.bottom_right.width >= self.radii.bottom_right.width - delta_right &&
             clip.radii.bottom_right.height >= self.radii.bottom_right.height - delta_bottom
     }
-}
-
-fn get_local_bounding_rect(
-    local_rect: &LayerRect,
-    matrix: &LayerTransform
-) -> LayerRect {
-    let vertices = [
-        matrix.transform_point3d(&local_rect.origin.to_3d()),
-        matrix.transform_point3d(&local_rect.bottom_left().to_3d()),
-        matrix.transform_point3d(&local_rect.bottom_right().to_3d()),
-        matrix.transform_point3d(&local_rect.top_right().to_3d()),
-    ];
-
-    let mut x0 = vertices[0].x;
-    let mut y0 = vertices[0].y;
-    let mut x1 = vertices[0].x;
-    let mut y1 = vertices[0].y;
-
-    for v in &vertices[1..] {
-        x0 = x0.min(v.x);
-        y0 = y0.min(v.y);
-        x1 = x1.max(v.x);
-        y1 = y1.max(v.y);
-    }
-
-    LayerRect::new(LayerPoint::new(x0, y0), LayerSize::new(x1 - x0, y1 - y0))
 }
