@@ -397,7 +397,7 @@ impl FrameBuilder {
         };
 
         // For each filter, create a new image with that composite mode.
-        for filter in &composite_ops.filters {
+        for filter in composite_ops.filters.iter().rev() {
             let src_prim = PicturePrimitive::new_image(
                 Some(PictureCompositeMode::Filter(*filter)),
                 false,
