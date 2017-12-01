@@ -1483,6 +1483,7 @@ impl PrimitiveStore {
 
         if metadata.prim_kind == PrimitiveKind::Brush {
             let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
+            let mut can_optimize_clip_mask = false;
 
             if brush.segment_desc.is_none() && metadata.local_rect.size.area() > MIN_BRUSH_SPLIT_AREA {
                 if let BrushKind::Solid { .. } = brush.kind {
@@ -1510,6 +1511,7 @@ impl PrimitiveStore {
                                 }
                             }
                             if let Some((rect, radii)) = selected_clip {
+                                can_optimize_clip_mask = true;
                                 brush.segment_desc = create_nine_patch(
                                     &metadata.local_rect,
                                     &rect,
@@ -1522,11 +1524,16 @@ impl PrimitiveStore {
             }
 
             if let Some(ref mut segment_desc) = brush.segment_desc {
+                let enabled_segments = segment_desc.enabled_segments;
+
                 for (i, segment) in segment_desc.segments.iter_mut().enumerate() {
                     // We only build clips for the corners. The ordering of the
                     // BrushSegmentKind enum is such that corners come first, then
                     // edges, then inner.
-                    segment.clip_task_id = if i <= BrushSegmentKind::BottomLeft as usize {
+                    let segment_enabled = ((1 << i) & enabled_segments) != 0;
+                    let create_clip_task = segment_enabled &&
+                                           (!can_optimize_clip_mask || i <= BrushSegmentKind::BottomLeft as usize);
+                    segment.clip_task_id = if create_clip_task {
                         let segment_rect = TransformedRect::new(
                             &segment.local_rect,
                             &prim_context.scroll_node.world_content_transform,
