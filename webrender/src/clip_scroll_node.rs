@@ -70,6 +70,15 @@ pub enum NodeType {
     StickyFrame(StickyFrameInfo),
 }
 
+impl NodeType {
+    fn is_reference_frame(&self) -> bool {
+        match *self {
+            NodeType::ReferenceFrame(_) => true,
+            _ => false,
+        }
+    }
+}
+
 /// Contains information common among all types of ClipScrollTree nodes.
 #[derive(Debug)]
 pub struct ClipScrollNode {
@@ -268,10 +277,28 @@ impl ClipScrollNode {
         true
     }
 
+    pub fn update_to_empty_rect(
+        &mut self,
+        state: &mut TransformUpdateState,
+        gpu_node_data: &mut Vec<ClipScrollNodeData>
+    ) {
+        state.parent_combined_viewport_rect = LayerRect::zero();
+        state.combined_outer_clip_bounds = DeviceIntRect::zero();
+        state.parent_clip_chain = None;
+
+        self.combined_clip_outer_bounds = DeviceIntRect::zero();
+        self.combined_local_viewport_rect = LayerRect::zero();
+        self.world_viewport_transform = LayerToWorldTransform::identity();
+        self.world_content_transform = LayerToWorldTransform::identity();
+        self.clip_chain_node = None;
+
+        gpu_node_data.push(ClipScrollNodeData::invalid())
+    }
+
     pub fn update(
         &mut self,
         state: &mut TransformUpdateState,
-        node_data: &mut Vec<ClipScrollNodeData>,
+        gpu_node_data: &mut Vec<ClipScrollNodeData>,
         device_pixel_ratio: f32,
         clip_store: &mut ClipStore,
         resource_cache: &mut ResourceCache,
@@ -280,7 +307,24 @@ impl ClipScrollNode {
     ) {
         // We set this earlier so that we can use it before we have all the data necessary
         // to populate the ClipScrollNodeData.
-        self.node_data_index = ClipScrollNodeIndex(node_data.len() as u32);
+        self.node_data_index = ClipScrollNodeIndex(gpu_node_data.len() as u32);
+
+        // If any of our parents was not rendered, we are not rendered either and can just
+        // quit here.
+        if state.combined_outer_clip_bounds.is_empty() {
+            self.update_to_empty_rect(state, gpu_node_data);
+            return;
+        }
+
+        // If this node is a reference frame, we check if the determinant is 0, which means it
+        // has a non-invertible matrix. For non-reference-frames we assume that they will
+        // produce only additional translations which should be invertible.
+        if self.node_type.is_reference_frame() {
+            if self.world_content_transform.determinant() == 0.0 {
+                self.update_to_empty_rect(state, gpu_node_data);
+                return;
+            }
+        }
 
         self.update_transform(state, scene_properties);
         self.update_clip_work_item(
@@ -291,40 +335,36 @@ impl ClipScrollNode {
             gpu_cache,
         );
 
+        // This indicates that we are entirely clipped out.
+        if state.combined_outer_clip_bounds.is_empty() {
+            self.update_to_empty_rect(state, gpu_node_data);
+            return;
+        }
+
         let local_clip_rect = if self.world_content_transform.has_perspective_component() {
             LayerRect::max_rect()
         } else {
             self.combined_local_viewport_rect
         };
 
-        let data = match self.world_content_transform.inverse() {
-            Some(inverse) => {
-                let transform_kind = if self.world_content_transform.preserves_2d_axis_alignment() {
-                    TransformedRectKind::AxisAligned
-                } else {
-                    TransformedRectKind::Complex
-                };
+        let transform_kind = if self.world_content_transform.preserves_2d_axis_alignment() {
+            TransformedRectKind::AxisAligned
+        } else {
+            TransformedRectKind::Complex
+        };
 
-                ClipScrollNodeData {
-                    transform: self.world_content_transform,
-                    inv_transform: inverse,
-                    local_clip_rect,
-                    reference_frame_relative_scroll_offset:
-                        self.reference_frame_relative_scroll_offset,
-                    scroll_offset: self.scroll_offset(),
-                    transform_kind: transform_kind as u32 as f32,
-                    padding: [0.0; 3],
-                }
-            }
-            None => {
-                state.combined_outer_clip_bounds = DeviceIntRect::zero();
-                self.combined_clip_outer_bounds = DeviceIntRect::zero();
-                ClipScrollNodeData::invalid()
-            }
+        let data = ClipScrollNodeData {
+            transform: self.world_content_transform,
+            local_clip_rect,
+            reference_frame_relative_scroll_offset:
+                self.reference_frame_relative_scroll_offset,
+            scroll_offset: self.scroll_offset(),
+            transform_kind: transform_kind as u32 as f32,
+            padding: [0.0; 3],
         };
 
         // Write the data that will be made available to the GPU for this node.
-        node_data.push(data);
+        gpu_node_data.push(data);
     }
 
     pub fn update_clip_work_item(

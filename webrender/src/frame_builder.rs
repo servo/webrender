@@ -1698,7 +1698,7 @@ impl FrameBuilder {
         resource_cache.begin_frame(frame_id);
         gpu_cache.begin_frame();
 
-        let mut node_data = Vec::new();
+        let mut node_data = Vec::with_capacity(clip_scroll_tree.nodes.len());
         clip_scroll_tree.update_tree(
             &self.screen_rect.to_i32(),
             device_pixel_ratio,

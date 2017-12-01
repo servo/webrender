@@ -69,7 +69,7 @@ vec4[2] fetch_from_resource_cache_2(int address) {
 
 #ifdef WR_VERTEX_SHADER
 
-#define VECS_PER_LAYER              11
+#define VECS_PER_LAYER              7
 #define VECS_PER_RENDER_TASK        3
 #define VECS_PER_PRIM_HEADER        2
 #define VECS_PER_TEXT_RUN           3
@@ -143,7 +143,6 @@ vec4 fetch_from_resource_cache_1(int address) {
 
 struct ClipScrollNode {
     mat4 transform;
-    mat4 inv_transform;
     vec4 local_clip_rect;
     vec2 reference_frame_relative_scroll_offset;
     vec2 scroll_offset;
@@ -159,26 +158,20 @@ ClipScrollNode fetch_clip_scroll_node(int index) {
     // of OSX.
     ivec2 uv = get_fetch_uv(index, VECS_PER_LAYER);
     ivec2 uv0 = ivec2(uv.x + 0, uv.y);
-    ivec2 uv1 = ivec2(uv.x + 8, uv.y);
 
     node.transform[0] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(0, 0));
     node.transform[1] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(1, 0));
     node.transform[2] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(2, 0));
     node.transform[3] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(3, 0));
 
-    node.inv_transform[0] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(4, 0));
-    node.inv_transform[1] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(5, 0));
-    node.inv_transform[2] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(6, 0));
-    node.inv_transform[3] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(7, 0));
-
-    vec4 clip_rect = TEXEL_FETCH(sClipScrollNodes, uv1, 0, ivec2(0, 0));
+    vec4 clip_rect = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(4, 0));
     node.local_clip_rect = clip_rect;
 
-    vec4 offsets = TEXEL_FETCH(sClipScrollNodes, uv1, 0, ivec2(1, 0));
+    vec4 offsets = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(5, 0));
     node.reference_frame_relative_scroll_offset = offsets.xy;
     node.scroll_offset = offsets.zw;
 
-    vec4 misc = TEXEL_FETCH(sClipScrollNodes, uv1, 0, ivec2(2, 0));
+    vec4 misc = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(6, 0));
     node.is_axis_aligned = misc.x == 0.0;
 
     return node;
@@ -186,7 +179,6 @@ ClipScrollNode fetch_clip_scroll_node(int index) {
 
 struct Layer {
     mat4 transform;
-    mat4 inv_transform;
     RectWithSize local_clip_rect;
     bool is_axis_aligned;
 };
@@ -197,7 +189,6 @@ Layer fetch_layer(int clip_node_id, int scroll_node_id) {
 
     Layer layer;
     layer.transform = scroll_node.transform;
-    layer.inv_transform = scroll_node.inv_transform;
 
     vec4 local_clip_rect = clip_node.local_clip_rect;
     local_clip_rect.xy += clip_node.reference_frame_relative_scroll_offset;
@@ -548,9 +539,11 @@ vec4 get_layer_pos(vec2 pos, Layer layer) {
     // get a point on the layer plane
     vec4 ah = layer.transform * vec4(0.0, 0.0, 0.0, 1.0);
     vec3 a = ah.xyz / ah.w;
+
     // get the normal to the layer plane
-    vec3 n = transpose(mat3(layer.inv_transform)) * vec3(0.0, 0.0, 1.0);
-    return untransform(pos, n, a, layer.inv_transform);
+    mat4 inv_transform = inverse(layer.transform);
+    vec3 n = transpose(mat3(inv_transform)) * vec3(0.0, 0.0, 1.0);
+    return untransform(pos, n, a, inv_transform);
 }
 
 // Compute a snapping offset in world space (adjusted to pixel ratio),
