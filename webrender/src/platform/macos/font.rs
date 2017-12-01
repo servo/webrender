@@ -84,6 +84,7 @@ fn get_glyph_metrics(
     glyph: CGGlyph,
     x_offset: f64,
     y_offset: f64,
+    extra_width: f64,
 ) -> GlyphMetrics {
     let mut bounds = ct_font.get_bounding_rects_for_glyphs(kCTFontDefaultOrientation, &[glyph]);
 
@@ -107,6 +108,13 @@ fn get_glyph_metrics(
 
     let mut advance = CGSize { width: 0.0, height: 0.0 };
     ct_font.get_advances_for_glyphs(kCTFontDefaultOrientation, &glyph, &mut advance, 1);
+
+    if bounds.size.width > 0.0 {
+        bounds.size.width += extra_width;
+    }
+    if advance.width > 0.0 {
+        advance.width += extra_width;
+    }
 
     if let Some(transform) = transform {
         bounds = bounds.apply_transform(transform);
@@ -345,7 +353,7 @@ impl FontContext {
             .and_then(|ref ct_font| {
                 let glyph = key.index as CGGlyph;
                 let (x_offset, y_offset) = font.get_subpx_offset(key);
-                let metrics = get_glyph_metrics(ct_font, None, glyph, x_offset, y_offset);
+                let metrics = get_glyph_metrics(ct_font, None, glyph, x_offset, y_offset, 0.0);
                 if metrics.rasterized_width == 0 || metrics.rasterized_height == 0 {
                     None
                 } else {
@@ -443,14 +451,14 @@ impl FontContext {
         font: &FontInstance,
         key: &GlyphKey,
     ) -> Option<RasterizedGlyph> {
-        let (.., minor) = font.transform.compute_scale().unwrap_or((1.0, 1.0));
-        let size = font.size.scale_by(minor as f32);
+        let (x_scale, y_scale) = font.transform.compute_scale().unwrap_or((1.0, 1.0));
+        let size = font.size.scale_by(y_scale as f32);
         let ct_font = match self.get_ct_font(font.font_key, size, &font.variations) {
             Some(font) => font,
             None => return None,
         };
 
-        let shape = font.transform.pre_scale(minor.recip() as f32, minor.recip() as f32);
+        let shape = font.transform.pre_scale(y_scale.recip() as f32, y_scale.recip() as f32);
         let transform = if shape.is_identity() {
             None
         } else {
@@ -465,7 +473,15 @@ impl FontContext {
         };
         let glyph = key.index as CGGlyph;
         let (x_offset, y_offset) = font.get_subpx_offset(key);
-        let metrics = get_glyph_metrics(&ct_font, transform.as_ref(), glyph, x_offset, y_offset);
+        let extra_strikes = font.get_extra_strikes(x_scale);
+        let metrics = get_glyph_metrics(
+            &ct_font,
+            transform.as_ref(),
+            glyph,
+            x_offset,
+            y_offset,
+            extra_strikes as f64 * y_scale / x_scale,
+        );
         if metrics.rasterized_width == 0 || metrics.rasterized_height == 0 {
             return None;
         }
@@ -591,7 +607,17 @@ impl FontContext {
             draw_origin = draw_origin.apply_transform(&transform.invert());
         }
 
-        ct_font.draw_glyphs(&[glyph], &[draw_origin], cg_context.clone());
+        if extra_strikes > 0 {
+            let strikes = 1 + extra_strikes;
+            let pixel_step = y_scale / x_scale;
+            let glyphs = vec![glyph; strikes];
+            let origins = (0..strikes)
+                .map(|i| CGPoint { x: draw_origin.x + i as f64 * pixel_step, y: draw_origin.y })
+                .collect::<Vec<_>>();
+            ct_font.draw_glyphs(&glyphs, &origins, cg_context.clone());
+        } else {
+            ct_font.draw_glyphs(&[glyph], &[draw_origin], cg_context.clone());
+        }
 
         let mut rasterized_pixels = cg_context.data().to_vec();
 

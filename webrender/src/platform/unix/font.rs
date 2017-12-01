@@ -194,8 +194,8 @@ impl FontContext {
                 self.choose_bitmap_size(face.face, req_size)
             }
         } else {
-            let (major, minor) = font.transform.compute_scale().unwrap_or((1.0, 1.0));
-            let shape = font.transform.pre_scale(major.recip() as f32, minor.recip() as f32);
+            let (x_scale, y_scale) = font.transform.compute_scale().unwrap_or((1.0, 1.0));
+            let shape = font.transform.pre_scale(x_scale.recip() as f32, y_scale.recip() as f32);
             let mut ft_shape = FT_Matrix {
                 xx: (shape.scale_x * 65536.0) as FT_Fixed,
                 xy: (shape.skew_x * -65536.0) as FT_Fixed,
@@ -206,8 +206,8 @@ impl FontContext {
                 FT_Set_Transform(face.face, &mut ft_shape, ptr::null_mut());
                 FT_Set_Char_Size(
                     face.face,
-                    (req_size * major * 64.0 + 0.5) as FT_F26Dot6,
-                    (req_size * minor * 64.0 + 0.5) as FT_F26Dot6,
+                    (req_size * x_scale * 64.0 + 0.5) as FT_F26Dot6,
+                    (req_size * y_scale * 64.0 + 0.5) as FT_F26Dot6,
                     0,
                     0,
                 )
