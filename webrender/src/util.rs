@@ -4,7 +4,7 @@
 
 use api::{BorderRadius, ComplexClipRegion, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::{DevicePoint, DeviceRect, DeviceSize, LayerPoint, LayerRect, LayerSize};
-use api::{LayerToWorldTransform, LayoutPoint, LayoutRect, LayoutSize, WorldPoint3D};
+use api::{LayerToWorldTransform, LayoutPoint, LayoutRect, LayoutSize, WorldRect};
 use euclid::{Point2D, Rect, Size2D, TypedPoint2D, TypedRect, TypedSize2D, TypedTransform2D};
 use euclid::TypedTransform3D;
 use num_traits::Zero;
@@ -95,14 +95,10 @@ impl<Src, Dst> MatrixHelpers<Src, Dst> for TypedTransform3D<f32, Src, Dst> {
 
     fn inverse_rect_footprint(&self, rect: &TypedRect<f32, Dst>) -> TypedRect<f32, Src> {
         TypedRect::from_points(&[
-            self.inverse_project(&rect.origin)
-                .unwrap_or(TypedPoint2D::zero()),
-            self.inverse_project(&rect.top_right())
-                .unwrap_or(TypedPoint2D::zero()),
-            self.inverse_project(&rect.bottom_left())
-                .unwrap_or(TypedPoint2D::zero()),
-            self.inverse_project(&rect.bottom_right())
-                .unwrap_or(TypedPoint2D::zero()),
+            self.inverse_project(&rect.origin).unwrap_or(TypedPoint2D::zero()),
+            self.inverse_project(&rect.top_right()).unwrap_or(TypedPoint2D::zero()),
+            self.inverse_project(&rect.bottom_left()).unwrap_or(TypedPoint2D::zero()),
+            self.inverse_project(&rect.bottom_right()).unwrap_or(TypedPoint2D::zero()),
         ])
     }
 
@@ -158,6 +154,27 @@ pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
     (b - a) * t + a
 }
 
+pub fn calculate_screen_bounding_rect(
+    transform: &LayerToWorldTransform,
+    rect: &LayerRect,
+    device_pixel_ratio: f32
+) -> DeviceIntRect {
+    let rect = WorldRect::from_points(&[
+        transform.transform_point2d(&rect.origin),
+        transform.transform_point2d(&rect.top_right()),
+        transform.transform_point2d(&rect.bottom_left()),
+        transform.transform_point2d(&rect.bottom_right()),
+    ]) * device_pixel_ratio;
+
+    let rect = DeviceRect::new(
+        DevicePoint::new(rect.origin.x, rect.origin.y),
+        DeviceSize::new(rect.size.width, rect.size.height),
+    );
+
+    let max_rect = DeviceRect::max_rect();
+    rect.round_out().intersection(&max_rect).unwrap_or(max_rect).to_i32()
+}
+
 pub fn _subtract_rect<U>(
     rect: &TypedRect<f32, U>,
     other: &TypedRect<f32, U>,
@@ -201,83 +218,11 @@ pub fn _subtract_rect<U>(
     }
 }
 
-pub fn get_normal(x: f32) -> Option<f32> {
-    if x.is_normal() {
-        Some(x)
-    } else {
-        None
-    }
-}
-
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 #[repr(u32)]
 pub enum TransformedRectKind {
     AxisAligned = 0,
     Complex = 1,
-}
-
-#[derive(Debug, Clone)]
-pub struct TransformedRect {
-    pub local_rect: LayerRect,
-    pub bounding_rect: DeviceIntRect,
-    pub inner_rect: DeviceIntRect,
-    pub vertices: [WorldPoint3D; 4],
-    pub kind: TransformedRectKind,
-}
-
-impl TransformedRect {
-    pub fn new(
-        rect: &LayerRect,
-        transform: &LayerToWorldTransform,
-        device_pixel_ratio: f32,
-    ) -> TransformedRect {
-        let kind = if transform.preserves_2d_axis_alignment() {
-            TransformedRectKind::AxisAligned
-        } else {
-            TransformedRectKind::Complex
-        };
-
-
-        let vertices = [
-            transform.transform_point3d(&rect.origin.to_3d()),
-            transform.transform_point3d(&rect.bottom_left().to_3d()),
-            transform.transform_point3d(&rect.bottom_right().to_3d()),
-            transform.transform_point3d(&rect.top_right().to_3d()),
-        ];
-
-        let (mut xs, mut ys) = ([0.0; 4], [0.0; 4]);
-
-        for (vertex, (x, y)) in vertices.iter().zip(xs.iter_mut().zip(ys.iter_mut())) {
-            *x = get_normal(vertex.x).unwrap_or(0.0);
-            *y = get_normal(vertex.y).unwrap_or(0.0);
-        }
-
-        xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-        let outer_min_dp = (DevicePoint::new(xs[0], ys[0]) * device_pixel_ratio).floor();
-        let outer_max_dp = (DevicePoint::new(xs[3], ys[3]) * device_pixel_ratio).ceil();
-        let inner_min_dp = (DevicePoint::new(xs[1], ys[1]) * device_pixel_ratio).ceil();
-        let inner_max_dp = (DevicePoint::new(xs[2], ys[2]) * device_pixel_ratio).floor();
-
-        let max_rect = DeviceRect::max_rect();
-        let bounding_rect = DeviceRect::new(outer_min_dp, (outer_max_dp - outer_min_dp).to_size())
-            .intersection(&max_rect)
-            .unwrap_or(max_rect)
-            .to_i32();
-        let inner_rect = DeviceRect::new(inner_min_dp, (inner_max_dp - inner_min_dp).to_size())
-            .intersection(&max_rect)
-            .unwrap_or(max_rect)
-            .to_i32();
-
-        TransformedRect {
-            local_rect: *rect,
-            vertices,
-            bounding_rect,
-            inner_rect,
-            kind,
-        }
-    }
 }
 
 #[inline(always)]
