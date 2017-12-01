@@ -5,9 +5,9 @@
 use api::{BorderRadius, BuiltDisplayList, ClipAndScrollInfo, ClipId, ClipMode, ColorF};
 use api::{ComplexClipRegion, DeviceIntRect, DevicePoint, ExtendMode, FontRenderMode};
 use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
-use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerTransform, LayerVector2D};
-use api::{LineOrientation, LineStyle, PipelineId, PremultipliedColorF, TileOffset};
-use api::{WorldToLayerTransform, YuvColorSpace, YuvFormat};
+use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
+use api::{LineStyle, PipelineId, PremultipliedColorF, TileOffset, WorldToLayerTransform};
+use api::{YuvColorSpace, YuvFormat};
 use border::BorderCornerInstance;
 use clip_scroll_tree::{CoordinateSystemId, ClipScrollTree};
 use clip::{ClipSource, ClipSourcesHandle, ClipStore};
@@ -26,8 +26,8 @@ use resource_cache::{ImageProperties, ResourceCache};
 use scene::{ScenePipeline, SceneProperties};
 use std::{mem, u16, usize};
 use std::rc::Rc;
-use util::{extract_inner_rect_safe, pack_as_float, recycle_vec};
-use util::{MatrixHelpers, TransformedRect};
+use util::{MatrixHelpers, calculate_screen_bounding_rect, extract_inner_rect_safe, pack_as_float};
+use util::recycle_vec;
 
 const MIN_BRUSH_SPLIT_AREA: f32 = 128.0 * 128.0;
 
@@ -1553,13 +1553,13 @@ impl PrimitiveStore {
                     let create_clip_task = segment_enabled &&
                                            (!can_optimize_clip_mask || i <= BrushSegmentKind::BottomLeft as usize);
                     segment.clip_task_id = if create_clip_task {
-                        let segment_rect = TransformedRect::new(
-                            &segment.local_rect,
+                        let segment_screen_rect = calculate_screen_bounding_rect(
                             &prim_context.scroll_node.world_content_transform,
+                            &segment.local_rect,
                             prim_context.device_pixel_ratio
                         );
 
-                        combined_outer_rect.intersection(&segment_rect.bounding_rect).map(|bounds| {
+                        combined_outer_rect.intersection(&segment_screen_rect).map(|bounds| {
                             let clip_task = RenderTask::new_mask(
                                 None,
                                 bounds,
@@ -1710,20 +1710,20 @@ impl PrimitiveStore {
                 None => LayerRect::zero(),
             };
 
-            let xf_rect = TransformedRect::new(
-                &local_rect,
+            let screen_bounding_rect = calculate_screen_bounding_rect(
                 &prim_context.scroll_node.world_content_transform,
+                &local_rect,
                 prim_context.device_pixel_ratio
             );
 
             let clip_bounds = &prim_context.clip_node.combined_clip_outer_bounds;
-            metadata.screen_rect = xf_rect.bounding_rect.intersection(clip_bounds);
+            metadata.screen_rect = screen_bounding_rect.intersection(clip_bounds);
 
             if metadata.screen_rect.is_none() && perform_culling {
                 return None;
             }
 
-            (local_rect, xf_rect.bounding_rect)
+            (local_rect, screen_bounding_rect)
         };
 
         if perform_culling && may_need_clip_mask && !self.update_clip_task(
