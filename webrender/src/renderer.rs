@@ -795,48 +795,37 @@ impl CacheTexture {
     }
 
     fn flush(&mut self, device: &mut Device) -> usize {
-        // Bind a PBO to do the texture upload.
-        // Updating the texture via PBO avoids CPU-side driver stalls.
-        device.bind_pbo(Some(&self.pbo));
+        let rows_dirty = self.rows
+            .iter()
+            .filter(|row| row.is_dirty)
+            .count();
+        if rows_dirty == 0 {
+            return 0
+        }
 
-        let mut rows_dirty = 0;
+        let mut uploader = device.upload_texture(
+            &self.texture,
+            &self.pbo,
+            rows_dirty * MAX_VERTEX_TEXTURE_WIDTH,
+        );
 
         for (row_index, row) in self.rows.iter_mut().enumerate() {
             if !row.is_dirty {
                 continue;
             }
 
-            // Get the data for this row and push to the PBO.
             let block_index = row_index * MAX_VERTEX_TEXTURE_WIDTH;
             let cpu_blocks =
                 &self.cpu_blocks[block_index .. (block_index + MAX_VERTEX_TEXTURE_WIDTH)];
-            device.update_pbo_data(cpu_blocks);
-
-            // Insert a command to copy the PBO data to the right place in
-            // the GPU-side cache texture.
-            device.update_texture_from_pbo(
-                &self.texture,
-                0,
-                row_index as u32,
-                MAX_VERTEX_TEXTURE_WIDTH as u32,
-                1,
-                0,
-                None,
-                0,
+            let rect = DeviceUintRect::new(
+                DeviceUintPoint::new(0, row_index as u32),
+                DeviceUintSize::new(MAX_VERTEX_TEXTURE_WIDTH as u32, 1),
             );
 
-            // Orphan the PBO. This is the recommended way to hint to the
-            // driver to detach the underlying storage from this PBO id.
-            // Keeping the size the same gives the driver a hint for future
-            // use of this PBO.
-            device.orphan_pbo(mem::size_of::<GpuBlockData>() * MAX_VERTEX_TEXTURE_WIDTH);
+            uploader.upload(rect, 0, None, cpu_blocks);
 
-            rows_dirty += 1;
             row.is_dirty = false;
         }
-
-        // Ensure that other texture updates won't read from this PBO.
-        device.bind_pbo(None);
 
         rows_dirty
     }
@@ -895,14 +884,13 @@ impl VertexDataTexture {
             );
         }
 
-        // Bind a PBO to do the texture upload.
-        // Updating the texture via PBO avoids CPU-side driver stalls.
-        device.bind_pbo(Some(&self.pbo));
-        device.update_pbo_data(data);
-        device.update_texture_from_pbo(&self.texture, 0, 0, width, needed_height, 0, None, 0);
-
-        // Ensure that other texture updates won't read from this PBO.
-        device.bind_pbo(None);
+        let rect = DeviceUintRect::new(
+            DeviceUintPoint::zero(),
+            DeviceUintSize::new(width, needed_height),
+        );
+        device
+            .upload_texture(&self.texture, &self.pbo, 0)
+            .upload(rect, 0, None, data);
     }
 
     fn deinit(self, device: &mut Device) {
@@ -2650,14 +2638,18 @@ impl Renderer {
                         offset,
                     } => {
                         let texture = &self.texture_resolver.cache_texture_map[update.id.0];
-
-                        // Bind a PBO to do the texture upload.
-                        // Updating the texture via PBO avoids CPU-side driver stalls.
-                        self.device.bind_pbo(Some(&self.texture_cache_upload_pbo));
+                        let mut uploader = self.device.upload_texture(
+                            texture,
+                            &self.texture_cache_upload_pbo,
+                            0,
+                        );
 
                         match source {
                             TextureUpdateSource::Bytes { data } => {
-                                self.device.update_pbo_data(&data[offset as usize ..]);
+                                uploader.upload(
+                                    rect, layer_index, stride,
+                                    &data[offset as usize ..],
+                                );
                             }
                             TextureUpdateSource::External { id, channel_index } => {
                                 let handler = self.external_image_handler
@@ -2665,7 +2657,10 @@ impl Renderer {
                                     .expect("Found external image, but no handler set!");
                                 match handler.lock(id, channel_index).source {
                                     ExternalImageSource::RawData(data) => {
-                                        self.device.update_pbo_data(&data[offset as usize ..]);
+                                        uploader.upload(
+                                            rect, layer_index, stride,
+                                            &data[offset as usize ..],
+                                        );
                                     }
                                     ExternalImageSource::Invalid => {
                                         // Create a local buffer to fill the pbo.
@@ -2675,27 +2670,13 @@ impl Renderer {
                                         // WR haven't support RGBAF32 format in texture_cache, so
                                         // we use u8 type here.
                                         let dummy_data: Vec<u8> = vec![255; total_size as usize];
-                                        self.device.update_pbo_data(&dummy_data);
+                                        uploader.upload(rect, layer_index, stride, &dummy_data);
                                     }
                                     _ => panic!("No external buffer found"),
                                 };
                                 handler.unlock(id, channel_index);
                             }
                         }
-
-                        self.device.update_texture_from_pbo(
-                            texture,
-                            rect.origin.x,
-                            rect.origin.y,
-                            rect.size.width,
-                            rect.size.height,
-                            layer_index,
-                            stride,
-                            0,
-                        );
-
-                        // Ensure that other texture updates won't read from this PBO.
-                        self.device.bind_pbo(None);
                     }
                     TextureUpdateOp::Free => {
                         let texture = &mut self.texture_resolver.cache_texture_map[update.id.0];

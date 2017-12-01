@@ -144,6 +144,7 @@ extern crate rayon;
 extern crate serde_derive;
 #[cfg(feature = "debugger")]
 extern crate serde_json;
+extern crate smallvec;
 extern crate time;
 #[cfg(feature = "debugger")]
 extern crate ws;
