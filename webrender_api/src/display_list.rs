@@ -538,6 +538,7 @@ impl<'a> Write for SizeCounter {
 /// If this assumption is incorrect, the result will be Undefined Behaviour. This
 /// assumption should hold for all derived Serialize impls, which is all we currently
 /// use.
+#[inline(always)]
 fn serialize_fast<T: Serialize>(vec: &mut Vec<u8>, e: &T) {
     // manually counting the size is faster than vec.reserve(bincode::serialized_size(&e) as usize) for some reason
     let mut size = SizeCounter(0);
