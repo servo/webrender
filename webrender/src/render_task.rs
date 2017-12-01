@@ -358,7 +358,7 @@ impl RenderTask {
         clip_store: &ClipStore,
         is_axis_aligned: bool,
         prim_coordinate_system_id: CoordinateSystemId,
-    ) -> Option<RenderTask> {
+    ) -> RenderTask {
         // TODO(gw): This optimization is very conservative for now.
         //           For now, only draw optimized geometry if it is
         //           a single aligned rect mask with rounded corners.
@@ -372,7 +372,7 @@ impl RenderTask {
             MaskGeometryKind::Default
         };
 
-        Some(RenderTask {
+        RenderTask {
             cache_key: key.map(RenderTaskKey::CacheMask),
             children: Vec::new(),
             location: RenderTaskLocation::Dynamic(None, outer_rect.size),
@@ -384,7 +384,7 @@ impl RenderTask {
                 coordinate_system_id: prim_coordinate_system_id,
             }),
             clear_mode: ClearMode::One,
-        })
+        }
     }
 
     // Construct a render task to apply a blur to a primitive.

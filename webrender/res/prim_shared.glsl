@@ -739,17 +739,6 @@ ImageResource fetch_image_resource_direct(ivec2 address) {
     return ImageResource(data[0], data[1].x);
 }
 
-struct Rectangle {
-    vec4 color;
-    vec4 edge_aa_segment_mask;
-};
-
-Rectangle fetch_rectangle(int address) {
-    vec4 data[2] = fetch_from_resource_cache_2(address);
-    vec4 mask = vec4((int(data[1].x) & ivec4(1,2,4,8)) != ivec4(0));
-    return Rectangle(data[0], mask);
-}
-
 struct TextRun {
     vec4 color;
     vec4 bg_color;
