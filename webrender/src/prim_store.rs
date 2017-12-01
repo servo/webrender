@@ -28,6 +28,8 @@ use std::rc::Rc;
 use util::{extract_inner_rect_safe, pack_as_float, recycle_vec};
 use util::{MatrixHelpers, TransformedRect};
 
+const MIN_BRUSH_SPLIT_AREA: f32 = 128.0 * 128.0;
+
 #[derive(Debug)]
 pub struct PrimitiveRun {
     pub base_prim_index: PrimitiveIndex,
@@ -209,7 +211,7 @@ pub enum BrushKind {
 #[derive(Debug, Copy, Clone)]
 #[repr(u32)]
 pub enum BrushAntiAliasMode {
-    Default = 0,
+    Primitive = 0,
     Segment = 1,
 }
 
@@ -269,13 +271,10 @@ impl BrushSegmentDescriptor {
 
         let enabled_segments = match valid_segments {
             Some(valid_segments) => {
-                let mut enabled_segments = 0;
-
-                for segment in valid_segments {
-                    enabled_segments |= 1 << *segment as u32;
-                }
-
-                enabled_segments
+                valid_segments.iter().fold(
+                    0,
+                    |acc, segment| acc | 1 << *segment as u32
+                )
             }
             None => u16::MAX,
         };
@@ -329,19 +328,19 @@ impl BrushSegmentDescriptor {
 #[derive(Debug)]
 pub struct BrushPrimitive {
     pub kind: BrushKind,
-    pub segments: Option<Box<BrushSegmentDescriptor>>,
+    pub segment_desc: Option<Box<BrushSegmentDescriptor>>,
     pub aa_mode: BrushAntiAliasMode,
 }
 
 impl BrushPrimitive {
     pub fn new(
         kind: BrushKind,
-        segments: Option<Box<BrushSegmentDescriptor>>,
+        segment_desc: Option<Box<BrushSegmentDescriptor>>,
         aa_mode: BrushAntiAliasMode,
     ) -> BrushPrimitive {
         BrushPrimitive {
             kind,
-            segments,
+            segment_desc,
             aa_mode,
         }
     }
@@ -349,13 +348,13 @@ impl BrushPrimitive {
 
 impl ToGpuBlocks for BrushPrimitive {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        match self.segments {
-            Some(ref segments) => {
+        match self.segment_desc {
+            Some(ref segment_desc) => {
                 request.push([
-                    segments.top_left_offset.x,
-                    segments.top_left_offset.y,
-                    segments.bottom_right_offset.x,
-                    segments.bottom_right_offset.y,
+                    segment_desc.top_left_offset.x,
+                    segment_desc.top_left_offset.y,
+                    segment_desc.bottom_right_offset.x,
+                    segment_desc.bottom_right_offset.y,
                 ]);
             }
             None => {
@@ -1348,7 +1347,7 @@ impl PrimitiveStore {
                     //           GPU blocks...
                     request.push([0.0; 4]);
                     request.push([
-                        BrushAntiAliasMode::Default as u32 as f32,
+                        BrushAntiAliasMode::Primitive as u32 as f32,
                         0.0,
                         0.0,
                         0.0,
@@ -1480,87 +1479,93 @@ impl PrimitiveStore {
            return true;
         }
 
-        match metadata.prim_kind {
-            PrimitiveKind::Brush => {
-                let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
+        let mut needs_prim_clip_task = true;
 
-                if brush.segments.is_none() && metadata.local_rect.size.area() > 256.0 * 256.0 {
-                    if let BrushKind::Solid { .. } = brush.kind {
-                        if clips.len() == 1 {
-                            let clip = clips.first().unwrap();
+        if metadata.prim_kind == PrimitiveKind::Brush {
+            let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
+
+            if brush.segment_desc.is_none() && metadata.local_rect.size.area() > MIN_BRUSH_SPLIT_AREA {
+                if let BrushKind::Solid { .. } = brush.kind {
+                    if clips.len() == 1 {
+                        let clip = clips.first().unwrap();
+                        if clip.coordinate_system_id == prim_coordinate_system_id {
                             let local_clips = clip_store.get_opt(&clip.clip_sources).expect("bug");
+                            let mut selected_clip = None;
                             for &(ref clip, _) in &local_clips.clips {
-                                if let &ClipSource::RoundedRectangle(ref rect, ref radii, mode) = clip {
-                                    if mode == ClipMode::Clip {
-                                        brush.segments = create_nine_patch(
-                                            &metadata.local_rect,
-                                            rect,
-                                            radii
-                                        );
-                                        if brush.segments.is_some() {
+                                match *clip {
+                                    ClipSource::RoundedRectangle(rect, radii, ClipMode::Clip) => {
+                                        if selected_clip.is_some() {
+                                            selected_clip = None;
                                             break;
                                         }
+                                        selected_clip = Some((rect, radii));
+                                    }
+                                    ClipSource::Rectangle(..) => {}
+                                    ClipSource::RoundedRectangle(_, _, ClipMode::ClipOut) |
+                                    ClipSource::BorderCorner(..) |
+                                    ClipSource::Image(..) => {
+                                        selected_clip = None;
+                                        break;
                                     }
                                 }
+                            }
+                            if let Some((rect, radii)) = selected_clip {
+                                brush.segment_desc = create_nine_patch(
+                                    &metadata.local_rect,
+                                    &rect,
+                                    &radii
+                                );
                             }
                         }
                     }
                 }
+            }
 
-                match brush.segments {
-                    Some(ref mut segments) => {
-                        for (i, segment) in segments.segments.iter_mut().enumerate() {
-                            segment.clip_task_id = if i <= BrushSegmentKind::BottomLeft as usize {
-                                let segment_rect = TransformedRect::new(
-                                    &segment.local_rect,
-                                    &prim_context.scroll_node.world_content_transform,
-                                    prim_context.device_pixel_ratio
-                                );
-
-                                combined_outer_rect.intersection(&segment_rect.bounding_rect).map(|bounds| {
-                                    let clip_task = RenderTask::new_mask(
-                                        None,
-                                        bounds,
-                                        clips.clone(),
-                                        prim_coordinate_system_id,
-                                    );
-
-                                    let clip_task_id = render_tasks.add(clip_task);
-                                    tasks.push(clip_task_id);
-
-                                    clip_task_id
-                                })
-                            } else {
-                                None
-                            };
-                        }
-                    }
-                    None => {
-                        let clip_task = RenderTask::new_mask(
-                            None,
-                            combined_outer_rect,
-                            clips,
-                            prim_coordinate_system_id,
+            if let Some(ref mut segment_desc) = brush.segment_desc {
+                for (i, segment) in segment_desc.segments.iter_mut().enumerate() {
+                    // We only build clips for the corners. The ordering of the
+                    // BrushSegmentKind enum is such that corners come first, then
+                    // edges, then inner.
+                    segment.clip_task_id = if i <= BrushSegmentKind::BottomLeft as usize {
+                        let segment_rect = TransformedRect::new(
+                            &segment.local_rect,
+                            &prim_context.scroll_node.world_content_transform,
+                            prim_context.device_pixel_ratio
                         );
 
-                        let clip_task_id = render_tasks.add(clip_task);
-                        metadata.clip_task_id = Some(clip_task_id);
-                        tasks.push(clip_task_id);
-                    }
-                }
-            }
-            _ => {
-                let clip_task = RenderTask::new_mask(
-                    None,
-                    combined_outer_rect,
-                    clips,
-                    prim_coordinate_system_id,
-                );
+                        combined_outer_rect.intersection(&segment_rect.bounding_rect).map(|bounds| {
+                            let clip_task = RenderTask::new_mask(
+                                None,
+                                bounds,
+                                clips.clone(),
+                                prim_coordinate_system_id,
+                            );
 
-                let clip_task_id = render_tasks.add(clip_task);
-                metadata.clip_task_id = Some(clip_task_id);
-                tasks.push(clip_task_id);
+                            let clip_task_id = render_tasks.add(clip_task);
+                            tasks.push(clip_task_id);
+
+                            clip_task_id
+                        })
+                    } else {
+                        None
+                    };
+                }
+
+                needs_prim_clip_task = false;
             }
+        }
+
+        if needs_prim_clip_task {
+            let clip_task = RenderTask::new_mask(
+                None,
+                combined_outer_rect,
+                clips,
+                prim_coordinate_system_id,
+            );
+
+            let clip_task_id = render_tasks.add(clip_task);
+            metadata.clip_task_id = Some(clip_task_id);
+            tasks.push(clip_task_id);
         }
 
         true
@@ -1892,16 +1897,11 @@ fn create_nine_patch(
     local_clip_rect: &LayerRect,
     radii: &BorderRadius
 ) -> Option<Box<BrushSegmentDescriptor>> {
-    let inner = match extract_inner_rect_safe(local_clip_rect, radii) {
-        Some(rect) => rect,
-        None => {
-            return None;
-        },
-    };
-
-    Some(Box::new(BrushSegmentDescriptor::new(
-        local_rect,
-        &inner,
-        None,
-    )))
+    extract_inner_rect_safe(local_clip_rect, radii).map(|inner| {
+        Box::new(BrushSegmentDescriptor::new(
+            local_rect,
+            &inner,
+            None,
+        ))
+    })
 }

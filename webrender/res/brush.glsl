@@ -89,6 +89,10 @@ void main(void) {
     RectWithSize local_segment_rect;
     vec4 edge_aa_segment_mask;
 
+    // p0 = origin of outer rect
+    // p1 = origin of inner rect
+    // p2 = bottom right corner of inner rect
+    // p3 = bottom right corner of outer rect
     vec2 p0 = brush_prim.local_rect.p0;
     vec2 p1 = brush_prim.local_rect.p0 + brush_prim.offsets.xy;
     vec2 p2 = brush_prim.local_rect.p0 + brush_prim.local_rect.size - brush_prim.offsets.zw;
@@ -136,6 +140,8 @@ void main(void) {
 
     switch (brush_prim.aa_kind) {
         case AA_KIND_SEGMENT:
+            // TODO: select these correctly based on the segment kind.
+            edge_aa_segment_mask = vec4(1.0);
             break;
         case AA_KIND_DEFAULT:
             edge_aa_segment_mask = vec4(1.0);

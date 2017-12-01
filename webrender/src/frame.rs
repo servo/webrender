@@ -106,7 +106,7 @@ impl<'a> FlattenContext<'a> {
                         &info,
                         bg_color,
                         None,
-                        BrushAntiAliasMode::Default,
+                        BrushAntiAliasMode::Primitive,
                     );
                 }
             }
@@ -448,7 +448,7 @@ impl<'a> FlattenContext<'a> {
                     &prim_info,
                     info.color,
                     None,
-                    BrushAntiAliasMode::Default,
+                    BrushAntiAliasMode::Primitive,
                 );
             }
             SpecificDisplayItem::ClearRectangle => {
