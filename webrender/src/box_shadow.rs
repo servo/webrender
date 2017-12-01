@@ -135,7 +135,7 @@ impl FrameBuilder {
                             color: *color,
                         },
                         None,
-                        BrushAntiAliasMode::Default,
+                        BrushAntiAliasMode::Primitive,
                     )
                 ),
             );
@@ -187,7 +187,7 @@ impl FrameBuilder {
                                 kind: BrushMaskKind::Corner(corner_size),
                             },
                             None,
-                            BrushAntiAliasMode::Default,
+                            BrushAntiAliasMode::Primitive,
                         );
                     } else {
                         // Create a minimal size primitive mask to blur. In this
@@ -216,7 +216,7 @@ impl FrameBuilder {
                                 kind: BrushMaskKind::RoundedRect(clip_rect, shadow_radius),
                             },
                             None,
-                            BrushAntiAliasMode::Default,
+                            BrushAntiAliasMode::Primitive,
                         );
                     };
 
@@ -301,7 +301,7 @@ impl FrameBuilder {
                             kind: BrushMaskKind::RoundedRect(clip_rect, shadow_radius),
                         },
                         None,
-                        BrushAntiAliasMode::Default,
+                        BrushAntiAliasMode::Primitive,
                     );
                     let brush_info = LayerPrimitiveInfo::new(brush_rect);
                     let brush_prim_index = self.create_primitive(

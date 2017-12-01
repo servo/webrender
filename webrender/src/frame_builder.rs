@@ -790,7 +790,7 @@ impl FrameBuilder {
         let prim = BrushPrimitive::new(
             BrushKind::Clear,
             None,
-            BrushAntiAliasMode::Default,
+            BrushAntiAliasMode::Primitive,
         );
 
         self.add_primitive(
@@ -817,7 +817,7 @@ impl FrameBuilder {
                 color,
             },
             None,
-            BrushAntiAliasMode::Default,
+            BrushAntiAliasMode::Primitive,
         );
 
         let prim_index = self.add_primitive(

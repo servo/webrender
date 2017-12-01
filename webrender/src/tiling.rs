@@ -406,8 +406,8 @@ fn add_to_batch(
                 user_data1: 0,
             };
 
-            match brush.segments {
-                Some(ref segments) => {
+            match brush.segment_desc {
+                Some(ref segment_desc) => {
                     let opaque_batch = batch_list.opaque_batch_list.get_suitable_batch(
                         brush.get_batch_key(
                             BlendMode::None
@@ -421,8 +421,8 @@ fn add_to_batch(
                         item_bounding_rect
                     );
 
-                    for (i, segment) in segments.segments.iter().enumerate() {
-                        if ((1 << i) & segments.enabled_segments) != 0 {
+                    for (i, segment) in segment_desc.segments.iter().enumerate() {
+                        if ((1 << i) & segment_desc.enabled_segments) != 0 {
                             let is_inner = i == BrushSegmentKind::Center as usize;
                             let needs_blending = !prim_metadata.opacity.is_opaque ||
                                                  segment.clip_task_id.is_some() ||
