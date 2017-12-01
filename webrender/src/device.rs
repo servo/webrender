@@ -118,6 +118,15 @@ enum FBOTarget {
     Draw,
 }
 
+/// Method of uploading texel data from CPU to GPU.
+#[derive(Debug, Clone)]
+pub enum UploadMethod {
+    /// Just call `glTexSubImage` directly with the CPU data pointer
+    Immediate,
+    /// Accumulate the changes in PBO first before transferring to a texture.
+    PixelBuffer(VertexUsageHint),
+}
+
 pub fn get_gl_format_bgra(gl: &gl::Gl) -> gl::GLuint {
     match gl.get_type() {
         gl::GlType::Gl => GL_FORMAT_BGRA_GL,
@@ -589,7 +598,8 @@ pub struct Device {
     default_read_fbo: gl::GLuint,
     default_draw_fbo: gl::GLuint,
 
-    pub device_pixel_ratio: f32,
+    device_pixel_ratio: f32,
+    upload_method: UploadMethod,
 
     // HW or API capabilties
     capabilities: Capabilities,
@@ -613,6 +623,7 @@ impl Device {
     pub fn new(
         gl: Rc<gl::Gl>,
         resource_override_path: Option<PathBuf>,
+        upload_method: UploadMethod,
         _file_changed_handler: Box<FileWatcherHandler>,
         cached_programs: Option<Rc<ProgramCache>>,
     ) -> Device {
@@ -622,9 +633,10 @@ impl Device {
         Device {
             gl,
             resource_override_path,
-            // This is initialized to 1 by default, but it is set
-            // every frame by the call to begin_frame().
+            // This is initialized to 1 by default, but it is reset
+            // at the beginning of each frame in `Renderer::bind_frame_data`.
             device_pixel_ratio: 1.0,
+            upload_method,
             inside_frame: false,
 
             capabilities: Capabilities {
@@ -652,6 +664,10 @@ impl Device {
 
     pub fn rc_gl(&self) -> &Rc<gl::Gl> {
         &self.gl
+    }
+
+    pub fn set_device_pixel_ratio(&mut self, ratio: f32) {
+        self.device_pixel_ratio = ratio;
     }
 
     pub fn update_program_cache(&mut self, cached_programs: Rc<ProgramCache>) {
@@ -1323,45 +1339,34 @@ impl Device {
         &'a mut self,
         texture: &'a Texture,
         pbo: &PBO,
-        upload_size: usize,
+        upload_count: usize,
     ) -> TextureUploader<'a, T> {
         debug_assert!(self.inside_frame);
         self.bind_texture(DEFAULT_TEXTURE, texture);
 
-        enum UploadStyle {
-            Immediate,
-            StaticPbo,
-            StreamPbo,
-        }
-        let style = UploadStyle::StreamPbo;
-
-        let target = UploadTarget {
-            gl: &*self.gl,
-            texture,
-        };
-        let usage = match style {
-            UploadStyle::Immediate => return TextureUploader {
-                target,
-                buffer: None,
-                marker: PhantomData,
+        let buffer = match self.upload_method {
+            UploadMethod::Immediate => None,
+            UploadMethod::PixelBuffer(hint) => {
+                let upload_size = upload_count * mem::size_of::<T>();
+                self.gl.bind_buffer(gl::PIXEL_UNPACK_BUFFER, pbo.id);
+                if upload_size != 0 {
+                    self.gl.buffer_data_untyped(
+                        gl::PIXEL_UNPACK_BUFFER,
+                        upload_size as _,
+                        ptr::null(),
+                        hint.to_gl(),
+                    );
+                }
+                Some(PixelBuffer::new(hint.to_gl(), upload_size))
             },
-            UploadStyle::StaticPbo => gl::STATIC_DRAW,
-            UploadStyle::StreamPbo => gl::STREAM_DRAW,
         };
-
-        self.gl.bind_buffer(gl::PIXEL_UNPACK_BUFFER, pbo.id);
-        if upload_size != 0 {
-            self.gl.buffer_data_untyped(
-                gl::PIXEL_UNPACK_BUFFER,
-                upload_size as _,
-                ptr::null(),
-                usage,
-            );
-        }
 
         TextureUploader {
-            target,
-            buffer: Some(PixelBuffer::new(usage, upload_size)),
+            target: UploadTarget {
+                gl: &*self.gl,
+                texture,
+            },
+            buffer,
             marker: PhantomData,
         }
     }
@@ -1753,8 +1758,8 @@ pub struct TextureUploader<'a, T> {
 
 impl<'a, T> Drop for TextureUploader<'a, T> {
     fn drop(&mut self) {
-        if let Some(mut buffer) = self.buffer.take() {
-            for chunk in buffer.chunks.drain() {
+        if let Some(buffer) = self.buffer.take() {
+            for chunk in buffer.chunks {
                 self.target.update_impl(chunk);
             }
             self.target.gl.bind_buffer(gl::PIXEL_UNPACK_BUFFER, 0);
@@ -1775,7 +1780,7 @@ impl<'a, T> TextureUploader<'a, T> {
                 let upload_size = mem::size_of::<T>() * data.len();
                 if buffer.size_used + upload_size > buffer.size_allocated {
                     // flush
-                    for chunk in buffer.chunks.pop() {
+                    for chunk in buffer.chunks.drain() {
                         self.target.update_impl(chunk);
                     }
                     buffer.size_used = 0;

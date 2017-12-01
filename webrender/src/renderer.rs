@@ -25,7 +25,7 @@ use debug_colors;
 use debug_render::DebugRenderer;
 #[cfg(feature = "debugger")]
 use debug_server::{self, DebugServer};
-use device::{DepthFunction, Device, FrameId, Program, Texture,
+use device::{DepthFunction, Device, FrameId, Program, UploadMethod, Texture,
              VertexDescriptor, PBO};
 use device::{get_gl_format_bgra, ExternalTexture, FBOId, TextureSlot, VertexAttribute,
              VertexAttributeKind};
@@ -1486,6 +1486,7 @@ impl Renderer {
         let mut device = Device::new(
             gl,
             options.resource_override_path.clone(),
+            options.upload_method,
             Box::new(file_watch_handler),
             options.cached_programs,
         );
@@ -3757,7 +3758,7 @@ impl Renderer {
 
     fn bind_frame_data(&mut self, frame: &mut Frame) {
         let _timer = self.gpu_profile.start_timer(GPU_TAG_SETUP_DATA);
-        self.device.device_pixel_ratio = frame.device_pixel_ratio;
+        self.device.set_device_pixel_ratio(frame.device_pixel_ratio);
 
         // Some of the textures are already assigned by `prepare_frame`.
         // Now re-allocate the space for the rest of the target textures.
@@ -4262,6 +4263,7 @@ pub struct RendererOptions {
     pub clear_color: Option<ColorF>,
     pub enable_clear_scissor: bool,
     pub max_texture_size: Option<u32>,
+    pub upload_method: UploadMethod,
     pub workers: Option<Arc<ThreadPool>>,
     pub blob_image_renderer: Option<Box<BlobImageRenderer>>,
     pub recorder: Option<Box<ApiRecordingReceiver>>,
@@ -4289,6 +4291,8 @@ impl Default for RendererOptions {
             clear_color: Some(ColorF::new(1.0, 1.0, 1.0, 1.0)),
             enable_clear_scissor: true,
             max_texture_size: None,
+            //TODO: switch to `Immediate` on Angle
+            upload_method: UploadMethod::PixelBuffer(VertexUsageHint::Stream),
             workers: None,
             blob_image_renderer: None,
             recorder: None,
