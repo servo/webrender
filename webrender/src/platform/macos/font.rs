@@ -63,7 +63,6 @@ fn supports_subpixel_aa() -> bool {
     let ct_font = core_text::font::new_from_name("Helvetica", 16.).unwrap();
     cg_context.set_should_smooth_fonts(true);
     cg_context.set_should_antialias(true);
-    cg_context.set_allows_font_smoothing(true);
     cg_context.set_rgb_fill_color(1.0, 1.0, 1.0, 1.0);
     let point = CGPoint { x: -1., y: 0. };
     let glyph = '|' as CGGlyph;
@@ -558,9 +557,7 @@ impl FontContext {
         cg_context.set_allows_font_subpixel_quantization(false);
         cg_context.set_should_subpixel_quantize_fonts(false);
 
-        cg_context.set_allows_font_smoothing(smooth);
         cg_context.set_should_smooth_fonts(smooth);
-        cg_context.set_allows_antialiasing(antialias);
         cg_context.set_should_antialias(antialias);
 
         // Fill the background. This could be opaque white, opaque black, or
