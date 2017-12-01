@@ -26,7 +26,7 @@ use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
 use prim_store::{BrushPrimitive, BrushMaskKind, BrushKind, BrushSegmentKind, DeferredResolve, PrimitiveRun};
 use profiler::FrameProfileCounters;
-use render_task::{ClipWorkItem, MaskGeometryKind, MaskSegment};
+use render_task::{ClipWorkItem};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKey, RenderTaskKind};
 use render_task::{BlurTask, ClearMode, RenderTaskLocation, RenderTaskTree};
 use renderer::BlendMode;
@@ -1113,7 +1113,6 @@ impl ClipBatcher {
         coordinate_system_id: CoordinateSystemId,
         resource_cache: &ResourceCache,
         gpu_cache: &GpuCache,
-        geometry_kind: MaskGeometryKind,
         clip_store: &ClipStore,
     ) {
         let mut coordinate_system_id = coordinate_system_id;
@@ -1152,43 +1151,17 @@ impl ClipBatcher {
                         if work_item.coordinate_system_id != coordinate_system_id {
                             self.rectangles.push(ClipMaskInstance {
                                 clip_data_address: gpu_address,
-                                segment: MaskSegment::All as i32,
                                 ..instance
                             });
                             coordinate_system_id = work_item.coordinate_system_id;
                         }
-                    },
-                    ClipSource::RoundedRectangle(..) => match geometry_kind {
-                        MaskGeometryKind::Default => {
-                            self.rectangles.push(ClipMaskInstance {
-                                clip_data_address: gpu_address,
-                                segment: MaskSegment::All as i32,
-                                ..instance
-                            });
-                        }
-                        MaskGeometryKind::CornersOnly => {
-                            self.rectangles.push(ClipMaskInstance {
-                                clip_data_address: gpu_address,
-                                segment: MaskSegment::TopLeftCorner as i32,
-                                ..instance
-                            });
-                            self.rectangles.push(ClipMaskInstance {
-                                clip_data_address: gpu_address,
-                                segment: MaskSegment::TopRightCorner as i32,
-                                ..instance
-                            });
-                            self.rectangles.push(ClipMaskInstance {
-                                clip_data_address: gpu_address,
-                                segment: MaskSegment::BottomLeftCorner as i32,
-                                ..instance
-                            });
-                            self.rectangles.push(ClipMaskInstance {
-                                clip_data_address: gpu_address,
-                                segment: MaskSegment::BottomRightCorner as i32,
-                                ..instance
-                            });
-                        }
-                    },
+                    }
+                    ClipSource::RoundedRectangle(..) => {
+                        self.rectangles.push(ClipMaskInstance {
+                            clip_data_address: gpu_address,
+                            ..instance
+                        });
+                    }
                     ClipSource::BorderCorner(ref source) => {
                         self.border_clears.push(ClipMaskInstance {
                             clip_data_address: gpu_address,
@@ -1736,7 +1709,6 @@ impl RenderTarget for AlphaRenderTarget {
                     task_info.coordinate_system_id,
                     &ctx.resource_cache,
                     gpu_cache,
-                    task_info.geometry_kind,
                     clip_store,
                 );
             }

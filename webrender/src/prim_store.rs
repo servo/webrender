@@ -26,7 +26,7 @@ use scene::{ScenePipeline, SceneProperties};
 use std::{mem, u16, usize};
 use std::rc::Rc;
 use util::{extract_inner_rect_safe, pack_as_float, recycle_vec};
-use util::{MatrixHelpers, TransformedRect, TransformedRectKind};
+use util::{MatrixHelpers, TransformedRect};
 
 #[derive(Debug)]
 pub struct PrimitiveRun {
@@ -1521,10 +1521,7 @@ impl PrimitiveStore {
                                     let clip_task = RenderTask::new_mask(
                                         None,
                                         bounds,
-                                        combined_inner_rect,
                                         clips.clone(),
-                                        clip_store,
-                                        transform.transform_kind() == TransformedRectKind::AxisAligned,
                                         prim_coordinate_system_id,
                                     );
 
@@ -1542,10 +1539,7 @@ impl PrimitiveStore {
                         let clip_task = RenderTask::new_mask(
                             None,
                             combined_outer_rect,
-                            combined_inner_rect,
                             clips,
-                            clip_store,
-                            transform.transform_kind() == TransformedRectKind::AxisAligned,
                             prim_coordinate_system_id,
                         );
 
@@ -1559,10 +1553,7 @@ impl PrimitiveStore {
                 let clip_task = RenderTask::new_mask(
                     None,
                     combined_outer_rect,
-                    combined_inner_rect,
                     clips,
-                    clip_store,
-                    transform.transform_kind() == TransformedRectKind::AxisAligned,
                     prim_coordinate_system_id,
                 );
 

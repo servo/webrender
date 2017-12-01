@@ -305,7 +305,6 @@ BlurTask fetch_blur_task(int address) {
 struct ClipArea {
     RenderTaskCommonData common_data;
     vec2 screen_origin;
-    vec4 inner_rect;
 };
 
 ClipArea fetch_clip_area(int index) {
@@ -317,13 +316,11 @@ ClipArea fetch_clip_area(int index) {
             0.0
         );
         area.screen_origin = vec2(0.0);
-        area.inner_rect = vec4(0.0);
     } else {
         RenderTaskData task_data = fetch_render_task_data(index);
 
         area.common_data = task_data.common_data;
         area.screen_origin = task_data.data1.xy;
-        area.inner_rect = task_data.data2;
     }
 
     return area;
