@@ -118,6 +118,17 @@ enum FBOTarget {
     Draw,
 }
 
+/// Method of uploading texel data from CPU to GPU.
+#[derive(Debug, Clone)]
+pub enum UploadMethod {
+    /// Just call `glTexSubImage` directly with the CPU data pointer
+    Immediate,
+    /// Copy to PBO with STATIC usage first before transferring to a texture.
+    StaticPbo,
+    /// Copy to PBO with STREAM usage first before transferring to a texture.
+    StreamPbo,
+}
+
 pub fn get_gl_format_bgra(gl: &gl::Gl) -> gl::GLuint {
     match gl.get_type() {
         gl::GlType::Gl => GL_FORMAT_BGRA_GL,
@@ -589,7 +600,8 @@ pub struct Device {
     default_read_fbo: gl::GLuint,
     default_draw_fbo: gl::GLuint,
 
-    pub device_pixel_ratio: f32,
+    device_pixel_ratio: f32,
+    upload_method: UploadMethod,
 
     // HW or API capabilties
     capabilities: Capabilities,
@@ -613,6 +625,7 @@ impl Device {
     pub fn new(
         gl: Rc<gl::Gl>,
         resource_override_path: Option<PathBuf>,
+        upload_method: UploadMethod,
         _file_changed_handler: Box<FileWatcherHandler>,
         cached_programs: Option<Rc<ProgramCache>>,
     ) -> Device {
@@ -622,9 +635,10 @@ impl Device {
         Device {
             gl,
             resource_override_path,
-            // This is initialized to 1 by default, but it is set
-            // every frame by the call to begin_frame().
+            // This is initialized to 1 by default, but it is reset
+            // at the beginning of each frame in `Renderer::bind_frame_data`.
             device_pixel_ratio: 1.0,
+            upload_method,
             inside_frame: false,
 
             capabilities: Capabilities {
@@ -652,6 +666,10 @@ impl Device {
 
     pub fn rc_gl(&self) -> &Rc<gl::Gl> {
         &self.gl
+    }
+
+    pub fn set_device_pixel_ratio(&mut self, ratio: f32) {
+        self.device_pixel_ratio = ratio;
     }
 
     pub fn update_program_cache(&mut self, cached_programs: Rc<ProgramCache>) {
@@ -1328,25 +1346,18 @@ impl Device {
         debug_assert!(self.inside_frame);
         self.bind_texture(DEFAULT_TEXTURE, texture);
 
-        enum UploadStyle {
-            Immediate,
-            StaticPbo,
-            StreamPbo,
-        }
-        let style = UploadStyle::StreamPbo;
-
         let target = UploadTarget {
             gl: &*self.gl,
             texture,
         };
-        let usage = match style {
-            UploadStyle::Immediate => return TextureUploader {
+        let usage = match self.upload_method {
+            UploadMethod::Immediate => return TextureUploader {
                 target,
                 buffer: None,
                 marker: PhantomData,
             },
-            UploadStyle::StaticPbo => gl::STATIC_DRAW,
-            UploadStyle::StreamPbo => gl::STREAM_DRAW,
+            UploadMethod::StaticPbo => gl::STATIC_DRAW,
+            UploadMethod::StreamPbo => gl::STREAM_DRAW,
         };
 
         self.gl.bind_buffer(gl::PIXEL_UNPACK_BUFFER, pbo.id);
