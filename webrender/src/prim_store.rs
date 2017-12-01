@@ -10,10 +10,10 @@ use api::{ClipAndScrollInfo, PremultipliedColorF, TileOffset};
 use api::{ClipId, LayerTransform, PipelineId, YuvColorSpace, YuvFormat};
 use border::BorderCornerInstance;
 use clip_scroll_tree::{CoordinateSystemId, ClipScrollTree};
-use clip::{ClipSourcesHandle, ClipStore};
+use clip::{ClipSource, ClipSourcesHandle, ClipStore};
 use frame_builder::PrimitiveContext;
 use glyph_rasterizer::{FontInstance, FontTransform};
-use internal_types::{EdgeAaSegmentMask, FastHashMap};
+use internal_types::{FastHashMap};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
 use picture::{PictureKind, PicturePrimitive, RasterizationSpace};
@@ -23,9 +23,10 @@ use render_task::RenderTaskTree;
 use renderer::MAX_VERTEX_TEXTURE_WIDTH;
 use resource_cache::{ImageProperties, ResourceCache};
 use scene::{ScenePipeline, SceneProperties};
-use std::{mem, usize};
+use std::{mem, u16, usize};
 use std::rc::Rc;
-use util::{pack_as_float, recycle_vec, MatrixHelpers, TransformedRect, TransformedRectKind};
+use util::{extract_inner_rect_safe, pack_as_float, recycle_vec};
+use util::{MatrixHelpers, TransformedRect, TransformedRectKind};
 
 #[derive(Debug)]
 pub struct PrimitiveRun {
@@ -136,7 +137,6 @@ pub struct PrimitiveIndex(pub usize);
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum PrimitiveKind {
-    Rectangle,
     TextRun,
     Image,
     YuvImage,
@@ -187,31 +187,6 @@ pub struct PrimitiveMetadata {
     pub tag: Option<ItemTag>,
 }
 
-#[derive(Debug,Clone,Copy)]
-pub enum RectangleContent {
-    Fill(ColorF),
-    Clear,
-}
-
-#[derive(Debug)]
-pub struct RectanglePrimitive {
-    pub content: RectangleContent,
-    pub edge_aa_segment_mask: EdgeAaSegmentMask,
-}
-
-impl ToGpuBlocks for RectanglePrimitive {
-    fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        request.push(match self.content {
-            RectangleContent::Fill(color) => color.premultiplied(),
-            // Opaque black with operator dest out
-            RectangleContent::Clear => PremultipliedColorF::BLACK,
-        });
-        request.extend_from_slice(&[GpuBlockData {
-            data: [self.edge_aa_segment_mask.bits() as f32, 0.0, 0.0, 0.0],
-        }]);
-    }
-}
-
 #[derive(Debug)]
 pub enum BrushMaskKind {
     //Rect,         // TODO(gw): Optimization opportunity for masks with 0 border radii.
@@ -224,17 +199,183 @@ pub enum BrushKind {
     Mask {
         clip_mode: ClipMode,
         kind: BrushMaskKind,
+    },
+    Solid {
+        color: ColorF,
+    },
+    Clear,
+}
+
+#[derive(Debug, Copy, Clone)]
+#[repr(u32)]
+pub enum BrushAntiAliasMode {
+    Default = 0,
+    Segment = 1,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+pub enum BrushSegmentKind {
+    TopLeft = 0,
+    TopRight,
+    BottomRight,
+    BottomLeft,
+
+    TopMid,
+    MidRight,
+    BottomMid,
+    MidLeft,
+
+    Center,
+}
+
+#[derive(Debug)]
+pub struct BrushSegment {
+    pub local_rect: LayerRect,
+    pub clip_task_id: Option<RenderTaskId>,
+}
+
+impl BrushSegment {
+    fn new(
+        origin: LayerPoint,
+        size: LayerSize,
+    ) -> BrushSegment {
+        BrushSegment {
+            local_rect: LayerRect::new(origin, size),
+            clip_task_id: None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct BrushSegmentDescriptor {
+    pub top_left_offset: LayerVector2D,
+    pub bottom_right_offset: LayerVector2D,
+    pub segments: [BrushSegment; 9],
+    pub enabled_segments: u16,
+}
+
+impl BrushSegmentDescriptor {
+    pub fn new(
+        outer_rect: &LayerRect,
+        inner_rect: &LayerRect,
+        valid_segments: Option<&[BrushSegmentKind]>,
+    ) -> BrushSegmentDescriptor {
+        let p0 = outer_rect.origin;
+        let p1 = inner_rect.origin;
+        let p2 = inner_rect.bottom_right();
+        let p3 = outer_rect.bottom_right();
+
+        let enabled_segments = match valid_segments {
+            Some(valid_segments) => {
+                let mut enabled_segments = 0;
+
+                for segment in valid_segments {
+                    enabled_segments |= 1 << *segment as u32;
+                }
+
+                enabled_segments
+            }
+            None => u16::MAX,
+        };
+
+        BrushSegmentDescriptor {
+            enabled_segments,
+            top_left_offset: p1 - p0,
+            bottom_right_offset: p3 - p2,
+            segments: [
+                BrushSegment::new(
+                    LayerPoint::new(p0.x, p0.y),
+                    LayerSize::new(p1.x - p0.x, p1.y - p0.y),
+                ),
+                BrushSegment::new(
+                    LayerPoint::new(p2.x, p0.y),
+                    LayerSize::new(p3.x - p2.x, p1.y - p0.y),
+                ),
+                BrushSegment::new(
+                    LayerPoint::new(p2.x, p2.y),
+                    LayerSize::new(p3.x - p2.x, p3.y - p2.y),
+                ),
+                BrushSegment::new(
+                    LayerPoint::new(p0.x, p2.y),
+                    LayerSize::new(p1.x - p0.x, p3.y - p2.y),
+                ),
+                BrushSegment::new(
+                    LayerPoint::new(p1.x, p0.y),
+                    LayerSize::new(p2.x - p1.x, p1.y - p0.y),
+                ),
+                BrushSegment::new(
+                    LayerPoint::new(p2.x, p1.y),
+                    LayerSize::new(p3.x - p2.x, p2.y - p1.y),
+                ),
+                BrushSegment::new(
+                    LayerPoint::new(p1.x, p2.y),
+                    LayerSize::new(p2.x - p1.x, p3.y - p2.y),
+                ),
+                BrushSegment::new(
+                    LayerPoint::new(p0.x, p1.y),
+                    LayerSize::new(p1.x - p0.x, p2.y - p1.y),
+                ),
+                BrushSegment::new(
+                    LayerPoint::new(p1.x, p1.y),
+                    LayerSize::new(p2.x - p1.x, p2.y - p1.y),
+                ),
+            ],
+        }
     }
 }
 
 #[derive(Debug)]
 pub struct BrushPrimitive {
     pub kind: BrushKind,
+    pub segments: Option<Box<BrushSegmentDescriptor>>,
+    pub aa_mode: BrushAntiAliasMode,
+}
+
+impl BrushPrimitive {
+    pub fn new(
+        kind: BrushKind,
+        segments: Option<Box<BrushSegmentDescriptor>>,
+        aa_mode: BrushAntiAliasMode,
+    ) -> BrushPrimitive {
+        BrushPrimitive {
+            kind,
+            segments,
+            aa_mode,
+        }
+    }
 }
 
 impl ToGpuBlocks for BrushPrimitive {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
+        match self.segments {
+            Some(ref segments) => {
+                request.push([
+                    segments.top_left_offset.x,
+                    segments.top_left_offset.y,
+                    segments.bottom_right_offset.x,
+                    segments.bottom_right_offset.y,
+                ]);
+            }
+            None => {
+                request.push([0.0; 4]);
+            }
+        }
+        request.push([
+            self.aa_mode as u32 as f32,
+            0.0,
+            0.0,
+            0.0,
+        ]);
         match self.kind {
+            BrushKind::Solid { color } => {
+                request.push(color.premultiplied());
+            }
+            BrushKind::Clear => {
+                // Opaque black with operator dest out
+                request.push(PremultipliedColorF::BLACK);
+            }
             BrushKind::Mask { clip_mode, kind: BrushMaskKind::Corner(radius) } => {
                 request.push([
                     radius.width,
@@ -863,7 +1004,6 @@ impl ClipData {
 
 #[derive(Debug)]
 pub enum PrimitiveContainer {
-    Rectangle(RectanglePrimitive),
     TextRun(TextRunPrimitiveCpu),
     Image(ImagePrimitiveCpu),
     YuvImage(YuvImagePrimitiveCpu),
@@ -878,7 +1018,6 @@ pub enum PrimitiveContainer {
 
 pub struct PrimitiveStore {
     /// CPU side information only.
-    pub cpu_rectangles: Vec<RectanglePrimitive>,
     pub cpu_brushes: Vec<BrushPrimitive>,
     pub cpu_text_runs: Vec<TextRunPrimitiveCpu>,
     pub cpu_pictures: Vec<PicturePrimitive>,
@@ -895,7 +1034,6 @@ impl PrimitiveStore {
     pub fn new() -> PrimitiveStore {
         PrimitiveStore {
             cpu_metadata: Vec::new(),
-            cpu_rectangles: Vec::new(),
             cpu_brushes: Vec::new(),
             cpu_text_runs: Vec::new(),
             cpu_pictures: Vec::new(),
@@ -911,7 +1049,6 @@ impl PrimitiveStore {
     pub fn recycle(self) -> Self {
         PrimitiveStore {
             cpu_metadata: recycle_vec(self.cpu_metadata),
-            cpu_rectangles: recycle_vec(self.cpu_rectangles),
             cpu_brushes: recycle_vec(self.cpu_brushes),
             cpu_text_runs: recycle_vec(self.cpu_text_runs),
             cpu_pictures: recycle_vec(self.cpu_pictures),
@@ -945,32 +1082,20 @@ impl PrimitiveStore {
             screen_rect: None,
             tag,
             opacity: PrimitiveOpacity::translucent(),
-            prim_kind: PrimitiveKind::Rectangle,
+            prim_kind: PrimitiveKind::Brush,
             cpu_prim_index: SpecificPrimitiveIndex(0),
         };
 
         let metadata = match container {
-            PrimitiveContainer::Rectangle(rect) => {
-                let opacity = match &rect.content {
-                    &RectangleContent::Fill(ref color) => {
-                        PrimitiveOpacity::from_alpha(color.a)
-                    },
-                    &RectangleContent::Clear => PrimitiveOpacity::opaque()
+            PrimitiveContainer::Brush(brush) => {
+                let opacity = match brush.kind {
+                    BrushKind::Clear => PrimitiveOpacity::translucent(),
+                    BrushKind::Solid { ref color } => PrimitiveOpacity::from_alpha(color.a),
+                    BrushKind::Mask { .. } => PrimitiveOpacity::translucent(),
                 };
+
                 let metadata = PrimitiveMetadata {
                     opacity,
-                    prim_kind: PrimitiveKind::Rectangle,
-                    cpu_prim_index: SpecificPrimitiveIndex(self.cpu_rectangles.len()),
-                    ..base_metadata
-                };
-
-                self.cpu_rectangles.push(rect);
-
-                metadata
-            }
-            PrimitiveContainer::Brush(brush) => {
-                let metadata = PrimitiveMetadata {
-                    opacity: PrimitiveOpacity::translucent(),
                     prim_kind: PrimitiveKind::Brush,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_brushes.len()),
                     ..base_metadata
@@ -1109,7 +1234,7 @@ impl PrimitiveStore {
     ) {
         let metadata = &mut self.cpu_metadata[prim_index.0];
         match metadata.prim_kind {
-            PrimitiveKind::Rectangle | PrimitiveKind::Border | PrimitiveKind::Line => {}
+            PrimitiveKind::Border | PrimitiveKind::Line => {}
             PrimitiveKind::Picture => {
                 self.cpu_pictures[metadata.cpu_prim_index.0]
                     .prepare_for_render(
@@ -1169,10 +1294,10 @@ impl PrimitiveStore {
                     );
                 }
             }
+            PrimitiveKind::Brush |
             PrimitiveKind::AlignedGradient |
             PrimitiveKind::AngleGradient |
-            PrimitiveKind::RadialGradient |
-            PrimitiveKind::Brush => {}
+            PrimitiveKind::RadialGradient => {}
         }
 
         // Mark this GPU resource as required for this frame.
@@ -1181,10 +1306,6 @@ impl PrimitiveStore {
             request.push(metadata.local_clip_rect);
 
             match metadata.prim_kind {
-                PrimitiveKind::Rectangle => {
-                    let rect = &self.cpu_rectangles[metadata.cpu_prim_index.0];
-                    rect.write_gpu_blocks(request);
-                }
                 PrimitiveKind::Line => {
                     let line = &self.cpu_lines[metadata.cpu_prim_index.0];
                     line.write_gpu_blocks(request);
@@ -1218,8 +1339,23 @@ impl PrimitiveStore {
                     text.write_gpu_blocks(&mut request);
                 }
                 PrimitiveKind::Picture => {
+                    // TODO(gw): This is a bit of a hack. The Picture type
+                    //           is drawn by the brush_image shader, so the
+                    //           layout here needs to conform to the same
+                    //           BrushPrimitive layout. We should tidy this
+                    //           up in the future so it's enforced that these
+                    //           types use a shared function to write out the
+                    //           GPU blocks...
+                    request.push([0.0; 4]);
+                    request.push([
+                        BrushAntiAliasMode::Default as u32 as f32,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ]);
+
                     self.cpu_pictures[metadata.cpu_prim_index.0]
-                        .write_gpu_blocks(request);
+                        .write_gpu_blocks(&mut request);
                 }
                 PrimitiveKind::Brush => {
                     let brush = &self.cpu_brushes[metadata.cpu_prim_index.0];
@@ -1344,20 +1480,96 @@ impl PrimitiveStore {
            return true;
         }
 
-        let clip_task = RenderTask::new_mask(
-            None,
-            combined_outer_rect,
-            combined_inner_rect,
-            clips,
-            clip_store,
-            transform.transform_kind() == TransformedRectKind::AxisAligned,
-            prim_coordinate_system_id,
-        );
+        match metadata.prim_kind {
+            PrimitiveKind::Brush => {
+                let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
 
-        if let Some(clip_task) = clip_task {
-            let clip_task_id = render_tasks.add(clip_task);
-            metadata.clip_task_id = Some(clip_task_id);
-            tasks.push(clip_task_id);
+                if brush.segments.is_none() && metadata.local_rect.size.area() > 256.0 * 256.0 {
+                    if let BrushKind::Solid { .. } = brush.kind {
+                        if clips.len() == 1 {
+                            let clip = clips.first().unwrap();
+                            let local_clips = clip_store.get_opt(&clip.clip_sources).expect("bug");
+                            for &(ref clip, _) in &local_clips.clips {
+                                if let &ClipSource::RoundedRectangle(ref rect, ref radii, mode) = clip {
+                                    if mode == ClipMode::Clip {
+                                        brush.segments = create_nine_patch(
+                                            &metadata.local_rect,
+                                            rect,
+                                            radii
+                                        );
+                                        if brush.segments.is_some() {
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                match brush.segments {
+                    Some(ref mut segments) => {
+                        for (i, segment) in segments.segments.iter_mut().enumerate() {
+                            segment.clip_task_id = if i <= BrushSegmentKind::BottomLeft as usize {
+                                let segment_rect = TransformedRect::new(
+                                    &segment.local_rect,
+                                    &prim_context.scroll_node.world_content_transform,
+                                    prim_context.device_pixel_ratio
+                                );
+
+                                combined_outer_rect.intersection(&segment_rect.bounding_rect).map(|bounds| {
+                                    let clip_task = RenderTask::new_mask(
+                                        None,
+                                        bounds,
+                                        combined_inner_rect,
+                                        clips.clone(),
+                                        clip_store,
+                                        transform.transform_kind() == TransformedRectKind::AxisAligned,
+                                        prim_coordinate_system_id,
+                                    );
+
+                                    let clip_task_id = render_tasks.add(clip_task);
+                                    tasks.push(clip_task_id);
+
+                                    clip_task_id
+                                })
+                            } else {
+                                None
+                            };
+                        }
+                    }
+                    None => {
+                        let clip_task = RenderTask::new_mask(
+                            None,
+                            combined_outer_rect,
+                            combined_inner_rect,
+                            clips,
+                            clip_store,
+                            transform.transform_kind() == TransformedRectKind::AxisAligned,
+                            prim_coordinate_system_id,
+                        );
+
+                        let clip_task_id = render_tasks.add(clip_task);
+                        metadata.clip_task_id = Some(clip_task_id);
+                        tasks.push(clip_task_id);
+                    }
+                }
+            }
+            _ => {
+                let clip_task = RenderTask::new_mask(
+                    None,
+                    combined_outer_rect,
+                    combined_inner_rect,
+                    clips,
+                    clip_store,
+                    transform.transform_kind() == TransformedRectKind::AxisAligned,
+                    prim_coordinate_system_id,
+                );
+
+                let clip_task_id = render_tasks.add(clip_task);
+                metadata.clip_task_id = Some(clip_task_id);
+                tasks.push(clip_task_id);
+            }
         }
 
         true
@@ -1682,4 +1894,23 @@ fn get_local_bounding_rect(
     }
 
     LayerRect::new(LayerPoint::new(x0, y0), LayerSize::new(x1 - x0, y1 - y0))
+}
+
+fn create_nine_patch(
+    local_rect: &LayerRect,
+    local_clip_rect: &LayerRect,
+    radii: &BorderRadius
+) -> Option<Box<BrushSegmentDescriptor>> {
+    let inner = match extract_inner_rect_safe(local_clip_rect, radii) {
+        Some(rect) => rect,
+        None => {
+            return None;
+        },
+    };
+
+    Some(Box::new(BrushSegmentDescriptor::new(
+        local_rect,
+        &inner,
+        None,
+    )))
 }
