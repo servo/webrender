@@ -186,7 +186,7 @@ pub enum BrushImageKind {
     Mirror = 2,     // A top left corner only (mirror across x/y axes)
 }
 
-#[derive(Copy, Debug, Clone)]
+#[derive(Copy, Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct ClipScrollNodeIndex(pub u32);
 

@@ -21,6 +21,7 @@ use euclid::{SideOffsets2D, vec2};
 use frame::FrameId;
 use glyph_rasterizer::FontInstance;
 use gpu_cache::GpuCache;
+use gpu_types::ClipScrollNodeData;
 use internal_types::{FastHashMap, FastHashSet};
 use picture::{PictureCompositeMode, PictureKind, PicturePrimitive, RasterizationSpace};
 use prim_store::{BrushAntiAliasMode, BrushKind, BrushPrimitive, TexelRect, YuvImagePrimitiveCpu};
@@ -1584,6 +1585,7 @@ impl FrameBuilder {
         profile_counters: &mut FrameProfileCounters,
         device_pixel_ratio: f32,
         scene_properties: &SceneProperties,
+        node_data: &[ClipScrollNodeData],
     ) -> Option<RenderTaskId> {
         profile_scope!("cull");
 
@@ -1626,6 +1628,7 @@ impl FrameBuilder {
             scene_properties,
             SpecificPrimitiveIndex(0),
             &self.screen_rect.to_i32(),
+            node_data,
         );
 
         let pic = &mut self.prim_store.cpu_pictures[0];
@@ -1731,6 +1734,7 @@ impl FrameBuilder {
             &mut profile_counters,
             device_pixel_ratio,
             scene_properties,
+            &node_data,
         );
 
         let mut passes = Vec::new();
