@@ -256,6 +256,7 @@ pub struct BrushSegmentDescriptor {
     pub bottom_right_offset: LayerVector2D,
     pub segments: [BrushSegment; 9],
     pub enabled_segments: u16,
+    pub can_optimize_clip_mask: bool,
 }
 
 impl BrushSegmentDescriptor {
@@ -281,6 +282,7 @@ impl BrushSegmentDescriptor {
 
         BrushSegmentDescriptor {
             enabled_segments,
+            can_optimize_clip_mask: false,
             top_left_offset: p1 - p0,
             bottom_right_offset: p3 - p2,
             segments: [
@@ -1483,8 +1485,6 @@ impl PrimitiveStore {
 
         if metadata.prim_kind == PrimitiveKind::Brush {
             let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
-            let mut can_optimize_clip_mask = false;
-
             if brush.segment_desc.is_none() && metadata.local_rect.size.area() > MIN_BRUSH_SPLIT_AREA {
                 if let BrushKind::Solid { .. } = brush.kind {
                     if clips.len() == 1 {
@@ -1511,7 +1511,6 @@ impl PrimitiveStore {
                                 }
                             }
                             if let Some((rect, radii)) = selected_clip {
-                                can_optimize_clip_mask = true;
                                 brush.segment_desc = create_nine_patch(
                                     &metadata.local_rect,
                                     &rect,
@@ -1525,6 +1524,7 @@ impl PrimitiveStore {
 
             if let Some(ref mut segment_desc) = brush.segment_desc {
                 let enabled_segments = segment_desc.enabled_segments;
+                let can_optimize_clip_mask = segment_desc.can_optimize_clip_mask;
 
                 for (i, segment) in segment_desc.segments.iter_mut().enumerate() {
                     // We only build clips for the corners. The ordering of the
@@ -1905,10 +1905,13 @@ fn create_nine_patch(
     radii: &BorderRadius
 ) -> Option<Box<BrushSegmentDescriptor>> {
     extract_inner_rect_safe(local_clip_rect, radii).map(|inner| {
-        Box::new(BrushSegmentDescriptor::new(
+        let mut desc = BrushSegmentDescriptor::new(
             local_rect,
             &inner,
             None,
-        ))
+        );
+        desc.can_optimize_clip_mask = true;
+
+        Box::new(desc)
     })
 }
