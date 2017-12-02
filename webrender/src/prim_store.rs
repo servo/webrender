@@ -16,6 +16,7 @@ use glyph_rasterizer::{FontInstance, FontTransform};
 use internal_types::{FastHashMap};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
+use gpu_types::ClipScrollNodeData;
 use picture::{PictureKind, PicturePrimitive, RasterizationSpace};
 use profiler::FrameProfileCounters;
 use render_task::{ClipChainNode, ClipChainNodeIter, ClipWorkItem, RenderTask, RenderTaskId};
@@ -1377,6 +1378,7 @@ impl PrimitiveStore {
         render_tasks: &mut RenderTaskTree,
         clip_store: &mut ClipStore,
         tasks: &mut Vec<RenderTaskId>,
+        node_data: &[ClipScrollNodeData],
     ) -> bool {
         let metadata = &mut self.cpu_metadata[prim_index.0];
         metadata.clip_task_id = None;
@@ -1488,9 +1490,9 @@ impl PrimitiveStore {
             if brush.segment_desc.is_none() && metadata.local_rect.size.area() > MIN_BRUSH_SPLIT_AREA {
                 if let BrushKind::Solid { .. } = brush.kind {
                     if clips.len() == 1 {
-                        let clip = clips.first().unwrap();
-                        if clip.coordinate_system_id == prim_coordinate_system_id {
-                            let local_clips = clip_store.get_opt(&clip.clip_sources).expect("bug");
+                        let clip_item = clips.first().unwrap();
+                        if clip_item.coordinate_system_id == prim_coordinate_system_id {
+                            let local_clips = clip_store.get_opt(&clip_item.clip_sources).expect("bug");
                             let mut selected_clip = None;
                             for &(ref clip, _) in &local_clips.clips {
                                 match *clip {
@@ -1499,7 +1501,7 @@ impl PrimitiveStore {
                                             selected_clip = None;
                                             break;
                                         }
-                                        selected_clip = Some((rect, radii));
+                                        selected_clip = Some((rect, radii, clip_item.scroll_node_data_index));
                                     }
                                     ClipSource::Rectangle(..) => {}
                                     ClipSource::RoundedRectangle(_, _, ClipMode::ClipOut) |
@@ -1510,10 +1512,28 @@ impl PrimitiveStore {
                                     }
                                 }
                             }
-                            if let Some((rect, radii)) = selected_clip {
+                            if let Some((rect, radii, clip_scroll_node_data_index)) = selected_clip {
+                                // If the scroll node transforms are different between the clip
+                                // node and the primitive, we need to get the clip rect in the
+                                // local space of the primitive, in order to generate correct
+                                // local segments. Since we know that the coordinate systems
+                                // are compatable from above, there's no need to do a full
+                                // inverse transform - just calculing the translation offset
+                                // is enough.
+                                let local_clip_rect = if clip_scroll_node_data_index == prim_context.scroll_node.node_data_index {
+                                    rect
+                                } else {
+                                    let clip_transform_data = &node_data[clip_scroll_node_data_index.0 as usize];
+                                    let prim_transform = &prim_context.scroll_node.world_content_transform;
+                                    let relative_offset = LayerVector2D::new(
+                                        clip_transform_data.transform.m41 - prim_transform.m41,
+                                        clip_transform_data.transform.m42 - prim_transform.m42,
+                                    );
+                                    rect.translate(&relative_offset)
+                                };
                                 brush.segment_desc = create_nine_patch(
                                     &metadata.local_rect,
-                                    &rect,
+                                    &local_clip_rect,
                                     &radii
                                 );
                             }
@@ -1594,6 +1614,7 @@ impl PrimitiveStore {
         profile_counters: &mut FrameProfileCounters,
         pic_index: SpecificPrimitiveIndex,
         screen_rect: &DeviceIntRect,
+        node_data: &[ClipScrollNodeData],
     ) -> Option<LayerRect> {
         // Reset the visibility of this primitive.
         // Do some basic checks first, that can early out
@@ -1660,6 +1681,7 @@ impl PrimitiveStore {
                 scene_properties,
                 cpu_prim_index,
                 screen_rect,
+                node_data,
             );
 
             let metadata = &mut self.cpu_metadata[prim_index.0];
@@ -1715,6 +1737,7 @@ impl PrimitiveStore {
             render_tasks,
             clip_store,
             parent_tasks,
+            node_data,
         ) {
             return None;
         }
@@ -1759,6 +1782,7 @@ impl PrimitiveStore {
         scene_properties: &SceneProperties,
         pic_index: SpecificPrimitiveIndex,
         screen_rect: &DeviceIntRect,
+        node_data: &[ClipScrollNodeData],
     ) -> PrimitiveRunLocalRect {
         let mut result = PrimitiveRunLocalRect {
             local_rect_in_actual_parent_space: LayerRect::zero(),
@@ -1826,6 +1850,7 @@ impl PrimitiveStore {
                     profile_counters,
                     pic_index,
                     screen_rect,
+                    node_data,
                 ) {
                     profile_counters.visible_primitives.inc();
 
