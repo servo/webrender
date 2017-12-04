@@ -69,7 +69,7 @@ vec4[2] fetch_from_resource_cache_2(int address) {
 
 #ifdef WR_VERTEX_SHADER
 
-#define VECS_PER_LAYER              7
+#define VECS_PER_CLIP_SCROLL_NODE   5
 #define VECS_PER_RENDER_TASK        3
 #define VECS_PER_PRIM_HEADER        2
 #define VECS_PER_TEXT_RUN           3
@@ -143,7 +143,6 @@ vec4 fetch_from_resource_cache_1(int address) {
 
 struct ClipScrollNode {
     mat4 transform;
-    vec4 local_clip_rect;
     vec2 reference_frame_relative_scroll_offset;
     vec2 scroll_offset;
     bool is_axis_aligned;
@@ -156,7 +155,7 @@ ClipScrollNode fetch_clip_scroll_node(int index) {
     // This is required because trying to use an offset
     // of more than 8 texels doesn't work on some versions
     // of OSX.
-    ivec2 uv = get_fetch_uv(index, VECS_PER_LAYER);
+    ivec2 uv = get_fetch_uv(index, VECS_PER_CLIP_SCROLL_NODE);
     ivec2 uv0 = ivec2(uv.x + 0, uv.y);
 
     node.transform[0] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(0, 0));
@@ -164,41 +163,10 @@ ClipScrollNode fetch_clip_scroll_node(int index) {
     node.transform[2] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(2, 0));
     node.transform[3] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(3, 0));
 
-    vec4 clip_rect = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(4, 0));
-    node.local_clip_rect = clip_rect;
-
-    vec4 offsets = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(5, 0));
-    node.reference_frame_relative_scroll_offset = offsets.xy;
-    node.scroll_offset = offsets.zw;
-
-    vec4 misc = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(6, 0));
+    vec4 misc = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(4, 0));
     node.is_axis_aligned = misc.x == 0.0;
 
     return node;
-}
-
-struct Layer {
-    mat4 transform;
-    RectWithSize local_clip_rect;
-    bool is_axis_aligned;
-};
-
-Layer fetch_layer(int clip_node_id, int scroll_node_id) {
-    ClipScrollNode clip_node = fetch_clip_scroll_node(clip_node_id);
-    ClipScrollNode scroll_node = fetch_clip_scroll_node(scroll_node_id);
-
-    Layer layer;
-    layer.transform = scroll_node.transform;
-
-    vec4 local_clip_rect = clip_node.local_clip_rect;
-    local_clip_rect.xy += clip_node.reference_frame_relative_scroll_offset;
-    local_clip_rect.xy -= scroll_node.reference_frame_relative_scroll_offset;
-    local_clip_rect.xy -= scroll_node.scroll_offset;
-
-    layer.local_clip_rect = RectWithSize(local_clip_rect.xy, local_clip_rect.zw);
-    layer.is_axis_aligned = scroll_node.is_axis_aligned;
-
-    return layer;
 }
 
 struct RenderTaskCommonData {
@@ -453,7 +421,7 @@ CompositeInstance fetch_composite_instance() {
 }
 
 struct Primitive {
-    Layer layer;
+    ClipScrollNode scroll_node;
     ClipArea clip_area;
     PictureTask task;
     RectWithSize local_rect;
@@ -481,7 +449,7 @@ Primitive load_primitive() {
 
     Primitive prim;
 
-    prim.layer = fetch_layer(pi.clip_node_id, pi.scroll_node_id);
+    prim.scroll_node = fetch_clip_scroll_node(pi.scroll_node_id);
     prim.clip_area = fetch_clip_area(pi.clip_task_index);
     prim.task = fetch_picture_task(pi.render_task_index);
 
@@ -515,50 +483,50 @@ bool ray_plane(vec3 normal, vec3 point, vec3 ray_origin, vec3 ray_dir, out float
 
 // Apply the inverse transform "inv_transform"
 // to the reference point "ref" in CSS space,
-// producing a local point on a layer plane,
+// producing a local point on a ClipScrollNode plane,
 // set by a base point "a" and a normal "n".
 vec4 untransform(vec2 ref, vec3 n, vec3 a, mat4 inv_transform) {
     vec3 p = vec3(ref, -10000.0);
     vec3 d = vec3(0, 0, 1.0);
 
     float t = 0.0;
-    // get an intersection of the layer plane with Z axis vector,
+    // get an intersection of the ClipScrollNode plane with Z axis vector,
     // originated from the "ref" point
     ray_plane(n, a, p, d, t);
-    float z = p.z + d.z * t; // Z of the visible point on the layer
+    float z = p.z + d.z * t; // Z of the visible point on the ClipScrollNode
 
     vec4 r = inv_transform * vec4(ref, z, 1.0);
     return r;
 }
 
-// Given a CSS space position, transform it back into the layer space.
-vec4 get_layer_pos(vec2 pos, Layer layer) {
-    // get a point on the layer plane
-    vec4 ah = layer.transform * vec4(0.0, 0.0, 0.0, 1.0);
+// Given a CSS space position, transform it back into the ClipScrollNode space.
+vec4 get_node_pos(vec2 pos, ClipScrollNode node) {
+    // get a point on the scroll node plane
+    vec4 ah = node.transform * vec4(0.0, 0.0, 0.0, 1.0);
     vec3 a = ah.xyz / ah.w;
 
-    // get the normal to the layer plane
-    mat4 inv_transform = inverse(layer.transform);
+    // get the normal to the scroll node plane
+    mat4 inv_transform = inverse(node.transform);
     vec3 n = transpose(mat3(inv_transform)) * vec3(0.0, 0.0, 1.0);
     return untransform(pos, n, a, inv_transform);
 }
 
 // Compute a snapping offset in world space (adjusted to pixel ratio),
-// given local position on the layer and a snap rectangle.
+// given local position on the scroll_node and a snap rectangle.
 vec2 compute_snap_offset(vec2 local_pos,
-                         Layer layer,
+                         ClipScrollNode scroll_node,
                          RectWithSize snap_rect) {
     // Ensure that the snap rect is at *least* one device pixel in size.
     // TODO(gw): It's not clear to me that this is "correct". Specifically,
     //           how should it interact with sub-pixel snap rects when there
-    //           is a layer transform with scale present? But it does fix
+    //           is a scroll_node transform with scale present? But it does fix
     //           the test cases we have in Servo that are failing without it
     //           and seem better than not having this at all.
     snap_rect.size = max(snap_rect.size, vec2(1.0 / uDevicePixelRatio));
 
     // Transform the snap corners to the world space.
-    vec4 world_snap_p0 = layer.transform * vec4(snap_rect.p0, 0.0, 1.0);
-    vec4 world_snap_p1 = layer.transform * vec4(snap_rect.p0 + snap_rect.size, 0.0, 1.0);
+    vec4 world_snap_p0 = scroll_node.transform * vec4(snap_rect.p0, 0.0, 1.0);
+    vec4 world_snap_p1 = scroll_node.transform * vec4(snap_rect.p0 + snap_rect.size, 0.0, 1.0);
     // Snap bounds in world coordinates, adjusted for pixel ratio. XY = top left, ZW = bottom right
     vec4 world_snap = uDevicePixelRatio * vec4(world_snap_p0.xy, world_snap_p1.xy) /
                                           vec4(world_snap_p0.ww, world_snap_p1.ww);
@@ -579,7 +547,7 @@ struct VertexInfo {
 VertexInfo write_vertex(RectWithSize instance_rect,
                         RectWithSize local_clip_rect,
                         float z,
-                        Layer layer,
+                        ClipScrollNode scroll_node,
                         PictureTask task,
                         RectWithSize snap_rect) {
 
@@ -587,13 +555,13 @@ VertexInfo write_vertex(RectWithSize instance_rect,
     vec2 local_pos = instance_rect.p0 + instance_rect.size * aPosition.xy;
 
     // Clamp to the two local clip rects.
-    vec2 clamped_local_pos = clamp_rect(clamp_rect(local_pos, local_clip_rect), layer.local_clip_rect);
+    vec2 clamped_local_pos = clamp_rect(local_pos, local_clip_rect);
 
     /// Compute the snapping offset.
-    vec2 snap_offset = compute_snap_offset(clamped_local_pos, layer, snap_rect);
+    vec2 snap_offset = compute_snap_offset(clamped_local_pos, scroll_node, snap_rect);
 
     // Transform the current vertex to world space.
-    vec4 world_pos = layer.transform * vec4(clamped_local_pos, 0.0, 1.0);
+    vec4 world_pos = scroll_node.transform * vec4(clamped_local_pos, 0.0, 1.0);
 
     // Convert the world positions to device pixel space.
     vec2 device_pos = world_pos.xy / world_pos.w * uDevicePixelRatio;
@@ -633,19 +601,15 @@ VertexInfo write_transform_vertex(RectWithSize local_segment_rect,
                                   RectWithSize local_clip_rect,
                                   vec4 clip_edge_mask,
                                   float z,
-                                  Layer layer,
+                                  ClipScrollNode scroll_node,
                                   PictureTask task) {
-    // Calculate a clip rect from local clip + layer clip.
+    // Calculate a clip rect from local_rect + local clip
     RectWithEndpoint clip_rect = to_rect_with_endpoint(local_clip_rect);
-    clip_rect.p0 = clamp_rect(clip_rect.p0, layer.local_clip_rect);
-    clip_rect.p1 = clamp_rect(clip_rect.p1, layer.local_clip_rect);
-
-    // Calculate a clip rect from local_rect + local clip + layer clip.
     RectWithEndpoint segment_rect = to_rect_with_endpoint(local_segment_rect);
     segment_rect.p0 = clamp(segment_rect.p0, clip_rect.p0, clip_rect.p1);
     segment_rect.p1 = clamp(segment_rect.p1, clip_rect.p0, clip_rect.p1);
 
-    // Calculate a clip rect from local_rect + local clip + layer clip.
+    // Calculate a clip rect from local_rect + local clip
     RectWithEndpoint prim_rect = to_rect_with_endpoint(local_prim_rect);
     prim_rect.p0 = clamp(prim_rect.p0, clip_rect.p0, clip_rect.p1);
     prim_rect.p1 = clamp(prim_rect.p1, clip_rect.p0, clip_rect.p1);
@@ -666,7 +630,7 @@ VertexInfo write_transform_vertex(RectWithSize local_segment_rect,
     vec2 local_pos = local_segment_rect.p0 + local_segment_rect.size * aPosition.xy;
 
     // Transform the current vertex to the world cpace.
-    vec4 world_pos = layer.transform * vec4(local_pos, 0.0, 1.0);
+    vec4 world_pos = scroll_node.transform * vec4(local_pos, 0.0, 1.0);
 
     // Convert the world positions to device pixel space.
     vec2 device_pos = world_pos.xy / world_pos.w * uDevicePixelRatio;
@@ -697,7 +661,7 @@ VertexInfo write_transform_vertex_primitive(Primitive prim) {
         prim.local_clip_rect,
         vec4(0.0),
         prim.z,
-        prim.layer,
+        prim.scroll_node,
         prim.task
     );
 }

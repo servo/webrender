@@ -424,7 +424,7 @@ const DESC_CLIP: VertexDescriptor = VertexDescriptor {
             kind: VertexAttributeKind::I32,
         },
         VertexAttribute {
-            name: "aClipLayerAddress",
+            name: "aScrollNodeId",
             count: 1,
             kind: VertexAttributeKind::I32,
         },

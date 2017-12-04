@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{LayerVector2D, LayerRect, LayerToWorldTransform};
+use api::{LayerRect, LayerToWorldTransform};
 use gpu_cache::GpuCacheAddress;
 use render_task::RenderTaskAddress;
 
@@ -194,20 +194,6 @@ pub struct ClipScrollNodeIndex(pub u32);
 #[repr(C)]
 pub struct ClipScrollNodeData {
     pub transform: LayerToWorldTransform,
-
-    /// Viewport rectangle clipped against parent viewport rectangles.  This is
-    /// in the coordinate system of the node origin.  Precisely, it combines the
-    /// local clipping rectangles of all the parent nodes on the way to the root,
-    /// including those of `ClipRegion` rectangles.  The combined clip is reset to
-    /// maximum when an incompatible coordinate system is encountered.
-    pub local_clip_rect: LayerRect,
-
-    /// The scroll offset of all the nodes between us and our parent reference frame.
-    /// This is used to calculate intersections between us and content or nodes that
-    /// are also direct children of our reference frame.
-    pub reference_frame_relative_scroll_offset: LayerVector2D,
-
-    pub scroll_offset: LayerVector2D,
     pub transform_kind: f32,
     pub padding: [f32; 3],
 }
@@ -216,9 +202,6 @@ impl ClipScrollNodeData {
     pub fn invalid() -> ClipScrollNodeData {
         ClipScrollNodeData {
             transform: LayerToWorldTransform::identity(),
-            local_clip_rect: LayerRect::zero(),
-            reference_frame_relative_scroll_offset: LayerVector2D::zero(),
-            scroll_offset: LayerVector2D::zero(),
             transform_kind: 0.0,
             padding: [0.0; 3],
         }

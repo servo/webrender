@@ -2,16 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderDetails, BorderDisplayItem, BuiltDisplayList};
-use api::{ClipAndScrollInfo, ClipId, ColorF, PropertyBinding};
-use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize};
-use api::{DocumentLayer, ExtendMode, FontRenderMode, LayoutTransform};
-use api::{GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem, HitTestResult};
-use api::{ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect};
-use api::{LayerSize, LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation};
-use api::{LineStyle, LocalClip, PipelineId, RepeatMode};
-use api::{ScrollSensitivity, Shadow, TileOffset, TransformStyle};
-use api::{PremultipliedColorF, WorldPoint, YuvColorSpace, YuvData};
+use api::{BorderDetails, BorderDisplayItem, BuiltDisplayList, ClipAndScrollInfo, ClipId, ColorF};
+use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentLayer, ExtendMode};
+use api::{FontRenderMode, GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem};
+use api::{HitTestResult, ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint};
+use api::{LayerPrimitiveInfo, LayerRect, LayerSize, LayerTransform, LayerVector2D};
+use api::{LayoutTransform, LayoutVector2D, LineOrientation, LineStyle, LocalClip, PipelineId};
+use api::{PremultipliedColorF, PropertyBinding, RepeatMode, ScrollSensitivity, Shadow, TileOffset};
+use api::{TransformStyle, WorldPoint, YuvColorSpace, YuvData};
 use app_units::Au;
 use border::ImageBorderSegment;
 use clip::{ClipRegion, ClipSource, ClipSources, ClipStore, Contains};
@@ -614,7 +612,7 @@ impl FrameBuilder {
         let root_id = clip_scroll_tree.root_reference_frame_id();
         if let Some(root_node) = clip_scroll_tree.nodes.get_mut(&root_id) {
             if let NodeType::ReferenceFrame(ref mut info) = root_node.node_type {
-                info.resolved_transform = LayerToScrollTransform::create_translation(
+                info.resolved_transform = LayerTransform::create_translation(
                     viewport_offset.x,
                     viewport_offset.y,
                     0.0,

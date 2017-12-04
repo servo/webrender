@@ -165,16 +165,16 @@ void main(void) {
         gl_Position = uTransform * vec4(device_pos, 0.0, 1.0);
     } else {
         VertexInfo vi;
-        Layer layer = fetch_layer(brush.clip_node_id, brush.scroll_node_id);
+        ClipScrollNode scroll_node = fetch_clip_scroll_node(brush.scroll_node_id);
         ClipArea clip_area = fetch_clip_area(brush.clip_address);
 
         // Write the normal vertex information out.
-        if (layer.is_axis_aligned) {
+        if (scroll_node.is_axis_aligned) {
             vi = write_vertex(
                 local_segment_rect,
                 brush_prim.local_clip_rect,
                 float(brush.z),
-                layer,
+                scroll_node,
                 pic_task,
                 brush_prim.local_rect
             );
@@ -195,7 +195,7 @@ void main(void) {
                 brush_prim.local_clip_rect,
                 edge_aa_segment_mask,
                 float(brush.z),
-                layer,
+                scroll_node,
                 pic_task
             );
         }

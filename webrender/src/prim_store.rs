@@ -10,6 +10,7 @@ use api::{LineStyle, PipelineId, PremultipliedColorF, TileOffset, WorldToLayerTr
 use api::{YuvColorSpace, YuvFormat};
 use border::BorderCornerInstance;
 use clip_scroll_tree::{CoordinateSystemId, ClipScrollTree};
+use clip_scroll_node::ClipScrollNode;
 use clip::{ClipSource, ClipSourcesHandle, ClipStore};
 use frame_builder::PrimitiveContext;
 use glyph_rasterizer::{FontInstance, FontTransform};
@@ -1236,6 +1237,7 @@ impl PrimitiveStore {
         &mut self,
         prim_index: PrimitiveIndex,
         prim_context: &PrimitiveContext,
+        local_clip_rect: LayerRect,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
         render_tasks: &mut RenderTaskTree,
@@ -1314,7 +1316,7 @@ impl PrimitiveStore {
         // Mark this GPU resource as required for this frame.
         if let Some(mut request) = gpu_cache.request(&mut metadata.gpu_location) {
             request.push(metadata.local_rect);
-            request.push(metadata.local_clip_rect);
+            request.push(local_clip_rect);
 
             match metadata.prim_kind {
                 PrimitiveKind::Line => {
@@ -1573,6 +1575,7 @@ impl PrimitiveStore {
                         clip_sources: metadata.clip_sources.weak(),
                         coordinate_system_id: prim_coordinate_system_id,
                     },
+                    local_clip_rect: LayerRect::zero(), // This should be unused.
                     screen_inner_rect,
                     combined_outer_screen_rect:
                         combined_outer_rect.unwrap_or_else(DeviceIntRect::zero),
@@ -1668,6 +1671,7 @@ impl PrimitiveStore {
         profile_counters: &mut FrameProfileCounters,
         pic_index: SpecificPrimitiveIndex,
         screen_rect: &DeviceIntRect,
+        local_rect_from_clip_node: Option<LayerRect>,
         node_data: &[ClipScrollNodeData],
     ) -> Option<LayerRect> {
         // Reset the visibility of this primitive.
@@ -1750,7 +1754,7 @@ impl PrimitiveStore {
             );
         }
 
-        let (local_rect, unclipped_device_rect) = {
+        let (local_rect, local_clip_rect, unclipped_device_rect) = {
             let metadata = &mut self.cpu_metadata[prim_index.0];
             if metadata.local_rect.size.width <= 0.0 ||
                metadata.local_rect.size.height <= 0.0 {
@@ -1758,11 +1762,21 @@ impl PrimitiveStore {
                 return None;
             }
 
-            let local_rect = metadata.local_rect.intersection(&metadata.local_clip_rect);
+            let local_rect = metadata.local_clip_rect.intersection(&metadata.local_rect);
             let local_rect = match local_rect {
                 Some(local_rect) => local_rect,
                 None if perform_culling => return None,
                 None => LayerRect::zero(),
+            };
+
+            // If we are not doing culling, we shouldn't combine the clipping rectangle from
+            // clipping nodes with primitive clipping. This means the primitive is likely being
+            // rendered to a temporary target.
+            let local_clip_rect = match (perform_culling, local_rect_from_clip_node) {
+                (true, Some(clip_node_rect)) =>
+                    clip_node_rect.intersection(&metadata.local_clip_rect)
+                    .unwrap_or_else(LayerRect::zero),
+                _ => metadata.local_clip_rect,
             };
 
             let screen_bounding_rect = calculate_screen_bounding_rect(
@@ -1778,7 +1792,7 @@ impl PrimitiveStore {
                 return None;
             }
 
-            (local_rect, screen_bounding_rect)
+            (local_rect, local_clip_rect, screen_bounding_rect)
         };
 
         if perform_culling && may_need_clip_mask && !self.update_clip_task(
@@ -1799,6 +1813,7 @@ impl PrimitiveStore {
         self.prepare_prim_for_render_inner(
             prim_index,
             prim_context,
+            local_clip_rect,
             resource_cache,
             gpu_cache,
             render_tasks,
@@ -1886,6 +1901,8 @@ impl PrimitiveStore {
                 scroll_node,
             );
 
+            let local_clip_rect = get_local_clip_rect_for_nodes(scroll_node, clip_node);
+
             for i in 0 .. run.count {
                 let prim_index = PrimitiveIndex(run.base_prim_index.0 + i);
 
@@ -1904,6 +1921,7 @@ impl PrimitiveStore {
                     profile_counters,
                     pic_index,
                     screen_rect,
+                    local_clip_rect,
                     node_data,
                 ) {
                     profile_counters.visible_primitives.inc();
@@ -1997,4 +2015,30 @@ fn convert_clip_chain_to_clip_vector(
             Some(node.work_item.clone())
         })
         .collect()
+}
+
+fn get_local_clip_rect_for_nodes(
+    scroll_node: &ClipScrollNode,
+    clip_node: &ClipScrollNode,
+) -> Option<LayerRect> {
+    let local_rect = ClipChainNodeIter { current: clip_node.clip_chain_node.clone() }.fold(
+        None,
+        |combined_local_clip_rect: Option<LayerRect>, node| {
+            if node.work_item.coordinate_system_id != scroll_node.coordinate_system_id {
+                return combined_local_clip_rect;
+            }
+
+            Some(match combined_local_clip_rect {
+                Some(combined_rect) =>
+                    combined_rect.intersection(&node.local_clip_rect).unwrap_or_else(LayerRect::zero),
+                None => node.local_clip_rect,
+            })
+        }
+    );
+
+    match local_rect {
+        Some(local_rect) =>
+            Some(scroll_node.coordinate_system_relative_transform.unapply(&local_rect)),
+        None => None,
+    }
 }
