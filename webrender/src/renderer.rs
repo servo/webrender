@@ -30,7 +30,7 @@ use device::{DepthFunction, Device, FrameId, Program, UploadMethod, Texture,
 use device::{get_gl_format_bgra, ExternalTexture, FBOId, TextureSlot, VertexAttribute,
              VertexAttributeKind};
 use device::{FileWatcherHandler, ShaderError, TextureFilter, TextureTarget,
-             VertexUsageHint, VAO};
+             VertexUsageHint, VAO, CustomVAO, VBOId};
 use device::ProgramCache;
 use euclid::{rect, TypedScale, Transform3D};
 use frame_builder::FrameBuilderConfig;
@@ -441,6 +441,22 @@ const DESC_CLIP: VertexDescriptor = VertexDescriptor {
     ],
 };
 
+const DESC_GPU_CACHE_UPDATE: VertexDescriptor = VertexDescriptor {
+    vertex_attributes: &[
+        VertexAttribute {
+            name: "aPosition",
+            count: 2,
+            kind: VertexAttributeKind::U16Norm,
+        },
+        VertexAttribute {
+            name: "aValue",
+            count: 4,
+            kind: VertexAttributeKind::F32,
+        },
+    ],
+    instance_attributes: &[],
+};
+
 #[derive(Debug, Copy, Clone)]
 enum VertexArrayKind {
     Primitive,
@@ -759,30 +775,70 @@ impl CacheRow {
     }
 }
 
+enum CacheBus {
+    PixelBuffer(PBO),
+    Scatter {
+        program: Program,
+        vao: CustomVAO,
+        buf_position: VBOId,
+        buf_value: VBOId,
+    },
+}
+
 /// The device-specific representation of the cache texture in gpu_cache.rs
 struct CacheTexture {
     texture: Texture,
-    pbo: PBO,
+    bus: CacheBus,
     rows: Vec<CacheRow>,
     cpu_blocks: Vec<GpuBlockData>,
 }
 
 impl CacheTexture {
-    fn new(device: &mut Device) -> Self {
+    fn new(device: &mut Device, use_scatter: bool) -> Self {
         let texture = device.create_texture(TextureTarget::Default);
-        let pbo = device.create_pbo();
+
+        let bus = if use_scatter {
+            let program = device
+                .create_program("gpu_cache_update", "", &DESC_GPU_CACHE_UPDATE)
+                .unwrap();
+            let buf_position = device.create_vbo();
+            let buf_value = device.create_vbo();
+            let vao = device.create_custom_vao(&[
+                (&DESC_GPU_CACHE_UPDATE.vertex_attributes[0..1], buf_position),
+                (&DESC_GPU_CACHE_UPDATE.vertex_attributes[1..2], buf_value),
+            ]);
+            CacheBus::Scatter {
+                program,
+                vao,
+                buf_position,
+                buf_value,
+            }
+        } else {
+            let pbo = device.create_pbo();
+            CacheBus::PixelBuffer(pbo)
+        };
 
         CacheTexture {
             texture,
-            pbo,
+            bus,
             rows: Vec::new(),
             cpu_blocks: Vec::new(),
         }
     }
 
     fn deinit(self, device: &mut Device) {
-        device.delete_pbo(self.pbo);
         device.delete_texture(self.texture);
+        match self.bus {
+            CacheBus::PixelBuffer(pbo) => {
+                device.delete_pbo(pbo);
+            }
+            CacheBus::Scatter { program, vao, buf_position, buf_value } => {
+                device.delete_program(program);
+                device.delete_custom_vao(vao);
+                device.delete_vbo(buf_position);
+                device.delete_vbo(buf_value);
+            }
+        }
     }
 
     fn apply_patch(&mut self, update: &GpuCacheUpdate, blocks: &[GpuBlockData]) -> usize {
@@ -797,7 +853,7 @@ impl CacheTexture {
                 // Ensure that the CPU-side shadow copy of the GPU cache data has enough
                 // rows to apply this patch.
                 while self.rows.len() <= row {
-                    // Add a new row.
+                  // Add a new row.
                     self.rows.push(CacheRow::new());
                     // Add enough GPU blocks for this row.
                     self.cpu_blocks
@@ -863,11 +919,18 @@ impl CacheTexture {
             return 0
         }
 
-        let mut uploader = device.upload_texture(
-            &self.texture,
-            &self.pbo,
-            rows_dirty * MAX_VERTEX_TEXTURE_WIDTH,
-        );
+        let mut uploader = match self.bus {
+            CacheBus::PixelBuffer(ref pbo) => {
+                device.upload_texture(
+                    &self.texture,
+                    pbo,
+                    rows_dirty * MAX_VERTEX_TEXTURE_WIDTH,
+                )
+            }
+            CacheBus::Scatter {..} => {
+                unimplemented!()
+            }
+        };
 
         for (row_index, row) in self.rows.iter_mut().enumerate() {
             if !row.is_dirty {
@@ -1962,6 +2025,11 @@ impl Renderer {
         let node_data_texture = VertexDataTexture::new(&mut device);
         let render_task_texture = VertexDataTexture::new(&mut device);
 
+        let gpu_cache_texture = CacheTexture::new(
+            &mut device,
+            options.scatter_gpu_cache_updates,
+        );
+
         device.end_frame();
 
         let backend_notifier = notifier.clone();
@@ -2038,7 +2106,6 @@ impl Renderer {
             })
         };
 
-        let gpu_cache_texture = CacheTexture::new(&mut device);
         let gpu_profile = GpuProfiler::new(Rc::clone(device.rc_gl()));
 
         let mut renderer = Renderer {
@@ -4299,6 +4366,7 @@ pub struct RendererOptions {
     pub clear_color: Option<ColorF>,
     pub enable_clear_scissor: bool,
     pub max_texture_size: Option<u32>,
+    pub scatter_gpu_cache_updates: bool,
     pub upload_method: UploadMethod,
     pub workers: Option<Arc<ThreadPool>>,
     pub blob_image_renderer: Option<Box<BlobImageRenderer>>,
@@ -4327,7 +4395,7 @@ impl Default for RendererOptions {
             clear_color: Some(ColorF::new(1.0, 1.0, 1.0, 1.0)),
             enable_clear_scissor: true,
             max_texture_size: None,
-            //TODO: switch to `Immediate` on Angle
+            scatter_gpu_cache_updates: true,
             upload_method: UploadMethod::PixelBuffer(VertexUsageHint::Stream),
             workers: None,
             blob_image_renderer: None,

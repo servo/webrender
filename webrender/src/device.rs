@@ -96,6 +96,7 @@ pub enum TextureFilter {
 pub enum VertexAttributeKind {
     F32,
     U8Norm,
+    U16Norm,
     I32,
     U16,
 }
@@ -249,6 +250,7 @@ impl VertexAttributeKind {
         match *self {
             VertexAttributeKind::F32 => 4,
             VertexAttributeKind::U8Norm => 1,
+            VertexAttributeKind::U16Norm => 2,
             VertexAttributeKind::I32 => 4,
             VertexAttributeKind::U16 => 2,
         }
@@ -292,6 +294,16 @@ impl VertexAttribute {
                     offset,
                 );
             }
+            VertexAttributeKind::U16Norm => {
+                gl.vertex_attrib_pointer(
+                    attr_index,
+                    self.count as gl::GLint,
+                    gl::UNSIGNED_SHORT,
+                    true,
+                    stride,
+                    offset,
+                );
+            }
             VertexAttributeKind::I32 => {
                 gl.vertex_attrib_i_pointer(
                     attr_index,
@@ -322,39 +334,37 @@ impl VertexDescriptor {
             .sum()
     }
 
-    fn bind(&self, gl: &gl::Gl, main: VBOId, instance: VBOId) {
-        main.bind(gl);
+    fn bind_attributes(
+        attributes: &[VertexAttribute],
+        start_index: usize,
+        divisor: u32,
+        gl: &gl::Gl,
+        vbo: VBOId,
+    ) {
+        vbo.bind(gl);
 
-        let vertex_stride: u32 = self.vertex_attributes
+        let stride: u32 = attributes
             .iter()
             .map(|attr| attr.size_in_bytes())
             .sum();
-        let mut vertex_offset = 0;
 
-        for (i, attr) in self.vertex_attributes.iter().enumerate() {
-            let attr_index = i as gl::GLuint;
-            attr.bind_to_vao(attr_index, 0, vertex_stride as gl::GLint, vertex_offset, gl);
-            vertex_offset += attr.size_in_bytes();
+        let mut offset = 0;
+        for (i, attr) in attributes.iter().enumerate() {
+            let attr_index = (start_index + i) as gl::GLuint;
+            attr.bind_to_vao(attr_index, divisor, stride as _, offset, gl);
+            offset += attr.size_in_bytes();
         }
+    }
+
+    fn bind(&self, gl: &gl::Gl, main: VBOId, instance: VBOId) {
+        Self::bind_attributes(&self.vertex_attributes, 0, 0, gl, main);
 
         if !self.instance_attributes.is_empty() {
-            instance.bind(gl);
-            let instance_stride = self.instance_stride();
-            let mut instance_offset = 0;
-
-            let base_attr = self.vertex_attributes.len() as u32;
-
-            for (i, attr) in self.instance_attributes.iter().enumerate() {
-                let attr_index = base_attr + i as u32;
-                attr.bind_to_vao(
-                    attr_index,
-                    1,
-                    instance_stride as gl::GLint,
-                    instance_offset,
-                    gl,
-                );
-                instance_offset += attr.size_in_bytes();
-            }
+            Self::bind_attributes(
+                &self.instance_attributes,
+                self.vertex_attributes.len(),
+                1, gl, instance,
+            );
         }
     }
 }
@@ -455,6 +465,19 @@ pub struct Program {
 }
 
 impl Drop for Program {
+    fn drop(&mut self) {
+        debug_assert!(
+            thread::panicking() || self.id == 0,
+            "renderer::deinit not called"
+        );
+    }
+}
+
+pub struct CustomVAO {
+    id: gl::GLuint,
+}
+
+impl Drop for CustomVAO {
     fn drop(&mut self) {
         debug_assert!(
             thread::panicking() || self.id == 0,
@@ -1399,7 +1422,7 @@ impl Device {
     ) -> VAO {
         debug_assert!(self.inside_frame);
 
-        let instance_stride = descriptor.instance_stride();
+        let instance_stride = descriptor.instance_stride() as usize;
         let vao_id = self.gl.gen_vertex_arrays(1)[0];
 
         self.gl.bind_vertex_array(vao_id);
@@ -1407,18 +1430,56 @@ impl Device {
         descriptor.bind(self.gl(), main_vbo_id, instance_vbo_id);
         ibo_id.bind(self.gl()); // force it to be a part of VAO
 
-        let vao = VAO {
+        self.gl.bind_vertex_array(0);
+
+        VAO {
             id: vao_id,
             ibo_id,
             main_vbo_id,
             instance_vbo_id,
-            instance_stride: instance_stride as usize,
+            instance_stride,
             owns_vertices_and_indices,
-        };
+        }
+    }
+
+    pub fn create_custom_vao(
+        &mut self,
+        streams: &[(&[VertexAttribute], VBOId)],
+    ) -> CustomVAO {
+        debug_assert!(self.inside_frame);
+
+        let vao_id = self.gl.gen_vertex_arrays(1)[0];
+        self.gl.bind_vertex_array(vao_id);
+
+        let mut attrib_index = 0;
+        for &(attributes, vbo) in streams {
+            VertexDescriptor::bind_attributes(
+                attributes, attrib_index, 0,
+                self.gl(), vbo,
+            );
+            attrib_index += attributes.len();
+        }
 
         self.gl.bind_vertex_array(0);
 
-        vao
+        CustomVAO {
+            id: vao_id,
+        }
+    }
+
+    pub fn delete_custom_vao(&mut self, mut vao: CustomVAO) {
+        self.gl.delete_vertex_arrays(&[vao.id]);
+        vao.id = 0;
+    }
+
+    pub fn create_vbo(&mut self) -> VBOId {
+        let ids = self.gl.gen_buffers(1);
+        VBOId(ids[0])
+    }
+
+    pub fn delete_vbo(&mut self, mut vbo: VBOId) {
+        self.gl.delete_buffers(&[vbo.0]);
+        vbo.0 = 0;
     }
 
     pub fn create_vao(&mut self, descriptor: &VertexDescriptor) -> VAO {
