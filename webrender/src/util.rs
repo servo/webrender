@@ -2,13 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderRadius, ComplexClipRegion, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use api::{DevicePoint, DeviceRect, DeviceSize, LayerPoint, LayerRect, LayerSize};
-use api::{LayerToWorldTransform, LayoutRect, WorldRect};
+use api::{BorderRadius, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePoint, DeviceRect};
+use api::{DeviceSize, LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, WorldRect};
 use euclid::{Point2D, Rect, Size2D, TypedPoint2D, TypedRect, TypedSize2D, TypedTransform2D};
 use euclid::TypedTransform3D;
 use num_traits::Zero;
-use std::f32::consts::FRAC_1_SQRT_2;
 use std::i32;
 use std::f32;
 
@@ -17,8 +15,6 @@ const NEARLY_ZERO: f32 = 1.0 / 4096.0;
 
 // TODO: Implement these in euclid!
 pub trait MatrixHelpers<Src, Dst> {
-    fn transform_rect(&self, rect: &TypedRect<f32, Src>) -> TypedRect<f32, Dst>;
-    fn is_identity(&self) -> bool;
     fn preserves_2d_axis_alignment(&self) -> bool;
     fn has_perspective_component(&self) -> bool;
     fn has_2d_inverse(&self) -> bool;
@@ -28,18 +24,6 @@ pub trait MatrixHelpers<Src, Dst> {
 }
 
 impl<Src, Dst> MatrixHelpers<Src, Dst> for TypedTransform3D<f32, Src, Dst> {
-    fn transform_rect(&self, rect: &TypedRect<f32, Src>) -> TypedRect<f32, Dst> {
-        let top_left = self.transform_point2d(&rect.origin);
-        let top_right = self.transform_point2d(&rect.top_right());
-        let bottom_left = self.transform_point2d(&rect.bottom_left());
-        let bottom_right = self.transform_point2d(&rect.bottom_right());
-        TypedRect::from_points(&[top_left, top_right, bottom_right, bottom_left])
-    }
-
-    fn is_identity(&self) -> bool {
-        *self == TypedTransform3D::identity()
-    }
-
     // A port of the preserves2dAxisAlignment function in Skia.
     // Defined in the SkMatrix44 class.
     fn preserves_2d_axis_alignment(&self) -> bool {
@@ -228,21 +212,6 @@ pub enum TransformedRectKind {
 #[inline(always)]
 pub fn pack_as_float(value: u32) -> f32 {
     value as f32 + 0.5
-}
-
-
-pub trait ComplexClipRegionHelpers {
-    /// Return the approximately largest aligned rectangle that is fully inside
-    /// the provided clip region.
-    fn get_inner_rect_full(&self) -> Option<LayoutRect>;
-}
-
-impl ComplexClipRegionHelpers for ComplexClipRegion {
-    fn get_inner_rect_full(&self) -> Option<LayoutRect> {
-        // this `k` is optimal for a simple case of all border radii being equal
-        let k = 1.0 - 0.5 * FRAC_1_SQRT_2; // could be nicely approximated to `0.3`
-        extract_inner_rect_impl(&self.rect, &self.radii, k)
-    }
 }
 
 #[inline]
