@@ -776,17 +776,31 @@ impl CacheRow {
     }
 }
 
+/// The bus over which CPU and GPU versions of the cache
+/// get synchronized.
 enum CacheBus {
+    /// PBO-based updates, currently operate on a row granularity.
+    /// Therefore, are subject to fragmentation issues.
     PixelBuffer {
+        /// PBO used for transfers.
         buffer: PBO,
+        /// Meta-data about the cached rows.
         rows: Vec<CacheRow>,
+        /// Mirrored block data on CPU.
         cpu_blocks: Vec<GpuBlockData>,
     },
+    /// Shader-based scattering updates. Currently rendered by a set
+    /// of points into the GPU texture, each carrying a `GpuBlockData`.
     Scatter {
+        /// Special program to run the scattered update.
         program: Program,
+        /// VAO containing the source vertex buffers.
         vao: CustomVAO,
+        /// VBO for positional data, supplied as normalized `u16`.
         buf_position: VBO<[u16; 2]>,
+        /// VBO for gpu block data.
         buf_value: VBO<GpuBlockData>,
+        /// Currently stored block count.
         count: usize,
     },
 }
@@ -807,6 +821,8 @@ impl CacheTexture {
                 .unwrap();
             let buf_position = device.create_vbo();
             let buf_value = device.create_vbo();
+            //Note: the vertex attributes have to be supplied in the same order
+            // as for program creation, but each assigned to a different stream.
             let vao = device.create_custom_vao(&[
                 buf_position.streaw_with(&DESC_GPU_CACHE_UPDATE.vertex_attributes[0..1]),
                 buf_value   .streaw_with(&DESC_GPU_CACHE_UPDATE.vertex_attributes[1..2]),
@@ -960,6 +976,8 @@ impl CacheTexture {
                 }
 
                 //TODO: re-use this heap allocation
+                // Unused positions will be left as 0xFFFF, which translates to
+                // (1.0, 1.0) in the vertex output position and gets culled out
                 let mut position_data = vec![[!0u16; 2]; updates.blocks.len()];
 
                 for update in &updates.updates {
@@ -970,7 +988,8 @@ impl CacheTexture {
                             address,
                         } => {
                             for i in 0 .. block_count {
-                                // convert the absolute texel position into normalized
+                                // Convert the absolute texel position into normalized
+                                // Note: adding 1 allows us to avoid being on the pixel edge
                                 position_data[block_index + i] = [
                                     (((address.u as usize + i) << 16) / MAX_VERTEX_TEXTURE_WIDTH + 1) as u16,
                                     (((address.v as usize) << 16) / updates.height as usize + 1) as u16,
@@ -2797,11 +2816,13 @@ impl Renderer {
         self.gpu_cache_texture.prepare_for_updates(&mut self.device, updated_blocks);
         self.update_deferred_resolves(frame);
 
+        // For an artificial stress test of GPU cache resizing,
+        // always pass an extra update list with at least one block in it.
         let gpu_cache_height = self.gpu_cache_texture.get_height();
         if gpu_cache_height != 0 &&  GPU_CACHE_RESIZE_TEST {
             self.pending_gpu_cache_updates.push(GpuCacheUpdateList {
                 height: gpu_cache_height,
-                blocks: Vec::new(),
+                blocks: vec![[1f32; 4].into()],
                 updates: Vec::new(),
             });
         }
