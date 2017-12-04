@@ -895,46 +895,40 @@ impl CacheTexture {
         }
     }
 
-    fn update(&mut self, device: &mut Device, updates: &GpuCacheUpdateList) -> usize {
+    fn update(&mut self, device: &mut Device, updates: &GpuCacheUpdateList) {
         // See if we need to create or resize the texture.
-        let current_dimensions = self.texture.get_dimensions();
-        if updates.height > current_dimensions.height {
-            let rt_info = match self.bus {
-                CacheBus::PixelBuffer(..) => None,
-                CacheBus::Scatter { .. } => Some(RenderTargetInfo {
-                    has_depth: false,
-                })
-            };
-            // Create a f32 texture that can be used for the vertex shader
-            // to fetch data from.
-            device.init_texture(
-                &mut self.texture,
-                MAX_VERTEX_TEXTURE_WIDTH as u32,
-                updates.height as u32,
-                ImageFormat::RGBAF32,
-                TextureFilter::Nearest,
-                rt_info,
-                1,
-                None,
-            );
-
-            // Copy the current texture into the newly resized texture.
-            if current_dimensions.height > 0 {
-                // If we had to resize the texture, just mark all rows
-                // as dirty so they will be uploaded to the texture
-                // during the next flush.
-                for row in &mut self.rows {
-                    row.is_dirty = true;
-                }
-            }
-        }
-
-        let mut updated_blocks = 0;
+        let old_size = self.texture.get_dimensions();
+        let new_size = DeviceUintSize::new(MAX_VERTEX_TEXTURE_WIDTH as _, updates.height);
 
         match self.bus {
             CacheBus::PixelBuffer(..) => {
+                if new_size.height > old_size.height {
+                    // Create a f32 texture that can be used for the vertex shader
+                    // to fetch data from.
+                    device.init_texture(
+                        &mut self.texture,
+                        new_size.width,
+                        new_size.height,
+                        ImageFormat::RGBAF32,
+                        TextureFilter::Nearest,
+                        None,
+                        1,
+                        None,
+                    );
+
+                    // Copy the current texture into the newly resized texture.
+                    if old_size.height > 0 {
+                        // If we had to resize the texture, just mark all rows
+                        // as dirty so they will be uploaded to the texture
+                        // during the next flush.
+                        for row in &mut self.rows {
+                            row.is_dirty = true;
+                        }
+                    }
+                }
+
                 for update in &updates.updates {
-                    updated_blocks += self.apply_patch(update, &updates.blocks);
+                    self.apply_patch(update, &updates.blocks);
                 }
             }
             CacheBus::Scatter {
@@ -943,6 +937,25 @@ impl CacheTexture {
                 ref mut count,
                 ..
             } => {
+                if new_size.height > old_size.height {
+                    if old_size.height > 0 {
+                        device.resize_renderable_texture(&mut self.texture, new_size);
+                    } else {
+                        device.init_texture(
+                            &mut self.texture,
+                            new_size.width,
+                            new_size.height,
+                            ImageFormat::RGBAF32,
+                            TextureFilter::Nearest,
+                            Some(RenderTargetInfo {
+                                has_depth: false,
+                            }),
+                            1,
+                            None,
+                        );
+                    }
+                }
+
                 //TODO: re-use this heap allocation
                 let mut position_data = vec![[!0u16; 2]; updates.blocks.len()];
 
@@ -960,7 +973,6 @@ impl CacheTexture {
                                     (((address.v as usize) << 16) / updates.height as usize + 1) as u16,
                                 ];
                             }
-                            updated_blocks += block_count;
                         }
                     }
                 }
@@ -970,8 +982,6 @@ impl CacheTexture {
                 *count += updates.blocks.len();
             }
         }
-
-        updated_blocks
     }
 
     fn flush(&mut self, device: &mut Device) -> usize {
@@ -2653,11 +2663,6 @@ impl Renderer {
 
             self.update_texture_cache();
 
-            self.device.bind_texture(
-                TextureSampler::ResourceCache,
-                &self.gpu_cache_texture.texture,
-            );
-
             frame_id
         });
 
@@ -2701,7 +2706,7 @@ impl Renderer {
             }
 
             for &mut (_, RenderedDocument { ref mut frame, .. }) in &mut active_documents {
-                self.update_gpu_cache(frame);
+                self.prepare_gpu_cache(frame);
 
                 self.draw_tile_frame(
                     frame,
@@ -2776,7 +2781,7 @@ impl Renderer {
             .any(|&(_, ref render_doc)| !render_doc.layers_bouncing_back.is_empty())
     }
 
-    fn update_gpu_cache(&mut self, frame: &Frame) {
+    fn prepare_gpu_cache(&mut self, frame: &Frame) {
         let _gm = self.gpu_profile.start_marker("gpu cache update");
 
         let updated_blocks = self.pending_gpu_cache_updates
@@ -2789,11 +2794,19 @@ impl Renderer {
         // of helper, similarly to how `TextureUploader` API is used.
         self.gpu_cache_texture.prepare_for_updates(&mut self.device, updated_blocks);
 
+        self.update_deferred_resolves(frame);
+
         for update_list in self.pending_gpu_cache_updates.drain(..) {
             self.gpu_cache_texture
                 .update(&mut self.device, &update_list);
         }
-        self.update_deferred_resolves(frame);
+
+        // Note: the texture might have changed during the `update`,
+        // so we need to bind it here.
+        self.device.bind_texture(
+            TextureSampler::ResourceCache,
+            &self.gpu_cache_texture.texture,
+        );
 
         let updated_rows = self.gpu_cache_texture.flush(&mut self.device);
 
@@ -3804,68 +3817,73 @@ impl Renderer {
         // resolves, and use a callback to get the UV rect for this
         // custom item. Then we patch the resource_rects structure
         // here before it's uploaded to the GPU.
-        if !frame.deferred_resolves.is_empty() {
-            let handler = self.external_image_handler
-                .as_mut()
-                .expect("Found external image, but no handler set!");
-
-            for deferred_resolve in &frame.deferred_resolves {
-                self.gpu_profile.place_marker("deferred resolve");
-                let props = &deferred_resolve.image_properties;
-                let ext_image = props
-                    .external_image
-                    .expect("BUG: Deferred resolves must be external images!");
-                let image = handler.lock(ext_image.id, ext_image.channel_index);
-                let texture_target = match ext_image.image_type {
-                    ExternalImageType::Texture2DHandle => TextureTarget::Default,
-                    ExternalImageType::Texture2DArrayHandle => TextureTarget::Array,
-                    ExternalImageType::TextureRectHandle => TextureTarget::Rect,
-                    ExternalImageType::TextureExternalHandle => TextureTarget::External,
-                    ExternalImageType::ExternalBuffer => {
-                        panic!(
-                            "{:?} is not a suitable image type in update_deferred_resolves().",
-                            ext_image.image_type
-                        );
-                    }
-                };
-
-                // In order to produce the handle, the external image handler may call into
-                // the GL context and change some states.
-                self.device.reset_state();
-
-                let texture = match image.source {
-                    ExternalImageSource::NativeTexture(texture_id) => {
-                        ExternalTexture::new(texture_id, texture_target)
-                    }
-                    ExternalImageSource::Invalid => {
-                        warn!(
-                            "Invalid ext-image for ext_id:{:?}, channel:{}.",
-                            ext_image.id,
-                            ext_image.channel_index
-                        );
-                        // Just use 0 as the gl handle for this failed case.
-                        ExternalTexture::new(0, texture_target)
-                    }
-                    _ => panic!("No native texture found."),
-                };
-
-                self.texture_resolver
-                    .external_images
-                    .insert((ext_image.id, ext_image.channel_index), texture);
-
-                let update = GpuCacheUpdate::Copy {
-                    block_index: 0,
-                    block_count: 1,
-                    address: deferred_resolve.address,
-                };
-
-                let blocks = [
-                    [image.u0, image.v0, image.u1, image.v1].into(),
-                    [0.0; 4].into(),
-                ];
-                self.gpu_cache_texture.apply_patch(&update, &blocks);
-            }
+        if frame.deferred_resolves.is_empty() {
+            return;
         }
+
+        let handler = self.external_image_handler
+            .as_mut()
+            .expect("Found external image, but no handler set!");
+
+        let mut list = GpuCacheUpdateList {
+            height: self.gpu_cache_texture.texture.get_dimensions().height,
+            blocks: Vec::new(),
+            updates: Vec::new(),
+        };
+
+        for deferred_resolve in &frame.deferred_resolves {
+            self.gpu_profile.place_marker("deferred resolve");
+            let props = &deferred_resolve.image_properties;
+            let ext_image = props
+                .external_image
+                .expect("BUG: Deferred resolves must be external images!");
+            let image = handler.lock(ext_image.id, ext_image.channel_index);
+            let texture_target = match ext_image.image_type {
+                ExternalImageType::Texture2DHandle => TextureTarget::Default,
+                ExternalImageType::Texture2DArrayHandle => TextureTarget::Array,
+                ExternalImageType::TextureRectHandle => TextureTarget::Rect,
+                ExternalImageType::TextureExternalHandle => TextureTarget::External,
+                ExternalImageType::ExternalBuffer => {
+                    panic!(
+                        "{:?} is not a suitable image type in update_deferred_resolves().",
+                        ext_image.image_type
+                    );
+                }
+            };
+
+            // In order to produce the handle, the external image handler may call into
+            // the GL context and change some states.
+            self.device.reset_state();
+
+            let texture = match image.source {
+                ExternalImageSource::NativeTexture(texture_id) => {
+                    ExternalTexture::new(texture_id, texture_target)
+                }
+                ExternalImageSource::Invalid => {
+                    warn!(
+                        "Invalid ext-image for ext_id:{:?}, channel:{}.",
+                        ext_image.id,
+                        ext_image.channel_index
+                    );
+                    // Just use 0 as the gl handle for this failed case.
+                    ExternalTexture::new(0, texture_target)
+                }
+                _ => panic!("No native texture found."),
+            };
+
+            self.texture_resolver
+                .external_images
+                .insert((ext_image.id, ext_image.channel_index), texture);
+
+            list.updates.push(GpuCacheUpdate::Copy {
+                block_index: list.blocks.len(),
+                block_count: 1,
+                address: deferred_resolve.address,
+            });
+            list.blocks.push([image.u0, image.v0, image.u1, image.v1].into());
+        }
+
+        self.pending_gpu_cache_updates.push(list);
     }
 
     fn unlock_external_images(&mut self) {

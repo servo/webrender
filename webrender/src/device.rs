@@ -4,7 +4,7 @@
 
 use super::shader_source;
 use api::{ColorF, ImageFormat};
-use api::{DeviceIntRect, DeviceUintRect, DeviceUintSize};
+use api::{DeviceIntPoint, DeviceIntRect, DeviceUintRect, DeviceUintSize};
 use euclid::Transform3D;
 use gleam::gl;
 use internal_types::{FastHashMap, RenderTargetInfo};
@@ -833,16 +833,29 @@ impl Device {
         self.bind_texture_impl(sampler.into(), external_texture.id, external_texture.target);
     }
 
-    pub fn bind_read_target(&mut self, texture_and_layer: Option<(&Texture, i32)>) {
+    fn bind_read_target_impl(&mut self, fbo_id: FBOId) {
         debug_assert!(self.inside_frame);
-
-        let fbo_id = texture_and_layer.map_or(FBOId(self.default_read_fbo), |texture_and_layer| {
-            texture_and_layer.0.fbo_ids[texture_and_layer.1 as usize]
-        });
 
         if self.bound_read_fbo != fbo_id {
             self.bound_read_fbo = fbo_id;
             fbo_id.bind(self.gl(), FBOTarget::Read);
+        }
+    }
+
+    pub fn bind_read_target(&mut self, texture_and_layer: Option<(&Texture, i32)>) {
+        let fbo_id = texture_and_layer.map_or(FBOId(self.default_read_fbo), |texture_and_layer| {
+            texture_and_layer.0.fbo_ids[texture_and_layer.1 as usize]
+        });
+
+        self.bind_read_target_impl(fbo_id)
+    }
+
+    fn bind_draw_target_impl(&mut self, fbo_id: FBOId) {
+        debug_assert!(self.inside_frame);
+
+        if self.bound_draw_fbo != fbo_id {
+            self.bound_draw_fbo = fbo_id;
+            fbo_id.bind(self.gl(), FBOTarget::Draw);
         }
     }
 
@@ -851,16 +864,11 @@ impl Device {
         texture_and_layer: Option<(&Texture, i32)>,
         dimensions: Option<DeviceUintSize>,
     ) {
-        debug_assert!(self.inside_frame);
-
         let fbo_id = texture_and_layer.map_or(FBOId(self.default_draw_fbo), |texture_and_layer| {
             texture_and_layer.0.fbo_ids[texture_and_layer.1 as usize]
         });
 
-        if self.bound_draw_fbo != fbo_id {
-            self.bound_draw_fbo = fbo_id;
-            fbo_id.bind(self.gl(), FBOTarget::Draw);
-        }
+        self.bind_draw_target_impl(fbo_id);
 
         if let Some(dimensions) = dimensions {
             self.gl.viewport(
@@ -937,6 +945,40 @@ impl Device {
             .tex_parameter_i(target, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as gl::GLint);
         self.gl
             .tex_parameter_i(target, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as gl::GLint);
+    }
+
+    /// Resizes a texture with enabled render target views,
+    /// preserves the data by blitting the old texture contents over.
+    pub fn resize_renderable_texture(
+        &mut self,
+        texture: &mut Texture,
+        new_size: DeviceUintSize,
+    ) {
+        debug_assert!(self.inside_frame);
+
+        let old_size = texture.get_dimensions();
+        let old_fbos = mem::replace(&mut texture.fbo_ids, Vec::new());
+        let old_texture_id = mem::replace(&mut texture.id, self.gl.gen_textures(1)[0]);
+
+        texture.width = new_size.width;
+        texture.height = new_size.height;
+        let rt_info = texture.render_target
+            .clone()
+            .expect("Only renderable textures are expected for resize here");
+
+        self.bind_texture(DEFAULT_TEXTURE, texture);
+        self.set_texture_parameters(texture.target, texture.filter);
+        self.update_texture_storage(texture, &rt_info, true);
+
+        let rect = DeviceIntRect::new(DeviceIntPoint::zero(), old_size.to_i32());
+        for (read_fbo, &draw_fbo) in old_fbos.into_iter().zip(&texture.fbo_ids) {
+            self.bind_read_target_impl(read_fbo);
+            self.bind_draw_target_impl(draw_fbo);
+            self.blit_render_target(rect, rect);
+            self.delete_fbo(read_fbo);
+        }
+        self.gl.delete_textures(&[old_texture_id]);
+        self.bind_read_target(None);
     }
 
     pub fn init_texture(
