@@ -154,7 +154,7 @@ pub struct BrushInstance {
     pub scroll_id: ClipScrollNodeIndex,
     pub clip_task_address: RenderTaskAddress,
     pub z: i32,
-    pub flags: i32,
+    pub segment_kind: i32,
     pub user_data0: i32,
     pub user_data1: i32,
 }
@@ -168,7 +168,7 @@ impl From<BrushInstance> for PrimitiveInstance {
                 ((instance.clip_id.0 as i32) << 16) | instance.scroll_id.0 as i32,
                 instance.clip_task_address.0 as i32,
                 instance.z,
-                instance.flags,
+                instance.segment_kind,
                 instance.user_data0,
                 instance.user_data1,
             ]
@@ -186,7 +186,7 @@ pub enum BrushImageKind {
     Mirror = 2,     // A top left corner only (mirror across x/y axes)
 }
 
-#[derive(Copy, Debug, Clone)]
+#[derive(Copy, Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct ClipScrollNodeIndex(pub u32);
 

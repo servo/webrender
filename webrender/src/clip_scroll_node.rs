@@ -520,7 +520,8 @@ impl ClipScrollNode {
                     state.nearest_scrolling_ancestor_viewport
                        .translate(&info.origin_in_parent_reference_frame);
 
-                if !info.resolved_transform.preserves_2d_axis_alignment() {
+                if !info.resolved_transform.preserves_2d_axis_alignment() ||
+                   info.resolved_transform.has_perspective_component() {
                     state.current_coordinate_system_id = state.next_coordinate_system_id;
                     state.next_coordinate_system_id = state.next_coordinate_system_id.next();
                 }

@@ -72,6 +72,10 @@ use util::TransformedRectKind;
 
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 
+const GPU_TAG_BRUSH_SOLID: GpuProfileTag = GpuProfileTag {
+    label: "B_Solid",
+    color: debug_colors::RED,
+};
 const GPU_TAG_BRUSH_MASK: GpuProfileTag = GpuProfileTag {
     label: "B_Mask",
     color: debug_colors::BLACK,
@@ -99,10 +103,6 @@ const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag {
 const GPU_TAG_SETUP_DATA: GpuProfileTag = GpuProfileTag {
     label: "data init",
     color: debug_colors::LIGHTGREY,
-};
-const GPU_TAG_PRIM_RECT: GpuProfileTag = GpuProfileTag {
-    label: "Rect",
-    color: debug_colors::RED,
 };
 const GPU_TAG_PRIM_LINE: GpuProfileTag = GpuProfileTag {
     label: "Line",
@@ -178,7 +178,6 @@ impl TransformBatchKind {
     #[cfg(feature = "debugger")]
     fn debug_name(&self) -> &'static str {
         match *self {
-            TransformBatchKind::Rectangle(..) => "Rectangle",
             TransformBatchKind::TextRun(..) => "TextRun",
             TransformBatchKind::Image(image_buffer_kind, ..) => match image_buffer_kind {
                 ImageBufferKind::Texture2D => "Image (2D)",
@@ -198,7 +197,6 @@ impl TransformBatchKind {
 
     fn gpu_sampler_tag(&self) -> GpuProfileTag {
         match *self {
-            TransformBatchKind::Rectangle(_) => GPU_TAG_PRIM_RECT,
             TransformBatchKind::Line => GPU_TAG_PRIM_LINE,
             TransformBatchKind::TextRun(..) => GPU_TAG_PRIM_TEXT_RUN,
             TransformBatchKind::Image(..) => GPU_TAG_PRIM_IMAGE,
@@ -220,7 +218,12 @@ impl BatchKind {
             BatchKind::HardwareComposite => "HardwareComposite",
             BatchKind::SplitComposite => "SplitComposite",
             BatchKind::Blend => "Blend",
-            BatchKind::Brush(BrushBatchKind::Image(..)) => "Brush (Image)",
+            BatchKind::Brush(kind) => {
+                match kind {
+                    BrushBatchKind::Image(..) => "Brush (Image)",
+                    BrushBatchKind::Solid => "Brush (Solid)",
+                }
+            }
             BatchKind::Transformable(_, batch_kind) => batch_kind.debug_name(),
         }
     }
@@ -231,7 +234,12 @@ impl BatchKind {
             BatchKind::HardwareComposite => GPU_TAG_PRIM_HW_COMPOSITE,
             BatchKind::SplitComposite => GPU_TAG_PRIM_SPLIT_COMPOSITE,
             BatchKind::Blend => GPU_TAG_PRIM_BLEND,
-            BatchKind::Brush(BrushBatchKind::Image(_)) => GPU_TAG_BRUSH_IMAGE,
+            BatchKind::Brush(kind) => {
+                match kind {
+                    BrushBatchKind::Image(..) => GPU_TAG_BRUSH_IMAGE,
+                    BrushBatchKind::Solid => GPU_TAG_BRUSH_SOLID,
+                }
+            }
             BatchKind::Transformable(_, batch_kind) => batch_kind.gpu_sampler_tag(),
         }
     }
@@ -912,7 +920,6 @@ impl VertexDataTexture {
 }
 
 const TRANSFORM_FEATURE: &str = "TRANSFORM";
-const CLIP_FEATURE: &str = "CLIP";
 const ALPHA_FEATURE: &str = "ALPHA_PASS";
 
 enum ShaderKind {
@@ -1355,6 +1362,7 @@ pub struct Renderer {
     brush_mask_rounded_rect: LazilyCompiledShader,
     brush_image_rgba8: BrushShader,
     brush_image_a8: BrushShader,
+    brush_solid: BrushShader,
 
     /// These are "cache clip shaders". These shaders are used to
     /// draw clip instances into the cached clip mask. The results
@@ -1370,8 +1378,6 @@ pub struct Renderer {
     // shadow primitive shader stretches the box shadow cache
     // output, and the cache_image shader blits the results of
     // a cache shader (e.g. blur) to the screen.
-    ps_rectangle: PrimitiveShader,
-    ps_rectangle_clip: PrimitiveShader,
     ps_text_run: TextShader,
     ps_text_run_subpx_bg_pass1: TextShader,
     ps_image: Vec<Option<PrimitiveShader>>,
@@ -1558,6 +1564,13 @@ impl Renderer {
                                       options.precache_shaders)
         };
 
+        let brush_solid = try!{
+            BrushShader::new("brush_solid",
+                             &mut device,
+                             &[],
+                             options.precache_shaders)
+        };
+
         let brush_image_a8 = try!{
             BrushShader::new("brush_image",
                              &mut device,
@@ -1610,20 +1623,6 @@ impl Renderer {
                                       &[],
                                       &mut device,
                                       options.precache_shaders)
-        };
-
-        let ps_rectangle = try!{
-            PrimitiveShader::new("ps_rectangle",
-                                 &mut device,
-                                 &[],
-                                 options.precache_shaders)
-        };
-
-        let ps_rectangle_clip = try!{
-            PrimitiveShader::new("ps_rectangle",
-                                 &mut device,
-                                 &[ CLIP_FEATURE ],
-                                 options.precache_shaders)
         };
 
         let ps_line = try!{
@@ -2011,11 +2010,10 @@ impl Renderer {
             brush_mask_rounded_rect,
             brush_image_rgba8,
             brush_image_a8,
+            brush_solid,
             cs_clip_rectangle,
             cs_clip_border,
             cs_clip_image,
-            ps_rectangle,
-            ps_rectangle_clip,
             ps_text_run,
             ps_text_run_subpx_bg_pass1,
             ps_image,
@@ -2787,6 +2785,15 @@ impl Renderer {
             }
             BatchKind::Brush(brush_kind) => {
                 match brush_kind {
+                    BrushBatchKind::Solid => {
+                        self.brush_solid.bind(
+                            &mut self.device,
+                            key.blend_mode,
+                            projection,
+                            0,
+                            &mut self.renderer_errors,
+                        );
+                    }
                     BrushBatchKind::Image(target_kind) => {
                         let shader = match target_kind {
                             RenderTargetKind::Alpha => &mut self.brush_image_a8,
@@ -2803,36 +2810,6 @@ impl Renderer {
                 }
             }
             BatchKind::Transformable(transform_kind, batch_kind) => match batch_kind {
-                TransformBatchKind::Rectangle(needs_clipping) => {
-                    debug_assert!(
-                        !needs_clipping || match key.blend_mode {
-                            BlendMode::PremultipliedAlpha |
-                            BlendMode::PremultipliedDestOut |
-                            BlendMode::SubpixelConstantTextColor(..) |
-                            BlendMode::SubpixelVariableTextColor |
-                            BlendMode::SubpixelWithBgColor => true,
-                            BlendMode::None => false,
-                        }
-                    );
-
-                    if needs_clipping {
-                        self.ps_rectangle_clip.bind(
-                            &mut self.device,
-                            transform_kind,
-                            projection,
-                            0,
-                            &mut self.renderer_errors,
-                        );
-                    } else {
-                        self.ps_rectangle.bind(
-                            &mut self.device,
-                            transform_kind,
-                            projection,
-                            0,
-                            &mut self.renderer_errors,
-                        );
-                    }
-                }
                 TransformBatchKind::Line => {
                     self.ps_line.bind(
                         &mut self.device,
@@ -4179,11 +4156,10 @@ impl Renderer {
         self.brush_mask_corner.deinit(&mut self.device);
         self.brush_image_rgba8.deinit(&mut self.device);
         self.brush_image_a8.deinit(&mut self.device);
+        self.brush_solid.deinit(&mut self.device);
         self.cs_clip_rectangle.deinit(&mut self.device);
         self.cs_clip_image.deinit(&mut self.device);
         self.cs_clip_border.deinit(&mut self.device);
-        self.ps_rectangle.deinit(&mut self.device);
-        self.ps_rectangle_clip.deinit(&mut self.device);
         self.ps_text_run.deinit(&mut self.device);
         self.ps_text_run_subpx_bg_pass1.deinit(&mut self.device);
         for shader in self.ps_image {
