@@ -14,7 +14,7 @@ use print_tree::{PrintTree, PrintTreePrinter};
 use render_task::ClipChain;
 use resource_cache::ResourceCache;
 use scene::SceneProperties;
-use util::MaxRect;
+use util::{MaxRect, TransformOrOffset};
 
 pub type ScrollStates = FastHashMap<ClipId, ScrollingState>;
 
@@ -82,6 +82,9 @@ pub struct TransformUpdateState {
     /// display list item, since optimizations can usually only be done among
     /// coordinate systems which are relatively axis aligned.
     pub current_coordinate_system_id: CoordinateSystemId,
+
+    /// Transform from the coordinate system that started this compatible coordinate system.
+    pub coordinate_system_relative_transform: TransformOrOffset,
 }
 
 impl ClipScrollTree {
@@ -366,6 +369,7 @@ impl ClipScrollTree {
             combined_outer_clip_bounds: *screen_rect,
             combined_inner_clip_bounds: DeviceIntRect::max_rect(),
             current_coordinate_system_id: CoordinateSystemId::root(),
+            coordinate_system_relative_transform: TransformOrOffset::zero(),
         };
         let mut next_coordinate_system_id = state.current_coordinate_system_id.next();
         self.update_node(
@@ -415,13 +419,13 @@ impl ClipScrollTree {
                 scene_properties,
             );
 
-            node.push_gpu_node_data(&state, gpu_node_data);
+            node.push_gpu_node_data(gpu_node_data);
 
-            if node.children.is_empty() {
-                return;
+            if node.children.is_empty() || node.combined_clip_outer_bounds.is_empty() {
+                return
             }
 
-            node.prepare_state_for_children(&mut state, gpu_node_data);
+            node.prepare_state_for_children(&mut state);
             node.children.clone()
         };
 
