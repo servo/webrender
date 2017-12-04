@@ -96,7 +96,7 @@ pub enum TextureFilter {
 pub enum VertexAttributeKind {
     F32,
     U8Norm,
-    U16Norm,
+    I16Norm,
     I32,
     U16,
 }
@@ -250,7 +250,7 @@ impl VertexAttributeKind {
         match *self {
             VertexAttributeKind::F32 => 4,
             VertexAttributeKind::U8Norm => 1,
-            VertexAttributeKind::U16Norm => 2,
+            VertexAttributeKind::I16Norm => 2,
             VertexAttributeKind::I32 => 4,
             VertexAttributeKind::U16 => 2,
         }
@@ -294,11 +294,11 @@ impl VertexAttribute {
                     offset,
                 );
             }
-            VertexAttributeKind::U16Norm => {
+            VertexAttributeKind::I16Norm => {
                 gl.vertex_attrib_pointer(
                     attr_index,
                     self.count as gl::GLint,
-                    gl::UNSIGNED_SHORT,
+                    gl::SHORT,
                     true,
                     stride,
                     offset,
@@ -1403,13 +1403,21 @@ impl Device {
         )
     }
 
-    pub fn bind_vao(&mut self, vao: &VAO) {
+    fn bind_vao_impl(&mut self, id: gl::GLuint) {
         debug_assert!(self.inside_frame);
 
-        if self.bound_vao != vao.id {
-            self.bound_vao = vao.id;
-            self.gl.bind_vertex_array(vao.id);
+        if self.bound_vao != id {
+            self.bound_vao = id;
+            self.gl.bind_vertex_array(id);
         }
+    }
+
+    pub fn bind_vao(&mut self, vao: &VAO) {
+        self.bind_vao_impl(vao.id)
+    }
+
+    pub fn bind_custom_vao(&mut self, vao: &CustomVAO) {
+        self.bind_vao_impl(vao.id)
     }
 
     fn create_vao_with_vbos(
@@ -1505,6 +1513,18 @@ impl Device {
         self.gl.delete_buffers(&[vao.instance_vbo_id.0])
     }
 
+    pub fn update_vbo_data<V>(
+        &mut self,
+        vbo: VBOId,
+        vertices: &[V],
+        usage_hint: VertexUsageHint,
+    ) {
+        debug_assert!(self.inside_frame);
+
+        vbo.bind(self.gl());
+        gl::buffer_data(self.gl(), gl::ARRAY_BUFFER, vertices, usage_hint.to_gl());
+    }
+
     pub fn create_vao_with_new_instances(
         &mut self,
         descriptor: &VertexDescriptor,
@@ -1530,11 +1550,8 @@ impl Device {
         vertices: &[V],
         usage_hint: VertexUsageHint,
     ) {
-        debug_assert!(self.inside_frame);
         debug_assert_eq!(self.bound_vao, vao.id);
-
-        vao.main_vbo_id.bind(self.gl());
-        gl::buffer_data(self.gl(), gl::ARRAY_BUFFER, vertices, usage_hint.to_gl());
+        self.update_vbo_data(vao.main_vbo_id, vertices, usage_hint)
     }
 
     pub fn update_vao_instances<V>(
@@ -1543,12 +1560,10 @@ impl Device {
         instances: &[V],
         usage_hint: VertexUsageHint,
     ) {
-        debug_assert!(self.inside_frame);
         debug_assert_eq!(self.bound_vao, vao.id);
         debug_assert_eq!(vao.instance_stride as usize, mem::size_of::<V>());
 
-        vao.instance_vbo_id.bind(self.gl());
-        gl::buffer_data(self.gl(), gl::ARRAY_BUFFER, instances, usage_hint.to_gl());
+        self.update_vbo_data(vao.instance_vbo_id, instances, usage_hint)
     }
 
     pub fn update_vao_indices<I>(&mut self, vao: &VAO, indices: &[I], usage_hint: VertexUsageHint) {
@@ -1582,6 +1597,11 @@ impl Device {
             gl::UNSIGNED_INT,
             first_vertex as u32 * 4,
         );
+    }
+
+    pub fn draw_nonindexed_points(&mut self, first_vertex: i32, vertex_count: i32) {
+        debug_assert!(self.inside_frame);
+        self.gl.draw_arrays(gl::POINTS, first_vertex, vertex_count);
     }
 
     pub fn draw_nonindexed_lines(&mut self, first_vertex: i32, vertex_count: i32) {

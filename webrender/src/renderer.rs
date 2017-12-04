@@ -446,7 +446,7 @@ const DESC_GPU_CACHE_UPDATE: VertexDescriptor = VertexDescriptor {
         VertexAttribute {
             name: "aPosition",
             count: 2,
-            kind: VertexAttributeKind::U16Norm,
+            kind: VertexAttributeKind::I16Norm,
         },
         VertexAttribute {
             name: "aValue",
@@ -782,6 +782,7 @@ enum CacheBus {
         vao: CustomVAO,
         buf_position: VBOId,
         buf_value: VBOId,
+        count: usize,
     },
 }
 
@@ -795,9 +796,7 @@ struct CacheTexture {
 
 impl CacheTexture {
     fn new(device: &mut Device, use_scatter: bool) -> Self {
-        let texture = device.create_texture(TextureTarget::Default);
-
-        let bus = if use_scatter {
+        let (target, bus) = if use_scatter {
             let program = device
                 .create_program("gpu_cache_update", "", &DESC_GPU_CACHE_UPDATE)
                 .unwrap();
@@ -807,19 +806,21 @@ impl CacheTexture {
                 (&DESC_GPU_CACHE_UPDATE.vertex_attributes[0..1], buf_position),
                 (&DESC_GPU_CACHE_UPDATE.vertex_attributes[1..2], buf_value),
             ]);
-            CacheBus::Scatter {
+            let bus = CacheBus::Scatter {
                 program,
                 vao,
                 buf_position,
                 buf_value,
-            }
+                count: 0,
+            };
+            (TextureTarget::Array, bus)
         } else {
             let pbo = device.create_pbo();
-            CacheBus::PixelBuffer(pbo)
+            (TextureTarget::Default, CacheBus::PixelBuffer(pbo))
         };
 
         CacheTexture {
-            texture,
+            texture: device.create_texture(target),
             bus,
             rows: Vec::new(),
             cpu_blocks: Vec::new(),
@@ -832,7 +833,7 @@ impl CacheTexture {
             CacheBus::PixelBuffer(pbo) => {
                 device.delete_pbo(pbo);
             }
-            CacheBus::Scatter { program, vao, buf_position, buf_value } => {
+            CacheBus::Scatter { program, vao, buf_position, buf_value, .. } => {
                 device.delete_program(program);
                 device.delete_custom_vao(vao);
                 device.delete_vbo(buf_position);
@@ -879,6 +880,12 @@ impl CacheTexture {
         // See if we need to create or resize the texture.
         let current_dimensions = self.texture.get_dimensions();
         if updates.height > current_dimensions.height {
+            let rt_info = match self.bus {
+                CacheBus::PixelBuffer(..) => None,
+                CacheBus::Scatter { .. } => Some(RenderTargetInfo {
+                    has_depth: false,
+                })
+            };
             // Create a f32 texture that can be used for the vertex shader
             // to fetch data from.
             device.init_texture(
@@ -887,7 +894,7 @@ impl CacheTexture {
                 updates.height as u32,
                 ImageFormat::RGBAF32,
                 TextureFilter::Nearest,
-                None,
+                rt_info,
                 1,
                 None,
             );
@@ -904,53 +911,93 @@ impl CacheTexture {
         }
 
         let mut updated_blocks = 0;
-        for update in &updates.updates {
-            updated_blocks += self.apply_patch(update, &updates.blocks);
+
+        match self.bus {
+            CacheBus::PixelBuffer(..) => {
+                for update in &updates.updates {
+                    updated_blocks += self.apply_patch(update, &updates.blocks);
+                }
+            }
+            CacheBus::Scatter { buf_position, buf_value, ref mut count, .. } => {
+                let mut position_data = vec![[!0u16; 2]; updates.blocks.len()];
+                for update in &updates.updates {
+                    match update {
+                        &GpuCacheUpdate::Copy {
+                            block_index,
+                            block_count,
+                            address,
+                        } => {
+                            for i in 0 .. block_count {
+                                // convert the absolute texel position into normalized
+                                position_data[block_index + i] = [
+                                    (((address.u as usize + i) << 16) / MAX_VERTEX_TEXTURE_WIDTH + 1) as u16,
+                                    (((address.v as usize) << 16) / updates.height as usize + 1) as u16,
+                                ];
+                            }
+                            updated_blocks += block_count;
+                        }
+                    }
+                }
+
+                *count = updates.blocks.len();
+                device.update_vbo_data(buf_value, &updates.blocks, VertexUsageHint::Stream);
+                device.update_vbo_data(buf_position, &position_data, VertexUsageHint::Stream);
+            }
         }
+
         updated_blocks
     }
 
     fn flush(&mut self, device: &mut Device) -> usize {
-        let rows_dirty = self.rows
-            .iter()
-            .filter(|row| row.is_dirty)
-            .count();
-        if rows_dirty == 0 {
-            return 0
-        }
-
-        let mut uploader = match self.bus {
+        match self.bus {
             CacheBus::PixelBuffer(ref pbo) => {
-                device.upload_texture(
+                let rows_dirty = self.rows
+                    .iter()
+                    .filter(|row| row.is_dirty)
+                    .count();
+                if rows_dirty == 0 {
+                    return 0
+                }
+
+                let mut uploader = device.upload_texture(
                     &self.texture,
                     pbo,
                     rows_dirty * MAX_VERTEX_TEXTURE_WIDTH,
-                )
+                );
+
+                for (row_index, row) in self.rows.iter_mut().enumerate() {
+                    if !row.is_dirty {
+                        continue;
+                    }
+
+                    let block_index = row_index * MAX_VERTEX_TEXTURE_WIDTH;
+                    let cpu_blocks =
+                        &self.cpu_blocks[block_index .. (block_index + MAX_VERTEX_TEXTURE_WIDTH)];
+                    let rect = DeviceUintRect::new(
+                        DeviceUintPoint::new(0, row_index as u32),
+                        DeviceUintSize::new(MAX_VERTEX_TEXTURE_WIDTH as u32, 1),
+                    );
+
+                    uploader.upload(rect, 0, None, cpu_blocks);
+
+                    row.is_dirty = false;
+                }
+
+                rows_dirty
             }
-            CacheBus::Scatter {..} => {
-                unimplemented!()
+            CacheBus::Scatter { ref program, ref vao, count, .. } => {
+                device.disable_depth();
+                device.set_blend(false);
+                device.bind_program(program);
+                device.bind_custom_vao(vao);
+                device.bind_draw_target(
+                    Some((&self.texture, 0)),
+                    Some(self.texture.get_dimensions()),
+                );
+                device.draw_nonindexed_points(0, count as _);
+                0
             }
-        };
-
-        for (row_index, row) in self.rows.iter_mut().enumerate() {
-            if !row.is_dirty {
-                continue;
-            }
-
-            let block_index = row_index * MAX_VERTEX_TEXTURE_WIDTH;
-            let cpu_blocks =
-                &self.cpu_blocks[block_index .. (block_index + MAX_VERTEX_TEXTURE_WIDTH)];
-            let rect = DeviceUintRect::new(
-                DeviceUintPoint::new(0, row_index as u32),
-                DeviceUintSize::new(MAX_VERTEX_TEXTURE_WIDTH as u32, 1),
-            );
-
-            uploader.upload(rect, 0, None, cpu_blocks);
-
-            row.is_dirty = false;
         }
-
-        rows_dirty
     }
 }
 
