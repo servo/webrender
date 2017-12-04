@@ -71,6 +71,7 @@ use time::precise_time_ns;
 use util::TransformedRectKind;
 
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
+const GPU_CACHE_RESIZE_TEST: bool = false;
 
 const GPU_TAG_BRUSH_SOLID: GpuProfileTag = GpuProfileTag {
     label: "B_Solid",
@@ -843,6 +844,10 @@ impl CacheTexture {
         }
     }
 
+    fn get_height(&self) -> u32 {
+        self.texture.get_dimensions().height
+    }
+
     fn prepare_for_updates(&mut self, device: &mut Device, total_block_count: usize) {
         match self.bus {
             CacheBus::PixelBuffer(..) => {}
@@ -873,7 +878,7 @@ impl CacheTexture {
                 // Ensure that the CPU-side shadow copy of the GPU cache data has enough
                 // rows to apply this patch.
                 while self.rows.len() <= row {
-                  // Add a new row.
+                    // Add a new row.
                     self.rows.push(CacheRow::new());
                     // Add enough GPU blocks for this row.
                     self.cpu_blocks
@@ -937,7 +942,7 @@ impl CacheTexture {
                 ref mut count,
                 ..
             } => {
-                if new_size.height > old_size.height {
+                if new_size.height > old_size.height || GPU_CACHE_RESIZE_TEST {
                     if old_size.height > 0 {
                         device.resize_renderable_texture(&mut self.texture, new_size);
                     } else {
@@ -979,7 +984,7 @@ impl CacheTexture {
 
                 device.fill_vbo(buf_value, &updates.blocks, *count);
                 device.fill_vbo(buf_position, &position_data, *count);
-                *count += updates.blocks.len();
+                *count += position_data.len();
             }
         }
     }
@@ -1021,7 +1026,7 @@ impl CacheTexture {
 
                 rows_dirty
             }
-            CacheBus::Scatter { ref program, ref vao, ref buf_value, .. } => {
+            CacheBus::Scatter { ref program, ref vao, count, .. } => {
                 device.disable_depth();
                 device.set_blend(false);
                 device.bind_program(program);
@@ -1030,7 +1035,6 @@ impl CacheTexture {
                     Some((&self.texture, 0)),
                     Some(self.texture.get_dimensions()),
                 );
-                let count = buf_value.allocated_count();
                 device.draw_nonindexed_points(0, count as _);
                 0
             }
@@ -2793,13 +2797,23 @@ impl Renderer {
         // permanently, we can have this code nicer with `BufferUploader` kind
         // of helper, similarly to how `TextureUploader` API is used.
         self.gpu_cache_texture.prepare_for_updates(&mut self.device, updated_blocks);
-
         self.update_deferred_resolves(frame);
+
+        let gpu_cache_height = self.gpu_cache_texture.get_height();
+        if gpu_cache_height != 0 &&  GPU_CACHE_RESIZE_TEST {
+            self.pending_gpu_cache_updates.push(GpuCacheUpdateList {
+                height: gpu_cache_height,
+                blocks: Vec::new(),
+                updates: Vec::new(),
+            });
+        }
 
         for update_list in self.pending_gpu_cache_updates.drain(..) {
             self.gpu_cache_texture
                 .update(&mut self.device, &update_list);
         }
+
+        let updated_rows = self.gpu_cache_texture.flush(&mut self.device);
 
         // Note: the texture might have changed during the `update`,
         // so we need to bind it here.
@@ -2807,8 +2821,6 @@ impl Renderer {
             TextureSampler::ResourceCache,
             &self.gpu_cache_texture.texture,
         );
-
-        let updated_rows = self.gpu_cache_texture.flush(&mut self.device);
 
         let counters = &mut self.backend_profile_counters.resources.gpu_cache;
         counters.updated_rows.set(updated_rows);
@@ -3826,7 +3838,7 @@ impl Renderer {
             .expect("Found external image, but no handler set!");
 
         let mut list = GpuCacheUpdateList {
-            height: self.gpu_cache_texture.texture.get_dimensions().height,
+            height: self.gpu_cache_texture.get_height(),
             blocks: Vec::new(),
             updates: Vec::new(),
         };
@@ -3877,10 +3889,11 @@ impl Renderer {
 
             list.updates.push(GpuCacheUpdate::Copy {
                 block_index: list.blocks.len(),
-                block_count: 1,
+                block_count: 2,
                 address: deferred_resolve.address,
             });
             list.blocks.push([image.u0, image.v0, image.u1, image.v1].into());
+            list.blocks.push([0f32; 4].into());
         }
 
         self.pending_gpu_cache_updates.push(list);
