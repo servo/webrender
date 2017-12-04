@@ -9,13 +9,11 @@
 //!
 //! [renderer]: struct.Renderer.html
 
-use api::{channel, BlobImageRenderer, FontRenderMode};
-use api::{ColorF, DocumentId, Epoch, PipelineId, RenderApiSender, RenderNotifier};
-use api::{DevicePixel, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, ColorU};
-use api::{ExternalImageId, ExternalImageType, ImageFormat};
-use api::{YUV_COLOR_SPACES, YUV_FORMATS};
-use api::{YuvColorSpace, YuvFormat};
+use api::{BlobImageRenderer, ColorF, ColorU, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
+use api::{DevicePixel, DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentId, Epoch};
+use api::{ExternalImageId, ExternalImageType, FontRenderMode, ImageFormat,  PipelineId};
+use api::{RenderApiSender, RenderNotifier, YUV_COLOR_SPACES, YUV_FORMATS, YuvColorSpace};
+use api::{YuvFormat, channel};
 #[cfg(not(feature = "debugger"))]
 use api::ApiMsg;
 use api::DebugCommand;
@@ -326,6 +324,7 @@ enum TextureSampler {
     // the *first* pass. Items rendered in this target are
     // available as inputs to tasks in any subsequent pass.
     SharedCacheA8,
+    LocalClipRects
 }
 
 impl TextureSampler {
@@ -354,6 +353,7 @@ impl Into<TextureSlot> for TextureSampler {
             TextureSampler::RenderTasks => TextureSlot(7),
             TextureSampler::Dither => TextureSlot(8),
             TextureSampler::SharedCacheA8 => TextureSlot(9),
+            TextureSampler::LocalClipRects => TextureSlot(10),
         }
     }
 }
@@ -433,7 +433,7 @@ const DESC_CLIP: VertexDescriptor = VertexDescriptor {
             kind: VertexAttributeKind::I32,
         },
         VertexAttribute {
-            name: "aClipLayerAddress",
+            name: "aScrollNodeId",
             count: 1,
             kind: VertexAttributeKind::I32,
         },
@@ -1491,6 +1491,7 @@ fn create_prim_shader(
                 ("sRenderTasks", TextureSampler::RenderTasks),
                 ("sResourceCache", TextureSampler::ResourceCache),
                 ("sSharedCacheA8", TextureSampler::SharedCacheA8),
+                ("sLocalClipRects", TextureSampler::LocalClipRects),
             ],
         );
     }
@@ -1518,6 +1519,7 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program
                 ("sRenderTasks", TextureSampler::RenderTasks),
                 ("sResourceCache", TextureSampler::ResourceCache),
                 ("sSharedCacheA8", TextureSampler::SharedCacheA8),
+                ("sLocalClipRects", TextureSampler::LocalClipRects),
             ],
         );
     }
@@ -1630,6 +1632,7 @@ pub struct Renderer {
     clip_vao: VAO,
 
     node_data_texture: VertexDataTexture,
+    local_clip_rects_texture: VertexDataTexture,
     render_task_texture: VertexDataTexture,
     gpu_cache_texture: CacheTexture,
 
@@ -2137,6 +2140,7 @@ impl Renderer {
         let texture_resolver = SourceTextureResolver::new(&mut device);
 
         let node_data_texture = VertexDataTexture::new(&mut device);
+        let local_clip_rects_texture = VertexDataTexture::new(&mut device);
         let render_task_texture = VertexDataTexture::new(&mut device);
 
         let gpu_cache_texture = CacheTexture::new(
@@ -2272,6 +2276,7 @@ impl Renderer {
             blur_vao,
             clip_vao,
             node_data_texture,
+            local_clip_rects_texture,
             render_task_texture,
             pipeline_epoch_map: FastHashMap::default(),
             dither_matrix_texture,
@@ -4027,10 +4032,17 @@ impl Renderer {
             }
         }
 
-        self.node_data_texture
-            .update(&mut self.device, &mut frame.node_data);
-        self.device
-            .bind_texture(TextureSampler::ClipScrollNodes, &self.node_data_texture.texture);
+        self.node_data_texture.update(&mut self.device, &mut frame.node_data);
+        self.device.bind_texture(TextureSampler::ClipScrollNodes, &self.node_data_texture.texture);
+
+        self.local_clip_rects_texture.update(
+            &mut self.device,
+            &mut frame.clip_chain_local_clip_rects
+        );
+        self.device.bind_texture(
+            TextureSampler::LocalClipRects,
+            &self.local_clip_rects_texture.texture
+        );
 
         self.render_task_texture
             .update(&mut self.device, &mut frame.render_tasks.task_data);
@@ -4416,6 +4428,7 @@ impl Renderer {
             self.device.delete_texture(dither_matrix_texture);
         }
         self.node_data_texture.deinit(&mut self.device);
+        self.local_clip_rects_texture.deinit(&mut self.device);
         self.render_task_texture.deinit(&mut self.device);
         self.device.delete_pbo(self.texture_cache_upload_pbo);
         self.texture_resolver.deinit(&mut self.device);

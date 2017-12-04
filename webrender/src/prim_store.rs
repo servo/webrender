@@ -10,13 +10,14 @@ use api::{LineStyle, PipelineId, PremultipliedColorF, TileOffset, WorldToLayerTr
 use api::{YuvColorSpace, YuvFormat};
 use border::BorderCornerInstance;
 use clip_scroll_tree::{CoordinateSystemId, ClipScrollTree};
+use clip_scroll_node::ClipScrollNode;
 use clip::{ClipSource, ClipSourcesHandle, ClipStore};
 use frame_builder::PrimitiveContext;
 use glyph_rasterizer::{FontInstance, FontTransform};
 use internal_types::{FastHashMap};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
-use gpu_types::ClipScrollNodeData;
+use gpu_types::{ClipChainRectIndex, ClipScrollNodeData};
 use picture::{PictureKind, PicturePrimitive, RasterizationSpace};
 use profiler::FrameProfileCounters;
 use render_task::{ClipChain, ClipChainNode, ClipChainNodeIter, ClipWorkItem, RenderTask};
@@ -183,6 +184,7 @@ pub struct PrimitiveMetadata {
     //           storing them here.
     pub local_rect: LayerRect,
     pub local_clip_rect: LayerRect,
+    pub clip_chain_rect_index: ClipChainRectIndex,
     pub is_backface_visible: bool,
     pub screen_rect: Option<DeviceIntRect>,
 
@@ -1089,6 +1091,7 @@ impl PrimitiveStore {
             clip_task_id: None,
             local_rect: *local_rect,
             local_clip_rect: *local_clip_rect,
+            clip_chain_rect_index: ClipChainRectIndex(0),
             is_backface_visible: is_backface_visible,
             screen_rect: None,
             tag,
@@ -1573,6 +1576,11 @@ impl PrimitiveStore {
                         clip_sources: metadata.clip_sources.weak(),
                         coordinate_system_id: prim_coordinate_system_id,
                     },
+                    // The local_clip_rect a property of ClipChain nodes that are ClipScrollNodes.
+                    // It's used to calculate a local clipping rectangle before we reach this
+                    // point, so we can set it to zero here. It should be unused from this point
+                    // on.
+                    local_clip_rect: LayerRect::zero(),
                     screen_inner_rect,
                     combined_outer_screen_rect:
                         combined_outer_rect.unwrap_or_else(DeviceIntRect::zero),
@@ -1668,7 +1676,9 @@ impl PrimitiveStore {
         profile_counters: &mut FrameProfileCounters,
         pic_index: SpecificPrimitiveIndex,
         screen_rect: &DeviceIntRect,
+        clip_chain_rect_index: ClipChainRectIndex,
         node_data: &[ClipScrollNodeData],
+        local_rects: &mut Vec<LayerRect>,
     ) -> Option<LayerRect> {
         // Reset the visibility of this primitive.
         // Do some basic checks first, that can early out
@@ -1736,6 +1746,7 @@ impl PrimitiveStore {
                 cpu_prim_index,
                 screen_rect,
                 node_data,
+                local_rects,
             );
 
             let metadata = &mut self.cpu_metadata[prim_index.0];
@@ -1758,7 +1769,7 @@ impl PrimitiveStore {
                 return None;
             }
 
-            let local_rect = metadata.local_rect.intersection(&metadata.local_clip_rect);
+            let local_rect = metadata.local_clip_rect.intersection(&metadata.local_rect);
             let local_rect = match local_rect {
                 Some(local_rect) => local_rect,
                 None if perform_culling => return None,
@@ -1777,6 +1788,8 @@ impl PrimitiveStore {
             if metadata.screen_rect.is_none() && perform_culling {
                 return None;
             }
+
+            metadata.clip_chain_rect_index = clip_chain_rect_index;
 
             (local_rect, screen_bounding_rect)
         };
@@ -1837,6 +1850,7 @@ impl PrimitiveStore {
         pic_index: SpecificPrimitiveIndex,
         screen_rect: &DeviceIntRect,
         node_data: &[ClipScrollNodeData],
+        local_rects: &mut Vec<LayerRect>,
     ) -> PrimitiveRunLocalRect {
         let mut result = PrimitiveRunLocalRect {
             local_rect_in_actual_parent_space: LayerRect::zero(),
@@ -1886,6 +1900,22 @@ impl PrimitiveStore {
                 scroll_node,
             );
 
+
+            let clip_chain_rect = match perform_culling {
+                true => get_local_clip_rect_for_nodes(scroll_node, clip_node),
+                false => None,
+            };
+
+            let clip_chain_rect_index = match clip_chain_rect {
+                Some(rect) if rect.is_empty() => continue,
+                Some(rect) => {
+                    local_rects.push(rect);
+                    ClipChainRectIndex(local_rects.len() - 1)
+                }
+                None => ClipChainRectIndex(0), // This is no clipping.
+            };
+
+
             for i in 0 .. run.count {
                 let prim_index = PrimitiveIndex(run.base_prim_index.0 + i);
 
@@ -1904,7 +1934,9 @@ impl PrimitiveStore {
                     profile_counters,
                     pic_index,
                     screen_rect,
+                    clip_chain_rect_index,
                     node_data,
+                    local_rects,
                 ) {
                     profile_counters.visible_primitives.inc();
 
@@ -1997,4 +2029,30 @@ fn convert_clip_chain_to_clip_vector(
             Some(node.work_item.clone())
         })
         .collect()
+}
+
+fn get_local_clip_rect_for_nodes(
+    scroll_node: &ClipScrollNode,
+    clip_node: &ClipScrollNode,
+) -> Option<LayerRect> {
+    let local_rect = ClipChainNodeIter { current: clip_node.clip_chain_node.clone() }.fold(
+        None,
+        |combined_local_clip_rect: Option<LayerRect>, node| {
+            if node.work_item.coordinate_system_id != scroll_node.coordinate_system_id {
+                return combined_local_clip_rect;
+            }
+
+            Some(match combined_local_clip_rect {
+                Some(combined_rect) =>
+                    combined_rect.intersection(&node.local_clip_rect).unwrap_or_else(LayerRect::zero),
+                None => node.local_clip_rect,
+            })
+        }
+    );
+
+    match local_rect {
+        Some(local_rect) =>
+            Some(scroll_node.coordinate_system_relative_transform.unapply(&local_rect)),
+        None => None,
+    }
 }

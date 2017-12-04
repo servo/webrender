@@ -16,9 +16,9 @@ use device::Texture;
 use euclid::{TypedTransform3D, vec3};
 use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle, GpuCacheUpdateList};
-use gpu_types::{BlurDirection, BlurInstance, BrushInstance, BrushImageKind, ClipMaskInstance};
+use gpu_types::{BlurDirection, BlurInstance, BrushImageKind, BrushInstance, ClipChainRectIndex};
+use gpu_types::{ClipMaskInstance, ClipScrollNodeData, ClipScrollNodeIndex};
 use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
-use gpu_types::{ClipScrollNodeIndex, ClipScrollNodeData};
 use internal_types::{FastHashMap, SourceTexture};
 use internal_types::{BatchTextures, RenderPassIndex};
 use picture::{PictureCompositeMode, PictureKind, PicturePrimitive, RasterizationSpace};
@@ -48,7 +48,6 @@ const MIN_TARGET_SIZE: u32 = 2048;
 impl PrimitiveRun {
     fn add_to_batch(
         &self,
-        clip_id: ClipScrollNodeIndex,
         scroll_id: ClipScrollNodeIndex,
         batch_list: &mut BatchList,
         ctx: &RenderTargetContext,
@@ -63,14 +62,14 @@ impl PrimitiveRun {
         for i in 0 .. self.count {
             let prim_index = PrimitiveIndex(self.base_prim_index.0 + i);
 
-            let md = &ctx.prim_store.cpu_metadata[prim_index.0];
+            let metadata = &ctx.prim_store.cpu_metadata[prim_index.0];
 
             // Now that we walk the primitive runs in order to add
             // items to batches, we need to check if they are
             // visible here.
-            if md.screen_rect.is_some() {
+            if metadata.screen_rect.is_some() {
                 add_to_batch(
-                    clip_id,
+                    metadata.clip_chain_rect_index,
                     scroll_id,
                     prim_index,
                     batch_list,
@@ -338,7 +337,7 @@ pub struct AlphaBatcher {
 // example if it encounters a picture where the items
 // in that picture are being drawn into the same target.
 fn add_to_batch(
-    clip_id: ClipScrollNodeIndex,
+    clip_chain_rect_index: ClipChainRectIndex,
     scroll_id: ClipScrollNodeIndex,
     prim_index: PrimitiveIndex,
     batch_list: &mut BatchList,
@@ -368,7 +367,7 @@ fn add_to_batch(
         prim_cache_address,
         task_address,
         clip_task_address,
-        clip_id,
+        clip_chain_rect_index,
         scroll_id,
         z,
     );
@@ -381,7 +380,7 @@ fn add_to_batch(
             let base_instance = BrushInstance {
                 picture_address: task_address,
                 prim_address: prim_cache_address,
-                clip_id,
+                clip_chain_rect_index,
                 scroll_id,
                 clip_task_address,
                 z,
@@ -640,7 +639,7 @@ fn add_to_batch(
                             let instance = BrushInstance {
                                 picture_address: task_address,
                                 prim_address: prim_cache_address,
-                                clip_id,
+                                clip_chain_rect_index,
                                 scroll_id,
                                 clip_task_address,
                                 z,
@@ -670,7 +669,7 @@ fn add_to_batch(
                             let instance = BrushInstance {
                                 picture_address: task_address,
                                 prim_address: prim_cache_address,
-                                clip_id,
+                                clip_chain_rect_index,
                                 scroll_id,
                                 clip_task_address,
                                 z,
@@ -748,7 +747,7 @@ fn add_to_batch(
                                             let instance = BrushInstance {
                                                 picture_address: task_address,
                                                 prim_address: prim_cache_address,
-                                                clip_id,
+                                                clip_chain_rect_index,
                                                 scroll_id,
                                                 clip_task_address,
                                                 z,
@@ -1037,14 +1036,9 @@ impl PicturePrimitive {
 
         // Add each run in this picture to the batch.
         for run in &self.runs {
-            let clip_node = &ctx.clip_scroll_tree.nodes[&run.clip_and_scroll.clip_node_id()];
-            let clip_id = clip_node.node_data_index;
-
             let scroll_node = &ctx.clip_scroll_tree.nodes[&run.clip_and_scroll.scroll_node_id];
             let scroll_id = scroll_node.node_data_index;
-
             run.add_to_batch(
-                clip_id,
                 scroll_id,
                 batch_list,
                 ctx,
@@ -1536,7 +1530,7 @@ impl RenderTarget for ColorRenderTarget {
                                             sub_prim_address,
                                             task_index,
                                             RenderTaskAddress(0),
-                                            ClipScrollNodeIndex(0),
+                                            ClipChainRectIndex(0),
                                             ClipScrollNodeIndex(0),
                                             0,
                                         ); // z is disabled for rendering cache primitives
@@ -1733,7 +1727,7 @@ impl RenderTarget for AlphaRenderTarget {
                                             //           tasks support clip masks and
                                             //           transform primitives, these
                                             //           will need to be filled out!
-                                            clip_id: ClipScrollNodeIndex(0),
+                                            clip_chain_rect_index: ClipChainRectIndex(0),
                                             scroll_id: ClipScrollNodeIndex(0),
                                             clip_task_address: RenderTaskAddress(0),
                                             z: 0,
@@ -2082,6 +2076,7 @@ pub struct Frame {
     pub profile_counters: FrameProfileCounters,
 
     pub node_data: Vec<ClipScrollNodeData>,
+    pub clip_chain_local_clip_rects: Vec<LayerRect>,
     pub render_tasks: RenderTaskTree,
 
     // List of updates that need to be pushed to the
