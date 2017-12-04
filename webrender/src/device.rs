@@ -411,7 +411,7 @@ impl<V> VBO<V> {
     pub fn streaw_with<'a>(&self, attributes: &'a [VertexAttribute]) -> Stream<'a> {
         debug_assert_eq!(
             mem::size_of::<V>(),
-            attributes.iter().map(|a| a.size_in_bytes() as usize).sum()
+            attributes.iter().map(|a| a.size_in_bytes() as usize).sum::<usize>()
         );
         Stream {
             attributes,

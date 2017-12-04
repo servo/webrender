@@ -777,7 +777,11 @@ impl CacheRow {
 }
 
 enum CacheBus {
-    PixelBuffer(PBO),
+    PixelBuffer {
+        buffer: PBO,
+        rows: Vec<CacheRow>,
+        cpu_blocks: Vec<GpuBlockData>,
+    },
     Scatter {
         program: Program,
         vao: CustomVAO,
@@ -791,8 +795,6 @@ enum CacheBus {
 struct CacheTexture {
     texture: Texture,
     bus: CacheBus,
-    rows: Vec<CacheRow>,
-    cpu_blocks: Vec<GpuBlockData>,
 }
 
 impl CacheTexture {
@@ -817,25 +819,27 @@ impl CacheTexture {
                 count: 0,
             }
         } else {
-            let pbo = device.create_pbo();
-            CacheBus::PixelBuffer(pbo)
+            let buffer = device.create_pbo();
+            CacheBus::PixelBuffer {
+                buffer,
+                rows: Vec::new(),
+                cpu_blocks: Vec::new(),
+            }
         };
 
         CacheTexture {
             texture,
             bus,
-            rows: Vec::new(),
-            cpu_blocks: Vec::new(),
         }
     }
 
     fn deinit(self, device: &mut Device) {
         device.delete_texture(self.texture);
         match self.bus {
-            CacheBus::PixelBuffer(pbo) => {
-                device.delete_pbo(pbo);
+            CacheBus::PixelBuffer { buffer, ..} => {
+                device.delete_pbo(buffer);
             }
-            CacheBus::Scatter { program, vao, buf_position, buf_value, .. } => {
+            CacheBus::Scatter { program, vao, buf_position, buf_value, ..} => {
                 device.delete_program(program);
                 device.delete_custom_vao(vao);
                 device.delete_vbo(buf_position);
@@ -850,7 +854,7 @@ impl CacheTexture {
 
     fn prepare_for_updates(&mut self, device: &mut Device, total_block_count: usize) {
         match self.bus {
-            CacheBus::PixelBuffer(..) => {}
+            CacheBus::PixelBuffer {..} => {}
             CacheBus::Scatter {
                 ref mut buf_position,
                 ref mut buf_value,
@@ -866,47 +870,13 @@ impl CacheTexture {
         }
     }
 
-    fn apply_patch(&mut self, update: &GpuCacheUpdate, blocks: &[GpuBlockData]) -> usize {
-        match update {
-            &GpuCacheUpdate::Copy {
-                block_index,
-                block_count,
-                address,
-            } => {
-                let row = address.v as usize;
-
-                // Ensure that the CPU-side shadow copy of the GPU cache data has enough
-                // rows to apply this patch.
-                while self.rows.len() <= row {
-                    // Add a new row.
-                    self.rows.push(CacheRow::new());
-                    // Add enough GPU blocks for this row.
-                    self.cpu_blocks
-                        .extend_from_slice(&[GpuBlockData::empty(); MAX_VERTEX_TEXTURE_WIDTH]);
-                }
-
-                // This row is dirty (needs to be updated in GPU texture).
-                self.rows[row].is_dirty = true;
-
-                // Copy the blocks from the patch array in the shadow CPU copy.
-                let block_offset = row * MAX_VERTEX_TEXTURE_WIDTH + address.u as usize;
-                let data = &mut self.cpu_blocks[block_offset .. (block_offset + block_count)];
-                for i in 0 .. block_count {
-                    data[i] = blocks[block_index + i];
-                }
-
-                block_count
-            }
-        }
-    }
-
     fn update(&mut self, device: &mut Device, updates: &GpuCacheUpdateList) {
         // See if we need to create or resize the texture.
         let old_size = self.texture.get_dimensions();
         let new_size = DeviceUintSize::new(MAX_VERTEX_TEXTURE_WIDTH as _, updates.height);
 
         match self.bus {
-            CacheBus::PixelBuffer(..) => {
+            CacheBus::PixelBuffer { ref mut rows, ref mut cpu_blocks, .. } => {
                 if new_size.height > old_size.height {
                     // Create a f32 texture that can be used for the vertex shader
                     // to fetch data from.
@@ -926,14 +896,42 @@ impl CacheTexture {
                         // If we had to resize the texture, just mark all rows
                         // as dirty so they will be uploaded to the texture
                         // during the next flush.
-                        for row in &mut self.rows {
+                        for row in rows.iter_mut() {
                             row.is_dirty = true;
                         }
                     }
                 }
 
                 for update in &updates.updates {
-                    self.apply_patch(update, &updates.blocks);
+                    match update {
+                        &GpuCacheUpdate::Copy {
+                            block_index,
+                            block_count,
+                            address,
+                        } => {
+                            let row = address.v as usize;
+
+                            // Ensure that the CPU-side shadow copy of the GPU cache data has enough
+                            // rows to apply this patch.
+                            while rows.len() <= row {
+                                // Add a new row.
+                                rows.push(CacheRow::new());
+                                // Add enough GPU blocks for this row.
+                                cpu_blocks
+                                    .extend_from_slice(&[GpuBlockData::empty(); MAX_VERTEX_TEXTURE_WIDTH]);
+                            }
+
+                            // This row is dirty (needs to be updated in GPU texture).
+                            rows[row].is_dirty = true;
+
+                            // Copy the blocks from the patch array in the shadow CPU copy.
+                            let block_offset = row * MAX_VERTEX_TEXTURE_WIDTH + address.u as usize;
+                            let data = &mut cpu_blocks[block_offset .. (block_offset + block_count)];
+                            for i in 0 .. block_count {
+                                data[i] = updates.blocks[block_index + i];
+                            }
+                        }
+                    }
                 }
             }
             CacheBus::Scatter {
@@ -991,8 +989,8 @@ impl CacheTexture {
 
     fn flush(&mut self, device: &mut Device) -> usize {
         match self.bus {
-            CacheBus::PixelBuffer(ref pbo) => {
-                let rows_dirty = self.rows
+            CacheBus::PixelBuffer { ref buffer, ref mut rows, ref cpu_blocks } => {
+                let rows_dirty = rows
                     .iter()
                     .filter(|row| row.is_dirty)
                     .count();
@@ -1002,18 +1000,18 @@ impl CacheTexture {
 
                 let mut uploader = device.upload_texture(
                     &self.texture,
-                    pbo,
+                    buffer,
                     rows_dirty * MAX_VERTEX_TEXTURE_WIDTH,
                 );
 
-                for (row_index, row) in self.rows.iter_mut().enumerate() {
+                for (row_index, row) in rows.iter_mut().enumerate() {
                     if !row.is_dirty {
                         continue;
                     }
 
                     let block_index = row_index * MAX_VERTEX_TEXTURE_WIDTH;
                     let cpu_blocks =
-                        &self.cpu_blocks[block_index .. (block_index + MAX_VERTEX_TEXTURE_WIDTH)];
+                        &cpu_blocks[block_index .. (block_index + MAX_VERTEX_TEXTURE_WIDTH)];
                     let rect = DeviceUintRect::new(
                         DeviceUintPoint::new(0, row_index as u32),
                         DeviceUintSize::new(MAX_VERTEX_TEXTURE_WIDTH as u32, 1),
