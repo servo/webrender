@@ -10,7 +10,7 @@ attribute vec2 aPosition;
 
 void main() {
 	vData = aValue;
-	gl_Position = vec4(aPosition, 0.0, 1.0);
+	gl_Position = vec4(aPosition * 2.0 - 1.0, 0.0, 1.0);
 }
 
 #endif //WR_VERTEX_SHADER

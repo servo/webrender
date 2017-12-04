@@ -96,7 +96,7 @@ pub enum TextureFilter {
 pub enum VertexAttributeKind {
     F32,
     U8Norm,
-    I16Norm,
+    U16Norm,
     I32,
     U16,
 }
@@ -250,7 +250,7 @@ impl VertexAttributeKind {
         match *self {
             VertexAttributeKind::F32 => 4,
             VertexAttributeKind::U8Norm => 1,
-            VertexAttributeKind::I16Norm => 2,
+            VertexAttributeKind::U16Norm => 2,
             VertexAttributeKind::I32 => 4,
             VertexAttributeKind::U16 => 2,
         }
@@ -294,11 +294,11 @@ impl VertexAttribute {
                     offset,
                 );
             }
-            VertexAttributeKind::I16Norm => {
+            VertexAttributeKind::U16Norm => {
                 gl.vertex_attrib_pointer(
                     attr_index,
                     self.count as gl::GLint,
-                    gl::SHORT,
+                    gl::UNSIGNED_SHORT,
                     true,
                     stride,
                     offset,
@@ -808,37 +808,29 @@ impl Device {
         self.frame_id
     }
 
+    fn bind_texture_impl(&mut self, slot: TextureSlot, id: gl::GLuint, target: gl::GLenum) {
+        debug_assert!(self.inside_frame);
+
+        if self.bound_textures[slot.0] != id {
+            self.bound_textures[slot.0] = id;
+            self.gl.active_texture(gl::TEXTURE0 + slot.0 as gl::GLuint);
+            self.gl.bind_texture(target, id);
+            self.gl.active_texture(gl::TEXTURE0);
+        }
+    }
+
     pub fn bind_texture<S>(&mut self, sampler: S, texture: &Texture)
     where
         S: Into<TextureSlot>,
     {
-        debug_assert!(self.inside_frame);
-
-        let sampler_index = sampler.into().0;
-        if self.bound_textures[sampler_index] != texture.id {
-            self.bound_textures[sampler_index] = texture.id;
-            self.gl
-                .active_texture(gl::TEXTURE0 + sampler_index as gl::GLuint);
-            self.gl.bind_texture(texture.target, texture.id);
-            self.gl.active_texture(gl::TEXTURE0);
-        }
+        self.bind_texture_impl(sampler.into(), texture.id, texture.target);
     }
 
     pub fn bind_external_texture<S>(&mut self, sampler: S, external_texture: &ExternalTexture)
     where
         S: Into<TextureSlot>,
     {
-        debug_assert!(self.inside_frame);
-
-        let sampler_index = sampler.into().0;
-        if self.bound_textures[sampler_index] != external_texture.id {
-            self.bound_textures[sampler_index] = external_texture.id;
-            self.gl
-                .active_texture(gl::TEXTURE0 + sampler_index as gl::GLuint);
-            self.gl
-                .bind_texture(external_texture.target, external_texture.id);
-            self.gl.active_texture(gl::TEXTURE0);
-        }
+        self.bind_texture_impl(sampler.into(), external_texture.id, external_texture.target);
     }
 
     pub fn bind_read_target(&mut self, texture_and_layer: Option<(&Texture, i32)>) {
@@ -1039,7 +1031,6 @@ impl Device {
         is_resized: bool,
     ) {
         assert!(texture.layer_count > 0);
-        assert_eq!(texture.target, gl::TEXTURE_2D_ARRAY);
 
         let needed_layer_count = texture.layer_count - texture.fbo_ids.len() as i32;
         let allocate_color = needed_layer_count != 0 || is_resized;
@@ -1049,18 +1040,36 @@ impl Device {
                 gl_texture_formats_for_image_format(&*self.gl, texture.format);
             let type_ = gl_type_for_texture_format(texture.format);
 
-            self.gl.tex_image_3d(
-                texture.target,
-                0,
-                internal_format as gl::GLint,
-                texture.width as gl::GLint,
-                texture.height as gl::GLint,
-                texture.layer_count,
-                0,
-                gl_format,
-                type_,
-                None,
-            );
+            match texture.target {
+                gl::TEXTURE_2D_ARRAY => {
+                    self.gl.tex_image_3d(
+                        texture.target,
+                        0,
+                        internal_format as _,
+                        texture.width as _,
+                        texture.height as _,
+                        texture.layer_count,
+                        0,
+                        gl_format,
+                        type_,
+                        None,
+                    )
+                }
+                _ => {
+                    assert_eq!(texture.layer_count, 1);
+                    self.gl.tex_image_2d(
+                        texture.target,
+                        0,
+                        internal_format as _,
+                        texture.width as _,
+                        texture.height as _,
+                        0,
+                        gl_format,
+                        type_,
+                        None,
+                    )
+                }
+            }
         }
 
         if needed_layer_count > 0 {
@@ -1106,13 +1115,28 @@ impl Device {
         if allocate_color || allocate_depth {
             for (fbo_index, &fbo_id) in texture.fbo_ids.iter().enumerate() {
                 self.bind_external_draw_target(fbo_id);
-                self.gl.framebuffer_texture_layer(
-                    gl::DRAW_FRAMEBUFFER,
-                    gl::COLOR_ATTACHMENT0,
-                    texture.id,
-                    0,
-                    fbo_index as gl::GLint,
-                );
+                match texture.target {
+                    gl::TEXTURE_2D_ARRAY => {
+                        self.gl.framebuffer_texture_layer(
+                            gl::DRAW_FRAMEBUFFER,
+                            gl::COLOR_ATTACHMENT0,
+                            texture.id,
+                            0,
+                            fbo_index as gl::GLint,
+                        )
+                    }
+                    _ => {
+                        assert_eq!(fbo_index, 0);
+                        self.gl.framebuffer_texture_2d(
+                            gl::DRAW_FRAMEBUFFER,
+                            gl::COLOR_ATTACHMENT0,
+                            texture.target,
+                            texture.id,
+                            0,
+                        )
+                    }
+                }
+
                 self.gl.framebuffer_renderbuffer(
                     gl::DRAW_FRAMEBUFFER,
                     gl::DEPTH_ATTACHMENT,

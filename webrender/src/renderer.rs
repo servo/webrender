@@ -446,7 +446,7 @@ const DESC_GPU_CACHE_UPDATE: VertexDescriptor = VertexDescriptor {
         VertexAttribute {
             name: "aPosition",
             count: 2,
-            kind: VertexAttributeKind::I16Norm,
+            kind: VertexAttributeKind::U16Norm,
         },
         VertexAttribute {
             name: "aValue",
@@ -796,7 +796,9 @@ struct CacheTexture {
 
 impl CacheTexture {
     fn new(device: &mut Device, use_scatter: bool) -> Self {
-        let (target, bus) = if use_scatter {
+        let texture = device.create_texture(TextureTarget::Default);
+
+        let bus = if use_scatter {
             let program = device
                 .create_program("gpu_cache_update", "", &DESC_GPU_CACHE_UPDATE)
                 .unwrap();
@@ -806,21 +808,20 @@ impl CacheTexture {
                 buf_position.streaw_with(&DESC_GPU_CACHE_UPDATE.vertex_attributes[0..1]),
                 buf_value   .streaw_with(&DESC_GPU_CACHE_UPDATE.vertex_attributes[1..2]),
             ]);
-            let bus = CacheBus::Scatter {
+            CacheBus::Scatter {
                 program,
                 vao,
                 buf_position,
                 buf_value,
                 count: 0,
-            };
-            (TextureTarget::Array, bus)
+            }
         } else {
             let pbo = device.create_pbo();
-            (TextureTarget::Default, CacheBus::PixelBuffer(pbo))
+            CacheBus::PixelBuffer(pbo)
         };
 
         CacheTexture {
-            texture: device.create_texture(target),
+            texture,
             bus,
             rows: Vec::new(),
             cpu_blocks: Vec::new(),

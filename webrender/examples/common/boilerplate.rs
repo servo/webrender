@@ -136,6 +136,7 @@ pub fn main_wrapper<E: Example>(
         precache_shaders: E::PRECACHE_SHADERS,
         device_pixel_ratio,
         clear_color: Some(ColorF::new(0.3, 0.0, 0.0, 1.0)),
+        //scatter_gpu_cache_updates: false,
         ..options.unwrap_or(webrender::RendererOptions::default())
     };
 
