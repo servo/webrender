@@ -30,7 +30,7 @@ use device::{DepthFunction, Device, FrameId, Program, UploadMethod, Texture,
 use device::{get_gl_format_bgra, ExternalTexture, FBOId, TextureSlot, VertexAttribute,
              VertexAttributeKind};
 use device::{FileWatcherHandler, ShaderError, TextureFilter, TextureTarget,
-             VertexUsageHint, VAO, CustomVAO, VBOId};
+             VertexUsageHint, VAO, VBO, CustomVAO};
 use device::ProgramCache;
 use euclid::{rect, TypedScale, Transform3D};
 use frame_builder::FrameBuilderConfig;
@@ -780,8 +780,8 @@ enum CacheBus {
     Scatter {
         program: Program,
         vao: CustomVAO,
-        buf_position: VBOId,
-        buf_value: VBOId,
+        buf_position: VBO<[u16; 2]>,
+        buf_value: VBO<GpuBlockData>,
         count: usize,
     },
 }
@@ -803,8 +803,8 @@ impl CacheTexture {
             let buf_position = device.create_vbo();
             let buf_value = device.create_vbo();
             let vao = device.create_custom_vao(&[
-                (&DESC_GPU_CACHE_UPDATE.vertex_attributes[0..1], buf_position),
-                (&DESC_GPU_CACHE_UPDATE.vertex_attributes[1..2], buf_value),
+                buf_position.streaw_with(&DESC_GPU_CACHE_UPDATE.vertex_attributes[0..1]),
+                buf_value   .streaw_with(&DESC_GPU_CACHE_UPDATE.vertex_attributes[1..2]),
             ]);
             let bus = CacheBus::Scatter {
                 program,
@@ -838,6 +838,24 @@ impl CacheTexture {
                 device.delete_custom_vao(vao);
                 device.delete_vbo(buf_position);
                 device.delete_vbo(buf_value);
+            }
+        }
+    }
+
+    fn prepare_for_updates(&mut self, device: &mut Device, total_block_count: usize) {
+        match self.bus {
+            CacheBus::PixelBuffer(..) => {}
+            CacheBus::Scatter {
+                ref mut buf_position,
+                ref mut buf_value,
+                ref mut count,
+                ..
+            } => {
+                *count = 0;
+                if total_block_count > buf_value.allocated_count() {
+                    device.allocate_vbo(buf_position, total_block_count, VertexUsageHint::Stream);
+                    device.allocate_vbo(buf_value,    total_block_count, VertexUsageHint::Stream);
+                }
             }
         }
     }
@@ -918,8 +936,15 @@ impl CacheTexture {
                     updated_blocks += self.apply_patch(update, &updates.blocks);
                 }
             }
-            CacheBus::Scatter { buf_position, buf_value, ref mut count, .. } => {
+            CacheBus::Scatter {
+                ref buf_position,
+                ref buf_value,
+                ref mut count,
+                ..
+            } => {
+                //TODO: re-use this heap allocation
                 let mut position_data = vec![[!0u16; 2]; updates.blocks.len()];
+
                 for update in &updates.updates {
                     match update {
                         &GpuCacheUpdate::Copy {
@@ -939,9 +964,9 @@ impl CacheTexture {
                     }
                 }
 
-                *count = updates.blocks.len();
-                device.update_vbo_data(buf_value, &updates.blocks, VertexUsageHint::Stream);
-                device.update_vbo_data(buf_position, &position_data, VertexUsageHint::Stream);
+                device.fill_vbo(buf_value, &updates.blocks, *count);
+                device.fill_vbo(buf_position, &position_data, *count);
+                *count += updates.blocks.len();
             }
         }
 
@@ -985,7 +1010,7 @@ impl CacheTexture {
 
                 rows_dirty
             }
-            CacheBus::Scatter { ref program, ref vao, count, .. } => {
+            CacheBus::Scatter { ref program, ref vao, ref buf_value, .. } => {
                 device.disable_depth();
                 device.set_blend(false);
                 device.bind_program(program);
@@ -994,6 +1019,7 @@ impl CacheTexture {
                     Some((&self.texture, 0)),
                     Some(self.texture.get_dimensions()),
                 );
+                let count = buf_value.allocated_count();
                 device.draw_nonindexed_points(0, count as _);
                 0
             }
@@ -2751,9 +2777,19 @@ impl Renderer {
 
     fn update_gpu_cache(&mut self, frame: &Frame) {
         let _gm = self.gpu_profile.start_marker("gpu cache update");
-        let mut updated_blocks = 0;
+
+        let updated_blocks = self.pending_gpu_cache_updates
+            .iter()
+            .map(|update_list| update_list.blocks.len())
+            .sum();
+
+        //Note: if we decide to switch to scatter-style GPU cache update
+        // permanently, we can have this code nicer with `BufferUploader` kind
+        // of helper, similarly to how `TextureUploader` API is used.
+        self.gpu_cache_texture.prepare_for_updates(&mut self.device, updated_blocks);
+
         for update_list in self.pending_gpu_cache_updates.drain(..) {
-            updated_blocks += self.gpu_cache_texture
+            self.gpu_cache_texture
                 .update(&mut self.device, &update_list);
         }
         self.update_deferred_resolves(frame);

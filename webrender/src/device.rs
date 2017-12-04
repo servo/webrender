@@ -391,6 +391,41 @@ impl FBOId {
     }
 }
 
+pub struct Stream<'a> {
+    attributes: &'a [VertexAttribute],
+    vbo: VBOId,
+}
+
+pub struct VBO<V> {
+    id: gl::GLuint,
+    target: gl::GLenum,
+    allocated_count: usize,
+    marker: PhantomData<V>,
+}
+
+impl<V> VBO<V> {
+    pub fn allocated_count(&self) -> usize {
+        self.allocated_count
+    }
+
+    pub fn streaw_with<'a>(&self, attributes: &'a [VertexAttribute]) -> Stream<'a> {
+        debug_assert_eq!(
+            mem::size_of::<V>(),
+            attributes.iter().map(|a| a.size_in_bytes() as usize).sum()
+        );
+        Stream {
+            attributes,
+            vbo: VBOId(self.id),
+        }
+    }
+}
+
+impl<T> Drop for VBO<T> {
+    fn drop(&mut self) {
+        debug_assert!(thread::panicking() || self.id == 0);
+    }
+}
+
 pub struct ExternalTexture {
     id: gl::GLuint,
     target: gl::GLuint,
@@ -1452,7 +1487,7 @@ impl Device {
 
     pub fn create_custom_vao(
         &mut self,
-        streams: &[(&[VertexAttribute], VBOId)],
+        streams: &[Stream],
     ) -> CustomVAO {
         debug_assert!(self.inside_frame);
 
@@ -1460,12 +1495,15 @@ impl Device {
         self.gl.bind_vertex_array(vao_id);
 
         let mut attrib_index = 0;
-        for &(attributes, vbo) in streams {
+        for stream in streams {
             VertexDescriptor::bind_attributes(
-                attributes, attrib_index, 0,
-                self.gl(), vbo,
+                stream.attributes,
+                attrib_index,
+                0,
+                self.gl(),
+                stream.vbo,
             );
-            attrib_index += attributes.len();
+            attrib_index += stream.attributes.len();
         }
 
         self.gl.bind_vertex_array(0);
@@ -1480,14 +1518,19 @@ impl Device {
         vao.id = 0;
     }
 
-    pub fn create_vbo(&mut self) -> VBOId {
+    pub fn create_vbo<T>(&mut self) -> VBO<T> {
         let ids = self.gl.gen_buffers(1);
-        VBOId(ids[0])
+        VBO {
+            id: ids[0],
+            target: gl::ARRAY_BUFFER,
+            allocated_count: 0,
+            marker: PhantomData,
+        }
     }
 
-    pub fn delete_vbo(&mut self, mut vbo: VBOId) {
-        self.gl.delete_buffers(&[vbo.0]);
-        vbo.0 = 0;
+    pub fn delete_vbo<T>(&mut self, mut vbo: VBO<T>) {
+        self.gl.delete_buffers(&[vbo.id]);
+        vbo.id = 0;
     }
 
     pub fn create_vao(&mut self, descriptor: &VertexDescriptor) -> VAO {
@@ -1513,7 +1556,44 @@ impl Device {
         self.gl.delete_buffers(&[vao.instance_vbo_id.0])
     }
 
-    pub fn update_vbo_data<V>(
+    pub fn allocate_vbo<V>(
+        &mut self,
+        vbo: &mut VBO<V>,
+        count: usize,
+        usage_hint: VertexUsageHint,
+    ) {
+        debug_assert!(self.inside_frame);
+        vbo.allocated_count = count;
+
+        self.gl.bind_buffer(vbo.target, vbo.id);
+        self.gl.buffer_data_untyped(
+            vbo.target,
+            (count * mem::size_of::<V>()) as _,
+            ptr::null(),
+            usage_hint.to_gl(),
+        );
+    }
+
+    pub fn fill_vbo<V>(
+        &mut self,
+        vbo: &VBO<V>,
+        data: &[V],
+        offset: usize,
+    ) {
+        debug_assert!(self.inside_frame);
+        assert!(offset + data.len() <= vbo.allocated_count);
+        let stride = mem::size_of::<V>();
+
+        self.gl.bind_buffer(vbo.target, vbo.id);
+        self.gl.buffer_sub_data_untyped(
+            vbo.target,
+            (offset * stride) as _,
+            (data.len() * stride) as _,
+            data.as_ptr() as _,
+        );
+    }
+
+    fn update_vbo_data<V>(
         &mut self,
         vbo: VBOId,
         vertices: &[V],
