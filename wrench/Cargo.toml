@@ -16,7 +16,7 @@ servo-glutin = "0.13"
 app_units = "0.5.6"
 image = "0.17"
 clap = { version = "2", features = ["yaml"] }
-lazy_static = "0.2"
+lazy_static = "1"
 yaml-rust = { git = "https://github.com/vvuk/yaml-rust", features = ["preserve_order"] }
 serde_json = "1.0"
 ron = "0.1.3"
