@@ -990,13 +990,11 @@ impl CacheTexture {
                             block_count,
                             address,
                         } => {
+                            // Convert the absolute texel position into normalized
+                            let y = ((2*address.v as usize + 1) << 15) / size.height;
                             for i in 0 .. block_count {
-                                // Convert the absolute texel position into normalized
-                                // Note: adding 1 allows us to avoid being on the pixel edge
-                                position_data[block_index + i] = [
-                                    (((address.u as usize + i) << 16) / size.width + 1) as u16,
-                                    (((address.v as usize) << 16) / size.height + 1) as u16,
-                                ];
+                                let x = ((2*address.u as usize + 2*i + 1) << 15) / size.width;
+                                position_data[block_index + i] = [x as _, y as _];
                             }
                         }
                     }
@@ -2812,7 +2810,7 @@ impl Renderer {
             .pending_gpu_cache_updates
             .iter()
             .fold((0, 0), |(count, height), list| {
-                (count + list.blocks.len(), height.max(list.height))
+                (count + list.blocks.len(), cmp::max(height, list.height))
             });
 
         //Note: if we decide to switch to scatter-style GPU cache update
@@ -4356,6 +4354,21 @@ impl Renderer {
         let mut pixels = vec![0u8; (4 * rect.size.width * rect.size.height) as usize];
         self.read_pixels_into(rect, ReadPixelsFormat::Rgba8, &mut pixels);
         pixels
+    }
+
+    pub fn read_gpu_cache(&mut self) -> (DeviceUintSize, Vec<u8>) {
+        let size = self.gpu_cache_texture.texture.get_dimensions();
+        let mut texels = vec![0u8; 4 * (size.width * size.height) as usize];
+        self.device.begin_frame();
+        self.device.bind_read_target(Some((&self.gpu_cache_texture.texture, 0)));
+        self.read_pixels_into(
+            DeviceUintRect::new(DeviceUintPoint::zero(), size),
+            ReadPixelsFormat::Rgba8,
+            &mut texels,
+        );
+        self.device.bind_read_target(None);
+        self.device.end_frame();
+        (size, texels)
     }
 
     pub fn read_pixels_into(

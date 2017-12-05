@@ -65,6 +65,11 @@ subcommands:
     - png:
         about: render frame described by YAML and save it to a png file
         args:
+          - surface:
+              short: s
+              long: surface
+              help: 'What rendered surface to save as PNG, one of: screen, gpu-cache'
+              takes_value: true
           - INPUT:
               help: The input YAML file
               required: true
