@@ -175,7 +175,7 @@ impl FontContext {
         if font.flags.contains(FontInstanceFlags::NO_AUTOHINT) {
             load_flags |= FT_LOAD_NO_AUTOHINT;
         }
-        if font.flags.contains(FontInstanceFlags::EMBEDDED_BITMAPS) {
+        if !font.flags.contains(FontInstanceFlags::EMBEDDED_BITMAPS) {
             load_flags |= FT_LOAD_NO_BITMAP;
         }
         if font.flags.contains(FontInstanceFlags::VERTICAL_LAYOUT) {
