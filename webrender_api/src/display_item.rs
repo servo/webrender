@@ -182,7 +182,7 @@ pub struct ScrollFrameDisplayItem {
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RectangleDisplayItem {
-    pub color: ColorF,
+    pub color: PropertyBinding<ColorF>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -338,7 +338,7 @@ pub enum BoxShadowClipMode {
 pub struct BoxShadowDisplayItem {
     pub box_bounds: LayoutRect,
     pub offset: LayoutVector2D,
-    pub color: ColorF,
+    pub color: PropertyBinding<ColorF>,
     pub blur_radius: f32,
     pub spread_radius: f32,
     pub border_radius: BorderRadius,
@@ -378,7 +378,7 @@ pub struct GradientDisplayItem {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct GradientStop {
     pub offset: f32,
-    pub color: ColorF,
+    pub color: PropertyBinding<ColorF>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]

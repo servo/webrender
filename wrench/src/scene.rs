@@ -14,6 +14,7 @@ use webrender::api::{PropertyBinding, PropertyBindingId, LayoutTransform, Dynami
 pub struct SceneProperties {
     transform_properties: HashMap<PropertyBindingId, LayoutTransform>,
     float_properties: HashMap<PropertyBindingId, f32>,
+    color_properties: HashMap<PropertyBindingId, ColorF>
 }
 
 impl SceneProperties {
@@ -21,6 +22,7 @@ impl SceneProperties {
     pub fn set_properties(&mut self, properties: &DynamicProperties) {
         self.transform_properties.clear();
         self.float_properties.clear();
+        self.color_properties.clear();
 
         for property in &properties.transforms {
             self.transform_properties
@@ -29,6 +31,11 @@ impl SceneProperties {
 
         for property in &properties.floats {
             self.float_properties
+                .insert(property.key.id, property.value);
+        }
+
+        for property in &properties.colors {
+            self.color_properties
                 .insert(property.key.id, property.value);
         }
     }
@@ -66,6 +73,25 @@ impl SceneProperties {
                     println!("Property binding {:?} has an invalid value.", key);
                     default_value
                 }),
+        }
+    }
+
+    /// Get the current value for a color property.
+    pub fn resolve_color(
+        &self,
+        property: &PropertyBinding<ColorF>
+    ) -> ColorF {
+        match *property {
+            PropertyBinding::Value(value) => value,
+            PropertyBinding::Binding(ref key) => {
+                self.color_properties
+                    .get(&key.id)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        println!("Property binding {:?} has an invalid value.", key);
+                        ColorF::new(0., 0., 0., 1.)
+                    })
+            }
         }
     }
 }

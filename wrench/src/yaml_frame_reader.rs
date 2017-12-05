@@ -492,7 +492,8 @@ impl YamlFrameReader {
                         .expect("gradient stop offset is not f32"),
                     color: chunk[1]
                         .as_colorf()
-                        .expect("gradient stop color is not color"),
+                        .expect("gradient stop color is not color")
+                        .into(),
                 }
             })
             .collect::<Vec<_>>();
@@ -524,7 +525,8 @@ impl YamlFrameReader {
                             .expect("gradient stop offset is not f32"),
                         color: chunk[1]
                             .as_colorf()
-                            .expect("gradient stop color is not color"),
+                            .expect("gradient stop color is not color")
+                            .into(),
                     }
                 })
                 .collect::<Vec<_>>();
@@ -560,7 +562,8 @@ impl YamlFrameReader {
                             .expect("gradient stop offset is not f32"),
                         color: chunk[1]
                             .as_colorf()
-                            .expect("gradient stop color is not color"),
+                            .expect("gradient stop color is not color")
+                            .into(),
                     }
                 })
                 .collect::<Vec<_>>();

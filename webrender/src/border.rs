@@ -11,6 +11,7 @@ use frame_builder::FrameBuilder;
 use gpu_cache::GpuDataRequest;
 use prim_store::{BrushAntiAliasMode, BrushSegmentDescriptor, BrushSegmentKind};
 use prim_store::{BorderPrimitiveCpu, PrimitiveContainer, TexelRect};
+use scene::SceneProperties;
 use util::{lerp, pack_as_float};
 
 #[repr(u8)]
@@ -296,6 +297,7 @@ impl FrameBuilder {
     // border code path.
     pub fn add_normal_border(
         &mut self,
+        scene_properties: &SceneProperties,
         info: &LayerPrimitiveInfo,
         border: &NormalBorder,
         widths: &BorderWidths,
@@ -399,7 +401,8 @@ impl FrameBuilder {
                 self.add_solid_rectangle(
                     clip_and_scroll,
                     &info,
-                    border.top.color,
+                    border.top.color.into(),
+                    scene_properties,
                     Some(Box::new(descriptor)),
                     BrushAntiAliasMode::Segment,
                 );
@@ -415,7 +418,8 @@ impl FrameBuilder {
                 self.add_solid_rectangle(
                     clip_and_scroll,
                     &info,
-                    border.left.color,
+                    border.left.color.into(),
+                    scene_properties,
                     Some(Box::new(descriptor)),
                     BrushAntiAliasMode::Segment,
                 );
@@ -431,7 +435,8 @@ impl FrameBuilder {
                 self.add_solid_rectangle(
                     clip_and_scroll,
                     &info,
-                    border.right.color,
+                    border.right.color.into(),
+                    scene_properties,
                     Some(Box::new(descriptor)),
                     BrushAntiAliasMode::Segment,
                 );
@@ -449,7 +454,8 @@ impl FrameBuilder {
                 self.add_solid_rectangle(
                     clip_and_scroll,
                     &info,
-                    border.bottom.color,
+                    border.bottom.color.into(),
+                    scene_properties,
                     Some(Box::new(descriptor)),
                     BrushAntiAliasMode::Segment,
                 );

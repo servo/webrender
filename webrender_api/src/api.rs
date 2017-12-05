@@ -886,6 +886,7 @@ pub struct PropertyValue<T> {
 pub struct DynamicProperties {
     pub transforms: Vec<PropertyValue<LayoutTransform>>,
     pub floats: Vec<PropertyValue<f32>>,
+    pub colors: Vec<PropertyValue<ColorF>>
 }
 
 pub trait RenderNotifier: Send {

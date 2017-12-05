@@ -14,38 +14,75 @@ extern crate euclid;
 extern crate gleam;
 extern crate glutin;
 extern crate webrender;
+extern crate rand;
 
 #[path = "common/boilerplate.rs"]
 mod boilerplate;
 
 use boilerplate::{Example, HandyDandyRectBuilder};
 use euclid::Radians;
+use euclid::vec2;
 use webrender::api::*;
 
 struct App {
-    property_key: PropertyBindingKey<LayoutTransform>,
+    transform_key: PropertyBindingKey<LayoutTransform>,
     opacity_key: PropertyBindingKey<f32>,
     transform: LayoutTransform,
+    color_keys: [PropertyBindingKey<ColorF>; 2],
+    gradient_stop_keys: [PropertyBindingKey<ColorF>; 2],
     opacity: f32,
 }
 
-impl Example for App {
-    fn render(
-        &mut self,
-        _api: &RenderApi,
-        builder: &mut DisplayListBuilder,
-        _resources: &mut ResourceUpdates,
-        _framebuffer_size: DeviceUintSize,
-        _pipeline_id: PipelineId,
-        _document_id: DocumentId,
-    ) {
-        // Create a 200x200 stacking context with an animated transform property.
+impl App {
+    fn build_cell_type_a(&self, builder: &mut DisplayListBuilder, position: LayoutPoint) {
+        let bounds = (0, 0).to(200, 200);
+        let info = LayoutPrimitiveInfo::new(bounds);
+        let filters = vec![
+            FilterOp::Opacity(PropertyBinding::Binding(self.opacity_key), self.opacity),
+        ];
+
+        builder.push_stacking_context(
+            &info,
+            ScrollPolicy::Scrollable,
+            Some(LayoutTransform::create_translation(position.x, position.y, 0.).into()),
+            TransformStyle::Flat,
+            None,
+            MixBlendMode::Normal,
+            filters,
+        );
+        builder.push_stacking_context(
+            &info,
+            ScrollPolicy::Scrollable,
+            Some(PropertyBinding::Binding(self.transform_key)),
+            TransformStyle::Flat,
+            None,
+            MixBlendMode::Normal,
+            vec![]
+        );
+
+        builder.push_rect(&info, PropertyBinding::Binding(self.color_keys[0]));
+        builder.push_box_shadow(
+            &info,
+            bounds,
+            vec2(10., 10.),
+            PropertyBinding::Binding(self.color_keys[0]),
+            20.,
+            0.,
+            BorderRadius::uniform(0.),
+            BoxShadowClipMode::Outset,
+        );
+        builder.pop_stacking_context();
+        builder.pop_stacking_context();
+    }
+
+    fn build_cell_type_b(&self, builder: &mut DisplayListBuilder, position: LayoutPoint) {
         let bounds = (0, 0).to(200, 200);
         let complex_clip = ComplexClipRegion {
             rect: bounds,
             radii: BorderRadius::uniform(50.0),
             mode: ClipMode::Clip,
         };
+
         let info = LayoutPrimitiveInfo {
             local_clip: LocalClip::RoundedRect(bounds, complex_clip),
             .. LayoutPrimitiveInfo::new(bounds)
@@ -58,16 +95,107 @@ impl Example for App {
         builder.push_stacking_context(
             &info,
             ScrollPolicy::Scrollable,
-            Some(PropertyBinding::Binding(self.property_key)),
+            Some(LayoutTransform::create_translation(position.x, position.y, 0.).into()),
             TransformStyle::Flat,
             None,
             MixBlendMode::Normal,
             filters,
         );
+        builder.push_stacking_context(
+            &info,
+            ScrollPolicy::Scrollable,
+            Some(PropertyBinding::Binding(self.transform_key)),
+            TransformStyle::Flat,
+            None,
+            MixBlendMode::Normal,
+            vec![]
+        );
 
         // Fill it with a white rect
-        builder.push_rect(&info, ColorF::new(1.0, 1.0, 1.0, 1.0));
+        let gradient = builder.create_gradient(
+            LayoutPoint::new(0., 0.),
+            LayoutPoint::new(200., 200.),
+            vec![
+                GradientStop {
+                    offset: 0.5,
+                    color: PropertyBinding::Binding(self.gradient_stop_keys[0])
+                },
+                GradientStop {
+                    offset: 1.0,
+                    color: PropertyBinding::Binding(self.gradient_stop_keys[1])
+                }
+            ],
+            ExtendMode::Clamp
+        );
 
+        builder.push_gradient(
+            &info,
+            gradient, 
+            LayoutSize::new(200., 200.), LayoutSize::zero()
+        );
+
+        builder.push_box_shadow(
+            &info,
+            bounds,
+            vec2(10., 10.),
+            PropertyBinding::Binding(self.color_keys[1]),
+            20.,
+            0.,
+            BorderRadius::uniform(50.),
+            BoxShadowClipMode::Outset,
+        );
+
+        builder.pop_stacking_context();
+        builder.pop_stacking_context();
+    }
+}
+
+impl Example for App {
+    fn render(
+        &mut self,
+        _api: &RenderApi,
+        builder: &mut DisplayListBuilder,
+        _resources: &mut ResourceUpdates,
+        _framebuffer_size: DeviceUintSize,
+        _pipeline_id: PipelineId,
+        _document_id: DocumentId,
+    ) {
+        let bounds = (0, 0).to(1024, 768);
+        let info = LayoutPrimitiveInfo::new(bounds);
+
+        builder.push_stacking_context(
+            &info,
+            ScrollPolicy::Scrollable,
+            None,
+            TransformStyle::Flat,
+            None,
+            MixBlendMode::Normal,
+            vec![],
+        );
+
+        self.build_cell_type_a(builder, LayoutPoint::new(0., 0.));
+        self.build_cell_type_b(builder, LayoutPoint::new(0., 0.));
+
+        let mut x = 0.;
+        let mut y = 0.;
+        let mut idx = 0;
+        while y <= 768. && x <= 1024. {
+            if x + 200. >= 1024. {
+                x = 0.;
+                y += 200.;
+            }
+            
+            let is_even = idx as i32 % 2 == 0;
+            if is_even {
+                self.build_cell_type_a(builder, LayoutPoint::new(x, y));
+            } else {
+                self.build_cell_type_b(builder, LayoutPoint::new(x, y ));
+            }
+
+            idx += 1;
+            x += 200.;
+        }
+  
         builder.pop_stacking_context();
     }
 
@@ -83,33 +211,78 @@ impl Example for App {
                     glutin::VirtualKeyCode::Period => (0.0, 0.0, -0.1, 0.0),
                     glutin::VirtualKeyCode::Z => (0.0, 0.0, 0.0, -0.1),
                     glutin::VirtualKeyCode::X => (0.0, 0.0, 0.0, 0.1),
+                    glutin::VirtualKeyCode::A => (0., 0., 0., 0.),
                     _ => return false,
                 };
-                // Update the transform based on the keyboard input and push it to
-                // webrender using the generate_frame API. This will recomposite with
-                // the updated transform.
+
+                use rand::distributions::IndependentSample;
+                let between = rand::distributions::Range::new(0., 255.);
+                let mut rng = rand::thread_rng();
+
                 self.opacity += delta_opacity;
+                self.opacity = f32::min(self.opacity, 1.);
+                self.opacity = f32::max(self.opacity, 0.);
+
                 let new_transform = self.transform
                     .pre_rotate(0.0, 0.0, 1.0, Radians::new(angle))
                     .post_translate(LayoutVector3D::new(offset_x, offset_y, 0.0));
+                self.transform = new_transform;
+
                 api.generate_frame(
                     document_id,
                     Some(DynamicProperties {
                         transforms: vec![
                             PropertyValue {
-                                key: self.property_key,
-                                value: new_transform,
+                                key: self.transform_key,
+                                value: self.transform
                             },
                         ],
                         floats: vec![
                             PropertyValue {
                                 key: self.opacity_key,
-                                value: self.opacity,
+                                value: self.opacity
                             }
                         ],
+                        colors: vec![
+                            PropertyValue {
+                                key: self.color_keys[0],
+                                value: ColorF::new(
+                                    between.ind_sample(&mut rng) / 255., 
+                                    between.ind_sample(&mut rng) / 255., 
+                                    between.ind_sample(&mut rng) / 255., 
+                                    1.
+                                )
+                            },
+                            PropertyValue {
+                                key: self.color_keys[1],
+                                value: ColorF::new(
+                                    between.ind_sample(&mut rng) / 255., 
+                                    between.ind_sample(&mut rng) / 255., 
+                                    between.ind_sample(&mut rng) / 255., 
+                                    1.
+                                )
+                            },
+                            PropertyValue {
+                                key: self.gradient_stop_keys[0],
+                                value: ColorF::new(
+                                    between.ind_sample(&mut rng) / 255., 
+                                    between.ind_sample(&mut rng) / 255., 
+                                    between.ind_sample(&mut rng) / 255., 
+                                    1.
+                                )
+                            },
+                            PropertyValue {
+                                key: self.gradient_stop_keys[1],
+                                value: ColorF::new(
+                                    between.ind_sample(&mut rng) / 255., 
+                                    between.ind_sample(&mut rng) / 255., 
+                                    between.ind_sample(&mut rng) / 255., 
+                                    1.
+                                )
+                            },
+                        ]
                     }),
                 );
-                self.transform = new_transform;
             }
             _ => (),
         }
@@ -120,10 +293,12 @@ impl Example for App {
 
 fn main() {
     let mut app = App {
-        property_key: PropertyBindingKey::new(42), // arbitrary magic number
-        opacity_key: PropertyBindingKey::new(43),
-        transform: LayoutTransform::create_translation(0.0, 0.0, 0.0),
-        opacity: 0.5,
+        opacity_key: PropertyBindingKey::new(30),
+        transform_key: PropertyBindingKey::new(20),
+        transform: LayoutTransform::identity(),
+        color_keys: [PropertyBindingKey::new(40), PropertyBindingKey::new(41)],
+        gradient_stop_keys: [PropertyBindingKey::new(50), PropertyBindingKey::new(51)],
+        opacity: 1.,
     };
     boilerplate::main_wrapper(&mut app, None);
 }
