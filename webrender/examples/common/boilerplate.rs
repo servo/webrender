@@ -138,7 +138,7 @@ pub fn main_wrapper<E: Example>(
         ..options.unwrap_or(webrender::RendererOptions::default())
     };
 
-    let framebuffer_size = {
+    let mut framebuffer_size = {
         let (width, height) = window.get_inner_size_pixels().unwrap();
         DeviceUintSize::new(width, height)
     };
@@ -157,11 +157,12 @@ pub fn main_wrapper<E: Example>(
         renderer.set_external_image_handler(external_image_handler);
     }
 
-    let epoch = Epoch(0);
+    let mut epoch = Epoch(0);
     let pipeline_id = PipelineId(0, 0);
-    let layout_size = framebuffer_size.to_f32() / euclid::ScaleFactor::new(device_pixel_ratio);
+    let mut layout_size = framebuffer_size.to_f32() / euclid::ScaleFactor::new(device_pixel_ratio);
     let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);
     let mut resources = ResourceUpdates::new();
+    let mut rebuilding = false;
 
     example.render(
         &api,
@@ -261,30 +262,49 @@ pub fn main_wrapper<E: Example>(
                 ) => {
                     api.notify_memory_pressure();
                 }
-                _ => if example.on_event(event, &api, document_id) {
-                    let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);
-                    let mut resources = ResourceUpdates::new();
-
-                    example.render(
-                        &api,
-                        &mut builder,
-                        &mut resources,
+                glutin::Event::Resized(width, height) => {
+                    rebuilding = true;
+                    framebuffer_size = {
+                        DeviceUintSize::new(width, height)
+                    };
+                    layout_size = framebuffer_size.to_f32() / euclid::ScaleFactor::new(device_pixel_ratio);
+                    api.set_window_parameters(
+                        document_id,
                         framebuffer_size,
-                        pipeline_id,
-                        document_id,
+                        DeviceUintRect::new(DeviceUintPoint::zero(), framebuffer_size),
+                        device_pixel_ratio
                     );
-                    api.set_display_list(
-                        document_id,
-                        epoch,
-                        None,
-                        layout_size,
-                        builder.finalize(),
-                        true,
-                        resources,
-                    );
-                    api.generate_frame(document_id, None);
+                }
+                _ => if example.on_event(event, &api, document_id) {
+                    rebuilding = true;
                 },
             }
+        }
+
+        if rebuilding {
+            epoch = Epoch(epoch.0 + 1);
+            let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);
+            let mut resources = ResourceUpdates::new();
+
+            example.render(
+                &api,
+                &mut builder,
+                &mut resources,
+                framebuffer_size,
+                pipeline_id,
+                document_id,
+            );                 
+            api.set_display_list(
+                document_id,
+                epoch,
+                None,
+                layout_size,
+                builder.finalize(),
+                true,
+                resources,
+            );    
+            api.generate_frame(document_id, None);    
+            rebuilding = false;
         }
 
         renderer.update();

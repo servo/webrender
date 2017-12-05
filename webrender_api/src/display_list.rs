@@ -841,8 +841,8 @@ impl DisplayListBuilder {
         debug_assert_eq!(len, count);
     }
 
-    pub fn push_rect(&mut self, info: &LayoutPrimitiveInfo, color: ColorF) {
-        let item = SpecificDisplayItem::Rectangle(RectangleDisplayItem { color });
+    pub fn push_rect<P>(&mut self, info: &LayoutPrimitiveInfo, color: P) where P: Into<PropertyBinding<ColorF>> {
+        let item = SpecificDisplayItem::Rectangle(RectangleDisplayItem { color: color.into() });
         self.push_item(item, info);
     }
 
@@ -1109,21 +1109,21 @@ impl DisplayListBuilder {
         self.push_item(item, info);
     }
 
-    pub fn push_box_shadow(
+    pub fn push_box_shadow<P>(
         &mut self,
         info: &LayoutPrimitiveInfo,
         box_bounds: LayoutRect,
         offset: LayoutVector2D,
-        color: ColorF,
+        color: P,
         blur_radius: f32,
         spread_radius: f32,
         border_radius: BorderRadius,
         clip_mode: BoxShadowClipMode,
-    ) {
+    ) where P: Into<PropertyBinding<ColorF>> {
         let item = SpecificDisplayItem::BoxShadow(BoxShadowDisplayItem {
             box_bounds,
             offset,
-            color,
+            color: color.into(),
             blur_radius,
             spread_radius,
             border_radius,

@@ -235,7 +235,7 @@ impl Example for App {
         let info = LayoutPrimitiveInfo::new((250, 100).to(350, 200));
         builder.push_rect(&info, ColorF::new(0.0, 1.0, 0.0, 1.0));
         let border_side = BorderSide {
-            color: ColorF::new(0.0, 0.0, 1.0, 1.0),
+            color: ColorF::new(0.0, 0.0, 1.0, 1.0).into(),
             style: BorderStyle::Groove,
         };
         let border_widths = BorderWidths {

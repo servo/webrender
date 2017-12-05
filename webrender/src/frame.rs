@@ -104,7 +104,8 @@ impl<'a> FlattenContext<'a> {
                     self.builder.add_solid_rectangle(
                         ClipAndScrollInfo::simple(root_reference_frame_id),
                         &info,
-                        bg_color,
+                        bg_color.into(),
+                        &self.scene.properties,
                         None,
                         BrushAntiAliasMode::Primitive,
                     );
@@ -447,6 +448,7 @@ impl<'a> FlattenContext<'a> {
                     clip_and_scroll,
                     &prim_info,
                     info.color,
+                    &self.scene.properties,
                     None,
                     BrushAntiAliasMode::Primitive,
                 );
@@ -502,6 +504,7 @@ impl<'a> FlattenContext<'a> {
                 let mut prim_info = prim_info.clone();
                 prim_info.rect = bounds;
                 self.builder.add_box_shadow(
+                    &self.scene.properties,
                     pipeline_id,
                     clip_and_scroll,
                     &prim_info,
@@ -515,6 +518,7 @@ impl<'a> FlattenContext<'a> {
             }
             SpecificDisplayItem::Border(ref info) => {
                 self.builder.add_border(
+                    &self.scene.properties,
                     clip_and_scroll,
                     &prim_info,
                     info,

@@ -5,13 +5,14 @@
 use api::{BorderRadiusKind, ColorF, LayerPoint, LayerRect, LayerSize, LayerVector2D};
 use api::{BorderRadius, BoxShadowClipMode, LayoutSize, LayerPrimitiveInfo};
 use api::{ClipMode, ClipAndScrollInfo, ComplexClipRegion, LocalClip};
-use api::{PipelineId};
+use api::{PipelineId, PropertyBinding};
 use app_units::Au;
 use clip::ClipSource;
 use frame_builder::FrameBuilder;
 use prim_store::{BrushAntiAliasMode, PrimitiveContainer};
 use prim_store::{BrushMaskKind, BrushKind, BrushPrimitive};
 use picture::PicturePrimitive;
+use scene::SceneProperties;
 use util::RectHelpers;
 use render_task::MAX_BLUR_STD_DEVIATION;
 
@@ -49,16 +50,18 @@ pub struct BoxShadowCacheKey {
 impl FrameBuilder {
     pub fn add_box_shadow(
         &mut self,
+        scene_properties: &SceneProperties,
         pipeline_id: PipelineId,
         clip_and_scroll: ClipAndScrollInfo,
         prim_info: &LayerPrimitiveInfo,
         box_offset: &LayerVector2D,
-        color: &ColorF,
+        binding: &PropertyBinding<ColorF>,
         mut blur_radius: f32,
         spread_radius: f32,
         border_radius: BorderRadius,
         clip_mode: BoxShadowClipMode,
     ) {
+        let color = scene_properties.resolve_color(&binding);
         if color.a == 0.0 {
             return;
         }
@@ -132,7 +135,8 @@ impl FrameBuilder {
                 clips,
                 PrimitiveContainer::Brush(
                     BrushPrimitive::new(BrushKind::Solid {
-                            color: *color,
+                            color,
+                            binding: *binding
                         },
                         None,
                         BrushAntiAliasMode::Primitive,
@@ -234,7 +238,8 @@ impl FrameBuilder {
                     let pic_rect = shadow_rect.inflate(blur_offset, blur_offset);
                     let mut pic_prim = PicturePrimitive::new_box_shadow(
                         blur_radius,
-                        *color,
+                        *binding,
+                        color,
                         Vec::new(),
                         clip_mode,
                         radii_kind,
@@ -314,7 +319,8 @@ impl FrameBuilder {
                     // the brush primitive to it.
                     let mut pic_prim = PicturePrimitive::new_box_shadow(
                         blur_radius,
-                        *color,
+                        *binding,
+                        color,
                         Vec::new(),
                         BoxShadowClipMode::Inset,
                         // TODO(gw): Make use of optimization for inset.

@@ -5,7 +5,7 @@
 use api::{BorderRadiusKind, ColorF, ClipAndScrollInfo, FilterOp, MixBlendMode};
 use api::{device_length, DeviceIntRect, DeviceIntSize, PipelineId};
 use api::{BoxShadowClipMode, LayerPoint, LayerRect, LayerSize, LayerVector2D, Shadow};
-use api::{ClipId, PremultipliedColorF};
+use api::{ClipId, PremultipliedColorF, PropertyBinding};
 use box_shadow::{BLUR_SAMPLE_SCALE, BoxShadowCacheKey};
 use frame_builder::PrimitiveContext;
 use gpu_cache::GpuDataRequest;
@@ -56,6 +56,7 @@ pub enum PictureKind {
     },
     BoxShadow {
         blur_radius: f32,
+        binding: PropertyBinding<ColorF>,
         color: ColorF,
         blur_regions: Vec<LayerRect>,
         clip_mode: BoxShadowClipMode,
@@ -133,8 +134,12 @@ impl PicturePrimitive {
                 match composite_mode {
                     &mut Some(PictureCompositeMode::Filter(ref mut filter)) => {
                         match filter {
-                            &mut FilterOp::Opacity(ref binding, ref mut value) => {
-                                *value = properties.resolve_float(binding, *value);
+                            &mut FilterOp::Opacity(ref mut binding) => {
+                                let value = properties.resolve_float(binding);
+                                match binding {
+                                    &mut PropertyBinding::Value(ref mut val) => *val = value,
+                                    &mut PropertyBinding::Binding(_, ref mut val) => *val = value
+                                }
                             }
                             _ => {}
                         }
@@ -143,6 +148,10 @@ impl PicturePrimitive {
                     }
                     _ => true,
                 }
+            },
+            PictureKind::BoxShadow { ref binding, ref mut color, .. } => {
+                *color = properties.resolve_color(binding);
+                true
             }
             _ => true
         }
@@ -150,6 +159,7 @@ impl PicturePrimitive {
 
     pub fn new_box_shadow(
         blur_radius: f32,
+        binding: PropertyBinding<ColorF>,
         color: ColorF,
         blur_regions: Vec<LayerRect>,
         clip_mode: BoxShadowClipMode,
@@ -162,6 +172,7 @@ impl PicturePrimitive {
             render_task_id: None,
             kind: PictureKind::BoxShadow {
                 blur_radius,
+                binding,
                 color,
                 blur_regions,
                 clip_mode,

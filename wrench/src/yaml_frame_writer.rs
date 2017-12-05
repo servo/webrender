@@ -204,9 +204,9 @@ fn write_sc(parent: &mut Table, sc: &StackingContext, properties: &SceneProperti
             FilterOp::Grayscale(x) => { filters.push(Yaml::String(format!("grayscale({})", x))) }
             FilterOp::HueRotate(x) => { filters.push(Yaml::String(format!("hue-rotate({})", x))) }
             FilterOp::Invert(x) => { filters.push(Yaml::String(format!("invert({})", x))) }
-            FilterOp::Opacity(x, _) => {
+            FilterOp::Opacity(x) => {
                 filters.push(Yaml::String(format!("opacity({})",
-                                                  properties.resolve_float(&x, 1.0))))
+                                                  properties.resolve_float(&x))))
             }
             FilterOp::Saturate(x) => { filters.push(Yaml::String(format!("saturate({})", x))) }
             FilterOp::Sepia(x) => { filters.push(Yaml::String(format!("sepia({})", x))) }
@@ -641,7 +641,7 @@ impl YamlFrameWriter {
             match *base.item() {
                 Rectangle(item) => {
                     str_node(&mut v, "type", "rect");
-                    color_node(&mut v, "color", item.color);
+                    color_node(&mut v, "color", scene.properties.resolve_color(&item.color));
                 }
                 ClearRectangle => {
                     str_node(&mut v, "type", "clear-rect");;
@@ -749,7 +749,8 @@ impl YamlFrameWriter {
                                 item.widths.left,
                             ];
                             let colors: Vec<String> =
-                                trbl.iter().map(|x| color_to_string(x.color)).collect();
+                                trbl.iter().map(|x|
+                                    color_to_string(scene.properties.resolve_color(&x.color))).collect();
                             let styles: Vec<String> = trbl.iter()
                                 .map(|x| {
                                     match x.style {
@@ -841,7 +842,7 @@ impl YamlFrameWriter {
                             let mut stops = vec![];
                             for stop in display_list.get(base.gradient_stops()) {
                                 stops.push(Yaml::Real(stop.offset.to_string()));
-                                stops.push(Yaml::String(color_to_string(stop.color)));
+                                stops.push(Yaml::String(color_to_string(scene.properties.resolve_color(&stop.color))));
                             }
                             yaml_node(&mut v, "stops", Yaml::Array(stops));
                             bool_node(
@@ -874,7 +875,7 @@ impl YamlFrameWriter {
                             let mut stops = vec![];
                             for stop in display_list.get(base.gradient_stops()) {
                                 stops.push(Yaml::Real(stop.offset.to_string()));
-                                stops.push(Yaml::String(color_to_string(stop.color)));
+                                stops.push(Yaml::String(color_to_string(scene.properties.resolve_color(&stop.color))));
                             }
                             yaml_node(&mut v, "stops", Yaml::Array(stops));
                             bool_node(
@@ -890,7 +891,7 @@ impl YamlFrameWriter {
                     str_node(&mut v, "type", "box-shadow");
                     rect_node(&mut v, "box-bounds", &item.box_bounds);
                     vector_node(&mut v, "offset", &item.offset);
-                    color_node(&mut v, "color", item.color);
+                    color_node(&mut v, "color", scene.properties.resolve_color(&item.color));
                     f32_node(&mut v, "blur-radius", item.blur_radius);
                     f32_node(&mut v, "spread-radius", item.spread_radius);
                     if let Some(radius_node) = maybe_radius_yaml(&item.border_radius) {
@@ -911,7 +912,7 @@ impl YamlFrameWriter {
                     let mut stops = vec![];
                     for stop in display_list.get(base.gradient_stops()) {
                         stops.push(Yaml::Real(stop.offset.to_string()));
-                        stops.push(Yaml::String(color_to_string(stop.color)));
+                        stops.push(Yaml::String(color_to_string(scene.properties.resolve_color(&stop.color))));
                     }
                     yaml_node(&mut v, "stops", Yaml::Array(stops));
                     bool_node(
@@ -932,7 +933,7 @@ impl YamlFrameWriter {
                     let mut stops = vec![];
                     for stop in display_list.get(base.gradient_stops()) {
                         stops.push(Yaml::Real(stop.offset.to_string()));
-                        stops.push(Yaml::String(color_to_string(stop.color)));
+                        stops.push(Yaml::String(color_to_string(scene.properties.resolve_color(&stop.color))));
                     }
                     yaml_node(&mut v, "stops", Yaml::Array(stops));
                     bool_node(

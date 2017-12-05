@@ -492,7 +492,8 @@ impl YamlFrameReader {
                         .expect("gradient stop offset is not f32"),
                     color: chunk[1]
                         .as_colorf()
-                        .expect("gradient stop color is not color"),
+                        .expect("gradient stop color is not color")
+                        .into(),
                 }
             })
             .collect::<Vec<_>>();
@@ -524,7 +525,8 @@ impl YamlFrameReader {
                             .expect("gradient stop offset is not f32"),
                         color: chunk[1]
                             .as_colorf()
-                            .expect("gradient stop color is not color"),
+                            .expect("gradient stop color is not color")
+                            .into(),
                     }
                 })
                 .collect::<Vec<_>>();
@@ -560,7 +562,8 @@ impl YamlFrameReader {
                             .expect("gradient stop offset is not f32"),
                         color: chunk[1]
                             .as_colorf()
-                            .expect("gradient stop color is not color"),
+                            .expect("gradient stop color is not color")
+                            .into(),
                     }
                 })
                 .collect::<Vec<_>>();
@@ -776,19 +779,19 @@ impl YamlFrameReader {
                     let styles = broadcast(&styles, 4);
 
                     let top = BorderSide {
-                        color: colors[0],
+                        color: colors[0].into(),
                         style: styles[0],
                     };
                     let right = BorderSide {
-                        color: colors[1],
+                        color: colors[1].into(),
                         style: styles[1],
                     };
                     let bottom = BorderSide {
-                        color: colors[2],
+                        color: colors[2].into(),
                         style: styles[2],
                     };
                     let left = BorderSide {
-                        color: colors[3],
+                        color: colors[3].into(),
                         style: styles[3],
                     };
                     Some(BorderDetails::Normal(NormalBorder {

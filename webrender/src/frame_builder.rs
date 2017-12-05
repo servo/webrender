@@ -756,10 +756,12 @@ impl FrameBuilder {
         &mut self,
         clip_and_scroll: ClipAndScrollInfo,
         info: &LayerPrimitiveInfo,
-        color: ColorF,
+        binding: PropertyBinding<ColorF>,
+        scene_properties: &SceneProperties,
         segments: Option<Box<BrushSegmentDescriptor>>,
         aa_mode: BrushAntiAliasMode,
     ) {
+        let color = scene_properties.resolve_color(&binding);
         if color.a == 0.0 {
             // Don't add transparent rectangles to the draw list, but do consider them for hit
             // testing. This allows specifying invisible hit testing areas.
@@ -770,6 +772,7 @@ impl FrameBuilder {
         let prim = BrushPrimitive::new(
             BrushKind::Solid {
                 color,
+                binding
             },
             segments,
             aa_mode,
@@ -816,6 +819,7 @@ impl FrameBuilder {
         let prim = BrushPrimitive::new(
             BrushKind::Solid {
                 color,
+                binding: color.into()
             },
             None,
             BrushAntiAliasMode::Primitive,
@@ -912,6 +916,7 @@ impl FrameBuilder {
 
     pub fn add_border(
         &mut self,
+        scene_properties: &SceneProperties,
         clip_and_scroll: ClipAndScrollInfo,
         info: &LayerPrimitiveInfo,
         border_item: &BorderDisplayItem,
@@ -1118,7 +1123,7 @@ impl FrameBuilder {
                 }
             }
             BorderDetails::Normal(ref border) => {
-                self.add_normal_border(info, border, &border_item.widths, clip_and_scroll);
+                self.add_normal_border(scene_properties, info, border, &border_item.widths, clip_and_scroll);
             }
             BorderDetails::Gradient(ref border) => for segment in create_segments(border.outset) {
                 let segment_rel = segment.origin - rect.origin;
