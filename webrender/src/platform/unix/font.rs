@@ -493,9 +493,10 @@ impl FontContext {
             Some(val) => val,
             None => return None,
         };
+        let GlyphDimensions { mut left, mut top, width, height, .. } = dimensions;
 
         // For spaces and other non-printable characters, early out.
-        if dimensions.width == 0 || dimensions.height == 0 {
+        if width == 0 || height == 0 {
             return None;
         }
 
@@ -515,10 +516,8 @@ impl FontContext {
                 error!("Unsupported {:?}", format);
                 return None;
             }
-        }
+        };
 
-        let bitmap = unsafe { &(*slot).bitmap };
-        let pixel_mode = unsafe { mem::transmute(bitmap.pixel_mode as u32) };
         info!(
             "Rasterizing {:?} as {:?} with dimensions {:?}",
             key,
@@ -526,6 +525,8 @@ impl FontContext {
             dimensions
         );
 
+        let bitmap = unsafe { &(*slot).bitmap };
+        let pixel_mode = unsafe { mem::transmute(bitmap.pixel_mode as u32) };
         let (actual_width, actual_height) = match pixel_mode {
             FT_Pixel_Mode::FT_PIXEL_MODE_LCD => {
                 assert!(bitmap.width % 3 == 0);
@@ -542,7 +543,6 @@ impl FontContext {
             }
             _ => panic!("Unsupported {:?}", pixel_mode),
         };
-        let (left, top) = unsafe { ((*slot).bitmap_left, (*slot).bitmap_top) };
         let mut final_buffer = vec![0; (actual_width * actual_height * 4) as usize];
 
         // Extract the final glyph from FT format into RGBA8 format, which is
@@ -625,9 +625,19 @@ impl FontContext {
             dest = row_end;
         }
 
+        match format {
+            FT_Glyph_Format::FT_GLYPH_FORMAT_OUTLINE => {
+                unsafe {
+                    left += (*slot).bitmap_left;
+                    top += (*slot).bitmap_top - actual_height;
+                }
+            }
+            _ => {}
+        }
+
         Some(RasterizedGlyph {
-            left: (dimensions.left + left) as f32,
-            top: (dimensions.top + top - actual_height) as f32,
+            left: left as f32,
+            top: top as f32,
             width: actual_width as u32,
             height: actual_height as u32,
             scale,
