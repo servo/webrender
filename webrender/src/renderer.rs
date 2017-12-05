@@ -868,32 +868,19 @@ impl CacheTexture {
         self.texture.get_dimensions().height
     }
 
-    fn prepare_for_updates(&mut self, device: &mut Device, total_block_count: usize) {
-        match self.bus {
-            CacheBus::PixelBuffer {..} => {}
-            CacheBus::Scatter {
-                ref mut buf_position,
-                ref mut buf_value,
-                ref mut count,
-                ..
-            } => {
-                *count = 0;
-                if total_block_count > buf_value.allocated_count() {
-                    device.allocate_vbo(buf_position, total_block_count, VertexUsageHint::Stream);
-                    device.allocate_vbo(buf_value,    total_block_count, VertexUsageHint::Stream);
-                }
-            }
-        }
-    }
-
-    fn update(&mut self, device: &mut Device, updates: &GpuCacheUpdateList) {
+    fn prepare_for_updates(
+        &mut self,
+        device: &mut Device,
+        total_block_count: usize,
+        max_height: u32,
+    ) {
         // See if we need to create or resize the texture.
         let old_size = self.texture.get_dimensions();
-        let new_size = DeviceUintSize::new(MAX_VERTEX_TEXTURE_WIDTH as _, updates.height);
+        let new_size = DeviceUintSize::new(MAX_VERTEX_TEXTURE_WIDTH as _, max_height);
 
         match self.bus {
-            CacheBus::PixelBuffer { ref mut rows, ref mut cpu_blocks, .. } => {
-                if new_size.height > old_size.height {
+            CacheBus::PixelBuffer { ref mut rows, .. } => {
+                if max_height > old_size.height {
                     // Create a f32 texture that can be used for the vertex shader
                     // to fetch data from.
                     device.init_texture(
@@ -907,17 +894,51 @@ impl CacheTexture {
                         None,
                     );
 
-                    // Copy the current texture into the newly resized texture.
-                    if old_size.height > 0 {
-                        // If we had to resize the texture, just mark all rows
-                        // as dirty so they will be uploaded to the texture
-                        // during the next flush.
-                        for row in rows.iter_mut() {
-                            row.is_dirty = true;
-                        }
+                    // If we had to resize the texture, just mark all rows
+                    // as dirty so they will be uploaded to the texture
+                    // during the next flush.
+                    for row in rows.iter_mut() {
+                        row.is_dirty = true;
                     }
                 }
+            }
+            CacheBus::Scatter {
+                ref mut buf_position,
+                ref mut buf_value,
+                ref mut count,
+                ..
+            } => {
+                *count = 0;
+                if total_block_count > buf_value.allocated_count() {
+                    device.allocate_vbo(buf_position, total_block_count, VertexUsageHint::Stream);
+                    device.allocate_vbo(buf_value,    total_block_count, VertexUsageHint::Stream);
+                }
 
+                if new_size.height > old_size.height || GPU_CACHE_RESIZE_TEST {
+                    if old_size.height > 0 {
+                        device.resize_renderable_texture(&mut self.texture, new_size);
+                    } else {
+                        device.init_texture(
+                            &mut self.texture,
+                            new_size.width,
+                            new_size.height,
+                            ImageFormat::RGBAF32,
+                            TextureFilter::Nearest,
+                            Some(RenderTargetInfo {
+                                has_depth: false,
+                            }),
+                            1,
+                            None,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    fn update(&mut self, device: &mut Device, updates: &GpuCacheUpdateList) {
+        match self.bus {
+            CacheBus::PixelBuffer { ref mut rows, ref mut cpu_blocks, .. } => {
                 for update in &updates.updates {
                     match update {
                         &GpuCacheUpdate::Copy {
@@ -956,29 +977,11 @@ impl CacheTexture {
                 ref mut count,
                 ..
             } => {
-                if new_size.height > old_size.height || GPU_CACHE_RESIZE_TEST {
-                    if old_size.height > 0 {
-                        device.resize_renderable_texture(&mut self.texture, new_size);
-                    } else {
-                        device.init_texture(
-                            &mut self.texture,
-                            new_size.width,
-                            new_size.height,
-                            ImageFormat::RGBAF32,
-                            TextureFilter::Nearest,
-                            Some(RenderTargetInfo {
-                                has_depth: false,
-                            }),
-                            1,
-                            None,
-                        );
-                    }
-                }
-
                 //TODO: re-use this heap allocation
                 // Unused positions will be left as 0xFFFF, which translates to
                 // (1.0, 1.0) in the vertex output position and gets culled out
                 let mut position_data = vec![[!0u16; 2]; updates.blocks.len()];
+                let size = self.texture.get_dimensions().to_usize();
 
                 for update in &updates.updates {
                     match update {
@@ -991,8 +994,8 @@ impl CacheTexture {
                                 // Convert the absolute texel position into normalized
                                 // Note: adding 1 allows us to avoid being on the pixel edge
                                 position_data[block_index + i] = [
-                                    (((address.u as usize + i) << 16) / MAX_VERTEX_TEXTURE_WIDTH + 1) as u16,
-                                    (((address.v as usize) << 16) / updates.height as usize + 1) as u16,
+                                    (((address.u as usize + i) << 16) / size.width + 1) as u16,
+                                    (((address.v as usize) << 16) / size.height + 1) as u16,
                                 ];
                             }
                         }
@@ -2805,15 +2808,21 @@ impl Renderer {
     fn prepare_gpu_cache(&mut self, frame: &Frame) {
         let _gm = self.gpu_profile.start_marker("gpu cache update");
 
-        let updated_blocks = self.pending_gpu_cache_updates
+        let (updated_blocks, max_requested_height) = self
+            .pending_gpu_cache_updates
             .iter()
-            .map(|update_list| update_list.blocks.len())
-            .sum();
+            .fold((0, 0), |(count, height), list| {
+                (count + list.blocks.len(), height.max(list.height))
+            });
 
         //Note: if we decide to switch to scatter-style GPU cache update
         // permanently, we can have this code nicer with `BufferUploader` kind
         // of helper, similarly to how `TextureUploader` API is used.
-        self.gpu_cache_texture.prepare_for_updates(&mut self.device, updated_blocks);
+        self.gpu_cache_texture.prepare_for_updates(
+            &mut self.device,
+            updated_blocks,
+            max_requested_height,
+        );
         self.update_deferred_resolves(frame);
 
         // For an artificial stress test of GPU cache resizing,
@@ -2828,6 +2837,7 @@ impl Renderer {
         }
 
         for update_list in self.pending_gpu_cache_updates.drain(..) {
+            assert!(update_list.height <= gpu_cache_height);
             self.gpu_cache_texture
                 .update(&mut self.device, &update_list);
         }
