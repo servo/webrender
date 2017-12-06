@@ -4,11 +4,11 @@
 
 use api::{BorderRadius, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePoint, DeviceRect};
 use api::{DeviceSize, LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, WorldRect};
-use euclid::{Point2D, Rect, Size2D, TypedPoint2D, TypedRect, TypedSize2D, TypedTransform2D};
-use euclid::TypedTransform3D;
+use euclid::{Point2D, Rect, ScaleFactor, Size2D, TypedPoint2D, TypedRect, TypedSize2D};
+use euclid::{TypedTransform2D, TypedTransform3D};
 use num_traits::Zero;
-use std::i32;
-use std::f32;
+use std::{i32, f32};
+use std::cmp::Ordering;
 
 // Matches the definition of SK_ScalarNearlyZero in Skia.
 const NEARLY_ZERO: f32 = 1.0 / 4096.0;
@@ -143,20 +143,52 @@ pub fn calculate_screen_bounding_rect(
     rect: &LayerRect,
     device_pixel_ratio: f32
 ) -> DeviceIntRect {
-    let rect = WorldRect::from_points(&[
+    let points = [
         transform.transform_point2d(&rect.origin),
         transform.transform_point2d(&rect.top_right()),
         transform.transform_point2d(&rect.bottom_left()),
         transform.transform_point2d(&rect.bottom_right()),
-    ]) * device_pixel_ratio;
+    ];
 
-    let rect = DeviceRect::new(
-        DevicePoint::new(rect.origin.x, rect.origin.y),
-        DeviceSize::new(rect.size.width, rect.size.height),
-    );
+    let scale = ScaleFactor::new(device_pixel_ratio);
+    let rect: DeviceRect = WorldRect::from_points(&points) * scale;
 
     let max_rect = DeviceRect::max_rect();
-    rect.round_out().intersection(&max_rect).unwrap_or(max_rect).to_i32()
+    rect
+        .round_out()
+        .intersection(&max_rect)
+        .unwrap_or(max_rect)
+        .to_i32()
+}
+
+pub fn calculate_screen_inner_rect(
+    transform: &LayerToWorldTransform,
+    rect: &LayerRect,
+    device_pixel_ratio: f32
+) -> DeviceIntRect {
+    let points = [
+        transform.transform_point2d(&rect.origin),
+        transform.transform_point2d(&rect.top_right()),
+        transform.transform_point2d(&rect.bottom_left()),
+        transform.transform_point2d(&rect.bottom_right()),
+    ];
+    let mut xs = [points[0].x, points[1].x, points[2].x, points[3].x];
+    let mut ys = [points[0].y, points[1].y, points[2].y, points[3].y];
+
+    xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    ys.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+
+    let rect = DeviceRect::new(
+        DevicePoint::new(xs[1], ys[1]),
+        DeviceSize::new(xs[2] - xs[1], ys[2] - ys[1]),
+    ) * device_pixel_ratio;
+
+    let max_rect = DeviceRect::max_rect();
+    rect
+        .intersection(&max_rect)
+        .unwrap_or(max_rect)
+        .round_in()
+        .to_i32()
 }
 
 pub fn _subtract_rect<U>(
