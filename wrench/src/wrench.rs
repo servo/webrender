@@ -236,6 +236,8 @@ impl Wrench {
     pub fn layout_simple_ascii(
         &mut self,
         font_key: FontKey,
+        instance_key: FontInstanceKey,
+        render_mode: Option<FontRenderMode>,
         text: &str,
         size: Au,
         origin: LayerPoint,
@@ -248,24 +250,20 @@ impl Wrench {
             .filter_map(|idx| *idx)
             .collect();
 
+        let render_mode = render_mode.unwrap_or(<FontInstanceOptions as Default>::default().render_mode);
+        let subpx_dir = SubpixelDirection::Horizontal.limit_by(render_mode);
+
         // Retrieve the metrics for each glyph.
-        let instance_key = self.add_font_instance(
-            font_key,
-            size,
-            FontInstanceFlags::empty(),
-            Some(FontRenderMode::Alpha),
-        );
         let mut keys = Vec::new();
         for glyph_index in &indices {
             keys.push(GlyphKey::new(
                 *glyph_index,
                 LayerPoint::zero(),
-                FontRenderMode::Alpha,
-                SubpixelDirection::Horizontal,
+                render_mode,
+                subpx_dir,
             ));
         }
         let metrics = self.api.get_glyph_dimensions(instance_key, keys);
-        self.delete_font_instance(instance_key);
 
         let mut bounding_rect = LayoutRect::zero();
         let mut positions = Vec::new();
@@ -427,6 +425,7 @@ impl Wrench {
         key
     }
 
+    #[allow(dead_code)]
     pub fn delete_font_instance(&mut self, key: FontInstanceKey) {
         let mut update = ResourceUpdates::new();
         update.delete_font_instance(key);
