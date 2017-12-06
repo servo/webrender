@@ -1,5 +1,6 @@
-
---- # tests that shadows still render even if the associated text is clipped out
+# Tests that the unclipped parts of a shadow still render even if the associated
+# text is clipped out.
+--- 
 root:
   items:
     - type: scroll-frame
