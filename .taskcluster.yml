@@ -64,7 +64,7 @@ tasks:
           git clone {{event.head.repo.url}} webrender && cd webrender &&
           git checkout {{event.head.sha}} &&
           servo-tidy &&
-          (cd wrench && python headless.py reftest) &&
+          (cd wrench && python script/headless.py reftest) &&
           (cd wrench && cargo build --release)
     routes:
       - "index.garbage.webrender.ci.{{event.head.user.login}}.{{event.head.repo.branch}}.linux-release"
@@ -138,7 +138,7 @@ tasks:
           export RUST_BACKTRACE=1 &&
           export RUSTFLAGS='--deny warnings' &&
           export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH" &&
-          (cd wrench && python headless.py reftest) &&
+          (cd wrench && python script/headless.py reftest) &&
           (cd wrench && cargo build --release)
     routes:
       - "index.garbage.webrender.ci.{{event.head.user.login}}.{{event.head.repo.branch}}.osx-release"
