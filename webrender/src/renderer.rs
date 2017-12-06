@@ -812,13 +812,12 @@ struct CacheTexture {
 }
 
 impl CacheTexture {
-    fn new(device: &mut Device, use_scatter: bool) -> Self {
+    fn new(device: &mut Device, use_scatter: bool) -> Result<Self, RendererError> {
         let texture = device.create_texture(TextureTarget::Default);
 
         let bus = if use_scatter {
             let program = device
-                .create_program("gpu_cache_update", "", &DESC_GPU_CACHE_UPDATE)
-                .unwrap();
+                .create_program("gpu_cache_update", "", &DESC_GPU_CACHE_UPDATE)?;
             let buf_position = device.create_vbo();
             let buf_value = device.create_vbo();
             //Note: the vertex attributes have to be supplied in the same order
@@ -843,10 +842,10 @@ impl CacheTexture {
             }
         };
 
-        CacheTexture {
+        Ok(CacheTexture {
             texture,
             bus,
-        }
+        })
     }
 
     fn deinit(self, device: &mut Device) {
@@ -2134,7 +2133,7 @@ impl Renderer {
         let gpu_cache_texture = CacheTexture::new(
             &mut device,
             options.scatter_gpu_cache_updates,
-        );
+        )?;
 
         device.end_frame();
 
