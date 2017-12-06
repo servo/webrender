@@ -492,16 +492,15 @@ impl YamlFrameWriter {
     }
 
     fn path_for_image(&mut self, key: ImageKey) -> Option<PathBuf> {
-        if let Some(ref mut data) = self.images.get_mut(&key) {
-            if data.path.is_some() {
-                return data.path.clone();
-            }
-        } else {
+        let data = self.images.get_mut(&key);
+        if data.is_none() {
             return None;
-        };
+        }
 
-        // Remove the data to munge it
-        let mut data = self.images.remove(&key).unwrap();
+        let data = data.unwrap();
+        if data.path.is_some() {
+            return data.path.clone();
+        }
         let mut bytes = data.bytes.take().unwrap();
         let (path_file, path) = Self::next_rsrc_paths(
             &self.rsrc_prefix,
@@ -550,8 +549,6 @@ impl YamlFrameWriter {
         }
 
         data.path = Some(path.clone());
-        // put it back
-        self.images.insert(key, data);
         Some(path)
     }
 
