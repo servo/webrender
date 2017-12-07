@@ -35,7 +35,7 @@ use resource_cache::ResourceCache;
 use scene::{ScenePipeline, SceneProperties};
 use std::{mem, usize, f32};
 use tiling::{CompositeOps, Frame};
-use tiling::{RenderPass, RenderPassKind, RenderTargetKind};
+use tiling::{RenderPass, RenderTargetKind};
 use tiling::{RenderTargetContext, ScrollbarPrimitive};
 use util::{self, MaxRect, pack_as_float, RectHelpers, recycle_vec};
 
@@ -1777,22 +1777,6 @@ impl FrameBuilder {
                 &mut deferred_resolves,
                 &self.clip_store,
             );
-
-            profile_counters.passes.inc();
-
-            match pass.kind {
-                RenderPassKind::MainFramebuffer(_) => {
-                    profile_counters.color_targets.add(1);
-                }
-                RenderPassKind::OffScreen { ref color, ref alpha } => {
-                    profile_counters
-                        .color_targets
-                        .add(color.targets.len());
-                    profile_counters
-                        .alpha_targets
-                        .add(alpha.targets.len());
-                }
-            }
         }
 
         let gpu_cache_updates = gpu_cache.end_frame(gpu_cache_profile);
