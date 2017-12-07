@@ -256,6 +256,7 @@ bitflags! {
         const GPU_SAMPLE_QUERIES= 1 << 5;
         const DISABLE_BATCHING  = 1 << 6;
         const EPOCHS            = 1 << 7;
+        const COMPACT_PROFILER  = 1 << 8;
     }
 }
 
@@ -2549,6 +2550,7 @@ impl Renderer {
                 &profile_samplers,
                 screen_fraction,
                 &mut self.debug,
+                self.debug_flags.contains(DebugFlags::COMPACT_PROFILER),
             );
         }
 
@@ -2987,6 +2989,7 @@ impl Renderer {
         frame_id: FrameId,
         stats: &mut RendererStats,
     ) {
+        self.profile_counters.color_targets.inc();
         let _gm = self.gpu_profile.start_marker("color target");
 
         // sanity check for the depth buffer
@@ -3408,6 +3411,7 @@ impl Renderer {
         render_tasks: &RenderTaskTree,
         stats: &mut RendererStats,
     ) {
+        self.profile_counters.alpha_targets.inc();
         let _gm = self.gpu_profile.start_marker("alpha target");
         let alpha_sampler = self.gpu_profile.start_sampler(GPU_SAMPLER_TAG_ALPHA);
 
