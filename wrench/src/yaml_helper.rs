@@ -8,7 +8,7 @@ use parse_function::parse_function;
 use std::f32;
 use std::str::FromStr;
 use webrender::api::*;
-use yaml_rust::Yaml;
+use yaml_rust::{Yaml, YamlLoader};
 
 pub trait YamlHelper {
     fn as_f32(&self) -> Option<f32>;
@@ -563,6 +563,14 @@ impl YamlHelper for Yaml {
                 }
                 ("sepia", ref args, _) if args.len() == 1 => {
                     Some(FilterOp::Sepia(args[0].parse().unwrap()))
+                }
+                ("drop-shadow", ref args, _) if args.len() == 3 => {
+                    let str = format!("---\noffset: {}\nblur-radius: {}\ncolor: {}\n", args[0], args[1], args[2]);
+                    let mut yaml_doc = YamlLoader::load_from_str(&str).expect("Failed to parse drop-shadow");
+                    let yaml = yaml_doc.pop().unwrap();
+                    Some(FilterOp::DropShadow(yaml["offset"].as_vector().unwrap(),
+                                              yaml["blur-radius"].as_f32().unwrap(),
+                                              yaml["color"].as_colorf().unwrap()))
                 }
                 (_, _, _) => None,
             }

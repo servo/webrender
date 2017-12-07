@@ -189,12 +189,13 @@ impl FilterOpHelpers for FilterOp {
             FilterOp::Invert(..) |
             FilterOp::Saturate(..) |
             FilterOp::Sepia(..) => true,
+            FilterOp::DropShadow(..) => true,
             FilterOp::Opacity(binding) => {
                 let amount = match binding {
                     PropertyBinding::Value(value) => value,
                     PropertyBinding::Binding(_, value) => value
                 };
-
+                
                 amount > OPACITY_EPSILON
             }
         }
@@ -218,6 +219,9 @@ impl FilterOpHelpers for FilterOp {
             },
             FilterOp::Saturate(amount) => amount == 1.0,
             FilterOp::Sepia(amount) => amount == 0.0,
+            FilterOp::DropShadow(offset, blur, _) => {
+                offset.x == 0.0 && offset.y == 0.0 && blur == 0.0
+            }
         }
     }
 }

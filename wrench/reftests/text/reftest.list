@@ -41,3 +41,4 @@ platform(linux) == subpixel-rotate.yaml subpixel-rotate.png
 platform(linux) == subpixel-scale.yaml subpixel-scale.png
 platform(linux) == subpixel-skew.yaml subpixel-skew.png
 != shadow-rotate.yaml blank.yaml
+platform(linux) == embedded-bitmaps.yaml embedded-bitmaps.png

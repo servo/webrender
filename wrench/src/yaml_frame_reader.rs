@@ -1056,6 +1056,8 @@ impl YamlFrameReader {
                 .expect("origin required for text without glyphs");
             let (glyph_indices, glyph_positions, bounds) = wrench.layout_simple_ascii(
                 font_key,
+                font_instance_key,
+                self.font_render_mode,
                 text,
                 size,
                 origin,

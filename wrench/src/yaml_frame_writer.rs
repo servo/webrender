@@ -210,6 +210,12 @@ fn write_sc(parent: &mut Table, sc: &StackingContext, properties: &SceneProperti
             }
             FilterOp::Saturate(x) => { filters.push(Yaml::String(format!("saturate({})", x))) }
             FilterOp::Sepia(x) => { filters.push(Yaml::String(format!("sepia({})", x))) }
+            FilterOp::DropShadow(offset, blur, color) => {
+                filters.push(Yaml::String(format!("drop-shadow([{},{}],{},[{}])",
+                                                  offset.x, offset.y,
+                                                  blur,
+                                                  color_to_string(color))))
+            }
         }
     }
 
@@ -217,7 +223,12 @@ fn write_sc(parent: &mut Table, sc: &StackingContext, properties: &SceneProperti
 }
 
 #[cfg(target_os = "windows")]
-fn native_font_handle_to_yaml(handle: &NativeFontHandle, parent: &mut yaml_rust::yaml::Hash) {
+fn native_font_handle_to_yaml(
+    _rsrc: &mut ResourceGenerator,
+    handle: &NativeFontHandle,
+    parent: &mut yaml_rust::yaml::Hash,
+    _: &mut Option<PathBuf>,
+) {
     str_node(parent, "family", &handle.family_name);
     u32_node(parent, "weight", handle.weight.to_u32());
     u32_node(parent, "style", handle.style.to_u32());
@@ -225,17 +236,43 @@ fn native_font_handle_to_yaml(handle: &NativeFontHandle, parent: &mut yaml_rust:
 }
 
 #[cfg(target_os = "macos")]
-fn native_font_handle_to_yaml(_: &NativeFontHandle, _: &mut yaml_rust::yaml::Hash) {
-    panic!("Can't native_handle_to_yaml on this platform");
+fn native_font_handle_to_yaml(
+    rsrc: &mut ResourceGenerator,
+    handle: &NativeFontHandle,
+    parent: &mut yaml_rust::yaml::Hash,
+    path_opt: &mut Option<PathBuf>,
+) {
+    let path = match *path_opt {
+        Some(ref path) => { path.clone() },
+        None => {
+            use cgfont_to_data;
+            let bytes = cgfont_to_data::font_to_data(handle.0.clone()).unwrap();
+            let (path_file, path) = rsrc.next_rsrc_paths(
+                "font",
+                "ttf",
+            );
+            let mut file = fs::File::create(&path_file).unwrap();
+            file.write_all(&bytes).unwrap();
+            *path_opt = Some(path.clone());
+            path
+        }
+    };
+
+    path_node(parent, "font", &path);
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-fn native_font_handle_to_yaml(handle: &NativeFontHandle, parent: &mut yaml_rust::yaml::Hash) {
+fn native_font_handle_to_yaml(
+    _rsrc: &mut ResourceGenerator,
+    handle: &NativeFontHandle,
+    parent: &mut yaml_rust::yaml::Hash,
+    _: &mut Option<PathBuf>,
+) {
     str_node(parent, "font", &handle.pathname);
 }
 
 enum CachedFont {
-    Native(NativeFontHandle),
+    Native(NativeFontHandle, Option<PathBuf>),
     Raw(Option<Vec<u8>>, u32, Option<PathBuf>),
 }
 
@@ -254,11 +291,30 @@ struct CachedImage {
     tiling: Option<u16>,
 }
 
+struct ResourceGenerator {
+    base: PathBuf,
+    next_num: u32,
+    prefix: String,
+}
+
+impl ResourceGenerator {
+    fn next_rsrc_paths(&mut self, base: &str, ext: &str) -> (PathBuf, PathBuf) {
+        let mut path_file = self.base.to_owned();
+        let mut path = PathBuf::from("res");
+
+        let fstr = format!("{}-{}-{}.{}", self.prefix, base, self.next_num, ext);
+        path_file.push(&fstr);
+        path.push(&fstr);
+
+        self.next_num += 1;
+
+        (path_file, path)
+    }
+}
+
 pub struct YamlFrameWriter {
     frame_base: PathBuf,
-    rsrc_base: PathBuf,
-    next_rsrc_num: u32,
-    rsrc_prefix: String,
+    rsrc_gen: ResourceGenerator,
     images: HashMap<ImageKey, CachedImage>,
     fonts: HashMap<FontKey, CachedFont>,
     font_instances: HashMap<FontInstanceKey, CachedFontInstance>,
@@ -299,9 +355,11 @@ impl YamlFrameWriter {
 
         YamlFrameWriter {
             frame_base: path.to_owned(),
-            rsrc_base,
-            rsrc_prefix,
-            next_rsrc_num: 1,
+            rsrc_gen: ResourceGenerator {
+                base: rsrc_base,
+                prefix: rsrc_prefix,
+                next_num: 1,
+            },
             images: HashMap::new(),
             fonts: HashMap::new(),
             font_instances: HashMap::new(),
@@ -454,7 +512,7 @@ impl YamlFrameWriter {
                             .insert(key, CachedFont::Raw(Some(bytes.clone()), index, None));
                     }
                     &AddFont::Native(key, ref handle) => {
-                        self.fonts.insert(key, CachedFont::Native(handle.clone()));
+                        self.fonts.insert(key, CachedFont::Native(handle.clone(), None));
                     }
                 },
                 ResourceUpdate::DeleteFont(_) => {}
@@ -472,24 +530,7 @@ impl YamlFrameWriter {
         }
     }
 
-    fn next_rsrc_paths(
-        prefix: &str,
-        counter: &mut u32,
-        base_path: &Path,
-        base: &str,
-        ext: &str,
-    ) -> (PathBuf, PathBuf) {
-        let mut path_file = base_path.to_owned();
-        let mut path = PathBuf::from("res");
 
-        let fstr = format!("{}-{}-{}.{}", prefix, base, counter, ext);
-        path_file.push(&fstr);
-        path.push(&fstr);
-
-        *counter += 1;
-
-        (path_file, path)
-    }
 
     fn path_for_image(&mut self, key: ImageKey) -> Option<PathBuf> {
         if let Some(ref mut data) = self.images.get_mut(&key) {
@@ -503,10 +544,7 @@ impl YamlFrameWriter {
         // Remove the data to munge it
         let mut data = self.images.remove(&key).unwrap();
         let mut bytes = data.bytes.take().unwrap();
-        let (path_file, path) = Self::next_rsrc_paths(
-            &self.rsrc_prefix,
-            &mut self.next_rsrc_num,
-            &self.rsrc_base,
+        let (path_file, path) = self.rsrc_gen.next_rsrc_paths(
             "img",
             "png",
         );
@@ -688,15 +726,12 @@ impl YamlFrameWriter {
                     });
 
                     match entry {
-                        &mut CachedFont::Native(ref handle) => {
-                            native_font_handle_to_yaml(handle, &mut v);
+                        &mut CachedFont::Native(ref handle, ref mut path_opt) => {
+                            native_font_handle_to_yaml(&mut self.rsrc_gen, handle, &mut v, path_opt);
                         }
                         &mut CachedFont::Raw(ref mut bytes_opt, index, ref mut path_opt) => {
                             if let Some(bytes) = bytes_opt.take() {
-                                let (path_file, path) = Self::next_rsrc_paths(
-                                    &self.rsrc_prefix,
-                                    &mut self.next_rsrc_num,
-                                    &self.rsrc_base,
+                                let (path_file, path) = self.rsrc_gen.next_rsrc_paths(
                                     "font",
                                     "ttf",
                                 );
