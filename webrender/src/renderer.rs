@@ -2805,22 +2805,8 @@ impl Renderer {
     fn prepare_gpu_cache(&mut self, frame: &Frame) {
         let _gm = self.gpu_profile.start_marker("gpu cache update");
 
-        let (updated_blocks, max_requested_height) = self
-            .pending_gpu_cache_updates
-            .iter()
-            .fold((0, 0), |(count, height), list| {
-                (count + list.blocks.len(), cmp::max(height, list.height))
-            });
-
-        //Note: if we decide to switch to scatter-style GPU cache update
-        // permanently, we can have this code nicer with `BufferUploader` kind
-        // of helper, similarly to how `TextureUploader` API is used.
-        self.gpu_cache_texture.prepare_for_updates(
-            &mut self.device,
-            updated_blocks,
-            max_requested_height,
-        );
-        self.update_deferred_resolves(frame);
+        let deferred_update_list = self.update_deferred_resolves(frame);
+        self.pending_gpu_cache_updates.extend(deferred_update_list);
 
         // For an artificial stress test of GPU cache resizing,
         // always pass an extra update list with at least one block in it.
@@ -2833,8 +2819,24 @@ impl Renderer {
             });
         }
 
+        let (updated_blocks, max_requested_height) = self
+            .pending_gpu_cache_updates
+            .iter()
+            .fold((0, gpu_cache_height), |(count, height), list| {
+                (count + list.blocks.len(), cmp::max(height, list.height))
+            });
+
+        //Note: if we decide to switch to scatter-style GPU cache update
+        // permanently, we can have this code nicer with `BufferUploader` kind
+        // of helper, similarly to how `TextureUploader` API is used.
+        self.gpu_cache_texture.prepare_for_updates(
+            &mut self.device,
+            updated_blocks,
+            max_requested_height,
+        );
+
         for update_list in self.pending_gpu_cache_updates.drain(..) {
-            assert!(update_list.height <= gpu_cache_height);
+            assert!(update_list.height <= max_requested_height);
             self.gpu_cache_texture
                 .update(&mut self.device, &update_list);
         }
@@ -3850,13 +3852,13 @@ impl Renderer {
         self.gpu_profile.finish_sampler(alpha_sampler);
     }
 
-    fn update_deferred_resolves(&mut self, frame: &Frame) {
+    fn update_deferred_resolves(&mut self, frame: &Frame) -> Option<GpuCacheUpdateList> {
         // The first thing we do is run through any pending deferred
         // resolves, and use a callback to get the UV rect for this
         // custom item. Then we patch the resource_rects structure
         // here before it's uploaded to the GPU.
         if frame.deferred_resolves.is_empty() {
-            return;
+            return None;
         }
 
         let handler = self.external_image_handler
@@ -3922,7 +3924,7 @@ impl Renderer {
             list.blocks.push([0f32; 4].into());
         }
 
-        self.pending_gpu_cache_updates.push(list);
+        Some(list)
     }
 
     fn unlock_external_images(&mut self) {
