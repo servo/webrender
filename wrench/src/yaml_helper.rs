@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use app_units::Au;
-use euclid::{Radians, TypedSize2D};
+use euclid::{Angle, TypedSize2D};
 use parse_function::parse_function;
 use std::f32;
 use std::str::FromStr;
@@ -153,7 +153,7 @@ fn make_rotation(
 
     let theta = 2.0f32 * f32::consts::PI - degrees.to_radians();
     let transform =
-        LayoutTransform::identity().pre_rotate(axis_x, axis_y, axis_z, Radians::new(theta));
+        LayoutTransform::identity().pre_rotate(axis_x, axis_y, axis_z, Angle::radians(theta));
 
     pre_transform.pre_mul(&transform).pre_mul(&post_transform)
 }
@@ -163,8 +163,8 @@ fn make_skew(
     skew_x: f32,
     skew_y: f32,
 ) -> LayoutTransform {
-    let alpha = Radians::new(skew_x.to_radians());
-    let beta = Radians::new(skew_y.to_radians());
+    let alpha = Angle::radians(skew_x.to_radians());
+    let beta = Angle::radians(skew_y.to_radians());
     LayoutTransform::create_skew(alpha, beta)
 }
 

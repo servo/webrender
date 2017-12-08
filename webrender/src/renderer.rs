@@ -32,7 +32,7 @@ use device::{get_gl_format_bgra, ExternalTexture, FBOId, TextureSlot, VertexAttr
 use device::{FileWatcherHandler, ShaderError, TextureFilter, TextureTarget,
              VertexUsageHint, VAO};
 use device::ProgramCache;
-use euclid::{rect, ScaleFactor, Transform3D};
+use euclid::{rect, TypedScale, Transform3D};
 use frame_builder::FrameBuilderConfig;
 use gleam::gl;
 use glyph_rasterizer::GlyphFormat;
@@ -2956,7 +2956,7 @@ impl Renderer {
 
             let (readback_rect, readback_layer) = readback.get_target_rect();
             let (backdrop_rect, _) = backdrop.get_target_rect();
-            let content_to_device_scale = ScaleFactor::<_, _, DevicePixel>::new(1i32);
+            let content_to_device_scale = TypedScale::<_, _, DevicePixel>::new(1i32);
             let backdrop_screen_origin = match backdrop.kind {
                 RenderTaskKind::Picture(ref task_info) => task_info
                     .content_origin
