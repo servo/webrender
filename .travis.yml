@@ -4,6 +4,7 @@ rust:
   - 1.21.0
   - nightly
 matrix:
+  fast_finish: true
   allow_failures:
   - rust: nightly
 os:
