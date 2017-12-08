@@ -9,8 +9,16 @@ matrix:
 os:
   - linux
   - osx
+
+# Travis is slow and often backlogged so we only run it on the "auto" branch
+# which is what bors uses to test the merge commit when merging a PR. Individual
+# PRs can catch errors by checking the taskcluster result instead.
+branches:
+  only:
+    - auto
 notifications:
   webhooks: http://build.servo.org:54856/travis
+
 addons:
   apt:
     sources:
@@ -39,6 +47,6 @@ script:
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo build --verbose --no-default-features); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo build --verbose --features profiler); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cargo test --all --verbose); fi
-  - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && python headless.py reftest); fi
+  - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && python script/headless.py reftest); fi
   - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && cargo build --release); fi
   - if [ $TRAVIS_RUST_VERSION == "nightly" ]; then (cd webrender && cargo bench --verbose); fi

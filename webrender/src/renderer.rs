@@ -32,7 +32,7 @@ use device::{get_gl_format_bgra, ExternalTexture, FBOId, TextureSlot, VertexAttr
 use device::{FileWatcherHandler, ShaderError, TextureFilter, TextureTarget,
              VertexUsageHint, VAO};
 use device::ProgramCache;
-use euclid::{rect, ScaleFactor, Transform3D};
+use euclid::{rect, TypedScale, Transform3D};
 use frame_builder::FrameBuilderConfig;
 use gleam::gl;
 use glyph_rasterizer::GlyphFormat;
@@ -256,6 +256,7 @@ bitflags! {
         const GPU_SAMPLE_QUERIES= 1 << 5;
         const DISABLE_BATCHING  = 1 << 6;
         const EPOCHS            = 1 << 7;
+        const COMPACT_PROFILER  = 1 << 8;
     }
 }
 
@@ -2606,6 +2607,7 @@ impl Renderer {
                 &profile_samplers,
                 screen_fraction,
                 &mut self.debug,
+                self.debug_flags.contains(DebugFlags::COMPACT_PROFILER),
             );
         }
 
@@ -2954,7 +2956,7 @@ impl Renderer {
 
             let (readback_rect, readback_layer) = readback.get_target_rect();
             let (backdrop_rect, _) = backdrop.get_target_rect();
-            let content_to_device_scale = ScaleFactor::<_, _, DevicePixel>::new(1i32);
+            let content_to_device_scale = TypedScale::<_, _, DevicePixel>::new(1i32);
             let backdrop_screen_origin = match backdrop.kind {
                 RenderTaskKind::Picture(ref task_info) => task_info
                     .content_origin
@@ -3045,6 +3047,7 @@ impl Renderer {
         frame_id: FrameId,
         stats: &mut RendererStats,
     ) {
+        self.profile_counters.color_targets.inc();
         let _gm = self.gpu_profile.start_marker("color target");
 
         // sanity check for the depth buffer
@@ -3466,6 +3469,7 @@ impl Renderer {
         render_tasks: &RenderTaskTree,
         stats: &mut RendererStats,
     ) {
+        self.profile_counters.alpha_targets.inc();
         let _gm = self.gpu_profile.start_marker("alpha target");
         let alpha_sampler = self.gpu_profile.start_sampler(GPU_SAMPLER_TAG_ALPHA);
 

@@ -20,7 +20,7 @@ extern crate rand;
 mod boilerplate;
 
 use boilerplate::{Example, HandyDandyRectBuilder};
-use euclid::Radians;
+use euclid::Angle;
 use euclid::vec2;
 use webrender::api::*;
 
@@ -244,7 +244,7 @@ impl Example for App {
                 let post_transform = LayoutTransform::create_translation(-origin_x, -origin_y, -0.0);
                 let new_transform = pre_transform.pre_mul(
                     &LayoutTransform::identity()
-                    .pre_rotate(0., 0., 1., Radians::new(angle))
+                    .pre_rotate(0., 0., 1., Angle::radians(angle))
                 ).pre_mul(&post_transform);
 
                 self.transform =

@@ -79,7 +79,7 @@ pub trait Example {
     fn get_image_handlers(
         &mut self,
         _gl: &gl::Gl,
-    ) -> (Option<Box<webrender::ExternalImageHandler>>, 
+    ) -> (Option<Box<webrender::ExternalImageHandler>>,
           Option<Box<webrender::OutputImageHandler>>) {
         (None, None)
     }
@@ -114,13 +114,14 @@ pub fn main_wrapper<E: Example>(
         window.make_current().ok();
     }
 
-    let gl = match gl::GlType::default() {
-        gl::GlType::Gl => unsafe {
+    let gl = match window.get_api() {
+        glutin::Api::OpenGl => unsafe {
             gl::GlFns::load_with(|symbol| window.get_proc_address(symbol) as *const _)
         },
-        gl::GlType::Gles => unsafe {
+        glutin::Api::OpenGlEs => unsafe {
             gl::GlesFns::load_with(|symbol| window.get_proc_address(symbol) as *const _)
         },
+        glutin::Api::WebGl => unimplemented!(),
     };
 
     println!("OpenGL version {}", gl.get_string(gl::VERSION));
@@ -159,7 +160,7 @@ pub fn main_wrapper<E: Example>(
 
     let mut epoch = Epoch(0);
     let pipeline_id = PipelineId(0, 0);
-    let mut layout_size = framebuffer_size.to_f32() / euclid::ScaleFactor::new(device_pixel_ratio);
+    let mut layout_size = framebuffer_size.to_f32() / euclid::TypedScale::new(device_pixel_ratio);
     let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);
     let mut resources = ResourceUpdates::new();
     let mut rebuilding = false;
@@ -267,7 +268,7 @@ pub fn main_wrapper<E: Example>(
                     framebuffer_size = {
                         DeviceUintSize::new(width, height)
                     };
-                    layout_size = framebuffer_size.to_f32() / euclid::ScaleFactor::new(device_pixel_ratio);
+                    layout_size = framebuffer_size.to_f32() / euclid::TypedScale::new(device_pixel_ratio);
                     api.set_window_parameters(
                         document_id,
                         framebuffer_size,

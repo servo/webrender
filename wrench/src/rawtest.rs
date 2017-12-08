@@ -25,6 +25,7 @@ impl<'a> RawtestHarness<'a> {
 
     pub fn run(mut self) {
         self.retained_blob_images_test();
+        self.blob_update_test();
         self.tile_decomposition();
         self.save_restore();
     }
@@ -169,6 +170,132 @@ impl<'a> RawtestHarness<'a> {
         assert!(pixels_first != pixels_second);
     }
 
+    fn blob_update_test(&mut self) {
+        let blob_img;
+        let window_size = self.window.get_inner_size_pixels();
+        let window_size = DeviceUintSize::new(window_size.0, window_size.1);
+
+        let test_size = DeviceUintSize::new(400, 400);
+        let document_id = self.wrench.document_id;
+
+        let window_rect = DeviceUintRect::new(
+            DeviceUintPoint::new(0, window_size.height - test_size.height),
+            test_size,
+        );
+        let layout_size = LayoutSize::new(400., 400.);
+        let mut resources = ResourceUpdates::new();
+        {
+            let api = &self.wrench.api;
+
+            blob_img = api.generate_image_key();
+            resources.add_image(
+                blob_img,
+                ImageDescriptor::new(500, 500, ImageFormat::BGRA8, true),
+                ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
+                None,
+            );
+        }
+        let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
+
+        // draw the blob the first time
+        let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
+        let info = LayoutPrimitiveInfo::new(
+            LayoutRect::new(LayoutPoint::new(0.0, 60.0), LayoutSize::new(200.0, 200.0)));
+
+        builder.push_image(
+            &info,
+            LayoutSize::new(200.0, 200.0),
+            LayoutSize::new(0.0, 0.0),
+            ImageRendering::Auto,
+            blob_img,
+        );
+
+        self.wrench.api.set_display_list(
+            document_id,
+            Epoch(0),
+            root_background_color,
+            layout_size,
+            builder.finalize(),
+            false,
+            resources,
+        );
+        self.wrench.api.generate_frame(document_id, None);
+        let pixels_first = self.render_and_get_pixels(window_rect);
+
+
+        // draw the blob image a second time after updating it with the same color
+        let mut resources = ResourceUpdates::new();
+        resources.update_image(
+            blob_img,
+            ImageDescriptor::new(500, 500, ImageFormat::BGRA8, true),
+            ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
+            Some(DeviceUintRect::new(DeviceUintPoint::new(100, 100), DeviceUintSize::new(100, 100))),
+        );
+
+        // make a new display list that refers to the first image
+        let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
+        let info = LayoutPrimitiveInfo::new(
+            LayoutRect::new(LayoutPoint::new(0.0, 60.0), LayoutSize::new(200.0, 200.0)));
+        builder.push_image(
+            &info,
+            LayoutSize::new(200.0, 200.0),
+            LayoutSize::new(0.0, 0.0),
+            ImageRendering::Auto,
+            blob_img,
+        );
+
+        self.wrench.api.set_display_list(
+            document_id,
+            Epoch(1),
+            root_background_color,
+            layout_size,
+            builder.finalize(),
+            false,
+            resources,
+        );
+
+        self.wrench.api.generate_frame(document_id, None);
+        let pixels_second = self.render_and_get_pixels(window_rect);
+
+
+        // draw the blob image a third time after updating it with a different color
+        let mut resources = ResourceUpdates::new();
+        resources.update_image(
+            blob_img,
+            ImageDescriptor::new(500, 500, ImageFormat::BGRA8, true),
+            ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 150, 150, 255))),
+            Some(DeviceUintRect::new(DeviceUintPoint::new(200, 200), DeviceUintSize::new(100, 100))),
+        );
+
+        // make a new display list that refers to the first image
+        let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
+        let info = LayoutPrimitiveInfo::new(
+            LayoutRect::new(LayoutPoint::new(0.0, 60.0), LayoutSize::new(200.0, 200.0)));
+        builder.push_image(
+            &info,
+            LayoutSize::new(200.0, 200.0),
+            LayoutSize::new(0.0, 0.0),
+            ImageRendering::Auto,
+            blob_img,
+        );
+
+        self.wrench.api.set_display_list(
+            document_id,
+            Epoch(2),
+            root_background_color,
+            layout_size,
+            builder.finalize(),
+            false,
+            resources,
+        );
+
+        self.wrench.api.generate_frame(document_id, None);
+
+        let pixels_third = self.render_and_get_pixels(window_rect);
+
+        assert!(pixels_first == pixels_second);
+        assert!(pixels_first != pixels_third);
+    }
 
     // Ensures that content doing a save-restore produces the same results as not
     fn save_restore(&mut self) {
