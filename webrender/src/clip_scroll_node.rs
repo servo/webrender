@@ -85,10 +85,6 @@ pub struct ClipScrollNode {
     /// Viewing rectangle in the coordinate system of the parent reference frame.
     pub local_viewport_rect: LayerRect,
 
-    /// Clip rect of this node - typically the same as viewport rect, except
-    /// in overscroll cases.
-    pub local_clip_rect: LayerRect,
-
     /// The transformation for this viewport in world coordinates is the transformation for
     /// our parent reference frame, plus any accumulated scrolling offsets from nodes
     /// between our reference frame and this node. For reference frames, we also include
@@ -141,7 +137,6 @@ impl ClipScrollNode {
     ) -> Self {
         ClipScrollNode {
             local_viewport_rect: *rect,
-            local_clip_rect: *rect,
             world_viewport_transform: LayerToWorldTransform::identity(),
             world_content_transform: LayerToWorldTransform::identity(),
             parent: parent_id,
@@ -377,20 +372,24 @@ impl ClipScrollNode {
             return;
         }
 
-        let combined_outer_screen_rect = match screen_outer_rect {
-            Some(outer_rect) => {
-                // If this clips outer rectangle is completely enclosed by the clip
-                // chain's inner rectangle, then the only clip that matters from this point
-                // on is this clip. We can disconnect this clip from the parent clip chain.
-                if state.combined_inner_clip_bounds.contains_rect(&outer_rect) {
-                    current_clip_chain = None;
-                }
-                outer_rect.intersection(&state.combined_outer_clip_bounds)
-                    .unwrap_or_else(DeviceIntRect::zero)
-            }
-            None => state.combined_outer_clip_bounds,
-        };
+        // All clipping ClipScrollNodes should have outer rectangles, because they never
+        // use the BorderCorner clip type and they always have at last one non-ClipOut
+        // Rectangle ClipSource.
+        let screen_outer_rect = screen_outer_rect.expect("Clipping node didn't have outer rect.");
+        let local_outer_rect = clip_sources.local_outer_rect.expect(
+            "Clipping node didn't have outer rect."
+        );
 
+        // If this clip's outer rectangle is completely enclosed by the clip
+        // chain's inner rectangle, then the only clip that matters from this point
+        // on is this clip. We can disconnect this clip from the parent clip chain.
+        if state.combined_inner_clip_bounds.contains_rect(&screen_outer_rect) {
+            current_clip_chain = None;
+        }
+
+        let combined_outer_screen_rect =
+            screen_outer_rect.intersection(&state.combined_outer_clip_bounds)
+            .unwrap_or_else(DeviceIntRect::zero);
         let combined_inner_screen_rect =
             state.combined_inner_clip_bounds.intersection(&screen_inner_rect)
             .unwrap_or_else(DeviceIntRect::zero);
@@ -399,15 +398,13 @@ impl ClipScrollNode {
         state.combined_inner_clip_bounds = combined_inner_screen_rect;
         self.combined_clip_outer_bounds = combined_outer_screen_rect;
 
-        let local_clip_rect = self.coordinate_system_relative_transform.apply(&self.local_clip_rect);
-
         self.clip_chain_node = Some(Rc::new(ClipChainNode {
             work_item: ClipWorkItem {
                 scroll_node_data_index: self.node_data_index,
                 clip_sources: clip_sources_handle.weak(),
                 coordinate_system_id: state.current_coordinate_system_id,
             },
-            local_clip_rect,
+            local_clip_rect: self.coordinate_system_relative_transform.apply(&local_outer_rect),
             screen_inner_rect,
             combined_outer_screen_rect,
             combined_inner_screen_rect,
