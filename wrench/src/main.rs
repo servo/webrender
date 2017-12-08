@@ -606,6 +606,9 @@ fn main() {
                 VirtualKeyCode::B => {
                     wrench.renderer.toggle_debug_flags(DebugFlags::ALPHA_PRIM_DBG);
                 }
+                VirtualKeyCode::C => {
+                    wrench.renderer.toggle_debug_flags(DebugFlags::COMPACT_PROFILER);
+                }
                 VirtualKeyCode::Q => {
                     wrench.renderer.toggle_debug_flags(
                         DebugFlags::GPU_TIME_QUERIES | DebugFlags::GPU_SAMPLE_QUERIES
