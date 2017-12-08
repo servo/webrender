@@ -408,7 +408,7 @@ impl<V> VBO<V> {
         self.allocated_count
     }
 
-    pub fn streaw_with<'a>(&self, attributes: &'a [VertexAttribute]) -> Stream<'a> {
+    pub fn stream_with<'a>(&self, attributes: &'a [VertexAttribute]) -> Stream<'a> {
         debug_assert_eq!(
             mem::size_of::<V>(),
             attributes.iter().map(|a| a.size_in_bytes() as usize).sum::<usize>()

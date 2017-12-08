@@ -71,6 +71,9 @@ use time::precise_time_ns;
 use util::TransformedRectKind;
 
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
+/// Enabling this toggle would force the GPU cache scattered texture to
+/// be resized every frame, which enables GPU debuggers to see if this
+/// is performed correctly.
 const GPU_CACHE_RESIZE_TEST: bool = false;
 
 const GPU_TAG_BRUSH_SOLID: GpuProfileTag = GpuProfileTag {
@@ -823,8 +826,8 @@ impl CacheTexture {
             //Note: the vertex attributes have to be supplied in the same order
             // as for program creation, but each assigned to a different stream.
             let vao = device.create_custom_vao(&[
-                buf_position.streaw_with(&DESC_GPU_CACHE_UPDATE.vertex_attributes[0..1]),
-                buf_value   .streaw_with(&DESC_GPU_CACHE_UPDATE.vertex_attributes[1..2]),
+                buf_position.stream_with(&DESC_GPU_CACHE_UPDATE.vertex_attributes[0..1]),
+                buf_value   .stream_with(&DESC_GPU_CACHE_UPDATE.vertex_attributes[1..2]),
             ]);
             CacheBus::Scatter {
                 program,
@@ -4553,7 +4556,10 @@ impl Default for RendererOptions {
             clear_color: Some(ColorF::new(1.0, 1.0, 1.0, 1.0)),
             enable_clear_scissor: true,
             max_texture_size: None,
-            scatter_gpu_cache_updates: true,
+            // Scattered GPU cache updates haven't met a test that would show their superiority yet.
+            scatter_gpu_cache_updates: false,
+            // This is best as `Immediate` on Angle, or `Pixelbuffer(Dynamic)` on GL,
+            // but we are unable to make this decision here, so picking the reasonable medium.
             upload_method: UploadMethod::PixelBuffer(VertexUsageHint::Stream),
             workers: None,
             blob_image_renderer: None,

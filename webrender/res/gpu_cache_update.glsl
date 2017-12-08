@@ -11,9 +11,9 @@ in vec4 aValue;
 in vec2 aPosition;
 
 void main() {
-	vData = aValue;
-	gl_Position = vec4(aPosition * 2.0 - 1.0, 0.0, 1.0);
-	gl_PointSize = 1.0;
+    vData = aValue;
+    gl_Position = vec4(aPosition * 2.0 - 1.0, 0.0, 1.0);
+    gl_PointSize = 1.0;
 }
 
 #endif //WR_VERTEX_SHADER
@@ -22,6 +22,6 @@ void main() {
 out vec4 oValue;
 
 void main() {
-	oValue = vData;
+    oValue = vData;
 }
 #endif //WR_FRAGMENT_SHADER
