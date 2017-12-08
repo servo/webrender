@@ -200,11 +200,6 @@ impl ClipScrollTree {
             }
         };
 
-        if !node.local_clip_rect.contains(&transformed_point) {
-            cache.insert(*node_id, None);
-            return false;
-        }
-
         for &(ref clip, _) in clip_store.get(&clip_sources_handle).clips() {
             if !clip.contains(&transformed_point) {
                 cache.insert(*node_id, None);
@@ -567,7 +562,6 @@ impl ClipScrollTree {
             "local_viewport_rect: {:?}",
             node.local_viewport_rect
         ));
-        pt.add_item(format!("local_clip_rect: {:?}", node.local_clip_rect));
         pt.add_item(format!(
             "world_viewport_transform: {:?}",
             node.world_viewport_transform

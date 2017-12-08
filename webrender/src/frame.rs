@@ -1041,7 +1041,6 @@ impl FrameContext {
             );
 
             roller.builder.setup_viewport_offset(
-                window_size,
                 inner_rect,
                 device_pixel_scale,
                 roller.clip_scroll_tree,
