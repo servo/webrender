@@ -134,7 +134,7 @@ impl FontContext {
                     },
                 );
             } else {
-                println!("WARN: webrender failed to load font {:?}", font_key);
+                println!("WARN: webrender failed to load font {:?} from path {:?}", font_key, pathname);
             }
         }
     }
