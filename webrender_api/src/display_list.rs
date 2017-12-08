@@ -771,6 +771,9 @@ impl DisplayListBuilder {
     }
 
     fn push_item(&mut self, item: SpecificDisplayItem, info: &LayoutPrimitiveInfo) {
+        if info.rect.is_empty() {
+            return;
+        }
         serialize_fast(
             &mut self.data,
             &DisplayItem {
@@ -1185,7 +1188,14 @@ impl DisplayListBuilder {
             },
         });
 
-        self.push_item(item, info);
+        serialize_fast(
+            &mut self.data,
+            &DisplayItem {
+                item,
+                clip_and_scroll: *self.clip_stack.last().unwrap(),
+                info: *info,
+            },
+        );
         self.push_iter(&filters);
     }
 
