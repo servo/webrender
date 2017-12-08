@@ -17,7 +17,8 @@ flat varying vec4 vUvBorder;
 #define MODE_SUBPX_BG_PASS0     4
 #define MODE_SUBPX_BG_PASS1     5
 #define MODE_SUBPX_BG_PASS2     6
-#define MODE_COLOR_BITMAP       7
+#define MODE_BITMAP             7
+#define MODE_COLOR_BITMAP       8
 
 VertexInfo write_text_vertex(vec2 clamped_local_pos,
                              RectWithSize local_clip_rect,
@@ -59,9 +60,20 @@ void main(void) {
     int glyph_index = prim.user_data0;
     int resource_address = prim.user_data1;
 
+    int subpx_dir;
+    switch (uMode) {
+        case MODE_BITMAP:
+        case MODE_COLOR_BITMAP:
+            subpx_dir = SUBPX_DIR_NONE;
+            break;
+        default:
+            subpx_dir = text.subpx_dir;
+            break;
+    }
+
     Glyph glyph = fetch_glyph(prim.specific_prim_address,
                               glyph_index,
-                              text.subpx_dir);
+                              subpx_dir);
     GlyphResource res = fetch_glyph_resource(resource_address);
 
 #ifdef WR_FEATURE_GLYPH_TRANSFORM
@@ -125,6 +137,7 @@ void main(void) {
         case MODE_ALPHA:
         case MODE_SUBPX_PASS1:
         case MODE_SUBPX_BG_PASS2:
+        case MODE_BITMAP:
             vColor = text.color;
             break;
         case MODE_SUBPX_CONST_COLOR:

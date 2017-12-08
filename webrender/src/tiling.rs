@@ -4,7 +4,7 @@
 
 use api::{BorderRadiusKind, ClipId, ColorF, DeviceIntPoint, ImageKey};
 use api::{DeviceIntRect, DeviceIntSize, device_length, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
-use api::{DocumentLayer, ExternalImageType, FilterOp, FontRenderMode};
+use api::{DocumentLayer, ExternalImageType, FilterOp};
 use api::{ImageFormat, ImageRendering};
 use api::{LayerRect, MixBlendMode, PipelineId};
 use api::{TileOffset, YuvColorSpace, YuvFormat};
@@ -106,21 +106,8 @@ impl AlphaBatchHelpers for PrimitiveStore {
             transform_kind == TransformedRectKind::Complex;
 
         match metadata.prim_kind {
-            PrimitiveKind::TextRun => {
-                let font = &self.cpu_text_runs[metadata.cpu_prim_index.0].font;
-                match font.render_mode {
-                    FontRenderMode::Subpixel => {
-                        if font.bg_color.a != 0 {
-                            BlendMode::SubpixelWithBgColor
-                        } else {
-                            BlendMode::SubpixelConstantTextColor(font.color.into())
-                        }
-                    }
-                    FontRenderMode::Alpha |
-                    FontRenderMode::Mono |
-                    FontRenderMode::Bitmap => BlendMode::PremultipliedAlpha,
-                }
-            },
+            // Can only resolve the TextRun's blend mode once glyphs are fetched.
+            PrimitiveKind::TextRun => BlendMode::PremultipliedAlpha,
             PrimitiveKind::Border |
             PrimitiveKind::Image |
             PrimitiveKind::YuvImage |
@@ -598,6 +585,21 @@ fn add_to_batch(
                         transform_kind,
                         TransformBatchKind::TextRun(glyph_format),
                     );
+
+                    let blend_mode = match glyph_format {
+                        GlyphFormat::Subpixel |
+                        GlyphFormat::TransformedSubpixel => {
+                            if text_cpu.font.bg_color.a != 0 {
+                                BlendMode::SubpixelWithBgColor
+                            } else {
+                                BlendMode::SubpixelConstantTextColor(text_cpu.font.color.into())
+                            }
+                        }
+                        GlyphFormat::Alpha |
+                        GlyphFormat::TransformedAlpha |
+                        GlyphFormat::Bitmap |
+                        GlyphFormat::ColorBitmap => BlendMode::PremultipliedAlpha,
+                    };
 
                     let key = BatchKey::new(kind, blend_mode, textures);
                     let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
