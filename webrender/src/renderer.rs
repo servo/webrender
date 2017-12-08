@@ -281,7 +281,8 @@ enum TextShaderMode {
     SubpixelWithBgColorPass0 = 4,
     SubpixelWithBgColorPass1 = 5,
     SubpixelWithBgColorPass2 = 6,
-    ColorBitmap = 7,
+    Bitmap = 7,
+    ColorBitmap = 8,
 }
 
 impl Into<ShaderMode> for TextShaderMode {
@@ -297,6 +298,7 @@ impl From<GlyphFormat> for TextShaderMode {
             GlyphFormat::Subpixel | GlyphFormat::TransformedSubpixel => {
                 panic!("Subpixel glyph formats must be handled separately.");
             }
+            GlyphFormat::Bitmap => TextShaderMode::Bitmap,
             GlyphFormat::ColorBitmap => TextShaderMode::ColorBitmap,
         }
     }
@@ -1251,6 +1253,7 @@ impl TextShader {
         match glyph_format {
             GlyphFormat::Alpha |
             GlyphFormat::Subpixel |
+            GlyphFormat::Bitmap |
             GlyphFormat::ColorBitmap => {
                 match transform_kind {
                     TransformedRectKind::AxisAligned => {
