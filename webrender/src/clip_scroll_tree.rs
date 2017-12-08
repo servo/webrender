@@ -69,7 +69,6 @@ pub struct ClipScrollTree {
 #[derive(Clone)]
 pub struct TransformUpdateState {
     pub parent_reference_frame_transform: LayerToWorldTransform,
-    pub parent_combined_viewport_rect: LayerRect,
     pub parent_accumulated_scroll_offset: LayerVector2D,
     pub nearest_scrolling_ancestor_offset: LayerVector2D,
     pub nearest_scrolling_ancestor_viewport: LayerRect,
@@ -353,15 +352,12 @@ impl ClipScrollTree {
         }
 
         let root_reference_frame_id = self.root_reference_frame_id();
-        let root_viewport = self.nodes[&root_reference_frame_id].local_clip_rect;
-
         let mut state = TransformUpdateState {
             parent_reference_frame_transform: LayerToWorldTransform::create_translation(
                 pan.x,
                 pan.y,
                 0.0,
             ),
-            parent_combined_viewport_rect: root_viewport,
             parent_accumulated_scroll_offset: LayerVector2D::zero(),
             nearest_scrolling_ancestor_offset: LayerVector2D::zero(),
             nearest_scrolling_ancestor_viewport: LayerRect::zero(),
