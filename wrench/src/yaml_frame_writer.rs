@@ -463,6 +463,12 @@ impl YamlFrameWriter {
         for update in &updates.updates {
             match *update {
                 ResourceUpdate::AddImage(ref img) => {
+                    if let Some(ref data) = self.images.get(&img.key) {
+                          if data.path.is_some() {
+                              return;
+                          }
+                    }
+
                     let stride = img.descriptor.stride.unwrap_or(
                         img.descriptor.width * img.descriptor.format.bytes_per_pixel(),
                     );
