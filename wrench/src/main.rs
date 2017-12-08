@@ -246,26 +246,28 @@ fn make_window(
         };
         WindowWrapper::Headless(HeadlessContext::new(size.width, size.height), gl)
     } else {
-        let mut window = glutin::WindowBuilder::new()
+        let mut builder = glutin::WindowBuilder::new()
             .with_gl(glutin::GlRequest::GlThenGles {
                 opengl_version: (3, 2),
-                opengles_version: (3, 1),
+                opengles_version: (3, 0),
             })
             .with_dimensions(size.width, size.height);
-        window.opengl.vsync = vsync;
-        let window = window.build().unwrap();
+        builder.opengl.vsync = vsync;
+        let window = builder.build().unwrap();
         unsafe {
             window
                 .make_current()
                 .expect("unable to make context current!");
         }
-        let gl = match gl::GlType::default() {
-            gl::GlType::Gl => unsafe {
+
+        let gl = match window.get_api() {
+            glutin::Api::OpenGl => unsafe {
                 gl::GlFns::load_with(|symbol| window.get_proc_address(symbol) as *const _)
             },
-            gl::GlType::Gles => unsafe {
+            glutin::Api::OpenGlEs => unsafe {
                 gl::GlesFns::load_with(|symbol| window.get_proc_address(symbol) as *const _)
             },
+            glutin::Api::WebGl => unimplemented!(),
         };
         WindowWrapper::Window(window, gl)
     };
