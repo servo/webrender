@@ -220,15 +220,16 @@ impl<'a> RawtestHarness<'a> {
             resources,
         );
         self.wrench.api.generate_frame(document_id, None);
+        let pixels_first = self.render_and_get_pixels(window_rect);
 
 
-        // draw the blob image a second time after updating it
+        // draw the blob image a second time after updating it with the same color
         let mut resources = ResourceUpdates::new();
         resources.update_image(
             blob_img,
             ImageDescriptor::new(500, 500, ImageFormat::BGRA8, true),
-            ImageData::new_blob_image(blob::serialize_blob(ColorU::new(150, 50, 150, 255))),
-            None,
+            ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
+            Some(DeviceUintRect::new(DeviceUintPoint::new(100, 100), DeviceUintSize::new(100, 100))),
         );
 
         // make a new display list that refers to the first image
@@ -254,11 +255,46 @@ impl<'a> RawtestHarness<'a> {
         );
 
         self.wrench.api.generate_frame(document_id, None);
-
-        let pixels_first = self.render_and_get_pixels(window_rect);
         let pixels_second = self.render_and_get_pixels(window_rect);
 
-        assert!(pixels_first != pixels_second);
+
+        // draw the blob image a third time after updating it with a different color
+        let mut resources = ResourceUpdates::new();
+        resources.update_image(
+            blob_img,
+            ImageDescriptor::new(500, 500, ImageFormat::BGRA8, true),
+            ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 150, 150, 255))),
+            Some(DeviceUintRect::new(DeviceUintPoint::new(200, 200), DeviceUintSize::new(100, 100))),
+        );
+
+        // make a new display list that refers to the first image
+        let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
+        let info = LayoutPrimitiveInfo::new(
+            LayoutRect::new(LayoutPoint::new(0.0, 60.0), LayoutSize::new(200.0, 200.0)));
+        builder.push_image(
+            &info,
+            LayoutSize::new(200.0, 200.0),
+            LayoutSize::new(0.0, 0.0),
+            ImageRendering::Auto,
+            blob_img,
+        );
+
+        self.wrench.api.set_display_list(
+            document_id,
+            Epoch(2),
+            root_background_color,
+            layout_size,
+            builder.finalize(),
+            false,
+            resources,
+        );
+
+        self.wrench.api.generate_frame(document_id, None);
+
+        let pixels_third = self.render_and_get_pixels(window_rect);
+
+        assert!(pixels_first == pixels_second);
+        assert!(pixels_first != pixels_third);
     }
 
     // Ensures that content doing a save-restore produces the same results as not
