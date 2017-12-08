@@ -346,7 +346,7 @@ fn main() {
             DeviceUintSize::new(3840, 2160)
         } else {
             let x = s.find('x').expect(
-                "Size must be specified exactly as 720p, 1080p, 4k, or widthxheight",
+                "Size must be specified exactly as 720p, 1080p, 4k, or width x height",
             );
             let w = s[0 .. x].parse::<u32>().expect("Invalid size width");
             let h = s[x + 1 ..].parse::<u32>().expect("Invalid size height");
@@ -391,8 +391,13 @@ fn main() {
     } else if let Some(subargs) = args.subcommand_matches("replay") {
         Box::new(BinaryFrameReader::new_from_args(subargs)) as Box<WrenchThing>
     } else if let Some(subargs) = args.subcommand_matches("png") {
+        let surface = match subargs.value_of("surface") {
+            Some("screen") | None => png::ReadSurface::Screen,
+            Some("gpu-cache") => png::ReadSurface::GpuCache,
+            _ => panic!("Unknown surface argument value")
+        };
         let reader = YamlFrameReader::new_from_args(subargs);
-        png::png(&mut wrench, &mut window, reader, rx.unwrap());
+        png::png(&mut wrench, surface, &mut window, reader, rx.unwrap());
         wrench.renderer.deinit();
         return;
     } else if let Some(subargs) = args.subcommand_matches("reftest") {
