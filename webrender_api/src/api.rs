@@ -856,7 +856,7 @@ impl<T> PropertyBindingKey<T> {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum PropertyBinding<T> {
     Value(T),
-    Binding(PropertyBindingKey<T>),
+    Binding(PropertyBindingKey<T>, T),
 }
 
 impl<T> From<T> for PropertyBinding<T> {
@@ -865,9 +865,9 @@ impl<T> From<T> for PropertyBinding<T> {
     }
 }
 
-impl<T> From<PropertyBindingKey<T>> for PropertyBinding<T> {
-    fn from(key: PropertyBindingKey<T>) -> PropertyBinding<T> {
-        PropertyBinding::Binding(key)
+impl<T> From<(PropertyBindingKey<T>, T)> for PropertyBinding<T> {
+    fn from(value: (PropertyBindingKey<T>, T)) -> PropertyBinding<T> {
+        PropertyBinding::Binding(value.0, value.1)
     }
 }
 
@@ -886,6 +886,7 @@ pub struct PropertyValue<T> {
 pub struct DynamicProperties {
     pub transforms: Vec<PropertyValue<LayoutTransform>>,
     pub floats: Vec<PropertyValue<f32>>,
+    pub colors: Vec<PropertyValue<ColorF>>
 }
 
 pub trait RenderNotifier: Send {

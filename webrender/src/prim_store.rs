@@ -2,13 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderRadius, BuiltDisplayList, ClipAndScrollInfo, ClipId, ClipMode, ColorF};
+use api::{BorderRadius, BorderWidths, BuiltDisplayList, ClipAndScrollInfo, ClipId, ClipMode, ColorF};
 use api::{ComplexClipRegion, DeviceIntRect, DevicePoint, ExtendMode, FontRenderMode};
 use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
-use api::{LineStyle, PipelineId, PremultipliedColorF, TileOffset, WorldToLayerTransform};
+use api::{LineStyle, NormalBorder, PipelineId, PremultipliedColorF, PropertyBinding, TileOffset, WorldToLayerTransform};
 use api::{YuvColorSpace, YuvFormat};
-use border::BorderCornerInstance;
+use border::{BorderCornerInstance, BorderSideHelpers};
 use clip_scroll_tree::{CoordinateSystemId, ClipScrollTree};
 use clip::{ClipSource, ClipSourcesHandle, ClipStore};
 use frame_builder::PrimitiveContext;
@@ -205,6 +205,7 @@ pub enum BrushKind {
     },
     Solid {
         color: ColorF,
+        binding: PropertyBinding<ColorF>
     },
     Clear,
 }
@@ -380,7 +381,7 @@ impl ToGpuBlocks for BrushPrimitive {
             0.0,
         ]);
         match self.kind {
-            BrushKind::Solid { color } => {
+            BrushKind::Solid { color, .. } => {
                 request.push(color.premultiplied());
             }
             BrushKind::Clear => {
@@ -478,12 +479,57 @@ impl ToGpuBlocks for YuvImagePrimitiveCpu {
 #[derive(Debug)]
 pub struct BorderPrimitiveCpu {
     pub corner_instances: [BorderCornerInstance; 4],
-    pub gpu_blocks: [GpuBlockData; 8],
+    pub border: NormalBorder,
+    pub widths: BorderWidths
 }
 
-impl ToGpuBlocks for BorderPrimitiveCpu {
-    fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        request.extend_from_slice(&self.gpu_blocks);
+impl BorderPrimitiveCpu {
+    fn build_gpu_blocks_for_border(
+        &self,
+        scene_properties: &SceneProperties,
+        mut request: GpuDataRequest
+    ) {
+        let radius = &self.border.radius;
+        let left = &self.border.left;
+        let right = &self.border.right;
+        let top = &self.border.top;
+        let bottom = &self.border.bottom;
+
+        request.push(
+            [
+                pack_as_float(left.style as u32),
+                pack_as_float(top.style as u32),
+                pack_as_float(right.style as u32),
+                pack_as_float(bottom.style as u32)
+            ]
+        );
+
+        request.push([self.widths.left,  self.widths.top, 
+                      self.widths.right, self.widths.bottom]);
+        
+        let left_color = left.border_color(scene_properties, 1.0, 2.0 / 3.0, 0.3, 0.7).premultiplied();
+        let top_color = top.border_color(scene_properties, 1.0, 2.0 / 3.0, 0.3, 0.7).premultiplied();
+        let right_color = right.border_color(scene_properties, 2.0 / 3.0, 1.0, 0.7, 0.3).premultiplied();
+        let bottom_color = bottom.border_color(scene_properties, 2.0 / 3.0, 1.0, 0.7, 0.3).premultiplied();
+
+        request.push(left_color);
+        request.push(top_color);
+        request.push(right_color);
+        request.push(bottom_color);
+
+        request.push([
+            radius.top_left.width,
+            radius.top_left.height,
+            radius.top_right.width,
+            radius.top_right.height
+        ]);
+
+        request.push([
+            radius.bottom_right.width,
+            radius.bottom_right.height,
+            radius.bottom_left.width,
+            radius.bottom_left.height
+        ]);
     }
 }
 
@@ -500,6 +546,7 @@ impl GradientPrimitiveCpu {
     fn build_gpu_blocks_for_aligned(
         &self,
         display_list: &BuiltDisplayList,
+        scene_properties: &SceneProperties,
         mut request: GpuDataRequest,
     ) -> PrimitiveOpacity {
         let mut opacity = PrimitiveOpacity::opaque();
@@ -507,9 +554,10 @@ impl GradientPrimitiveCpu {
         let src_stops = display_list.get(self.stops_range);
 
         for src in src_stops {
-            request.push(src.color.premultiplied());
+            let src_color = scene_properties.resolve_color(&src.color);
+            request.push(src_color.premultiplied());
             request.push([src.offset, 0.0, 0.0, 0.0]);
-            opacity.accumulate(src.color.a);
+            opacity.accumulate(src_color.a);
         }
 
         opacity
@@ -518,12 +566,13 @@ impl GradientPrimitiveCpu {
     fn build_gpu_blocks_for_angle_radial(
         &self,
         display_list: &BuiltDisplayList,
+        scene_properties: &SceneProperties,
         mut request: GpuDataRequest,
     ) {
         request.extend_from_slice(&self.gpu_blocks);
 
         let gradient_builder = GradientGpuBlockBuilder::new(self.stops_range, display_list);
-        gradient_builder.build(self.reverse_stops, &mut request);
+        gradient_builder.build(self.reverse_stops, &scene_properties, &mut request);
     }
 }
 
@@ -607,7 +656,7 @@ impl<'a> GradientGpuBlockBuilder<'a> {
     }
 
     // Build the gradient data from the supplied stops, reversing them if necessary.
-    fn build(&self, reverse_stops: bool, request: &mut GpuDataRequest) {
+    fn build(&self, reverse_stops: bool, scene_properties: &SceneProperties, request: &mut GpuDataRequest) {
         let src_stops = self.display_list.get(self.stops_range);
 
         // Preconditions (should be ensured by DisplayListBuilder):
@@ -617,7 +666,8 @@ impl<'a> GradientGpuBlockBuilder<'a> {
 
         let mut src_stops = src_stops.into_iter();
         let first = src_stops.next().unwrap();
-        let mut cur_color = first.color.premultiplied();
+        let first_color = scene_properties.resolve_color(&first.color);
+        let mut cur_color = first_color.premultiplied();
         debug_assert_eq!(first.offset, 0.0);
 
         // A table of gradient entries, with two colors per entry, that specify the start and end color
@@ -646,7 +696,8 @@ impl<'a> GradientGpuBlockBuilder<'a> {
             // loop will then fill indices in [GRADIENT_DATA_TABLE_BEGIN, GRADIENT_DATA_TABLE_END).
             let mut cur_idx = GRADIENT_DATA_TABLE_END;
             for next in src_stops {
-                let next_color = next.color.premultiplied();
+                let next_color = scene_properties.resolve_color(&next.color);
+                let next_color = next_color.premultiplied();
                 let next_idx = Self::get_index(1.0 - next.offset);
 
                 if next_idx < cur_idx {
@@ -681,7 +732,8 @@ impl<'a> GradientGpuBlockBuilder<'a> {
             // loop will then fill indices in [GRADIENT_DATA_TABLE_BEGIN, GRADIENT_DATA_TABLE_END).
             let mut cur_idx = GRADIENT_DATA_TABLE_BEGIN;
             for next in src_stops {
-                let next_color = next.color.premultiplied();
+                let next_color = scene_properties.resolve_color(&next.color);
+                let next_color = next_color.premultiplied();
                 let next_idx = Self::get_index(next.offset);
 
                 if next_idx > cur_idx {
@@ -722,12 +774,13 @@ impl RadialGradientPrimitiveCpu {
     fn build_gpu_blocks_for_angle_radial(
         &self,
         display_list: &BuiltDisplayList,
+        scene_properties: &SceneProperties,
         mut request: GpuDataRequest,
     ) {
         request.extend_from_slice(&self.gpu_blocks);
 
         let gradient_builder = GradientGpuBlockBuilder::new(self.stops_range, display_list);
-        gradient_builder.build(false, &mut request);
+        gradient_builder.build(false, scene_properties, &mut request);
     }
 }
 
@@ -1100,7 +1153,7 @@ impl PrimitiveStore {
             PrimitiveContainer::Brush(brush) => {
                 let opacity = match brush.kind {
                     BrushKind::Clear => PrimitiveOpacity::translucent(),
-                    BrushKind::Solid { ref color } => PrimitiveOpacity::from_alpha(color.a),
+                    BrushKind::Solid { ref color, .. } => PrimitiveOpacity::from_alpha(color.a),
                     BrushKind::Mask { .. } => PrimitiveOpacity::translucent(),
                 };
 
@@ -1233,6 +1286,7 @@ impl PrimitiveStore {
 
     fn prepare_prim_for_render_inner(
         &mut self,
+        scene_properties: &SceneProperties,
         prim_index: PrimitiveIndex,
         prim_context: &PrimitiveContext,
         resource_cache: &mut ResourceCache,
@@ -1322,7 +1376,7 @@ impl PrimitiveStore {
                 }
                 PrimitiveKind::Border => {
                     let border = &self.cpu_borders[metadata.cpu_prim_index.0];
-                    border.write_gpu_blocks(request);
+                    border.build_gpu_blocks_for_border(scene_properties, request);
                 }
                 PrimitiveKind::Image => {
                     let image = &self.cpu_images[metadata.cpu_prim_index.0];
@@ -1334,15 +1388,15 @@ impl PrimitiveStore {
                 }
                 PrimitiveKind::AlignedGradient => {
                     let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];
-                    metadata.opacity = gradient.build_gpu_blocks_for_aligned(prim_context.display_list, request);
+                    metadata.opacity = gradient.build_gpu_blocks_for_aligned(prim_context.display_list, scene_properties, request);
                 }
                 PrimitiveKind::AngleGradient => {
                     let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];
-                    gradient.build_gpu_blocks_for_angle_radial(prim_context.display_list, request);
+                    gradient.build_gpu_blocks_for_angle_radial(prim_context.display_list, scene_properties, request);
                 }
                 PrimitiveKind::RadialGradient => {
                     let gradient = &self.cpu_radial_gradients[metadata.cpu_prim_index.0];
-                    gradient.build_gpu_blocks_for_angle_radial(prim_context.display_list, request);
+                    gradient.build_gpu_blocks_for_angle_radial(prim_context.display_list, scene_properties, request);
                 }
                 PrimitiveKind::TextRun => {
                     let text = &self.cpu_text_runs[metadata.cpu_prim_index.0];
@@ -1701,6 +1755,23 @@ impl PrimitiveStore {
                     (Some((pic.pipeline_id, mem::replace(&mut pic.runs, Vec::new()), rfid)),
                      pic.cull_children,
                      may_need_clip_mask)
+                },
+                PrimitiveKind::Brush => {
+                    let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
+                    if let BrushKind::Solid { ref mut color, ref binding } = brush.kind {
+                        *color = scene_properties.resolve_color(&binding);
+                        gpu_cache.invalidate(&metadata.gpu_location);
+                    }
+
+                    (None, true, true)
+                },
+                PrimitiveKind::Border => {
+                    gpu_cache.invalidate(&metadata.gpu_location);
+                    (None, true, true)
+                }
+                PrimitiveKind::AlignedGradient | PrimitiveKind::AngleGradient | PrimitiveKind::RadialGradient => {
+                    gpu_cache.invalidate(&metadata.gpu_location);
+                    (None, true, true)
                 }
                 _ => {
                     (None, true, true)
@@ -1796,6 +1867,7 @@ impl PrimitiveStore {
         }
 
         self.prepare_prim_for_render_inner(
+            scene_properties,
             prim_index,
             prim_context,
             resource_cache,

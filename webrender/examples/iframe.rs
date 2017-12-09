@@ -64,7 +64,7 @@ impl Example for App {
         builder.push_stacking_context(
             &info,
             ScrollPolicy::Scrollable,
-            Some(PropertyBinding::Binding(PropertyBindingKey::new(42))),
+            None,
             TransformStyle::Flat,
             None,
             MixBlendMode::Normal,

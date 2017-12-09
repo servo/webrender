@@ -11,6 +11,7 @@ use frame_builder::FrameBuilder;
 use gpu_cache::GpuDataRequest;
 use prim_store::{BrushAntiAliasMode, BrushSegmentDescriptor, BrushSegmentKind};
 use prim_store::{BorderPrimitiveCpu, PrimitiveContainer, TexelRect};
+use scene::SceneProperties;
 use util::{lerp, pack_as_float};
 
 #[repr(u8)]
@@ -29,7 +30,7 @@ pub enum BorderCornerSide {
 }
 
 #[repr(C)]
-enum BorderCorner {
+pub enum BorderCorner {
     TopLeft,
     TopRight,
     BottomLeft,
@@ -104,9 +105,10 @@ pub enum BorderEdgeKind {
     Clip,
 }
 
-trait NormalBorderHelpers {
+pub trait NormalBorderHelpers {
     fn get_corner(
         &self,
+        scene_properties: &SceneProperties,
         edge0: &BorderSide,
         width0: f32,
         edge1: &BorderSide,
@@ -122,6 +124,7 @@ trait NormalBorderHelpers {
 impl NormalBorderHelpers for NormalBorder {
     fn get_corner(
         &self,
+        scene_properties: &SceneProperties,
         edge0: &BorderSide,
         width0: f32,
         edge1: &BorderSide,
@@ -135,8 +138,11 @@ impl NormalBorderHelpers for NormalBorder {
             return BorderCornerKind::None;
         }
 
+        let edge0_color = scene_properties.resolve_color(&edge0.color);
+        let edge1_color = scene_properties.resolve_color(&edge1.color);
+
         // If both edges are transparent, no corner is formed.
-        if edge0.color.a == 0.0 && edge1.color.a == 0.0 {
+        if edge0_color.a == 0.0 && edge1_color.a == 0.0 {
             return BorderCornerKind::None;
         }
 
@@ -279,49 +285,10 @@ impl FrameBuilder {
         corner_instances: [BorderCornerInstance; 4],
         clip_sources: Vec<ClipSource>,
     ) {
-        let radius = &border.radius;
-        let left = &border.left;
-        let right = &border.right;
-        let top = &border.top;
-        let bottom = &border.bottom;
-
-        // These colors are used during inset/outset scaling.
-        let left_color = left.border_color(1.0, 2.0 / 3.0, 0.3, 0.7).premultiplied();
-        let top_color = top.border_color(1.0, 2.0 / 3.0, 0.3, 0.7).premultiplied();
-        let right_color = right.border_color(2.0 / 3.0, 1.0, 0.7, 0.3).premultiplied();
-        let bottom_color = bottom.border_color(2.0 / 3.0, 1.0, 0.7, 0.3).premultiplied();
-
         let prim_cpu = BorderPrimitiveCpu {
             corner_instances,
-
-            // TODO(gw): In the future, we will build these on demand
-            //           from the deserialized display list, rather
-            //           than creating it immediately.
-            gpu_blocks: [
-                [
-                    pack_as_float(left.style as u32),
-                    pack_as_float(top.style as u32),
-                    pack_as_float(right.style as u32),
-                    pack_as_float(bottom.style as u32),
-                ].into(),
-                [widths.left, widths.top, widths.right, widths.bottom].into(),
-                left_color.into(),
-                top_color.into(),
-                right_color.into(),
-                bottom_color.into(),
-                [
-                    radius.top_left.width,
-                    radius.top_left.height,
-                    radius.top_right.width,
-                    radius.top_right.height,
-                ].into(),
-                [
-                    radius.bottom_right.width,
-                    radius.bottom_right.height,
-                    radius.bottom_left.width,
-                    radius.bottom_left.height,
-                ].into(),
-            ],
+            border: *border,
+            widths: *widths
         };
 
         self.add_primitive(
@@ -338,6 +305,7 @@ impl FrameBuilder {
     // border code path.
     pub fn add_normal_border(
         &mut self,
+        scene_properties: &SceneProperties,
         info: &LayerPrimitiveInfo,
         border: &NormalBorder,
         widths: &BorderWidths,
@@ -363,6 +331,7 @@ impl FrameBuilder {
 
         let corners = [
             border.get_corner(
+                scene_properties,
                 left,
                 widths.left,
                 top,
@@ -372,6 +341,7 @@ impl FrameBuilder {
                 &info.rect,
             ),
             border.get_corner(
+                scene_properties,
                 right,
                 widths.right,
                 top,
@@ -381,6 +351,7 @@ impl FrameBuilder {
                 &info.rect,
             ),
             border.get_corner(
+                scene_properties,
                 right,
                 widths.right,
                 bottom,
@@ -390,6 +361,7 @@ impl FrameBuilder {
                 &info.rect,
             ),
             border.get_corner(
+                scene_properties,
                 left,
                 widths.left,
                 bottom,
@@ -445,6 +417,7 @@ impl FrameBuilder {
                     clip_and_scroll,
                     &info,
                     border.top.color,
+                    scene_properties,
                     Some(Box::new(descriptor)),
                     BrushAntiAliasMode::Segment,
                 );
@@ -461,6 +434,7 @@ impl FrameBuilder {
                     clip_and_scroll,
                     &info,
                     border.left.color,
+                    scene_properties,
                     Some(Box::new(descriptor)),
                     BrushAntiAliasMode::Segment,
                 );
@@ -477,6 +451,7 @@ impl FrameBuilder {
                     clip_and_scroll,
                     &info,
                     border.right.color,
+                    scene_properties,
                     Some(Box::new(descriptor)),
                     BrushAntiAliasMode::Segment,
                 );
@@ -495,6 +470,7 @@ impl FrameBuilder {
                     clip_and_scroll,
                     &info,
                     border.bottom.color,
+                    scene_properties,
                     Some(Box::new(descriptor)),
                     BrushAntiAliasMode::Segment,
                 );
@@ -536,6 +512,7 @@ impl FrameBuilder {
 pub trait BorderSideHelpers {
     fn border_color(
         &self,
+        scene_properties: &SceneProperties,
         scale_factor_0: f32,
         scale_factor_1: f32,
         black_color_0: f32,
@@ -546,27 +523,29 @@ pub trait BorderSideHelpers {
 impl BorderSideHelpers for BorderSide {
     fn border_color(
         &self,
+        scene_properties: &SceneProperties,
         scale_factor_0: f32,
         scale_factor_1: f32,
         black_color_0: f32,
         black_color_1: f32,
     ) -> ColorF {
+        let color = scene_properties.resolve_color(&self.color);
         match self.style {
             BorderStyle::Inset => {
-                if self.color.r != 0.0 || self.color.g != 0.0 || self.color.b != 0.0 {
-                    self.color.scale_rgb(scale_factor_1)
+                if color.r != 0.0 || color.g != 0.0 || color.b != 0.0 {
+                    color.scale_rgb(scale_factor_1)
                 } else {
-                    ColorF::new(black_color_0, black_color_0, black_color_0, self.color.a)
+                    ColorF::new(black_color_0, black_color_0, black_color_0, color.a)
                 }
             }
             BorderStyle::Outset => {
-                if self.color.r != 0.0 || self.color.g != 0.0 || self.color.b != 0.0 {
-                    self.color.scale_rgb(scale_factor_0)
+                if color.r != 0.0 || color.g != 0.0 || color.b != 0.0 {
+                    color.scale_rgb(scale_factor_0)
                 } else {
-                    ColorF::new(black_color_1, black_color_1, black_color_1, self.color.a)
+                    ColorF::new(black_color_1, black_color_1, black_color_1, color.a)
                 }
             }
-            _ => self.color,
+            _ => color,
         }
     }
 }

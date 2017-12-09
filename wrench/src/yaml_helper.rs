@@ -556,7 +556,7 @@ impl YamlHelper for Yaml {
                 }
                 ("opacity", ref args, _) if args.len() == 1 => {
                     let amount: f32 = args[0].parse().unwrap();
-                    Some(FilterOp::Opacity(amount.into(), amount))
+                    Some(FilterOp::Opacity(amount.into()))
                 }
                 ("saturate", ref args, _) if args.len() == 1 => {
                     Some(FilterOp::Saturate(args[0].parse().unwrap()))
