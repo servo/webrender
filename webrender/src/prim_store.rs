@@ -820,7 +820,7 @@ impl TextRunPrimitiveCpu {
         request.push([
             self.offset.x,
             self.offset.y,
-            self.font.subpx_dir.limit_by(self.font.render_mode) as u32 as f32,
+            0.0,
             0.0,
         ]);
         request.extend_from_slice(&self.glyph_gpu_blocks);

@@ -7,7 +7,7 @@ use api::{DeviceIntRect, DeviceIntSize, device_length, DeviceUintPoint, DeviceUi
 use api::{DocumentLayer, ExternalImageType, FilterOp};
 use api::{ImageFormat, ImageRendering};
 use api::{LayerRect, MixBlendMode, PipelineId};
-use api::{TileOffset, YuvColorSpace, YuvFormat};
+use api::{SubpixelDirection, TileOffset, YuvColorSpace, YuvFormat};
 use api::{LayerToWorldTransform, WorldPixel};
 use border::{BorderCornerInstance, BorderCornerSide};
 use clip::{ClipSource, ClipStore};
@@ -600,6 +600,11 @@ fn add_to_batch(
                         GlyphFormat::Bitmap |
                         GlyphFormat::ColorBitmap => BlendMode::PremultipliedAlpha,
                     };
+                    let subpx_dir = match glyph_format {
+                        GlyphFormat::Bitmap |
+                        GlyphFormat::ColorBitmap => SubpixelDirection::None,
+                        _ => text_cpu.font.subpx_dir.limit_by(text_cpu.font.render_mode),
+                    };
 
                     let key = BatchKey::new(kind, blend_mode, textures);
                     let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
@@ -608,7 +613,7 @@ fn add_to_batch(
                         batch.push(base_instance.build(
                             glyph.index_in_text_run,
                             glyph.uv_rect_address.as_int(),
-                            0,
+                            subpx_dir as u32 as i32,
                         ));
                     }
                 },
@@ -1556,16 +1561,22 @@ impl RenderTarget for ColorRenderTarget {
                                                     &text.glyph_keys,
                                                     &mut self.glyph_fetch_buffer,
                                                     gpu_cache,
-                                                    |texture_id, _glyph_format, glyphs| {
+                                                    |texture_id, glyph_format, glyphs| {
                                                         let batch = text_run_cache_prims
                                                             .entry(texture_id)
                                                             .or_insert(Vec::new());
+
+                                                        let subpx_dir = match glyph_format {
+                                                            GlyphFormat::Bitmap |
+                                                            GlyphFormat::ColorBitmap => SubpixelDirection::None,
+                                                            _ => text.font.subpx_dir.limit_by(text.font.render_mode),
+                                                        };
 
                                                         for glyph in glyphs {
                                                             batch.push(instance.build(
                                                                 glyph.index_in_text_run,
                                                                 glyph.uv_rect_address.as_int(),
-                                                                0
+                                                                subpx_dir as u32 as i32,
                                                             ));
                                                         }
                                                     },

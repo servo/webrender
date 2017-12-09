@@ -59,17 +59,7 @@ void main(void) {
 
     int glyph_index = prim.user_data0;
     int resource_address = prim.user_data1;
-
-    int subpx_dir;
-    switch (uMode) {
-        case MODE_BITMAP:
-        case MODE_COLOR_BITMAP:
-            subpx_dir = SUBPX_DIR_NONE;
-            break;
-        default:
-            subpx_dir = text.subpx_dir;
-            break;
-    }
+    int subpx_dir = prim.user_data2;
 
     Glyph glyph = fetch_glyph(prim.specific_prim_address,
                               glyph_index,
