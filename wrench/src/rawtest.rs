@@ -4,6 +4,7 @@
 
 use WindowWrapper;
 use blob;
+use euclid::{TypedRect, TypedSize2D, TypedPoint2D};
 use std::sync::mpsc::Receiver;
 use webrender::api::*;
 use wrench::Wrench;
@@ -12,6 +13,18 @@ pub struct RawtestHarness<'a> {
     wrench: &'a mut Wrench,
     rx: Receiver<()>,
     window: &'a mut WindowWrapper,
+}
+
+fn point<T: Copy, U>(x: T, y: T) -> TypedPoint2D<T, U> {
+    TypedPoint2D::new(x, y)
+}
+
+fn size<T: Copy, U>(x: T, y: T) -> TypedSize2D<T, U> {
+    TypedSize2D::new(x, y)
+}
+
+fn rect<T: Copy, U>(x: T, y: T, width: T, height: T) -> TypedRect<T, U> {
+    TypedRect::new(point(x, y), size(width, height))
 }
 
 impl<'a> RawtestHarness<'a> {
@@ -36,6 +49,8 @@ impl<'a> RawtestHarness<'a> {
         self.wrench.renderer.read_pixels_rgba8(window_rect)
     }
 
+
+
     fn tile_decomposition(&mut self) {
         // This exposes a crash in tile decomposition
         let layout_size = LayoutSize::new(800., 800.);
@@ -53,14 +68,13 @@ impl<'a> RawtestHarness<'a> {
 
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
 
-        let info = LayoutPrimitiveInfo::new(
-            LayoutRect::new(LayoutPoint::new(448.899994, 74.0), LayoutSize::new(151.000031, 56.)));
+        let info = LayoutPrimitiveInfo::new(rect(448.899994, 74.0, 151.000031, 56.));
 
         // setup some malicious image size parameters
         builder.push_image(
             &info,
-            LayoutSize::new(151., 56.0),
-            LayoutSize::new(151.0, 56.0),
+            size(151., 56.0),
+            size(151.0, 56.0),
             ImageRendering::Auto,
             blob_img,
         );
@@ -111,13 +125,12 @@ impl<'a> RawtestHarness<'a> {
 
         // draw the blob the first time
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
-        let info = LayoutPrimitiveInfo::new(
-            LayoutRect::new(LayoutPoint::new(0.0, 60.0), LayoutSize::new(200.0, 200.0)));
+        let info = LayoutPrimitiveInfo::new(rect(0.0, 60.0, 200.0, 200.0));
 
         builder.push_image(
             &info,
-            LayoutSize::new(200.0, 200.0),
-            LayoutSize::new(0.0, 0.0),
+            size(200.0, 200.0),
+            size(0.0, 0.0),
             ImageRendering::Auto,
             blob_img,
         );
@@ -138,12 +151,11 @@ impl<'a> RawtestHarness<'a> {
 
         // make a new display list that refers to the first image
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
-        let info = LayoutPrimitiveInfo::new(
-            LayoutRect::new(LayoutPoint::new(1.0, 60.0), LayoutSize::new(200.0, 200.0)));
+        let info = LayoutPrimitiveInfo::new(rect(1.0, 60.0, 200.0, 200.0));
         builder.push_image(
             &info,
-            LayoutSize::new(200.0, 200.0),
-            LayoutSize::new(0.0, 0.0),
+            size(200.0, 200.0),
+            size(0.0, 0.0),
             ImageRendering::Auto,
             blob_img,
         );
@@ -179,7 +191,7 @@ impl<'a> RawtestHarness<'a> {
         let document_id = self.wrench.document_id;
 
         let window_rect = DeviceUintRect::new(
-            DeviceUintPoint::new(0, window_size.height - test_size.height),
+            point(0, window_size.height - test_size.height),
             test_size,
         );
         let layout_size = LayoutSize::new(400., 400.);
@@ -199,13 +211,12 @@ impl<'a> RawtestHarness<'a> {
 
         // draw the blob the first time
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
-        let info = LayoutPrimitiveInfo::new(
-            LayoutRect::new(LayoutPoint::new(0.0, 60.0), LayoutSize::new(200.0, 200.0)));
+        let info = LayoutPrimitiveInfo::new(rect(0.0, 60.0, 200.0, 200.0));
 
         builder.push_image(
             &info,
-            LayoutSize::new(200.0, 200.0),
-            LayoutSize::new(0.0, 0.0),
+            size(200.0, 200.0),
+            size(0.0, 0.0),
             ImageRendering::Auto,
             blob_img,
         );
@@ -229,17 +240,16 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
             ImageDescriptor::new(500, 500, ImageFormat::BGRA8, true),
             ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
-            Some(DeviceUintRect::new(DeviceUintPoint::new(100, 100), DeviceUintSize::new(100, 100))),
+            Some(rect(100, 100, 100, 100)),
         );
 
         // make a new display list that refers to the first image
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
-        let info = LayoutPrimitiveInfo::new(
-            LayoutRect::new(LayoutPoint::new(0.0, 60.0), LayoutSize::new(200.0, 200.0)));
+        let info = LayoutPrimitiveInfo::new(rect(0.0, 60.0, 200.0, 200.0));
         builder.push_image(
             &info,
-            LayoutSize::new(200.0, 200.0),
-            LayoutSize::new(0.0, 0.0),
+            size(200.0, 200.0),
+            size(0.0, 0.0),
             ImageRendering::Auto,
             blob_img,
         );
@@ -264,17 +274,16 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
             ImageDescriptor::new(500, 500, ImageFormat::BGRA8, true),
             ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 150, 150, 255))),
-            Some(DeviceUintRect::new(DeviceUintPoint::new(200, 200), DeviceUintSize::new(100, 100))),
+            Some(rect(200, 200, 100, 100)),
         );
 
         // make a new display list that refers to the first image
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
-        let info = LayoutPrimitiveInfo::new(
-            LayoutRect::new(LayoutPoint::new(0.0, 60.0), LayoutSize::new(200.0, 200.0)));
+        let info = LayoutPrimitiveInfo::new(rect(0.0, 60.0, 200.0, 200.0));
         builder.push_image(
             &info,
-            LayoutSize::new(200.0, 200.0),
-            LayoutSize::new(0.0, 0.0),
+            size(200.0, 200.0),
+            size(0.0, 0.0),
             ImageRendering::Auto,
             blob_img,
         );
@@ -299,12 +308,6 @@ impl<'a> RawtestHarness<'a> {
 
     // Ensures that content doing a save-restore produces the same results as not
     fn save_restore(&mut self) {
-        fn rect(x: f32, y: f32, w: f32, h: f32) -> LayoutRect {
-            LayoutRect::new(
-                    LayoutPoint::new(x, y),
-                    LayoutSize::new(w, h))
-        }
-
         let window_size = self.window.get_inner_size_pixels();
         let window_size = DeviceUintSize::new(window_size.0, window_size.1);
 
