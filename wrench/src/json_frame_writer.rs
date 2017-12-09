@@ -10,7 +10,6 @@ use app_units::Au;
 use image::{save_buffer, ColorType};
 use premultiply::unpremultiply;
 use serde_json;
-use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -144,8 +143,8 @@ impl JsonFrameWriter {
                         assert_eq!(data.format, img.descriptor.format);
 
                         if let ImageData::Raw(ref bytes) = img.data {
-                            *data.path.borrow_mut() = None;
-                            *data.bytes.borrow_mut() = Some((**bytes).clone());
+                            data.path = None;
+                            data.bytes = Some((**bytes).clone());
                         } else {
                             // Other existing image types only make sense within the gecko integration.
                             println!(
