@@ -720,6 +720,7 @@ struct ImageResource {
 };
 
 ImageResource fetch_image_resource(int address) {
+    //Note: number of blocks has to match `renderer::BLOCKS_PER_UV_RECT`
     vec4 data[2] = fetch_from_resource_cache_2(address);
     return ImageResource(data[0], data[1].x);
 }
