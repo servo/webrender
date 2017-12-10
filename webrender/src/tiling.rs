@@ -2112,7 +2112,7 @@ fn resolve_image(
                     // This is an external texture - we will add it to
                     // the deferred resolves list to be patched by
                     // the render thread...
-                    let cache_handle = gpu_cache.push_deferred_per_frame_blocks(1);
+                    let cache_handle = gpu_cache.push_deferred_per_frame_blocks(2);
                     deferred_resolves.push(DeferredResolve {
                         image_properties,
                         address: gpu_cache.get_address(&cache_handle),
