@@ -76,6 +76,9 @@ pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 /// is performed correctly.
 const GPU_CACHE_RESIZE_TEST: bool = false;
 
+/// Number of GPU blocks per UV rectangle provided for an image.
+pub const BLOCKS_PER_UV_RECT: usize = 2;
+
 const GPU_TAG_BRUSH_SOLID: GpuProfileTag = GpuProfileTag {
     label: "B_Solid",
     color: debug_colors::RED,
@@ -3923,7 +3926,7 @@ impl Renderer {
 
             list.updates.push(GpuCacheUpdate::Copy {
                 block_index: list.blocks.len(),
-                block_count: 2,
+                block_count: BLOCKS_PER_UV_RECT,
                 address: deferred_resolve.address,
             });
             list.blocks.push([image.u0, image.v0, image.u1, image.v1].into());

@@ -29,8 +29,8 @@ use profiler::FrameProfileCounters;
 use render_task::{ClipWorkItem};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKey, RenderTaskKind};
 use render_task::{BlurTask, ClearMode, RenderTaskLocation, RenderTaskTree};
-use renderer::BlendMode;
-use renderer::ImageBufferKind;
+use renderer::{BlendMode, ImageBufferKind};
+use renderer::BLOCKS_PER_UV_RECT;
 use resource_cache::{GlyphFetchResult, ResourceCache};
 use std::{cmp, usize, f32, i32};
 use std::collections::hash_map::Entry;
@@ -2112,7 +2112,7 @@ fn resolve_image(
                     // This is an external texture - we will add it to
                     // the deferred resolves list to be patched by
                     // the render thread...
-                    let cache_handle = gpu_cache.push_deferred_per_frame_blocks(2);
+                    let cache_handle = gpu_cache.push_deferred_per_frame_blocks(BLOCKS_PER_UV_RECT);
                     deferred_resolves.push(DeferredResolve {
                         image_properties,
                         address: gpu_cache.get_address(&cache_handle),
