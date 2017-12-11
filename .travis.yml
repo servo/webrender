@@ -1,7 +1,7 @@
 dist: trusty
 language: rust
 rust:
-  - 1.21.0
+  - 1.22.1
   - nightly
 matrix:
   fast_finish: true

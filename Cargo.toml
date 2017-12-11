@@ -9,6 +9,6 @@ members = [
 debug = true
 panic = "abort"
 
-[replace]
-"serde:1.0.23" = { git = "https://github.com/gankro/serde", branch = "deserialize_from_enums3" }
-"serde_derive:1.0.23" = { git = "https://github.com/gankro/serde", branch = "deserialize_from_enums3", feature="deserialize_from" }
+[patch.crates-io]
+serde = { git = "https://github.com/gankro/serde", branch = "deserialize_from_enums3" }
+serde_derive = { git = "https://github.com/gankro/serde", branch = "deserialize_from_enums3", feature="deserialize_from" }
