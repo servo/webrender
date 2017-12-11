@@ -133,6 +133,7 @@ impl WrenchThing for BinaryFrameReader {
                     let mut buffer = vec![0; len as usize];
                     self.file.read_exact(&mut buffer).unwrap();
                     let msg = deserialize(&buffer).unwrap();
+                    let mut store_message = true;
                     // In order to detect the first valid frame, we
                     // need to find:
                     // (a) SetRootPipeline
@@ -150,9 +151,15 @@ impl WrenchThing for BinaryFrameReader {
                             found_frame_marker = false;
                             found_pipeline = true;
                         }
+                        // Wrench depends on the document always existing
+                        ApiMsg::DeleteDocument(_) => {
+                            store_message = false;
+                        }
                         _ => {}
                     }
-                    self.frame_data.push(Item::Message(msg));
+                    if store_message {
+                        self.frame_data.push(Item::Message(msg));
+                    }
                     // Frames are marked by the GenerateFrame message.
                     // On the first frame, we additionally need to find at least
                     // a SetDisplayList and a SetRootPipeline.
