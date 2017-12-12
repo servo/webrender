@@ -12,6 +12,16 @@ use std::{i32, f32};
 // Matches the definition of SK_ScalarNearlyZero in Skia.
 const NEARLY_ZERO: f32 = 1.0 / 4096.0;
 
+bitflags! {
+    #[derive(Default)]
+    pub struct MatrixFlags: u32 {
+        const TRANSLATION   = 1;
+        const SCALE         = 2;
+        const AFFINE        = 4;
+        const PERSPECTIVE   = 8;
+    }
+}
+
 // TODO: Implement these in euclid!
 pub trait MatrixHelpers<Src, Dst> {
     fn preserves_2d_axis_alignment(&self) -> bool;
@@ -20,6 +30,7 @@ pub trait MatrixHelpers<Src, Dst> {
     fn inverse_project(&self, target: &TypedPoint2D<f32, Dst>) -> Option<TypedPoint2D<f32, Src>>;
     fn inverse_rect_footprint(&self, rect: &TypedRect<f32, Dst>) -> TypedRect<f32, Src>;
     fn transform_kind(&self) -> TransformedRectKind;
+    fn compute_flags(&self) -> MatrixFlags;
 }
 
 impl<Src, Dst> MatrixHelpers<Src, Dst> for TypedTransform3D<f32, Src, Dst> {
@@ -91,6 +102,40 @@ impl<Src, Dst> MatrixHelpers<Src, Dst> for TypedTransform3D<f32, Src, Dst> {
         } else {
             TransformedRectKind::Complex
         }
+    }
+
+    // A port of the computeTypeMask() function from Skia.
+    fn compute_flags(&self) -> MatrixFlags {
+        let mut mask = MatrixFlags::empty();
+
+        if self.m14 != 0.0 ||
+           self.m24 != 0.0 ||
+           self.m34 != 0.0 ||
+           self.m44 != 1.0 {
+            return MatrixFlags::TRANSLATION |
+                   MatrixFlags::SCALE |
+                   MatrixFlags::AFFINE |
+                   MatrixFlags::PERSPECTIVE;
+        }
+
+        if self.m41 != 0.0 ||
+           self.m42 != 0.0 ||
+           self.m43 != 0.0 {
+            mask |= MatrixFlags::TRANSLATION;
+        }
+
+        if self.m11 != 1.0 ||
+           self.m22 != 1.0 ||
+           self.m33 != 1.0 {
+            mask |= MatrixFlags::SCALE;
+        }
+
+        if self.m21 != 0.0 || self.m12 != 0.0 || self.m13 != 0.0 ||
+           self.m31 != 0.0 || self.m23 != 0.0 || self.m32 != 0.0 {
+            mask |= MatrixFlags::AFFINE;
+        }
+
+        mask
     }
 }
 
@@ -283,6 +328,34 @@ pub mod test {
         let m1 = Transform3D::create_rotation(0.0, 1.0, 0.0, Angle::radians(PI / 3.0));
         // rotation by 60 degrees would imply scaling of X component by a factor of 2
         assert_eq!(m1.inverse_project(&p0), Some(Point2D::new(2.0, 2.0)));
+    }
+
+    #[test]
+    fn test_matrix_types() {
+        let m0 = LayerToWorldTransform::create_perspective(100.0);
+        assert!(m0.preserves_2d_axis_alignment());
+        assert!(m0.has_perspective_component());
+        assert_eq!(m0.compute_flags(), MatrixFlags::TRANSLATION | MatrixFlags::SCALE | MatrixFlags::AFFINE | MatrixFlags::PERSPECTIVE);
+
+        let m1 = LayerToWorldTransform::create_rotation(0.0, 0.0, 1.0, Angle::radians(PI));
+        assert!(m1.preserves_2d_axis_alignment());
+        assert!(!m1.has_perspective_component());
+        assert_eq!(m1.compute_flags(), MatrixFlags::AFFINE | MatrixFlags::SCALE);
+
+        let m2 = LayerToWorldTransform::create_rotation(0.0, 0.0, 1.0, Angle::radians(2.0 * PI));
+        assert!(m2.preserves_2d_axis_alignment());
+        assert!(!m2.has_perspective_component());
+        assert_eq!(m2.compute_flags(), MatrixFlags::AFFINE);
+
+        let m3 = LayerToWorldTransform::create_translation(1.0, 0.0, 0.0);
+        assert!(m3.preserves_2d_axis_alignment());
+        assert!(!m3.has_perspective_component());
+        assert_eq!(m3.compute_flags(), MatrixFlags::TRANSLATION);
+
+        let m4 = LayerToWorldTransform::identity();
+        assert!(m4.preserves_2d_axis_alignment());
+        assert!(!m4.has_perspective_component());
+        assert_eq!(m4.compute_flags(), MatrixFlags::empty());
     }
 }
 
