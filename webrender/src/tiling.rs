@@ -570,7 +570,7 @@ fn add_to_batch(
                 &text_cpu.glyph_keys,
                 glyph_fetch_buffer,
                 gpu_cache,
-                |texture_id, glyph_format, glyphs| {
+                |texture_id, mut glyph_format, glyphs| {
                     debug_assert_ne!(texture_id, SourceTexture::Invalid);
 
                     let textures = BatchTextures {
@@ -580,6 +580,11 @@ fn add_to_batch(
                             SourceTexture::Invalid,
                         ],
                     };
+
+                    // Ignore color and only sample alpha when shadowing.
+                    if text_cpu.shadow_color.a != 0 {
+                        glyph_format = glyph_format.ignore_color();
+                    }
 
                     let kind = BatchKind::Transformable(
                         transform_kind,
@@ -595,10 +600,7 @@ fn add_to_batch(
                                 BlendMode::SubpixelConstantTextColor(text_cpu.font.color.into())
                             }
                         }
-                        GlyphFormat::Alpha |
-                        GlyphFormat::TransformedAlpha |
-                        GlyphFormat::Bitmap |
-                        GlyphFormat::ColorBitmap => BlendMode::PremultipliedAlpha,
+                        _ => BlendMode::PremultipliedAlpha,
                     };
                     let subpx_dir = match glyph_format {
                         GlyphFormat::Bitmap |
