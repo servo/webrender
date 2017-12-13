@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderRadius, BuiltDisplayList, ClipAndScrollInfo, ClipId, ClipMode, ColorF};
+use api::{BorderRadius, BuiltDisplayList, ClipAndScrollInfo, ClipId, ClipMode, ColorF, ColorU};
 use api::{ComplexClipRegion, DeviceIntRect, DevicePoint, ExtendMode, FontRenderMode};
 use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
@@ -740,8 +740,8 @@ pub struct TextRunPrimitiveCpu {
     pub glyph_count: usize,
     pub glyph_keys: Vec<GlyphKey>,
     pub glyph_gpu_blocks: Vec<GpuBlockData>,
+    pub shadow_color: ColorU,
 }
-
 
 impl TextRunPrimitiveCpu {
     pub fn get_font(
@@ -760,6 +760,10 @@ impl TextRunPrimitiveCpu {
             }
         }
         font
+    }
+
+    pub fn is_shadow(&self) -> bool {
+        self.shadow_color.a != 0
     }
 
     fn prepare_for_render(
@@ -813,7 +817,12 @@ impl TextRunPrimitiveCpu {
 
     fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
         let bg_color = ColorF::from(self.font.bg_color);
-        request.push(ColorF::from(self.font.color).premultiplied());
+        let color = ColorF::from(if self.is_shadow() {
+            self.shadow_color
+        } else {
+            self.font.color
+        });
+        request.push(color.premultiplied());
         // this is the only case where we need to provide plain color to GPU
         request.extend_from_slice(&[
             GpuBlockData { data: [bg_color.r, bg_color.g, bg_color.b, 1.0] }
