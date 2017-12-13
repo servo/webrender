@@ -12,4 +12,5 @@
 == sticky.yaml sticky-ref.yaml
 == sticky-nested.yaml sticky-ref.yaml
 == sticky-applied.yaml sticky-applied-ref.yaml
+== sticky-transformed.yaml sticky-transformed-ref.yaml
 == sibling-hidden-clip.yaml sibling-hidden-clip-ref.yaml
