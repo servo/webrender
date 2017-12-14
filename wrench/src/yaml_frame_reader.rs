@@ -464,7 +464,18 @@ impl YamlFrameReader {
             return None;
         }
 
-        let file = rsrc_path(&item["image"], &self.aux_dir);
+        let file = match item["image"].as_str() {
+            Some(filename) => {
+                let mut file = self.aux_dir.clone();
+                file.push(filename);
+                file
+            }
+            None => {
+                warn!("No image provided for the image-mask!");
+                return None;
+            }
+        };
+
         let (image_key, image_dims) =
             self.add_or_get_image(&file, None, wrench);
         let image_rect = item["rect"]

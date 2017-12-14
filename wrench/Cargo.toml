@@ -17,6 +17,7 @@ app_units = "0.6"
 image = "0.17"
 clap = { version = "2", features = ["yaml"] }
 lazy_static = "1"
+log = "0.3"
 yaml-rust = { git = "https://github.com/vvuk/yaml-rust", features = ["preserve_order"] }
 serde_json = "1.0"
 ron = "0.1.3"
