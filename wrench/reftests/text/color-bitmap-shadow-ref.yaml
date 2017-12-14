@@ -1,0 +1,30 @@
+---
+root:
+  items:
+        -
+          text: "0"
+          origin: [0, 48]
+          size: 48
+          color: [255, 255, 255, 1]
+          font: "emoji.ttf"
+          embedded-bitmaps: true
+        -
+          type: rect
+          bounds: [56, 56, 48, 48]
+          color: yellow
+        -
+          type: rect
+          bounds: [56, 56, 48, 12]
+          color: black
+        -
+          type: rect
+          bounds: [56, 92, 48, 12]
+          color: black
+        -
+          type: rect
+          bounds: [56, 56, 12, 48]
+          color: black
+        -
+          type: rect
+          bounds: [92, 56, 12, 48]
+          color: black
