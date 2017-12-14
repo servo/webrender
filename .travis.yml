@@ -23,18 +23,19 @@ notifications:
 addons:
   apt:
     sources:
-      - sourceline: 'deb http://apt.llvm.org/trusty/ llvm-toolchain-trusty-3.8 main'
+      - sourceline: 'deb http://apt.llvm.org/trusty/ llvm-toolchain-trusty-3.9 main'
         keyurl: 'http://apt.llvm.org/llvm-snapshot.gpg.key'
       - sourceline: 'ppa:jonathonf/python-2.7'
     packages:
       - libgl1-mesa-dev
-      - llvm-3.8-dev
+      - llvm-3.9-dev
       - libedit-dev
       - python
 env:
   - BUILD_KIND=DEBUG RUST_BACKTRACE=1 RUSTFLAGS='--deny warnings'
   - BUILD_KIND=RELEASE RUST_BACKTRACE=1 RUSTFLAGS='--deny warnings'
 before_install:
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then export LLVM_CONFIG=/usr/lib/llvm-3.9/bin/llvm-config; fi
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew update; fi
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install zlib; fi
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH"; fi
