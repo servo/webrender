@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderRadiusKind, ClipId, ColorF, DeviceIntPoint, ImageKey};
+use api::{ClipId, ColorF, DeviceIntPoint, ImageKey};
 use api::{DeviceIntRect, DeviceIntSize, device_length, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{DocumentLayer, ExternalImageType, FilterOp};
 use api::{ImageFormat, ImageRendering};
@@ -650,22 +650,13 @@ fn add_to_batch(
                             };
                             batch.push(PrimitiveInstance::from(instance));
                         }
-                        PictureKind::BoxShadow { radii_kind, .. } => {
+                        PictureKind::BoxShadow { image_kind, .. } => {
                             let kind = BatchKind::Brush(
                                 BrushBatchKind::Image(
                                     BrushImageSourceKind::from_render_target_kind(picture.target_kind())),
                             );
                             let key = BatchKey::new(kind, blend_mode, textures);
                             let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
-
-                            let image_kind = match radii_kind {
-                                BorderRadiusKind::Uniform => {
-                                    BrushImageKind::Mirror
-                                }
-                                BorderRadiusKind::NonUniform => {
-                                    BrushImageKind::NinePatch
-                                }
-                            };
 
                             let instance = BrushInstance {
                                 picture_address: task_address,
