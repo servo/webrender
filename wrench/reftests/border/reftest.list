@@ -15,3 +15,4 @@ fuzzy(255,24) == border-ridge-simple.yaml border-ridge-simple-ref.yaml
 == border-image-fill.yaml border-image-fill-ref.png
 == border-no-bogus-line.yaml border-no-bogus-line-ref.png
 == dotted-corner-small-radius.yaml dotted-corner-small-radius.png
+== overlapping.yaml overlapping.png
