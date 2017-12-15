@@ -202,7 +202,8 @@ impl FrameBuilder {
     ) -> PrimitiveIndex {
         if let &LocalClip::RoundedRect(main, region) = &info.local_clip {
             clip_sources.push(ClipSource::Rectangle(main));
-            clip_sources.push(ClipSource::RoundedRectangle(
+
+            clip_sources.push(ClipSource::new_rounded_rect(
                 region.rect,
                 region.radii,
                 region.mode,

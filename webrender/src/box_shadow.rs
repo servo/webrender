@@ -87,7 +87,7 @@ impl FrameBuilder {
             let fast_info = match clip_mode {
                 BoxShadowClipMode::Outset => {
                     // TODO(gw): Add a fast path for ClipOut + zero border radius!
-                    clips.push(ClipSource::RoundedRectangle(
+                    clips.push(ClipSource::new_rounded_rect(
                         prim_info.rect,
                         border_radius,
                         ClipMode::ClipOut
@@ -106,7 +106,7 @@ impl FrameBuilder {
                     )
                 }
                 BoxShadowClipMode::Inset => {
-                    clips.push(ClipSource::RoundedRectangle(
+                    clips.push(ClipSource::new_rounded_rect(
                         shadow_rect,
                         shadow_radius,
                         ClipMode::ClipOut
@@ -252,7 +252,7 @@ impl FrameBuilder {
                     //           segment logic, by avoiding drawing
                     //           most of the pixels inside and just
                     //           clipping out along the edges.
-                    extra_clips.push(ClipSource::RoundedRectangle(
+                    extra_clips.push(ClipSource::new_rounded_rect(
                         prim_info.rect,
                         border_radius,
                         ClipMode::ClipOut,
@@ -340,7 +340,7 @@ impl FrameBuilder {
                     // Add a normal clip to ensure nothing gets drawn
                     // outside the primitive rect.
                     if !border_radius.is_zero() {
-                        extra_clips.push(ClipSource::RoundedRectangle(
+                        extra_clips.push(ClipSource::new_rounded_rect(
                             prim_info.rect,
                             border_radius,
                             ClipMode::Clip,
