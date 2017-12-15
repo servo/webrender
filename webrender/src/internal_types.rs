@@ -174,6 +174,10 @@ impl RenderedDocument {
 pub enum DebugOutput {
     FetchDocuments(String),
     FetchClipScrollTree(String),
+    #[cfg(feature = "capture")]
+    Capture {
+        path: PathBuf,
+    }
 }
 
 pub enum ResultMsg {

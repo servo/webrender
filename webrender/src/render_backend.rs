@@ -7,11 +7,12 @@ use api::{ApiMsg, BlobImageRenderer, BuiltDisplayList, DebugCommand, DeviceIntPo
 use api::{BuiltDisplayListIter, SpecificDisplayItem};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{DocumentId, DocumentLayer, DocumentMsg};
-use api::{IdNamespace, LayerPoint, PipelineId, RenderNotifier};
+use api::{IdNamespace, PipelineId, RenderNotifier};
 use api::channel::{MsgReceiver, PayloadReceiver, PayloadReceiverHelperMethods};
 use api::channel::{PayloadSender, PayloadSenderHelperMethods};
 #[cfg(feature = "debugger")]
 use debug_server;
+use euclid::TypedScale;
 use frame::FrameContext;
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use gpu_cache::GpuCache;
@@ -21,6 +22,8 @@ use rayon::ThreadPool;
 use record::ApiRecordingReceiver;
 use resource_cache::ResourceCache;
 use scene::Scene;
+#[cfg(feature = "serialize")]
+use serde::{Serialize, Serializer};
 #[cfg(feature = "debugger")]
 use serde_json;
 use std::sync::atomic::{ATOMIC_USIZE_INIT, AtomicUsize, Ordering};
@@ -30,11 +33,8 @@ use std::u32;
 use texture_cache::TextureCache;
 use time::precise_time_ns;
 
-struct Document {
-    scene: Scene,
-    frame_ctx: FrameContext,
-    // the `Option` here is only to deal with borrow checker
-    frame_builder: Option<FrameBuilder>,
+#[cfg_attr(feature = "capture", derive(Serialize))]
+struct DocumentView {
     window_size: DeviceUintSize,
     inner_rect: DeviceUintRect,
     layer: DocumentLayer,
@@ -42,6 +42,24 @@ struct Document {
     device_pixel_ratio: f32,
     page_zoom_factor: f32,
     pinch_zoom_factor: f32,
+}
+
+impl DocumentView {
+    fn accumulated_scale_factor(&self) -> f32 {
+        self.device_pixel_ratio *
+        self.page_zoom_factor *
+        self.pinch_zoom_factor
+    }
+}
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+struct Document {
+    scene: Scene,
+    view: DocumentView,
+    frame_ctx: FrameContext,
+    // the `Option` here is only to deal with borrow checker
+    #[cfg_attr(feature = "capture", serde(skip))]
+    frame_builder: Option<FrameBuilder>,
     // A set of pipelines that the caller has requested be
     // made available as output textures.
     output_pipelines: FastHashSet<PipelineId>,
@@ -68,36 +86,31 @@ impl Document {
         };
         Document {
             scene: Scene::new(),
+            view: DocumentView {
+                window_size,
+                inner_rect: DeviceUintRect::new(DeviceUintPoint::zero(), window_size),
+                layer,
+                pan: DeviceIntPoint::zero(),
+                page_zoom_factor: 1.0,
+                pinch_zoom_factor: 1.0,
+                device_pixel_ratio: default_device_pixel_ratio,
+            },
             frame_ctx: FrameContext::new(config),
             frame_builder: Some(FrameBuilder::empty()),
-            window_size,
-            inner_rect: DeviceUintRect::new(DeviceUintPoint::zero(), window_size),
-            layer,
-            pan: DeviceIntPoint::zero(),
-            page_zoom_factor: 1.0,
-            pinch_zoom_factor: 1.0,
-            device_pixel_ratio: default_device_pixel_ratio,
             render_on_scroll,
             output_pipelines: FastHashSet::default(),
         }
     }
 
-    fn accumulated_scale_factor(&self) -> f32 {
-        self.device_pixel_ratio *
-        self.page_zoom_factor *
-        self.pinch_zoom_factor
-    }
-
     fn build_scene(&mut self, resource_cache: &mut ResourceCache) {
-        let accumulated_scale_factor = self.accumulated_scale_factor();
         // this code is why we have `Option`, which is never `None`
         let frame_builder = self.frame_ctx.create(
             self.frame_builder.take().unwrap(),
             &self.scene,
             resource_cache,
-            self.window_size,
-            self.inner_rect,
-            accumulated_scale_factor,
+            self.view.window_size,
+            self.view.inner_rect,
+            self.view.accumulated_scale_factor(),
             &self.output_pipelines,
         );
         self.frame_builder = Some(frame_builder);
@@ -109,18 +122,15 @@ impl Document {
         gpu_cache: &mut GpuCache,
         resource_profile: &mut ResourceProfileCounters,
     ) -> RenderedDocument {
-        let accumulated_scale_factor = self.accumulated_scale_factor();
-        let pan = LayerPoint::new(
-            self.pan.x as f32 / accumulated_scale_factor,
-            self.pan.y as f32 / accumulated_scale_factor,
-        );
+        let accumulated_scale_factor = self.view.accumulated_scale_factor();
+        let pan = self.view.pan.to_f32() * TypedScale::new(1.0 / accumulated_scale_factor);
         self.frame_ctx.build_rendered_document(
             self.frame_builder.as_mut().unwrap(),
             resource_cache,
             gpu_cache,
             &self.scene.pipelines,
             accumulated_scale_factor,
-            self.layer,
+            self.view.layer,
             pan,
             &mut resource_profile.texture_cache,
             &mut resource_profile.gpu_cache,
@@ -210,8 +220,9 @@ impl RenderBackend {
         let doc = self.documents.get_mut(&document_id).expect("No document?");
 
         match message {
+            //TODO: move view-related messages in a separate enum?
             DocumentMsg::SetPageZoom(factor) => {
-                doc.page_zoom_factor = factor.get();
+                doc.view.page_zoom_factor = factor.get();
                 DocumentOp::Nop
             }
             DocumentMsg::EnableFrameOutput(pipeline_id, enable) => {
@@ -223,11 +234,11 @@ impl RenderBackend {
                 DocumentOp::Nop
             }
             DocumentMsg::SetPinchZoom(factor) => {
-                doc.pinch_zoom_factor = factor.get();
+                doc.view.pinch_zoom_factor = factor.get();
                 DocumentOp::Nop
             }
             DocumentMsg::SetPan(pan) => {
-                doc.pan = pan;
+                doc.view.pan = pan;
                 DocumentOp::Nop
             }
             DocumentMsg::SetWindowParameters {
@@ -235,9 +246,9 @@ impl RenderBackend {
                 inner_rect,
                 device_pixel_ratio,
             } => {
-                doc.window_size = window_size;
-                doc.inner_rect = inner_rect;
-                doc.device_pixel_ratio = device_pixel_ratio;
+                doc.view.window_size = window_size;
+                doc.view.inner_rect = inner_rect;
+                doc.view.device_pixel_ratio = device_pixel_ratio;
                 DocumentOp::Nop
             }
             DocumentMsg::SetDisplayList {
@@ -550,6 +561,27 @@ impl RenderBackend {
                             let json = self.get_clip_scroll_tree_for_debugger();
                             ResultMsg::DebugOutput(DebugOutput::FetchClipScrollTree(json))
                         }
+                        #[cfg(feature = "capture")]
+                        DebugCommand::Capture => {
+                            use ron::ser::pretty;
+                            use std::fs;
+                            use std::io::Write;
+
+                            let dump_root = format!("dumps/frame-{}",
+                                self.resource_cache.current_frame_id.0
+                            );
+                            let _ = fs::create_dir_all(&dump_root);
+                            for (doc_id, document) in &self.documents {
+                                let doc_path = format!("{}/doc-{}-{}.ron",
+                                    dump_root, (doc_id.0).0, doc_id.1);
+                                let serial = pretty::to_string(document).unwrap();
+                                let mut file = fs::File::create(doc_path).unwrap();
+                                write!(file, "{}\n", serial).unwrap();
+                            }
+                            ResultMsg::DebugOutput(DebugOutput::Capture {
+                                path: dump_root.into(),
+                            })
+                        },
                         _ => ResultMsg::DebugCommand(option),
                     };
                     self.result_tx.send(msg).unwrap();

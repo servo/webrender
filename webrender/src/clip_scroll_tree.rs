@@ -23,14 +23,15 @@ pub type ScrollStates = FastHashMap<ClipId, ScrollingState>;
 /// system are the same or are in the same axis-aligned space. This allows
 /// for optimizing mask generation.
 #[derive(Debug, Copy, Clone, PartialEq)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct CoordinateSystemId(pub u32);
 
 impl CoordinateSystemId {
-    pub fn root() -> CoordinateSystemId {
+    pub fn root() -> Self {
         CoordinateSystemId(0)
     }
 
-    pub fn next(&self) -> CoordinateSystemId {
+    pub fn next(&self) -> Self {
         let CoordinateSystemId(id) = *self;
         CoordinateSystemId(id + 1)
     }
@@ -40,6 +41,7 @@ impl CoordinateSystemId {
     }
 }
 
+#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct ClipScrollTree {
     pub nodes: FastHashMap<ClipId, ClipScrollNode>,
     pub pending_scroll_offsets: FastHashMap<ClipId, (LayerPoint, ScrollClamping)>,

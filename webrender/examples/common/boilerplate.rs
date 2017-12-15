@@ -263,6 +263,13 @@ pub fn main_wrapper<E: Example>(
                 ) => {
                     api.notify_memory_pressure();
                 }
+                glutin::Event::KeyboardInput(
+                    glutin::ElementState::Pressed,
+                    _,
+                    Some(glutin::VirtualKeyCode::C),
+                ) => {
+                    api.capture();
+                }
                 _ => if example.on_event(event, &api, document_id) {
                     let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);
                     let mut resources = ResourceUpdates::new();
@@ -285,7 +292,7 @@ pub fn main_wrapper<E: Example>(
                         resources,
                     );
                     api.generate_frame(document_id, None);
-                },
+                }
             }
         }
 

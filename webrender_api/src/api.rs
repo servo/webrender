@@ -267,6 +267,8 @@ pub enum DebugCommand {
     FetchRenderTasks,
     /// Fetch screenshot.
     FetchScreenshot,
+    /// Capture the state of all the active documents.
+    Capture,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -758,6 +760,12 @@ impl RenderApi {
         property_bindings: Option<DynamicProperties>,
     ) {
         self.send(document_id, DocumentMsg::GenerateFrame(property_bindings));
+    }
+
+    /// Capture the current frame state for debugging.
+    pub fn capture(&self) {
+        let msg = ApiMsg::DebugCommand(DebugCommand::Capture);
+        self.send_message(msg);
     }
 }
 

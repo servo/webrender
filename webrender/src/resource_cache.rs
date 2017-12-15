@@ -215,7 +215,7 @@ pub struct ResourceCache {
 
     resources: Resources,
     state: State,
-    current_frame_id: FrameId,
+    pub(crate) current_frame_id: FrameId,
 
     texture_cache: TextureCache,
 

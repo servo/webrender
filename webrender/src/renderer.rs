@@ -2385,6 +2385,10 @@ impl Renderer {
                     DebugOutput::FetchClipScrollTree(string) => {
                         self.debug_server.send(string);
                     }
+                    #[cfg(feature = "capture")]
+                    DebugOutput::Capture {..} => {
+                        unimplemented!()
+                    }
                 },
                 ResultMsg::DebugCommand(command) => {
                     self.handle_debug_command(command);
@@ -2597,6 +2601,9 @@ impl Renderer {
             DebugCommand::FetchScreenshot => {
                 let json = self.get_screenshot_for_debugger();
                 self.debug_server.send(json);
+            }
+            DebugCommand::Capture => {
+                unimplemented!()
             }
         }
     }
