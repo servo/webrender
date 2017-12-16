@@ -154,8 +154,8 @@ struct SerializedRenderBackend<'a> {
     default_device_pixel_ratio: f32,
     enable_render_on_scroll: bool,
     frame_config: &'a FrameBuilderConfig,
-    resources: &'a ResourceCache,
     documents: FastHashMap<DocumentId, &'a DocumentView>,
+    resources: &'a ResourceCache,
 }
 
 /// The render backend is responsible for transforming high level display lists into
@@ -590,11 +590,11 @@ impl RenderBackend {
                                 default_device_pixel_ratio: self.default_device_pixel_ratio,
                                 enable_render_on_scroll: self.enable_render_on_scroll,
                                 frame_config: &self.frame_config,
-                                resources: &self.resource_cache,
                                 documents: self.documents
                                     .iter()
                                     .map(|(id, doc)| (*id, &doc.view))
                                     .collect(),
+                                resources: &self.resource_cache,
                             };
                             let ron = pretty::to_string(&serial).unwrap();
                             let ron_path = format!("{}/backend.ron", dir_path);

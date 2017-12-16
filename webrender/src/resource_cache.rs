@@ -954,10 +954,18 @@ enum SerializedFontTemplate<'a> {
 
 #[cfg(feature = "capture")]
 #[derive(Serialize)]
+struct SerializedImageTemplate<'a> {
+    data: String,
+    descriptor: &'a ImageDescriptor,
+    tiling: Option<TileSize>,
+}
+
+#[cfg(feature = "capture")]
+#[derive(Serialize)]
 struct SerializedResources<'a> {
     font_templates: FastHashMap<FontKey, SerializedFontTemplate<'a>>,
     font_instances: &'a FastHashMap<FontInstanceKey, FontInstance>,
-    //image_templates: ImageTemplates,
+    image_templates: FastHashMap<ImageKey, SerializedImageTemplate<'a>>,
 }
 
 #[cfg(feature = "capture")]
@@ -969,15 +977,16 @@ impl Serialize for ResourceCache {
         let res = &self.resources;
         let dir_path = self.capture_root();
         let _ = fs::create_dir(&format!("{}/fonts", dir_path));
+        let _ = fs::create_dir(&format!("{}/images", dir_path));
 
         let mut font_paths = FastHashMap::default();
         let mut num_fonts = 0;
         for template in res.font_templates.values() {
-            let arc: &[u8] = match *template {
+            let data: &[u8] = match *template {
                 FontTemplate::Raw(ref arc, _) => arc,
                 FontTemplate::Native(_) => continue,
             };
-            let entry = match font_paths.entry(arc.as_ptr()) {
+            let entry = match font_paths.entry(data.as_ptr()) {
                 Entry::Occupied(_) => continue,
                 Entry::Vacant(e) => e,
             };
@@ -986,7 +995,30 @@ impl Serialize for ResourceCache {
             let full_path = format!("{}/{}", dir_path, short_path);
             fs::File::create(full_path)
                 .unwrap()
-                .write_all(arc)
+                .write_all(data)
+                .unwrap();
+            entry.insert(short_path);
+        }
+
+        let mut image_paths = FastHashMap::default();
+        let mut num_images = 0;
+        for template in res.image_templates.images.values() {
+            let data: &[u8] = match template.data {
+                ImageData::Raw(ref arc) => arc,
+                ImageData::Blob(ref blob) => blob,
+                ImageData::External(_) => unimplemented!(),
+            };
+            let entry = match image_paths.entry(data.as_ptr()) {
+                Entry::Occupied(_) => continue,
+                Entry::Vacant(e) => e,
+            };
+            num_images += 1;
+            //TODO: option to save as PNG
+            let short_path = format!("images/{}.raw", num_images);
+            let full_path = format!("{}/{}", dir_path, short_path);
+            fs::File::create(full_path)
+                .unwrap()
+                .write_all(data)
                 .unwrap();
             entry.insert(short_path);
         }
@@ -1005,6 +1037,20 @@ impl Serialize for ResourceCache {
                 })
                 .collect(),
             font_instances: &*res.font_instances.read().unwrap(),
+            image_templates: res.image_templates.images
+                .iter()
+                .map(|(key, template)| {
+                    (*key, SerializedImageTemplate {
+                        data: match template.data {
+                            ImageData::Raw(ref arc) => image_paths[&arc.as_ptr()].clone(),
+                            ImageData::Blob(ref blob) => image_paths[&blob.as_ptr()].clone(),
+                            ImageData::External(_) => unimplemented!(),
+                        },
+                        descriptor: &template.descriptor,
+                        tiling: template.tiling,
+                    })
+                })
+                .collect(),
         };
         serial.serialize(serializer)
     }
