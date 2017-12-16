@@ -52,13 +52,6 @@ impl DocumentView {
     }
 }
 
-#[cfg(feature = "capture")]
-#[derive(Serialize)]
-struct SerializedDocument<'a> {
-    scene: &'a Scene,
-    view: &'a DocumentView,
-}
-
 struct Document {
     scene: Scene,
     view: DocumentView,
@@ -154,6 +147,16 @@ enum DocumentOp {
 
 /// The unique id for WR resource identification.
 static NEXT_NAMESPACE_ID: AtomicUsize = ATOMIC_USIZE_INIT;
+
+#[cfg(feature = "capture")]
+#[derive(Serialize)]
+struct SerializedRenderBackend<'a> {
+    default_device_pixel_ratio: f32,
+    enable_render_on_scroll: bool,
+    frame_config: &'a FrameBuilderConfig,
+    resources: &'a ResourceCache,
+    documents: FastHashMap<DocumentId, &'a DocumentView>,
+}
 
 /// The render backend is responsible for transforming high level display lists into
 /// GPU-friendly work which is then submitted to the renderer in the form of a frame::Frame.
@@ -576,17 +579,30 @@ impl RenderBackend {
                                 self.resource_cache.current_frame_id.0
                             );
                             let _ = fs::create_dir_all(&dump_root);
-                            for (doc_id, document) in &self.documents {
-                                let ser_doc = SerializedDocument {
-                                    scene: &document.scene,
-                                    view: &document.view,
-                                };
-                                let doc_path = format!("{}/doc-{}-{}.ron",
-                                    dump_root, (doc_id.0).0, doc_id.1);
-                                let serial = pretty::to_string(&ser_doc).unwrap();
-                                let mut file = fs::File::create(doc_path).unwrap();
-                                write!(file, "{}\n", serial).unwrap();
+
+                            for (&id, doc) in &self.documents {
+                                let ron = pretty::to_string(&doc.scene).unwrap();
+                                let ron_path = format!("{}/scene-{}-{}.ron",
+                                    dump_root, (id.0).0, id.1);
+                                let mut file = fs::File::create(ron_path).unwrap();
+                                write!(file, "{}\n", ron).unwrap();
                             }
+
+                            let serial = SerializedRenderBackend {
+                                default_device_pixel_ratio: self.default_device_pixel_ratio,
+                                enable_render_on_scroll: self.enable_render_on_scroll,
+                                frame_config: &self.frame_config,
+                                resources: &self.resource_cache,
+                                documents: self.documents
+                                    .iter()
+                                    .map(|(id, doc)| (*id, &doc.view))
+                                    .collect(),
+                            };
+                            let ron = pretty::to_string(&serial).unwrap();
+                            let ron_path = format!("{}/backend.ron", dump_root);
+                            let mut file = fs::File::create(ron_path).unwrap();
+                            write!(file, "{}\n", ron).unwrap();
+
                             ResultMsg::DebugOutput(DebugOutput::Capture {
                                 path: dump_root.into(),
                             })

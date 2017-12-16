@@ -21,6 +21,8 @@ use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use internal_types::{FastHashMap, FastHashSet, SourceTexture, TextureUpdateList};
 use profiler::{ResourceProfileCounters, TextureCacheProfileCounters};
 use rayon::ThreadPool;
+#[cfg(feature = "capture")]
+use serde::{Serialize, Serializer};
 use std::collections::hash_map::Entry::{self, Occupied, Vacant};
 use std::cmp;
 use std::fmt::Debug;
@@ -931,4 +933,24 @@ pub fn compute_tile_size(
     };
 
     (actual_width, actual_height)
+}
+
+
+#[cfg(feature = "capture")]
+#[derive(Serialize)]
+struct SerializedResources<'a> {
+    //font_templates: FastHashMap<FontKey, FontTemplate>,
+    font_instances: &'a FastHashMap<FontInstanceKey, FontInstance>,
+    //image_templates: ImageTemplates,
+}
+
+#[cfg(feature = "capture")]
+impl Serialize for ResourceCache {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let res = &self.resources;
+        let serial = SerializedResources {
+            font_instances: &*res.font_instances.read().unwrap(),
+        };
+        serial.serialize(serializer)
+    }
 }

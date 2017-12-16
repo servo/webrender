@@ -27,6 +27,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use texture_cache::{TextureCache, TextureCacheHandle};
 
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct FontTransform {
     pub scale_x: f32,
     pub skew_x: f32,
@@ -128,6 +129,7 @@ impl<'a> From<&'a LayerToWorldTransform> for FontTransform {
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug, Ord, PartialOrd)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct FontInstance {
     pub font_key: FontKey,
     // The font size is in *device* pixels, not logical pixels.
