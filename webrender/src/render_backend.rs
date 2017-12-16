@@ -575,15 +575,13 @@ impl RenderBackend {
                             use std::fs;
                             use std::io::Write;
 
-                            let dump_root = format!("dumps/frame-{}",
-                                self.resource_cache.current_frame_id.0
-                            );
-                            let _ = fs::create_dir_all(&dump_root);
+                            let dir_path = self.resource_cache.capture_root();
+                            let _ = fs::create_dir_all(&dir_path);
 
                             for (&id, doc) in &self.documents {
                                 let ron = pretty::to_string(&doc.scene).unwrap();
                                 let ron_path = format!("{}/scene-{}-{}.ron",
-                                    dump_root, (id.0).0, id.1);
+                                    dir_path, (id.0).0, id.1);
                                 let mut file = fs::File::create(ron_path).unwrap();
                                 write!(file, "{}\n", ron).unwrap();
                             }
@@ -599,12 +597,12 @@ impl RenderBackend {
                                     .collect(),
                             };
                             let ron = pretty::to_string(&serial).unwrap();
-                            let ron_path = format!("{}/backend.ron", dump_root);
+                            let ron_path = format!("{}/backend.ron", dir_path);
                             let mut file = fs::File::create(ron_path).unwrap();
                             write!(file, "{}\n", ron).unwrap();
 
                             ResultMsg::DebugOutput(DebugOutput::Capture {
-                                path: dump_root.into(),
+                                path: dir_path.into(),
                             })
                         },
                         _ => ResultMsg::DebugCommand(option),

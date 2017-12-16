@@ -12,6 +12,8 @@ use api::{FontInstanceOptions, FontInstancePlatformOptions, FontVariation};
 use api::{GlyphDimensions, GlyphKey, IdNamespace};
 use api::{ImageData, ImageDescriptor, ImageKey, ImageRendering};
 use api::{TileOffset, TileSize};
+#[cfg(feature = "capture")]
+use api::NativeFontHandle;
 use app_units::Au;
 use device::TextureFilter;
 use frame::FrameId;
@@ -217,7 +219,7 @@ pub struct ResourceCache {
 
     resources: Resources,
     state: State,
-    pub(crate) current_frame_id: FrameId,
+    current_frame_id: FrameId,
 
     texture_cache: TextureCache,
 
@@ -238,7 +240,7 @@ impl ResourceCache {
         texture_cache: TextureCache,
         workers: Arc<ThreadPool>,
         blob_image_renderer: Option<Box<BlobImageRenderer>>,
-    ) -> ResourceCache {
+    ) -> Self {
         ResourceCache {
             cached_glyphs: GlyphCache::new(),
             cached_images: ResourceClassCache::new(),
@@ -908,6 +910,11 @@ impl ResourceCache {
         self.cached_glyphs
             .clear_fonts(|font| font.font_key.0 == namespace);
     }
+
+    #[cfg(feature = "capture")]
+    pub fn capture_root(&self) -> String {
+        format!("captures/frame-{}", self.current_frame_id.0)
+    }
 }
 
 // Compute the width and height of a tile depending on its position in the image.
@@ -935,11 +942,20 @@ pub fn compute_tile_size(
     (actual_width, actual_height)
 }
 
+#[cfg(feature = "capture")]
+#[derive(Serialize)]
+enum SerializedFontTemplate<'a> {
+    Raw {
+        data: String,
+        index: u32,
+    },
+    Native(&'a NativeFontHandle),
+}
 
 #[cfg(feature = "capture")]
 #[derive(Serialize)]
 struct SerializedResources<'a> {
-    //font_templates: FastHashMap<FontKey, FontTemplate>,
+    font_templates: FastHashMap<FontKey, SerializedFontTemplate<'a>>,
     font_instances: &'a FastHashMap<FontInstanceKey, FontInstance>,
     //image_templates: ImageTemplates,
 }
@@ -947,8 +963,47 @@ struct SerializedResources<'a> {
 #[cfg(feature = "capture")]
 impl Serialize for ResourceCache {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use std::fs;
+        use std::io::Write;
+
         let res = &self.resources;
+        let dir_path = self.capture_root();
+        let _ = fs::create_dir(&format!("{}/fonts", dir_path));
+
+        let mut font_paths = FastHashMap::default();
+        let mut num_fonts = 0;
+        for template in res.font_templates.values() {
+            let arc: &[u8] = match *template {
+                FontTemplate::Raw(ref arc, _) => arc,
+                FontTemplate::Native(_) => continue,
+            };
+            let entry = match font_paths.entry(arc.as_ptr()) {
+                Entry::Occupied(_) => continue,
+                Entry::Vacant(e) => e,
+            };
+            num_fonts += 1;
+            let short_path = format!("fonts/{}.raw", num_fonts);
+            let full_path = format!("{}/{}", dir_path, short_path);
+            fs::File::create(full_path)
+                .unwrap()
+                .write_all(arc)
+                .unwrap();
+            entry.insert(short_path);
+        }
+
         let serial = SerializedResources {
+            font_templates: res.font_templates
+                .iter()
+                .map(|(key, template)| {
+                    (*key, match *template {
+                        FontTemplate::Raw(ref arc, index) => SerializedFontTemplate::Raw {
+                            data: font_paths[&arc.as_ptr()].clone(),
+                            index,
+                        },
+                        FontTemplate::Native(ref native) => SerializedFontTemplate::Native(native),
+                    })
+                })
+                .collect(),
             font_instances: &*res.font_instances.read().unwrap(),
         };
         serial.serialize(serializer)
