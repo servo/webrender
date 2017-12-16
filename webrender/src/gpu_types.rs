@@ -187,7 +187,6 @@ pub enum BrushImageKind {
 }
 
 #[derive(Copy, Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 #[repr(C)]
 pub struct ClipScrollNodeIndex(pub u32);
 

@@ -39,7 +39,6 @@ pub struct RenderTaskTree {
 pub type ClipChain = Option<Rc<ClipChainNode>>;
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct ClipChainNode {
     pub work_item: ClipWorkItem,
     pub screen_inner_rect: DeviceIntRect,
@@ -167,7 +166,6 @@ pub enum RenderTaskLocation {
 }
 
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct ClipWorkItem {
     pub scroll_node_data_index: ClipScrollNodeIndex,
     pub clip_sources: ClipSourcesWeakHandle,

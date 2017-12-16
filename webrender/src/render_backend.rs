@@ -52,13 +52,18 @@ impl DocumentView {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg(feature = "capture")]
+#[derive(Serialize)]
+struct SerializedDocument<'a> {
+    scene: &'a Scene,
+    view: &'a DocumentView,
+}
+
 struct Document {
     scene: Scene,
     view: DocumentView,
     frame_ctx: FrameContext,
     // the `Option` here is only to deal with borrow checker
-    #[cfg_attr(feature = "capture", serde(skip))]
     frame_builder: Option<FrameBuilder>,
     // A set of pipelines that the caller has requested be
     // made available as output textures.
@@ -572,9 +577,13 @@ impl RenderBackend {
                             );
                             let _ = fs::create_dir_all(&dump_root);
                             for (doc_id, document) in &self.documents {
+                                let ser_doc = SerializedDocument {
+                                    scene: &document.scene,
+                                    view: &document.view,
+                                };
                                 let doc_path = format!("{}/doc-{}-{}.ron",
                                     dump_root, (doc_id.0).0, doc_id.1);
-                                let serial = pretty::to_string(document).unwrap();
+                                let serial = pretty::to_string(&ser_doc).unwrap();
                                 let mut file = fs::File::create(doc_path).unwrap();
                                 write!(file, "{}\n", serial).unwrap();
                             }

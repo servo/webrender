@@ -24,7 +24,6 @@ use scene::{Scene, StackingContextHelpers, ScenePipeline, SceneProperties};
 use tiling::CompositeOps;
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Eq, Ord)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct FrameId(pub u32);
 
 static DEFAULT_SCROLLBAR_COLOR: ColorF = ColorF {
@@ -926,7 +925,6 @@ impl<'a> FlattenContext<'a> {
 
 /// Frame context contains the information required to update
 /// (e.g. scroll) a renderer frame builder (`FrameBuilder`).
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct FrameContext {
     window_size: DeviceUintSize,
     clip_scroll_tree: ClipScrollTree,

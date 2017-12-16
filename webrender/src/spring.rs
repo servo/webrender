@@ -14,7 +14,6 @@ pub const STIFFNESS: f32 = 0.2;
 pub const DAMPING: f32 = 1.0;
 
 #[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct Spring {
     /// The current position of spring.
     cur: LayerPoint,

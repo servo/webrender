@@ -26,7 +26,6 @@ const CAN_OVERSCROLL: bool = true;
 const CAN_OVERSCROLL: bool = false;
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct StickyFrameInfo {
     pub margins: SideOffsets2D<Option<f32>>,
     pub vertical_offset_bounds: StickyOffsetBounds,
@@ -53,7 +52,6 @@ impl StickyFrameInfo {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub enum NodeType {
     /// A reference frame establishes a new coordinate space in the tree.
     ReferenceFrame(ReferenceFrameInfo),
@@ -83,7 +81,6 @@ impl NodeType {
 
 /// Contains information common among all types of ClipScrollTree nodes.
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct ClipScrollNode {
     /// Viewing rectangle in the coordinate system of the parent reference frame.
     pub local_viewport_rect: LayerRect,
@@ -824,7 +821,6 @@ impl ClipScrollNode {
 }
 
 #[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct ScrollingState {
     pub offset: LayerVector2D,
     pub spring: Spring,
@@ -898,7 +894,6 @@ impl ScrollingState {
 
 /// Contains information about reference frames.
 #[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct ReferenceFrameInfo {
     /// The transformation that establishes this reference frame, relative to the parent
     /// reference frame. The origin of the reference frame is included in the transformation.
