@@ -25,6 +25,7 @@ crossbeam = "0.2"
 osmesa-sys = { version = "0.1.2", optional = true }
 osmesa-src = { git = "https://github.com/servo/osmesa-src", optional = true }
 webrender = {path = "../webrender", features=["debugger","profiler"]}
+webrender_api = {path = "../webrender_api", features=["serial"]}
 serde = {version = "1.0", features = ["derive"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

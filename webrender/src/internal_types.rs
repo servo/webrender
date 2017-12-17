@@ -175,9 +175,11 @@ pub enum DebugOutput {
     FetchDocuments(String),
     FetchClipScrollTree(String),
     #[cfg(feature = "capture")]
-    Capture {
-        path: PathBuf,
-    }
+    SaveCapture {
+        path: String,
+    },
+    #[cfg(feature = "capture")]
+    LoadCapture,
 }
 
 pub enum ResultMsg {

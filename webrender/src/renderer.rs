@@ -2386,9 +2386,11 @@ impl Renderer {
                         self.debug_server.send(string);
                     }
                     #[cfg(feature = "capture")]
-                    DebugOutput::Capture {..} => {
+                    DebugOutput::SaveCapture {..} => {
                         unimplemented!()
                     }
+                    #[cfg(feature = "capture")]
+                    DebugOutput::LoadCapture => {}
                 },
                 ResultMsg::DebugCommand(command) => {
                     self.handle_debug_command(command);
@@ -2602,7 +2604,10 @@ impl Renderer {
                 let json = self.get_screenshot_for_debugger();
                 self.debug_server.send(json);
             }
-            DebugCommand::Capture => {
+            DebugCommand::SaveCapture => {
+                unimplemented!()
+            }
+            DebugCommand::LoadCapture(_) => {
                 unimplemented!()
             }
         }

@@ -15,13 +15,19 @@ use {StickyOffsetBounds, TextDisplayItem, TransformStyle, YuvColorSpace, YuvData
 use YuvImageDisplayItem;
 use bincode;
 use euclid::SideOffsets2D;
-use serde::{Deserialize, Serialize, Serializer};
-use serde::ser::{SerializeMap, SerializeSeq};
+use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::{io, ptr};
 use std::marker::PhantomData;
 use std::slice;
 use time::precise_time_ns;
+
+#[cfg(feature = "serial")]
+use std::fmt;
+#[cfg(feature = "serial")]
+use serde::de::{Deserializer, Visitor};
+#[cfg(feature = "serial")]
+use serde::ser::{Serializer, SerializeMap, SerializeSeq};
 
 // We don't want to push a long text-run. If a text-run is too long, split it into several parts.
 // This needs to be set to (renderer::MAX_VERTEX_TEXTURE_WIDTH - VECS_PER_PRIM_HEADER - VECS_PER_TEXT_RUN) * 2
@@ -405,7 +411,7 @@ impl<'a, T: for<'de> Deserialize<'de>> Iterator for AuxIter<'a, T> {
 impl<'a, T: for<'de> Deserialize<'de>> ::std::iter::ExactSizeIterator for AuxIter<'a, T> {}
 
 
-// This is purely for the JSON/RON writers in wrench
+#[cfg(feature = "serial")]
 impl Serialize for BuiltDisplayList {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(None)?;
@@ -417,6 +423,7 @@ impl Serialize for BuiltDisplayList {
     }
 }
 
+#[cfg(feature = "serial")]
 impl<'a, 'b> Serialize for DisplayItemRef<'a, 'b> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(None)?;
@@ -457,6 +464,32 @@ impl<'a, 'b> Serialize for DisplayItemRef<'a, 'b> {
         }
 
         map.end()
+    }
+}
+
+#[cfg(feature = "serial")]
+struct DisplayListVisitor {
+    data: Vec<u8>,
+}
+
+#[cfg(feature = "serial")]
+impl<'de> Visitor<'de> for DisplayListVisitor {
+    type Value = BuiltDisplayList;
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(formatter, "DisplayItem")
+    }
+}
+
+#[cfg(feature = "serial")]
+impl<'de> Deserialize<'de> for BuiltDisplayList {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let visitor = DisplayListVisitor {
+            data: Vec::new(),
+        };
+        deserializer.deserialize_seq(visitor)
     }
 }
 

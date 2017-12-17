@@ -268,7 +268,7 @@ pub fn main_wrapper<E: Example>(
                     _,
                     Some(glutin::VirtualKeyCode::C),
                 ) => {
-                    api.capture();
+                    api.save_capture();
                 }
                 _ => if example.on_event(event, &api, document_id) {
                     let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);

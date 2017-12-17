@@ -267,8 +267,10 @@ pub enum DebugCommand {
     FetchRenderTasks,
     /// Fetch screenshot.
     FetchScreenshot,
-    /// Capture the state of all the active documents.
-    Capture,
+    /// Save a capture of all the documents state.
+    SaveCapture,
+    /// Load a capture of all the documents state.
+    LoadCapture(String),
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -763,8 +765,8 @@ impl RenderApi {
     }
 
     /// Capture the current frame state for debugging.
-    pub fn capture(&self) {
-        let msg = ApiMsg::DebugCommand(DebugCommand::Capture);
+    pub fn save_capture(&self) {
+        let msg = ApiMsg::DebugCommand(DebugCommand::SaveCapture);
         self.send_message(msg);
     }
 }

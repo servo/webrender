@@ -10,7 +10,7 @@ use internal_types::FastHashMap;
 /// Stores a map of the animated property bindings for the current display list. These
 /// can be used to animate the transform and/or opacity of a display list without
 /// re-submitting the display list itself.
-#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Serialize, Deserialize))]
 pub struct SceneProperties {
     transform_properties: FastHashMap<PropertyBindingId, LayoutTransform>,
     float_properties: FastHashMap<PropertyBindingId, f32>,
@@ -81,7 +81,7 @@ impl SceneProperties {
 }
 
 /// A representation of the layout within the display port for a given document or iframe.
-#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Serialize, Deserialize))]
 pub struct ScenePipeline {
     pub pipeline_id: PipelineId,
     pub epoch: Epoch,
@@ -92,7 +92,7 @@ pub struct ScenePipeline {
 }
 
 /// A complete representation of the layout bundling visible pipelines together.
-#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Serialize, Deserialize))]
 pub struct Scene {
     pub root_pipeline_id: Option<PipelineId>,
     pub pipelines: FastHashMap<PipelineId, ScenePipeline>,
@@ -100,7 +100,7 @@ pub struct Scene {
 }
 
 impl Scene {
-    pub fn new() -> Scene {
+    pub fn new() -> Self {
         Scene {
             root_pipeline_id: None,
             pipelines: FastHashMap::default(),

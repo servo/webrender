@@ -23,8 +23,6 @@ use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use internal_types::{FastHashMap, FastHashSet, SourceTexture, TextureUpdateList};
 use profiler::{ResourceProfileCounters, TextureCacheProfileCounters};
 use rayon::ThreadPool;
-#[cfg(feature = "capture")]
-use serde::{Serialize, Serializer};
 use std::collections::hash_map::Entry::{self, Occupied, Vacant};
 use std::cmp;
 use std::fmt::Debug;
@@ -910,11 +908,6 @@ impl ResourceCache {
         self.cached_glyphs
             .clear_fonts(|font| font.font_key.0 == namespace);
     }
-
-    #[cfg(feature = "capture")]
-    pub fn capture_root(&self) -> String {
-        format!("captures/frame-{}", self.current_frame_id.0)
-    }
 }
 
 // Compute the width and height of a tile depending on its position in the image.
@@ -943,39 +936,45 @@ pub fn compute_tile_size(
 }
 
 #[cfg(feature = "capture")]
-#[derive(Serialize)]
-enum SerializedFontTemplate<'a> {
+#[derive(Serialize, Deserialize)]
+enum PlainFontTemplate {
     Raw {
         data: String,
         index: u32,
     },
-    Native(&'a NativeFontHandle),
+    Native(NativeFontHandle),
 }
 
 #[cfg(feature = "capture")]
-#[derive(Serialize)]
-struct SerializedImageTemplate<'a> {
+#[derive(Serialize, Deserialize)]
+struct PlainImageTemplate {
     data: String,
-    descriptor: &'a ImageDescriptor,
+    descriptor: ImageDescriptor,
     tiling: Option<TileSize>,
 }
 
 #[cfg(feature = "capture")]
-#[derive(Serialize)]
-struct SerializedResources<'a> {
-    font_templates: FastHashMap<FontKey, SerializedFontTemplate<'a>>,
-    font_instances: &'a FastHashMap<FontInstanceKey, FontInstance>,
-    image_templates: FastHashMap<ImageKey, SerializedImageTemplate<'a>>,
+#[derive(Serialize, Deserialize)]
+pub struct PlainResources {
+    font_templates: FastHashMap<FontKey, PlainFontTemplate>,
+    font_instances: FastHashMap<FontInstanceKey, FontInstance>,
+    image_templates: FastHashMap<ImageKey, PlainImageTemplate>,
 }
 
 #[cfg(feature = "capture")]
-impl Serialize for ResourceCache {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+pub struct CaptureInfo {
+    pub dir_path: String,
+    pub external_images: FastHashMap<String, ExternalImageData>,
+}
+
+#[cfg(feature = "capture")]
+impl ResourceCache {
+    pub fn save_capture(&self) -> (CaptureInfo, PlainResources) {
         use std::fs;
         use std::io::Write;
 
         let res = &self.resources;
-        let dir_path = self.capture_root();
+        let dir_path = format!("captures/frame-{}", self.current_frame_id.0);
         let _ = fs::create_dir(&format!("{}/fonts", dir_path));
         let _ = fs::create_dir(&format!("{}/images", dir_path));
 
@@ -994,7 +993,7 @@ impl Serialize for ResourceCache {
             let short_path = format!("fonts/{}.raw", num_fonts);
             let full_path = format!("{}/{}", dir_path, short_path);
             fs::File::create(full_path)
-                .unwrap()
+                .expect(&format!("Unable to create {}", short_path))
                 .write_all(data)
                 .unwrap();
             entry.insert(short_path);
@@ -1002,11 +1001,18 @@ impl Serialize for ResourceCache {
 
         let mut image_paths = FastHashMap::default();
         let mut num_images = 0;
+        let mut external_images = FastHashMap::default();
+        let mut num_externals = 0;
         for template in res.image_templates.images.values() {
             let data: &[u8] = match template.data {
                 ImageData::Raw(ref arc) => arc,
                 ImageData::Blob(ref blob) => blob,
-                ImageData::External(_) => unimplemented!(),
+                ImageData::External(ref ext) => {
+                    num_externals += 1;
+                    let short_path = format!("external/{}.raw", num_externals);
+                    external_images.insert(short_path, ext.clone());
+                    continue
+                },
             };
             let entry = match image_paths.entry(data.as_ptr()) {
                 Entry::Occupied(_) => continue,
@@ -1017,41 +1023,128 @@ impl Serialize for ResourceCache {
             let short_path = format!("images/{}.raw", num_images);
             let full_path = format!("{}/{}", dir_path, short_path);
             fs::File::create(full_path)
-                .unwrap()
+                .expect(&format!("Unable to create {}", short_path))
                 .write_all(data)
                 .unwrap();
             entry.insert(short_path);
         }
 
-        let serial = SerializedResources {
+        let info = CaptureInfo {
+            dir_path,
+            external_images,
+        };
+
+        (info, PlainResources {
             font_templates: res.font_templates
                 .iter()
                 .map(|(key, template)| {
                     (*key, match *template {
-                        FontTemplate::Raw(ref arc, index) => SerializedFontTemplate::Raw {
-                            data: font_paths[&arc.as_ptr()].clone(),
-                            index,
-                        },
-                        FontTemplate::Native(ref native) => SerializedFontTemplate::Native(native),
+                        FontTemplate::Raw(ref arc, index) => {
+                            PlainFontTemplate::Raw {
+                                data: font_paths[&arc.as_ptr()].clone(),
+                                index,
+                            }
+                        }
+                        FontTemplate::Native(ref native) => {
+                            PlainFontTemplate::Native(native.clone())
+                        }
                     })
                 })
                 .collect(),
-            font_instances: &*res.font_instances.read().unwrap(),
+            font_instances: res.font_instances.read().unwrap().clone(),
             image_templates: res.image_templates.images
                 .iter()
                 .map(|(key, template)| {
-                    (*key, SerializedImageTemplate {
+                    (*key, PlainImageTemplate {
                         data: match template.data {
                             ImageData::Raw(ref arc) => image_paths[&arc.as_ptr()].clone(),
                             ImageData::Blob(ref blob) => image_paths[&blob.as_ptr()].clone(),
                             ImageData::External(_) => unimplemented!(),
                         },
-                        descriptor: &template.descriptor,
+                        descriptor: template.descriptor.clone(),
                         tiling: template.tiling,
                     })
                 })
                 .collect(),
-        };
-        serial.serialize(serializer)
+        })
+    }
+
+    pub fn load_capture(
+        &mut self, resources: PlainResources, dir_path: &str
+    ) {
+        use std::fs::File;
+        use std::io::Read;
+
+        self.cached_glyphs.clear();
+        self.cached_images.clear();
+
+        self.state = State::Idle;
+        self.current_frame_id = FrameId(0);
+
+        let max_texture_size = self.texture_cache.max_texture_size();
+        self.texture_cache = TextureCache::new(max_texture_size);
+
+        self.cached_glyph_dimensions.clear();
+        self.glyph_rasterizer.reset();
+        self.pending_image_requests.clear();
+
+        let res = &mut self.resources;
+        res.font_templates.clear();
+        *res.font_instances.write().unwrap() = resources.font_instances;
+        res.image_templates.images.clear();
+        let mut raw_map = FastHashMap::<String, Arc<Vec<u8>>>::default();
+
+        for (key, template) in resources.font_templates {
+            res.font_templates.insert(key, match template {
+                PlainFontTemplate::Raw { data, index } => {
+                    let arc = match raw_map.entry(data) {
+                        Entry::Occupied(e) => {
+                            e.get().clone()
+                        }
+                        Entry::Vacant(e) => {
+                            let path = format!("{}/{}", dir_path, e.key());
+                            let mut buffer = Vec::new();
+                            File::open(path)
+                                .expect(&format!("Unable to open {}", e.key()))
+                                .read_to_end(&mut buffer)
+                                .unwrap();
+                            e.insert(Arc::new(buffer))
+                                .clone()
+                        }
+                    };
+                    FontTemplate::Raw(arc, index)
+                }
+                PlainFontTemplate::Native(native) => {
+                    FontTemplate::Native(native)
+                }
+            });
+        }
+
+        for (key, template) in resources.image_templates {
+            let arc = match raw_map.entry(template.data) {
+                Entry::Occupied(e) => {
+                    e.get().clone()
+                }
+                Entry::Vacant(e) => {
+                    //TODO: consider merging the code path with font loading
+                    let path = format!("{}/{}", dir_path, e.key());
+                    let mut buffer = Vec::new();
+                    File::open(path)
+                        .expect(&format!("Unable to open {}", e.key()))
+                        .read_to_end(&mut buffer)
+                        .unwrap();
+                    e.insert(Arc::new(buffer))
+                        .clone()
+                }
+            };
+
+            res.image_templates.images.insert(key, ImageResource {
+                data: ImageData::Raw(arc),
+                descriptor: template.descriptor,
+                tiling: template.tiling,
+                epoch: Epoch(0),
+                dirty_rect: None,
+            });
+        }
     }
 }
