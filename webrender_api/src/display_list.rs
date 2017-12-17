@@ -23,9 +23,9 @@ use std::slice;
 use time::precise_time_ns;
 
 #[cfg(feature = "serial")]
-use std::fmt;
+use std::{fmt, mem};
 #[cfg(feature = "serial")]
-use serde::de::{Deserializer, Visitor};
+use serde::de::{Deserializer, MapAccess, Visitor};
 #[cfg(feature = "serial")]
 use serde::ser::{Serializer, SerializeMap, SerializeSeq};
 
@@ -342,8 +342,8 @@ impl<'a, 'b> DisplayItemRef<'a, 'b> {
         &self.iter.cur_item.item
     }
 
-    pub fn complex_clip(&self) -> &(ItemRange<ComplexClipRegion>, usize) {
-        &self.iter.cur_complex_clip
+    pub fn complex_clip(&self) -> (ItemRange<ComplexClipRegion>, usize) {
+        self.iter.cur_complex_clip
     }
 
     pub fn gradient_stops(&self) -> ItemRange<GradientStop> {
@@ -431,6 +431,19 @@ impl<'a, 'b> Serialize for DisplayItemRef<'a, 'b> {
         map.serialize_entry("item", self.display_item())?;
 
         match *self.item() {
+            SpecificDisplayItem::Clip(_) | SpecificDisplayItem::ScrollFrame(_) => {
+                let (complex_clips, _) = self.complex_clip();
+                map.serialize_entry(
+                    "complex_clips",
+                    &self.iter.list.get(complex_clips).collect::<Vec<_>>(),
+                )?;
+            }
+            SpecificDisplayItem::SetGradientStops => {
+                map.serialize_entry(
+                    "gradient_stops",
+                    &self.iter.list.get(self.gradient_stops()).collect::<Vec<_>>(),
+                )?;
+            }
             SpecificDisplayItem::Text(_) => {
                 map.serialize_entry(
                     "glyphs",
@@ -446,37 +459,85 @@ impl<'a, 'b> Serialize for DisplayItemRef<'a, 'b> {
             _ => {}
         }
 
-        let &(complex_clips, number_of_complex_clips) = self.complex_clip();
-        let gradient_stops = self.gradient_stops();
-
-        if number_of_complex_clips > 0 {
-            map.serialize_entry(
-                "complex_clips",
-                &self.iter.list.get(complex_clips).collect::<Vec<_>>(),
-            )?;
-        }
-
-        if !gradient_stops.is_empty() {
-            map.serialize_entry(
-                "gradient_stops",
-                &self.iter.list.get(gradient_stops).collect::<Vec<_>>(),
-            )?;
-        }
-
         map.end()
     }
 }
 
 #[cfg(feature = "serial")]
-struct DisplayListVisitor {
-    data: Vec<u8>,
+impl BuiltDisplayList {
+    /// Push a vector of things into the DL according to the
+    /// convention used by `skip_iter` and `push_iter`
+    fn push_vec<T: Clone + Serialize>(&mut self, vec: Vec<T>) {
+        let vec_len = vec.len();
+        let byte_size = mem::size_of::<T>() * vec_len;
+        serialize_fast(&mut self.data, &byte_size);
+        serialize_fast(&mut self.data, &vec_len);
+        let count = serialize_iter_fast(&mut self.data, vec.into_iter());
+        assert_eq!(count, vec_len);
+    }
 }
 
+// The purpose of this `Visitor` implementation is to
+// deserialize a display list from one format just to
+// immediately serialize then into a "built" `Vec<u8>`.
+
 #[cfg(feature = "serial")]
-impl<'de> Visitor<'de> for DisplayListVisitor {
-    type Value = BuiltDisplayList;
+impl<'de> Visitor<'de> for BuiltDisplayList {
+    type Value = Self;
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         write!(formatter, "DisplayItem")
+    }
+
+    fn visit_map<A>(mut self, mut map: A) -> Result<Self, A::Error>
+    where
+        A: MapAccess<'de>
+    {
+        // Note: deserializing keys into `&str` allows us to match right away
+        let specific = match map.next_entry::<&'de str, DisplayItem>()? {
+            Some(("item", item)) => {
+                serialize_fast(&mut self.data, &item);
+                item.item
+            }
+            _ => panic!("Item should always come first!")
+        };
+
+        match specific {
+            SpecificDisplayItem::Clip(_) | SpecificDisplayItem::ScrollFrame(_) => {
+                match map.next_entry::<&'de str, Vec<ComplexClipRegion>>()? {
+                    Some(("complex_clips", vec)) => {
+                        self.push_vec(vec);
+                    }
+                    _ => panic!("Expected complex_clips to follow a clip/scroll frame")
+                }
+            }
+            SpecificDisplayItem::SetGradientStops => {
+                match map.next_entry::<&'de str, Vec<GradientStop>>()? {
+                    Some(("gradient_stops", vec)) => {
+                        self.push_vec(vec);
+                    }
+                    _ => panic!("Expected gradient_stops to follow a clip/scroll frame")
+                }
+            }
+            SpecificDisplayItem::Text(_) => {
+                match map.next_entry::<&'de str, Vec<GlyphInstance>>()? {
+                    Some(("glyphs", vec)) => {
+                        self.push_vec(vec);
+                    }
+                    _ => panic!("Expected glyphs to follow a text item")
+                }
+            }
+            SpecificDisplayItem::PushStackingContext(_) => {
+                match map.next_entry::<&'de str, Vec<FilterOp>>()? {
+                    Some(("filters", filters)) => {
+                        self.push_vec(filters);
+                    }
+                    _ => panic!("Expected filters to follow an SC push")
+                }
+            }
+            _ => {}
+        }
+
+        Ok(self)
     }
 }
 
@@ -486,8 +547,13 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
     where
         D: Deserializer<'de>,
     {
-        let visitor = DisplayListVisitor {
+        let visitor = BuiltDisplayList {
             data: Vec::new(),
+            descriptor: BuiltDisplayListDescriptor {
+                builder_start_time: 0,
+                builder_finish_time: 1,
+                send_start_time: 0,
+            },
         };
         deserializer.deserialize_seq(visitor)
     }
@@ -730,7 +796,7 @@ pub struct DisplayListBuilder {
 }
 
 impl DisplayListBuilder {
-    pub fn new(pipeline_id: PipelineId, content_size: LayoutSize) -> DisplayListBuilder {
+    pub fn new(pipeline_id: PipelineId, content_size: LayoutSize) -> Self {
         Self::with_capacity(pipeline_id, content_size, 0)
     }
 
@@ -738,7 +804,7 @@ impl DisplayListBuilder {
         pipeline_id: PipelineId,
         content_size: LayoutSize,
         capacity: usize,
-    ) -> DisplayListBuilder {
+    ) -> Self {
         let start_time = precise_time_ns();
 
         // We start at 1 here, because the root scroll id is always 0.

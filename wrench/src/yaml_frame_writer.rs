@@ -995,7 +995,7 @@ impl YamlFrameWriter {
                     usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
                     size_node(&mut v, "content-size", &base.rect().size);
 
-                    let &(complex_clips, complex_clip_count) = base.complex_clip();
+                    let (complex_clips, complex_clip_count) = base.complex_clip();
                     if let Some(complex) = self.make_complex_clips_node(
                         complex_clip_count,
                         complex_clips,
@@ -1014,7 +1014,7 @@ impl YamlFrameWriter {
                     size_node(&mut v, "content-size", &base.rect().size);
                     rect_node(&mut v, "bounds", &base.local_clip().clip_rect());
 
-                    let &(complex_clips, complex_clip_count) = base.complex_clip();
+                    let (complex_clips, complex_clip_count) = base.complex_clip();
                     if let Some(complex) = self.make_complex_clips_node(
                         complex_clip_count,
                         complex_clips,
