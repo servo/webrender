@@ -25,6 +25,8 @@ use std::mem;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use texture_cache::{TextureCache, TextureCacheHandle};
+#[cfg(test)]
+use thread_profiler::register_thread_with_profiler;
 
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "capture", derive(Serialize, Deserialize))]
@@ -601,7 +603,7 @@ struct GlyphRasterJob {
 }
 
 #[test]
-fn raterize_200_glyphs() {
+fn rasterize_200_glyphs() {
     // This test loads a font from disc, the renders 4 requests containing
     // 50 glyphs each, deletes the font and waits for the result.
 
@@ -609,7 +611,12 @@ fn raterize_200_glyphs() {
     use std::fs::File;
     use std::io::Read;
 
-    let workers = Arc::new(ThreadPool::new(Configuration::new()).unwrap());
+    let worker_config = Configuration::new()
+        .thread_name(|idx|{ format!("WRWorker#{}", idx) })
+        .start_handler(move |idx| {
+            register_thread_with_profiler(format!("WRWorker#{}", idx));
+        });
+    let workers = Arc::new(ThreadPool::new(worker_config).unwrap());
     let mut glyph_rasterizer = GlyphRasterizer::new(workers);
     let mut glyph_cache = GlyphCache::new();
     let mut gpu_cache = GpuCache::new();
