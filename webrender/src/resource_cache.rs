@@ -22,7 +22,7 @@ use glyph_rasterizer::{FontInstance, GlyphFormat, GlyphRasterizer, GlyphRequest}
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use internal_types::{FastHashMap, FastHashSet, SourceTexture, TextureUpdateList};
 #[cfg(feature = "capture")]
-use internal_types::DeferredCapture;
+use internal_types::ExternalCaptureImage;
 use profiler::{ResourceProfileCounters, TextureCacheProfileCounters};
 use rayon::ThreadPool;
 use std::collections::hash_map::Entry::{self, Occupied, Vacant};
@@ -556,43 +556,41 @@ impl ResourceCache {
         // We can start a worker thread rasterizing right now, if:
         //  - The image is a blob.
         //  - The blob hasn't already been requested this frame.
-        if self.pending_image_requests.insert(request) {
-            if template.data.is_blob() {
-                if let Some(ref mut renderer) = self.blob_image_renderer {
-                    let (offset, w, h) = match template.tiling {
-                        Some(tile_size) => {
-                            let tile_offset = request.tile.unwrap();
-                            let (w, h) = compute_tile_size(
-                                &template.descriptor,
-                                tile_size,
-                                tile_offset,
-                            );
-                            let offset = DevicePoint::new(
-                                tile_offset.x as f32 * tile_size as f32,
-                                tile_offset.y as f32 * tile_size as f32,
-                            );
+        if self.pending_image_requests.insert(request) && template.data.is_blob() {
+            if let Some(ref mut renderer) = self.blob_image_renderer {
+                let (offset, w, h) = match template.tiling {
+                    Some(tile_size) => {
+                        let tile_offset = request.tile.unwrap();
+                        let (w, h) = compute_tile_size(
+                            &template.descriptor,
+                            tile_size,
+                            tile_offset,
+                        );
+                        let offset = DevicePoint::new(
+                            tile_offset.x as f32 * tile_size as f32,
+                            tile_offset.y as f32 * tile_size as f32,
+                        );
 
-                            (offset, w, h)
-                        }
-                        None => (
-                            DevicePoint::zero(),
-                            template.descriptor.width,
-                            template.descriptor.height,
-                        ),
-                    };
+                        (offset, w, h)
+                    }
+                    None => (
+                        DevicePoint::zero(),
+                        template.descriptor.width,
+                        template.descriptor.height,
+                    ),
+                };
 
-                    renderer.request(
-                        &self.resources,
-                        request.into(),
-                        &BlobImageDescriptor {
-                            width: w,
-                            height: h,
-                            offset,
-                            format: template.descriptor.format,
-                        },
-                        template.dirty_rect,
-                    );
-                }
+                renderer.request(
+                    &self.resources,
+                    request.into(),
+                    &BlobImageDescriptor {
+                        width: w,
+                        height: h,
+                        offset,
+                        format: template.descriptor.format,
+                    },
+                    template.dirty_rect,
+                );
             }
         }
     }
@@ -969,8 +967,8 @@ pub struct PlainResources {
 #[cfg(feature = "capture")]
 impl ResourceCache {
     pub fn save_capture(
-        &self, root: &PathBuf
-    ) -> (PlainResources, DeferredCapture) {
+        &mut self, root: &PathBuf
+    ) -> (PlainResources, Vec<ExternalCaptureImage>) {
         use std::fs;
         use std::io::Write;
 
@@ -986,6 +984,10 @@ impl ResourceCache {
         let path_images = root.clone().join("images");
         if !path_images.is_dir() {
             fs::create_dir(&path_images).unwrap();
+        }
+        let path_blobs = root.clone().join("blobs");
+        if !path_blobs.is_dir() {
+            fs::create_dir(&path_blobs).unwrap();
         }
 
         info!("\tfont templates");
@@ -1013,34 +1015,71 @@ impl ResourceCache {
 
         info!("\timage templates");
         let mut image_paths = FastHashMap::default();
+        let mut other_paths = FastHashMap::default();
         let mut num_images = 0;
-        let mut external_images = FastHashMap::default();
-        let mut num_externals = 0;
-        for template in res.image_templates.images.values() {
-            let data: &[u8] = match template.data {
-                ImageData::Raw(ref arc) => arc,
-                ImageData::Blob(ref blob) => blob,
+        let mut external_images = Vec::new();
+        for (&key, template) in res.image_templates.images.iter() {
+            let desc = &template.descriptor;
+            match template.data {
+                ImageData::Raw(ref arc) => {
+                    let entry = match image_paths.entry(arc.as_ptr()) {
+                        Entry::Occupied(_) => continue,
+                        Entry::Vacant(e) => e,
+                    };
+
+                    //TODO: option to save as PNG
+                    num_images += 1;
+                    let file_name = format!("{}.raw", num_images);
+                    let short_path = format!("images/{}", file_name);
+                    let full_path = path_images.clone().join(&file_name);
+                    fs::File::create(full_path)
+                        .expect(&format!("Unable to create {}", short_path))
+                        .write_all(&*arc)
+                        .unwrap();
+                    entry.insert(short_path);
+                }
+                ImageData::Blob(_) => {
+                    assert!(template.tiling.is_none());
+                    let request = BlobImageRequest {
+                        key,
+                        tile: None, //TODO: tiled blob images
+                    };
+
+                    let renderer = self.blob_image_renderer.as_mut().unwrap();
+                    renderer.request(
+                        &self.resources,
+                        request,
+                        &BlobImageDescriptor {
+                            width: desc.width,
+                            height: desc.height,
+                            offset: DevicePoint::zero(),
+                            format: desc.format,
+                        },
+                        None,
+                    );
+                    let result = renderer.resolve(request)
+                        .expect("Blob resolve failed");
+                    assert_eq!((result.width, result.height), (desc.width, desc.height));
+
+                    let file_name = format!("{}.raw", other_paths.len() + 1);
+                    let short_path = format!("blobs/{}", file_name);
+                    let full_path = path_blobs.clone().join(&file_name);
+                    fs::File::create(full_path)
+                        .expect(&format!("Unable to create {}", short_path))
+                        .write_all(&result.data)
+                        .unwrap();
+                    other_paths.insert(key, short_path);
+                }
                 ImageData::External(ref ext) => {
-                    num_externals += 1;
-                    let short_path = format!("external/{}.raw", num_externals);
-                    external_images.insert(short_path, ext.clone());
-                    continue
-                },
-            };
-            let entry = match image_paths.entry(data.as_ptr()) {
-                Entry::Occupied(_) => continue,
-                Entry::Vacant(e) => e,
-            };
-            //TODO: option to save as PNG
-            num_images += 1;
-            let file_name = format!("{}.raw", num_images);
-            let short_path = format!("images/{}", file_name);
-            let full_path = path_images.clone().join(&file_name);
-            fs::File::create(full_path)
-                .expect(&format!("Unable to create {}", short_path))
-                .write_all(data)
-                .unwrap();
-            entry.insert(short_path);
+                    let short_path = format!("blobs/{}.raw", other_paths.len() + 1);
+                    other_paths.insert(key, short_path.clone());
+                    external_images.push(ExternalCaptureImage {
+                        short_path,
+                        descriptor: desc.clone(),
+                        external: ext.clone(),
+                    });
+                }
+            }
         }
 
         let resources = PlainResources {
@@ -1067,8 +1106,7 @@ impl ResourceCache {
                     (*key, PlainImageTemplate {
                         data: match template.data {
                             ImageData::Raw(ref arc) => image_paths[&arc.as_ptr()].clone(),
-                            ImageData::Blob(ref blob) => image_paths[&blob.as_ptr()].clone(),
-                            ImageData::External(_) => unimplemented!(),
+                            _ => other_paths[key].clone(),
                         },
                         descriptor: template.descriptor.clone(),
                         tiling: template.tiling,
@@ -1077,7 +1115,7 @@ impl ResourceCache {
                 .collect(),
         };
 
-        (resources, DeferredCapture { external_images })
+        (resources, external_images)
     }
 
     pub fn load_capture(&mut self, resources: PlainResources, root: &PathBuf) {

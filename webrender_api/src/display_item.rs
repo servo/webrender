@@ -8,7 +8,7 @@ use {GlyphOptions, LayoutVector2D, PipelineId, PropertyBinding};
 use euclid::{SideOffsets2D, TypedRect};
 use std::ops::Not;
 
-#[cfg(feature = "serial")]
+#[cfg(feature = "debug-serialization")]
 use GlyphInstance;
 
 // NOTE: some of these structs have an "IMPLICIT" comment.
@@ -122,7 +122,7 @@ pub enum SpecificDisplayItem {
 /// This is a "complete" version of the DI specifics,
 /// containing the auxiliary data within the corresponding
 /// enumeration variants, to be used for debug serialization.
-#[cfg(feature = "serial")]
+#[cfg(feature = "debug-serialization")]
 #[derive(Deserialize, Serialize)]
 pub enum CompletelySpecificDisplayItem {
     Clip(ClipDisplayItem, Vec<ComplexClipRegion>),

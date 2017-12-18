@@ -22,9 +22,9 @@ use std::marker::PhantomData;
 use std::slice;
 use time::precise_time_ns;
 
-#[cfg(feature = "serial")]
+#[cfg(feature = "debug-serialization")]
 use serde::de::Deserializer;
-#[cfg(feature = "serial")]
+#[cfg(feature = "debug-serialization")]
 use serde::ser::{Serializer, SerializeSeq};
 
 // We don't want to push a long text-run. If a text-run is too long, split it into several parts.
@@ -409,7 +409,7 @@ impl<'a, T: for<'de> Deserialize<'de>> Iterator for AuxIter<'a, T> {
 impl<'a, T: for<'de> Deserialize<'de>> ::std::iter::ExactSizeIterator for AuxIter<'a, T> {}
 
 
-#[cfg(feature = "serial")]
+#[cfg(feature = "debug-serialization")]
 impl Serialize for BuiltDisplayList {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use display_item::CompletelySpecificDisplayItem::*;
@@ -464,7 +464,7 @@ impl Serialize for BuiltDisplayList {
 // a display list from one format just to immediately
 // serialize then into a "built" `Vec<u8>`.
 
-#[cfg(feature = "serial")]
+#[cfg(feature = "debug-serialization")]
 impl<'de> Deserialize<'de> for BuiltDisplayList {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where

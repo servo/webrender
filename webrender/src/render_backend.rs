@@ -18,7 +18,7 @@ use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use gpu_cache::GpuCache;
 use internal_types::{DebugOutput, FastHashMap, FastHashSet, RenderedDocument, ResultMsg};
 #[cfg(feature = "capture")]
-use internal_types::DeferredCapture;
+use internal_types::ExternalCaptureImage;
 use profiler::{BackendProfileCounters, ResourceProfileCounters};
 use rayon::ThreadPool;
 use record::ApiRecordingReceiver;
@@ -759,7 +759,8 @@ impl ToDebugString for SpecificDisplayItem {
 
 #[cfg(feature = "capture")]
 impl RenderBackend {
-    fn save_capture(&self, root: &PathBuf) -> DeferredCapture {
+    // Note: the mutable `self` is only needed here for resolving blob images
+    fn save_capture(&mut self, root: &PathBuf) -> Vec<ExternalCaptureImage> {
         use ron::ser::pretty;
         use std::fs;
         use std::io::Write;
