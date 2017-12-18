@@ -17,12 +17,14 @@ use frame::FrameContext;
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use gpu_cache::GpuCache;
 use internal_types::{DebugOutput, FastHashMap, FastHashSet, RenderedDocument, ResultMsg};
+#[cfg(feature = "capture")]
+use internal_types::CaptureInfo;
 use profiler::{BackendProfileCounters, ResourceProfileCounters};
 use rayon::ThreadPool;
 use record::ApiRecordingReceiver;
 use resource_cache::ResourceCache;
 #[cfg(feature = "capture")]
-use resource_cache::{CaptureInfo, PlainResources};
+use resource_cache::PlainResources;
 use scene::Scene;
 #[cfg(feature = "serialize")]
 use serde::{Serialize, Serializer};
@@ -34,6 +36,7 @@ use std::sync::mpsc::Sender;
 use std::u32;
 use texture_cache::TextureCache;
 use time::precise_time_ns;
+
 
 #[cfg_attr(feature = "capture", derive(Clone, Serialize, Deserialize))]
 struct DocumentView {
@@ -574,13 +577,13 @@ impl RenderBackend {
                         #[cfg(feature = "capture")]
                         DebugCommand::SaveCapture => {
                             let info = self.save_capture();
-                            ResultMsg::DebugOutput(DebugOutput::SaveCapture {
-                                path: info.dir_path,
-                            })
+                            ResultMsg::DebugOutput(DebugOutput::SaveCapture(info))
                         },
                         #[cfg(feature = "capture")]
                         DebugCommand::LoadCapture(ref dir_path) => {
-                            self.load_capture(dir_path);
+                            NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed);
+                            frame_counter += 1;
+                            self.load_capture(dir_path, &mut profile_counters);
                             ResultMsg::DebugOutput(DebugOutput::LoadCapture)
                         },
                         _ => ResultMsg::DebugCommand(option),
@@ -788,12 +791,15 @@ impl RenderBackend {
         info
     }
 
-    fn load_capture(&mut self, dir_path: &str) {
+    fn load_capture(
+        &mut self,
+        dir_path: &str,
+        profile_counters: &mut BackendProfileCounters,
+    ) {
         use ron::de;
         use std::fs::File;
         use std::io::Read;
 
-        NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed);
         let mut string = String::new();
 
         string.clear();
@@ -825,14 +831,24 @@ impl RenderBackend {
             let scene: Scene = de::from_str(&string)
                 .unwrap();
 
-            self.documents.insert(id, Document {
+            let mut doc = Document {
                 scene,
                 view,
                 frame_ctx: FrameContext::new(self.frame_config.clone()),
                 frame_builder: Some(FrameBuilder::empty()),
                 output_pipelines: FastHashSet::default(),
                 render_on_scroll: None,
-            });
+            };
+
+            doc.build_scene(&mut self.resource_cache);
+            let render_doc = doc.render(
+                &mut self.resource_cache,
+                &mut self.gpu_cache,
+                &mut profile_counters.resources,
+            );
+            self.publish_document_and_notify_compositor(id, render_doc, profile_counters);
+
+            self.documents.insert(id, doc);
         }
     }
 }

@@ -764,9 +764,15 @@ impl RenderApi {
         self.send(document_id, DocumentMsg::GenerateFrame(property_bindings));
     }
 
-    /// Capture the current frame state for debugging.
+    /// Save a capture of the current frame state for debugging.
     pub fn save_capture(&self) {
         let msg = ApiMsg::DebugCommand(DebugCommand::SaveCapture);
+        self.send_message(msg);
+    }
+
+    /// Load a capture of the current frame state for debugging.
+    pub fn load_capture<S: Into<String>>(&self, path: S) {
+        let msg = ApiMsg::DebugCommand(DebugCommand::LoadCapture(path.into()));
         self.send_message(msg);
     }
 }

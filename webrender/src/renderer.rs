@@ -2386,8 +2386,8 @@ impl Renderer {
                         self.debug_server.send(string);
                     }
                     #[cfg(feature = "capture")]
-                    DebugOutput::SaveCapture {..} => {
-                        unimplemented!()
+                    DebugOutput::SaveCapture(info)=> {
+                        //TODO: external blobs
                     }
                     #[cfg(feature = "capture")]
                     DebugOutput::LoadCapture => {}

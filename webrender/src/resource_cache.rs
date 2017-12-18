@@ -13,7 +13,7 @@ use api::{GlyphDimensions, GlyphKey, IdNamespace};
 use api::{ImageData, ImageDescriptor, ImageKey, ImageRendering};
 use api::{TileOffset, TileSize};
 #[cfg(feature = "capture")]
-use api::NativeFontHandle;
+use api::{NativeFontHandle};
 use app_units::Au;
 use device::TextureFilter;
 use frame::FrameId;
@@ -21,6 +21,8 @@ use glyph_cache::GlyphCache;
 use glyph_rasterizer::{FontInstance, GlyphFormat, GlyphRasterizer, GlyphRequest};
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use internal_types::{FastHashMap, FastHashSet, SourceTexture, TextureUpdateList};
+#[cfg(feature = "capture")]
+use internal_types::CaptureInfo;
 use profiler::{ResourceProfileCounters, TextureCacheProfileCounters};
 use rayon::ThreadPool;
 use std::collections::hash_map::Entry::{self, Occupied, Vacant};
@@ -30,6 +32,7 @@ use std::hash::Hash;
 use std::mem;
 use std::sync::{Arc, RwLock};
 use texture_cache::{TextureCache, TextureCacheHandle};
+
 
 const DEFAULT_TILE_SIZE: TileSize = 512;
 
@@ -962,12 +965,6 @@ pub struct PlainResources {
 }
 
 #[cfg(feature = "capture")]
-pub struct CaptureInfo {
-    pub dir_path: String,
-    pub external_images: FastHashMap<String, ExternalImageData>,
-}
-
-#[cfg(feature = "capture")]
 impl ResourceCache {
     pub fn save_capture(&self) -> (CaptureInfo, PlainResources) {
         use std::fs;
@@ -1094,8 +1091,8 @@ impl ResourceCache {
         res.image_templates.images.clear();
         let mut raw_map = FastHashMap::<String, Arc<Vec<u8>>>::default();
 
-        for (key, template) in resources.font_templates {
-            res.font_templates.insert(key, match template {
+        for (key, plain_template) in resources.font_templates {
+            let template = match plain_template {
                 PlainFontTemplate::Raw { data, index } => {
                     let arc = match raw_map.entry(data) {
                         Entry::Occupied(e) => {
@@ -1117,7 +1114,10 @@ impl ResourceCache {
                 PlainFontTemplate::Native(native) => {
                     FontTemplate::Native(native)
                 }
-            });
+            };
+
+            self.glyph_rasterizer.add_font(key, template.clone());
+            res.font_templates.insert(key, template);
         }
 
         for (key, template) in resources.image_templates {

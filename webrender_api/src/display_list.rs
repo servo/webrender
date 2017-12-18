@@ -463,83 +463,70 @@ impl<'a, 'b> Serialize for DisplayItemRef<'a, 'b> {
     }
 }
 
+// Note: the wraps here is just a noisy workaround for the hacky way
+// we use map-serialized items + aux data. This is to be streamlined
+// in the future by introducing a strongly typed serializable type.
+
 #[cfg(feature = "serial")]
-impl BuiltDisplayList {
-    /// Push a vector of things into the DL according to the
-    /// convention used by `skip_iter` and `push_iter`
-    fn push_vec<T: Clone + Serialize>(&mut self, vec: Vec<T>) {
-        let vec_len = vec.len();
-        let byte_size = mem::size_of::<T>() * vec_len;
-        serialize_fast(&mut self.data, &byte_size);
-        serialize_fast(&mut self.data, &vec_len);
-        let count = serialize_iter_fast(&mut self.data, vec.into_iter());
-        assert_eq!(count, vec_len);
-    }
+struct DisplayItemWrap {
+    item: DisplayItem,
+    complex_clips: Vec<ComplexClipRegion>,
+    gradient_stops: Vec<GradientStop>,
+    glyphs: Vec<GlyphInstance>,
+    filters: Vec<FilterOp>,
 }
 
-// The purpose of this `Visitor` implementation is to
-// deserialize a display list from one format just to
-// immediately serialize then into a "built" `Vec<u8>`.
+#[cfg(feature = "serial")]
+struct DisplayItemVisitor;
 
 #[cfg(feature = "serial")]
-impl<'de> Visitor<'de> for BuiltDisplayList {
-    type Value = Self;
+impl<'de> Visitor<'de> for DisplayItemVisitor {
+    type Value = DisplayItemWrap;
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        write!(formatter, "DisplayItem")
+        write!(formatter, "DisplayItem wrapping map")
     }
 
-    fn visit_map<A>(mut self, mut map: A) -> Result<Self, A::Error>
+    fn visit_map<A>(self, mut map: A) -> Result<DisplayItemWrap, A::Error>
     where
         A: MapAccess<'de>
     {
-        // Note: deserializing keys into `&str` allows us to match right away
-        let specific = match map.next_entry::<&'de str, DisplayItem>()? {
-            Some(("item", item)) => {
-                serialize_fast(&mut self.data, &item);
-                item.item
-            }
+        let mut wrap = match map.next_entry::<String, _>()? {
+            Some((ref key, item)) if key == "item" => DisplayItemWrap {
+                item,
+                complex_clips: Vec::new(),
+                gradient_stops: Vec::new(),
+                glyphs: Vec::new(),
+                filters: Vec::new(),
+            },
             _ => panic!("Item should always come first!")
         };
 
-        match specific {
-            SpecificDisplayItem::Clip(_) | SpecificDisplayItem::ScrollFrame(_) => {
-                match map.next_entry::<&'de str, Vec<ComplexClipRegion>>()? {
-                    Some(("complex_clips", vec)) => {
-                        self.push_vec(vec);
-                    }
-                    _ => panic!("Expected complex_clips to follow a clip/scroll frame")
-                }
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
+                "complex_clips" => wrap.complex_clips = map.next_value()?,
+                "gradient_stpos" => wrap.gradient_stops = map.next_value()?,
+                "glyphs" => wrap.glyphs = map.next_value()?,
+                "filters" => wrap.filters = map.next_value()?,
+                _ => panic!("Unknown auxiliary data!")
             }
-            SpecificDisplayItem::SetGradientStops => {
-                match map.next_entry::<&'de str, Vec<GradientStop>>()? {
-                    Some(("gradient_stops", vec)) => {
-                        self.push_vec(vec);
-                    }
-                    _ => panic!("Expected gradient_stops to follow a clip/scroll frame")
-                }
-            }
-            SpecificDisplayItem::Text(_) => {
-                match map.next_entry::<&'de str, Vec<GlyphInstance>>()? {
-                    Some(("glyphs", vec)) => {
-                        self.push_vec(vec);
-                    }
-                    _ => panic!("Expected glyphs to follow a text item")
-                }
-            }
-            SpecificDisplayItem::PushStackingContext(_) => {
-                match map.next_entry::<&'de str, Vec<FilterOp>>()? {
-                    Some(("filters", filters)) => {
-                        self.push_vec(filters);
-                    }
-                    _ => panic!("Expected filters to follow an SC push")
-                }
-            }
-            _ => {}
         }
 
-        Ok(self)
+        Ok(wrap)
     }
 }
+
+impl<'de> Deserialize<'de> for DisplayItemWrap {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_map(DisplayItemVisitor)
+    }
+}
+
+// The purpose of this implementation is to deserialize
+// a display list from one format just to immediately
+// serialize then into a "built" `Vec<u8>`.
 
 #[cfg(feature = "serial")]
 impl<'de> Deserialize<'de> for BuiltDisplayList {
@@ -547,15 +534,47 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
     where
         D: Deserializer<'de>,
     {
-        let visitor = BuiltDisplayList {
-            data: Vec::new(),
+        // Push a vector of things into the DL according to the
+        // convention used by `skip_iter` and `push_iter`
+        fn push_vec<T: Clone + Serialize>(data: &mut Vec<u8>, vec: Vec<T>) {
+            let vec_len = vec.len();
+            let byte_size = mem::size_of::<T>() * vec_len;
+            serialize_fast(data, &byte_size);
+            serialize_fast(data, &vec_len);
+            let count = serialize_iter_fast(data, vec.into_iter());
+            assert_eq!(count, vec_len);
+        }
+
+        let list = Vec::<DisplayItemWrap>::deserialize(deserializer)?;
+
+        let mut data = Vec::new();
+        for wrap in list {
+            serialize_fast(&mut data, &wrap.item);
+            match wrap.item.item {
+                SpecificDisplayItem::Clip(_) | SpecificDisplayItem::ScrollFrame(_) => {
+                    push_vec(&mut data, wrap.complex_clips)
+                }
+                SpecificDisplayItem::SetGradientStops => {
+                    push_vec(&mut data, wrap.gradient_stops)
+                }
+                SpecificDisplayItem::Text(_) => {
+                    push_vec(&mut data, wrap.glyphs)
+                }
+                SpecificDisplayItem::PushStackingContext(_) => {
+                    push_vec(&mut data, wrap.filters)
+                }
+                _ => {}
+            }
+        }
+
+        Ok(BuiltDisplayList {
+            data,
             descriptor: BuiltDisplayListDescriptor {
                 builder_start_time: 0,
                 builder_finish_time: 1,
                 send_start_time: 0,
             },
-        };
-        deserializer.deserialize_seq(visitor)
+        })
     }
 }
 

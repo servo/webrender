@@ -171,13 +171,17 @@ impl RenderedDocument {
     }
 }
 
+#[cfg(feature = "capture")]
+pub struct CaptureInfo {
+    pub dir_path: String,
+    pub external_images: FastHashMap<String, ExternalImageData>,
+}
+
 pub enum DebugOutput {
     FetchDocuments(String),
     FetchClipScrollTree(String),
     #[cfg(feature = "capture")]
-    SaveCapture {
-        path: String,
-    },
+    SaveCapture(CaptureInfo),
     #[cfg(feature = "capture")]
     LoadCapture,
 }
