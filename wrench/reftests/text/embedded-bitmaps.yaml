@@ -5,5 +5,5 @@ root:
           origin: 20 30
           bounds: [0, 0, 710, 50]
           size: 8.25
-          font: "Proggy.fon"
+          font: "Proggy.ttf"
           embedded-bitmaps: true
