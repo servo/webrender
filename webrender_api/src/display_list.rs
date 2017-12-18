@@ -17,17 +17,15 @@ use bincode;
 use euclid::SideOffsets2D;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
-use std::{io, ptr};
+use std::{io, mem, ptr};
 use std::marker::PhantomData;
 use std::slice;
 use time::precise_time_ns;
 
 #[cfg(feature = "serial")]
-use std::{fmt, mem};
+use serde::de::Deserializer;
 #[cfg(feature = "serial")]
-use serde::de::{Deserializer, MapAccess, Visitor};
-#[cfg(feature = "serial")]
-use serde::ser::{Serializer, SerializeMap, SerializeSeq};
+use serde::ser::{Serializer, SerializeSeq};
 
 // We don't want to push a long text-run. If a text-run is too long, split it into several parts.
 // This needs to be set to (renderer::MAX_VERTEX_TEXTURE_WIDTH - VECS_PER_PRIM_HEADER - VECS_PER_TEXT_RUN) * 2
@@ -54,7 +52,7 @@ impl<T> Default for ItemRange<T> {
 impl<T> ItemRange<T> {
     pub fn is_empty(&self) -> bool {
         // Nothing more than space for a length (0).
-        self.length <= ::std::mem::size_of::<u64>()
+        self.length <= mem::size_of::<u64>()
     }
 }
 
@@ -414,113 +412,51 @@ impl<'a, T: for<'de> Deserialize<'de>> ::std::iter::ExactSizeIterator for AuxIte
 #[cfg(feature = "serial")]
 impl Serialize for BuiltDisplayList {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use display_item::CompletelySpecificDisplayItem::*;
+        use display_item::GenericDisplayItem;
+
         let mut seq = serializer.serialize_seq(None)?;
         let mut traversal = self.iter();
         while let Some(item) = traversal.next() {
-            seq.serialize_element(&item)?
+            let di = item.display_item();
+            let serial_di = GenericDisplayItem {
+                item: match di.item {
+                    SpecificDisplayItem::Clip(v) => Clip(v,
+                        item.iter.list.get(item.iter.cur_complex_clip.0).collect()
+                    ),
+                    SpecificDisplayItem::ScrollFrame(v) => ScrollFrame(v,
+                        item.iter.list.get(item.iter.cur_complex_clip.0).collect()
+                    ),
+                    SpecificDisplayItem::StickyFrame(v) => StickyFrame(v),
+                    SpecificDisplayItem::Rectangle(v) => Rectangle(v),
+                    SpecificDisplayItem::ClearRectangle => ClearRectangle,
+                    SpecificDisplayItem::Line(v) => Line(v),
+                    SpecificDisplayItem::Text(v) => Text(v,
+                        item.iter.list.get(item.iter.cur_glyphs).collect()
+                    ),
+                    SpecificDisplayItem::Image(v) => Image(v),
+                    SpecificDisplayItem::YuvImage(v) => YuvImage(v),
+                    SpecificDisplayItem::Border(v) => Border(v),
+                    SpecificDisplayItem::BoxShadow(v) => BoxShadow(v),
+                    SpecificDisplayItem::Gradient(v) => Gradient(v),
+                    SpecificDisplayItem::RadialGradient(v) => RadialGradient(v),
+                    SpecificDisplayItem::Iframe(v) => Iframe(v),
+                    SpecificDisplayItem::PushStackingContext(v) => PushStackingContext(v,
+                        item.iter.list.get(item.iter.cur_filters).collect()
+                    ),
+                    SpecificDisplayItem::PopStackingContext => PopStackingContext,
+                    SpecificDisplayItem::SetGradientStops => SetGradientStops(
+                        item.iter.list.get(item.iter.cur_stops).collect()
+                    ),
+                    SpecificDisplayItem::PushShadow(v) => PushShadow(v),
+                    SpecificDisplayItem::PopAllShadows => PopAllShadows,
+                },
+                clip_and_scroll: di.clip_and_scroll,
+                info: di.info,
+            };
+            seq.serialize_element(&serial_di)?
         }
         seq.end()
-    }
-}
-
-#[cfg(feature = "serial")]
-impl<'a, 'b> Serialize for DisplayItemRef<'a, 'b> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(None)?;
-
-        map.serialize_entry("item", self.display_item())?;
-
-        match *self.item() {
-            SpecificDisplayItem::Clip(_) | SpecificDisplayItem::ScrollFrame(_) => {
-                let (complex_clips, _) = self.complex_clip();
-                map.serialize_entry(
-                    "complex_clips",
-                    &self.iter.list.get(complex_clips).collect::<Vec<_>>(),
-                )?;
-            }
-            SpecificDisplayItem::SetGradientStops => {
-                map.serialize_entry(
-                    "gradient_stops",
-                    &self.iter.list.get(self.gradient_stops()).collect::<Vec<_>>(),
-                )?;
-            }
-            SpecificDisplayItem::Text(_) => {
-                map.serialize_entry(
-                    "glyphs",
-                    &self.iter.list.get(self.glyphs()).collect::<Vec<_>>(),
-                )?;
-            }
-            SpecificDisplayItem::PushStackingContext(_) => {
-                map.serialize_entry(
-                    "filters",
-                    &self.iter.list.get(self.filters()).collect::<Vec<_>>(),
-                )?;
-            }
-            _ => {}
-        }
-
-        map.end()
-    }
-}
-
-// Note: the wraps here is just a noisy workaround for the hacky way
-// we use map-serialized items + aux data. This is to be streamlined
-// in the future by introducing a strongly typed serializable type.
-
-#[cfg(feature = "serial")]
-struct DisplayItemWrap {
-    item: DisplayItem,
-    complex_clips: Vec<ComplexClipRegion>,
-    gradient_stops: Vec<GradientStop>,
-    glyphs: Vec<GlyphInstance>,
-    filters: Vec<FilterOp>,
-}
-
-#[cfg(feature = "serial")]
-struct DisplayItemVisitor;
-
-#[cfg(feature = "serial")]
-impl<'de> Visitor<'de> for DisplayItemVisitor {
-    type Value = DisplayItemWrap;
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        write!(formatter, "DisplayItem wrapping map")
-    }
-
-    fn visit_map<A>(self, mut map: A) -> Result<DisplayItemWrap, A::Error>
-    where
-        A: MapAccess<'de>
-    {
-        let mut wrap = match map.next_entry::<String, _>()? {
-            Some((ref key, item)) if key == "item" => DisplayItemWrap {
-                item,
-                complex_clips: Vec::new(),
-                gradient_stops: Vec::new(),
-                glyphs: Vec::new(),
-                filters: Vec::new(),
-            },
-            _ => panic!("Item should always come first!")
-        };
-
-        while let Some(key) = map.next_key::<String>()? {
-            match key.as_str() {
-                "complex_clips" => wrap.complex_clips = map.next_value()?,
-                "gradient_stpos" => wrap.gradient_stops = map.next_value()?,
-                "glyphs" => wrap.glyphs = map.next_value()?,
-                "filters" => wrap.filters = map.next_value()?,
-                _ => panic!("Unknown auxiliary data!")
-            }
-        }
-
-        Ok(wrap)
-    }
-}
-
-impl<'de> Deserialize<'de> for DisplayItemWrap {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_map(DisplayItemVisitor)
     }
 }
 
@@ -534,6 +470,9 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
     where
         D: Deserializer<'de>,
     {
+        use display_item::CompletelySpecificDisplayItem::*;
+        use display_item::{CompletelySpecificDisplayItem, GenericDisplayItem};
+
         // Push a vector of things into the DL according to the
         // convention used by `skip_iter` and `push_iter`
         fn push_vec<T: Clone + Serialize>(data: &mut Vec<u8>, vec: Vec<T>) {
@@ -545,26 +484,55 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
             assert_eq!(count, vec_len);
         }
 
-        let list = Vec::<DisplayItemWrap>::deserialize(deserializer)?;
+        let list = Vec::<GenericDisplayItem<CompletelySpecificDisplayItem>>
+            ::deserialize(deserializer)?;
 
         let mut data = Vec::new();
-        for wrap in list {
-            serialize_fast(&mut data, &wrap.item);
-            match wrap.item.item {
-                SpecificDisplayItem::Clip(_) | SpecificDisplayItem::ScrollFrame(_) => {
-                    push_vec(&mut data, wrap.complex_clips)
-                }
-                SpecificDisplayItem::SetGradientStops => {
-                    push_vec(&mut data, wrap.gradient_stops)
-                }
-                SpecificDisplayItem::Text(_) => {
-                    push_vec(&mut data, wrap.glyphs)
-                }
-                SpecificDisplayItem::PushStackingContext(_) => {
-                    push_vec(&mut data, wrap.filters)
-                }
-                _ => {}
-            }
+        let mut temp = Vec::new();
+        for complete in list {
+            let item = DisplayItem {
+                item: match complete.item {
+                    Clip(v, complex_clips) => {
+                        push_vec(&mut temp, complex_clips);
+                        SpecificDisplayItem::Clip(v)
+                    },
+                    ScrollFrame(v, complex_clips) => {
+                        push_vec(&mut temp, complex_clips);
+                        SpecificDisplayItem::ScrollFrame(v)
+                    },
+                    StickyFrame(v) => SpecificDisplayItem::StickyFrame(v),
+                    Rectangle(v) => SpecificDisplayItem::Rectangle(v),
+                    ClearRectangle => SpecificDisplayItem::ClearRectangle,
+                    Line(v) => SpecificDisplayItem::Line(v),
+                    Text(v, glyphs) => {
+                        push_vec(&mut temp, glyphs);
+                        SpecificDisplayItem::Text(v)
+                    },
+                    Image(v) => SpecificDisplayItem::Image(v),
+                    YuvImage(v) => SpecificDisplayItem::YuvImage(v),
+                    Border(v) => SpecificDisplayItem::Border(v),
+                    BoxShadow(v) => SpecificDisplayItem::BoxShadow(v),
+                    Gradient(v) => SpecificDisplayItem::Gradient(v),
+                    RadialGradient(v) => SpecificDisplayItem::RadialGradient(v),
+                    Iframe(v) => SpecificDisplayItem::Iframe(v),
+                    PushStackingContext(v, filters) => {
+                        push_vec(&mut temp, filters);
+                        SpecificDisplayItem::PushStackingContext(v)
+                    },
+                    PopStackingContext => SpecificDisplayItem::PopStackingContext,
+                    SetGradientStops(stops) => {
+                        push_vec(&mut temp, stops);
+                        SpecificDisplayItem::SetGradientStops
+                    },
+                    PushShadow(v) => SpecificDisplayItem::PushShadow(v),
+                    PopAllShadows => SpecificDisplayItem::PopAllShadows,
+                },
+                clip_and_scroll: complete.clip_and_scroll,
+                info: complete.info,
+            };
+            serialize_fast(&mut data, &item);
+            // the aux data is serialized after the item, hence the temporary
+            data.extend(temp.drain(..));
         }
 
         Ok(BuiltDisplayList {
@@ -880,7 +848,7 @@ impl DisplayListBuilder {
 
     pub fn print_display_list(&mut self) {
         let mut temp = BuiltDisplayList::default();
-        ::std::mem::swap(&mut temp.data, &mut self.data);
+        mem::swap(&mut temp.data, &mut self.data);
 
         {
             let mut iter = BuiltDisplayListIter::new(&temp);

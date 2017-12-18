@@ -972,6 +972,7 @@ impl ResourceCache {
 
         let res = &self.resources;
         let dir_path = format!("captures/frame-{}", self.current_frame_id.0);
+        let _ = fs::create_dir_all(&dir_path);
         let _ = fs::create_dir(&format!("{}/fonts", dir_path));
         let _ = fs::create_dir(&format!("{}/images", dir_path));
 

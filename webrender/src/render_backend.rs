@@ -763,7 +763,6 @@ impl RenderBackend {
         use std::io::Write;
 
         let (info, resources) = self.resource_cache.save_capture();
-        let _ = fs::create_dir_all(&info.dir_path);
 
         for (&id, doc) in &self.documents {
             let ron = pretty::to_string(&doc.scene).unwrap();
