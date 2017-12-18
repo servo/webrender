@@ -12,6 +12,7 @@ use channel::{self, MsgSender, Payload, PayloadSender, PayloadSenderHelperMethod
 use std::cell::Cell;
 use std::fmt;
 use std::marker::PhantomData;
+use std::path::PathBuf;
 
 pub type TileSize = u16;
 /// Documents are rendered in the ascending order of their associated layer values.
@@ -268,9 +269,9 @@ pub enum DebugCommand {
     /// Fetch screenshot.
     FetchScreenshot,
     /// Save a capture of all the documents state.
-    SaveCapture,
+    SaveCapture(PathBuf),
     /// Load a capture of all the documents state.
-    LoadCapture(String),
+    LoadCapture(PathBuf),
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -765,14 +766,14 @@ impl RenderApi {
     }
 
     /// Save a capture of the current frame state for debugging.
-    pub fn save_capture(&self) {
-        let msg = ApiMsg::DebugCommand(DebugCommand::SaveCapture);
+    pub fn save_capture(&self, path: PathBuf) {
+        let msg = ApiMsg::DebugCommand(DebugCommand::SaveCapture(path));
         self.send_message(msg);
     }
 
     /// Load a capture of the current frame state for debugging.
-    pub fn load_capture<S: Into<String>>(&self, path: S) {
-        let msg = ApiMsg::DebugCommand(DebugCommand::LoadCapture(path.into()));
+    pub fn load_capture(&self, path: PathBuf) {
+        let msg = ApiMsg::DebugCommand(DebugCommand::LoadCapture(path));
         self.send_message(msg);
     }
 }

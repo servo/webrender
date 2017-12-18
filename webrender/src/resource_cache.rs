@@ -22,7 +22,7 @@ use glyph_rasterizer::{FontInstance, GlyphFormat, GlyphRasterizer, GlyphRequest}
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use internal_types::{FastHashMap, FastHashSet, SourceTexture, TextureUpdateList};
 #[cfg(feature = "capture")]
-use internal_types::CaptureInfo;
+use internal_types::DeferredCapture;
 use profiler::{ResourceProfileCounters, TextureCacheProfileCounters};
 use rayon::ThreadPool;
 use std::collections::hash_map::Entry::{self, Occupied, Vacant};
@@ -30,6 +30,8 @@ use std::cmp;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::mem;
+#[cfg(feature = "capture")]
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use texture_cache::{TextureCache, TextureCacheHandle};
 
@@ -966,16 +968,27 @@ pub struct PlainResources {
 
 #[cfg(feature = "capture")]
 impl ResourceCache {
-    pub fn save_capture(&self) -> (CaptureInfo, PlainResources) {
+    pub fn save_capture(
+        &self, root: &PathBuf
+    ) -> (PlainResources, DeferredCapture) {
         use std::fs;
         use std::io::Write;
 
+        info!("saving resource cache");
         let res = &self.resources;
-        let dir_path = format!("captures/frame-{}", self.current_frame_id.0);
-        let _ = fs::create_dir_all(&dir_path);
-        let _ = fs::create_dir(&format!("{}/fonts", dir_path));
-        let _ = fs::create_dir(&format!("{}/images", dir_path));
+        if !root.is_dir() {
+            fs::create_dir_all(&root).unwrap()
+        }
+        let path_fonts = root.clone().join("fonts");
+        if !path_fonts.is_dir() {
+            fs::create_dir(&path_fonts).unwrap();
+        }
+        let path_images = root.clone().join("images");
+        if !path_images.is_dir() {
+            fs::create_dir(&path_images).unwrap();
+        }
 
+        info!("\tfont templates");
         let mut font_paths = FastHashMap::default();
         let mut num_fonts = 0;
         for template in res.font_templates.values() {
@@ -988,8 +1001,9 @@ impl ResourceCache {
                 Entry::Vacant(e) => e,
             };
             num_fonts += 1;
-            let short_path = format!("fonts/{}.raw", num_fonts);
-            let full_path = format!("{}/{}", dir_path, short_path);
+            let file_name = format!("{}.raw", num_fonts);
+            let short_path = format!("fonts/{}", file_name);
+            let full_path = path_fonts.clone().join(&file_name);
             fs::File::create(full_path)
                 .expect(&format!("Unable to create {}", short_path))
                 .write_all(data)
@@ -997,6 +1011,7 @@ impl ResourceCache {
             entry.insert(short_path);
         }
 
+        info!("\timage templates");
         let mut image_paths = FastHashMap::default();
         let mut num_images = 0;
         let mut external_images = FastHashMap::default();
@@ -1016,10 +1031,11 @@ impl ResourceCache {
                 Entry::Occupied(_) => continue,
                 Entry::Vacant(e) => e,
             };
-            num_images += 1;
             //TODO: option to save as PNG
-            let short_path = format!("images/{}.raw", num_images);
-            let full_path = format!("{}/{}", dir_path, short_path);
+            num_images += 1;
+            let file_name = format!("{}.raw", num_images);
+            let short_path = format!("images/{}", file_name);
+            let full_path = path_images.clone().join(&file_name);
             fs::File::create(full_path)
                 .expect(&format!("Unable to create {}", short_path))
                 .write_all(data)
@@ -1027,12 +1043,7 @@ impl ResourceCache {
             entry.insert(short_path);
         }
 
-        let info = CaptureInfo {
-            dir_path,
-            external_images,
-        };
-
-        (info, PlainResources {
+        let resources = PlainResources {
             font_templates: res.font_templates
                 .iter()
                 .map(|(key, template)| {
@@ -1064,15 +1075,16 @@ impl ResourceCache {
                     })
                 })
                 .collect(),
-        })
+        };
+
+        (resources, DeferredCapture { external_images })
     }
 
-    pub fn load_capture(
-        &mut self, resources: PlainResources, dir_path: &str
-    ) {
+    pub fn load_capture(&mut self, resources: PlainResources, root: &PathBuf) {
         use std::fs::File;
         use std::io::Read;
 
+        info!("loading resource cache");
         self.cached_glyphs.clear();
         self.cached_images.clear();
 
@@ -1092,6 +1104,7 @@ impl ResourceCache {
         res.image_templates.images.clear();
         let mut raw_map = FastHashMap::<String, Arc<Vec<u8>>>::default();
 
+        info!("\tfont templates...");
         for (key, plain_template) in resources.font_templates {
             let template = match plain_template {
                 PlainFontTemplate::Raw { data, index } => {
@@ -1100,7 +1113,7 @@ impl ResourceCache {
                             e.get().clone()
                         }
                         Entry::Vacant(e) => {
-                            let path = format!("{}/{}", dir_path, e.key());
+                            let path = format!("{}/{}", root.to_string_lossy(), e.key());
                             let mut buffer = Vec::new();
                             File::open(path)
                                 .expect(&format!("Unable to open {}", e.key()))
@@ -1121,6 +1134,7 @@ impl ResourceCache {
             res.font_templates.insert(key, template);
         }
 
+        info!("\timage templates...");
         for (key, template) in resources.image_templates {
             let arc = match raw_map.entry(template.data) {
                 Entry::Occupied(e) => {
@@ -1128,7 +1142,7 @@ impl ResourceCache {
                 }
                 Entry::Vacant(e) => {
                     //TODO: consider merging the code path with font loading
-                    let path = format!("{}/{}", dir_path, e.key());
+                    let path = format!("{}/{}", root.to_string_lossy(), e.key());
                     let mut buffer = Vec::new();
                     File::open(path)
                         .expect(&format!("Unable to open {}", e.key()))

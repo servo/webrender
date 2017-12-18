@@ -268,7 +268,14 @@ pub fn main_wrapper<E: Example>(
                     _,
                     Some(glutin::VirtualKeyCode::C),
                 ) => {
-                    api.save_capture();
+                    api.save_capture("captures/example".into());
+                }
+                glutin::Event::KeyboardInput(
+                    glutin::ElementState::Pressed,
+                    _,
+                    Some(glutin::VirtualKeyCode::L),
+                ) => {
+                    api.load_capture("captures/example".into());
                 }
                 _ => if example.on_event(event, &api, document_id) {
                     let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);

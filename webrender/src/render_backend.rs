@@ -18,7 +18,7 @@ use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use gpu_cache::GpuCache;
 use internal_types::{DebugOutput, FastHashMap, FastHashSet, RenderedDocument, ResultMsg};
 #[cfg(feature = "capture")]
-use internal_types::CaptureInfo;
+use internal_types::DeferredCapture;
 use profiler::{BackendProfileCounters, ResourceProfileCounters};
 use rayon::ThreadPool;
 use record::ApiRecordingReceiver;
@@ -30,6 +30,8 @@ use scene::Scene;
 use serde::{Serialize, Serializer};
 #[cfg(feature = "debugger")]
 use serde_json;
+#[cfg(feature = "capture")]
+use std::path::PathBuf;
 use std::sync::atomic::{ATOMIC_USIZE_INIT, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
@@ -575,15 +577,15 @@ impl RenderBackend {
                             ResultMsg::DebugOutput(DebugOutput::FetchClipScrollTree(json))
                         }
                         #[cfg(feature = "capture")]
-                        DebugCommand::SaveCapture => {
-                            let info = self.save_capture();
-                            ResultMsg::DebugOutput(DebugOutput::SaveCapture(info))
+                        DebugCommand::SaveCapture(root) => {
+                            let deferred = self.save_capture(&root);
+                            ResultMsg::DebugOutput(DebugOutput::SaveCapture(root, deferred))
                         },
                         #[cfg(feature = "capture")]
-                        DebugCommand::LoadCapture(ref dir_path) => {
+                        DebugCommand::LoadCapture(root) => {
                             NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed);
                             frame_counter += 1;
-                            self.load_capture(dir_path, &mut profile_counters);
+                            self.load_capture(&root, &mut profile_counters);
                             ResultMsg::DebugOutput(DebugOutput::LoadCapture)
                         },
                         _ => ResultMsg::DebugCommand(option),
@@ -757,21 +759,24 @@ impl ToDebugString for SpecificDisplayItem {
 
 #[cfg(feature = "capture")]
 impl RenderBackend {
-    fn save_capture(&self) -> CaptureInfo {
+    fn save_capture(&self, root: &PathBuf) -> DeferredCapture {
         use ron::ser::pretty;
         use std::fs;
         use std::io::Write;
 
-        let (info, resources) = self.resource_cache.save_capture();
+        info!("capture: saving {}", root.to_string_lossy());
+        let (resources, deferred) = self.resource_cache.save_capture(root);
 
         for (&id, doc) in &self.documents {
+            info!("\tdocument {:?}", id);
             let ron = pretty::to_string(&doc.scene).unwrap();
-            let ron_path = format!("{}/scene-{}-{}.ron",
-                info.dir_path, (id.0).0, id.1);
+            let file_name = format!("scene-{}-{}.ron", (id.0).0, id.1);
+            let ron_path = root.clone().join(file_name);
             let mut file = fs::File::create(ron_path).unwrap();
             write!(file, "{}\n", ron).unwrap();
         }
 
+        info!("\tbackend");
         let serial = PlainRenderBackend {
             default_device_pixel_ratio: self.default_device_pixel_ratio,
             enable_render_on_scroll: self.enable_render_on_scroll,
@@ -782,17 +787,18 @@ impl RenderBackend {
                 .collect(),
             resources,
         };
+
         let ron = pretty::to_string(&serial).unwrap();
-        let ron_path = format!("{}/backend.ron", info.dir_path);
+        let ron_path = root.clone().join("backend.ron");
         let mut file = fs::File::create(ron_path).unwrap();
         write!(file, "{}\n", ron).unwrap();
 
-        info
+        deferred
     }
 
     fn load_capture(
         &mut self,
-        dir_path: &str,
+        root: &PathBuf,
         profile_counters: &mut BackendProfileCounters,
     ) {
         use ron::de;
@@ -800,9 +806,9 @@ impl RenderBackend {
         use std::io::Read;
 
         let mut string = String::new();
+        info!("capture: loading {}", root.to_string_lossy());
 
-        string.clear();
-        File::open(format!("{}/backend.ron", dir_path))
+        File::open(root.join("backend.ron"))
             .unwrap()
             .read_to_string(&mut string)
             .unwrap();
@@ -813,7 +819,7 @@ impl RenderBackend {
         // rather explicitly on what's used before and after scene building
         // so that, for example, we never miss anything in the code below:
 
-        self.resource_cache.load_capture(backend.resources, dir_path);
+        self.resource_cache.load_capture(backend.resources, root);
         self.gpu_cache = GpuCache::new();
         self.documents.clear();
         self.default_device_pixel_ratio = backend.default_device_pixel_ratio;
@@ -821,9 +827,10 @@ impl RenderBackend {
         self.enable_render_on_scroll = backend.enable_render_on_scroll;
 
         for (id, view) in backend.documents {
-            let path = format!("{}/scene-{}-{}.ron", dir_path, (id.0).0, id.1);
+            info!("\tdocument {:?}", id);
             string.clear();
-            File::open(path)
+            let file_name = format!("scene-{}-{}.ron", (id.0).0, id.1);
+            File::open(root.join(file_name))
                 .expect(&format!("Unable to open scene {:?}", id))
                 .read_to_string(&mut string)
                 .unwrap();

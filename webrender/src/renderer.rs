@@ -2386,7 +2386,7 @@ impl Renderer {
                         self.debug_server.send(string);
                     }
                     #[cfg(feature = "capture")]
-                    DebugOutput::SaveCapture(info)=> {
+                    DebugOutput::SaveCapture(_path, _deferred)=> {
                         //TODO: external blobs
                     }
                     #[cfg(feature = "capture")]
@@ -2604,11 +2604,9 @@ impl Renderer {
                 let json = self.get_screenshot_for_debugger();
                 self.debug_server.send(json);
             }
-            DebugCommand::SaveCapture => {
-                unimplemented!()
-            }
+            DebugCommand::SaveCapture(_) |
             DebugCommand::LoadCapture(_) => {
-                unimplemented!()
+                panic!("Capture commands are not welcome here!")
             }
         }
     }
