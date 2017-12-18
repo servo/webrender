@@ -43,3 +43,4 @@ platform(linux) == subpixel-skew.yaml subpixel-skew.png
 != shadow-rotate.yaml blank.yaml
 platform(linux) == embedded-bitmaps.yaml embedded-bitmaps.png
 platform(linux) == clipped-transform.yaml clipped-transform.png
+platform(mac) == color-bitmap-shadow.yaml color-bitmap-shadow-ref.yaml
