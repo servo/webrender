@@ -16,4 +16,5 @@ fuzzy(1,6388) == rounding.yaml rounding-ref.yaml
 == inset-subpx.yaml inset-subpx.png
 == inset-downscale.yaml inset-downscale.png
 == box-shadow-cache.yaml box-shadow-cache.png
-
+== overlap1.yaml overlap1.png
+== overlap2.yaml overlap2.png
