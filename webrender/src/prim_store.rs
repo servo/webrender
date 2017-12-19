@@ -1175,6 +1175,7 @@ impl PrimitiveStore {
                         prim_context,
                         render_tasks,
                         metadata.screen_rect.as_ref().expect("bug: trying to draw an off-screen picture!?"),
+                        &metadata.local_rect,
                         child_tasks,
                         parent_tasks,
                     );
