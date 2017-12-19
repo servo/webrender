@@ -49,7 +49,27 @@ impl<'a> RawtestHarness<'a> {
         self.wrench.renderer.read_pixels_rgba8(window_rect)
     }
 
+    fn submit_dl(
+        &mut self,
+        epoch: &mut Epoch,
+        layout_size: LayoutSize,
+        builder: DisplayListBuilder,
+        resources: Option<ResourceUpdates>
+    ) {
+        let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
+        self.wrench.api.set_display_list(
+            self.wrench.document_id,
+            *epoch,
+            root_background_color,
+            layout_size,
+            builder.finalize(),
+            false,
+            resources.unwrap_or(ResourceUpdates::new()),
+        );
+        epoch.0 += 1;
 
+        self.wrench.api.generate_frame(self.wrench.document_id, None);
+    }
 
     fn tile_decomposition(&mut self) {
         // This exposes a crash in tile decomposition
@@ -64,8 +84,6 @@ impl<'a> RawtestHarness<'a> {
             Some(128),
         );
 
-        let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
-
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
 
         let info = LayoutPrimitiveInfo::new(rect(448.899994, 74.0, 151.000031, 56.));
@@ -79,18 +97,9 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
         );
 
-        self.wrench.api.set_display_list(
-            self.wrench.document_id,
-            Epoch(0),
-            root_background_color,
-            layout_size,
-            builder.finalize(),
-            false,
-            resources,
-        );
-        self.wrench
-            .api
-            .generate_frame(self.wrench.document_id, None);
+        let mut epoch = Epoch(0);
+
+        self.submit_dl(&mut epoch, layout_size, builder, Some(resources));
 
         self.rx.recv().unwrap();
         self.wrench.render();
@@ -102,7 +111,6 @@ impl<'a> RawtestHarness<'a> {
         let window_size = DeviceUintSize::new(window_size.0, window_size.1);
 
         let test_size = DeviceUintSize::new(400, 400);
-        let document_id = self.wrench.document_id;
 
         let window_rect = DeviceUintRect::new(
             DeviceUintPoint::new(0, window_size.height - test_size.height),
@@ -121,7 +129,6 @@ impl<'a> RawtestHarness<'a> {
                 None,
             );
         }
-        let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
 
         // draw the blob the first time
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
@@ -135,17 +142,9 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
         );
 
-        self.wrench.api.set_display_list(
-            document_id,
-            Epoch(0),
-            root_background_color,
-            layout_size,
-            builder.finalize(),
-            false,
-            resources,
-        );
-        self.wrench.api.generate_frame(document_id, None);
+        let mut epoch = Epoch(0);
 
+        self.submit_dl(&mut epoch, layout_size, builder, Some(resources));
 
         // draw the blob image a second time at a different location
 
@@ -160,17 +159,7 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
         );
 
-        self.wrench.api.set_display_list(
-            document_id,
-            Epoch(1),
-            root_background_color,
-            layout_size,
-            builder.finalize(),
-            false,
-            ResourceUpdates::new(),
-        );
-
-        self.wrench.api.generate_frame(document_id, None);
+        self.submit_dl(&mut epoch, layout_size, builder, None);
 
         let pixels_first = self.render_and_get_pixels(window_rect);
         let pixels_second = self.render_and_get_pixels(window_rect);
@@ -188,7 +177,6 @@ impl<'a> RawtestHarness<'a> {
         let window_size = DeviceUintSize::new(window_size.0, window_size.1);
 
         let test_size = DeviceUintSize::new(400, 400);
-        let document_id = self.wrench.document_id;
 
         let window_rect = DeviceUintRect::new(
             point(0, window_size.height - test_size.height),
@@ -207,7 +195,6 @@ impl<'a> RawtestHarness<'a> {
                 None,
             );
         }
-        let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
 
         // draw the blob the first time
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
@@ -221,16 +208,9 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
         );
 
-        self.wrench.api.set_display_list(
-            document_id,
-            Epoch(0),
-            root_background_color,
-            layout_size,
-            builder.finalize(),
-            false,
-            resources,
-        );
-        self.wrench.api.generate_frame(document_id, None);
+        let mut epoch = Epoch(0);
+
+        self.submit_dl(&mut epoch, layout_size, builder, Some(resources));
         let pixels_first = self.render_and_get_pixels(window_rect);
 
 
@@ -254,17 +234,7 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
         );
 
-        self.wrench.api.set_display_list(
-            document_id,
-            Epoch(1),
-            root_background_color,
-            layout_size,
-            builder.finalize(),
-            false,
-            resources,
-        );
-
-        self.wrench.api.generate_frame(document_id, None);
+        self.submit_dl(&mut epoch, layout_size, builder, Some(resources));
         let pixels_second = self.render_and_get_pixels(window_rect);
 
 
@@ -288,18 +258,7 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
         );
 
-        self.wrench.api.set_display_list(
-            document_id,
-            Epoch(2),
-            root_background_color,
-            layout_size,
-            builder.finalize(),
-            false,
-            resources,
-        );
-
-        self.wrench.api.generate_frame(document_id, None);
-
+        self.submit_dl(&mut epoch, layout_size, builder, Some(resources));
         let pixels_third = self.render_and_get_pixels(window_rect);
 
         assert!(pixels_first == pixels_second);
@@ -318,8 +277,6 @@ impl<'a> RawtestHarness<'a> {
             test_size,
         );
         let layout_size = LayoutSize::new(400., 400.);
-        let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
-
 
         let mut do_test = |should_try_and_fail| {
             let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
@@ -363,18 +320,7 @@ impl<'a> RawtestHarness<'a> {
 
             builder.pop_clip_id();
 
-            self.wrench.api.set_display_list(
-                self.wrench.document_id,
-                Epoch(0),
-                root_background_color,
-                layout_size,
-                builder.finalize(),
-                false,
-                ResourceUpdates::new(),
-            );
-            self.wrench
-                .api
-                .generate_frame(self.wrench.document_id, None);
+            self.submit_dl(&mut Epoch(0), layout_size, builder, None);
 
             self.render_and_get_pixels(window_rect)
         };
