@@ -86,6 +86,7 @@ pub enum PictureKind {
         // rendering context.
         reference_frame_id: ClipId,
         real_local_rect: LayerRect,
+        content_rect: LayerRect,
     },
 }
 
@@ -196,6 +197,7 @@ impl PicturePrimitive {
                 frame_output_pipeline_id,
                 reference_frame_id,
                 real_local_rect: LayerRect::zero(),
+                content_rect: LayerRect::zero(),
             },
             pipeline_id,
             cull_children: true,
@@ -232,7 +234,7 @@ impl PicturePrimitive {
         let local_content_rect = prim_run_rect.local_rect_in_actual_parent_space;
 
         match self.kind {
-            PictureKind::Image { composite_mode, ref mut real_local_rect, .. } => {
+            PictureKind::Image { composite_mode, ref mut real_local_rect, ref mut content_rect, .. } => {
                 *real_local_rect = prim_run_rect.local_rect_in_original_parent_space;
 
                 match composite_mode {
@@ -242,8 +244,8 @@ impl PicturePrimitive {
                     }
                     Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, blur_radius, _))) => {
                         let inflate_size = blur_radius * BLUR_SAMPLE_SCALE;
-                        local_content_rect.inflate(inflate_size, inflate_size)
-                                          .translate(&offset)
+                        *content_rect = local_content_rect.inflate(inflate_size, inflate_size);
+                        content_rect.translate(&offset)
                     }
                     _ => {
                         local_content_rect
@@ -315,6 +317,7 @@ impl PicturePrimitive {
             PictureKind::Image {
                 ref mut secondary_render_task_id,
                 composite_mode,
+                content_rect,
                 ..
             } => {
                 match composite_mode {
@@ -350,13 +353,20 @@ impl PicturePrimitive {
                         let blur_render_task_id = render_tasks.add(blur_render_task);
                         self.render_task_id = Some(blur_render_task_id);
                     }
-                    Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, blur_radius, color))) => {
+                    Some(PictureCompositeMode::Filter(FilterOp::DropShadow(_, blur_radius, color))) => {
+                        let content_width =
+                            (content_rect.size.width * prim_context.device_pixel_ratio).round() as i32;
+                        let content_height =
+                            (content_rect.size.height * prim_context.device_pixel_ratio).round() as i32;
+                        let content_size = DeviceIntSize::new(content_width, content_height);
+                        let content_origin_x = device_length(content_rect.origin.x, prim_context.device_pixel_ratio);
+                        let content_origin_y = device_length(content_rect.origin.y, prim_context.device_pixel_ratio);
                         let picture_task = RenderTask::new_picture(
-                            Some(prim_screen_rect.size),
+                            Some(content_size),
                             prim_index,
                             RenderTargetKind::Color,
-                            prim_screen_rect.origin.x as f32 - offset.x,
-                            prim_screen_rect.origin.y as f32 - offset.y,
+                            content_origin_x.0 as f32,
+                            content_origin_y.0 as f32,
                             PremultipliedColorF::TRANSPARENT,
                             ClearMode::Transparent,
                             self.rasterization_kind,

@@ -682,6 +682,7 @@ fn add_to_batch(
                             is_in_3d_context,
                             reference_frame_id,
                             real_local_rect,
+                            content_rect,
                             ..
                         } => {
                             // If this picture is participating in a 3D rendering context,
@@ -735,7 +736,7 @@ fn add_to_batch(
 
                                             batch.push(PrimitiveInstance::from(instance));
                                         }
-                                        FilterOp::DropShadow(offset, _, _) => {
+                                        FilterOp::DropShadow(_, _, _) => {
                                             let kind = BatchKind::Brush(
                                                 BrushBatchKind::Image(BrushImageSourceKind::ColorAlphaMask),
                                             );
@@ -775,17 +776,19 @@ fn add_to_batch(
                                                 secondary_textures,
                                             );
                                             let batch = batch_list.get_suitable_batch(key, &item_bounding_rect);
-                                            let device_offset_x = device_length(offset.x, ctx.device_pixel_ratio);
-                                            let device_offset_y = device_length(offset.y, ctx.device_pixel_ratio);
+                                            let content_origin_x = device_length(content_rect.origin.x, ctx.device_pixel_ratio);
+                                            let content_origin_y = device_length(content_rect.origin.y, ctx.device_pixel_ratio);
+                                            let content_origin_w = device_length(content_rect.size.width, ctx.device_pixel_ratio);
+                                            let content_origin_h = device_length(content_rect.size.height, ctx.device_pixel_ratio);
                                             let instance = CompositePrimitiveInstance::new(
                                                 task_address,
                                                 secondary_task_address,
                                                 RenderTaskAddress(0),
-                                                item_bounding_rect.origin.x - device_offset_x.0,
-                                                item_bounding_rect.origin.y - device_offset_y.0,
+                                                content_origin_x.0,
+                                                content_origin_y.0,
                                                 z,
-                                                item_bounding_rect.size.width,
-                                                item_bounding_rect.size.height,
+                                                content_origin_w.0,
+                                                content_origin_h.0,
                                             );
 
                                             batch.push(PrimitiveInstance::from(instance));
