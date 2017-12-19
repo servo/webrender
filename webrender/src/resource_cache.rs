@@ -1039,7 +1039,7 @@ impl ResourceCache {
                     entry.insert(short_path);
                 }
                 ImageData::Blob(_) => {
-                    assert!(template.tiling.is_none());
+                    assert_eq!(template.tiling, None);
                     let request = BlobImageRequest {
                         key,
                         tile: None, //TODO: tiled blob images

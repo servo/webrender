@@ -37,10 +37,11 @@ impl<'a> RawtestHarness<'a> {
     }
 
     pub fn run(mut self) {
-        self.retained_blob_images_test();
-        self.blob_update_test();
-        self.tile_decomposition();
-        self.save_restore();
+        self.test_retained_blob_images_test();
+        self.test_blob_update_test();
+        self.test_tile_decomposition();
+        self.test_save_restore();
+        self.test_capture();
     }
 
     fn render_and_get_pixels(&mut self, window_rect: DeviceUintRect) -> Vec<u8> {
@@ -50,8 +51,7 @@ impl<'a> RawtestHarness<'a> {
     }
 
 
-
-    fn tile_decomposition(&mut self) {
+    fn test_tile_decomposition(&mut self) {
         // This exposes a crash in tile decomposition
         let layout_size = LayoutSize::new(800., 800.);
         let mut resources = ResourceUpdates::new();
@@ -94,9 +94,15 @@ impl<'a> RawtestHarness<'a> {
 
         self.rx.recv().unwrap();
         self.wrench.render();
+
+        // Leaving a tiled blob image in the resource cache
+        // confuses the `test_capture`. TODO: remove this
+        resources = ResourceUpdates::new();
+        resources.delete_image(blob_img);
+        self.wrench.api.update_resources(resources);
     }
 
-    fn retained_blob_images_test(&mut self) {
+    fn test_retained_blob_images_test(&mut self) {
         let blob_img;
         let window_size = self.window.get_inner_size_pixels();
         let window_size = DeviceUintSize::new(window_size.0, window_size.1);
@@ -182,8 +188,7 @@ impl<'a> RawtestHarness<'a> {
         assert!(pixels_first != pixels_second);
     }
 
-    fn blob_update_test(&mut self) {
-        let blob_img;
+    fn test_blob_update_test(&mut self) {
         let window_size = self.window.get_inner_size_pixels();
         let window_size = DeviceUintSize::new(window_size.0, window_size.1);
 
@@ -196,17 +201,17 @@ impl<'a> RawtestHarness<'a> {
         );
         let layout_size = LayoutSize::new(400., 400.);
         let mut resources = ResourceUpdates::new();
-        {
-            let api = &self.wrench.api;
 
-            blob_img = api.generate_image_key();
+        let blob_img = {
+            let img = self.wrench.api.generate_image_key();
             resources.add_image(
-                blob_img,
+                img,
                 ImageDescriptor::new(500, 500, ImageFormat::BGRA8, true),
                 ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
                 None,
             );
-        }
+            img
+        };
         let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
 
         // draw the blob the first time
@@ -232,7 +237,6 @@ impl<'a> RawtestHarness<'a> {
         );
         self.wrench.api.generate_frame(document_id, None);
         let pixels_first = self.render_and_get_pixels(window_rect);
-
 
         // draw the blob image a second time after updating it with the same color
         let mut resources = ResourceUpdates::new();
@@ -266,7 +270,6 @@ impl<'a> RawtestHarness<'a> {
 
         self.wrench.api.generate_frame(document_id, None);
         let pixels_second = self.render_and_get_pixels(window_rect);
-
 
         // draw the blob image a third time after updating it with a different color
         let mut resources = ResourceUpdates::new();
@@ -307,7 +310,7 @@ impl<'a> RawtestHarness<'a> {
     }
 
     // Ensures that content doing a save-restore produces the same results as not
-    fn save_restore(&mut self) {
+    fn test_save_restore(&mut self) {
         let window_size = self.window.get_inner_size_pixels();
         let window_size = DeviceUintSize::new(window_size.0, window_size.1);
 
@@ -333,7 +336,7 @@ impl<'a> RawtestHarness<'a> {
             if should_try_and_fail {
                 builder.save();
                 let clip = builder.define_clip(None, rect(80., 80., 90., 90.),
-                                           None::<ComplexClipRegion>, None);
+                                               None::<ComplexClipRegion>, None);
                 builder.push_clip_id(clip);
                 builder.push_rect(&PrimitiveInfo::new(rect(110., 110., 50., 50.)),
                               ColorF::new(0.0, 1.0, 0.0, 1.0));
@@ -379,10 +382,82 @@ impl<'a> RawtestHarness<'a> {
             self.render_and_get_pixels(window_rect)
         };
 
-
         let first = do_test(false);
         let second = do_test(true);
 
         assert_eq!(first, second);
+    }
+
+    fn test_capture(&mut self) {
+        let layout_size = LayoutSize::new(400., 400.);
+        let (_, windows_height) = self.window.get_inner_size_pixels();
+        let window_rect = DeviceUintRect::new(
+            point(0, windows_height - layout_size.height as u32),
+            size(layout_size.width as u32, layout_size.height as u32),
+        );
+
+        // 1. render some scene
+
+        let mut resources = ResourceUpdates::new();
+        let image = self.wrench.api.generate_image_key();
+        resources.add_image(
+            image,
+            ImageDescriptor::new(1, 1, ImageFormat::BGRA8, true),
+            ImageData::new(vec![0xFF, 0, 0, 0xFF]),
+            None,
+        );
+
+        let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
+
+        builder.push_image(
+            &LayoutPrimitiveInfo::new(rect(300.0, 70.0, 150.0, 50.0)),
+            size(150.0, 50.0),
+            size(0.0, 0.0),
+            ImageRendering::Auto,
+            image,
+        );
+
+        self.wrench.api.set_display_list(
+            self.wrench.document_id,
+            Epoch(0),
+            Some(ColorF::new(1.0, 1.0, 1.0, 1.0)),
+            layout_size,
+            builder.finalize(),
+            false,
+            resources,
+        );
+
+        self.wrench.api.generate_frame(self.wrench.document_id, None);
+        let pixels0 = self.render_and_get_pixels(window_rect);
+
+        // 2. capture it
+
+        self.wrench.api.save_capture("capture".into());
+        self.rx.recv().unwrap();
+
+        // 3. set a different scene
+
+        builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
+
+        self.wrench.api.set_display_list(
+            self.wrench.document_id,
+            Epoch(1),
+            Some(ColorF::new(1.0, 0.0, 0.0, 1.0)),
+            layout_size,
+            builder.finalize(),
+            false,
+            ResourceUpdates::new(),
+        );
+
+        // 4. load the first one
+
+        self.wrench.api.load_capture("capture".into());
+        self.rx.recv().unwrap();
+
+        // 5. render and compare
+
+        self.wrench.api.generate_frame(self.wrench.document_id, None);
+        let pixels1 = self.render_and_get_pixels(window_rect);
+        assert!(pixels0 == pixels1);
     }
 }
