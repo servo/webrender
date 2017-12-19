@@ -775,16 +775,20 @@ fn add_to_batch(
                                                 secondary_textures,
                                             );
                                             let batch = batch_list.get_suitable_batch(key, &item_bounding_rect);
-                                            let device_offset = (offset * LayerToWorldScale::new(1.0) * ctx.device_pixel_scale).round().to_i32();
+                                            let content_rect = prim_metadata.local_rect.translate(&-offset);
+                                            let rect =
+                                                (content_rect * LayerToWorldScale::new(1.0) * ctx.device_pixel_scale).round()
+                                                                                                                     .to_i32();
+
                                             let instance = CompositePrimitiveInstance::new(
                                                 task_address,
                                                 secondary_task_address,
                                                 RenderTaskAddress(0),
-                                                item_bounding_rect.origin.x - device_offset.x,
-                                                item_bounding_rect.origin.y - device_offset.y,
+                                                rect.origin.x,
+                                                rect.origin.y,
                                                 z,
-                                                item_bounding_rect.size.width,
-                                                item_bounding_rect.size.height,
+                                                rect.size.width,
+                                                rect.size.height,
                                             );
 
                                             batch.push(PrimitiveInstance::from(instance));
