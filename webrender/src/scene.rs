@@ -184,7 +184,7 @@ impl FilterOpHelpers for FilterOp {
             FilterOp::Opacity(_, amount) => amount >= 1.0,
             FilterOp::Saturate(amount) => amount == 1.0,
             FilterOp::Sepia(amount) => amount == 0.0,
-            FilterOp::DropShadow(offset, blur, _) => {
+            FilterOp::DropShadow(offset, blur, _, _) => {
                 offset.x == 0.0 && offset.y == 0.0 && blur == 0.0
             }
         }

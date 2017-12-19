@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{ClipId, ColorF, DeviceIntPoint, ImageKey};
-use api::{DeviceIntRect, DeviceIntSize, device_length, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
+use api::{DeviceIntRect, DeviceIntSize, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{DocumentLayer, ExternalImageType, FilterOp};
 use api::{ImageFormat, ImageRendering};
 use api::{LayerRect, MixBlendMode, PipelineId};
@@ -13,7 +13,7 @@ use border::{BorderCornerInstance, BorderCornerSide};
 use clip::{ClipSource, ClipStore};
 use clip_scroll_tree::{ClipScrollTree, CoordinateSystemId};
 use device::Texture;
-use euclid::{TypedTransform3D, vec3};
+use euclid::{TypedScale, TypedTransform3D, vec3};
 use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle, GpuCacheUpdateList};
 use gpu_types::{BlurDirection, BlurInstance, BrushInstance, BrushImageKind, ClipMaskInstance};
@@ -736,7 +736,7 @@ fn add_to_batch(
 
                                             batch.push(PrimitiveInstance::from(instance));
                                         }
-                                        FilterOp::DropShadow(offset, _, _) => {
+                                        FilterOp::DropShadow(_, _, _, content_rect) => {
                                             let kind = BatchKind::Brush(
                                                 BrushBatchKind::Image(BrushImageSourceKind::ColorAlphaMask),
                                             );
@@ -776,17 +776,18 @@ fn add_to_batch(
                                                 secondary_textures,
                                             );
                                             let batch = batch_list.get_suitable_batch(key, &item_bounding_rect);
-                                            let device_offset_x = device_length(offset.x, ctx.device_pixel_ratio);
-                                            let device_offset_y = device_length(offset.y, ctx.device_pixel_ratio);
+                                            let rect: DeviceIntRect =
+                                                (content_rect * TypedScale::new(ctx.device_pixel_ratio)).round().to_i32();
+
                                             let instance = CompositePrimitiveInstance::new(
                                                 task_address,
                                                 secondary_task_address,
                                                 RenderTaskAddress(0),
-                                                item_bounding_rect.origin.x - device_offset_x.0,
-                                                item_bounding_rect.origin.y - device_offset_y.0,
+                                                rect.origin.x,
+                                                rect.origin.y,
                                                 z,
-                                                item_bounding_rect.size.width,
-                                                item_bounding_rect.size.height,
+                                                rect.size.width,
+                                                rect.size.height,
                                             );
 
                                             batch.push(PrimitiveInstance::from(instance));

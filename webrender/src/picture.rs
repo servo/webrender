@@ -7,6 +7,7 @@ use api::{device_length, DeviceIntRect, DeviceIntSize, PipelineId};
 use api::{BoxShadowClipMode, LayerPoint, LayerRect, LayerSize, LayerVector2D, Shadow};
 use api::{ClipId, PremultipliedColorF};
 use box_shadow::{BLUR_SAMPLE_SCALE, BoxShadowCacheKey};
+use euclid::TypedScale;
 use frame_builder::PrimitiveContext;
 use gpu_cache::GpuDataRequest;
 use gpu_types::BrushImageKind;
@@ -232,23 +233,29 @@ impl PicturePrimitive {
         let local_content_rect = prim_run_rect.local_rect_in_actual_parent_space;
 
         match self.kind {
-            PictureKind::Image { composite_mode, ref mut real_local_rect, .. } => {
+            PictureKind::Image { ref mut composite_mode, ref mut real_local_rect, .. } => {
                 *real_local_rect = prim_run_rect.local_rect_in_original_parent_space;
 
-                match composite_mode {
-                    Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
+                let mut local_content_rect = match *composite_mode {
+                    Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) |
+                    Some(PictureCompositeMode::Filter(FilterOp::DropShadow(_, blur_radius, _, _))) => {
                         let inflate_size = blur_radius * BLUR_SAMPLE_SCALE;
                         local_content_rect.inflate(inflate_size, inflate_size)
-                    }
-                    Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, blur_radius, _))) => {
-                        let inflate_size = blur_radius * BLUR_SAMPLE_SCALE;
-                        local_content_rect.inflate(inflate_size, inflate_size)
-                                          .translate(&offset)
                     }
                     _ => {
                         local_content_rect
                     }
+                };
+
+                match *composite_mode {
+                    Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, _, _, ref mut content_rect))) => {
+                        *content_rect = local_content_rect;
+                        local_content_rect = local_content_rect.translate(&offset);
+                    }
+                    _ => {}
                 }
+
+                local_content_rect
             }
             PictureKind::TextShadow { offset, blur_radius, ref mut content_rect, .. } => {
                 let blur_offset = blur_radius * BLUR_SAMPLE_SCALE;
@@ -350,13 +357,15 @@ impl PicturePrimitive {
                         let blur_render_task_id = render_tasks.add(blur_render_task);
                         self.render_task_id = Some(blur_render_task_id);
                     }
-                    Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, blur_radius, color))) => {
+                    Some(PictureCompositeMode::Filter(FilterOp::DropShadow(_, blur_radius, color, content_rect))) => {
+                        let rect =
+                            (content_rect * TypedScale::new(prim_context.device_pixel_ratio)).round().to_i32();
                         let picture_task = RenderTask::new_picture(
-                            Some(prim_screen_rect.size),
+                            Some(rect.size),
                             prim_index,
                             RenderTargetKind::Color,
-                            prim_screen_rect.origin.x as f32 - offset.x,
-                            prim_screen_rect.origin.y as f32 - offset.y,
+                            rect.origin.x as f32,
+                            rect.origin.y as f32,
                             PremultipliedColorF::TRANSPARENT,
                             ClearMode::Transparent,
                             self.rasterization_kind,
