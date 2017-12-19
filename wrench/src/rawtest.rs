@@ -246,21 +246,24 @@ impl<'a> RawtestHarness<'a> {
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
         let info = LayoutPrimitiveInfo::new(rect(0.0, 60.0, 200.0, 200.0));
         let info2 = LayoutPrimitiveInfo::new(rect(200.0, 60.0, 200.0, 200.0));
+        let push_images = |builder: &mut DisplayListBuilder| {
+            builder.push_image(
+                &info,
+                size(200.0, 200.0),
+                size(0.0, 0.0),
+                ImageRendering::Auto,
+                blob_img,
+            );
+            builder.push_image(
+                &info2,
+                size(200.0, 200.0),
+                size(0.0, 0.0),
+                ImageRendering::Auto,
+                blob_img2,
+            );
+        };
 
-        builder.push_image(
-            &info,
-            size(200.0, 200.0),
-            size(0.0, 0.0),
-            ImageRendering::Auto,
-            blob_img,
-        );
-        builder.push_image(
-            &info2,
-            size(200.0, 200.0),
-            size(0.0, 0.0),
-            ImageRendering::Auto,
-            blob_img2,
-        );
+        push_images(&mut builder);
 
         let mut epoch = Epoch(0);
 
@@ -284,21 +287,7 @@ impl<'a> RawtestHarness<'a> {
         );
 
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
-        builder.push_image(
-            &info,
-            size(200.0, 200.0),
-            size(0.0, 0.0),
-            ImageRendering::Auto,
-            blob_img,
-        );
-        builder.push_image(
-            &info2,
-            size(200.0, 200.0),
-            size(0.0, 0.0),
-            ImageRendering::Auto,
-            blob_img2,
-        );
-
+        push_images(&mut builder);
         self.submit_dl(&mut epoch, layout_size, builder, Some(resources));
         let _pixels_second = self.render_and_get_pixels(window_rect);
 
@@ -313,21 +302,7 @@ impl<'a> RawtestHarness<'a> {
         );
 
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
-        builder.push_image(
-            &info,
-            size(200.0, 200.0),
-            size(0.0, 0.0),
-            ImageRendering::Auto,
-            blob_img,
-        );
-        builder.push_image(
-            &info2,
-            size(200.0, 200.0),
-            size(0.0, 0.0),
-            ImageRendering::Auto,
-            blob_img2,
-        );
-
+        push_images(&mut builder);
         self.submit_dl(&mut epoch, layout_size, builder, Some(resources));
         let _pixels_third = self.render_and_get_pixels(window_rect);
 
