@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use {ColorF, FontInstanceKey, ImageKey, LayerPixel, LayoutPixel, LayoutPoint, LayoutRect,
-     LayoutSize, LayoutTransform};
+use {ColorF, FontInstanceKey, ImageKey, LayerPixel, LayerRect, LayoutPixel, LayoutPoint,
+     LayoutRect, LayoutSize, LayoutTransform};
 use {GlyphOptions, LayoutVector2D, PipelineId, PropertyBinding};
 use euclid::{SideOffsets2D, TypedRect};
 use std::ops::Not;
@@ -493,7 +493,13 @@ pub enum FilterOp {
     Opacity(PropertyBinding<f32>, f32),
     Saturate(f32),
     Sepia(f32),
-    DropShadow(LayoutVector2D, f32, ColorF),
+    DropShadow(LayoutVector2D, f32, ColorF, LayerRect),
+}
+
+impl FilterOp {
+    pub fn new_dropshadow(offset: LayoutVector2D, blur_radius: f32, color: ColorF) -> FilterOp {
+        FilterOp::DropShadow(offset, blur_radius, color, LayerRect::zero())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]

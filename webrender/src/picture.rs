@@ -226,14 +226,10 @@ impl PicturePrimitive {
                 *real_local_rect = prim_run_rect.local_rect_in_original_parent_space;
 
                 match composite_mode {
-                    Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
+                    Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) |
+                    Some(PictureCompositeMode::Filter(FilterOp::DropShadow(_, blur_radius, _, _))) => {
                         let inflate_size = blur_radius * BLUR_SAMPLE_SCALE;
                         local_content_rect.inflate(inflate_size, inflate_size)
-                    }
-                    Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, blur_radius, _))) => {
-                        let inflate_size = blur_radius * BLUR_SAMPLE_SCALE;
-                        local_content_rect.inflate(inflate_size, inflate_size)
-                                          .translate(&offset)
                     }
                     _ => {
                         local_content_rect
@@ -334,13 +330,13 @@ impl PicturePrimitive {
                         let blur_render_task_id = render_tasks.add(blur_render_task);
                         self.render_task_id = Some(blur_render_task_id);
                     }
-                    Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, blur_radius, color))) => {
-                        let screen_offset = (offset * content_scale).round().to_i32();
+                    Some(PictureCompositeMode::Filter(FilterOp::DropShadow(_, blur_radius, color, content_rect))) => {
+                        let rect = (content_rect * content_scale).round().to_i32();
                         let picture_task = RenderTask::new_picture(
-                            Some(prim_screen_rect.size),
+                            Some(rect.size),
                             prim_index,
                             RenderTargetKind::Color,
-                            ContentOrigin::Screen(prim_screen_rect.origin - screen_offset),
+                            ContentOrigin::Screen(rect.origin),
                             PremultipliedColorF::TRANSPARENT,
                             ClearMode::Transparent,
                             child_tasks,

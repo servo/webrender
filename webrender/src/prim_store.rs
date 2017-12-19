@@ -4,7 +4,7 @@
 
 use api::{BorderRadius, BuiltDisplayList, ClipAndScrollInfo, ClipId, ClipMode, ColorF, ColorU};
 use api::{DeviceIntRect, DevicePixelScale, DevicePoint};
-use api::{ComplexClipRegion, ExtendMode, FontRenderMode};
+use api::{ComplexClipRegion, ExtendMode, FilterOp, FontRenderMode};
 use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
 use api::{LineStyle, PipelineId, PremultipliedColorF, TileOffset, WorldToLayerTransform};
@@ -19,7 +19,7 @@ use internal_types::{FastHashMap};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
 use gpu_types::{ClipChainRectIndex, ClipScrollNodeData};
-use picture::{PictureKind, PicturePrimitive};
+use picture::{PictureCompositeMode, PictureKind, PicturePrimitive};
 use profiler::FrameProfileCounters;
 use render_task::{ClipChain, ClipChainNode, ClipChainNodeIter, ClipWorkItem, RenderTask};
 use render_task::{RenderTaskId, RenderTaskTree};
@@ -1746,6 +1746,19 @@ impl PrimitiveStore {
                 metadata.local_rect,
                 result,
             );
+
+            match pic.kind {
+                PictureKind::Image { ref mut composite_mode, .. } => {
+                    match *composite_mode {
+                        Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, _, _, ref mut content_rect))) => {
+                            *content_rect = metadata.local_rect;
+                            metadata.local_rect = metadata.local_rect.translate(&offset);
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
         }
 
         let (local_rect, unclipped_device_rect) = {
