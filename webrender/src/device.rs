@@ -675,6 +675,9 @@ pub struct Device {
     // Frame counter. This is used to map between CPU
     // frames and GPU frames.
     frame_id: FrameId,
+
+    // GL extensions
+    extensions: Vec<String>,
 }
 
 impl Device {
@@ -687,6 +690,12 @@ impl Device {
     ) -> Device {
         let max_texture_size = gl.get_integer_v(gl::MAX_TEXTURE_SIZE) as u32;
         let renderer_name = gl.get_string(gl::RENDERER);
+
+        let mut extensions = Vec::new();
+        let extension_count = gl.get_integer_v(gl::NUM_EXTENSIONS) as gl::GLuint;
+        for i in 0 .. extension_count {
+            extensions.push(gl.get_string_i(gl::EXTENSIONS, i));
+        }
 
         Device {
             gl,
@@ -713,6 +722,7 @@ impl Device {
             renderer_name,
             cached_programs,
             frame_id: FrameId(0),
+            extensions,
         }
     }
 
@@ -1910,6 +1920,10 @@ impl Device {
         self.gl
             .blend_func(gl::CONSTANT_COLOR, gl::ONE_MINUS_SRC_COLOR);
         self.gl.blend_equation(gl::FUNC_ADD);
+    }
+
+    pub fn supports_extension(&self, extension: &str) -> bool {
+        self.extensions.iter().any(|s| s == extension)
     }
 }
 
