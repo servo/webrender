@@ -1330,15 +1330,24 @@ impl PrimitiveStore {
 
         let metadata = &self.cpu_metadata[prim_index.0];
         let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
-        if !brush.kind.is_solid() {
-            return;
-        }
-        if metadata.local_rect.size.area() <= MIN_BRUSH_SPLIT_AREA {
-            return;
-        }
-        if let Some(ref segment_desc) = brush.segment_desc {
-            if segment_desc.clip_mask_kind != BrushClipMaskKind::Unknown {
-                return;
+
+        match brush.segment_desc {
+            Some(ref segment_desc) => {
+                // If we already have a segment descriptor, only run through the
+                // clips list if we haven't already determined the mask kind.
+                if segment_desc.clip_mask_kind != BrushClipMaskKind::Unknown {
+                    return;
+                }
+            }
+            None => {
+                // If no segment descriptor built yet, see if it is a brush
+                // type that wants to be segmented.
+                if !brush.kind.is_solid() {
+                    return;
+                }
+                if metadata.local_rect.size.area() <= MIN_BRUSH_SPLIT_AREA {
+                    return;
+                }
             }
         }
 
