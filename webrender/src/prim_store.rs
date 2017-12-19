@@ -24,9 +24,10 @@ use render_task::{RenderTaskId, RenderTaskTree};
 use renderer::{BLOCKS_PER_UV_RECT, MAX_VERTEX_TEXTURE_WIDTH};
 use resource_cache::{ImageProperties, ResourceCache};
 use scene::{ScenePipeline, SceneProperties};
-use std::{mem, u16, usize};
+use segment::SegmentBuilder;
+use std::{mem, usize};
 use std::rc::Rc;
-use util::{MatrixHelpers, calculate_screen_bounding_rect, extract_inner_rect_safe, pack_as_float};
+use util::{MatrixHelpers, calculate_screen_bounding_rect, pack_as_float};
 use util::recycle_vec;
 
 
@@ -219,167 +220,76 @@ impl BrushKind {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-#[repr(u32)]
-pub enum BrushAntiAliasMode {
-    Primitive = 0,
-    Segment = 1,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Copy, Clone)]
-#[repr(C)]
-pub enum BrushSegmentKind {
-    TopLeft = 0,
-    TopRight,
-    BottomRight,
-    BottomLeft,
-
-    TopMid,
-    MidRight,
-    BottomMid,
-    MidLeft,
-
-    Center,
+bitflags! {
+    /// Each bit of the edge AA mask is:
+    /// 0, when the edge of the primitive needs to be considered for AA
+    /// 1, when the edge of the segment needs to be considered for AA
+    ///
+    /// *Note*: the bit values have to match the shader logic in
+    /// `write_transform_vertex()` function.
+    pub struct EdgeAaSegmentMask: u8 {
+        const LEFT = 0x1;
+        const TOP = 0x2;
+        const RIGHT = 0x4;
+        const BOTTOM = 0x8;
+    }
 }
 
 #[derive(Debug)]
 pub struct BrushSegment {
     pub local_rect: LayerRect,
     pub clip_task_id: Option<RenderTaskId>,
+    pub may_need_clip_mask: bool,
+    pub edge_flags: EdgeAaSegmentMask,
 }
 
 impl BrushSegment {
-    fn new(
+    pub fn new(
         origin: LayerPoint,
         size: LayerSize,
+        may_need_clip_mask: bool,
+        edge_flags: EdgeAaSegmentMask,
     ) -> BrushSegment {
         BrushSegment {
             local_rect: LayerRect::new(origin, size),
             clip_task_id: None,
+            may_need_clip_mask,
+            edge_flags,
         }
     }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum BrushClipMaskKind {
+    Unknown,
+    Individual,
+    Global,
 }
 
 #[derive(Debug)]
 pub struct BrushSegmentDescriptor {
-    pub top_left_offset: LayerVector2D,
-    pub bottom_right_offset: LayerVector2D,
-    pub segments: [BrushSegment; 9],
-    pub enabled_segments: u16,
-    pub can_optimize_clip_mask: bool,
-}
-
-impl BrushSegmentDescriptor {
-    pub fn new(
-        outer_rect: &LayerRect,
-        inner_rect: &LayerRect,
-        valid_segments: Option<&[BrushSegmentKind]>,
-    ) -> BrushSegmentDescriptor {
-        let p0 = outer_rect.origin;
-        let p1 = inner_rect.origin;
-        let p2 = inner_rect.bottom_right();
-        let p3 = outer_rect.bottom_right();
-
-        let enabled_segments = match valid_segments {
-            Some(valid_segments) => {
-                valid_segments.iter().fold(
-                    0,
-                    |acc, segment| acc | 1 << *segment as u32
-                )
-            }
-            None => u16::MAX,
-        };
-
-        BrushSegmentDescriptor {
-            enabled_segments,
-            can_optimize_clip_mask: false,
-            top_left_offset: p1 - p0,
-            bottom_right_offset: p3 - p2,
-            segments: [
-                BrushSegment::new(
-                    LayerPoint::new(p0.x, p0.y),
-                    LayerSize::new(p1.x - p0.x, p1.y - p0.y),
-                ),
-                BrushSegment::new(
-                    LayerPoint::new(p2.x, p0.y),
-                    LayerSize::new(p3.x - p2.x, p1.y - p0.y),
-                ),
-                BrushSegment::new(
-                    LayerPoint::new(p2.x, p2.y),
-                    LayerSize::new(p3.x - p2.x, p3.y - p2.y),
-                ),
-                BrushSegment::new(
-                    LayerPoint::new(p0.x, p2.y),
-                    LayerSize::new(p1.x - p0.x, p3.y - p2.y),
-                ),
-                BrushSegment::new(
-                    LayerPoint::new(p1.x, p0.y),
-                    LayerSize::new(p2.x - p1.x, p1.y - p0.y),
-                ),
-                BrushSegment::new(
-                    LayerPoint::new(p2.x, p1.y),
-                    LayerSize::new(p3.x - p2.x, p2.y - p1.y),
-                ),
-                BrushSegment::new(
-                    LayerPoint::new(p1.x, p2.y),
-                    LayerSize::new(p2.x - p1.x, p3.y - p2.y),
-                ),
-                BrushSegment::new(
-                    LayerPoint::new(p0.x, p1.y),
-                    LayerSize::new(p1.x - p0.x, p2.y - p1.y),
-                ),
-                BrushSegment::new(
-                    LayerPoint::new(p1.x, p1.y),
-                    LayerSize::new(p2.x - p1.x, p2.y - p1.y),
-                ),
-            ],
-        }
-    }
+    pub segments: Vec<BrushSegment>,
+    pub clip_mask_kind: BrushClipMaskKind,
 }
 
 #[derive(Debug)]
 pub struct BrushPrimitive {
     pub kind: BrushKind,
     pub segment_desc: Option<Box<BrushSegmentDescriptor>>,
-    pub aa_mode: BrushAntiAliasMode,
 }
 
 impl BrushPrimitive {
     pub fn new(
         kind: BrushKind,
         segment_desc: Option<Box<BrushSegmentDescriptor>>,
-        aa_mode: BrushAntiAliasMode,
     ) -> BrushPrimitive {
         BrushPrimitive {
             kind,
             segment_desc,
-            aa_mode,
         }
     }
-}
 
-impl ToGpuBlocks for BrushPrimitive {
-    fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        match self.segment_desc {
-            Some(ref segment_desc) => {
-                request.push([
-                    segment_desc.top_left_offset.x,
-                    segment_desc.top_left_offset.y,
-                    segment_desc.bottom_right_offset.x,
-                    segment_desc.bottom_right_offset.y,
-                ]);
-            }
-            None => {
-                request.push([0.0; 4]);
-            }
-        }
-        request.push([
-            self.aa_mode as u32 as f32,
-            0.0,
-            0.0,
-            0.0,
-        ]);
+    fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
         match self.kind {
             BrushKind::Solid { color } => {
                 request.push(color.premultiplied());
@@ -1359,6 +1269,9 @@ impl PrimitiveStore {
                     text.write_gpu_blocks(&mut request);
                 }
                 PrimitiveKind::Picture => {
+                    self.cpu_pictures[metadata.cpu_prim_index.0]
+                        .write_gpu_blocks(&mut request);
+
                     // TODO(gw): This is a bit of a hack. The Picture type
                     //           is drawn by the brush_image shader, so the
                     //           layout here needs to conform to the same
@@ -1366,26 +1279,46 @@ impl PrimitiveStore {
                     //           up in the future so it's enforced that these
                     //           types use a shared function to write out the
                     //           GPU blocks...
-                    request.push([0.0; 4]);
+                    request.push(metadata.local_rect);
                     request.push([
-                        BrushAntiAliasMode::Primitive as u32 as f32,
+                        EdgeAaSegmentMask::empty().bits() as f32,
                         0.0,
                         0.0,
-                        0.0,
+                        0.0
                     ]);
-
-                    self.cpu_pictures[metadata.cpu_prim_index.0]
-                        .write_gpu_blocks(&mut request);
                 }
                 PrimitiveKind::Brush => {
                     let brush = &self.cpu_brushes[metadata.cpu_prim_index.0];
-                    brush.write_gpu_blocks(request);
+                    brush.write_gpu_blocks(&mut request);
+
+                    match brush.segment_desc {
+                        Some(ref segment_desc) => {
+                            for segment in &segment_desc.segments {
+                                request.push(segment.local_rect);
+                                request.push([
+                                    segment.edge_flags.bits() as f32,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]);
+                            }
+                        }
+                        None => {
+                            request.push(metadata.local_rect);
+                            request.push([
+                                EdgeAaSegmentMask::empty().bits() as f32,
+                                0.0,
+                                0.0,
+                                0.0
+                            ]);
+                        }
+                    }
                 }
             }
         }
     }
 
-    fn write_brush_nine_patch_segment_description(
+    fn write_brush_segment_description(
         &mut self,
         prim_index: PrimitiveIndex,
         prim_context: &PrimitiveContext,
@@ -1395,75 +1328,120 @@ impl PrimitiveStore {
     ) {
         debug_assert!(self.cpu_metadata[prim_index.0].prim_kind == PrimitiveKind::Brush);
 
-        if clips.len() != 1 {
-            return;
-        }
-
-        let clip_item = clips.first().unwrap();
-        if clip_item.coordinate_system_id != prim_context.scroll_node.coordinate_system_id {
-            return;
-        }
-
         let metadata = &self.cpu_metadata[prim_index.0];
         let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
-        if brush.segment_desc.is_some() {
-            return;
-        }
         if !brush.kind.is_solid() {
             return;
         }
         if metadata.local_rect.size.area() <= MIN_BRUSH_SPLIT_AREA {
             return;
         }
-
-        let local_clips = clip_store.get_opt(&clip_item.clip_sources).expect("bug");
-        let mut selected_clip = None;
-        for &(ref clip, _) in &local_clips.clips {
-            match *clip {
-                ClipSource::RoundedRectangle(rect, radii, ClipMode::Clip) => {
-                    if selected_clip.is_some() {
-                        selected_clip = None;
-                        break;
-                    }
-                    selected_clip = Some((rect, radii, clip_item.scroll_node_data_index));
-                }
-                ClipSource::Rectangle(..) => {}
-                ClipSource::RoundedRectangle(_, _, ClipMode::ClipOut) |
-                ClipSource::BorderCorner(..) |
-                ClipSource::Image(..) => {
-                    selected_clip = None;
-                    break;
-                }
+        if let Some(ref segment_desc) = brush.segment_desc {
+            if segment_desc.clip_mask_kind != BrushClipMaskKind::Unknown {
+                return;
             }
         }
 
-        if let Some((rect, radii, clip_scroll_node_data_index)) = selected_clip {
-            // If the scroll node transforms are different between the clip
-            // node and the primitive, we need to get the clip rect in the
-            // local space of the primitive, in order to generate correct
-            // local segments.
-            let local_clip_rect = if clip_scroll_node_data_index == prim_context.scroll_node.node_data_index {
-                rect
+        let mut segment_builder = SegmentBuilder::new(
+            metadata.local_rect,
+            metadata.local_clip_rect
+        );
+
+        // If true, we need a clip mask for the entire primitive. This
+        // is either because we don't handle segmenting this clip source,
+        // or we have a clip source from a different coordinate system.
+        let mut has_global_mask = false;
+
+        // Segment the primitive on all the local-space clip sources
+        // that we can.
+        for clip_item in clips {
+            if clip_item.coordinate_system_id == prim_context.scroll_node.coordinate_system_id {
+                let local_clips = clip_store.get_opt(&clip_item.clip_sources).expect("bug");
+
+                for &(ref clip, _) in &local_clips.clips {
+                    let (local_clip_rect, radius, mode) = match *clip {
+                        ClipSource::RoundedRectangle(rect, radii, clip_mode) => {
+                            (rect, Some(radii), clip_mode)
+                        }
+                        ClipSource::Rectangle(rect) => {
+                            (rect, None, ClipMode::Clip)
+                        }
+                        ClipSource::BorderCorner(..) |
+                        ClipSource::Image(..) => {
+                            // TODO(gw): We can easily extend the segment builder
+                            //           to support these clip sources in the
+                            //           future, but they are rarely used.
+                            has_global_mask = true;
+                            continue;
+                        }
+                    };
+
+                    // If the scroll node transforms are different between the clip
+                    // node and the primitive, we need to get the clip rect in the
+                    // local space of the primitive, in order to generate correct
+                    // local segments.
+                    let local_clip_rect = if clip_item.scroll_node_data_index == prim_context.scroll_node.node_data_index {
+                        local_clip_rect
+                    } else {
+                        let clip_transform_data = &node_data[clip_item.scroll_node_data_index.0 as usize];
+                        let prim_transform = &prim_context.scroll_node.world_content_transform;
+
+                        let relative_transform = prim_transform
+                            .inverse()
+                            .unwrap_or(WorldToLayerTransform::identity())
+                            .pre_mul(&clip_transform_data.transform);
+
+                        relative_transform.transform_rect(&local_clip_rect)
+                    };
+
+                    segment_builder.push_rect(
+                        local_clip_rect,
+                        radius,
+                        mode
+                    );
+                }
             } else {
-                let clip_transform_data = &node_data[clip_scroll_node_data_index.0 as usize];
-                let prim_transform = &prim_context.scroll_node.world_content_transform;
+                has_global_mask = true;
+            }
+        }
 
-                let relative_transform = prim_transform
-                    .inverse()
-                    .unwrap_or(WorldToLayerTransform::identity())
-                    .pre_mul(&clip_transform_data.transform);
+        let clip_mask_kind = if has_global_mask {
+            BrushClipMaskKind::Global
+        } else {
+            BrushClipMaskKind::Individual
+        };
 
-                relative_transform.transform_rect(&rect)
-            };
-            brush.segment_desc = create_nine_patch(
-                &metadata.local_rect,
-                &local_clip_rect,
-                &radii
-            );
+        match brush.segment_desc {
+            Some(ref mut segment_desc) => {
+                segment_desc.clip_mask_kind = clip_mask_kind;
+            }
+            None => {
+                // TODO(gw): We can probably make the allocation
+                //           patterns of this and the segment
+                //           builder significantly better, by
+                //           retaining it across primitives.
+                let mut segments = Vec::new();
+
+                segment_builder.build(|segment| {
+                    segments.push(
+                        BrushSegment::new(
+                            segment.rect.origin,
+                            segment.rect.size,
+                            segment.has_mask,
+                            segment.edge_flags,
+                        ),
+                    );
+                });
+
+                brush.segment_desc = Some(Box::new(BrushSegmentDescriptor {
+                    segments,
+                    clip_mask_kind,
+                }));
+            }
         }
     }
 
-    fn update_nine_patch_clip_task_for_brush(
+    fn update_clip_task_for_brush(
         &mut self,
         prim_context: &PrimitiveContext,
         prim_index: PrimitiveIndex,
@@ -1478,7 +1456,7 @@ impl PrimitiveStore {
             return false;
         }
 
-        self.write_brush_nine_patch_segment_description(
+        self.write_brush_segment_description(
             prim_index,
             prim_context,
             clip_store,
@@ -1492,20 +1470,10 @@ impl PrimitiveStore {
             Some(ref mut description) => description,
             None => return false,
         };
+        let clip_mask_kind = segment_desc.clip_mask_kind;
 
-        let enabled_segments = segment_desc.enabled_segments;
-        let can_optimize_clip_mask = segment_desc.can_optimize_clip_mask;
-
-        for (i, segment) in segment_desc.segments.iter_mut().enumerate() {
-            // We only build clips for the corners. The ordering of the
-            // BrushSegmentKind enum is such that corners come first, then
-            // edges, then inner.
-            let segment_enabled = ((1 << i) & enabled_segments) != 0;
-            let create_clip_task =
-               segment_enabled &&
-               (!can_optimize_clip_mask || i <= BrushSegmentKind::BottomLeft as usize);
-
-            segment.clip_task_id = if create_clip_task {
+        for segment in &mut segment_desc.segments {
+            segment.clip_task_id = if segment.may_need_clip_mask || clip_mask_kind == BrushClipMaskKind::Global {
                 let segment_screen_rect = calculate_screen_bounding_rect(
                     &prim_context.scroll_node.world_content_transform,
                     &segment.local_rect,
@@ -1633,8 +1601,8 @@ impl PrimitiveStore {
            return true;
         }
 
-        // First try to  render this primitive's mask using optimized nine-patch brush rendering.
-        if self.update_nine_patch_clip_task_for_brush(
+        // First try to  render this primitive's mask using optimized brush rendering.
+        if self.update_clip_task_for_brush(
             prim_context,
             prim_index,
             render_tasks,
@@ -1959,23 +1927,6 @@ impl InsideTest<ComplexClipRegion> for ComplexClipRegion {
             clip.radii.bottom_right.width >= self.radii.bottom_right.width - delta_right &&
             clip.radii.bottom_right.height >= self.radii.bottom_right.height - delta_bottom
     }
-}
-
-fn create_nine_patch(
-    local_rect: &LayerRect,
-    local_clip_rect: &LayerRect,
-    radii: &BorderRadius
-) -> Option<Box<BrushSegmentDescriptor>> {
-    extract_inner_rect_safe(local_clip_rect, radii).map(|inner| {
-        let mut desc = BrushSegmentDescriptor::new(
-            local_rect,
-            &inner,
-            None,
-        );
-        desc.can_optimize_clip_mask = true;
-
-        Box::new(desc)
-    })
 }
 
 fn convert_clip_chain_to_clip_vector(

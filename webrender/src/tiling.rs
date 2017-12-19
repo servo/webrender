@@ -24,7 +24,7 @@ use internal_types::{BatchTextures, RenderPassIndex};
 use picture::{PictureCompositeMode, PictureKind, PicturePrimitive, RasterizationSpace};
 use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
-use prim_store::{BrushPrimitive, BrushMaskKind, BrushKind, BrushSegmentKind, DeferredResolve, PrimitiveRun};
+use prim_store::{BrushPrimitive, BrushMaskKind, BrushKind, DeferredResolve, PrimitiveRun};
 use profiler::FrameProfileCounters;
 use render_task::{ClipWorkItem};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKey, RenderTaskKind};
@@ -385,7 +385,7 @@ fn add_to_batch(
                 scroll_id,
                 clip_task_address,
                 z,
-                segment_kind: 0,
+                segment_index: 0,
                 user_data0: 0,
                 user_data1: 0,
             };
@@ -406,27 +406,25 @@ fn add_to_batch(
                     );
 
                     for (i, segment) in segment_desc.segments.iter().enumerate() {
-                        if ((1 << i) & segment_desc.enabled_segments) != 0 {
-                            let is_inner = i == BrushSegmentKind::Center as usize;
-                            let needs_blending = !prim_metadata.opacity.is_opaque ||
-                                                 segment.clip_task_id.is_some() ||
-                                                 (!is_inner && transform_kind == TransformedRectKind::Complex);
+                        let is_inner = segment.edge_flags.is_empty();
+                        let needs_blending = !prim_metadata.opacity.is_opaque ||
+                                             segment.clip_task_id.is_some() ||
+                                             (!is_inner && transform_kind == TransformedRectKind::Complex);
 
-                            let clip_task_address = segment
-                                .clip_task_id
-                                .map_or(OPAQUE_TASK_ADDRESS, |id| render_tasks.get_task_address(id));
+                        let clip_task_address = segment
+                            .clip_task_id
+                            .map_or(OPAQUE_TASK_ADDRESS, |id| render_tasks.get_task_address(id));
 
-                            let instance = PrimitiveInstance::from(BrushInstance {
-                                segment_kind: 1 + i as i32,
-                                clip_task_address,
-                                ..base_instance
-                            });
+                        let instance = PrimitiveInstance::from(BrushInstance {
+                            segment_index: i as i32,
+                            clip_task_address,
+                            ..base_instance
+                        });
 
-                            if needs_blending {
-                                alpha_batch.push(instance);
-                            } else {
-                                opaque_batch.push(instance);
-                            }
+                        if needs_blending {
+                            alpha_batch.push(instance);
+                        } else {
+                            opaque_batch.push(instance);
                         }
                     }
                 }
@@ -649,7 +647,7 @@ fn add_to_batch(
                                 scroll_id,
                                 clip_task_address,
                                 z,
-                                segment_kind: 0,
+                                segment_index: 0,
                                 user_data0: cache_task_address.0 as i32,
                                 user_data1: BrushImageKind::Simple as i32,
                             };
@@ -670,7 +668,7 @@ fn add_to_batch(
                                 scroll_id,
                                 clip_task_address,
                                 z,
-                                segment_kind: 0,
+                                segment_index: 0,
                                 user_data0: cache_task_address.0 as i32,
                                 user_data1: image_kind as i32,
                             };
@@ -748,7 +746,7 @@ fn add_to_batch(
                                                 scroll_id,
                                                 clip_task_address,
                                                 z,
-                                                segment_kind: 0,
+                                                segment_index: 0,
                                                 user_data0: cache_task_address.0 as i32,
                                                 user_data1: BrushImageKind::Simple as i32,
                                             };
@@ -1733,7 +1731,7 @@ impl RenderTarget for AlphaRenderTarget {
                                             scroll_id: ClipScrollNodeIndex(0),
                                             clip_task_address: RenderTaskAddress(0),
                                             z: 0,
-                                            segment_kind: 0,
+                                            segment_index: 0,
                                             user_data0: 0,
                                             user_data1: 0,
                                         };

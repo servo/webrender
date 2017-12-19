@@ -17,7 +17,6 @@ use euclid::rect;
 use frame_builder::{FrameBuilder, FrameBuilderConfig, ScrollbarInfo};
 use gpu_cache::GpuCache;
 use internal_types::{FastHashMap, FastHashSet, RenderedDocument};
-use prim_store::{BrushAntiAliasMode};
 use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
 use resource_cache::{FontInstanceMap,ResourceCache, TiledImageMap};
 use scene::{Scene, StackingContextHelpers, ScenePipeline, SceneProperties};
@@ -106,7 +105,6 @@ impl<'a> FlattenContext<'a> {
                         &info,
                         bg_color,
                         None,
-                        BrushAntiAliasMode::Primitive,
                     );
                 }
             }
@@ -448,7 +446,6 @@ impl<'a> FlattenContext<'a> {
                     &prim_info,
                     info.color,
                     None,
-                    BrushAntiAliasMode::Primitive,
                 );
             }
             SpecificDisplayItem::ClearRectangle => {
