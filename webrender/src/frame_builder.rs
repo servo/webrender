@@ -24,7 +24,7 @@ use gpu_cache::GpuCache;
 use gpu_types::ClipScrollNodeData;
 use internal_types::{FastHashMap, FastHashSet, RenderPassIndex};
 use picture::{PictureCompositeMode, PictureKind, PicturePrimitive, RasterizationSpace};
-use prim_store::{BrushAntiAliasMode, BrushKind, BrushPrimitive, TexelRect, YuvImagePrimitiveCpu};
+use prim_store::{BrushKind, BrushPrimitive, TexelRect, YuvImagePrimitiveCpu};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, LinePrimitive, PrimitiveKind};
 use prim_store::{PrimitiveContainer, PrimitiveIndex, SpecificPrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
@@ -759,8 +759,7 @@ impl FrameBuilder {
         clip_and_scroll: ClipAndScrollInfo,
         info: &LayerPrimitiveInfo,
         color: ColorF,
-        segments: Option<Box<BrushSegmentDescriptor>>,
-        aa_mode: BrushAntiAliasMode,
+        segments: Option<BrushSegmentDescriptor>,
     ) {
         if color.a == 0.0 {
             // Don't add transparent rectangles to the draw list, but do consider them for hit
@@ -774,7 +773,6 @@ impl FrameBuilder {
                 color,
             },
             segments,
-            aa_mode,
         );
 
         self.add_primitive(
@@ -793,7 +791,6 @@ impl FrameBuilder {
         let prim = BrushPrimitive::new(
             BrushKind::Clear,
             None,
-            BrushAntiAliasMode::Primitive,
         );
 
         self.add_primitive(
@@ -820,7 +817,6 @@ impl FrameBuilder {
                 color,
             },
             None,
-            BrushAntiAliasMode::Primitive,
         );
 
         let prim_index = self.add_primitive(

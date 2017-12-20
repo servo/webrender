@@ -12,6 +12,7 @@
 //! The terms "layer" and "stacking context" can be used interchangeably
 //! in the context of coordinate systems.
 
+use app_units::Au;
 use euclid::{Length, TypedRect, TypedSize2D, TypedTransform3D};
 use euclid::{TypedPoint2D, TypedPoint3D, TypedVector2D, TypedVector3D};
 
@@ -95,6 +96,10 @@ pub type LayerToWorldTransform = TypedTransform3D<f32, LayerPixel, WorldPixel>;
 pub type WorldToLayerTransform = TypedTransform3D<f32, WorldPixel, LayerPixel>;
 pub type ScrollToWorldTransform = TypedTransform3D<f32, ScrollLayerPixel, WorldPixel>;
 
+// Fixed position coordinates, to avoid float precision errors.
+pub type LayerPointAu = TypedPoint2D<Au, LayerPixel>;
+pub type LayerRectAu = TypedRect<Au, LayerPixel>;
+pub type LayerSizeAu = TypedSize2D<Au, LayerPixel>;
 
 pub fn device_length(value: f32, device_pixel_ratio: f32) -> DeviceIntLength {
     DeviceIntLength::new((value * device_pixel_ratio).round() as i32)
