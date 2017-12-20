@@ -272,6 +272,8 @@ pub enum DebugCommand {
     SaveCapture(PathBuf),
     /// Load a capture of all the documents state.
     LoadCapture(PathBuf),
+    /// Configure if dual-source blending is used, if available.
+    EnableDualSourceBlending(bool),
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -774,6 +776,11 @@ impl RenderApi {
     /// Load a capture of the current frame state for debugging.
     pub fn load_capture(&self, path: PathBuf) {
         let msg = ApiMsg::DebugCommand(DebugCommand::LoadCapture(path));
+        self.send_message(msg);
+    }
+
+    pub fn send_debug_cmd(&self, cmd: DebugCommand) {
+        let msg = ApiMsg::DebugCommand(cmd);
         self.send_message(msg);
     }
 }

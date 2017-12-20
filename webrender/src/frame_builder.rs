@@ -74,6 +74,8 @@ pub struct FrameBuilderConfig {
     pub enable_scrollbars: bool,
     pub default_font_render_mode: FontRenderMode,
     pub debug: bool,
+    pub dual_source_blending_is_supported: bool,
+    pub dual_source_blending_is_enabled: bool,
 }
 
 #[derive(Debug)]
@@ -166,6 +168,8 @@ impl FrameBuilder {
                 enable_scrollbars: false,
                 default_font_render_mode: FontRenderMode::Mono,
                 debug: false,
+                dual_source_blending_is_enabled: true,
+                dual_source_blending_is_supported: false,
             },
         }
     }
@@ -1763,6 +1767,8 @@ impl FrameBuilder {
         }
 
         let mut deferred_resolves = vec![];
+        let use_dual_source_blending = self.config.dual_source_blending_is_enabled &&
+                                       self.config.dual_source_blending_is_supported;
 
         for (pass_index, pass) in passes.iter_mut().enumerate() {
             let ctx = RenderTargetContext {
@@ -1771,6 +1777,7 @@ impl FrameBuilder {
                 resource_cache,
                 node_data: &node_data,
                 clip_scroll_tree,
+                use_dual_source_blending,
             };
 
             pass.build(

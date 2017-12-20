@@ -930,7 +930,7 @@ pub struct FrameContext {
     clip_scroll_tree: ClipScrollTree,
     pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
     id: FrameId,
-    frame_builder_config: FrameBuilderConfig,
+    pub frame_builder_config: FrameBuilderConfig,
 }
 
 impl FrameContext {

@@ -383,6 +383,7 @@ fn main() {
         args.is_present("no_scissor"),
         args.is_present("no_batch"),
         args.is_present("precache"),
+        args.is_present("slow_subpixel"),
         notifier,
     );
 

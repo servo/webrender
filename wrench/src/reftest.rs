@@ -31,6 +31,7 @@ const PLATFORM: &str = "other";
 
 const OPTION_DISABLE_SUBPX: &str = "disable-subpixel";
 const OPTION_DISABLE_AA: &str = "disable-aa";
+const OPTION_DISABLE_DUAL_SOURCE_BLENDING: &str = "disable-dual-source-blending";
 
 pub struct ReftestOptions {
     // These override values that are lower.
@@ -75,6 +76,7 @@ pub struct Reftest {
     expected_draw_calls: Option<usize>,
     expected_alpha_targets: Option<usize>,
     expected_color_targets: Option<usize>,
+    disable_dual_source_blending: bool,
 }
 
 impl Display for Reftest {
@@ -191,6 +193,7 @@ impl ReftestManifest {
             let mut expected_color_targets = None;
             let mut expected_alpha_targets = None;
             let mut expected_draw_calls = None;
+            let mut disable_dual_source_blending = false;
 
             for (i, token) in tokens.iter().enumerate() {
                 match *token {
@@ -236,6 +239,9 @@ impl ReftestManifest {
                         if args.iter().any(|arg| arg == &OPTION_DISABLE_AA) {
                             font_render_mode = Some(FontRenderMode::Mono);
                         }
+                        if args.iter().any(|arg| arg == &OPTION_DISABLE_DUAL_SOURCE_BLENDING) {
+                            disable_dual_source_blending = true;
+                        }
                     }
                     "==" => {
                         op = ReftestOp::Equal;
@@ -254,6 +260,7 @@ impl ReftestManifest {
                             expected_draw_calls,
                             expected_alpha_targets,
                             expected_color_targets,
+                            disable_dual_source_blending,
                         });
 
                         break;
@@ -321,6 +328,14 @@ impl<'a> ReftestHarness<'a> {
     fn run_reftest(&mut self, t: &Reftest) -> bool {
         println!("REFTEST {}", t);
 
+        if t.disable_dual_source_blending {
+            self.wrench
+                .api
+                .send_debug_cmd(
+                    DebugCommand::EnableDualSourceBlending(false)
+                );
+        }
+
         let window_size = DeviceUintSize::new(
             self.window.get_inner_size_pixels().0,
             self.window.get_inner_size_pixels().1,
@@ -330,7 +345,7 @@ impl<'a> ReftestHarness<'a> {
                 let (reference, _) = self.render_yaml(
                     t.reference.as_path(),
                     window_size,
-                    t.font_render_mode
+                    t.font_render_mode,
                 );
                 reference
             }
@@ -339,9 +354,23 @@ impl<'a> ReftestHarness<'a> {
             }
             other => panic!("Unknown reftest extension: {}", other),
         };
+
         // the reference can be smaller than the window size,
         // in which case we only compare the intersection
-        let (test, stats) = self.render_yaml(t.test.as_path(), reference.size, t.font_render_mode);
+        let (test, stats) = self.render_yaml(
+            t.test.as_path(),
+            reference.size,
+            t.font_render_mode,
+        );
+
+        if t.disable_dual_source_blending {
+            self.wrench
+                .api
+                .send_debug_cmd(
+                    DebugCommand::EnableDualSourceBlending(true)
+                );
+        }
+
         let comparison = test.compare(&reference);
 
         if let Some(expected_draw_calls) = t.expected_draw_calls {

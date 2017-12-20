@@ -22,8 +22,9 @@ varying vec4 vUvClip;
 #define MODE_SUBPX_BG_PASS0     4
 #define MODE_SUBPX_BG_PASS1     5
 #define MODE_SUBPX_BG_PASS2     6
-#define MODE_BITMAP             7
-#define MODE_COLOR_BITMAP       8
+#define MODE_SUBPX_DUAL_SOURCE  7
+#define MODE_BITMAP             8
+#define MODE_COLOR_BITMAP       9
 
 VertexInfo write_text_vertex(vec2 clamped_local_pos,
                              RectWithSize local_clip_rect,
@@ -134,6 +135,7 @@ void main(void) {
             break;
         case MODE_SUBPX_PASS1:
         case MODE_SUBPX_BG_PASS2:
+        case MODE_SUBPX_DUAL_SOURCE:
             vMaskSwizzle = vec2(1.0, 0.0);
             vColor = text.color;
             break;
@@ -170,6 +172,12 @@ void main(void) {
     alpha *= float(all(greaterThanEqual(vUvClip, vec4(0.0))));
 #endif
 
+#ifdef WR_FEATURE_DUAL_SOURCE_BLENDING
+    vec4 alpha_mask = mask * alpha;
+    oFragColor = vColor * alpha_mask;
+    oFragBlend = alpha_mask * vColor.a;
+#else
     oFragColor = vColor * mask * alpha;
+#endif
 }
 #endif
