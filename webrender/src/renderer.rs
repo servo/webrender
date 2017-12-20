@@ -2376,6 +2376,48 @@ impl Renderer {
                     DebugOutput::FetchClipScrollTree(string) => {
                         self.debug_server.send(string);
                     }
+                    #[cfg(feature = "capture")]
+                    DebugOutput::SaveCapture(path, deferred)=> {
+                        use std::fs::File;
+                        use std::io::Write;
+                        use api::ExternalImageData;
+
+                        if deferred.is_empty() {
+                            continue
+                        }
+
+                        info!("saving external images");
+                        let handler = self.external_image_handler
+                            .as_mut()
+                            .expect("Unable to lock the external image handler!");
+                        for def in deferred {
+                            let ExternalImageData { id, channel_index, .. } = def.external;
+                            let data = match handler.lock(id, channel_index).source {
+                                ExternalImageSource::RawData(data) => data.to_vec(),
+                                ExternalImageSource::NativeTexture(_gl_id) => {
+                                    //TODO: make a read FBO with this GL texture
+                                    //self.device.read_pixels(&def.descriptor);
+                                    unimplemented!()
+                                }
+                                ExternalImageSource::Invalid => {
+                                    // Create a dummy buffer...
+                                    let stride = def.descriptor.compute_stride();
+                                    let total_size = def.descriptor.height * stride;
+                                    vec![0xFF; total_size as usize]
+                                }
+                            };
+                            handler.unlock(id, channel_index);
+
+                            let full_path = format!("{}/{}",
+                                path.to_string_lossy(), def.short_path);
+                            File::create(full_path)
+                                .expect(&format!("Unable to create {}", def.short_path))
+                                .write_all(&data)
+                                .unwrap();
+                        }
+                    }
+                    #[cfg(feature = "capture")]
+                    DebugOutput::LoadCapture => {}
                 },
                 ResultMsg::DebugCommand(command) => {
                     self.handle_debug_command(command);
@@ -2394,8 +2436,11 @@ impl Renderer {
 
     #[cfg(feature = "debugger")]
     fn get_screenshot_for_debugger(&mut self) -> String {
-        let data = self.device.read_pixels(1024, 768);
-        let screenshot = debug_server::Screenshot::new(1024, 768, data);
+        use api::ImageDescriptor;
+
+        let desc = ImageDescriptor::new(1024, 768, ImageFormat::BGRA8, true);
+        let data = self.device.read_pixels(&desc);
+        let screenshot = debug_server::Screenshot::new(desc.width, desc.height, data);
 
         serde_json::to_string(&screenshot).unwrap()
     }
@@ -2588,6 +2633,10 @@ impl Renderer {
             DebugCommand::FetchScreenshot => {
                 let json = self.get_screenshot_for_debugger();
                 self.debug_server.send(json);
+            }
+            DebugCommand::SaveCapture(_) |
+            DebugCommand::LoadCapture(_) => {
+                panic!("Capture commands are not welcome here!")
             }
         }
     }

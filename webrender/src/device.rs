@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use super::shader_source;
-use api::{ColorF, ImageFormat};
+use api::{ColorF, ImageDescriptor, ImageFormat};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceUintRect, DeviceUintSize};
 use euclid::Transform3D;
 use gleam::gl;
@@ -1505,12 +1505,16 @@ impl Device {
         }
     }
 
-    pub fn read_pixels(&mut self, width: i32, height: i32) -> Vec<u8> {
+    pub fn read_pixels(&mut self, desc: &ImageDescriptor) -> Vec<u8> {
+        let (_, gl_format) = gl_texture_formats_for_image_format(self.gl(), desc.format);
+        let type_ = gl_type_for_texture_format(desc.format);
+
         self.gl.read_pixels(
             0, 0,
-            width as i32, height as i32,
-            gl::RGBA,
-            gl::UNSIGNED_BYTE
+            desc.width as i32,
+            desc.height as i32,
+            gl_format,
+            type_,
         )
     }
 

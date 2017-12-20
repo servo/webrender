@@ -48,6 +48,9 @@ extern crate lazy_static;
 extern crate log;
 #[macro_use]
 extern crate thread_profiler;
+#[cfg(any(feature = "debugger", feature = "capture"))]
+#[macro_use]
+extern crate serde;
 
 mod border;
 mod box_shadow;
@@ -139,9 +142,8 @@ extern crate gleam;
 extern crate num_traits;
 extern crate plane_split;
 extern crate rayon;
-#[cfg(feature = "debugger")]
-#[macro_use]
-extern crate serde_derive;
+#[cfg(feature = "capture")]
+extern crate ron;
 #[cfg(feature = "debugger")]
 extern crate serde_json;
 extern crate smallvec;

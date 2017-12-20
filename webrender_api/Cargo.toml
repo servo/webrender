@@ -8,6 +8,7 @@ repository = "https://github.com/servo/webrender"
 [features]
 nightly = ["euclid/unstable", "serde/unstable"]
 ipc = ["ipc-channel"]
+debug-serialization = []
 
 [dependencies]
 app_units = "0.6"

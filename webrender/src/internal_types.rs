@@ -5,6 +5,8 @@
 use api::{ClipId, DevicePoint, DeviceUintRect, DocumentId, Epoch};
 use api::{ExternalImageData, ExternalImageId};
 use api::{ImageFormat, PipelineId};
+#[cfg(feature = "capture")]
+use api::ImageDescriptor;
 use api::DebugCommand;
 use device::TextureFilter;
 use fxhash::FxHasher;
@@ -171,9 +173,20 @@ impl RenderedDocument {
     }
 }
 
+#[cfg(feature = "capture")]
+pub struct ExternalCaptureImage {
+    pub short_path: String,
+    pub descriptor: ImageDescriptor,
+    pub external: ExternalImageData,
+}
+
 pub enum DebugOutput {
     FetchDocuments(String),
     FetchClipScrollTree(String),
+    #[cfg(feature = "capture")]
+    SaveCapture(PathBuf, Vec<ExternalCaptureImage>),
+    #[cfg(feature = "capture")]
+    LoadCapture,
 }
 
 pub enum ResultMsg {
