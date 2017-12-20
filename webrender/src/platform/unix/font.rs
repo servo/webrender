@@ -53,7 +53,56 @@ unsafe impl Send for FontContext {}
 
 extern "C" {
     fn FT_GlyphSlot_Embolden(slot: FT_GlyphSlot);
-    fn FT_GlyphSlot_Oblique(slot: FT_GlyphSlot);
+}
+
+const OBLIQUE_SKEW_FACTOR: f32 = 0.2;
+
+fn get_skew_bounds(bottom: i32, top: i32) -> (f32, f32) {
+    let skew_min = ((bottom as f32 + 0.5) * OBLIQUE_SKEW_FACTOR).floor();
+    let skew_max = ((top as f32 - 0.5) * OBLIQUE_SKEW_FACTOR).ceil();
+    (skew_min, skew_max)
+}
+
+fn skew_bitmap(bitmap: &mut Vec<u8>, width: &mut usize, height: usize, left: &mut i32, top: i32) {
+    let stride = *width * 4;
+    // Calculate the skewed horizontal offsets of the bottom and top of the glyph.
+    let (skew_min, skew_max) = get_skew_bounds(top - height as i32, top);
+    // Allocate enough extra width for the min/max skew offsets.
+    let skew_width = *width + (skew_max - skew_min) as usize;
+    let mut skew_buffer = vec![0u8; skew_width * height * 4];
+    for y in 0 .. height {
+        // Calculate a skew offset at the vertical center of the current row.
+        let offset = (top as f32 - y as f32 - 0.5) * OBLIQUE_SKEW_FACTOR - skew_min;
+        // Get a blend factor in 0..256 constant across all pixels in the row.
+        let blend = (offset.fract() * 256.0) as u32;
+        let mut dest = (y * skew_width + offset.floor() as usize) * 4;
+        let (mut prev_b, mut prev_g, mut prev_r, mut prev_a) = (0u32, 0u32, 0u32, 0u32);
+        for src in bitmap[y * stride .. (y + 1) * stride].chunks(4) {
+            let (b, g, r, a) = (src[0] as u32, src[1] as u32, src[2] as u32, src[3] as u32);
+            // Blend current pixel with previous pixel based on blend factor.
+            let (next_b, next_g, next_r, next_a) = (b * blend, g * blend, r * blend, a * blend);
+            skew_buffer[dest + 0] = ((((b << 8) - next_b) + prev_b + 128) >> 8) as u8;
+            skew_buffer[dest + 1] = ((((g << 8) - next_g) + prev_g + 128) >> 8) as u8;
+            skew_buffer[dest + 2] = ((((r << 8) - next_r) + prev_r + 128) >> 8) as u8;
+            skew_buffer[dest + 3] = ((((a << 8) - next_a) + prev_b + 128) >> 8) as u8;
+            // Save the remainder for blending onto the next pixel.
+            prev_b = next_b;
+            prev_g = next_g;
+            prev_r = next_r;
+            prev_a = next_a;
+            dest += 4;
+        }
+        // If the skew misaligns the final pixel, write out the remainder.
+        if blend > 0 {
+            skew_buffer[dest + 0] = ((prev_b + 128) >> 8) as u8;
+            skew_buffer[dest + 1] = ((prev_g + 128) >> 8) as u8;
+            skew_buffer[dest + 2] = ((prev_r + 128) >> 8) as u8;
+            skew_buffer[dest + 3] = ((prev_a + 128) >> 8) as u8;
+        }
+    }
+    *bitmap = skew_buffer;
+    *width = skew_width;
+    *left += skew_min as i32;
 }
 
 impl FontContext {
@@ -194,7 +243,10 @@ impl FontContext {
             unsafe { FT_Set_Transform(face.face, ptr::null_mut(), ptr::null_mut()) };
             self.choose_bitmap_size(face.face, req_size * y_scale)
         } else {
-            let shape = font.transform.pre_scale(x_scale.recip() as f32, y_scale.recip() as f32);
+            let mut shape = font.transform.pre_scale(x_scale.recip() as f32, y_scale.recip() as f32);
+            if font.flags.contains(FontInstanceFlags::SYNTHETIC_ITALICS) {
+                shape = shape.synthesize_italics(OBLIQUE_SKEW_FACTOR);
+            };
             let mut ft_shape = FT_Matrix {
                 xx: (shape.scale_x * 65536.0) as FT_Fixed,
                 xy: (shape.skew_x * -65536.0) as FT_Fixed,
@@ -305,40 +357,42 @@ impl FontContext {
         slot: FT_GlyphSlot,
         font: &FontInstance,
         glyph: &GlyphKey,
-        scale_bitmaps: bool,
+        transform_bitmaps: bool,
     ) -> Option<GlyphDimensions> {
         let metrics = unsafe { &(*slot).metrics };
 
-        let advance = metrics.horiAdvance as f32 / 64.0;
+        let mut advance = metrics.horiAdvance as f32 / 64.0;
         match unsafe { (*slot).format } {
             FT_Glyph_Format::FT_GLYPH_FORMAT_BITMAP => {
-                let left = unsafe { (*slot).bitmap_left };
-                let top = unsafe { (*slot).bitmap_top };
-                let width = unsafe { (*slot).bitmap.width };
-                let height = unsafe { (*slot).bitmap.rows };
-                if scale_bitmaps {
+                let mut left = unsafe { (*slot).bitmap_left };
+                let mut top = unsafe { (*slot).bitmap_top };
+                let mut width = unsafe { (*slot).bitmap.width };
+                let mut height = unsafe { (*slot).bitmap.rows };
+                if transform_bitmaps {
                     let y_size = unsafe { (*(*(*slot).face).size).metrics.y_ppem };
                     let scale = font.size.to_f32_px() / y_size as f32;
                     let x0 = left as f32 * scale;
                     let x1 = width as f32 * scale + x0;
                     let y1 = top as f32 * scale;
                     let y0 = y1 - height as f32 * scale;
-                    Some(GlyphDimensions {
-                        left: x0.round() as i32,
-                        top: y1.round() as i32,
-                        width: (x1.ceil() - x0.floor()) as u32,
-                        height: (y1.ceil() - y0.floor()) as u32,
-                        advance: advance * scale,
-                    })
-                } else {
-                    Some(GlyphDimensions {
-                        left,
-                        top,
-                        width,
-                        height,
-                        advance,
-                    })
+                    left = x0.round() as i32;
+                    top = y1.round() as i32;
+                    width = (x1.ceil() - x0.floor()) as u32;
+                    height = (y1.ceil() - y0.floor()) as u32;
+                    advance *= scale;
+                    if font.flags.contains(FontInstanceFlags::SYNTHETIC_ITALICS) {
+                        let (skew_min, skew_max) = get_skew_bounds(top - height as i32, top);
+                        left += skew_min as i32;
+                        width += (skew_max - skew_min) as u32;
+                    }
                 }
+                Some(GlyphDimensions {
+                    left,
+                    top,
+                    width,
+                    height,
+                    advance,
+                })
             }
             FT_Glyph_Format::FT_GLYPH_FORMAT_OUTLINE => {
                 let cbox = self.get_bounding_box(slot, font, glyph);
@@ -429,10 +483,6 @@ impl FontContext {
                 dx - ((cbox.xMin + dx) & !63),
                 dy - ((cbox.yMin + dy) & !63),
             );
-
-            if font.flags.contains(FontInstanceFlags::SYNTHETIC_ITALICS) {
-                FT_GlyphSlot_Oblique(slot);
-            }
         }
 
         if font.render_mode == FontRenderMode::Subpixel {
@@ -514,23 +564,23 @@ impl FontContext {
 
         let bitmap = unsafe { &(*slot).bitmap };
         let pixel_mode = unsafe { mem::transmute(bitmap.pixel_mode as u32) };
-        let (actual_width, actual_height) = match pixel_mode {
+        let (mut actual_width, actual_height) = match pixel_mode {
             FT_Pixel_Mode::FT_PIXEL_MODE_LCD => {
                 assert!(bitmap.width % 3 == 0);
-                ((bitmap.width / 3) as i32, bitmap.rows as i32)
+                ((bitmap.width / 3) as usize, bitmap.rows as usize)
             }
             FT_Pixel_Mode::FT_PIXEL_MODE_LCD_V => {
                 assert!(bitmap.rows % 3 == 0);
-                (bitmap.width as i32, (bitmap.rows / 3) as i32)
+                (bitmap.width as usize, (bitmap.rows / 3) as usize)
             }
             FT_Pixel_Mode::FT_PIXEL_MODE_MONO |
             FT_Pixel_Mode::FT_PIXEL_MODE_GRAY |
             FT_Pixel_Mode::FT_PIXEL_MODE_BGRA => {
-                (bitmap.width as i32, bitmap.rows as i32)
+                (bitmap.width as usize, bitmap.rows as usize)
             }
             _ => panic!("Unsupported {:?}", pixel_mode),
         };
-        let mut final_buffer = vec![0; (actual_width * actual_height * 4) as usize];
+        let mut final_buffer = vec![0u8; actual_width * actual_height * 4];
 
         // Extract the final glyph from FT format into BGRA8 format, which is
         // what WR expects.
@@ -539,7 +589,7 @@ impl FontContext {
         let mut dest: usize = 0;
         while dest < final_buffer.len() {
             let mut src = src_row;
-            let row_end = dest + actual_width as usize * 4;
+            let row_end = dest + actual_width * 4;
             match pixel_mode {
                 FT_Pixel_Mode::FT_PIXEL_MODE_MONO => {
                     while dest < row_end {
@@ -613,10 +663,15 @@ impl FontContext {
         }
 
         match format {
+            FT_Glyph_Format::FT_GLYPH_FORMAT_BITMAP => {
+                if font.flags.contains(FontInstanceFlags::SYNTHETIC_ITALICS) {
+                    skew_bitmap(&mut final_buffer, &mut actual_width, actual_height, &mut left, top);
+                }
+            }
             FT_Glyph_Format::FT_GLYPH_FORMAT_OUTLINE => {
                 unsafe {
                     left += (*slot).bitmap_left;
-                    top += (*slot).bitmap_top - actual_height;
+                    top += (*slot).bitmap_top - actual_height as i32;
                 }
             }
             _ => {}
