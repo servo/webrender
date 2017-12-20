@@ -2,8 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ClipId, ColorF, DeviceIntPoint, ImageKey};
-use api::{DeviceIntRect, DeviceIntSize, device_length, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
+use api::{ClipId, ColorF, ImageKey};
+use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, LayerToWorldScale};
+use api::{DevicePixelScale, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{DocumentLayer, ExternalImageType, FilterOp};
 use api::{ImageFormat, ImageRendering};
 use api::{LayerRect, MixBlendMode, PipelineId};
@@ -21,7 +22,7 @@ use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveIn
 use gpu_types::{ClipScrollNodeIndex, ClipScrollNodeData};
 use internal_types::{FastHashMap, SourceTexture};
 use internal_types::{BatchTextures, RenderPassIndex};
-use picture::{PictureCompositeMode, PictureKind, PicturePrimitive, RasterizationSpace};
+use picture::{PictureCompositeMode, PictureKind, PicturePrimitive};
 use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
 use prim_store::{BrushPrimitive, BrushMaskKind, BrushKind, DeferredResolve, PrimitiveRun};
@@ -559,9 +560,8 @@ fn add_to_batch(
                 &ctx.prim_store.cpu_text_runs[prim_metadata.cpu_prim_index.0];
 
             let font = text_cpu.get_font(
-                ctx.device_pixel_ratio,
-                &scroll_node.transform,
-                RasterizationSpace::Screen,
+                ctx.device_pixel_scale,
+                Some(&scroll_node.transform),
             );
 
             ctx.resource_cache.fetch_glyphs(
@@ -776,14 +776,13 @@ fn add_to_batch(
                                                 secondary_textures,
                                             );
                                             let batch = batch_list.get_suitable_batch(key, &item_bounding_rect);
-                                            let device_offset_x = device_length(offset.x, ctx.device_pixel_ratio);
-                                            let device_offset_y = device_length(offset.y, ctx.device_pixel_ratio);
+                                            let device_offset = (offset * LayerToWorldScale::new(1.0) * ctx.device_pixel_scale).round().to_i32();
                                             let instance = CompositePrimitiveInstance::new(
                                                 task_address,
                                                 secondary_task_address,
                                                 RenderTaskAddress(0),
-                                                item_bounding_rect.origin.x - device_offset_x.0,
-                                                item_bounding_rect.origin.y - device_offset_y.0,
+                                                item_bounding_rect.origin.x - device_offset.x,
+                                                item_bounding_rect.origin.y - device_offset.y,
                                                 z,
                                                 item_bounding_rect.size.width,
                                                 item_bounding_rect.size.height,
@@ -1242,7 +1241,7 @@ impl ClipBatcher {
 }
 
 pub struct RenderTargetContext<'a> {
-    pub device_pixel_ratio: f32,
+    pub device_pixel_scale: DevicePixelScale,
     pub prim_store: &'a PrimitiveStore,
     pub resource_cache: &'a ResourceCache,
     pub node_data: &'a [ClipScrollNodeData],
@@ -1548,11 +1547,7 @@ impl RenderTarget for ColorRenderTarget {
                                                     [sub_metadata.cpu_prim_index.0];
                                                 let text_run_cache_prims = &mut self.text_run_cache_prims;
 
-                                                let font = text.get_font(
-                                                    ctx.device_pixel_ratio,
-                                                    &LayerToWorldTransform::identity(),
-                                                    RasterizationSpace::Local,
-                                                );
+                                                let font = text.get_font(ctx.device_pixel_scale, None);
 
                                                 ctx.resource_cache.fetch_glyphs(
                                                     font,

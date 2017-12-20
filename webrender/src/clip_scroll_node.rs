@@ -5,7 +5,7 @@
 use api::{ClipId, DeviceIntRect, LayerPixel, LayerPoint, LayerRect, LayerSize};
 use api::{LayerToScrollTransform, LayerToWorldTransform, LayerVector2D, LayoutVector2D, PipelineId};
 use api::{ScrollClamping, ScrollEventPhase, ScrollLocation, ScrollSensitivity};
-use api::{LayoutTransform, PropertyBinding, StickyOffsetBounds, WorldPoint};
+use api::{DevicePixelScale, LayoutTransform, PropertyBinding, StickyOffsetBounds, WorldPoint};
 use clip::{ClipSourcesHandle, ClipStore};
 use clip_scroll_tree::{CoordinateSystemId, TransformUpdateState};
 use euclid::SideOffsets2D;
@@ -330,7 +330,7 @@ impl ClipScrollNode {
         &mut self,
         state: &mut TransformUpdateState,
         next_coordinate_system_id: &mut CoordinateSystemId,
-        device_pixel_ratio: f32,
+        device_pixel_scale: DevicePixelScale,
         clip_store: &mut ClipStore,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
@@ -356,7 +356,7 @@ impl ClipScrollNode {
         self.update_transform(state, next_coordinate_system_id, scene_properties);
         self.update_clip_work_item(
             state,
-            device_pixel_ratio,
+            device_pixel_scale,
             clip_store,
             resource_cache,
             gpu_cache,
@@ -373,7 +373,7 @@ impl ClipScrollNode {
     pub fn update_clip_work_item(
         &mut self,
         state: &mut TransformUpdateState,
-        device_pixel_ratio: f32,
+        device_pixel_scale: DevicePixelScale,
         clip_store: &mut ClipStore,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
@@ -391,7 +391,7 @@ impl ClipScrollNode {
         let clip_sources = clip_store.get_mut(clip_sources_handle);
         clip_sources.update(gpu_cache, resource_cache);
         let (screen_inner_rect, screen_outer_rect) =
-            clip_sources.get_screen_bounds(&self.world_viewport_transform, device_pixel_ratio);
+            clip_sources.get_screen_bounds(&self.world_viewport_transform, device_pixel_scale);
 
         // If this clip's inner rectangle completely surrounds the existing clip
         // chain's outer rectangle, we can discard this clip entirely since it isn't

@@ -11,7 +11,7 @@
 
 use api::{channel, BlobImageRenderer, FontRenderMode};
 use api::{ColorF, DocumentId, Epoch, PipelineId, RenderApiSender, RenderNotifier};
-use api::{DevicePixel, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
+use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, ColorU};
 use api::{ExternalImageId, ExternalImageType, ImageFormat};
 use api::{YUV_COLOR_SPACES, YUV_FORMATS};
@@ -32,7 +32,7 @@ use device::{get_gl_format_bgra, ExternalTexture, FBOId, TextureSlot, VertexAttr
 use device::{FileWatcherHandler, ShaderError, TextureFilter, TextureTarget,
              VertexUsageHint, VAO, VBO, CustomVAO};
 use device::ProgramCache;
-use euclid::{rect, TypedScale, Transform3D};
+use euclid::{rect, Transform3D};
 use frame_builder::FrameBuilderConfig;
 use gleam::gl;
 use glyph_rasterizer::GlyphFormat;
@@ -41,6 +41,7 @@ use gpu_types::PrimitiveInstance;
 use internal_types::{BatchTextures, SourceTexture, ORTHO_FAR_PLANE, ORTHO_NEAR_PLANE};
 use internal_types::{CacheTextureId, FastHashMap, RenderedDocument, ResultMsg, TextureUpdateOp};
 use internal_types::{DebugOutput, RenderPassIndex, RenderTargetInfo, TextureUpdateList, TextureUpdateSource};
+use picture::ContentOrigin;
 use profiler::{BackendProfileCounters, Profiler};
 use profiler::{GpuProfileTag, RendererProfileCounters, RendererProfileTimers};
 use query::{GpuProfiler, GpuTimer};
@@ -3229,19 +3230,18 @@ impl Renderer {
 
             let (readback_rect, readback_layer) = readback.get_target_rect();
             let (backdrop_rect, _) = backdrop.get_target_rect();
-            let content_to_device_scale = TypedScale::<_, _, DevicePixel>::new(1i32);
             let backdrop_screen_origin = match backdrop.kind {
-                RenderTaskKind::Picture(ref task_info) => task_info
-                    .content_origin
-                    .to_i32()
-                    * content_to_device_scale,
+                RenderTaskKind::Picture(ref task_info) => match task_info.content_origin {
+                    ContentOrigin::Local(_) => panic!("bug: composite from a local-space rasterized picture?"),
+                    ContentOrigin::Screen(p) => p,
+                },
                 _ => panic!("bug: composite on non-picture?"),
             };
             let source_screen_origin = match source.kind {
-                RenderTaskKind::Picture(ref task_info) => task_info
-                    .content_origin
-                    .to_i32()
-                    * content_to_device_scale,
+                RenderTaskKind::Picture(ref task_info) => match task_info.content_origin {
+                    ContentOrigin::Local(_) => panic!("bug: composite from a local-space rasterized picture?"),
+                    ContentOrigin::Screen(p) => p,
+                },
                 _ => panic!("bug: composite on non-picture?"),
             };
 

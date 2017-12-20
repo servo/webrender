@@ -3,7 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderRadius, ClipMode, ComplexClipRegion, DeviceIntRect, ImageMask, ImageRendering};
-use api::{LayerPoint, LayerRect, LayerToWorldTransform, LayoutPoint, LayoutVector2D, LocalClip};
+use api::{LayerPoint, LayerRect, LayoutPoint, LayoutVector2D, LocalClip};
+use api::{DevicePixelScale, LayerToWorldTransform};
 use border::{BorderCornerClipSource, ensure_no_corner_overlap};
 use ellipse::Ellipse;
 use freelist::{FreeList, FreeListHandle, WeakFreeListHandle};
@@ -262,7 +263,7 @@ impl ClipSources {
     pub fn get_screen_bounds(
         &self,
         transform: &LayerToWorldTransform,
-        device_pixel_ratio: f32,
+        device_pixel_scale: DevicePixelScale,
     ) -> (DeviceIntRect, Option<DeviceIntRect>) {
         // If this translation isn't axis aligned or has a perspective component, don't try to
         // calculate the inner rectangle. The rectangle that we produce would include potentially
@@ -273,13 +274,13 @@ impl ClipSources {
         let can_calculate_inner_rect =
             transform.preserves_2d_axis_alignment() && !transform.has_perspective_component();
         let screen_inner_rect = if can_calculate_inner_rect {
-            calculate_screen_bounding_rect(transform, &self.local_inner_rect, device_pixel_ratio)
+            calculate_screen_bounding_rect(transform, &self.local_inner_rect, device_pixel_scale)
         } else {
             DeviceIntRect::zero()
         };
 
         let screen_outer_rect = self.local_outer_rect.map(|outer_rect|
-            calculate_screen_bounding_rect(transform, &outer_rect, device_pixel_ratio)
+            calculate_screen_bounding_rect(transform, &outer_rect, device_pixel_scale)
         );
 
         (screen_inner_rect, screen_outer_rect)

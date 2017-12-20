@@ -4,7 +4,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BuiltDisplayListIter, ClipAndScrollInfo, ClipId, ColorF, ComplexClipRegion};
-use api::{DeviceUintRect, DeviceUintSize, DisplayItemRef, DocumentLayer, Epoch, FilterOp};
+use api::{DevicePixelScale, DeviceUintRect, DeviceUintSize};
+use api::{DisplayItemRef, DocumentLayer, Epoch, FilterOp};
 use api::{ImageDisplayItem, ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect};
 use api::{LayerSize, LayerVector2D, LayoutSize};
 use api::{LocalClip, PipelineId, ScrollClamping, ScrollEventPhase, ScrollLayerState};
@@ -989,7 +990,7 @@ impl FrameContext {
         resource_cache: &mut ResourceCache,
         window_size: DeviceUintSize,
         inner_rect: DeviceUintRect,
-        device_pixel_ratio: f32,
+        device_pixel_scale: DevicePixelScale,
         output_pipelines: &FastHashSet<PipelineId>,
     ) -> FrameBuilder {
         let root_pipeline_id = match scene.root_pipeline_id {
@@ -1042,7 +1043,7 @@ impl FrameContext {
             roller.builder.setup_viewport_offset(
                 window_size,
                 inner_rect,
-                device_pixel_ratio,
+                device_pixel_scale,
                 roller.clip_scroll_tree,
             );
 
@@ -1077,9 +1078,9 @@ impl FrameContext {
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
         pipelines: &FastHashMap<PipelineId, ScenePipeline>,
-        device_pixel_ratio: f32,
+        device_pixel_scale: DevicePixelScale,
         layer: DocumentLayer,
-        pan: LayerPoint,
+        pan: WorldPoint,
         texture_cache_profile: &mut TextureCacheProfileCounters,
         gpu_cache_profile: &mut GpuCacheProfileCounters,
 		scene_properties: &SceneProperties,
@@ -1091,7 +1092,7 @@ impl FrameContext {
             &mut self.clip_scroll_tree,
             pipelines,
             self.window_size,
-            device_pixel_ratio,
+            device_pixel_scale,
             layer,
             pan,
             texture_cache_profile,

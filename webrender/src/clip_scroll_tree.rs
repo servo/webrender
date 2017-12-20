@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ClipId, DeviceIntRect, LayerPoint, LayerRect};
+use api::{ClipId, DeviceIntRect, DevicePixelScale, LayerPoint, LayerRect};
 use api::{LayerToWorldTransform, LayerVector2D, PipelineId, ScrollClamping, ScrollEventPhase};
 use api::{PropertyBinding, LayoutTransform, ScrollLayerState, ScrollLocation, WorldPoint};
 use clip::ClipStore;
@@ -337,11 +337,11 @@ impl ClipScrollTree {
     pub fn update_tree(
         &mut self,
         screen_rect: &DeviceIntRect,
-        device_pixel_ratio: f32,
+        device_pixel_scale: DevicePixelScale,
         clip_store: &mut ClipStore,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
-        pan: LayerPoint,
+        pan: WorldPoint,
         node_data: &mut Vec<ClipScrollNodeData>,
         scene_properties: &SceneProperties,
     ) {
@@ -372,7 +372,7 @@ impl ClipScrollTree {
             root_reference_frame_id,
             &mut state,
             &mut next_coordinate_system_id,
-            device_pixel_ratio,
+            device_pixel_scale,
             clip_store,
             resource_cache,
             gpu_cache,
@@ -386,7 +386,7 @@ impl ClipScrollTree {
         layer_id: ClipId,
         state: &mut TransformUpdateState,
         next_coordinate_system_id: &mut CoordinateSystemId,
-        device_pixel_ratio: f32,
+        device_pixel_scale: DevicePixelScale,
         clip_store: &mut ClipStore,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
@@ -408,7 +408,7 @@ impl ClipScrollTree {
             node.update(
                 &mut state,
                 next_coordinate_system_id,
-                device_pixel_ratio,
+                device_pixel_scale,
                 clip_store,
                 resource_cache,
                 gpu_cache,
@@ -430,7 +430,7 @@ impl ClipScrollTree {
                 child_layer_id,
                 &mut state,
                 next_coordinate_system_id,
-                device_pixel_ratio,
+                device_pixel_scale,
                 clip_store,
                 resource_cache,
                 gpu_cache,

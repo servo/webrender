@@ -3,7 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderRadius, BuiltDisplayList, ClipAndScrollInfo, ClipId, ClipMode, ColorF, ColorU};
-use api::{ComplexClipRegion, DeviceIntRect, DevicePoint, ExtendMode, FontRenderMode};
+use api::{DeviceIntRect, DevicePixelScale, DevicePoint};
+use api::{ComplexClipRegion, ExtendMode, FontRenderMode};
 use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
 use api::{LineStyle, PipelineId, PremultipliedColorF, TileOffset, WorldToLayerTransform};
@@ -17,7 +18,7 @@ use internal_types::{FastHashMap};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
 use gpu_types::ClipScrollNodeData;
-use picture::{PictureKind, PicturePrimitive, RasterizationSpace};
+use picture::{PictureKind, PicturePrimitive};
 use profiler::FrameProfileCounters;
 use render_task::{ClipChain, ClipChainNode, ClipChainNodeIter, ClipWorkItem, RenderTask};
 use render_task::{RenderTaskId, RenderTaskTree};
@@ -656,13 +657,12 @@ pub struct TextRunPrimitiveCpu {
 impl TextRunPrimitiveCpu {
     pub fn get_font(
         &self,
-        device_pixel_ratio: f32,
-        transform: &LayerToWorldTransform,
-        rasterization_kind: RasterizationSpace,
+        device_pixel_scale: DevicePixelScale,
+        transform: Option<&LayerToWorldTransform>,
     ) -> FontInstance {
         let mut font = self.font.clone();
-        font.size = font.size.scale_by(device_pixel_ratio);
-        if rasterization_kind == RasterizationSpace::Screen {
+        font.size = font.size.scale_by(device_pixel_scale.0);
+        if let Some(transform) = transform {
             if transform.has_perspective_component() || !transform.has_2d_inverse() {
                 font.render_mode = font.render_mode.limit_by(FontRenderMode::Alpha);
             } else {
@@ -679,13 +679,12 @@ impl TextRunPrimitiveCpu {
     fn prepare_for_render(
         &mut self,
         resource_cache: &mut ResourceCache,
-        device_pixel_ratio: f32,
-        transform: &LayerToWorldTransform,
+        device_pixel_scale: DevicePixelScale,
+        transform: Option<&LayerToWorldTransform>,
         display_list: &BuiltDisplayList,
         gpu_cache: &mut GpuCache,
-        rasterization_kind: RasterizationSpace,
     ) {
-        let font = self.get_font(device_pixel_ratio, transform, rasterization_kind);
+        let font = self.get_font(device_pixel_scale, transform);
 
         // Cache the glyph positions, if not in the cache already.
         // TODO(gw): In the future, remove `glyph_instances`
@@ -1179,13 +1178,20 @@ impl PrimitiveStore {
             PrimitiveKind::TextRun => {
                 let pic = &self.cpu_pictures[pic_index.0];
                 let text = &mut self.cpu_text_runs[metadata.cpu_prim_index.0];
+                // The transform only makes sense for screen space rasterization
+                let transform = match pic.kind {
+                    PictureKind::BoxShadow { .. } => None,
+                    PictureKind::TextShadow { .. } => None,
+                    PictureKind::Image { .. } => {
+                        Some(&prim_context.scroll_node.world_content_transform)
+                    },
+                };
                 text.prepare_for_render(
                     resource_cache,
-                    prim_context.device_pixel_ratio,
-                    &prim_context.scroll_node.world_content_transform,
+                    prim_context.device_pixel_scale,
+                    transform,
                     prim_context.display_list,
                     gpu_cache,
-                    pic.rasterization_kind,
                 );
             }
             PrimitiveKind::Image => {
@@ -1481,7 +1487,7 @@ impl PrimitiveStore {
                 let segment_screen_rect = calculate_screen_bounding_rect(
                     &prim_context.scroll_node.world_content_transform,
                     &segment.local_rect,
-                    prim_context.device_pixel_ratio
+                    prim_context.device_pixel_scale,
                 );
 
                 combined_outer_rect.intersection(&segment_screen_rect).map(|bounds| {
@@ -1542,7 +1548,7 @@ impl PrimitiveStore {
             if prim_clips.has_clips() {
                 prim_clips.update(gpu_cache, resource_cache);
                 let (screen_inner_rect, screen_outer_rect) =
-                    prim_clips.get_screen_bounds(transform, prim_context.device_pixel_ratio);
+                    prim_clips.get_screen_bounds(transform, prim_context.device_pixel_scale);
 
                 if let Some(outer) = screen_outer_rect {
                     combined_outer_rect = combined_outer_rect.and_then(|r| r.intersection(&outer));
@@ -1749,7 +1755,7 @@ impl PrimitiveStore {
             let screen_bounding_rect = calculate_screen_bounding_rect(
                 &prim_context.scroll_node.world_content_transform,
                 &local_rect,
-                prim_context.device_pixel_ratio
+                prim_context.device_pixel_scale,
             );
 
             let clip_bounds = &prim_context.clip_node.combined_clip_outer_bounds;
@@ -1861,7 +1867,7 @@ impl PrimitiveStore {
                 .display_list;
 
             let child_prim_context = PrimitiveContext::new(
-                parent_prim_context.device_pixel_ratio,
+                parent_prim_context.device_pixel_scale,
                 display_list,
                 clip_node,
                 scroll_node,
