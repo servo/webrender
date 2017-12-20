@@ -29,7 +29,10 @@ options(disable-aa) == ahem.yaml ahem-ref.yaml
 platform(linux) == isolated-text.yaml isolated-text.png
 platform(mac) == white-opacity.yaml white-opacity.png
 fuzzy(1,4) platform(linux) options(disable-subpixel) == colors.yaml colors-alpha.png
-fuzzy(1,6) platform(linux) == colors.yaml colors-subpx.png
+# Run without dual-source blending path, batches are broken when text colors change.
+fuzzy(1,6) platform(linux) options(disable-dual-source-blending) draw_calls(5) == colors.yaml colors-subpx.png
+# Run with both dual-source blending, ensuring batching is improved.
+fuzzy(1,6) platform(linux) draw_calls(2) == colors.yaml colors-subpx.png
 platform(linux) options(disable-subpixel) == border-radius.yaml border-radius-alpha.png
 platform(linux) == border-radius.yaml border-radius-subpx.png
 options(disable-aa) == transparent-no-aa.yaml transparent-no-aa-ref.yaml

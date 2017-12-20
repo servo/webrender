@@ -288,8 +288,9 @@ enum TextShaderMode {
     SubpixelWithBgColorPass0 = 4,
     SubpixelWithBgColorPass1 = 5,
     SubpixelWithBgColorPass2 = 6,
-    Bitmap = 7,
-    ColorBitmap = 8,
+    SubpixelDualSource = 7,
+    Bitmap = 8,
+    ColorBitmap = 9,
 }
 
 impl Into<ShaderMode> for TextShaderMode {
@@ -768,6 +769,7 @@ pub enum BlendMode {
     None,
     PremultipliedAlpha,
     PremultipliedDestOut,
+    SubpixelDualSource,
     SubpixelConstantTextColor(ColorF),
     SubpixelWithBgColor,
     SubpixelVariableTextColor,
@@ -1297,6 +1299,7 @@ impl BrushShader {
             }
             BlendMode::PremultipliedAlpha |
             BlendMode::PremultipliedDestOut |
+            BlendMode::SubpixelDualSource |
             BlendMode::SubpixelConstantTextColor(..) |
             BlendMode::SubpixelVariableTextColor |
             BlendMode::SubpixelWithBgColor => {
@@ -1597,6 +1600,7 @@ pub struct Renderer {
     // output, and the cache_image shader blits the results of
     // a cache shader (e.g. blur) to the screen.
     ps_text_run: TextShader,
+    ps_text_run_dual_source: TextShader,
     ps_image: Vec<Option<PrimitiveShader>>,
     ps_yuv_image: Vec<Option<PrimitiveShader>>,
     ps_border_corner: PrimitiveShader,
@@ -1723,6 +1727,9 @@ impl Renderer {
             Box::new(file_watch_handler),
             options.cached_programs,
         );
+
+        let ext_dual_source_blending = !options.disable_dual_source_blending &&
+            device.supports_extension("GL_ARB_blend_func_extended");
 
         let device_max_size = device.max_texture_size();
         // 512 is the minimum that the texture cache can work with.
@@ -1859,7 +1866,14 @@ impl Renderer {
             TextShader::new("ps_text_run",
                             &mut device,
                             &[],
-                           options.precache_shaders)
+                            options.precache_shaders)
+        };
+
+        let ps_text_run_dual_source = try!{
+            TextShader::new("ps_text_run",
+                            &mut device,
+                            &["DUAL_SOURCE_BLENDING"],
+                            options.precache_shaders)
         };
 
         // All image configuration.
@@ -2150,6 +2164,8 @@ impl Renderer {
             enable_scrollbars: options.enable_scrollbars,
             default_font_render_mode,
             debug: options.debug,
+            dual_source_blending_is_enabled: true,
+            dual_source_blending_is_supported: ext_dual_source_blending,
         };
 
         let device_pixel_ratio = options.device_pixel_ratio;
@@ -2236,6 +2252,7 @@ impl Renderer {
             cs_clip_border,
             cs_clip_image,
             ps_text_run,
+            ps_text_run_dual_source,
             ps_image,
             ps_yuv_image,
             ps_border_corner,
@@ -2637,6 +2654,9 @@ impl Renderer {
             DebugCommand::SaveCapture(_) |
             DebugCommand::LoadCapture(_) => {
                 panic!("Capture commands are not welcome here!")
+            }
+            DebugCommand::EnableDualSourceBlending(_) => {
+                panic!("Should be handled by render backend");
             }
         }
     }
@@ -3476,6 +3496,7 @@ impl Renderer {
                         BlendMode::SubpixelConstantTextColor(..) => debug_colors::GREEN,
                         BlendMode::SubpixelVariableTextColor => debug_colors::RED,
                         BlendMode::SubpixelWithBgColor => debug_colors::BLUE,
+                        BlendMode::SubpixelDualSource => debug_colors::YELLOW,
                     }.into();
                     for item_rect in &batch.item_rects {
                         self.debug.add_rect(item_rect, color);
@@ -3505,6 +3526,25 @@ impl Renderer {
                                     transform_kind,
                                     projection,
                                     TextShaderMode::from(glyph_format),
+                                    &mut self.renderer_errors,
+                                );
+
+                                self.draw_instanced_batch(
+                                    &batch.instances,
+                                    VertexArrayKind::Primitive,
+                                    &batch.key.textures,
+                                    stats,
+                                );
+                            }
+                            BlendMode::SubpixelDualSource => {
+                                self.device.set_blend_mode_subpixel_dual_source();
+
+                                self.ps_text_run_dual_source.bind(
+                                    &mut self.device,
+                                    glyph_format,
+                                    transform_kind,
+                                    projection,
+                                    TextShaderMode::SubpixelDualSource,
                                     &mut self.renderer_errors,
                                 );
 
@@ -3655,7 +3695,8 @@ impl Renderer {
                                 }
                                 BlendMode::SubpixelConstantTextColor(..) |
                                 BlendMode::SubpixelVariableTextColor |
-                                BlendMode::SubpixelWithBgColor => {
+                                BlendMode::SubpixelWithBgColor |
+                                BlendMode::SubpixelDualSource => {
                                     unreachable!("bug: subpx text handled earlier");
                                 }
                             }
@@ -4477,6 +4518,7 @@ impl Renderer {
         self.cs_clip_image.deinit(&mut self.device);
         self.cs_clip_border.deinit(&mut self.device);
         self.ps_text_run.deinit(&mut self.device);
+        self.ps_text_run_dual_source.deinit(&mut self.device);
         for shader in self.ps_image {
             if let Some(shader) = shader {
                 shader.deinit(&mut self.device);
@@ -4582,6 +4624,7 @@ pub struct RendererOptions {
     pub cached_programs: Option<Rc<ProgramCache>>,
     pub debug_flags: DebugFlags,
     pub renderer_id: Option<u64>,
+    pub disable_dual_source_blending: bool,
 }
 
 impl Default for RendererOptions {
@@ -4613,6 +4656,7 @@ impl Default for RendererOptions {
             enable_render_on_scroll: true,
             renderer_id: None,
             cached_programs: None,
+            disable_dual_source_blending: false,
         }
     }
 }

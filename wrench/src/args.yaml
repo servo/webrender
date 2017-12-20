@@ -32,6 +32,9 @@ args:
       short: a
       long: no-subpixel-aa
       help: Disable subpixel aa
+  - slow_subpixel:
+      long: slow-subpixel
+      help: Disable dual source blending
   - headless:
       short: h
       long: headless

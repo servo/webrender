@@ -588,6 +588,22 @@ impl RenderBackend {
                             self.load_capture(&root, &mut profile_counters);
                             ResultMsg::DebugOutput(DebugOutput::LoadCapture)
                         },
+                        DebugCommand::EnableDualSourceBlending(enable) => {
+                            // Set in the config used for any future documents
+                            // that are created.
+                            self.frame_config
+                                .dual_source_blending_is_enabled = enable;
+
+                            // Set for any existing documents.
+                            for (_, doc) in &mut self.documents {
+                                doc.frame_ctx
+                                   .frame_builder_config
+                                   .dual_source_blending_is_enabled = enable;
+                            }
+
+                            // We don't want to forward this message to the renderer.
+                            continue;
+                        }
                         _ => ResultMsg::DebugCommand(option),
                     };
                     self.result_tx.send(msg).unwrap();

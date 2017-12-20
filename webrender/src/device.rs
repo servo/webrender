@@ -1925,6 +1925,9 @@ impl Device {
             .blend_func(gl::CONSTANT_COLOR, gl::ONE_MINUS_SRC_COLOR);
         self.gl.blend_equation(gl::FUNC_ADD);
     }
+    pub fn set_blend_mode_subpixel_dual_source(&self) {
+        self.gl.blend_func(gl::ONE, gl::ONE_MINUS_SRC1_COLOR);
+    }
 
     pub fn supports_extension(&self, extension: &str) -> bool {
         self.extensions.iter().any(|s| s == extension)

@@ -314,7 +314,8 @@ impl BatchList {
             BlendMode::PremultipliedDestOut |
             BlendMode::SubpixelConstantTextColor(..) |
             BlendMode::SubpixelVariableTextColor |
-            BlendMode::SubpixelWithBgColor => {
+            BlendMode::SubpixelWithBgColor |
+            BlendMode::SubpixelDualSource => {
                 self.alpha_batch_list
                     .get_suitable_batch(key, item_bounding_rect)
             }
@@ -594,6 +595,8 @@ fn add_to_batch(
                         GlyphFormat::TransformedSubpixel => {
                             if text_cpu.font.bg_color.a != 0 {
                                 BlendMode::SubpixelWithBgColor
+                            } else if ctx.use_dual_source_blending {
+                                BlendMode::SubpixelDualSource
                             } else {
                                 BlendMode::SubpixelConstantTextColor(text_cpu.font.color.into())
                             }
@@ -1244,6 +1247,7 @@ pub struct RenderTargetContext<'a> {
     pub resource_cache: &'a ResourceCache,
     pub node_data: &'a [ClipScrollNodeData],
     pub clip_scroll_tree: &'a ClipScrollTree,
+    pub use_dual_source_blending: bool,
 }
 
 struct TextureAllocator {
