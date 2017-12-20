@@ -275,13 +275,13 @@ pub struct BrushSegmentDescriptor {
 #[derive(Debug)]
 pub struct BrushPrimitive {
     pub kind: BrushKind,
-    pub segment_desc: Option<Box<BrushSegmentDescriptor>>,
+    pub segment_desc: Option<BrushSegmentDescriptor>,
 }
 
 impl BrushPrimitive {
     pub fn new(
         kind: BrushKind,
-        segment_desc: Option<Box<BrushSegmentDescriptor>>,
+        segment_desc: Option<BrushSegmentDescriptor>,
     ) -> BrushPrimitive {
         BrushPrimitive {
             kind,
@@ -1359,66 +1359,61 @@ impl PrimitiveStore {
         // If true, we need a clip mask for the entire primitive. This
         // is either because we don't handle segmenting this clip source,
         // or we have a clip source from a different coordinate system.
-        let mut has_global_mask = false;
+        let mut clip_mask_kind = BrushClipMaskKind::Individual;
 
         // Segment the primitive on all the local-space clip sources
         // that we can.
         for clip_item in clips {
-            if clip_item.coordinate_system_id == prim_context.scroll_node.coordinate_system_id {
-                let local_clips = clip_store.get_opt(&clip_item.clip_sources).expect("bug");
+            if clip_item.coordinate_system_id != prim_context.scroll_node.coordinate_system_id {
+                clip_mask_kind = BrushClipMaskKind::Global;
+                continue;
+            }
 
-                for &(ref clip, _) in &local_clips.clips {
-                    let (local_clip_rect, radius, mode) = match *clip {
-                        ClipSource::RoundedRectangle(rect, radii, clip_mode) => {
-                            (rect, Some(radii), clip_mode)
-                        }
-                        ClipSource::Rectangle(rect) => {
-                            (rect, None, ClipMode::Clip)
-                        }
-                        ClipSource::BorderCorner(..) |
-                        ClipSource::Image(..) => {
-                            // TODO(gw): We can easily extend the segment builder
-                            //           to support these clip sources in the
-                            //           future, but they are rarely used.
-                            has_global_mask = true;
-                            continue;
-                        }
-                    };
+            let local_clips = clip_store.get_opt(&clip_item.clip_sources).expect("bug");
 
-                    // If the scroll node transforms are different between the clip
-                    // node and the primitive, we need to get the clip rect in the
-                    // local space of the primitive, in order to generate correct
-                    // local segments.
-                    let local_clip_rect = if clip_item.scroll_node_data_index == prim_context.scroll_node.node_data_index {
-                        local_clip_rect
-                    } else {
-                        let clip_transform_data = &node_data[clip_item.scroll_node_data_index.0 as usize];
-                        let prim_transform = &prim_context.scroll_node.world_content_transform;
+            for &(ref clip, _) in &local_clips.clips {
+                let (local_clip_rect, radius, mode) = match *clip {
+                    ClipSource::RoundedRectangle(rect, radii, clip_mode) => {
+                        (rect, Some(radii), clip_mode)
+                    }
+                    ClipSource::Rectangle(rect) => {
+                        (rect, None, ClipMode::Clip)
+                    }
+                    ClipSource::BorderCorner(..) |
+                    ClipSource::Image(..) => {
+                        // TODO(gw): We can easily extend the segment builder
+                        //           to support these clip sources in the
+                        //           future, but they are rarely used.
+                        clip_mask_kind = BrushClipMaskKind::Global;
+                        continue;
+                    }
+                };
 
-                        let relative_transform = prim_transform
-                            .inverse()
-                            .unwrap_or(WorldToLayerTransform::identity())
-                            .pre_mul(&clip_transform_data.transform);
+                // If the scroll node transforms are different between the clip
+                // node and the primitive, we need to get the clip rect in the
+                // local space of the primitive, in order to generate correct
+                // local segments.
+                let local_clip_rect = if clip_item.scroll_node_data_index == prim_context.scroll_node.node_data_index {
+                    local_clip_rect
+                } else {
+                    let clip_transform_data = &node_data[clip_item.scroll_node_data_index.0 as usize];
+                    let prim_transform = &prim_context.scroll_node.world_content_transform;
 
-                        relative_transform.transform_rect(&local_clip_rect)
-                    };
+                    let relative_transform = prim_transform
+                        .inverse()
+                        .unwrap_or(WorldToLayerTransform::identity())
+                        .pre_mul(&clip_transform_data.transform);
 
-                    segment_builder.push_rect(
-                        local_clip_rect,
-                        radius,
-                        mode
-                    );
-                }
-            } else {
-                has_global_mask = true;
+                    relative_transform.transform_rect(&local_clip_rect)
+                };
+
+                segment_builder.push_rect(
+                    local_clip_rect,
+                    radius,
+                    mode
+                );
             }
         }
-
-        let clip_mask_kind = if has_global_mask {
-            BrushClipMaskKind::Global
-        } else {
-            BrushClipMaskKind::Individual
-        };
 
         match brush.segment_desc {
             Some(ref mut segment_desc) => {
@@ -1442,10 +1437,10 @@ impl PrimitiveStore {
                     );
                 });
 
-                brush.segment_desc = Some(Box::new(BrushSegmentDescriptor {
+                brush.segment_desc = Some(BrushSegmentDescriptor {
                     segments,
                     clip_mask_kind,
-                }));
+                });
             }
         }
     }

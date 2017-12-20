@@ -759,7 +759,7 @@ impl FrameBuilder {
         clip_and_scroll: ClipAndScrollInfo,
         info: &LayerPrimitiveInfo,
         color: ColorF,
-        segments: Option<Box<BrushSegmentDescriptor>>,
+        segments: Option<BrushSegmentDescriptor>,
     ) {
         if color.a == 0.0 {
             // Don't add transparent rectangles to the draw list, but do consider them for hit

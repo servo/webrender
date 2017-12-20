@@ -433,28 +433,20 @@ impl FrameBuilder {
             );
             let p3 = info.rect.bottom_right();
 
+            let segment = |x0, y0, x1, y1, mask| BrushSegment::new(
+                LayerPoint::new(x0, y0),
+                LayerSize::new(x1-x0, y1-y0),
+                false,
+                mask
+            );
+
             // Add a solid rectangle for each visible edge/corner combination.
             if top_edge == BorderEdgeKind::Solid {
                 let descriptor = BrushSegmentDescriptor {
                     segments: vec![
-                        BrushSegment::new(
-                            LayerPoint::new(p0.x, p0.y),
-                            LayerSize::new(p1.x - p0.x, p1.y - p0.y),
-                            false,
-                            EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::LEFT,
-                        ),
-                        BrushSegment::new(
-                            LayerPoint::new(p2.x, p0.y),
-                            LayerSize::new(p3.x - p2.x, p1.y - p0.y),
-                            false,
-                            EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::RIGHT,
-                        ),
-                        BrushSegment::new(
-                            LayerPoint::new(p1.x, p0.y),
-                            LayerSize::new(p2.x - p1.x, p1.y - p0.y),
-                            false,
-                            EdgeAaSegmentMask::TOP,
-                        ),
+                        segment(p0.x, p0.y, p1.x, p1.y, EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::LEFT),
+                        segment(p2.x, p0.y, p3.x, p1.y, EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::RIGHT),
+                        segment(p1.x, p0.y, p2.x, p1.y, EdgeAaSegmentMask::TOP),
                     ],
                     clip_mask_kind: BrushClipMaskKind::Unknown,
                 };
@@ -463,19 +455,14 @@ impl FrameBuilder {
                     clip_and_scroll,
                     &info,
                     border.top.color,
-                    Some(Box::new(descriptor)),
+                    Some(descriptor),
                 );
             }
 
             if left_edge == BorderEdgeKind::Solid {
                 let descriptor = BrushSegmentDescriptor {
                     segments: vec![
-                        BrushSegment::new(
-                            LayerPoint::new(p0.x, p1.y),
-                            LayerSize::new(p1.x - p0.x, p2.y - p1.y),
-                            false,
-                            EdgeAaSegmentMask::LEFT,
-                        ),
+                        segment(p0.x, p1.y, p1.x, p2.y, EdgeAaSegmentMask::LEFT),
                     ],
                     clip_mask_kind: BrushClipMaskKind::Unknown,
                 };
@@ -484,19 +471,14 @@ impl FrameBuilder {
                     clip_and_scroll,
                     &info,
                     border.left.color,
-                    Some(Box::new(descriptor)),
+                    Some(descriptor),
                 );
             }
 
             if right_edge == BorderEdgeKind::Solid {
                 let descriptor = BrushSegmentDescriptor {
                     segments: vec![
-                        BrushSegment::new(
-                            LayerPoint::new(p2.x, p1.y),
-                            LayerSize::new(p3.x - p2.x, p2.y - p1.y),
-                            false,
-                            EdgeAaSegmentMask::RIGHT,
-                        ),
+                        segment(p2.x, p1.y, p3.x, p2.y, EdgeAaSegmentMask::RIGHT),
                     ],
                     clip_mask_kind: BrushClipMaskKind::Unknown,
                 };
@@ -505,31 +487,16 @@ impl FrameBuilder {
                     clip_and_scroll,
                     &info,
                     border.right.color,
-                    Some(Box::new(descriptor)),
+                    Some(descriptor),
                 );
             }
 
             if bottom_edge == BorderEdgeKind::Solid {
                 let descriptor = BrushSegmentDescriptor {
                     segments: vec![
-                        BrushSegment::new(
-                            LayerPoint::new(p1.x, p2.y),
-                            LayerSize::new(p2.x - p1.x, p3.y - p2.y),
-                            false,
-                            EdgeAaSegmentMask::BOTTOM,
-                        ),
-                        BrushSegment::new(
-                            LayerPoint::new(p2.x, p2.y),
-                            LayerSize::new(p3.x - p2.x, p3.y - p2.y),
-                            false,
-                            EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::RIGHT,
-                        ),
-                        BrushSegment::new(
-                            LayerPoint::new(p0.x, p2.y),
-                            LayerSize::new(p1.x - p0.x, p3.y - p2.y),
-                            false,
-                            EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::LEFT,
-                        ),
+                        segment(p1.x, p2.y, p2.x, p3.y, EdgeAaSegmentMask::BOTTOM),
+                        segment(p2.x, p2.y, p3.x, p3.y, EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::RIGHT),
+                        segment(p0.x, p2.y, p1.x, p3.y, EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::LEFT),
                     ],
                     clip_mask_kind: BrushClipMaskKind::Unknown,
                 };
@@ -538,7 +505,7 @@ impl FrameBuilder {
                     clip_and_scroll,
                     &info,
                     border.bottom.color,
-                    Some(Box::new(descriptor)),
+                    Some(descriptor),
                 );
             }
         } else {
