@@ -102,25 +102,17 @@ impl FontTransform {
         )
     }
 
-    #[allow(dead_code)]
-    pub fn inverse(&self) -> Option<Self> {
-        let det = self.determinant();
-        if det != 0.0 {
-            let inv_det = det.recip() as f32;
-            Some(FontTransform::new(
-                self.scale_y * inv_det,
-                -self.skew_x * inv_det,
-                -self.skew_y * inv_det,
-                self.scale_x * inv_det
-            ))
-        } else {
-            None
-        }
+    pub fn invert_scale(&self, x_scale: f64, y_scale: f64) -> Self {
+        self.pre_scale(x_scale.recip() as f32, y_scale.recip() as f32)
     }
 
-    #[allow(dead_code)]
-    pub fn apply(&self, x: f32, y: f32) -> (f32, f32) {
-        (self.scale_x * x + self.skew_x * y, self.skew_y * x + self.scale_y * y)
+    pub fn synthesize_italics(&self, skew_factor: f32) -> Self {
+        FontTransform::new(
+            self.scale_x,
+            self.skew_x - self.scale_x * skew_factor,
+            self.skew_y,
+            self.scale_y - self.skew_y * skew_factor,
+        )
     }
 }
 
