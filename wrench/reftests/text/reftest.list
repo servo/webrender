@@ -23,8 +23,7 @@ fuzzy(1,614) == shadow-grey-transparent.yaml shadow-grey-ref.yaml
 == subtle-shadow.yaml subtle-shadow-ref.yaml
 options(disable-aa) == shadow-atomic.yaml shadow-atomic-ref.yaml
 options(disable-aa) == shadow-ordering.yaml shadow-ordering-ref.yaml
-# enable when synthetic-italics implemented on mac
-platform(linux) != synthetic-italics.yaml synthetic-italics-ref.yaml
+!= synthetic-italics.yaml synthetic-italics-ref.yaml
 options(disable-aa) == ahem.yaml ahem-ref.yaml
 platform(linux) == isolated-text.yaml isolated-text.png
 platform(mac) == white-opacity.yaml white-opacity.png
