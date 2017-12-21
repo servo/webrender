@@ -25,6 +25,8 @@ extern crate glutin;
 extern crate image;
 #[macro_use]
 extern crate lazy_static;
+#[macro_use]
+extern crate log;
 #[cfg(feature = "headless")]
 extern crate osmesa_sys;
 extern crate ron;
