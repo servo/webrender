@@ -3,8 +3,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderRadius, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePoint, DeviceRect};
-use api::{DeviceSize, LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, WorldRect};
-use euclid::{Point2D, Rect, TypedScale, Size2D, TypedPoint2D, TypedRect, TypedSize2D};
+use api::{DeviceSize, LayerPoint, LayerRect, LayerSize};
+use api::{DevicePixelScale, LayerToWorldTransform, WorldRect};
+use euclid::{Point2D, Rect, Size2D, TypedPoint2D, TypedRect, TypedSize2D};
 use euclid::{TypedTransform2D, TypedTransform3D};
 use num_traits::Zero;
 use std::{i32, f32};
@@ -140,7 +141,7 @@ pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
 pub fn calculate_screen_bounding_rect(
     transform: &LayerToWorldTransform,
     rect: &LayerRect,
-    device_pixel_ratio: f32
+    device_pixel_scale: DevicePixelScale,
 ) -> DeviceIntRect {
     let points = [
         transform.transform_point2d(&rect.origin),
@@ -149,9 +150,7 @@ pub fn calculate_screen_bounding_rect(
         transform.transform_point2d(&rect.bottom_right()),
     ];
 
-    let scale = TypedScale::new(device_pixel_ratio);
-    let rect: DeviceRect = WorldRect::from_points(&points) * scale;
-
+    let rect = WorldRect::from_points(&points) * device_pixel_scale;
     let max_rect = DeviceRect::max_rect();
     rect
         .round_out()

@@ -2,15 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ClipId, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixel};
-use api::{LayerPoint, LayerRect, PremultipliedColorF};
+use api::{ClipId, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
+use api::{LayerRect, PremultipliedColorF};
 use box_shadow::BoxShadowCacheKey;
 use clip::{ClipSourcesWeakHandle};
 use clip_scroll_tree::CoordinateSystemId;
-use euclid::TypedSize2D;
 use gpu_types::{ClipScrollNodeIndex};
 use internal_types::RenderPassIndex;
-use picture::RasterizationSpace;
+use picture::ContentOrigin;
 use prim_store::{PrimitiveIndex};
 #[cfg(feature = "debugger")]
 use print_tree::{PrintTreePrinter};
@@ -154,7 +153,7 @@ impl ops::IndexMut<RenderTaskId> for RenderTaskTree {
 pub enum RenderTaskKey {
     /// Draw the alpha mask for a shared clip.
     CacheMask(ClipId),
-    CacheScaling(BoxShadowCacheKey, TypedSize2D<i32, DevicePixel>),
+    CacheScaling(BoxShadowCacheKey, DeviceIntSize),
     CacheBlur(BoxShadowCacheKey, i32),
     CachePicture(BoxShadowCacheKey),
 }
@@ -183,9 +182,8 @@ pub struct CacheMaskTask {
 pub struct PictureTask {
     pub prim_index: PrimitiveIndex,
     pub target_kind: RenderTargetKind,
-    pub content_origin: LayerPoint,
+    pub content_origin: ContentOrigin,
     pub color: PremultipliedColorF,
-    pub rasterization_kind: RasterizationSpace,
 }
 
 #[derive(Debug)]
@@ -250,11 +248,9 @@ impl RenderTask {
         size: Option<DeviceIntSize>,
         prim_index: PrimitiveIndex,
         target_kind: RenderTargetKind,
-        content_origin_x: f32,
-        content_origin_y: f32,
+        content_origin: ContentOrigin,
         color: PremultipliedColorF,
         clear_mode: ClearMode,
-        rasterization_kind: RasterizationSpace,
         children: Vec<RenderTaskId>,
         box_shadow_cache_key: Option<BoxShadowCacheKey>,
     ) -> Self {
@@ -273,9 +269,8 @@ impl RenderTask {
             kind: RenderTaskKind::Picture(PictureTask {
                 prim_index,
                 target_kind,
-                content_origin: LayerPoint::new(content_origin_x, content_origin_y),
+                content_origin,
                 color,
-                rasterization_kind,
             }),
             clear_mode,
             pass_index: None,
@@ -443,11 +438,15 @@ impl RenderTask {
         let (data1, data2) = match self.kind {
             RenderTaskKind::Picture(ref task) => {
                 (
-                    [
-                        task.content_origin.x,
-                        task.content_origin.y,
-                        task.rasterization_kind as u32 as f32,
-                    ],
+                    // Note: has to match `RASTERIZATION_MODE_*_SPACE` in shaders
+                    match task.content_origin {
+                        ContentOrigin::Local(point) => [
+                            point.x, point.y, 0.0,
+                        ],
+                        ContentOrigin::Screen(point) => [
+                            point.x as f32, point.y as f32, 1.0,
+                        ],
+                    },
                     task.color.to_array()
                 )
             }
@@ -592,7 +591,6 @@ impl RenderTask {
             RenderTaskKind::Picture(ref task) => {
                 pt.new_level(format!("Picture of {:?}", task.prim_index));
                 pt.add_item(format!("kind: {:?}", task.target_kind));
-                pt.add_item(format!("space: {:?}", task.rasterization_kind));
             }
             RenderTaskKind::CacheMask(ref task) => {
                 pt.new_level(format!("CacheMask with {} clips", task.clips.len()));

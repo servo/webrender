@@ -2,6 +2,11 @@ target/
 *~
 *#
 
+# WR internals
+webrender/captures
+wrench/json_frames
+wrench/ron_frames
+
 # Editors
 *.swp
 *.swo

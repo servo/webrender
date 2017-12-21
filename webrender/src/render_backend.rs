@@ -5,14 +5,13 @@
 use api::{ApiMsg, BlobImageRenderer, BuiltDisplayList, DebugCommand, DeviceIntPoint};
 #[cfg(feature = "debugger")]
 use api::{BuiltDisplayListIter, SpecificDisplayItem};
-use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize};
+use api::{DevicePixelScale, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{DocumentId, DocumentLayer, DocumentMsg};
 use api::{IdNamespace, PipelineId, RenderNotifier};
 use api::channel::{MsgReceiver, PayloadReceiver, PayloadReceiverHelperMethods};
 use api::channel::{PayloadSender, PayloadSenderHelperMethods};
 #[cfg(feature = "debugger")]
 use debug_server;
-use euclid::TypedScale;
 use frame::FrameContext;
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use gpu_cache::GpuCache;
@@ -52,10 +51,12 @@ struct DocumentView {
 }
 
 impl DocumentView {
-    fn accumulated_scale_factor(&self) -> f32 {
-        self.device_pixel_ratio *
-        self.page_zoom_factor *
-        self.pinch_zoom_factor
+    fn accumulated_scale_factor(&self) -> DevicePixelScale {
+        DevicePixelScale::new(
+            self.device_pixel_ratio *
+            self.page_zoom_factor *
+            self.pinch_zoom_factor
+        )
     }
 }
 
@@ -128,7 +129,7 @@ impl Document {
         resource_profile: &mut ResourceProfileCounters,
     ) -> RenderedDocument {
         let accumulated_scale_factor = self.view.accumulated_scale_factor();
-        let pan = self.view.pan.to_f32() * TypedScale::new(1.0 / accumulated_scale_factor);
+        let pan = self.view.pan.to_f32() / accumulated_scale_factor;
         self.frame_ctx.build_rendered_document(
             self.frame_builder.as_mut().unwrap(),
             resource_cache,
