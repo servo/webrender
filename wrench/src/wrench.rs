@@ -138,6 +138,8 @@ pub struct Wrench {
     pub verbose: bool,
 
     pub frame_start_sender: chase_lev::Worker<time::SteadyTime>,
+
+    pub callbacks: Arc<Mutex<blob::BlobCallbacks>>,
 }
 
 impl Wrench {
@@ -174,6 +176,7 @@ impl Wrench {
 
         let mut debug_flags = DebugFlags::default();
         debug_flags.set(DebugFlags::DISABLE_BATCHING, no_batch);
+        let callbacks = Arc::new(Mutex::new(blob::BlobCallbacks::new()));
 
         let opts = webrender::RendererOptions {
             device_pixel_ratio: dp_ratio,
@@ -185,7 +188,7 @@ impl Wrench {
             enable_clear_scissor: !no_scissor,
             max_recorded_profiles: 16,
             precache_shaders,
-            blob_image_renderer: Some(Box::new(blob::CheckerboardRenderer::new())),
+            blob_image_renderer: Some(Box::new(blob::CheckerboardRenderer::new(callbacks.clone()))),
             disable_dual_source_blending,
             ..Default::default()
         };
@@ -225,6 +228,8 @@ impl Wrench {
 
             graphics_api,
             frame_start_sender: timing_sender,
+
+            callbacks,
         };
 
         wrench.set_title("start");

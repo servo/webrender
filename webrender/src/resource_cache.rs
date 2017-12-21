@@ -532,8 +532,10 @@ impl ResourceCache {
         // valid to use as-is.
         let (entry, needs_update) = match self.cached_images.entry(request) {
             Occupied(entry) => {
-                let needs_update = entry.get().as_ref().unwrap().epoch != template.epoch;
-                (entry.into_mut(), needs_update)
+                let info = entry.into_mut();
+                let needs_update = info.as_mut().unwrap().epoch != template.epoch;
+                info.as_mut().unwrap().epoch = template.epoch;
+                (info, needs_update)
             }
             Vacant(entry) => (
                 entry.insert(Ok(

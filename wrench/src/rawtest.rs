@@ -5,6 +5,8 @@
 use WindowWrapper;
 use blob;
 use euclid::{TypedRect, TypedSize2D, TypedPoint2D};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::mpsc::Receiver;
 use webrender::api::*;
 use wrench::Wrench;
@@ -39,6 +41,7 @@ impl<'a> RawtestHarness<'a> {
     pub fn run(mut self) {
         self.test_retained_blob_images_test();
         self.test_blob_update_test();
+        self.test_blob_update_epoch_test();
         self.test_tile_decomposition();
         self.test_save_restore();
         self.test_capture();
@@ -50,6 +53,27 @@ impl<'a> RawtestHarness<'a> {
         self.wrench.renderer.read_pixels_rgba8(window_rect)
     }
 
+    fn submit_dl(
+        &mut self,
+        epoch: &mut Epoch,
+        layout_size: LayoutSize,
+        builder: DisplayListBuilder,
+        resources: Option<ResourceUpdates>
+    ) {
+        let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
+        self.wrench.api.set_display_list(
+            self.wrench.document_id,
+            *epoch,
+            root_background_color,
+            layout_size,
+            builder.finalize(),
+            false,
+            resources.unwrap_or(ResourceUpdates::new()),
+        );
+        epoch.0 += 1;
+
+        self.wrench.api.generate_frame(self.wrench.document_id, None);
+    }
 
     fn test_tile_decomposition(&mut self) {
         // This exposes a crash in tile decomposition
@@ -64,8 +88,6 @@ impl<'a> RawtestHarness<'a> {
             Some(128),
         );
 
-        let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
-
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
 
         let info = LayoutPrimitiveInfo::new(rect(448.899994, 74.0, 151.000031, 56.));
@@ -79,18 +101,9 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
         );
 
-        self.wrench.api.set_display_list(
-            self.wrench.document_id,
-            Epoch(0),
-            root_background_color,
-            layout_size,
-            builder.finalize(),
-            false,
-            resources,
-        );
-        self.wrench
-            .api
-            .generate_frame(self.wrench.document_id, None);
+        let mut epoch = Epoch(0);
+
+        self.submit_dl(&mut epoch, layout_size, builder, Some(resources));
 
         self.rx.recv().unwrap();
         self.wrench.render();
@@ -108,7 +121,6 @@ impl<'a> RawtestHarness<'a> {
         let window_size = DeviceUintSize::new(window_size.0, window_size.1);
 
         let test_size = DeviceUintSize::new(400, 400);
-        let document_id = self.wrench.document_id;
 
         let window_rect = DeviceUintRect::new(
             DeviceUintPoint::new(0, window_size.height - test_size.height),
@@ -127,7 +139,6 @@ impl<'a> RawtestHarness<'a> {
                 None,
             );
         }
-        let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
 
         // draw the blob the first time
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
@@ -141,17 +152,9 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
         );
 
-        self.wrench.api.set_display_list(
-            document_id,
-            Epoch(0),
-            root_background_color,
-            layout_size,
-            builder.finalize(),
-            false,
-            resources,
-        );
-        self.wrench.api.generate_frame(document_id, None);
+        let mut epoch = Epoch(0);
 
+        self.submit_dl(&mut epoch, layout_size, builder, Some(resources));
 
         // draw the blob image a second time at a different location
 
@@ -166,20 +169,22 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
         );
 
-        self.wrench.api.set_display_list(
-            document_id,
-            Epoch(1),
-            root_background_color,
-            layout_size,
-            builder.finalize(),
-            false,
-            ResourceUpdates::new(),
-        );
+        self.submit_dl(&mut epoch, layout_size, builder, None);
 
-        self.wrench.api.generate_frame(document_id, None);
+        let called = Arc::new(AtomicIsize::new(0));
+        let called_inner = Arc::clone(&called);
+
+        self.wrench.callbacks.lock().unwrap().request = Box::new(move |_| {
+            called_inner.fetch_add(1, Ordering::SeqCst);
+        });
 
         let pixels_first = self.render_and_get_pixels(window_rect);
+        assert!(called.load(Ordering::SeqCst) == 1);
+
         let pixels_second = self.render_and_get_pixels(window_rect);
+
+        // make sure we only requested once
+        assert!(called.load(Ordering::SeqCst) == 1);
 
         // use png;
         // png::save_flipped("out1.png", &pixels_first, window_rect.size);
@@ -188,12 +193,130 @@ impl<'a> RawtestHarness<'a> {
         assert!(pixels_first != pixels_second);
     }
 
+    fn test_blob_update_epoch_test(&mut self) {
+        let (blob_img, blob_img2);
+        let window_size = self.window.get_inner_size_pixels();
+        let window_size = DeviceUintSize::new(window_size.0, window_size.1);
+
+        let test_size = DeviceUintSize::new(400, 400);
+
+        let window_rect = DeviceUintRect::new(
+            point(0, window_size.height - test_size.height),
+            test_size,
+        );
+        let layout_size = LayoutSize::new(400., 400.);
+        let mut resources = ResourceUpdates::new();
+        let (blob_img, blob_img2) = {
+            let api = &self.wrench.api;
+
+            blob_img = api.generate_image_key();
+            resources.add_image(
+                blob_img,
+                ImageDescriptor::new(500, 500, ImageFormat::BGRA8, true),
+                ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
+                None,
+            );
+            blob_img2 = api.generate_image_key();
+            resources.add_image(
+                blob_img2,
+                ImageDescriptor::new(500, 500, ImageFormat::BGRA8, true),
+                ImageData::new_blob_image(blob::serialize_blob(ColorU::new(80, 50, 150, 255))),
+                None,
+            );
+            (blob_img, blob_img2)
+        };
+
+        // setup some counters to count how many times each image is requested
+        let img1_requested = Arc::new(AtomicIsize::new(0));
+        let img1_requested_inner = Arc::clone(&img1_requested);
+        let img2_requested = Arc::new(AtomicIsize::new(0));
+        let img2_requested_inner = Arc::clone(&img2_requested);
+
+        // track the number of times that the second image has been requested
+        self.wrench.callbacks.lock().unwrap().request = Box::new(move |&desc| {
+            if desc.key == blob_img {
+                img1_requested_inner.fetch_add(1, Ordering::SeqCst);
+            }
+            if desc.key == blob_img2 {
+                img2_requested_inner.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+
+        // create two blob images and draw them
+        let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
+        let info = LayoutPrimitiveInfo::new(rect(0.0, 60.0, 200.0, 200.0));
+        let info2 = LayoutPrimitiveInfo::new(rect(200.0, 60.0, 200.0, 200.0));
+        let push_images = |builder: &mut DisplayListBuilder| {
+            builder.push_image(
+                &info,
+                size(200.0, 200.0),
+                size(0.0, 0.0),
+                ImageRendering::Auto,
+                blob_img,
+            );
+            builder.push_image(
+                &info2,
+                size(200.0, 200.0),
+                size(0.0, 0.0),
+                ImageRendering::Auto,
+                blob_img2,
+            );
+        };
+
+        push_images(&mut builder);
+
+        let mut epoch = Epoch(0);
+
+        self.submit_dl(&mut epoch, layout_size, builder, Some(resources));
+        let _pixels_first = self.render_and_get_pixels(window_rect);
+
+
+        // update and redraw both images
+        let mut resources = ResourceUpdates::new();
+        resources.update_image(
+            blob_img,
+            ImageDescriptor::new(500, 500, ImageFormat::BGRA8, true),
+            ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
+            Some(rect(100, 100, 100, 100)),
+        );
+        resources.update_image(
+            blob_img2,
+            ImageDescriptor::new(500, 500, ImageFormat::BGRA8, true),
+            ImageData::new_blob_image(blob::serialize_blob(ColorU::new(59, 50, 150, 255))),
+            Some(rect(100, 100, 100, 100)),
+        );
+
+        let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
+        push_images(&mut builder);
+        self.submit_dl(&mut epoch, layout_size, builder, Some(resources));
+        let _pixels_second = self.render_and_get_pixels(window_rect);
+
+
+        // only update the first image
+        let mut resources = ResourceUpdates::new();
+        resources.update_image(
+            blob_img,
+            ImageDescriptor::new(500, 500, ImageFormat::BGRA8, true),
+            ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 150, 150, 255))),
+            Some(rect(200, 200, 100, 100)),
+        );
+
+        let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
+        push_images(&mut builder);
+        self.submit_dl(&mut epoch, layout_size, builder, Some(resources));
+        let _pixels_third = self.render_and_get_pixels(window_rect);
+
+        // the first image should be requested 3 times
+        assert_eq!(img1_requested.load(Ordering::SeqCst), 3);
+        // the second image should've been requested twice
+        assert_eq!(img2_requested.load(Ordering::SeqCst), 2);
+    }
+
     fn test_blob_update_test(&mut self) {
         let window_size = self.window.get_inner_size_pixels();
         let window_size = DeviceUintSize::new(window_size.0, window_size.1);
 
         let test_size = DeviceUintSize::new(400, 400);
-        let document_id = self.wrench.document_id;
 
         let window_rect = DeviceUintRect::new(
             point(0, window_size.height - test_size.height),
@@ -212,9 +335,8 @@ impl<'a> RawtestHarness<'a> {
             );
             img
         };
-        let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
 
-        // draw the blob the first time
+        // draw the blobs the first time
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
         let info = LayoutPrimitiveInfo::new(rect(0.0, 60.0, 200.0, 200.0));
 
@@ -226,16 +348,9 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
         );
 
-        self.wrench.api.set_display_list(
-            document_id,
-            Epoch(0),
-            root_background_color,
-            layout_size,
-            builder.finalize(),
-            false,
-            resources,
-        );
-        self.wrench.api.generate_frame(document_id, None);
+        let mut epoch = Epoch(0);
+
+        self.submit_dl(&mut epoch, layout_size, builder, Some(resources));
         let pixels_first = self.render_and_get_pixels(window_rect);
 
         // draw the blob image a second time after updating it with the same color
@@ -258,17 +373,7 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
         );
 
-        self.wrench.api.set_display_list(
-            document_id,
-            Epoch(1),
-            root_background_color,
-            layout_size,
-            builder.finalize(),
-            false,
-            resources,
-        );
-
-        self.wrench.api.generate_frame(document_id, None);
+        self.submit_dl(&mut epoch, layout_size, builder, Some(resources));
         let pixels_second = self.render_and_get_pixels(window_rect);
 
         // draw the blob image a third time after updating it with a different color
@@ -291,18 +396,7 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
         );
 
-        self.wrench.api.set_display_list(
-            document_id,
-            Epoch(2),
-            root_background_color,
-            layout_size,
-            builder.finalize(),
-            false,
-            resources,
-        );
-
-        self.wrench.api.generate_frame(document_id, None);
-
+        self.submit_dl(&mut epoch, layout_size, builder, Some(resources));
         let pixels_third = self.render_and_get_pixels(window_rect);
 
         assert!(pixels_first == pixels_second);
@@ -321,8 +415,6 @@ impl<'a> RawtestHarness<'a> {
             test_size,
         );
         let layout_size = LayoutSize::new(400., 400.);
-        let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
-
 
         let mut do_test = |should_try_and_fail| {
             let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
@@ -366,18 +458,7 @@ impl<'a> RawtestHarness<'a> {
 
             builder.pop_clip_id();
 
-            self.wrench.api.set_display_list(
-                self.wrench.document_id,
-                Epoch(0),
-                root_background_color,
-                layout_size,
-                builder.finalize(),
-                false,
-                ResourceUpdates::new(),
-            );
-            self.wrench
-                .api
-                .generate_frame(self.wrench.document_id, None);
+            self.submit_dl(&mut Epoch(0), layout_size, builder, None);
 
             self.render_and_get_pixels(window_rect)
         };
