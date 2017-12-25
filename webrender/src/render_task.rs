@@ -40,6 +40,7 @@ pub type ClipChain = Option<Rc<ClipChainNode>>;
 #[derive(Debug)]
 pub struct ClipChainNode {
     pub work_item: ClipWorkItem,
+    pub local_clip_rect: LayerRect,
     pub screen_inner_rect: DeviceIntRect,
     pub combined_outer_screen_rect: DeviceIntRect,
     pub combined_inner_screen_rect: DeviceIntRect,

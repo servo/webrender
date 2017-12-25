@@ -20,7 +20,7 @@ void brush_vs(
 struct BrushInstance {
     int picture_address;
     int prim_address;
-    int clip_node_id;
+    int clip_chain_rect_index;
     int scroll_node_id;
     int clip_address;
     int z;
@@ -29,11 +29,11 @@ struct BrushInstance {
 };
 
 BrushInstance load_brush() {
-	BrushInstance bi;
+    BrushInstance bi;
 
     bi.picture_address = aData0.x;
     bi.prim_address = aData0.y;
-    bi.clip_node_id = aData0.z / 65536;
+    bi.clip_chain_rect_index = aData0.z / 65536;
     bi.scroll_node_id = aData0.z % 65536;
     bi.clip_address = aData0.w;
     bi.z = aData1.x;
@@ -48,13 +48,14 @@ struct BrushPrimitive {
     RectWithSize local_clip_rect;
 };
 
-BrushPrimitive fetch_brush_primitive(int address) {
+BrushPrimitive fetch_brush_primitive(int address, int clip_chain_rect_index) {
     vec4 data[2] = fetch_from_resource_cache_2(address);
 
-    BrushPrimitive prim = BrushPrimitive(
-        RectWithSize(data[0].xy, data[0].zw),
-        RectWithSize(data[1].xy, data[1].zw)
-    );
+    RectWithSize clip_chain_rect = fetch_clip_chain_rect(clip_chain_rect_index);
+    RectWithSize brush_clip_rect = RectWithSize(data[1].xy, data[1].zw);
+    RectWithSize clip_rect = intersect_rects(clip_chain_rect, brush_clip_rect);
+
+    BrushPrimitive prim = BrushPrimitive(RectWithSize(data[0].xy, data[0].zw), clip_rect);
 
     return prim;
 }
@@ -66,7 +67,8 @@ void main(void) {
     // Load the geometry for this brush. For now, this is simply the
     // local rect of the primitive. In the future, this will support
     // loading segment rects, and other rect formats (glyphs).
-    BrushPrimitive brush_prim = fetch_brush_primitive(brush.prim_address);
+    BrushPrimitive brush_prim =
+        fetch_brush_primitive(brush.prim_address, brush.clip_chain_rect_index);
 
     // Fetch the segment of this brush primitive we are drawing.
     int segment_address = brush.prim_address +
@@ -95,16 +97,16 @@ void main(void) {
         gl_Position = uTransform * vec4(device_pos, 0.0, 1.0);
     } else {
         VertexInfo vi;
-        Layer layer = fetch_layer(brush.clip_node_id, brush.scroll_node_id);
+        ClipScrollNode scroll_node = fetch_clip_scroll_node(brush.scroll_node_id);
         ClipArea clip_area = fetch_clip_area(brush.clip_address);
 
         // Write the normal vertex information out.
-        if (layer.is_axis_aligned) {
+        if (scroll_node.is_axis_aligned) {
             vi = write_vertex(
                 local_segment_rect,
                 brush_prim.local_clip_rect,
                 float(brush.z),
-                layer,
+                scroll_node,
                 pic_task,
                 brush_prim.local_rect
             );
@@ -125,7 +127,7 @@ void main(void) {
                 brush_prim.local_clip_rect,
                 edge_aa_segment_mask,
                 float(brush.z),
-                layer,
+                scroll_node,
                 pic_task
             );
         }

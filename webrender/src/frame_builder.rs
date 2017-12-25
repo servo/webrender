@@ -2,17 +2,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderDetails, BorderDisplayItem, BuiltDisplayList};
-use api::{ClipAndScrollInfo, ClipId, ColorF, ColorU, PropertyBinding};
-use api::{DeviceIntPoint, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
-use api::{DevicePixelScale, LayerToWorldScale, WorldRect};
-use api::{DocumentLayer, ExtendMode, FontRenderMode, LayoutTransform};
-use api::{GlyphInstance, GlyphOptions, GradientStop, HitTestFlags, HitTestItem, HitTestResult};
-use api::{ImageKey, ImageRendering, ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect};
-use api::{LayerSize, LayerToScrollTransform, LayerVector2D, LayoutVector2D, LineOrientation};
-use api::{LineStyle, LocalClip, PipelineId, RepeatMode};
-use api::{ScrollSensitivity, Shadow, TileOffset, TransformStyle};
-use api::{PremultipliedColorF, WorldPoint, YuvColorSpace, YuvData};
+use api::{BorderDetails, BorderDisplayItem, BuiltDisplayList, ClipAndScrollInfo, ClipId, ColorF};
+use api::{ColorU, DeviceIntPoint, DevicePixelScale, DeviceUintPoint, DeviceUintRect};
+use api::{DeviceUintSize, DocumentLayer, ExtendMode, FontRenderMode, GlyphInstance, GlyphOptions};
+use api::{GradientStop, HitTestFlags, HitTestItem, HitTestResult, ImageKey, ImageRendering};
+use api::{ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect, LayerSize};
+use api::{LayerToWorldScale, LayerTransform, LayerVector2D, LayoutTransform, LayoutVector2D};
+use api::{LineOrientation, LineStyle, LocalClip, PipelineId, PremultipliedColorF, PropertyBinding};
+use api::{RepeatMode, ScrollSensitivity, Shadow, TileOffset, TransformStyle, WorldPoint};
+use api::{WorldRect, YuvColorSpace, YuvData};
 use app_units::Au;
 use border::ImageBorderSegment;
 use clip::{ClipRegion, ClipSource, ClipSources, ClipStore, Contains};
@@ -609,7 +607,7 @@ impl FrameBuilder {
         let root_id = clip_scroll_tree.root_reference_frame_id();
         if let Some(root_node) = clip_scroll_tree.nodes.get_mut(&root_id) {
             if let NodeType::ReferenceFrame(ref mut info) = root_node.node_type {
-                info.resolved_transform = LayerToScrollTransform::create_translation(
+                info.resolved_transform = LayerTransform::create_translation(
                     viewport_offset.x,
                     viewport_offset.y,
                     0.0,
@@ -1578,6 +1576,7 @@ impl FrameBuilder {
         device_pixel_scale: DevicePixelScale,
         scene_properties: &SceneProperties,
         node_data: &[ClipScrollNodeData],
+        local_rects: &mut Vec<LayerRect>,
     ) -> Option<RenderTaskId> {
         profile_scope!("cull");
 
@@ -1621,6 +1620,7 @@ impl FrameBuilder {
             SpecificPrimitiveIndex(0),
             &self.screen_rect.to_i32(),
             node_data,
+            local_rects,
         );
 
         let pic = &mut self.prim_store.cpu_pictures[0];
@@ -1700,6 +1700,11 @@ impl FrameBuilder {
         gpu_cache.begin_frame();
 
         let mut node_data = Vec::with_capacity(clip_scroll_tree.nodes.len());
+        let total_prim_runs =
+            self.prim_store.cpu_pictures.iter().fold(1, |count, ref pic| count + pic.runs.len());
+        let mut clip_chain_local_clip_rects = Vec::with_capacity(total_prim_runs);
+        clip_chain_local_clip_rects.push(LayerRect::max_rect());
+
         clip_scroll_tree.update_tree(
             &self.screen_rect.to_i32(),
             device_pixel_scale,
@@ -1725,6 +1730,7 @@ impl FrameBuilder {
             device_pixel_scale,
             scene_properties,
             &node_data,
+            &mut clip_chain_local_clip_rects,
         );
 
         let mut passes = Vec::new();
@@ -1788,6 +1794,7 @@ impl FrameBuilder {
             profile_counters,
             passes,
             node_data,
+            clip_chain_local_clip_rects,
             render_tasks,
             deferred_resolves,
             gpu_cache_updates: Some(gpu_cache_updates),
