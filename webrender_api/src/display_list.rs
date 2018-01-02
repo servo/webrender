@@ -1223,6 +1223,20 @@ impl DisplayListBuilder {
         self.push_item(item, info);
     }
 
+    /// Pushes a linear gradient to be displayed.
+    /// 
+    /// The gradient itself is described in the
+    /// `gradient` parameter. It is drawn on
+    /// a "tile" with the dimensions from `tile_size`.
+    /// These tiles are now repeated to the right and
+    /// to the bottom infinitly. If `tile_spacing`
+    /// is not zero spacers with the given dimensions
+    /// are inserted between the tiles as seams.
+    /// 
+    /// The origin of the tiles is given in `info.rect.origin`.
+    /// If the gradient should only be displayed once limit 
+    /// the `info.rect.size` to a single tile.
+    /// The gradient is only visible within the local clip.
     pub fn push_gradient(
         &mut self,
         info: &LayoutPrimitiveInfo,
@@ -1239,6 +1253,9 @@ impl DisplayListBuilder {
         self.push_item(item, info);
     }
 
+    /// Pushes a radial gradient to be displayed.
+    /// 
+    /// See [`push_gradient`](#method.push_gradient) for explanation.
     pub fn push_radial_gradient(
         &mut self,
         info: &LayoutPrimitiveInfo,
