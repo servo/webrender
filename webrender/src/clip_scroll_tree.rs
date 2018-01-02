@@ -417,17 +417,18 @@ impl ClipScrollTree {
 
             node.push_gpu_node_data(gpu_node_data);
 
-            if node.children.is_empty() || node.combined_clip_outer_bounds.is_empty() {
-                return
+            if node.children.is_empty() {
+                return;
             }
+
 
             node.prepare_state_for_children(&mut state);
             node.children.clone()
         };
 
-        for child_layer_id in node_children {
+        for child_node_id in node_children {
             self.update_node(
-                child_layer_id,
+                child_node_id,
                 &mut state,
                 next_coordinate_system_id,
                 device_pixel_scale,
