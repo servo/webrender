@@ -78,7 +78,6 @@ void main(void) {
 
     vec4[2] segment_data = fetch_from_resource_cache_2(segment_address);
     RectWithSize local_segment_rect = RectWithSize(segment_data[0].xy, segment_data[0].zw);
-    vec4 edge_aa_segment_mask = vec4((int(segment_data[1].x) & ivec4(1,2,4,8)) != ivec4(0));
 
     vec2 device_pos, local_pos;
 
@@ -121,11 +120,12 @@ void main(void) {
             vLocalBounds = vec4(vec2(-1000000.0), vec2(1000000.0));
 #endif
         } else {
+            bvec4 edge_mask = notEqual(int(segment_data[1].x) & ivec4(1, 2, 4, 8), ivec4(0));
             vi = write_transform_vertex(
                 local_segment_rect,
                 brush_prim.local_rect,
                 brush_prim.local_clip_rect,
-                edge_aa_segment_mask,
+                mix(vec4(0.0), vec4(1.0), edge_mask),
                 float(brush.z),
                 scroll_node,
                 pic_task
