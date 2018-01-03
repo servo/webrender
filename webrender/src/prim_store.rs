@@ -293,6 +293,7 @@ impl BrushPrimitive {
     }
 
     fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
+        // has to match VECS_PER_SPECIFIC_BRUSH
         match self.kind {
             BrushKind::Solid { color } => {
                 request.push(color.premultiplied());
@@ -1241,6 +1242,7 @@ impl PrimitiveStore {
 
         // Mark this GPU resource as required for this frame.
         if let Some(mut request) = gpu_cache.request(&mut metadata.gpu_location) {
+            // has to match VECS_PER_BRUSH_PRIM
             request.push(metadata.local_rect);
             request.push(metadata.local_clip_rect);
 
@@ -1299,10 +1301,10 @@ impl PrimitiveStore {
                 PrimitiveKind::Brush => {
                     let brush = &self.cpu_brushes[metadata.cpu_prim_index.0];
                     brush.write_gpu_blocks(&mut request);
-
                     match brush.segment_desc {
                         Some(ref segment_desc) => {
                             for segment in &segment_desc.segments {
+                                // has to match VECS_PER_SEGMENT
                                 request.push(segment.local_rect);
                                 request.push([
                                     segment.edge_flags.bits() as f32,
