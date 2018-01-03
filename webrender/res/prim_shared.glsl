@@ -648,7 +648,7 @@ VertexInfo write_transform_vertex(RectWithSize local_segment_rect,
     // We also want that to apply to any interpolators. However, we
     // want a constant Z across the primitive, since we're using it
     // for draw ordering - so scale by the W coord to ensure this.
-    vec4 final_pos = vec4(world_pos.xy * uDevicePixelRatio + task_offset,
+    vec4 final_pos = vec4((device_pos + task_offset) * world_pos.w,
                           z * world_pos.w,
                           world_pos.w);
     gl_Position = uTransform * final_pos;
