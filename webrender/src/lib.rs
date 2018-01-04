@@ -52,6 +52,7 @@ extern crate thread_profiler;
 #[macro_use]
 extern crate serde;
 
+mod batch;
 mod border;
 mod box_shadow;
 mod clip;

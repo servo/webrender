@@ -18,6 +18,8 @@ use api::ApiMsg;
 use api::DebugCommand;
 #[cfg(not(feature = "debugger"))]
 use api::channel::MsgSender;
+use batch::{BatchKey, BatchKind, BatchTextures, BrushBatchKind};
+use batch::{BrushImageSourceKind, TransformBatchKind};
 use debug_colors;
 use debug_render::DebugRenderer;
 #[cfg(feature = "debugger")]
@@ -35,7 +37,7 @@ use gleam::gl;
 use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
 use gpu_types::PrimitiveInstance;
-use internal_types::{BatchTextures, SourceTexture, ORTHO_FAR_PLANE, ORTHO_NEAR_PLANE};
+use internal_types::{SourceTexture, ORTHO_FAR_PLANE, ORTHO_NEAR_PLANE};
 use internal_types::{CacheTextureId, FastHashMap, RenderedDocument, ResultMsg, TextureUpdateOp};
 use internal_types::{DebugOutput, RenderPassIndex, RenderTargetInfo, TextureUpdateList, TextureUpdateSource};
 use picture::ContentOrigin;
@@ -64,7 +66,7 @@ use texture_cache::TextureCache;
 use thread_profiler::{register_thread_with_profiler, write_profile};
 use tiling::{AlphaRenderTarget, ColorRenderTarget};
 use tiling::{RenderPass, RenderPassKind, RenderTargetList};
-use tiling::{BatchKey, BatchKind, BrushBatchKind, BrushImageSourceKind, Frame, RenderTarget, ScalingInfo, TransformBatchKind};
+use tiling::{Frame, RenderTarget, ScalingInfo};
 use time::precise_time_ns;
 use util::TransformedRectKind;
 
