@@ -232,7 +232,7 @@ impl<'a> BuiltDisplayListIter<'a> {
             {
                 let reader = bincode::read_types::IoReader::new(UnsafeReader::new(&mut self.data));
                 let mut deserializer = bincode::Deserializer::new(reader, bincode::Infinite);
-                self.cur_item.deserialize_from(&mut deserializer)
+                Deserialize::deserialize_in_place(&mut deserializer, &mut self.cur_item)
                     .expect("MEH: malicious process?");
             }
 
