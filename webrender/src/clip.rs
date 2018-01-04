@@ -169,21 +169,18 @@ impl ClipSources {
         let mut local_outer = Some(LayerRect::max_rect());
         let mut local_inner = local_outer;
         let mut can_calculate_inner_rect = true;
-        let mut can_calculate_outer_rect = true;
+        let mut can_calculate_outer_rect = false;
         for source in clips {
             match *source {
                 ClipSource::Image(ref mask) => {
                     if !mask.repeat {
+                        can_calculate_outer_rect = true;
                         local_outer = local_outer.and_then(|r| r.intersection(&mask.rect));
-                        can_calculate_inner_rect = false;
-                    } else {
-                        can_calculate_inner_rect = false;
-                        can_calculate_outer_rect = false;
-                        break;
                     }
                     local_inner = None;
                 }
                 ClipSource::Rectangle(rect) => {
+                    can_calculate_outer_rect = true;
                     local_outer = local_outer.and_then(|r| r.intersection(&rect));
                     local_inner = local_inner.and_then(|r| r.intersection(&rect));
                 }
@@ -192,10 +189,10 @@ impl ClipSources {
                     // case clip mask size, for now.
                     if mode == ClipMode::ClipOut {
                         can_calculate_inner_rect = false;
-                        can_calculate_outer_rect = false;
                         break;
                     }
 
+                    can_calculate_outer_rect = true;
                     local_outer = local_outer.and_then(|r| r.intersection(rect));
 
                     let inner_rect = extract_inner_rect_safe(rect, radius);
@@ -211,12 +208,12 @@ impl ClipSources {
         }
 
         let outer = match can_calculate_outer_rect {
-            true => local_outer,
+            true => Some(local_outer.unwrap_or_else(LayerRect::zero)),
             false => None,
         };
 
         let inner = match can_calculate_inner_rect {
-            true => local_inner.unwrap_or(LayerRect::zero()),
+            true => local_inner.unwrap_or_else(LayerRect::zero),
             false => LayerRect::zero(),
         };
 
