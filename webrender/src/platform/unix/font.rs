@@ -200,7 +200,13 @@ impl FontContext {
         let face = self.faces.get(&font.font_key).unwrap();
 
         let mut load_flags = FT_LOAD_DEFAULT;
-        let FontInstancePlatformOptions { hinting, .. } = font.platform_options.unwrap_or_default();
+        let FontInstancePlatformOptions { mut hinting, .. } = font.platform_options.unwrap_or_default();
+        // Disable hinting if there is a non-axis-aligned transform.
+        if font.flags.contains(FontInstanceFlags::SYNTHETIC_ITALICS) ||
+           ((font.transform.scale_x != 0.0 || font.transform.scale_y != 0.0) &&
+            (font.transform.skew_x != 0.0 || font.transform.skew_y != 0.0)) {
+            hinting = FontHinting::None;
+        }
         match (hinting, font.render_mode) {
             (FontHinting::None, _) => load_flags |= FT_LOAD_NO_HINTING,
             (FontHinting::Mono, _) => load_flags = FT_LOAD_TARGET_MONO,
