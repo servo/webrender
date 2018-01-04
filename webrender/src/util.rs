@@ -99,10 +99,10 @@ impl<Src, Dst> MatrixHelpers<Src, Dst> for TypedTransform3D<f32, Src, Dst> {
         if self.m11 != 1. || self.m22 != 1. || self.m33 != 1. {
             return false;
         }
-        self.m12.abs() < NEARLY_ZERO || self.m13.abs() < NEARLY_ZERO ||
-            self.m14.abs() < NEARLY_ZERO || self.m21.abs() < NEARLY_ZERO ||
-            self.m23.abs() < NEARLY_ZERO || self.m24.abs() < NEARLY_ZERO ||
-            self.m31.abs() < NEARLY_ZERO || self.m32.abs() < NEARLY_ZERO ||
+        self.m12.abs() < NEARLY_ZERO && self.m13.abs() < NEARLY_ZERO &&
+            self.m14.abs() < NEARLY_ZERO && self.m21.abs() < NEARLY_ZERO &&
+            self.m23.abs() < NEARLY_ZERO && self.m24.abs() < NEARLY_ZERO &&
+            self.m31.abs() < NEARLY_ZERO && self.m32.abs() < NEARLY_ZERO &&
             self.m34.abs() < NEARLY_ZERO
     }
 }
@@ -398,21 +398,11 @@ impl TransformOrOffset {
     pub fn update(&self, transform: LayerTransform) -> Option<TransformOrOffset> {
         if transform.is_simple_translation() {
             let offset = LayerVector2D::new(transform.m41, transform.m42);
-            return Some(self.offset(offset));
+            Some(self.offset(offset))
+        } else {
+            // If we break 2D axis alignment or have a perspective component, we need to start a
+            // new incompatible coordinate system with which we cannot share clips without masking.
+            None
         }
-
-        // If we break 2D axis alignment or have a perspective component, we need to start a
-        // new incompatible coordinate system with which we cannot share clips without masking.
-        if !transform.preserves_2d_axis_alignment() || transform.has_perspective_component() {
-            return None;
-        }
-
-        let transform = match *self {
-            TransformOrOffset::Offset(offset) => transform.post_translate(offset.to_3d()),
-            TransformOrOffset::Transform { transform: existing_transform, .. } =>
-                transform.post_mul(&existing_transform),
-        };
-
-        Some(TransformOrOffset::new_transform(transform))
     }
 }

@@ -9,4 +9,5 @@ fuzzy(1,88) == perspective.yaml perspective.png
 == prim-suite.yaml prim-suite.png
 == segments-bug.yaml segments-bug-ref.yaml
 == content-offset.yaml content-offset.png
+== coord-system.yaml coord-system.png
 
