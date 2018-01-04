@@ -59,37 +59,6 @@ pub enum SourceTexture {
 pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;
 pub const ORTHO_FAR_PLANE: f32 = 1000000.0;
 
-/// Optional textures that can be used as a source in the shaders.
-/// Textures that are not used by the batch are equal to TextureId::invalid().
-#[derive(Copy, Clone, Debug)]
-pub struct BatchTextures {
-    pub colors: [SourceTexture; 3],
-}
-
-impl BatchTextures {
-    pub fn no_texture() -> Self {
-        BatchTextures {
-            colors: [SourceTexture::Invalid; 3],
-        }
-    }
-
-    pub fn render_target_cache() -> Self {
-        BatchTextures {
-            colors: [
-                SourceTexture::CacheRGBA8,
-                SourceTexture::CacheA8,
-                SourceTexture::Invalid,
-            ],
-        }
-    }
-
-    pub fn color(texture: SourceTexture) -> Self {
-        BatchTextures {
-            colors: [texture, SourceTexture::Invalid, SourceTexture::Invalid],
-        }
-    }
-}
-
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct RenderTargetInfo {
     pub has_depth: bool,
