@@ -576,6 +576,10 @@ impl ClipScrollTree {
             "world_content_transform: {:?}",
             node.world_content_transform
         ));
+        pt.add_item(format!(
+            "coordinate_system_id: {:?}",
+            node.coordinate_system_id
+        ));
 
         for child_id in &node.children {
             self.print_node(child_id, pt, clip_store);
