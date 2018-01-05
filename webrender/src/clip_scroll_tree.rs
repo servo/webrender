@@ -14,7 +14,7 @@ use print_tree::{PrintTree, PrintTreePrinter};
 use render_task::ClipChain;
 use resource_cache::ResourceCache;
 use scene::SceneProperties;
-use util::{MaxRect, TransformOrOffset};
+use util::TransformOrOffset;
 
 pub type ScrollStates = FastHashMap<ClipId, ScrollingState>;
 
@@ -73,8 +73,6 @@ pub struct TransformUpdateState {
     pub nearest_scrolling_ancestor_offset: LayerVector2D,
     pub nearest_scrolling_ancestor_viewport: LayerRect,
     pub parent_clip_chain: ClipChain,
-    pub combined_outer_clip_bounds: DeviceIntRect,
-    pub combined_inner_clip_bounds: DeviceIntRect,
 
     /// An id for keeping track of the axis-aligned space of this node. This is used in
     /// order to to track what kinds of clip optimizations can be done for a particular
@@ -84,6 +82,11 @@ pub struct TransformUpdateState {
 
     /// Transform from the coordinate system that started this compatible coordinate system.
     pub coordinate_system_relative_transform: TransformOrOffset,
+
+    /// True if this node is transformed by an invertible transform.  If not, display items
+    /// transformed by this node will not be displayed and display items not transformed by this
+    /// node will not be clipped by clips that are transformed by this node.
+    pub invertible: bool,
 }
 
 impl ClipScrollTree {
@@ -357,16 +360,16 @@ impl ClipScrollTree {
             nearest_scrolling_ancestor_offset: LayerVector2D::zero(),
             nearest_scrolling_ancestor_viewport: LayerRect::zero(),
             parent_clip_chain: None,
-            combined_outer_clip_bounds: *screen_rect,
-            combined_inner_clip_bounds: DeviceIntRect::max_rect(),
             current_coordinate_system_id: CoordinateSystemId::root(),
             coordinate_system_relative_transform: TransformOrOffset::zero(),
+            invertible: true,
         };
         let mut next_coordinate_system_id = state.current_coordinate_system_id.next();
         self.update_node(
             root_reference_frame_id,
             &mut state,
             &mut next_coordinate_system_id,
+            screen_rect,
             device_pixel_scale,
             clip_store,
             resource_cache,
@@ -381,6 +384,7 @@ impl ClipScrollTree {
         layer_id: ClipId,
         state: &mut TransformUpdateState,
         next_coordinate_system_id: &mut CoordinateSystemId,
+        screen_rect: &DeviceIntRect,
         device_pixel_scale: DevicePixelScale,
         clip_store: &mut ClipStore,
         resource_cache: &mut ResourceCache,
@@ -403,6 +407,7 @@ impl ClipScrollTree {
             node.update(
                 &mut state,
                 next_coordinate_system_id,
+                screen_rect,
                 device_pixel_scale,
                 clip_store,
                 resource_cache,
@@ -426,6 +431,7 @@ impl ClipScrollTree {
                 child_node_id,
                 &mut state,
                 next_coordinate_system_id,
+                screen_rect,
                 device_pixel_scale,
                 clip_store,
                 resource_cache,

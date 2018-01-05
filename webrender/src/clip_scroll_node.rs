@@ -17,7 +17,7 @@ use resource_cache::ResourceCache;
 use scene::SceneProperties;
 use spring::{DAMPING, STIFFNESS, Spring};
 use std::rc::Rc;
-use util::{MatrixHelpers, MaxRect, TransformOrOffset, TransformedRectKind};
+use util::{MatrixHelpers, TransformOrOffset, TransformedRectKind};
 
 #[cfg(target_os = "macos")]
 const CAN_OVERSCROLL: bool = true;
@@ -112,8 +112,10 @@ pub struct ClipScrollNode {
     /// generate clip tasks.
     pub clip_chain_node: ClipChain,
 
-    /// The intersected outer bounds of the clips for this node.
-    pub combined_clip_outer_bounds: DeviceIntRect,
+    /// True if this node is transformed by an invertible transform.  If not, display items
+    /// transformed by this node will not be displayed and display items not transformed by this
+    /// node will not be clipped by clips that are transformed by this node.
+    pub invertible: bool,
 
     /// The axis-aligned coordinate system id of this node.
     pub coordinate_system_id: CoordinateSystemId,
@@ -144,7 +146,7 @@ impl ClipScrollNode {
             pipeline_id,
             node_type: node_type,
             clip_chain_node: None,
-            combined_clip_outer_bounds: DeviceIntRect::max_rect(),
+            invertible: true,
             coordinate_system_id: CoordinateSystemId(0),
             coordinate_system_relative_transform: TransformOrOffset::zero(),
             node_data_index: ClipScrollNodeIndex(0),
@@ -266,15 +268,15 @@ impl ClipScrollNode {
         true
     }
 
-    pub fn update_to_empty_rect(&mut self) {
-        self.combined_clip_outer_bounds = DeviceIntRect::zero();
+    pub fn mark_uninvertible(&mut self) {
+        self.invertible = false;
         self.world_content_transform = LayerToWorldTransform::identity();
         self.world_viewport_transform = LayerToWorldTransform::identity();
         self.clip_chain_node = None;
     }
 
     pub fn push_gpu_node_data(&mut self, node_data: &mut Vec<ClipScrollNodeData>) {
-        if self.combined_clip_outer_bounds.is_empty() {
+        if !self.invertible {
             node_data.push(ClipScrollNodeData::invalid());
             return;
         }
@@ -298,6 +300,7 @@ impl ClipScrollNode {
         &mut self,
         state: &mut TransformUpdateState,
         next_coordinate_system_id: &mut CoordinateSystemId,
+        screen_rect: &DeviceIntRect,
         device_pixel_scale: DevicePixelScale,
         clip_store: &mut ClipStore,
         resource_cache: &mut ResourceCache,
@@ -306,8 +309,8 @@ impl ClipScrollNode {
     ) {
         // If any of our parents was not rendered, we are not rendered either and can just
         // quit here.
-        if state.combined_outer_clip_bounds.is_empty() {
-            self.update_to_empty_rect();
+        if !state.invertible {
+            self.mark_uninvertible();
             return;
         }
 
@@ -318,42 +321,41 @@ impl ClipScrollNode {
         // produce only additional translations which should be invertible.
         match self.node_type {
             NodeType::ReferenceFrame(info) if !info.invertible => {
-                self.update_to_empty_rect();
+                self.mark_uninvertible();
                 return;
             }
-            _ => {},
+            _ => self.invertible = true,
         }
 
         self.update_clip_work_item(
             state,
+            screen_rect,
             device_pixel_scale,
             clip_store,
             resource_cache,
             gpu_cache,
         );
-
-        // This indicates that we are entirely clipped out.
-        if state.combined_outer_clip_bounds.is_empty() {
-            self.update_to_empty_rect();
-            return;
-        }
-
     }
 
     pub fn update_clip_work_item(
         &mut self,
         state: &mut TransformUpdateState,
+        screen_rect: &DeviceIntRect,
         device_pixel_scale: DevicePixelScale,
         clip_store: &mut ClipStore,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
     ) {
-        let mut current_clip_chain = state.parent_clip_chain.clone();
+        let current_clip_chain = state.parent_clip_chain.clone();
+        let combined_outer_screen_rect = current_clip_chain.as_ref().map_or(
+            *screen_rect, |clip| clip.combined_outer_screen_rect,
+        );
+
         let clip_sources_handle = match self.node_type {
             NodeType::Clip(ref handle) => handle,
             _ => {
-                self.clip_chain_node = current_clip_chain;
-                self.combined_clip_outer_bounds = state.combined_outer_clip_bounds;
+                self.clip_chain_node = current_clip_chain.clone();
+                self.invertible = true;
                 return;
             }
         };
@@ -363,15 +365,6 @@ impl ClipScrollNode {
         let (screen_inner_rect, screen_outer_rect) =
             clip_sources.get_screen_bounds(&self.world_viewport_transform, device_pixel_scale);
 
-        // If this clip's inner rectangle completely surrounds the existing clip
-        // chain's outer rectangle, we can discard this clip entirely since it isn't
-        // going to affect anything.
-        if screen_inner_rect.contains_rect(&state.combined_outer_clip_bounds) {
-            self.clip_chain_node = current_clip_chain;
-            self.combined_clip_outer_bounds = state.combined_outer_clip_bounds;
-            return;
-        }
-
         // All clipping ClipScrollNodes should have outer rectangles, because they never
         // use the BorderCorner clip type and they always have at last one non-ClipOut
         // Rectangle ClipSource.
@@ -380,37 +373,29 @@ impl ClipScrollNode {
             "Clipping node didn't have outer rect."
         );
 
-        // If this clip's outer rectangle is completely enclosed by the clip
-        // chain's inner rectangle, then the only clip that matters from this point
-        // on is this clip. We can disconnect this clip from the parent clip chain.
-        if state.combined_inner_clip_bounds.contains_rect(&screen_outer_rect) {
-            current_clip_chain = None;
+        // If this clip's inner rectangle completely surrounds the existing clip
+        // chain's outer rectangle, we can discard this clip entirely since it isn't
+        // going to affect anything.
+        if screen_inner_rect.contains_rect(&combined_outer_screen_rect) {
+            self.clip_chain_node = current_clip_chain;
+            return;
         }
 
-        let combined_outer_screen_rect =
-            screen_outer_rect.intersection(&state.combined_outer_clip_bounds)
-            .unwrap_or_else(DeviceIntRect::zero);
-        let combined_inner_screen_rect =
-            state.combined_inner_clip_bounds.intersection(&screen_inner_rect)
-            .unwrap_or_else(DeviceIntRect::zero);
+        let work_item = ClipWorkItem {
+            scroll_node_data_index: self.node_data_index,
+            clip_sources: clip_sources_handle.weak(),
+            coordinate_system_id: state.current_coordinate_system_id,
+        };
 
-        state.combined_outer_clip_bounds = combined_outer_screen_rect;
-        state.combined_inner_clip_bounds = combined_inner_screen_rect;
-        self.combined_clip_outer_bounds = combined_outer_screen_rect;
-
-        self.clip_chain_node = Some(Rc::new(ClipChainNode {
-            work_item: ClipWorkItem {
-                scroll_node_data_index: self.node_data_index,
-                clip_sources: clip_sources_handle.weak(),
-                coordinate_system_id: state.current_coordinate_system_id,
-            },
-            local_clip_rect: self.coordinate_system_relative_transform.apply(&local_outer_rect),
+        let clip_chain_node = ClipChainNode::new(
+            work_item,
+            self.coordinate_system_relative_transform.apply(&local_outer_rect),
+            screen_outer_rect,
             screen_inner_rect,
-            combined_outer_screen_rect,
-            combined_inner_screen_rect,
-            prev: current_clip_chain,
-        }));
+            current_clip_chain
+        );
 
+        self.clip_chain_node = Some(Rc::new(clip_chain_node));
         state.parent_clip_chain = self.clip_chain_node.clone();
     }
 
@@ -626,8 +611,8 @@ impl ClipScrollNode {
     }
 
     pub fn prepare_state_for_children(&self, state: &mut TransformUpdateState) {
-        if self.combined_clip_outer_bounds.is_empty() {
-            state.combined_outer_clip_bounds = DeviceIntRect::zero();
+        if !self.invertible {
+            state.invertible = false;
             state.parent_clip_chain = None;
             return;
         }
@@ -795,7 +780,13 @@ impl ClipScrollNode {
     }
 
     pub fn is_visible(&self) -> bool {
-        self.combined_clip_outer_bounds != DeviceIntRect::zero()
+        if !self.invertible {
+            return false;
+        }
+        match self.clip_chain_node {
+            Some(ref node) if node.combined_outer_screen_rect.is_empty() => false,
+            _ => true,
+        }
     }
 }
 

@@ -41,10 +41,56 @@ pub type ClipChain = Option<Rc<ClipChainNode>>;
 pub struct ClipChainNode {
     pub work_item: ClipWorkItem,
     pub local_clip_rect: LayerRect,
+    pub screen_outer_rect: DeviceIntRect,
     pub screen_inner_rect: DeviceIntRect,
     pub combined_outer_screen_rect: DeviceIntRect,
     pub combined_inner_screen_rect: DeviceIntRect,
     pub prev: ClipChain,
+}
+
+impl ClipChainNode {
+    pub fn new(
+        work_item: ClipWorkItem,
+        local_clip_rect: LayerRect,
+        screen_outer_rect: DeviceIntRect,
+        screen_inner_rect: DeviceIntRect,
+        parent_chain: ClipChain,
+    ) -> ClipChainNode {
+        let mut node = ClipChainNode {
+            work_item,
+            local_clip_rect,
+            screen_outer_rect,
+            screen_inner_rect,
+            combined_outer_screen_rect: screen_outer_rect,
+            combined_inner_screen_rect: screen_inner_rect,
+            prev: None,
+        };
+        node.set_parent(parent_chain);
+        node
+    }
+
+    fn set_parent(&mut self, new_parent: ClipChain) {
+        self.prev = new_parent.clone();
+
+        let parent_node = match new_parent {
+            Some(ref parent_node) => parent_node,
+            None => return,
+        };
+
+        // If this clip's outer rectangle is completely enclosed by the clip
+        // chain's inner rectangle, then the only clip that matters from this point
+        // on is this clip. We can disconnect this clip from the parent clip chain.
+        if parent_node.combined_inner_screen_rect.contains_rect(&self.screen_outer_rect) {
+            self.prev = None;
+        }
+
+        self.combined_outer_screen_rect =
+            parent_node.combined_outer_screen_rect.intersection(&self.screen_outer_rect)
+            .unwrap_or_else(DeviceIntRect::zero);
+        self.combined_inner_screen_rect =
+            parent_node.combined_inner_screen_rect.intersection(&self.screen_inner_rect)
+            .unwrap_or_else(DeviceIntRect::zero);
+    }
 }
 
 pub struct ClipChainNodeIter {
