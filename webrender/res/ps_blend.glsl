@@ -4,13 +4,31 @@
 
 #include shared,prim_shared
 
+struct ColorTransforms {
+  mat4 matrix;
+  vec4 offset;
+};
+
+varying ColorTransforms vColorTransform;
 varying vec3 vUv;
 flat varying vec4 vUvBounds;
 flat varying float vAmount;
 flat varying int vOp;
-flat varying mat4 vColorMat;
 
 #ifdef WR_VERTEX_SHADER
+ColorTransforms fetch_color_transform(int address) {
+    // Our data follows a local rect (vec4) and a local clip (vec4).
+    const int dataOffset = 2;
+    vec4 data[8] = fetch_from_resource_cache_8(address);
+    ColorTransforms ctransform;
+
+    ctransform.matrix = mat4(data[dataOffset], data[dataOffset + 1],
+                             data[dataOffset + 2], data[dataOffset + 3]);
+    ctransform.offset = data[dataOffset + 4];
+
+    return ctransform;
+}
+
 void main(void) {
     CompositeInstance ci = fetch_composite_instance();
     PictureTask dest_task = fetch_picture_task(ci.render_task_index);
@@ -46,37 +64,46 @@ void main(void) {
     switch (vOp) {
         case 2: {
             // Grayscale
-            vColorMat = mat4(vec4(lumR + oneMinusLumR * oneMinusAmount, lumR - lumR * oneMinusAmount, lumR - lumR * oneMinusAmount, 0.0),
-                             vec4(lumG - lumG * oneMinusAmount, lumG + oneMinusLumG * oneMinusAmount, lumG - lumG * oneMinusAmount, 0.0),
-                             vec4(lumB - lumB * oneMinusAmount, lumB - lumB * oneMinusAmount, lumB + oneMinusLumB * oneMinusAmount, 0.0),
-                             vec4(0.0, 0.0, 0.0, 1.0));
+            vColorTransform.matrix = mat4(vec4(lumR + oneMinusLumR * oneMinusAmount, lumR - lumR * oneMinusAmount, lumR - lumR * oneMinusAmount, 0.0),
+                                          vec4(lumG - lumG * oneMinusAmount, lumG + oneMinusLumG * oneMinusAmount, lumG - lumG * oneMinusAmount, 0.0),
+                                          vec4(lumB - lumB * oneMinusAmount, lumB - lumB * oneMinusAmount, lumB + oneMinusLumB * oneMinusAmount, 0.0),
+                                          vec4(0.0, 0.0, 0.0, 1.0));
+            vColorTransform.offset = vec4(0.0);
             break;
         }
         case 3: {
             // HueRotate
             float c = cos(vAmount * 0.01745329251);
             float s = sin(vAmount * 0.01745329251);
-            vColorMat = mat4(vec4(lumR + oneMinusLumR * c - lumR * s, lumR - lumR * c + 0.143 * s, lumR - lumR * c - oneMinusLumR * s, 0.0),
-                            vec4(lumG - lumG * c - lumG * s, lumG + oneMinusLumG * c + 0.140 * s, lumG - lumG * c + lumG * s, 0.0),
-                            vec4(lumB - lumB * c + oneMinusLumB * s, lumB - lumB * c - 0.283 * s, lumB + oneMinusLumB * c + lumB * s, 0.0),
-                            vec4(0.0, 0.0, 0.0, 1.0));
+            vColorTransform.matrix = mat4(vec4(lumR + oneMinusLumR * c - lumR * s, lumR - lumR * c + 0.143 * s, lumR - lumR * c - oneMinusLumR * s, 0.0),
+                                          vec4(lumG - lumG * c - lumG * s, lumG + oneMinusLumG * c + 0.140 * s, lumG - lumG * c + lumG * s, 0.0),
+                                          vec4(lumB - lumB * c + oneMinusLumB * s, lumB - lumB * c - 0.283 * s, lumB + oneMinusLumB * c + lumB * s, 0.0),
+                                          vec4(0.0, 0.0, 0.0, 1.0));
+            vColorTransform.offset = vec4(0.0);
             break;
         }
         case 5: {
             // Saturate
-            vColorMat = mat4(vec4(oneMinusAmount * lumR + vAmount, oneMinusAmount * lumR, oneMinusAmount * lumR, 0.0),
-                             vec4(oneMinusAmount * lumG, oneMinusAmount * lumG + vAmount, oneMinusAmount * lumG, 0.0),
-                             vec4(oneMinusAmount * lumB, oneMinusAmount * lumB, oneMinusAmount * lumB + vAmount, 0.0),
-                             vec4(0.0, 0.0, 0.0, 1.0));
+            vColorTransform.matrix = mat4(vec4(oneMinusAmount * lumR + vAmount, oneMinusAmount * lumR, oneMinusAmount * lumR, 0.0),
+                                          vec4(oneMinusAmount * lumG, oneMinusAmount * lumG + vAmount, oneMinusAmount * lumG, 0.0),
+                                          vec4(oneMinusAmount * lumB, oneMinusAmount * lumB, oneMinusAmount * lumB + vAmount, 0.0),
+                                          vec4(0.0, 0.0, 0.0, 1.0));
+            vColorTransform.offset = vec4(0.0);
             break;
         }
         case 6: {
             // Sepia
-            vColorMat = mat4(vec4(0.393 + 0.607 * oneMinusAmount, 0.349 - 0.349 * oneMinusAmount, 0.272 - 0.272 * oneMinusAmount, 0.0),
-                             vec4(0.769 - 0.769 * oneMinusAmount, 0.686 + 0.314 * oneMinusAmount, 0.534 - 0.534 * oneMinusAmount, 0.0),
-                             vec4(0.189 - 0.189 * oneMinusAmount, 0.168 - 0.168 * oneMinusAmount, 0.131 + 0.869 * oneMinusAmount, 0.0),
-                             vec4(0.0, 0.0, 0.0, 1.0));
+            vColorTransform.matrix =  mat4(vec4(0.393 + 0.607 * oneMinusAmount, 0.349 - 0.349 * oneMinusAmount, 0.272 - 0.272 * oneMinusAmount, 0.0),
+                                           vec4(0.769 - 0.769 * oneMinusAmount, 0.686 + 0.314 * oneMinusAmount, 0.534 - 0.534 * oneMinusAmount, 0.0),
+                                           vec4(0.189 - 0.189 * oneMinusAmount, 0.168 - 0.168 * oneMinusAmount, 0.131 + 0.869 * oneMinusAmount, 0.0),
+                                           vec4(0.0, 0.0, 0.0, 1.0));
+            vColorTransform.offset = vec4(0.0);
             break;
+        }
+        case 10: {
+          // Color Matrix
+          vColorTransform = fetch_color_transform(ci.user_data2);
+          break;
         }
     }
 
@@ -137,7 +164,7 @@ void main(void) {
             oFragColor = Opacity(Cs, vAmount);
             break;
         default:
-            oFragColor = vColorMat * Cs;
+            oFragColor = vColorTransform.matrix * Cs + vColorTransform.offset;
     }
 
     // Pre-multiply the alpha into the output value.
