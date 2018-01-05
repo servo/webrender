@@ -1,0 +1,47 @@
+---
+root:
+  items:
+    -
+      type: "stacking-context"
+      items:
+        -
+          type: "stacking-context"
+          transform: rotate-z(1) rotate-y(0) translate(20, 20, 0)
+          items:
+            -
+              bounds: [0, 0, 200, 200]
+              image: checkerboard(2, 16, 12)
+              stretch-size: 200 200
+        -
+          type: "stacking-context"
+          transform: rotate-z(1) rotate-y(22) translate(240,20,0)
+          items:
+            -
+              bounds: [0, 0, 200, 200]
+              image: checkerboard(2, 16, 12)
+              stretch-size: 200 200
+        -
+          type: "stacking-context"
+          transform: rotate-z(1) rotate-y(44) translate(-240,240,0)
+          items:
+            -
+              bounds: [0, 0, 200, 200]
+              image: checkerboard(2, 16, 12)
+              stretch-size: 200 200
+        -
+          type: "stacking-context"
+          transform: rotate-z(1) rotate-y(66) translate(-320,240,0)
+          items:
+            -
+              bounds: [0, 0, 200, 200]
+              image: checkerboard(2, 16, 12)
+              stretch-size: 200 200
+
+        -
+          type: "stacking-context"
+          transform: rotate-z(1) rotate-y(88) translate(-480,240,0)
+          items:
+            -
+              bounds: [0, 0, 200, 200]
+              image: checkerboard(2, 16, 12)
+              stretch-size: 200 200
