@@ -458,7 +458,6 @@ impl Texture {
     pub fn get_bpp(&self) -> u32 {
         match self.format {
             ImageFormat::A8 => 1,
-            ImageFormat::RGB8 => 3,
             ImageFormat::BGRA8 => 4,
             ImageFormat::RG8 => 2,
             ImageFormat::RGBAF32 => 16,
@@ -1930,7 +1929,6 @@ fn gl_texture_formats_for_image_format(
         } else {
             (GL_FORMAT_A as gl::GLint, GL_FORMAT_A)
         },
-        ImageFormat::RGB8 => (gl::RGB as gl::GLint, gl::RGB),
         ImageFormat::BGRA8 => match gl.get_type() {
             gl::GlType::Gl => (gl::RGBA as gl::GLint, get_gl_format_bgra(gl)),
             gl::GlType::Gles => (get_gl_format_bgra(gl) as gl::GLint, get_gl_format_bgra(gl)),
@@ -2056,7 +2054,6 @@ impl<'a> UploadTarget<'a> {
     fn update_impl(&mut self, chunk: UploadChunk) {
         let (gl_format, bpp, data_type) = match self.texture.format {
             ImageFormat::A8 => (GL_FORMAT_A, 1, gl::UNSIGNED_BYTE),
-            ImageFormat::RGB8 => (gl::RGB, 3, gl::UNSIGNED_BYTE),
             ImageFormat::BGRA8 => (get_gl_format_bgra(self.gl), 4, gl::UNSIGNED_BYTE),
             ImageFormat::RG8 => (gl::RG, 2, gl::UNSIGNED_BYTE),
             ImageFormat::RGBAF32 => (gl::RGBA, 16, gl::FLOAT),

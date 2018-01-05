@@ -168,7 +168,6 @@ fn is_image_opaque(format: ImageFormat, bytes: &[u8]) -> bool {
             }
             is_opaque
         }
-        ImageFormat::RGB8 => true,
         ImageFormat::RG8 => true,
         ImageFormat::A8 => false,
         ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
@@ -342,16 +341,30 @@ impl YamlFrameReader {
         let (descriptor, image_data) = match image::open(file) {
             Ok(image) => {
                 let image_dims = image.dimensions();
-                let format = match image {
-                    image::ImageLuma8(_) => ImageFormat::A8,
-                    image::ImageRgb8(_) => ImageFormat::RGB8,
-                    image::ImageRgba8(_) => ImageFormat::BGRA8,
+                let (format, bytes) = match image {
+                    image::ImageLuma8(_) => {
+                        (ImageFormat::A8, image.raw_pixels())
+                    }
+                    image::ImageRgba8(_) => {
+                        let mut pixels = image.raw_pixels();
+                        premultiply(pixels.as_mut_slice());
+                        (ImageFormat::BGRA8, pixels)
+                    }
+                    image::ImageRgb8(_) => {
+                        let bytes = image.raw_pixels();
+                        let mut pixels = Vec::new();
+                        for bgr in bytes.chunks(3) {
+                            pixels.extend_from_slice(&[
+                                bgr[2],
+                                bgr[1],
+                                bgr[0],
+                                0xff
+                            ]);
+                        }
+                        (ImageFormat::BGRA8, pixels)
+                    }
                     _ => panic!("We don't support whatever your crazy image type is, come on"),
                 };
-                let mut bytes = image.raw_pixels();
-                if format == ImageFormat::BGRA8 {
-                    premultiply(bytes.as_mut_slice());
-                }
                 let descriptor = ImageDescriptor::new(
                     image_dims.0,
                     image_dims.1,

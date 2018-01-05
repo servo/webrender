@@ -221,18 +221,6 @@ impl JsonFrameWriter {
         );
 
         let ok = match data.format {
-            ImageFormat::RGB8 => if data.stride == data.width * 3 {
-                save_buffer(
-                    &path_file,
-                    &bytes,
-                    data.width,
-                    data.height,
-                    ColorType::RGB(8),
-                ).unwrap();
-                true
-            } else {
-                false
-            },
             ImageFormat::BGRA8 => if data.stride == data.width * 4 {
                 unpremultiply(bytes.as_mut_slice());
                 save_buffer(

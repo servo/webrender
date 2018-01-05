@@ -554,7 +554,6 @@ impl YamlFrameWriter {
 
         assert!(data.stride > 0);
         let (color_type, bpp) = match data.format {
-            ImageFormat::RGB8 => (ColorType::RGB(8), 3),
             ImageFormat::BGRA8 => (ColorType::RGBA(8), 4),
             ImageFormat::A8 => (ColorType::Gray(8), 1),
             _ => {
