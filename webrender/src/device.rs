@@ -223,21 +223,6 @@ pub fn build_shader_strings(
     vs_source.push_str(&shared_result);
     fs_source.push_str(&shared_result);
 
-    // Append legacy (.vs and .fs) files if they exist.
-    // TODO(gw): Once all shaders are ported to just use the
-    //           .glsl file, we can remove this code.
-    let vs_name = format!("{}.vs", base_filename);
-    if let Some(old_vs_source) = get_shader_source(&vs_name, override_path) {
-        vs_source.push_str(SHADER_LINE_MARKER);
-        vs_source.push_str(&old_vs_source);
-    }
-
-    let fs_name = format!("{}.fs", base_filename);
-    if let Some(old_fs_source) = get_shader_source(&fs_name, override_path) {
-        fs_source.push_str(SHADER_LINE_MARKER);
-        fs_source.push_str(&old_fs_source);
-    }
-
     (vs_source, fs_source)
 }
 
