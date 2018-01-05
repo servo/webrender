@@ -1292,7 +1292,7 @@ impl PrimitiveStore {
                     //           GPU blocks...
                     request.push(metadata.local_rect);
                     request.push([
-                        EdgeAaSegmentMask::empty().bits() as f32,
+                        EdgeAaSegmentMask::all().bits() as f32,
                         0.0,
                         0.0,
                         0.0
@@ -1317,7 +1317,7 @@ impl PrimitiveStore {
                         None => {
                             request.push(metadata.local_rect);
                             request.push([
-                                EdgeAaSegmentMask::empty().bits() as f32,
+                                EdgeAaSegmentMask::all().bits() as f32,
                                 0.0,
                                 0.0,
                                 0.0
