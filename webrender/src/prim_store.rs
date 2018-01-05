@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipAndScrollInfo, ClipId, ClipMode};
-use api::{ColorF, ColorU, DeviceIntRect, DevicePixelScale, DevicePoint};
+use api::{ColorF, ColorU, DeviceIntRect, DevicePixelScale, DevicePoint, FilterOp};
 use api::{ComplexClipRegion, ExtendMode, FontRenderMode};
 use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
@@ -19,7 +19,7 @@ use internal_types::{FastHashMap};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
 use gpu_types::{ClipChainRectIndex, ClipScrollNodeData};
-use picture::{PictureKind, PicturePrimitive};
+use picture::{PictureKind, PicturePrimitive, PictureCompositeMode};
 use profiler::FrameProfileCounters;
 use render_task::{ClipChain, ClipChainNode, ClipChainNodeIter, ClipChainNodeRef, ClipWorkItem};
 use render_task::{RenderTask, RenderTaskId, RenderTaskTree};
@@ -1275,6 +1275,20 @@ impl PrimitiveStore {
                 PrimitiveKind::Picture => {
                     let pic = &self.cpu_pictures[metadata.cpu_prim_index.0];
                     pic.write_gpu_blocks(&mut request);
+
+                    match pic.kind {
+                        PictureKind::Image { composite_mode, .. } => {
+                            match composite_mode {
+                                Some(PictureCompositeMode::Filter(FilterOp::ColorMatrix(m))) => {
+                                    for i in 0..5 {
+                                        request.push([m[i], m[i+5], m[i+10], m[i+15]]);
+                                    }
+                                },
+                                _ => {},
+                            }
+                        }
+                        _ => {},
+                    }
 
                     let brush = &pic.brush;
                     brush.write_gpu_blocks(&mut request);

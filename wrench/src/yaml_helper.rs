@@ -560,6 +560,14 @@ impl YamlHelper for Yaml {
                                               yaml["blur-radius"].as_f32().unwrap(),
                                               yaml["color"].as_colorf().unwrap()))
                 }
+                ("color-matrix", ref args, _) if args.len() == 1 => {
+                    let mut matrix: [f32; 20] = [0.0; 20];
+                    let str = format!("---\nmatrix: {}\n", args[0]);
+                    let mut yaml_doc = YamlLoader::load_from_str(&str).expect("Failed to parse drop-shadow");
+                    let yaml = yaml_doc.pop().unwrap();
+                    matrix.clone_from_slice(&yaml["matrix"].as_vec_f32().unwrap());
+                    Some(FilterOp::ColorMatrix(matrix))
+                }
                 (_, _, _) => None,
             }
         } else {

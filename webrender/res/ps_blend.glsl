@@ -4,6 +4,12 @@
 
 #include shared,prim_shared
 
+struct ColorTransforms {
+  mat4 matrix;
+  vec4 multiplier;
+};
+
+varying ColorTransforms vColorTransforms;
 varying vec3 vUv;
 flat varying vec4 vUvBounds;
 flat varying float vAmount;
@@ -11,6 +17,16 @@ flat varying int vOp;
 flat varying mat4 vColorMat;
 
 #ifdef WR_VERTEX_SHADER
+ColorTransforms fetch_color_transforms(int address) {
+  vec4 data[8] = fetch_from_resource_cache_8(address);
+  ColorTransforms ctransform;
+
+  ctransform.matrix = mat4(data[3], data[4], data[5], data[6]);
+  ctransform.multiplier = data[7];
+
+  return ctransform;
+}
+
 void main(void) {
     CompositeInstance ci = fetch_composite_instance();
     PictureTask dest_task = fetch_picture_task(ci.render_task_index);
@@ -78,6 +94,11 @@ void main(void) {
                              vec4(0.0, 0.0, 0.0, 1.0));
             break;
         }
+        case 10: {
+          // Color Matrix
+          vColorTransforms = fetch_color_transforms(ci.user_data2);
+          break;
+        }
     }
 
 
@@ -135,6 +156,9 @@ void main(void) {
             break;
         case 8:
             oFragColor = Opacity(Cs, vAmount);
+            break;
+        case 10:
+            oFragColor = vColorTransforms.matrix * Cs + vColorTransforms.multiplier;
             break;
         default:
             oFragColor = vColorMat * Cs;
