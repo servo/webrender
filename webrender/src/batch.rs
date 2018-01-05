@@ -13,7 +13,7 @@ use euclid::{TypedTransform3D, vec3};
 use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use gpu_types::{BrushImageKind, BrushInstance, ClipChainRectIndex};
-use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex};
+use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex, PictureType};
 use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
 use internal_types::{FastHashMap, SourceTexture};
 use picture::{PictureCompositeMode, PictureKind, PicturePrimitive};
@@ -444,6 +444,7 @@ impl AlphaBatcher {
                 task_address,
                 deferred_resolves,
                 &mut splitter,
+                pic.picture_type(),
             );
         }
 
@@ -499,6 +500,7 @@ impl AlphaBatcher {
         task_address: RenderTaskAddress,
         deferred_resolves: &mut Vec<DeferredResolve>,
         splitter: &mut BspSplitter<f64, WorldPixel>,
+        pic_type: PictureType,
     ) {
         for i in 0 .. run.count {
             let prim_index = PrimitiveIndex(run.base_prim_index.0 + i);
@@ -508,7 +510,10 @@ impl AlphaBatcher {
             // Now that we walk the primitive runs in order to add
             // items to batches, we need to check if they are
             // visible here.
-            if metadata.screen_rect.is_some() {
+            // We currently only support culling on normal (Image)
+            // picture types.
+            // TODO(gw): Support culling on shadow image types.
+            if pic_type != PictureType::Image || metadata.screen_rect.is_some() {
                 self.add_prim_to_batch(
                     metadata.clip_chain_rect_index,
                     scroll_id,
@@ -520,6 +525,7 @@ impl AlphaBatcher {
                     task_address,
                     deferred_resolves,
                     splitter,
+                    pic_type,
                 );
             }
         }
@@ -541,6 +547,7 @@ impl AlphaBatcher {
         task_address: RenderTaskAddress,
         deferred_resolves: &mut Vec<DeferredResolve>,
         splitter: &mut BspSplitter<f64, WorldPixel>,
+        pic_type: PictureType,
     ) {
         let z = prim_index.0 as i32;
         let prim_metadata = ctx.prim_store.get_metadata(prim_index);
@@ -549,7 +556,13 @@ impl AlphaBatcher {
         //           wasteful. We should probably cache this in
         //           the scroll node...
         let transform_kind = scroll_node.transform.transform_kind();
-        let item_bounding_rect = prim_metadata.screen_rect.as_ref().unwrap();
+        let item_bounding_rect = &match prim_metadata.screen_rect {
+            Some(screen_rect) => screen_rect,
+            None => {
+                debug_assert_ne!(pic_type, PictureType::Image);
+                DeviceIntRect::zero()
+            }
+        };
         let prim_cache_address = gpu_cache.get_address(&prim_metadata.gpu_location);
         let no_textures = BatchTextures::no_texture();
         let clip_task_address = prim_metadata
@@ -678,11 +691,19 @@ impl AlphaBatcher {
                 }
             }
             PrimitiveKind::Line => {
-                let kind =
-                    BatchKind::Transformable(transform_kind, TransformBatchKind::Line);
-                let key = BatchKey::new(kind, blend_mode, no_textures);
-                let batch = self.batch_list.get_suitable_batch(key, item_bounding_rect);
-                batch.push(base_instance.build(0, 0, 0));
+                match pic_type {
+                    PictureType::Image => {
+                        let kind =
+                            BatchKind::Transformable(transform_kind, TransformBatchKind::Line);
+                        let key = BatchKey::new(kind, blend_mode, no_textures);
+                        let batch = self.batch_list.get_suitable_batch(key, item_bounding_rect);
+                        batch.push(base_instance.build(0, 0, 0));
+                    }
+                    PictureType::TextShadow => {
+                        self.line_cache_prims.push(base_instance.build(0, 0, 0));
+                    }
+                    PictureType::BoxShadow => unreachable!(),
+                }
             }
             PrimitiveKind::Image => {
                 let image_cpu = &ctx.prim_store.cpu_images[prim_metadata.cpu_prim_index.0];
@@ -747,14 +768,22 @@ impl AlphaBatcher {
             PrimitiveKind::TextRun => {
                 let text_cpu =
                     &ctx.prim_store.cpu_text_runs[prim_metadata.cpu_prim_index.0];
+                let is_shadow = pic_type == PictureType::TextShadow;
+
+                let font_transform = if is_shadow {
+                    None
+                } else {
+                    Some(&scroll_node.transform)
+                };
 
                 let font = text_cpu.get_font(
                     ctx.device_pixel_scale,
-                    Some(&scroll_node.transform),
+                    font_transform,
                 );
 
                 let glyph_fetch_buffer = &mut self.glyph_fetch_buffer;
                 let batch_list = &mut self.batch_list;
+                let text_run_cache_prims = &mut self.text_run_cache_prims;
 
                 ctx.resource_cache.fetch_glyphs(
                     font,
@@ -764,48 +793,55 @@ impl AlphaBatcher {
                     |texture_id, mut glyph_format, glyphs| {
                         debug_assert_ne!(texture_id, SourceTexture::Invalid);
 
-                        let textures = BatchTextures {
-                            colors: [
-                                texture_id,
-                                SourceTexture::Invalid,
-                                SourceTexture::Invalid,
-                            ],
-                        };
-
                         // Ignore color and only sample alpha when shadowing.
                         if text_cpu.is_shadow() {
                             glyph_format = glyph_format.ignore_color();
                         }
 
-                        let kind = BatchKind::Transformable(
-                            transform_kind,
-                            TransformBatchKind::TextRun(glyph_format),
-                        );
-
-                        let blend_mode = match glyph_format {
-                            GlyphFormat::Subpixel |
-                            GlyphFormat::TransformedSubpixel => {
-                                if text_cpu.font.bg_color.a != 0 {
-                                    BlendMode::SubpixelWithBgColor
-                                } else if ctx.use_dual_source_blending {
-                                    BlendMode::SubpixelDualSource
-                                } else {
-                                    BlendMode::SubpixelConstantTextColor(text_cpu.font.color.into())
-                                }
-                            }
-                            GlyphFormat::Alpha |
-                            GlyphFormat::TransformedAlpha |
-                            GlyphFormat::Bitmap |
-                            GlyphFormat::ColorBitmap => BlendMode::PremultipliedAlpha,
-                        };
                         let subpx_dir = match glyph_format {
                             GlyphFormat::Bitmap |
                             GlyphFormat::ColorBitmap => SubpixelDirection::None,
                             _ => text_cpu.font.subpx_dir.limit_by(text_cpu.font.render_mode),
                         };
 
-                        let key = BatchKey::new(kind, blend_mode, textures);
-                        let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
+                        let batch = if is_shadow {
+                            text_run_cache_prims
+                                .entry(texture_id)
+                                .or_insert(Vec::new())
+                        } else {
+                            let textures = BatchTextures {
+                                colors: [
+                                    texture_id,
+                                    SourceTexture::Invalid,
+                                    SourceTexture::Invalid,
+                                ],
+                            };
+
+                            let kind = BatchKind::Transformable(
+                                transform_kind,
+                                TransformBatchKind::TextRun(glyph_format),
+                            );
+
+                            let blend_mode = match glyph_format {
+                                GlyphFormat::Subpixel |
+                                GlyphFormat::TransformedSubpixel => {
+                                    if text_cpu.font.bg_color.a != 0 {
+                                        BlendMode::SubpixelWithBgColor
+                                    } else if ctx.use_dual_source_blending {
+                                        BlendMode::SubpixelDualSource
+                                    } else {
+                                        BlendMode::SubpixelConstantTextColor(text_cpu.font.color.into())
+                                    }
+                                }
+                                GlyphFormat::Alpha |
+                                GlyphFormat::TransformedAlpha |
+                                GlyphFormat::Bitmap |
+                                GlyphFormat::ColorBitmap => BlendMode::PremultipliedAlpha,
+                            };
+
+                            let key = BatchKey::new(kind, blend_mode, textures);
+                            batch_list.get_suitable_batch(key, item_bounding_rect)
+                        };
 
                         for glyph in glyphs {
                             batch.push(base_instance.build(

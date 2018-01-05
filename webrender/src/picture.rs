@@ -9,7 +9,7 @@ use api::{ClipId, PremultipliedColorF};
 use box_shadow::{BLUR_SAMPLE_SCALE, BoxShadowCacheKey};
 use frame_builder::PrimitiveContext;
 use gpu_cache::GpuDataRequest;
-use gpu_types::BrushImageKind;
+use gpu_types::{BrushImageKind, PictureType};
 use prim_store::{PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
 use render_task::{ClearMode, RenderTask, RenderTaskId, RenderTaskTree};
 use scene::{FilterOpHelpers, SceneProperties};
@@ -283,6 +283,14 @@ impl PicturePrimitive {
 
                 prim_local_rect
             }
+        }
+    }
+
+    pub fn picture_type(&self) -> PictureType {
+        match self.kind {
+            PictureKind::Image { .. } => PictureType::Image,
+            PictureKind::BoxShadow { .. } => PictureType::BoxShadow,
+            PictureKind::TextShadow { .. } => PictureType::TextShadow,
         }
     }
 

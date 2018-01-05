@@ -5,16 +5,15 @@
 use api::{ClipId, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::{DevicePixelScale, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{DocumentLayer, FilterOp, ImageFormat};
-use api::{LayerRect, MixBlendMode, PipelineId, SubpixelDirection};
+use api::{LayerRect, MixBlendMode, PipelineId};
 use batch::{AlphaBatcher, ClipBatcher};
 use clip::{ClipStore};
 use clip_scroll_tree::{ClipScrollTree};
 use device::Texture;
-use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheUpdateList};
 use gpu_types::{BlurDirection, BlurInstance, BrushInstance, ClipChainRectIndex};
 use gpu_types::{ClipScrollNodeData, ClipScrollNodeIndex};
-use gpu_types::{PrimitiveInstance, SimplePrimitiveInstance};
+use gpu_types::{PrimitiveInstance};
 use internal_types::{FastHashMap, RenderPassIndex};
 use picture::{PictureKind};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveStore};
@@ -22,7 +21,7 @@ use prim_store::{BrushMaskKind, BrushKind, DeferredResolve};
 use profiler::FrameProfileCounters;
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKey, RenderTaskKind};
 use render_task::{BlurTask, ClearMode, RenderTaskLocation, RenderTaskTree};
-use resource_cache::{GlyphFetchResult, ResourceCache};
+use resource_cache::{ResourceCache};
 use std::{cmp, usize, f32, i32};
 use std::collections::hash_map::Entry;
 use texture_allocator::GuillotineAllocator;
@@ -229,7 +228,6 @@ pub struct ColorRenderTarget {
     // List of frame buffer outputs for this render target.
     pub outputs: Vec<FrameOutput>,
     allocator: Option<TextureAllocator>,
-    glyph_fetch_buffer: Vec<GlyphFetchResult>,
     alpha_tasks: Vec<RenderTaskId>,
 }
 
@@ -252,7 +250,6 @@ impl RenderTarget for ColorRenderTarget {
             readbacks: Vec::new(),
             scalings: Vec::new(),
             allocator: size.map(TextureAllocator::new),
-            glyph_fetch_buffer: Vec::new(),
             outputs: Vec::new(),
             alpha_tasks: Vec::new(),
         }
@@ -278,7 +275,7 @@ impl RenderTarget for ColorRenderTarget {
         &mut self,
         task_id: RenderTaskId,
         ctx: &RenderTargetContext,
-        gpu_cache: &GpuCache,
+        _: &GpuCache,
         render_tasks: &RenderTaskTree,
         _: &ClipStore,
     ) {
@@ -312,87 +309,16 @@ impl RenderTarget for ColorRenderTarget {
                     PrimitiveKind::Picture => {
                         let prim = &ctx.prim_store.cpu_pictures[prim_metadata.cpu_prim_index.0];
 
-                        match prim.kind {
-                            PictureKind::Image { frame_output_pipeline_id, .. } => {
-                                self.alpha_tasks.push(task_id);
+                        self.alpha_tasks.push(task_id);
 
-                                // If this pipeline is registered as a frame output
-                                // store the information necessary to do the copy.
-                                if let Some(pipeline_id) = frame_output_pipeline_id {
-                                    self.outputs.push(FrameOutput {
-                                        pipeline_id,
-                                        task_id,
-                                    });
-                                }
-                            }
-                            PictureKind::TextShadow { .. } |
-                            PictureKind::BoxShadow { .. } => {
-                                let task_index = render_tasks.get_task_address(task_id);
-
-                                for run in &prim.runs {
-                                    for i in 0 .. run.count {
-                                        let sub_prim_index = PrimitiveIndex(run.base_prim_index.0 + i);
-
-                                        let sub_metadata = ctx.prim_store.get_metadata(sub_prim_index);
-                                        let sub_prim_address =
-                                            gpu_cache.get_address(&sub_metadata.gpu_location);
-                                        let instance = SimplePrimitiveInstance::new(
-                                            sub_prim_address,
-                                            task_index,
-                                            RenderTaskAddress(0),
-                                            ClipChainRectIndex(0),
-                                            ClipScrollNodeIndex(0),
-                                            0,
-                                        ); // z is disabled for rendering cache primitives
-
-                                        match sub_metadata.prim_kind {
-                                            PrimitiveKind::TextRun => {
-                                                // Add instances that reference the text run GPU location. Also supply
-                                                // the parent shadow prim address as a user data field, allowing
-                                                // the shader to fetch the shadow parameters.
-                                                let text = &ctx.prim_store.cpu_text_runs
-                                                    [sub_metadata.cpu_prim_index.0];
-                                                let text_run_cache_prims = &mut self.alpha_batcher.text_run_cache_prims;
-
-                                                let font = text.get_font(ctx.device_pixel_scale, None);
-
-                                                ctx.resource_cache.fetch_glyphs(
-                                                    font,
-                                                    &text.glyph_keys,
-                                                    &mut self.glyph_fetch_buffer,
-                                                    gpu_cache,
-                                                    |texture_id, glyph_format, glyphs| {
-                                                        let batch = text_run_cache_prims
-                                                            .entry(texture_id)
-                                                            .or_insert(Vec::new());
-
-                                                        let subpx_dir = match glyph_format {
-                                                            GlyphFormat::Bitmap |
-                                                            GlyphFormat::ColorBitmap => SubpixelDirection::None,
-                                                            _ => text.font.subpx_dir.limit_by(text.font.render_mode),
-                                                        };
-
-                                                        for glyph in glyphs {
-                                                            batch.push(instance.build(
-                                                                glyph.index_in_text_run,
-                                                                glyph.uv_rect_address.as_int(),
-                                                                subpx_dir as u32 as i32,
-                                                            ));
-                                                        }
-                                                    },
-                                                );
-                                            }
-                                            PrimitiveKind::Line => {
-                                                self.alpha_batcher
-                                                    .line_cache_prims
-                                                    .push(instance.build(0, 0, 0));
-                                            }
-                                            _ => {
-                                                unreachable!("Unexpected sub primitive type");
-                                            }
-                                        }
-                                    }
-                                }
+                        if let PictureKind::Image { frame_output_pipeline_id, .. } = prim.kind {
+                            // If this pipeline is registered as a frame output
+                            // store the information necessary to do the copy.
+                            if let Some(pipeline_id) = frame_output_pipeline_id {
+                                self.outputs.push(FrameOutput {
+                                    pipeline_id,
+                                    task_id,
+                                });
                             }
                         }
                     }
