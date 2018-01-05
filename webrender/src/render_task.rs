@@ -443,6 +443,11 @@ impl RenderTask {
             RenderTaskKind::Picture(ref task) => {
                 (
                     // Note: has to match `PICTURE_TYPE_*` in shaders
+                    // TODO(gw): Instead of using the sign of the picture
+                    //           type here, we should consider encoding it
+                    //           as a set of flags that get casted here
+                    //           and in the shader. This is a bit tidier
+                    //           and allows for future expansion of flags.
                     match task.content_origin {
                         ContentOrigin::Local(point) => [
                             point.x, point.y, task.pic_type as u32 as f32,

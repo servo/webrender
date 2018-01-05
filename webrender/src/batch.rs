@@ -784,6 +784,8 @@ impl AlphaBatcher {
                     &ctx.prim_store.cpu_text_runs[prim_metadata.cpu_prim_index.0];
                 let is_shadow = pic_type == PictureType::TextShadow;
 
+                // TODO(gw): It probably makes sense to base this decision on the content
+                //           origin field in the future (once that's configurable).
                 let font_transform = if is_shadow {
                     None
                 } else {
