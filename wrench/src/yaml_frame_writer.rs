@@ -1132,7 +1132,7 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                         DocumentMsg::RemovePipeline(ref pipeline_id) => {
                             self.scene.remove_pipeline(pipeline_id);
                         }
-                        DocumentMsg::GenerateFrame(Some(ref properties)) => {
+                        DocumentMsg::UpdateDynamicProperties(ref properties) => {
                             self.scene.properties.set_properties(properties);
                         }
                         _ => {}
