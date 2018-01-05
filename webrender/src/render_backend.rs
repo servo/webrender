@@ -484,10 +484,6 @@ impl RenderBackend {
 
                 if doc.scene.root_pipeline_id.is_some() {
                     op.render = true;
-                } else {
-                    // TODO(nical) - Eeeeeek! The previous code did the equivalent of this, but it doesn't
-                    // make a lot of sense.
-                    op.scroll = true;
                 }
 
                 op
