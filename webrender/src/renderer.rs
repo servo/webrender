@@ -2536,7 +2536,7 @@ impl Renderer {
             "Horizontal Blur",
             target.horizontal_blurs.len(),
         );
-        for (_, batch) in &target.text_run_cache_prims {
+        for (_, batch) in &target.alpha_batcher.text_run_cache_prims {
             debug_target.add(
                 debug_server::BatchKind::Cache,
                 "Text Shadow",
@@ -2546,7 +2546,7 @@ impl Renderer {
         debug_target.add(
             debug_server::BatchKind::Cache,
             "Lines",
-            target.line_cache_prims.len(),
+            target.alpha_batcher.line_cache_prims.len(),
         );
 
         for batch in target
@@ -3418,14 +3418,14 @@ impl Renderer {
         // considering using this for (some) other text runs, since
         // it removes the overhead of submitting many small glyphs
         // to multiple tiles in the normal text run case.
-        if !target.text_run_cache_prims.is_empty() {
+        if !target.alpha_batcher.text_run_cache_prims.is_empty() {
             self.device.set_blend(true);
             self.device.set_blend_mode_premultiplied_alpha();
 
             let _timer = self.gpu_profile.start_timer(GPU_TAG_CACHE_TEXT_RUN);
             self.cs_text_run
                 .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
-            for (texture_id, instances) in &target.text_run_cache_prims {
+            for (texture_id, instances) in &target.alpha_batcher.text_run_cache_prims {
                 self.draw_instanced_batch(
                     instances,
                     VertexArrayKind::Primitive,
@@ -3434,7 +3434,7 @@ impl Renderer {
                 );
             }
         }
-        if !target.line_cache_prims.is_empty() {
+        if !target.alpha_batcher.line_cache_prims.is_empty() {
             // TODO(gw): Technically, we don't need blend for solid
             //           lines. We could check that here?
             self.device.set_blend(true);
@@ -3444,7 +3444,7 @@ impl Renderer {
             self.cs_line
                 .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
             self.draw_instanced_batch(
-                &target.line_cache_prims,
+                &target.alpha_batcher.line_cache_prims,
                 VertexArrayKind::Primitive,
                 &BatchTextures::no_texture(),
                 stats,

@@ -15,7 +15,7 @@ use gpu_cache::{GpuCache, GpuCacheUpdateList};
 use gpu_types::{BlurDirection, BlurInstance, BrushInstance, ClipChainRectIndex};
 use gpu_types::{ClipScrollNodeData, ClipScrollNodeIndex};
 use gpu_types::{PrimitiveInstance, SimplePrimitiveInstance};
-use internal_types::{FastHashMap, RenderPassIndex, SourceTexture};
+use internal_types::{FastHashMap, RenderPassIndex};
 use picture::{PictureKind};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveStore};
 use prim_store::{BrushMaskKind, BrushKind, DeferredResolve};
@@ -221,9 +221,6 @@ pub struct ScalingInfo {
 /// A render target represents a number of rendering operations on a surface.
 pub struct ColorRenderTarget {
     pub alpha_batcher: AlphaBatcher,
-    // List of text runs to be cached to this render target.
-    pub text_run_cache_prims: FastHashMap<SourceTexture, Vec<PrimitiveInstance>>,
-    pub line_cache_prims: Vec<PrimitiveInstance>,
     // List of blur operations to apply for this render target.
     pub vertical_blurs: Vec<BlurInstance>,
     pub horizontal_blurs: Vec<BlurInstance>,
@@ -250,8 +247,6 @@ impl RenderTarget for ColorRenderTarget {
     ) -> Self {
         ColorRenderTarget {
             alpha_batcher: AlphaBatcher::new(screen_size),
-            text_run_cache_prims: FastHashMap::default(),
-            line_cache_prims: Vec::new(),
             vertical_blurs: Vec::new(),
             horizontal_blurs: Vec::new(),
             readbacks: Vec::new(),
@@ -357,7 +352,7 @@ impl RenderTarget for ColorRenderTarget {
                                                 // the shader to fetch the shadow parameters.
                                                 let text = &ctx.prim_store.cpu_text_runs
                                                     [sub_metadata.cpu_prim_index.0];
-                                                let text_run_cache_prims = &mut self.text_run_cache_prims;
+                                                let text_run_cache_prims = &mut self.alpha_batcher.text_run_cache_prims;
 
                                                 let font = text.get_font(ctx.device_pixel_scale, None);
 
@@ -388,7 +383,8 @@ impl RenderTarget for ColorRenderTarget {
                                                 );
                                             }
                                             PrimitiveKind::Line => {
-                                                self.line_cache_prims
+                                                self.alpha_batcher
+                                                    .line_cache_prims
                                                     .push(instance.build(0, 0, 0));
                                             }
                                             _ => {

@@ -364,15 +364,18 @@ impl BatchList {
 /// Encapsulates the logic of building batches for items that are blended.
 pub struct AlphaBatcher {
     pub batch_list: BatchList,
+    pub text_run_cache_prims: FastHashMap<SourceTexture, Vec<PrimitiveInstance>>,
+    pub line_cache_prims: Vec<PrimitiveInstance>,
     glyph_fetch_buffer: Vec<GlyphFetchResult>,
 }
-
 
 impl AlphaBatcher {
     pub fn new(screen_size: DeviceIntSize) -> Self {
         AlphaBatcher {
             batch_list: BatchList::new(screen_size),
             glyph_fetch_buffer: Vec::new(),
+            text_run_cache_prims: FastHashMap::default(),
+            line_cache_prims: Vec::new(),
         }
     }
 
