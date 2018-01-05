@@ -681,7 +681,7 @@ impl FontContext {
             FT_Glyph_Format::FT_GLYPH_FORMAT_OUTLINE => {
                 unsafe {
                     left += (*slot).bitmap_left;
-                    top += (*slot).bitmap_top - actual_height as i32;
+                    top += (*slot).bitmap_top - height as i32;
                 }
             }
             _ => {}
