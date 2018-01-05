@@ -630,9 +630,10 @@ VertexInfo write_transform_vertex(RectWithSize local_segment_rect,
     // However, it's fast and simple. If / when we ever run into issues, we
     // can do some math on the projection matrix to work out a variable
     // amount to extrude.
+    // Note: only those sides are extruded that have AA applied.
     float extrude_distance = 2.0;
-    local_segment_rect.p0 -= vec2(extrude_distance);
-    local_segment_rect.size += vec2(2.0 * extrude_distance);
+    local_segment_rect.p0 -= extrude_distance * clip_edge_mask.xy;
+    local_segment_rect.size += extrude_distance * (clip_edge_mask.xy + clip_edge_mask.zw);
 
     // Select the corner of the local rect that we are processing.
     vec2 local_pos = local_segment_rect.p0 + local_segment_rect.size * aPosition.xy;
