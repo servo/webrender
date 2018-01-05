@@ -298,7 +298,7 @@ impl FrameBuilder {
                     let mut inflate_size = 1.0;
                     while adjusted_blur_std_deviation > MAX_BLUR_STD_DEVIATION {
                         adjusted_blur_std_deviation *= 0.5;
-                        inflate_size += 1.0;
+                        inflate_size *= 2.0;
                     }
 
                     let brush_rect = brush_rect.inflate(inflate_size, inflate_size);
