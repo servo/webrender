@@ -560,6 +560,12 @@ impl YamlHelper for Yaml {
                                               yaml["blur-radius"].as_f32().unwrap(),
                                               yaml["color"].as_colorf().unwrap()))
                 }
+                ("color-matrix", ref args, _) if args.len() == 20 => {
+                    let m: Vec<f32> = args.iter().map(|f| f.parse().unwrap()).collect();
+                    let mut matrix: [f32; 20] = [0.0; 20];
+                    matrix.clone_from_slice(&m);
+                    Some(FilterOp::ColorMatrix(matrix))
+                }
                 (_, _, _) => None,
             }
         } else {
