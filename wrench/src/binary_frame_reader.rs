@@ -143,7 +143,7 @@ impl WrenchThing for BinaryFrameReader {
                         ApiMsg::UpdateDocument(_, ref doc_msgs) => {
                             for doc_msg in doc_msgs {
                                 match *doc_msg {
-                                    DocumentMsg::GenerateFrame(..) => {
+                                    DocumentMsg::GenerateFrame => {
                                         found_frame_marker = true;
                                     }
                                     DocumentMsg::SetDisplayList { .. } => {

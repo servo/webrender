@@ -457,12 +457,7 @@ impl RenderBackend {
                 tx.send(doc.frame_ctx.get_scroll_node_state()).unwrap();
                 DocumentOps::nop()
             }
-            DocumentMsg::GenerateFrame(property_bindings) => {
-                profile_scope!("GenerateFrame");
-                let _timer = profile_counters.total_time.timer();
-
-                let mut op = DocumentOps::nop();
-
+            DocumentMsg::UpdateDynamicProperties(property_bindings) => {
                 // Ideally, when there are property bindings present,
                 // we won't need to rebuild the entire frame here.
                 // However, to avoid conflicts with the ongoing work to
@@ -473,10 +468,13 @@ impl RenderBackend {
                 //           are completed, optimize the internals of
                 //           animated properties to not require a full
                 //           rebuild of the frame!
-                if let Some(property_bindings) = property_bindings {
-                    doc.scene.properties.set_properties(property_bindings);
-                    op.build = true;
-                }
+                doc.scene.properties.set_properties(property_bindings);
+                DocumentOps::build()
+            }
+            DocumentMsg::GenerateFrame => {
+                let _timer = profile_counters.total_time.timer();
+
+                let mut op = DocumentOps::nop();
 
                 if let Some(ref mut ros) = doc.render_on_scroll {
                     *ros = true;
@@ -659,12 +657,12 @@ impl RenderBackend {
         let doc = self.documents.get_mut(&document_id).unwrap();
 
         if op.build {
-            profile_scope!("build_scene");
+            profile_scope!("build scene");
             doc.build_scene(&mut self.resource_cache);
         }
 
         if op.render {
-            profile_scope!("render");
+            profile_scope!("generate frame");
 
             *frame_counter += 1;
             let rendered_document = doc.render(
@@ -683,7 +681,6 @@ impl RenderBackend {
             );
             self.result_tx.send(msg).unwrap();
             profile_counters.reset();
-
         }
 
         if op.render || op.scroll {

@@ -278,14 +278,15 @@ impl Transaction {
         self.ops.push(DocumentMsg::TickScrollingBounce);
     }
 
-    // TODO(nical) - now that we have transactions it would be more elegant to split this into
-    // an update_animated_properties(bindings) and a generate_frame() method
+    /// Generate a new frame.
+    pub fn generate_frame(&mut self) {
+        self.ops.push(DocumentMsg::GenerateFrame);
+    }
 
-    /// Generate a new frame. Optionally, supply a list of animated
-    /// property bindings that should be used to resolve bindings
-    /// in the current display list.
-    pub fn generate_frame(&mut self, property_bindings: Option<DynamicProperties>) {
-        self.ops.push(DocumentMsg::GenerateFrame(property_bindings));
+    /// Supply a list of animated property bindings that should be used to resolve
+    /// bindings in the current display list.
+    pub fn update_dynamic_properties(&mut self, properties: DynamicProperties) {
+        self.ops.push(DocumentMsg::UpdateDynamicProperties(properties));
     }
 }
 
@@ -389,7 +390,8 @@ pub enum DocumentMsg {
     ScrollNodeWithId(LayoutPoint, ClipId, ScrollClamping),
     TickScrollingBounce,
     GetScrollNodeState(MsgSender<Vec<ScrollLayerState>>),
-    GenerateFrame(Option<DynamicProperties>),
+    GenerateFrame,
+    UpdateDynamicProperties(DynamicProperties),
 }
 
 impl fmt::Debug for DocumentMsg {
@@ -408,10 +410,11 @@ impl fmt::Debug for DocumentMsg {
             DocumentMsg::ScrollNodeWithId(..) => "DocumentMsg::ScrollNodeWithId",
             DocumentMsg::TickScrollingBounce => "DocumentMsg::TickScrollingBounce",
             DocumentMsg::GetScrollNodeState(..) => "DocumentMsg::GetScrollNodeState",
-            DocumentMsg::GenerateFrame(..) => "DocumentMsg::GenerateFrame",
+            DocumentMsg::GenerateFrame => "DocumentMsg::GenerateFrame",
             DocumentMsg::EnableFrameOutput(..) => "DocumentMsg::EnableFrameOutput",
             DocumentMsg::UpdateResources(..) => "DocumentMsg::UpdateResources",
             DocumentMsg::UpdateEpoch(..) => "DocumentMsg::UpdateEpoch",
+            DocumentMsg::UpdateDynamicProperties(..) => "DocumentMsg::UpdateDynamicProperties",
         })
     }
 }
@@ -954,7 +957,10 @@ impl RenderApi {
         document_id: DocumentId,
         property_bindings: Option<DynamicProperties>,
     ) {
-        self.send(document_id, DocumentMsg::GenerateFrame(property_bindings));
+        if let Some(properties) = property_bindings {
+            self.send(document_id, DocumentMsg::UpdateDynamicProperties(properties));
+        }
+        self.send(document_id, DocumentMsg::GenerateFrame);
     }
 
     /// Save a capture of the current frame state for debugging.
