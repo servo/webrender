@@ -233,6 +233,7 @@ pub struct ColorRenderTarget {
     pub outputs: Vec<FrameOutput>,
     allocator: Option<TextureAllocator>,
     glyph_fetch_buffer: Vec<GlyphFetchResult>,
+    alpha_tasks: Vec<RenderTaskId>,
 }
 
 impl RenderTarget for ColorRenderTarget {
@@ -258,6 +259,7 @@ impl RenderTarget for ColorRenderTarget {
             allocator: size.map(TextureAllocator::new),
             glyph_fetch_buffer: Vec::new(),
             outputs: Vec::new(),
+            alpha_tasks: Vec::new(),
         }
     }
 
@@ -268,8 +270,13 @@ impl RenderTarget for ColorRenderTarget {
         render_tasks: &mut RenderTaskTree,
         deferred_resolves: &mut Vec<DeferredResolve>,
     ) {
-        self.alpha_batcher
-            .build(ctx, gpu_cache, render_tasks, deferred_resolves);
+        self.alpha_batcher.build(
+            &self.alpha_tasks,
+            ctx,
+            gpu_cache,
+            render_tasks,
+            deferred_resolves,
+        );
     }
 
     fn add_task(
@@ -312,7 +319,7 @@ impl RenderTarget for ColorRenderTarget {
 
                         match prim.kind {
                             PictureKind::Image { frame_output_pipeline_id, .. } => {
-                                self.alpha_batcher.add_task(task_id);
+                                self.alpha_tasks.push(task_id);
 
                                 // If this pipeline is registered as a frame output
                                 // store the information necessary to do the copy.
