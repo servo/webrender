@@ -323,6 +323,7 @@ impl PicturePrimitive {
                             ClearMode::Transparent,
                             child_tasks,
                             None,
+                            PictureType::Image,
                         );
 
                         let blur_std_deviation = blur_radius * prim_context.device_pixel_scale.0;
@@ -353,6 +354,7 @@ impl PicturePrimitive {
                             ClearMode::Transparent,
                             child_tasks,
                             None,
+                            PictureType::Image,
                         );
 
                         let blur_std_deviation = blur_radius * prim_context.device_pixel_scale.0;
@@ -382,6 +384,7 @@ impl PicturePrimitive {
                             ClearMode::Transparent,
                             child_tasks,
                             None,
+                            PictureType::Image,
                         );
 
                         let readback_task_id = render_tasks.add(RenderTask::new_readback(*prim_screen_rect));
@@ -410,6 +413,7 @@ impl PicturePrimitive {
                                 ClearMode::Transparent,
                                 child_tasks,
                                 None,
+                                PictureType::Image,
                             );
 
                             self.render_task_id = Some(render_tasks.add(picture_task));
@@ -425,6 +429,7 @@ impl PicturePrimitive {
                             ClearMode::Transparent,
                             child_tasks,
                             None,
+                            PictureType::Image,
                         );
 
                         self.render_task_id = Some(render_tasks.add(picture_task));
@@ -463,6 +468,7 @@ impl PicturePrimitive {
                     ClearMode::Transparent,
                     Vec::new(),
                     None,
+                    PictureType::TextShadow,
                 );
 
                 let picture_task_id = render_tasks.add(picture_task);
@@ -512,6 +518,7 @@ impl PicturePrimitive {
                     ClearMode::Zero,
                     Vec::new(),
                     Some(cache_key),
+                    PictureType::BoxShadow,
                 );
 
                 let picture_task_id = render_tasks.add(picture_task);

@@ -41,7 +41,8 @@ void brush_vs(
     int prim_address,
     vec2 local_pos,
     RectWithSize local_rect,
-    ivec2 user_data
+    ivec2 user_data,
+    PictureTask pic_task
 ) {
     // Load the specific primitive.
     RoundedRectPrimitive prim = fetch_rounded_rect_primitive(prim_address);

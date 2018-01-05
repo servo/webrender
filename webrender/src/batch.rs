@@ -44,7 +44,6 @@ pub enum TransformBatchKind {
     RadialGradient,
     BorderCorner,
     BorderEdge,
-    Line,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -67,6 +66,7 @@ impl BrushImageSourceKind {
 pub enum BrushBatchKind {
     Image(BrushImageSourceKind),
     Solid,
+    Line,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -691,16 +691,30 @@ impl AlphaBatcher {
                 }
             }
             PrimitiveKind::Line => {
+                let base_instance = BrushInstance {
+                    picture_address: task_address,
+                    prim_address: prim_cache_address,
+                    clip_chain_rect_index,
+                    scroll_id,
+                    clip_task_address,
+                    z,
+                    segment_index: 0,
+                    user_data0: 0,
+                    user_data1: 0,
+                };
+
+                let instance = PrimitiveInstance::from(base_instance);
+
                 match pic_type {
+                    PictureType::TextShadow => {
+                        self.line_cache_prims.push(instance);
+                    }
                     PictureType::Image => {
                         let kind =
-                            BatchKind::Transformable(transform_kind, TransformBatchKind::Line);
+                            BatchKind::Brush(BrushBatchKind::Line);
                         let key = BatchKey::new(kind, blend_mode, no_textures);
                         let batch = self.batch_list.get_suitable_batch(key, item_bounding_rect);
-                        batch.push(base_instance.build(0, 0, 0));
-                    }
-                    PictureType::TextShadow => {
-                        self.line_cache_prims.push(base_instance.build(0, 0, 0));
+                        batch.push(instance);
                     }
                     PictureType::BoxShadow => unreachable!(),
                 }

@@ -91,6 +91,10 @@ const GPU_TAG_BRUSH_IMAGE: GpuProfileTag = GpuProfileTag {
     label: "B_Image",
     color: debug_colors::SILVER,
 };
+const GPU_TAG_BRUSH_LINE: GpuProfileTag = GpuProfileTag {
+    label: "Line",
+    color: debug_colors::DARKRED,
+};
 const GPU_TAG_CACHE_CLIP: GpuProfileTag = GpuProfileTag {
     label: "C_Clip",
     color: debug_colors::PURPLE,
@@ -110,10 +114,6 @@ const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag {
 const GPU_TAG_SETUP_DATA: GpuProfileTag = GpuProfileTag {
     label: "data init",
     color: debug_colors::LIGHTGREY,
-};
-const GPU_TAG_PRIM_LINE: GpuProfileTag = GpuProfileTag {
-    label: "Line",
-    color: debug_colors::DARKRED,
 };
 const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag {
     label: "Image",
@@ -198,13 +198,11 @@ impl TransformBatchKind {
             TransformBatchKind::RadialGradient => "RadialGradient",
             TransformBatchKind::BorderCorner => "BorderCorner",
             TransformBatchKind::BorderEdge => "BorderEdge",
-            TransformBatchKind::Line => "Line",
         }
     }
 
     fn gpu_sampler_tag(&self) -> GpuProfileTag {
         match *self {
-            TransformBatchKind::Line => GPU_TAG_PRIM_LINE,
             TransformBatchKind::TextRun(..) => GPU_TAG_PRIM_TEXT_RUN,
             TransformBatchKind::Image(..) => GPU_TAG_PRIM_IMAGE,
             TransformBatchKind::YuvImage(..) => GPU_TAG_PRIM_YUV_IMAGE,
@@ -229,6 +227,7 @@ impl BatchKind {
                 match kind {
                     BrushBatchKind::Image(..) => "Brush (Image)",
                     BrushBatchKind::Solid => "Brush (Solid)",
+                    BrushBatchKind::Line => "Brush (Line)",
                 }
             }
             BatchKind::Transformable(_, batch_kind) => batch_kind.debug_name(),
@@ -245,6 +244,7 @@ impl BatchKind {
                 match kind {
                     BrushBatchKind::Image(..) => GPU_TAG_BRUSH_IMAGE,
                     BrushBatchKind::Solid => GPU_TAG_BRUSH_SOLID,
+                    BrushBatchKind::Line => GPU_TAG_BRUSH_LINE,
                 }
             }
             BatchKind::Transformable(_, batch_kind) => batch_kind.gpu_sampler_tag(),
@@ -1577,7 +1577,6 @@ pub struct Renderer {
     // draw intermediate results to cache targets. The results
     // of these shaders are then used by the primitive shaders.
     cs_text_run: LazilyCompiledShader,
-    cs_line: LazilyCompiledShader,
     cs_blur_a8: LazilyCompiledShader,
     cs_blur_rgba8: LazilyCompiledShader,
 
@@ -1588,6 +1587,7 @@ pub struct Renderer {
     brush_image_rgba8_alpha_mask: BrushShader,
     brush_image_a8: BrushShader,
     brush_solid: BrushShader,
+    brush_line: BrushShader,
 
     /// These are "cache clip shaders". These shaders are used to
     /// draw clip instances into the cached clip mask. The results
@@ -1612,7 +1612,6 @@ pub struct Renderer {
     ps_gradient: PrimitiveShader,
     ps_angle_gradient: PrimitiveShader,
     ps_radial_gradient: PrimitiveShader,
-    ps_line: PrimitiveShader,
 
     ps_blend: LazilyCompiledShader,
     ps_hw_composite: LazilyCompiledShader,
@@ -1768,14 +1767,6 @@ impl Renderer {
                                       options.precache_shaders)
         };
 
-        let cs_line = try!{
-            LazilyCompiledShader::new(ShaderKind::Cache(VertexArrayKind::Primitive),
-                                      "ps_line",
-                                      &["CACHE"],
-                                      &mut device,
-                                      options.precache_shaders)
-        };
-
         let brush_mask_corner = try!{
             LazilyCompiledShader::new(ShaderKind::Brush,
                                       "brush_mask_corner",
@@ -1794,6 +1785,13 @@ impl Renderer {
 
         let brush_solid = try!{
             BrushShader::new("brush_solid",
+                             &mut device,
+                             &[],
+                             options.precache_shaders)
+        };
+
+        let brush_line = try!{
+            BrushShader::new("brush_line",
                              &mut device,
                              &[],
                              options.precache_shaders)
@@ -1858,13 +1856,6 @@ impl Renderer {
                                       &[],
                                       &mut device,
                                       options.precache_shaders)
-        };
-
-        let ps_line = try!{
-            PrimitiveShader::new("ps_line",
-                                 &mut device,
-                                 &[],
-                                 options.precache_shaders)
         };
 
         let ps_text_run = try!{
@@ -2245,7 +2236,6 @@ impl Renderer {
             pending_gpu_cache_updates: Vec::new(),
             pending_shader_updates: Vec::new(),
             cs_text_run,
-            cs_line,
             cs_blur_a8,
             cs_blur_rgba8,
             brush_mask_corner,
@@ -2254,6 +2244,7 @@ impl Renderer {
             brush_image_rgba8_alpha_mask,
             brush_image_a8,
             brush_solid,
+            brush_line,
             cs_clip_rectangle,
             cs_clip_border,
             cs_clip_image,
@@ -2270,7 +2261,6 @@ impl Renderer {
             ps_hw_composite,
             ps_split_composite,
             ps_composite,
-            ps_line,
             debug: debug_renderer,
             debug_flags,
             backend_profile_counters: BackendProfileCounters::new(),
@@ -3129,18 +3119,18 @@ impl Renderer {
                             &mut self.renderer_errors,
                         );
                     }
+                    BrushBatchKind::Line => {
+                        self.brush_line.bind(
+                            &mut self.device,
+                            key.blend_mode,
+                            projection,
+                            0,
+                            &mut self.renderer_errors,
+                        );
+                    }
                 }
             }
             BatchKind::Transformable(transform_kind, batch_kind) => match batch_kind {
-                TransformBatchKind::Line => {
-                    self.ps_line.bind(
-                        &mut self.device,
-                        transform_kind,
-                        projection,
-                        0,
-                        &mut self.renderer_errors,
-                    );
-                }
                 TransformBatchKind::TextRun(..) => {
                     unreachable!("bug: text batches are special cased");
                 }
@@ -3441,8 +3431,13 @@ impl Renderer {
             self.device.set_blend_mode_premultiplied_alpha();
 
             let _timer = self.gpu_profile.start_timer(GPU_TAG_CACHE_LINE);
-            self.cs_line
-                .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+            self.brush_line.bind(
+                &mut self.device,
+                BlendMode::PremultipliedAlpha,
+                projection,
+                0,
+                &mut self.renderer_errors,
+            );
             self.draw_instanced_batch(
                 &target.alpha_batcher.line_cache_prims,
                 VertexArrayKind::Primitive,
@@ -4519,7 +4514,6 @@ impl Renderer {
         self.device.delete_vao(self.blur_vao);
         self.debug.deinit(&mut self.device);
         self.cs_text_run.deinit(&mut self.device);
-        self.cs_line.deinit(&mut self.device);
         self.cs_blur_a8.deinit(&mut self.device);
         self.cs_blur_rgba8.deinit(&mut self.device);
         self.brush_mask_rounded_rect.deinit(&mut self.device);
@@ -4528,6 +4522,7 @@ impl Renderer {
         self.brush_image_rgba8_alpha_mask.deinit(&mut self.device);
         self.brush_image_a8.deinit(&mut self.device);
         self.brush_solid.deinit(&mut self.device);
+        self.brush_line.deinit(&mut self.device);
         self.cs_clip_rectangle.deinit(&mut self.device);
         self.cs_clip_image.deinit(&mut self.device);
         self.cs_clip_border.deinit(&mut self.device);
@@ -4551,7 +4546,6 @@ impl Renderer {
         self.ps_gradient.deinit(&mut self.device);
         self.ps_angle_gradient.deinit(&mut self.device);
         self.ps_radial_gradient.deinit(&mut self.device);
-        self.ps_line.deinit(&mut self.device);
         self.ps_blend.deinit(&mut self.device);
         self.ps_hw_composite.deinit(&mut self.device);
         self.ps_split_composite.deinit(&mut self.device);
