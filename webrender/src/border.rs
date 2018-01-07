@@ -433,20 +433,20 @@ impl FrameBuilder {
             );
             let p3 = info.rect.bottom_right();
 
-            let segment = |x0, y0, x1, y1, mask| BrushSegment::new(
+            let segment = |x0, y0, x1, y1| BrushSegment::new(
                 LayerPoint::new(x0, y0),
                 LayerSize::new(x1-x0, y1-y0),
                 false,
-                mask
+                EdgeAaSegmentMask::all() // Note: this doesn't seem right, needs revision
             );
 
             // Add a solid rectangle for each visible edge/corner combination.
             if top_edge == BorderEdgeKind::Solid {
                 let descriptor = BrushSegmentDescriptor {
                     segments: vec![
-                        segment(p0.x, p0.y, p1.x, p1.y, EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::LEFT),
-                        segment(p2.x, p0.y, p3.x, p1.y, EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::RIGHT),
-                        segment(p1.x, p0.y, p2.x, p1.y, EdgeAaSegmentMask::TOP),
+                        segment(p0.x, p0.y, p1.x, p1.y),
+                        segment(p2.x, p0.y, p3.x, p1.y),
+                        segment(p1.x, p0.y, p2.x, p1.y),
                     ],
                     clip_mask_kind: BrushClipMaskKind::Unknown,
                 };
@@ -462,7 +462,7 @@ impl FrameBuilder {
             if left_edge == BorderEdgeKind::Solid {
                 let descriptor = BrushSegmentDescriptor {
                     segments: vec![
-                        segment(p0.x, p1.y, p1.x, p2.y, EdgeAaSegmentMask::LEFT),
+                        segment(p0.x, p1.y, p1.x, p2.y),
                     ],
                     clip_mask_kind: BrushClipMaskKind::Unknown,
                 };
@@ -478,7 +478,7 @@ impl FrameBuilder {
             if right_edge == BorderEdgeKind::Solid {
                 let descriptor = BrushSegmentDescriptor {
                     segments: vec![
-                        segment(p2.x, p1.y, p3.x, p2.y, EdgeAaSegmentMask::RIGHT),
+                        segment(p2.x, p1.y, p3.x, p2.y),
                     ],
                     clip_mask_kind: BrushClipMaskKind::Unknown,
                 };
@@ -494,9 +494,9 @@ impl FrameBuilder {
             if bottom_edge == BorderEdgeKind::Solid {
                 let descriptor = BrushSegmentDescriptor {
                     segments: vec![
-                        segment(p1.x, p2.y, p2.x, p3.y, EdgeAaSegmentMask::BOTTOM),
-                        segment(p2.x, p2.y, p3.x, p3.y, EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::RIGHT),
-                        segment(p0.x, p2.y, p1.x, p3.y, EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::LEFT),
+                        segment(p1.x, p2.y, p2.x, p3.y),
+                        segment(p2.x, p2.y, p3.x, p3.y),
+                        segment(p0.x, p2.y, p1.x, p3.y),
                     ],
                     clip_mask_kind: BrushClipMaskKind::Unknown,
                 };
