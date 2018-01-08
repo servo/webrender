@@ -212,3 +212,11 @@ impl ClipScrollNodeData {
 #[derive(Copy, Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct ClipChainRectIndex(pub usize);
+
+#[derive(Copy, Debug, Clone, PartialEq)]
+#[repr(C)]
+pub enum PictureType {
+    Image = 1,
+    TextShadow = 2,
+    BoxShadow = 3,
+}

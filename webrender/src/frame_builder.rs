@@ -20,7 +20,7 @@ use euclid::{SideOffsets2D, vec2};
 use frame::FrameId;
 use glyph_rasterizer::FontInstance;
 use gpu_cache::GpuCache;
-use gpu_types::ClipScrollNodeData;
+use gpu_types::{ClipScrollNodeData, PictureType};
 use internal_types::{FastHashMap, FastHashSet, RenderPassIndex};
 use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive};
 use prim_store::{BrushKind, BrushPrimitive, TexelRect, YuvImagePrimitiveCpu};
@@ -1635,6 +1635,7 @@ impl FrameBuilder {
             ClearMode::Transparent,
             child_tasks,
             None,
+            PictureType::Image,
         );
 
         pic.render_task_id = Some(render_tasks.add(root_render_task));

@@ -7,7 +7,7 @@ use api::{LayerRect, PremultipliedColorF};
 use box_shadow::BoxShadowCacheKey;
 use clip::{ClipSourcesWeakHandle};
 use clip_scroll_tree::CoordinateSystemId;
-use gpu_types::{ClipScrollNodeIndex};
+use gpu_types::{ClipScrollNodeIndex, PictureType};
 use internal_types::RenderPassIndex;
 use picture::ContentOrigin;
 use prim_store::{PrimitiveIndex};
@@ -185,6 +185,7 @@ pub struct PictureTask {
     pub target_kind: RenderTargetKind,
     pub content_origin: ContentOrigin,
     pub color: PremultipliedColorF,
+    pub pic_type: PictureType,
 }
 
 #[derive(Debug)]
@@ -254,6 +255,7 @@ impl RenderTask {
         clear_mode: ClearMode,
         children: Vec<RenderTaskId>,
         box_shadow_cache_key: Option<BoxShadowCacheKey>,
+        pic_type: PictureType,
     ) -> Self {
         let location = match size {
             Some(size) => RenderTaskLocation::Dynamic(None, size),
@@ -272,6 +274,7 @@ impl RenderTask {
                 target_kind,
                 content_origin,
                 color,
+                pic_type,
             }),
             clear_mode,
             pass_index: None,
@@ -439,13 +442,18 @@ impl RenderTask {
         let (data1, data2) = match self.kind {
             RenderTaskKind::Picture(ref task) => {
                 (
-                    // Note: has to match `RASTERIZATION_MODE_*_SPACE` in shaders
+                    // Note: has to match `PICTURE_TYPE_*` in shaders
+                    // TODO(gw): Instead of using the sign of the picture
+                    //           type here, we should consider encoding it
+                    //           as a set of flags that get casted here
+                    //           and in the shader. This is a bit tidier
+                    //           and allows for future expansion of flags.
                     match task.content_origin {
                         ContentOrigin::Local(point) => [
-                            point.x, point.y, 0.0,
+                            point.x, point.y, task.pic_type as u32 as f32,
                         ],
                         ContentOrigin::Screen(point) => [
-                            point.x as f32, point.y as f32, 1.0,
+                            point.x as f32, point.y as f32, -(task.pic_type as u32 as f32),
                         ],
                     },
                     task.color.to_array()

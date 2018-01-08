@@ -344,8 +344,8 @@ pub struct LinePrimitive {
     pub orientation: LineOrientation,
 }
 
-impl ToGpuBlocks for LinePrimitive {
-    fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
+impl LinePrimitive {
+    fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
         request.push(self.color);
         request.push([
             self.wavy_line_thickness,
@@ -1249,7 +1249,22 @@ impl PrimitiveStore {
             match metadata.prim_kind {
                 PrimitiveKind::Line => {
                     let line = &self.cpu_lines[metadata.cpu_prim_index.0];
-                    line.write_gpu_blocks(request);
+                    line.write_gpu_blocks(&mut request);
+
+                    // TODO(gw): This is a bit of a hack. The Line type
+                    //           is drawn by the brush_line shader, so the
+                    //           layout here needs to conform to the same
+                    //           BrushPrimitive layout. We should tidy this
+                    //           up in the future so it's enforced that these
+                    //           types use a shared function to write out the
+                    //           GPU blocks...
+                    request.push(metadata.local_rect);
+                    request.push([
+                        EdgeAaSegmentMask::empty().bits() as f32,
+                        0.0,
+                        0.0,
+                        0.0
+                    ]);
                 }
                 PrimitiveKind::Border => {
                     let border = &self.cpu_borders[metadata.cpu_prim_index.0];

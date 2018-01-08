@@ -29,7 +29,8 @@ void brush_vs(
     int prim_address,
     vec2 local_pos,
     RectWithSize local_rect,
-    ivec2 user_data
+    ivec2 user_data,
+    PictureTask pic_task
 ) {
     // TODO(gw): For now, this brush_image shader is only
     //           being used to draw items from the intermediate

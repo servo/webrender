@@ -231,6 +231,10 @@ RenderTaskCommonData fetch_render_task_common_data(int index) {
     return data;
 }
 
+#define PIC_TYPE_IMAGE          1
+#define PIC_TYPE_TEXT_SHADOW    2
+#define PIC_TYPE_BOX_SHADOW     3
+
 /*
  The dynamic picture that this brush exists on. Right now, it
  contains minimal information. In the future, it will describe
@@ -239,7 +243,7 @@ RenderTaskCommonData fetch_render_task_common_data(int index) {
 struct PictureTask {
     RenderTaskCommonData common_data;
     vec2 content_origin;
-    float rasterization_mode;
+    float pic_kind_and_raster_mode;
     vec4 color;
 };
 

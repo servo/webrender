@@ -8,11 +8,9 @@ void brush_vs(
     int prim_address,
     vec2 local_pos,
     RectWithSize local_rect,
-    ivec2 user_data
+    ivec2 user_data,
+    PictureTask pic_task
 );
-
-#define RASTERIZATION_MODE_LOCAL_SPACE      0.0
-#define RASTERIZATION_MODE_SCREEN_SPACE     1.0
 
 #define VECS_PER_BRUSH_PRIM                 2
 #define VECS_PER_SEGMENT                    2
@@ -83,8 +81,9 @@ void main(void) {
 
     // Fetch the dynamic picture that we are drawing on.
     PictureTask pic_task = fetch_picture_task(brush.picture_address);
+    ClipArea clip_area = fetch_clip_area(brush.clip_address);
 
-    if (pic_task.rasterization_mode == RASTERIZATION_MODE_LOCAL_SPACE) {
+    if (pic_task.pic_kind_and_raster_mode > 0.0) {
         local_pos = local_segment_rect.p0 + aPosition.xy * local_segment_rect.size;
 
         // Right now - pictures only support local positions. In the future, this
@@ -92,12 +91,18 @@ void main(void) {
         device_pos = pic_task.common_data.task_rect.p0 +
                      uDevicePixelRatio * (local_pos - pic_task.content_origin);
 
+#ifdef WR_FEATURE_ALPHA_PASS
+        write_clip(
+            vec2(0.0),
+            clip_area
+        );
+#endif
+
         // Write the final position transformed by the orthographic device-pixel projection.
         gl_Position = uTransform * vec4(device_pos, 0.0, 1.0);
     } else {
         VertexInfo vi;
         ClipScrollNode scroll_node = fetch_clip_scroll_node(brush.scroll_node_id);
-        ClipArea clip_area = fetch_clip_area(brush.clip_address);
 
         // Write the normal vertex information out.
         if (scroll_node.is_axis_aligned) {
@@ -153,7 +158,8 @@ void main(void) {
         brush.prim_address + VECS_PER_BRUSH_PRIM,
         local_pos,
         brush_prim.local_rect,
-        brush.user_data
+        brush.user_data,
+        pic_task
     );
 }
 #endif

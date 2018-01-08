@@ -13,7 +13,7 @@ use euclid::{TypedTransform3D, vec3};
 use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use gpu_types::{BrushImageKind, BrushInstance, ClipChainRectIndex};
-use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex};
+use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex, PictureType};
 use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
 use internal_types::{FastHashMap, SourceTexture};
 use picture::{PictureCompositeMode, PictureKind, PicturePrimitive};
@@ -44,7 +44,6 @@ pub enum TransformBatchKind {
     RadialGradient,
     BorderCorner,
     BorderEdge,
-    Line,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -67,6 +66,7 @@ impl BrushImageSourceKind {
 pub enum BrushBatchKind {
     Image(BrushImageSourceKind),
     Solid,
+    Line,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -364,44 +364,41 @@ impl BatchList {
 /// Encapsulates the logic of building batches for items that are blended.
 pub struct AlphaBatcher {
     pub batch_list: BatchList,
-    tasks: Vec<RenderTaskId>,
+    pub text_run_cache_prims: FastHashMap<SourceTexture, Vec<PrimitiveInstance>>,
+    pub line_cache_prims: Vec<PrimitiveInstance>,
     glyph_fetch_buffer: Vec<GlyphFetchResult>,
 }
-
 
 impl AlphaBatcher {
     pub fn new(screen_size: DeviceIntSize) -> Self {
         AlphaBatcher {
-            tasks: Vec::new(),
             batch_list: BatchList::new(screen_size),
             glyph_fetch_buffer: Vec::new(),
+            text_run_cache_prims: FastHashMap::default(),
+            line_cache_prims: Vec::new(),
         }
-    }
-
-    pub fn add_task(&mut self, task_id: RenderTaskId) {
-        self.tasks.push(task_id);
     }
 
     pub fn build(
         &mut self,
+        tasks: &[RenderTaskId],
         ctx: &RenderTargetContext,
         gpu_cache: &mut GpuCache,
         render_tasks: &RenderTaskTree,
         deferred_resolves: &mut Vec<DeferredResolve>,
     ) {
-        for &task_id in &self.tasks {
+        for &task_id in tasks {
             match render_tasks[task_id].kind {
                 RenderTaskKind::Picture(ref pic_task) => {
                     let pic_index = ctx.prim_store.cpu_metadata[pic_task.prim_index.0].cpu_prim_index;
                     let pic = &ctx.prim_store.cpu_pictures[pic_index.0];
-                    pic.add_to_batch(
+                    self.add_pic_to_batch(
+                        pic,
                         task_id,
                         ctx,
                         gpu_cache,
                         render_tasks,
                         deferred_resolves,
-                        &mut self.batch_list,
-                        &mut self.glyph_fetch_buffer
                     );
                 }
                 _ => {
@@ -417,18 +414,15 @@ impl AlphaBatcher {
         self.batch_list.opaque_batch_list.batches.is_empty() &&
             self.batch_list.alpha_batch_list.batches.is_empty()
     }
-}
 
-impl PicturePrimitive {
-    fn add_to_batch(
-        &self,
+    fn add_pic_to_batch(
+        &mut self,
+        pic: &PicturePrimitive,
         task_id: RenderTaskId,
         ctx: &RenderTargetContext,
         gpu_cache: &mut GpuCache,
         render_tasks: &RenderTaskTree,
         deferred_resolves: &mut Vec<DeferredResolve>,
-        batch_list: &mut BatchList,
-        glyph_fetch_buffer: &mut Vec<GlyphFetchResult>,
     ) {
         let task_address = render_tasks.get_task_address(task_id);
 
@@ -437,20 +431,20 @@ impl PicturePrimitive {
         let mut splitter = BspSplitter::new();
 
         // Add each run in this picture to the batch.
-        for run in &self.runs {
+        for run in &pic.runs {
             let scroll_node = &ctx.clip_scroll_tree.nodes[&run.clip_and_scroll.scroll_node_id];
             let scroll_id = scroll_node.node_data_index;
-            run.add_to_batch(
+            self.add_run_to_batch(
+                run,
                 scroll_id,
-                batch_list,
                 ctx,
                 gpu_cache,
                 render_tasks,
                 task_id,
                 task_address,
                 deferred_resolves,
-                glyph_fetch_buffer,
                 &mut splitter,
+                pic.picture_type(),
             );
         }
 
@@ -473,7 +467,7 @@ impl PicturePrimitive {
             );
             let pic_metadata = &ctx.prim_store.cpu_metadata[prim_index.0];
             let pic = &ctx.prim_store.cpu_pictures[pic_metadata.cpu_prim_index.0];
-            let batch = batch_list.get_suitable_batch(key, pic_metadata.screen_rect.as_ref().expect("bug"));
+            let batch = self.batch_list.get_suitable_batch(key, pic_metadata.screen_rect.as_ref().expect("bug"));
             let source_task_address = render_tasks.get_task_address(pic.render_task_id.expect("bug"));
             let gpu_address = gpu_handle.as_int(gpu_cache);
 
@@ -491,728 +485,775 @@ impl PicturePrimitive {
             batch.push(PrimitiveInstance::from(instance));
         }
     }
-}
 
-// Helper to add an entire primitive run to a batch list.
-// TODO(gw): Restructure this so the param list isn't quite
-//           so daunting!
-impl PrimitiveRun {
-    fn add_to_batch(
-        &self,
+    // Helper to add an entire primitive run to a batch list.
+    // TODO(gw): Restructure this so the param list isn't quite
+    //           so daunting!
+    fn add_run_to_batch(
+        &mut self,
+        run: &PrimitiveRun,
         scroll_id: ClipScrollNodeIndex,
-        batch_list: &mut BatchList,
         ctx: &RenderTargetContext,
         gpu_cache: &mut GpuCache,
         render_tasks: &RenderTaskTree,
         task_id: RenderTaskId,
         task_address: RenderTaskAddress,
         deferred_resolves: &mut Vec<DeferredResolve>,
-        glyph_fetch_buffer: &mut Vec<GlyphFetchResult>,
         splitter: &mut BspSplitter<f64, WorldPixel>,
+        pic_type: PictureType,
     ) {
-        for i in 0 .. self.count {
-            let prim_index = PrimitiveIndex(self.base_prim_index.0 + i);
+        for i in 0 .. run.count {
+            let prim_index = PrimitiveIndex(run.base_prim_index.0 + i);
 
             let metadata = &ctx.prim_store.cpu_metadata[prim_index.0];
 
             // Now that we walk the primitive runs in order to add
             // items to batches, we need to check if they are
             // visible here.
-            if metadata.screen_rect.is_some() {
-                add_to_batch(
+            // We currently only support culling on normal (Image)
+            // picture types.
+            // TODO(gw): Support culling on shadow image types.
+            if pic_type != PictureType::Image || metadata.screen_rect.is_some() {
+                self.add_prim_to_batch(
                     metadata.clip_chain_rect_index,
                     scroll_id,
                     prim_index,
-                    batch_list,
                     ctx,
                     gpu_cache,
                     render_tasks,
                     task_id,
                     task_address,
                     deferred_resolves,
-                    glyph_fetch_buffer,
                     splitter,
+                    pic_type,
                 );
             }
         }
     }
-}
 
-// A free function that adds a primitive to a batch.
-// It can recursively call itself in some situations, for
-// example if it encounters a picture where the items
-// in that picture are being drawn into the same target.
-fn add_to_batch(
-    clip_chain_rect_index: ClipChainRectIndex,
-    scroll_id: ClipScrollNodeIndex,
-    prim_index: PrimitiveIndex,
-    batch_list: &mut BatchList,
-    ctx: &RenderTargetContext,
-    gpu_cache: &mut GpuCache,
-    render_tasks: &RenderTaskTree,
-    task_id: RenderTaskId,
-    task_address: RenderTaskAddress,
-    deferred_resolves: &mut Vec<DeferredResolve>,
-    glyph_fetch_buffer: &mut Vec<GlyphFetchResult>,
-    splitter: &mut BspSplitter<f64, WorldPixel>,
-) {
-    let z = prim_index.0 as i32;
-    let prim_metadata = ctx.prim_store.get_metadata(prim_index);
-    let scroll_node = &ctx.node_data[scroll_id.0 as usize];
-    // TODO(gw): Calculating this for every primitive is a bit
-    //           wasteful. We should probably cache this in
-    //           the scroll node...
-    let transform_kind = scroll_node.transform.transform_kind();
-    let item_bounding_rect = prim_metadata.screen_rect.as_ref().unwrap();
-    let prim_cache_address = gpu_cache.get_address(&prim_metadata.gpu_location);
-    let no_textures = BatchTextures::no_texture();
-    let clip_task_address = prim_metadata
-        .clip_task_id
-        .map_or(OPAQUE_TASK_ADDRESS, |id| render_tasks.get_task_address(id));
-    let base_instance = SimplePrimitiveInstance::new(
-        prim_cache_address,
-        task_address,
-        clip_task_address,
-        clip_chain_rect_index,
-        scroll_id,
-        z,
-    );
-
-    let blend_mode = ctx.prim_store.get_blend_mode(prim_metadata, transform_kind);
-
-    match prim_metadata.prim_kind {
-        PrimitiveKind::Brush => {
-            let brush = &ctx.prim_store.cpu_brushes[prim_metadata.cpu_prim_index.0];
-            let base_instance = BrushInstance {
-                picture_address: task_address,
-                prim_address: prim_cache_address,
-                clip_chain_rect_index,
-                scroll_id,
-                clip_task_address,
-                z,
-                segment_index: 0,
-                user_data0: 0,
-                user_data1: 0,
-            };
-
-            match brush.segment_desc {
-                Some(ref segment_desc) => {
-                    let opaque_batch = batch_list.opaque_batch_list.get_suitable_batch(
-                        brush.get_batch_key(
-                            BlendMode::None
-                        ),
-                        item_bounding_rect
-                    );
-                    let alpha_batch = batch_list.alpha_batch_list.get_suitable_batch(
-                        brush.get_batch_key(
-                            BlendMode::PremultipliedAlpha
-                        ),
-                        item_bounding_rect
-                    );
-
-                    for (i, segment) in segment_desc.segments.iter().enumerate() {
-                        let is_inner = segment.edge_flags.is_empty();
-                        let needs_blending = !prim_metadata.opacity.is_opaque ||
-                                             segment.clip_task_id.is_some() ||
-                                             (!is_inner && transform_kind == TransformedRectKind::Complex);
-
-                        let clip_task_address = segment
-                            .clip_task_id
-                            .map_or(OPAQUE_TASK_ADDRESS, |id| render_tasks.get_task_address(id));
-
-                        let instance = PrimitiveInstance::from(BrushInstance {
-                            segment_index: i as i32,
-                            clip_task_address,
-                            ..base_instance
-                        });
-
-                        if needs_blending {
-                            alpha_batch.push(instance);
-                        } else {
-                            opaque_batch.push(instance);
-                        }
-                    }
-                }
-                None => {
-                    let batch = batch_list.get_suitable_batch(brush.get_batch_key(blend_mode), item_bounding_rect);
-                    batch.push(PrimitiveInstance::from(base_instance));
-                }
+    // Adds a primitive to a batch.
+    // It can recursively call itself in some situations, for
+    // example if it encounters a picture where the items
+    // in that picture are being drawn into the same target.
+    fn add_prim_to_batch(
+        &mut self,
+        clip_chain_rect_index: ClipChainRectIndex,
+        scroll_id: ClipScrollNodeIndex,
+        prim_index: PrimitiveIndex,
+        ctx: &RenderTargetContext,
+        gpu_cache: &mut GpuCache,
+        render_tasks: &RenderTaskTree,
+        task_id: RenderTaskId,
+        task_address: RenderTaskAddress,
+        deferred_resolves: &mut Vec<DeferredResolve>,
+        splitter: &mut BspSplitter<f64, WorldPixel>,
+        pic_type: PictureType,
+    ) {
+        let z = prim_index.0 as i32;
+        let prim_metadata = ctx.prim_store.get_metadata(prim_index);
+        let scroll_node = &ctx.node_data[scroll_id.0 as usize];
+        // TODO(gw): Calculating this for every primitive is a bit
+        //           wasteful. We should probably cache this in
+        //           the scroll node...
+        let transform_kind = scroll_node.transform.transform_kind();
+        let item_bounding_rect = &match prim_metadata.screen_rect {
+            Some(screen_rect) => screen_rect,
+            None => {
+                debug_assert_ne!(pic_type, PictureType::Image);
+                DeviceIntRect::zero()
             }
-        }
-        PrimitiveKind::Border => {
-            let border_cpu =
-                &ctx.prim_store.cpu_borders[prim_metadata.cpu_prim_index.0];
-            // TODO(gw): Select correct blend mode for edges and corners!!
-            let corner_kind = BatchKind::Transformable(
-                transform_kind,
-                TransformBatchKind::BorderCorner,
-            );
-            let corner_key = BatchKey::new(corner_kind, blend_mode, no_textures);
-            let edge_kind = BatchKind::Transformable(
-                transform_kind,
-                TransformBatchKind::BorderEdge,
-            );
-            let edge_key = BatchKey::new(edge_kind, blend_mode, no_textures);
+        };
+        let prim_cache_address = gpu_cache.get_address(&prim_metadata.gpu_location);
+        let no_textures = BatchTextures::no_texture();
+        let clip_task_address = prim_metadata
+            .clip_task_id
+            .map_or(OPAQUE_TASK_ADDRESS, |id| render_tasks.get_task_address(id));
+        let base_instance = SimplePrimitiveInstance::new(
+            prim_cache_address,
+            task_address,
+            clip_task_address,
+            clip_chain_rect_index,
+            scroll_id,
+            z,
+        );
 
-            // Work around borrow ck on borrowing batch_list twice.
-            {
-                let batch =
-                    batch_list.get_suitable_batch(corner_key, item_bounding_rect);
-                for (i, instance_kind) in border_cpu.corner_instances.iter().enumerate()
-                {
-                    let sub_index = i as i32;
-                    match *instance_kind {
-                        BorderCornerInstance::None => {}
-                        BorderCornerInstance::Single => {
-                            batch.push(base_instance.build(
-                                sub_index,
-                                BorderCornerSide::Both as i32,
-                                0,
-                            ));
-                        }
-                        BorderCornerInstance::Double => {
-                            batch.push(base_instance.build(
-                                sub_index,
-                                BorderCornerSide::First as i32,
-                                0,
-                            ));
-                            batch.push(base_instance.build(
-                                sub_index,
-                                BorderCornerSide::Second as i32,
-                                0,
-                            ));
-                        }
-                    }
-                }
-            }
+        let blend_mode = ctx.prim_store.get_blend_mode(prim_metadata, transform_kind);
 
-            let batch = batch_list.get_suitable_batch(edge_key, item_bounding_rect);
-            for border_segment in 0 .. 4 {
-                batch.push(base_instance.build(border_segment, 0, 0));
-            }
-        }
-        PrimitiveKind::Line => {
-            let kind =
-                BatchKind::Transformable(transform_kind, TransformBatchKind::Line);
-            let key = BatchKey::new(kind, blend_mode, no_textures);
-            let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
-            batch.push(base_instance.build(0, 0, 0));
-        }
-        PrimitiveKind::Image => {
-            let image_cpu = &ctx.prim_store.cpu_images[prim_metadata.cpu_prim_index.0];
+        match prim_metadata.prim_kind {
+            PrimitiveKind::Brush => {
+                let brush = &ctx.prim_store.cpu_brushes[prim_metadata.cpu_prim_index.0];
+                let base_instance = BrushInstance {
+                    picture_address: task_address,
+                    prim_address: prim_cache_address,
+                    clip_chain_rect_index,
+                    scroll_id,
+                    clip_task_address,
+                    z,
+                    segment_index: 0,
+                    user_data0: 0,
+                    user_data1: 0,
+                };
 
-            let (color_texture_id, uv_address) = resolve_image(
-                image_cpu.image_key,
-                image_cpu.image_rendering,
-                image_cpu.tile_offset,
-                ctx.resource_cache,
-                gpu_cache,
-                deferred_resolves,
-            );
+                match brush.segment_desc {
+                    Some(ref segment_desc) => {
+                        let opaque_batch = self.batch_list.opaque_batch_list.get_suitable_batch(
+                            brush.get_batch_key(
+                                BlendMode::None
+                            ),
+                            item_bounding_rect
+                        );
+                        let alpha_batch = self.batch_list.alpha_batch_list.get_suitable_batch(
+                            brush.get_batch_key(
+                                BlendMode::PremultipliedAlpha
+                            ),
+                            item_bounding_rect
+                        );
 
-            if color_texture_id == SourceTexture::Invalid {
-                warn!("Warnings: skip a PrimitiveKind::Image at {:?}.\n", item_bounding_rect);
-                return;
-            }
+                        for (i, segment) in segment_desc.segments.iter().enumerate() {
+                            let is_inner = segment.edge_flags.is_empty();
+                            let needs_blending = !prim_metadata.opacity.is_opaque ||
+                                                 segment.clip_task_id.is_some() ||
+                                                 (!is_inner && transform_kind == TransformedRectKind::Complex);
 
-            let batch_kind = match color_texture_id {
-                SourceTexture::External(ext_image) => {
-                    match ext_image.image_type {
-                        ExternalImageType::Texture2DHandle => {
-                            TransformBatchKind::Image(ImageBufferKind::Texture2D)
-                        }
-                        ExternalImageType::Texture2DArrayHandle => {
-                            TransformBatchKind::Image(ImageBufferKind::Texture2DArray)
-                        }
-                        ExternalImageType::TextureRectHandle => {
-                            TransformBatchKind::Image(ImageBufferKind::TextureRect)
-                        }
-                        ExternalImageType::TextureExternalHandle => {
-                            TransformBatchKind::Image(ImageBufferKind::TextureExternal)
-                        }
-                        ExternalImageType::ExternalBuffer => {
-                            // The ExternalImageType::ExternalBuffer should be handled by resource_cache.
-                            // It should go through the non-external case.
-                            panic!(
-                                "Non-texture handle type should be handled in other way"
-                            );
-                        }
-                    }
-                }
-                _ => TransformBatchKind::Image(ImageBufferKind::Texture2DArray),
-            };
+                            let clip_task_address = segment
+                                .clip_task_id
+                                .map_or(OPAQUE_TASK_ADDRESS, |id| render_tasks.get_task_address(id));
 
-            let textures = BatchTextures {
-                colors: [
-                    color_texture_id,
-                    SourceTexture::Invalid,
-                    SourceTexture::Invalid,
-                ],
-            };
+                            let instance = PrimitiveInstance::from(BrushInstance {
+                                segment_index: i as i32,
+                                clip_task_address,
+                                ..base_instance
+                            });
 
-            let key = BatchKey::new(
-                BatchKind::Transformable(transform_kind, batch_kind),
-                blend_mode,
-                textures,
-            );
-            let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
-            batch.push(base_instance.build(uv_address.as_int(gpu_cache), 0, 0));
-        }
-        PrimitiveKind::TextRun => {
-            let text_cpu =
-                &ctx.prim_store.cpu_text_runs[prim_metadata.cpu_prim_index.0];
-
-            let font = text_cpu.get_font(
-                ctx.device_pixel_scale,
-                Some(&scroll_node.transform),
-            );
-
-            ctx.resource_cache.fetch_glyphs(
-                font,
-                &text_cpu.glyph_keys,
-                glyph_fetch_buffer,
-                gpu_cache,
-                |texture_id, mut glyph_format, glyphs| {
-                    debug_assert_ne!(texture_id, SourceTexture::Invalid);
-
-                    let textures = BatchTextures {
-                        colors: [
-                            texture_id,
-                            SourceTexture::Invalid,
-                            SourceTexture::Invalid,
-                        ],
-                    };
-
-                    // Ignore color and only sample alpha when shadowing.
-                    if text_cpu.is_shadow() {
-                        glyph_format = glyph_format.ignore_color();
-                    }
-
-                    let kind = BatchKind::Transformable(
-                        transform_kind,
-                        TransformBatchKind::TextRun(glyph_format),
-                    );
-
-                    let blend_mode = match glyph_format {
-                        GlyphFormat::Subpixel |
-                        GlyphFormat::TransformedSubpixel => {
-                            if text_cpu.font.bg_color.a != 0 {
-                                BlendMode::SubpixelWithBgColor
-                            } else if ctx.use_dual_source_blending {
-                                BlendMode::SubpixelDualSource
+                            if needs_blending {
+                                alpha_batch.push(instance);
                             } else {
-                                BlendMode::SubpixelConstantTextColor(text_cpu.font.color.into())
+                                opaque_batch.push(instance);
                             }
                         }
-                        GlyphFormat::Alpha |
-                        GlyphFormat::TransformedAlpha |
-                        GlyphFormat::Bitmap |
-                        GlyphFormat::ColorBitmap => BlendMode::PremultipliedAlpha,
-                    };
-                    let subpx_dir = match glyph_format {
-                        GlyphFormat::Bitmap |
-                        GlyphFormat::ColorBitmap => SubpixelDirection::None,
-                        _ => text_cpu.font.subpx_dir.limit_by(text_cpu.font.render_mode),
-                    };
-
-                    let key = BatchKey::new(kind, blend_mode, textures);
-                    let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
-
-                    for glyph in glyphs {
-                        batch.push(base_instance.build(
-                            glyph.index_in_text_run,
-                            glyph.uv_rect_address.as_int(),
-                            subpx_dir as u32 as i32,
-                        ));
                     }
-                },
-            );
-        }
-        PrimitiveKind::Picture => {
-            let picture =
-                &ctx.prim_store.cpu_pictures[prim_metadata.cpu_prim_index.0];
+                    None => {
+                        let batch = self.batch_list.get_suitable_batch(brush.get_batch_key(blend_mode), item_bounding_rect);
+                        batch.push(PrimitiveInstance::from(base_instance));
+                    }
+                }
+            }
+            PrimitiveKind::Border => {
+                let border_cpu =
+                    &ctx.prim_store.cpu_borders[prim_metadata.cpu_prim_index.0];
+                // TODO(gw): Select correct blend mode for edges and corners!!
+                let corner_kind = BatchKind::Transformable(
+                    transform_kind,
+                    TransformBatchKind::BorderCorner,
+                );
+                let corner_key = BatchKey::new(corner_kind, blend_mode, no_textures);
+                let edge_kind = BatchKind::Transformable(
+                    transform_kind,
+                    TransformBatchKind::BorderEdge,
+                );
+                let edge_key = BatchKey::new(edge_kind, blend_mode, no_textures);
 
-            match picture.render_task_id {
-                Some(cache_task_id) => {
-                    let cache_task_address = render_tasks.get_task_address(cache_task_id);
-                    let textures = BatchTextures::render_target_cache();
-
-                    match picture.kind {
-                        PictureKind::TextShadow { .. } => {
-                            let kind = BatchKind::Brush(
-                                BrushBatchKind::Image(
-                                    BrushImageSourceKind::from_render_target_kind(picture.target_kind())),
-                            );
-                            let key = BatchKey::new(kind, blend_mode, textures);
-                            let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
-
-                            let instance = BrushInstance {
-                                picture_address: task_address,
-                                prim_address: prim_cache_address,
-                                clip_chain_rect_index,
-                                scroll_id,
-                                clip_task_address,
-                                z,
-                                segment_index: 0,
-                                user_data0: cache_task_address.0 as i32,
-                                user_data1: BrushImageKind::Simple as i32,
-                            };
-                            batch.push(PrimitiveInstance::from(instance));
-                        }
-                        PictureKind::BoxShadow { image_kind, .. } => {
-                            let kind = BatchKind::Brush(
-                                BrushBatchKind::Image(
-                                    BrushImageSourceKind::from_render_target_kind(picture.target_kind())),
-                            );
-                            let key = BatchKey::new(kind, blend_mode, textures);
-                            let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
-
-                            let instance = BrushInstance {
-                                picture_address: task_address,
-                                prim_address: prim_cache_address,
-                                clip_chain_rect_index,
-                                scroll_id,
-                                clip_task_address,
-                                z,
-                                segment_index: 0,
-                                user_data0: cache_task_address.0 as i32,
-                                user_data1: image_kind as i32,
-                            };
-                            batch.push(PrimitiveInstance::from(instance));
-                        }
-                        PictureKind::Image {
-                            composite_mode,
-                            secondary_render_task_id,
-                            is_in_3d_context,
-                            reference_frame_id,
-                            real_local_rect,
-                            ..
-                        } => {
-                            // If this picture is participating in a 3D rendering context,
-                            // then don't add it to any batches here. Instead, create a polygon
-                            // for it and add it to the current plane splitter.
-                            if is_in_3d_context {
-                                // Push into parent plane splitter.
-
-                                let real_xf = &ctx.clip_scroll_tree.nodes[&reference_frame_id].world_content_transform;
-
-                                let polygon = make_polygon(
-                                    real_local_rect,
-                                    &real_xf,
-                                    prim_index.0,
-                                );
-
-                                splitter.add(polygon);
-
-                                return;
+                // Work around borrow ck on borrowing batch_list twice.
+                {
+                    let batch =
+                        self.batch_list.get_suitable_batch(corner_key, item_bounding_rect);
+                    for (i, instance_kind) in border_cpu.corner_instances.iter().enumerate()
+                    {
+                        let sub_index = i as i32;
+                        match *instance_kind {
+                            BorderCornerInstance::None => {}
+                            BorderCornerInstance::Single => {
+                                batch.push(base_instance.build(
+                                    sub_index,
+                                    BorderCornerSide::Both as i32,
+                                    0,
+                                ));
                             }
-
-                            // Depending on the composite mode of the picture, we generate the
-                            // old style Composite primitive instances. In the future, we'll
-                            // remove these and pass them through the brush batching pipeline.
-                            // This will allow us to unify some of the shaders, apply clip masks
-                            // when compositing pictures, and also correctly apply pixel snapping
-                            // to picture compositing operations.
-                            let source_id = picture.render_task_id.expect("no source!?");
-
-                            match composite_mode.expect("bug: only composites here") {
-                                PictureCompositeMode::Filter(filter) => {
-                                    match filter {
-                                        FilterOp::Blur(..) => {
-                                            let src_task_address = render_tasks.get_task_address(source_id);
-                                            let key = BatchKey::new(
-                                                BatchKind::HardwareComposite,
-                                                BlendMode::PremultipliedAlpha,
-                                                BatchTextures::render_target_cache(),
-                                            );
-                                            let batch = batch_list.get_suitable_batch(key, &item_bounding_rect);
-                                            let instance = CompositePrimitiveInstance::new(
-                                                task_address,
-                                                src_task_address,
-                                                RenderTaskAddress(0),
-                                                item_bounding_rect.origin.x,
-                                                item_bounding_rect.origin.y,
-                                                z,
-                                                item_bounding_rect.size.width,
-                                                item_bounding_rect.size.height,
-                                            );
-
-                                            batch.push(PrimitiveInstance::from(instance));
-                                        }
-                                        FilterOp::DropShadow(offset, _, _) => {
-                                            let kind = BatchKind::Brush(
-                                                BrushBatchKind::Image(BrushImageSourceKind::ColorAlphaMask),
-                                            );
-                                            let key = BatchKey::new(kind, blend_mode, textures);
-
-                                            let instance = BrushInstance {
-                                                picture_address: task_address,
-                                                prim_address: prim_cache_address,
-                                                clip_chain_rect_index,
-                                                scroll_id,
-                                                clip_task_address,
-                                                z,
-                                                segment_index: 0,
-                                                user_data0: cache_task_address.0 as i32,
-                                                user_data1: BrushImageKind::Simple as i32,
-                                            };
-
-                                            {
-                                                let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
-                                                batch.push(PrimitiveInstance::from(instance));
-                                            }
-
-                                            let secondary_id = secondary_render_task_id.expect("no secondary!?");
-                                            let render_task = &render_tasks[secondary_id];
-                                            let secondary_task_address = render_tasks.get_task_address(secondary_id);
-                                            let render_pass_index = render_task.pass_index.expect("no render_pass_index!?");
-                                            let secondary_textures = BatchTextures {
-                                                colors: [
-                                                    SourceTexture::RenderTaskCacheRGBA8(render_pass_index),
-                                                    SourceTexture::Invalid,
-                                                    SourceTexture::Invalid,
-                                                ],
-                                            };
-                                            let key = BatchKey::new(
-                                                BatchKind::HardwareComposite,
-                                                BlendMode::PremultipliedAlpha,
-                                                secondary_textures,
-                                            );
-                                            let batch = batch_list.get_suitable_batch(key, &item_bounding_rect);
-                                            let device_offset = (offset * LayerToWorldScale::new(1.0) * ctx.device_pixel_scale).round().to_i32();
-                                            let instance = CompositePrimitiveInstance::new(
-                                                task_address,
-                                                secondary_task_address,
-                                                RenderTaskAddress(0),
-                                                item_bounding_rect.origin.x - device_offset.x,
-                                                item_bounding_rect.origin.y - device_offset.y,
-                                                z,
-                                                item_bounding_rect.size.width,
-                                                item_bounding_rect.size.height,
-                                            );
-
-                                            batch.push(PrimitiveInstance::from(instance));
-                                        }
-                                        _ => {
-                                            let key = BatchKey::new(
-                                                BatchKind::Blend,
-                                                BlendMode::PremultipliedAlpha,
-                                                BatchTextures::no_texture(),
-                                            );
-                                            let src_task_address = render_tasks.get_task_address(source_id);
-
-                                            let (filter_mode, amount) = match filter {
-                                                FilterOp::Blur(..) => (0, 0.0),
-                                                FilterOp::Contrast(amount) => (1, amount),
-                                                FilterOp::Grayscale(amount) => (2, amount),
-                                                FilterOp::HueRotate(angle) => (3, angle),
-                                                FilterOp::Invert(amount) => (4, amount),
-                                                FilterOp::Saturate(amount) => (5, amount),
-                                                FilterOp::Sepia(amount) => (6, amount),
-                                                FilterOp::Brightness(amount) => (7, amount),
-                                                FilterOp::Opacity(_, amount) => (8, amount),
-                                                FilterOp::DropShadow(..) => unreachable!(),
-                                            };
-
-                                            let amount = (amount * 65535.0).round() as i32;
-                                            let batch = batch_list.get_suitable_batch(key, &item_bounding_rect);
-
-                                            let instance = CompositePrimitiveInstance::new(
-                                                task_address,
-                                                src_task_address,
-                                                RenderTaskAddress(0),
-                                                filter_mode,
-                                                amount,
-                                                z,
-                                                0,
-                                                0,
-                                            );
-
-                                            batch.push(PrimitiveInstance::from(instance));
-                                        }
-                                    }
-                                }
-                                PictureCompositeMode::MixBlend(mode) => {
-                                    let backdrop_id = secondary_render_task_id.expect("no backdrop!?");
-
-                                    let key = BatchKey::new(
-                                        BatchKind::Composite {
-                                            task_id,
-                                            source_id,
-                                            backdrop_id,
-                                        },
-                                        BlendMode::PremultipliedAlpha,
-                                        BatchTextures::no_texture(),
-                                    );
-                                    let batch = batch_list.get_suitable_batch(key, &item_bounding_rect);
-                                    let backdrop_task_address = render_tasks.get_task_address(backdrop_id);
-                                    let source_task_address = render_tasks.get_task_address(source_id);
-
-                                    let instance = CompositePrimitiveInstance::new(
-                                        task_address,
-                                        source_task_address,
-                                        backdrop_task_address,
-                                        mode as u32 as i32,
-                                        0,
-                                        z,
-                                        0,
-                                        0,
-                                    );
-
-                                    batch.push(PrimitiveInstance::from(instance));
-                                }
-                                PictureCompositeMode::Blit => {
-                                    let src_task_address = render_tasks.get_task_address(source_id);
-                                    let key = BatchKey::new(
-                                        BatchKind::HardwareComposite,
-                                        BlendMode::PremultipliedAlpha,
-                                        BatchTextures::render_target_cache(),
-                                    );
-                                    let batch = batch_list.get_suitable_batch(key, &item_bounding_rect);
-                                    let instance = CompositePrimitiveInstance::new(
-                                        task_address,
-                                        src_task_address,
-                                        RenderTaskAddress(0),
-                                        item_bounding_rect.origin.x,
-                                        item_bounding_rect.origin.y,
-                                        z,
-                                        item_bounding_rect.size.width,
-                                        item_bounding_rect.size.height,
-                                    );
-
-                                    batch.push(PrimitiveInstance::from(instance));
-                                }
+                            BorderCornerInstance::Double => {
+                                batch.push(base_instance.build(
+                                    sub_index,
+                                    BorderCornerSide::First as i32,
+                                    0,
+                                ));
+                                batch.push(base_instance.build(
+                                    sub_index,
+                                    BorderCornerSide::Second as i32,
+                                    0,
+                                ));
                             }
                         }
                     }
                 }
-                None => {
-                    // If this picture is being drawn into an existing target (i.e. with
-                    // no composition operation), recurse and add to the current batch list.
-                    picture.add_to_batch(
-                        task_id,
-                        ctx,
-                        gpu_cache,
-                        render_tasks,
-                        deferred_resolves,
-                        batch_list,
-                        glyph_fetch_buffer,
-                    );
+
+                let batch = self.batch_list.get_suitable_batch(edge_key, item_bounding_rect);
+                for border_segment in 0 .. 4 {
+                    batch.push(base_instance.build(border_segment, 0, 0));
                 }
             }
-        }
-        PrimitiveKind::AlignedGradient => {
-            let gradient_cpu =
-                &ctx.prim_store.cpu_gradients[prim_metadata.cpu_prim_index.0];
-            let kind = BatchKind::Transformable(
-                transform_kind,
-                TransformBatchKind::AlignedGradient,
-            );
-            let key = BatchKey::new(kind, blend_mode, no_textures);
-            let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
-            for part_index in 0 .. (gradient_cpu.stops_count - 1) {
-                batch.push(base_instance.build(part_index as i32, 0, 0));
+            PrimitiveKind::Line => {
+                let base_instance = BrushInstance {
+                    picture_address: task_address,
+                    prim_address: prim_cache_address,
+                    clip_chain_rect_index,
+                    scroll_id,
+                    clip_task_address,
+                    z,
+                    segment_index: 0,
+                    user_data0: 0,
+                    user_data1: 0,
+                };
+
+                let instance = PrimitiveInstance::from(base_instance);
+
+                match pic_type {
+                    PictureType::TextShadow => {
+                        self.line_cache_prims.push(instance);
+                    }
+                    PictureType::Image => {
+                        let kind =
+                            BatchKind::Brush(BrushBatchKind::Line);
+                        let key = BatchKey::new(kind, blend_mode, no_textures);
+                        let batch = self.batch_list.get_suitable_batch(key, item_bounding_rect);
+                        batch.push(instance);
+                    }
+                    PictureType::BoxShadow => unreachable!(),
+                }
             }
-        }
-        PrimitiveKind::AngleGradient => {
-            let kind = BatchKind::Transformable(
-                transform_kind,
-                TransformBatchKind::AngleGradient,
-            );
-            let key = BatchKey::new(kind, blend_mode, no_textures);
-            let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
-            batch.push(base_instance.build(0, 0, 0));
-        }
-        PrimitiveKind::RadialGradient => {
-            let kind = BatchKind::Transformable(
-                transform_kind,
-                TransformBatchKind::RadialGradient,
-            );
-            let key = BatchKey::new(kind, blend_mode, no_textures);
-            let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
-            batch.push(base_instance.build(0, 0, 0));
-        }
-        PrimitiveKind::YuvImage => {
-            let mut textures = BatchTextures::no_texture();
-            let mut uv_rect_addresses = [0; 3];
-            let image_yuv_cpu =
-                &ctx.prim_store.cpu_yuv_images[prim_metadata.cpu_prim_index.0];
+            PrimitiveKind::Image => {
+                let image_cpu = &ctx.prim_store.cpu_images[prim_metadata.cpu_prim_index.0];
 
-            //yuv channel
-            let channel_count = image_yuv_cpu.format.get_plane_num();
-            debug_assert!(channel_count <= 3);
-            for channel in 0 .. channel_count {
-                let image_key = image_yuv_cpu.yuv_key[channel];
-
-                let (texture, address) = resolve_image(
-                    image_key,
-                    image_yuv_cpu.image_rendering,
-                    None,
+                let (color_texture_id, uv_address) = resolve_image(
+                    image_cpu.image_key,
+                    image_cpu.image_rendering,
+                    image_cpu.tile_offset,
                     ctx.resource_cache,
                     gpu_cache,
                     deferred_resolves,
                 );
 
-                if texture == SourceTexture::Invalid {
-                    warn!("Warnings: skip a PrimitiveKind::YuvImage at {:?}.\n", item_bounding_rect);
+                if color_texture_id == SourceTexture::Invalid {
+                    warn!("Warnings: skip a PrimitiveKind::Image at {:?}.\n", item_bounding_rect);
                     return;
                 }
 
-                textures.colors[channel] = texture;
-                uv_rect_addresses[channel] = address.as_int(gpu_cache);
-            }
-
-            let get_buffer_kind = |texture: SourceTexture| {
-                match texture {
+                let batch_kind = match color_texture_id {
                     SourceTexture::External(ext_image) => {
                         match ext_image.image_type {
                             ExternalImageType::Texture2DHandle => {
-                                ImageBufferKind::Texture2D
+                                TransformBatchKind::Image(ImageBufferKind::Texture2D)
                             }
                             ExternalImageType::Texture2DArrayHandle => {
-                                ImageBufferKind::Texture2DArray
+                                TransformBatchKind::Image(ImageBufferKind::Texture2DArray)
                             }
                             ExternalImageType::TextureRectHandle => {
-                                ImageBufferKind::TextureRect
+                                TransformBatchKind::Image(ImageBufferKind::TextureRect)
                             }
                             ExternalImageType::TextureExternalHandle => {
-                                ImageBufferKind::TextureExternal
+                                TransformBatchKind::Image(ImageBufferKind::TextureExternal)
                             }
                             ExternalImageType::ExternalBuffer => {
                                 // The ExternalImageType::ExternalBuffer should be handled by resource_cache.
                                 // It should go through the non-external case.
-                                panic!("Unexpected non-texture handle type");
+                                panic!(
+                                    "Non-texture handle type should be handled in other way"
+                                );
                             }
                         }
                     }
-                    _ => ImageBufferKind::Texture2DArray,
+                    _ => TransformBatchKind::Image(ImageBufferKind::Texture2DArray),
+                };
+
+                let textures = BatchTextures {
+                    colors: [
+                        color_texture_id,
+                        SourceTexture::Invalid,
+                        SourceTexture::Invalid,
+                    ],
+                };
+
+                let key = BatchKey::new(
+                    BatchKind::Transformable(transform_kind, batch_kind),
+                    blend_mode,
+                    textures,
+                );
+                let batch = self.batch_list.get_suitable_batch(key, item_bounding_rect);
+                batch.push(base_instance.build(uv_address.as_int(gpu_cache), 0, 0));
+            }
+            PrimitiveKind::TextRun => {
+                let text_cpu =
+                    &ctx.prim_store.cpu_text_runs[prim_metadata.cpu_prim_index.0];
+                let is_shadow = pic_type == PictureType::TextShadow;
+
+                // TODO(gw): It probably makes sense to base this decision on the content
+                //           origin field in the future (once that's configurable).
+                let font_transform = if is_shadow {
+                    None
+                } else {
+                    Some(&scroll_node.transform)
+                };
+
+                let font = text_cpu.get_font(
+                    ctx.device_pixel_scale,
+                    font_transform,
+                );
+
+                let glyph_fetch_buffer = &mut self.glyph_fetch_buffer;
+                let batch_list = &mut self.batch_list;
+                let text_run_cache_prims = &mut self.text_run_cache_prims;
+
+                ctx.resource_cache.fetch_glyphs(
+                    font,
+                    &text_cpu.glyph_keys,
+                    glyph_fetch_buffer,
+                    gpu_cache,
+                    |texture_id, mut glyph_format, glyphs| {
+                        debug_assert_ne!(texture_id, SourceTexture::Invalid);
+
+                        // Ignore color and only sample alpha when shadowing.
+                        if text_cpu.is_shadow() {
+                            glyph_format = glyph_format.ignore_color();
+                        }
+
+                        let subpx_dir = match glyph_format {
+                            GlyphFormat::Bitmap |
+                            GlyphFormat::ColorBitmap => SubpixelDirection::None,
+                            _ => text_cpu.font.subpx_dir.limit_by(text_cpu.font.render_mode),
+                        };
+
+                        let batch = if is_shadow {
+                            text_run_cache_prims
+                                .entry(texture_id)
+                                .or_insert(Vec::new())
+                        } else {
+                            let textures = BatchTextures {
+                                colors: [
+                                    texture_id,
+                                    SourceTexture::Invalid,
+                                    SourceTexture::Invalid,
+                                ],
+                            };
+
+                            let kind = BatchKind::Transformable(
+                                transform_kind,
+                                TransformBatchKind::TextRun(glyph_format),
+                            );
+
+                            let blend_mode = match glyph_format {
+                                GlyphFormat::Subpixel |
+                                GlyphFormat::TransformedSubpixel => {
+                                    if text_cpu.font.bg_color.a != 0 {
+                                        BlendMode::SubpixelWithBgColor
+                                    } else if ctx.use_dual_source_blending {
+                                        BlendMode::SubpixelDualSource
+                                    } else {
+                                        BlendMode::SubpixelConstantTextColor(text_cpu.font.color.into())
+                                    }
+                                }
+                                GlyphFormat::Alpha |
+                                GlyphFormat::TransformedAlpha |
+                                GlyphFormat::Bitmap |
+                                GlyphFormat::ColorBitmap => BlendMode::PremultipliedAlpha,
+                            };
+
+                            let key = BatchKey::new(kind, blend_mode, textures);
+                            batch_list.get_suitable_batch(key, item_bounding_rect)
+                        };
+
+                        for glyph in glyphs {
+                            batch.push(base_instance.build(
+                                glyph.index_in_text_run,
+                                glyph.uv_rect_address.as_int(),
+                                subpx_dir as u32 as i32,
+                            ));
+                        }
+                    },
+                );
+            }
+            PrimitiveKind::Picture => {
+                let picture =
+                    &ctx.prim_store.cpu_pictures[prim_metadata.cpu_prim_index.0];
+
+                match picture.render_task_id {
+                    Some(cache_task_id) => {
+                        let cache_task_address = render_tasks.get_task_address(cache_task_id);
+                        let textures = BatchTextures::render_target_cache();
+
+                        match picture.kind {
+                            PictureKind::TextShadow { .. } => {
+                                let kind = BatchKind::Brush(
+                                    BrushBatchKind::Image(
+                                        BrushImageSourceKind::from_render_target_kind(picture.target_kind())),
+                                );
+                                let key = BatchKey::new(kind, blend_mode, textures);
+                                let batch = self.batch_list.get_suitable_batch(key, item_bounding_rect);
+
+                                let instance = BrushInstance {
+                                    picture_address: task_address,
+                                    prim_address: prim_cache_address,
+                                    clip_chain_rect_index,
+                                    scroll_id,
+                                    clip_task_address,
+                                    z,
+                                    segment_index: 0,
+                                    user_data0: cache_task_address.0 as i32,
+                                    user_data1: BrushImageKind::Simple as i32,
+                                };
+                                batch.push(PrimitiveInstance::from(instance));
+                            }
+                            PictureKind::BoxShadow { image_kind, .. } => {
+                                let kind = BatchKind::Brush(
+                                    BrushBatchKind::Image(
+                                        BrushImageSourceKind::from_render_target_kind(picture.target_kind())),
+                                );
+                                let key = BatchKey::new(kind, blend_mode, textures);
+                                let batch = self.batch_list.get_suitable_batch(key, item_bounding_rect);
+
+                                let instance = BrushInstance {
+                                    picture_address: task_address,
+                                    prim_address: prim_cache_address,
+                                    clip_chain_rect_index,
+                                    scroll_id,
+                                    clip_task_address,
+                                    z,
+                                    segment_index: 0,
+                                    user_data0: cache_task_address.0 as i32,
+                                    user_data1: image_kind as i32,
+                                };
+                                batch.push(PrimitiveInstance::from(instance));
+                            }
+                            PictureKind::Image {
+                                composite_mode,
+                                secondary_render_task_id,
+                                is_in_3d_context,
+                                reference_frame_id,
+                                real_local_rect,
+                                ..
+                            } => {
+                                // If this picture is participating in a 3D rendering context,
+                                // then don't add it to any batches here. Instead, create a polygon
+                                // for it and add it to the current plane splitter.
+                                if is_in_3d_context {
+                                    // Push into parent plane splitter.
+
+                                    let real_xf = &ctx.clip_scroll_tree.nodes[&reference_frame_id].world_content_transform;
+
+                                    let polygon = make_polygon(
+                                        real_local_rect,
+                                        &real_xf,
+                                        prim_index.0,
+                                    );
+
+                                    splitter.add(polygon);
+
+                                    return;
+                                }
+
+                                // Depending on the composite mode of the picture, we generate the
+                                // old style Composite primitive instances. In the future, we'll
+                                // remove these and pass them through the brush batching pipeline.
+                                // This will allow us to unify some of the shaders, apply clip masks
+                                // when compositing pictures, and also correctly apply pixel snapping
+                                // to picture compositing operations.
+                                let source_id = picture.render_task_id.expect("no source!?");
+
+                                match composite_mode.expect("bug: only composites here") {
+                                    PictureCompositeMode::Filter(filter) => {
+                                        match filter {
+                                            FilterOp::Blur(..) => {
+                                                let src_task_address = render_tasks.get_task_address(source_id);
+                                                let key = BatchKey::new(
+                                                    BatchKind::HardwareComposite,
+                                                    BlendMode::PremultipliedAlpha,
+                                                    BatchTextures::render_target_cache(),
+                                                );
+                                                let batch = self.batch_list.get_suitable_batch(key, &item_bounding_rect);
+                                                let instance = CompositePrimitiveInstance::new(
+                                                    task_address,
+                                                    src_task_address,
+                                                    RenderTaskAddress(0),
+                                                    item_bounding_rect.origin.x,
+                                                    item_bounding_rect.origin.y,
+                                                    z,
+                                                    item_bounding_rect.size.width,
+                                                    item_bounding_rect.size.height,
+                                                );
+
+                                                batch.push(PrimitiveInstance::from(instance));
+                                            }
+                                            FilterOp::DropShadow(offset, _, _) => {
+                                                let kind = BatchKind::Brush(
+                                                    BrushBatchKind::Image(BrushImageSourceKind::ColorAlphaMask),
+                                                );
+                                                let key = BatchKey::new(kind, blend_mode, textures);
+
+                                                let instance = BrushInstance {
+                                                    picture_address: task_address,
+                                                    prim_address: prim_cache_address,
+                                                    clip_chain_rect_index,
+                                                    scroll_id,
+                                                    clip_task_address,
+                                                    z,
+                                                    segment_index: 0,
+                                                    user_data0: cache_task_address.0 as i32,
+                                                    user_data1: BrushImageKind::Simple as i32,
+                                                };
+
+                                                {
+                                                    let batch = self.batch_list.get_suitable_batch(key, item_bounding_rect);
+                                                    batch.push(PrimitiveInstance::from(instance));
+                                                }
+
+                                                let secondary_id = secondary_render_task_id.expect("no secondary!?");
+                                                let render_task = &render_tasks[secondary_id];
+                                                let secondary_task_address = render_tasks.get_task_address(secondary_id);
+                                                let render_pass_index = render_task.pass_index.expect("no render_pass_index!?");
+                                                let secondary_textures = BatchTextures {
+                                                    colors: [
+                                                        SourceTexture::RenderTaskCacheRGBA8(render_pass_index),
+                                                        SourceTexture::Invalid,
+                                                        SourceTexture::Invalid,
+                                                    ],
+                                                };
+                                                let key = BatchKey::new(
+                                                    BatchKind::HardwareComposite,
+                                                    BlendMode::PremultipliedAlpha,
+                                                    secondary_textures,
+                                                );
+                                                let batch = self.batch_list.get_suitable_batch(key, &item_bounding_rect);
+                                                let device_offset = (offset * LayerToWorldScale::new(1.0) * ctx.device_pixel_scale).round().to_i32();
+                                                let instance = CompositePrimitiveInstance::new(
+                                                    task_address,
+                                                    secondary_task_address,
+                                                    RenderTaskAddress(0),
+                                                    item_bounding_rect.origin.x - device_offset.x,
+                                                    item_bounding_rect.origin.y - device_offset.y,
+                                                    z,
+                                                    item_bounding_rect.size.width,
+                                                    item_bounding_rect.size.height,
+                                                );
+
+                                                batch.push(PrimitiveInstance::from(instance));
+                                            }
+                                            _ => {
+                                                let key = BatchKey::new(
+                                                    BatchKind::Blend,
+                                                    BlendMode::PremultipliedAlpha,
+                                                    BatchTextures::no_texture(),
+                                                );
+                                                let src_task_address = render_tasks.get_task_address(source_id);
+
+                                                let (filter_mode, amount) = match filter {
+                                                    FilterOp::Blur(..) => (0, 0.0),
+                                                    FilterOp::Contrast(amount) => (1, amount),
+                                                    FilterOp::Grayscale(amount) => (2, amount),
+                                                    FilterOp::HueRotate(angle) => (3, angle),
+                                                    FilterOp::Invert(amount) => (4, amount),
+                                                    FilterOp::Saturate(amount) => (5, amount),
+                                                    FilterOp::Sepia(amount) => (6, amount),
+                                                    FilterOp::Brightness(amount) => (7, amount),
+                                                    FilterOp::Opacity(_, amount) => (8, amount),
+                                                    FilterOp::DropShadow(..) => unreachable!(),
+                                                };
+
+                                                let amount = (amount * 65535.0).round() as i32;
+                                                let batch = self.batch_list.get_suitable_batch(key, &item_bounding_rect);
+
+                                                let instance = CompositePrimitiveInstance::new(
+                                                    task_address,
+                                                    src_task_address,
+                                                    RenderTaskAddress(0),
+                                                    filter_mode,
+                                                    amount,
+                                                    z,
+                                                    0,
+                                                    0,
+                                                );
+
+                                                batch.push(PrimitiveInstance::from(instance));
+                                            }
+                                        }
+                                    }
+                                    PictureCompositeMode::MixBlend(mode) => {
+                                        let backdrop_id = secondary_render_task_id.expect("no backdrop!?");
+
+                                        let key = BatchKey::new(
+                                            BatchKind::Composite {
+                                                task_id,
+                                                source_id,
+                                                backdrop_id,
+                                            },
+                                            BlendMode::PremultipliedAlpha,
+                                            BatchTextures::no_texture(),
+                                        );
+                                        let batch = self.batch_list.get_suitable_batch(key, &item_bounding_rect);
+                                        let backdrop_task_address = render_tasks.get_task_address(backdrop_id);
+                                        let source_task_address = render_tasks.get_task_address(source_id);
+
+                                        let instance = CompositePrimitiveInstance::new(
+                                            task_address,
+                                            source_task_address,
+                                            backdrop_task_address,
+                                            mode as u32 as i32,
+                                            0,
+                                            z,
+                                            0,
+                                            0,
+                                        );
+
+                                        batch.push(PrimitiveInstance::from(instance));
+                                    }
+                                    PictureCompositeMode::Blit => {
+                                        let src_task_address = render_tasks.get_task_address(source_id);
+                                        let key = BatchKey::new(
+                                            BatchKind::HardwareComposite,
+                                            BlendMode::PremultipliedAlpha,
+                                            BatchTextures::render_target_cache(),
+                                        );
+                                        let batch = self.batch_list.get_suitable_batch(key, &item_bounding_rect);
+                                        let instance = CompositePrimitiveInstance::new(
+                                            task_address,
+                                            src_task_address,
+                                            RenderTaskAddress(0),
+                                            item_bounding_rect.origin.x,
+                                            item_bounding_rect.origin.y,
+                                            z,
+                                            item_bounding_rect.size.width,
+                                            item_bounding_rect.size.height,
+                                        );
+
+                                        batch.push(PrimitiveInstance::from(instance));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        // If this picture is being drawn into an existing target (i.e. with
+                        // no composition operation), recurse and add to the current batch list.
+                        self.add_pic_to_batch(
+                            picture,
+                            task_id,
+                            ctx,
+                            gpu_cache,
+                            render_tasks,
+                            deferred_resolves,
+                        );
+                    }
                 }
-            };
+            }
+            PrimitiveKind::AlignedGradient => {
+                let gradient_cpu =
+                    &ctx.prim_store.cpu_gradients[prim_metadata.cpu_prim_index.0];
+                let kind = BatchKind::Transformable(
+                    transform_kind,
+                    TransformBatchKind::AlignedGradient,
+                );
+                let key = BatchKey::new(kind, blend_mode, no_textures);
+                let batch = self.batch_list.get_suitable_batch(key, item_bounding_rect);
+                for part_index in 0 .. (gradient_cpu.stops_count - 1) {
+                    batch.push(base_instance.build(part_index as i32, 0, 0));
+                }
+            }
+            PrimitiveKind::AngleGradient => {
+                let kind = BatchKind::Transformable(
+                    transform_kind,
+                    TransformBatchKind::AngleGradient,
+                );
+                let key = BatchKey::new(kind, blend_mode, no_textures);
+                let batch = self.batch_list.get_suitable_batch(key, item_bounding_rect);
+                batch.push(base_instance.build(0, 0, 0));
+            }
+            PrimitiveKind::RadialGradient => {
+                let kind = BatchKind::Transformable(
+                    transform_kind,
+                    TransformBatchKind::RadialGradient,
+                );
+                let key = BatchKey::new(kind, blend_mode, no_textures);
+                let batch = self.batch_list.get_suitable_batch(key, item_bounding_rect);
+                batch.push(base_instance.build(0, 0, 0));
+            }
+            PrimitiveKind::YuvImage => {
+                let mut textures = BatchTextures::no_texture();
+                let mut uv_rect_addresses = [0; 3];
+                let image_yuv_cpu =
+                    &ctx.prim_store.cpu_yuv_images[prim_metadata.cpu_prim_index.0];
 
-            // All yuv textures should be the same type.
-            let buffer_kind = get_buffer_kind(textures.colors[0]);
-            assert!(
-                textures.colors[1 .. image_yuv_cpu.format.get_plane_num()]
-                    .iter()
-                    .all(|&tid| buffer_kind == get_buffer_kind(tid))
-            );
+                //yuv channel
+                let channel_count = image_yuv_cpu.format.get_plane_num();
+                debug_assert!(channel_count <= 3);
+                for channel in 0 .. channel_count {
+                    let image_key = image_yuv_cpu.yuv_key[channel];
 
-            let kind = BatchKind::Transformable(
-                transform_kind,
-                TransformBatchKind::YuvImage(
-                    buffer_kind,
-                    image_yuv_cpu.format,
-                    image_yuv_cpu.color_space,
-                ),
-            );
-            let key = BatchKey::new(kind, blend_mode, textures);
-            let batch = batch_list.get_suitable_batch(key, item_bounding_rect);
+                    let (texture, address) = resolve_image(
+                        image_key,
+                        image_yuv_cpu.image_rendering,
+                        None,
+                        ctx.resource_cache,
+                        gpu_cache,
+                        deferred_resolves,
+                    );
 
-            batch.push(base_instance.build(
-                uv_rect_addresses[0],
-                uv_rect_addresses[1],
-                uv_rect_addresses[2],
-            ));
+                    if texture == SourceTexture::Invalid {
+                        warn!("Warnings: skip a PrimitiveKind::YuvImage at {:?}.\n", item_bounding_rect);
+                        return;
+                    }
+
+                    textures.colors[channel] = texture;
+                    uv_rect_addresses[channel] = address.as_int(gpu_cache);
+                }
+
+                let get_buffer_kind = |texture: SourceTexture| {
+                    match texture {
+                        SourceTexture::External(ext_image) => {
+                            match ext_image.image_type {
+                                ExternalImageType::Texture2DHandle => {
+                                    ImageBufferKind::Texture2D
+                                }
+                                ExternalImageType::Texture2DArrayHandle => {
+                                    ImageBufferKind::Texture2DArray
+                                }
+                                ExternalImageType::TextureRectHandle => {
+                                    ImageBufferKind::TextureRect
+                                }
+                                ExternalImageType::TextureExternalHandle => {
+                                    ImageBufferKind::TextureExternal
+                                }
+                                ExternalImageType::ExternalBuffer => {
+                                    // The ExternalImageType::ExternalBuffer should be handled by resource_cache.
+                                    // It should go through the non-external case.
+                                    panic!("Unexpected non-texture handle type");
+                                }
+                            }
+                        }
+                        _ => ImageBufferKind::Texture2DArray,
+                    }
+                };
+
+                // All yuv textures should be the same type.
+                let buffer_kind = get_buffer_kind(textures.colors[0]);
+                assert!(
+                    textures.colors[1 .. image_yuv_cpu.format.get_plane_num()]
+                        .iter()
+                        .all(|&tid| buffer_kind == get_buffer_kind(tid))
+                );
+
+                let kind = BatchKind::Transformable(
+                    transform_kind,
+                    TransformBatchKind::YuvImage(
+                        buffer_kind,
+                        image_yuv_cpu.format,
+                        image_yuv_cpu.color_space,
+                    ),
+                );
+                let key = BatchKey::new(kind, blend_mode, textures);
+                let batch = self.batch_list.get_suitable_batch(key, item_bounding_rect);
+
+                batch.push(base_instance.build(
+                    uv_rect_addresses[0],
+                    uv_rect_addresses[1],
+                    uv_rect_addresses[2],
+                ));
+            }
         }
     }
 }
