@@ -62,7 +62,6 @@ use perf::PerfHarness;
 use png::save_flipped;
 use rawtest::RawtestHarness;
 use reftest::{ReftestHarness, ReftestOptions};
-use std::cmp::{max, min};
 #[cfg(feature = "headless")]
 use std::ffi::CString;
 #[cfg(feature = "headless")]
@@ -84,20 +83,6 @@ lazy_static! {
 }
 
 pub static mut CURRENT_FRAME_NUMBER: u32 = 0;
-
-fn percentile(values: &[f64], pct_int: u32) -> f64 {
-    if !values.is_empty() {
-        let index_big = (values.len() - 1) * (pct_int as usize);
-        let index = index_big / 100;
-        if index * 100 == index_big {
-            values[index]
-        } else {
-            (values[index] + values[index + 1]) / 2.
-        }
-    } else {
-        1.0
-    }
-}
 
 #[cfg(feature = "headless")]
 pub struct HeadlessContext {
@@ -330,8 +315,6 @@ fn main() {
     // handle some global arguments
     let res_path = args.value_of("shaders").map(|s| PathBuf::from(s));
     let dp_ratio = args.value_of("dp_ratio").map(|v| v.parse::<f32>().unwrap());
-    let limit_seconds = args.value_of("time")
-        .map(|s| time::Duration::seconds(s.parse::<i64>().unwrap()));
     let save_type = args.value_of("save").map(|s| match s {
         "yaml" => wrench::SaveType::Yaml,
         "json" => wrench::SaveType::Json,
@@ -442,211 +425,128 @@ fn main() {
 
     let mut show_help = false;
     let mut do_loop = false;
-
-    let queue_frames = thing.queue_frames();
-    for _ in 0 .. queue_frames {
-        let (width, height) = window.get_inner_size_pixels();
-        let dim = DeviceUintSize::new(width, height);
-        wrench.update(dim);
-
-        let frame_num = thing.do_frame(&mut wrench);
-        unsafe {
-            CURRENT_FRAME_NUMBER = frame_num;
-        }
-
-        wrench.render();
-        window.swap_buffers();
-    }
-
-    let time_start = time::SteadyTime::now();
-    let mut last = time::SteadyTime::now();
-    let mut frame_count = 0;
-    let frames_between_dumps = 60;
     let mut cpu_profile_index = 0;
 
-    let mut min_time = time::Duration::max_value();
-    let mut min_min_time = time::Duration::max_value();
-    let mut max_time = time::Duration::min_value();
-    let mut max_max_time = time::Duration::min_value();
-    let mut sum_time = time::Duration::zero();
-    let mut block_avg_time = vec![];
-    let mut warmed_up = false;
-
-    fn as_ms(f: time::Duration) -> f64 {
-        f.num_microseconds().unwrap() as f64 / 1000.
-    }
-    fn as_fps(f: time::Duration) -> f64 {
-        (1000. * 1000.) / f.num_microseconds().unwrap() as f64
-    }
+    let (width, height) = window.get_inner_size_pixels();
+    let dim = DeviceUintSize::new(width, height);
+    wrench.update(dim);
+    thing.do_frame(&mut wrench);
 
     'outer: loop {
         if let Some(window_title) = wrench.take_title() {
             window.set_title(&window_title);
         }
 
-        if let Some(limit) = limit_seconds {
-            if (time::SteadyTime::now() - time_start) >= limit {
-                let mut block_avg_ms = block_avg_time
-                    .iter()
-                    .map(|v| as_ms(*v))
-                    .collect::<Vec<f64>>();
-                block_avg_ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                let avg_ms =
-                    block_avg_ms.iter().fold(0., |sum, v| sum + v) / block_avg_ms.len() as f64;
-                let val_10th_pct = percentile(&block_avg_ms, 10);
-                let val_90th_pct = percentile(&block_avg_ms, 90);
+        let mut events = Vec::new();
 
-                println!("-    {:7} {:7} {:7}", "10th", "avg", "90th");
-                println!(
-                    "ms   {:4.3} {:4.3} {:4.3}",
-                    val_10th_pct,
-                    avg_ms,
-                    val_90th_pct
-                );
-                println!(
-                    "fps  {:4.3} {:4.3} {:4.3}",
-                    1000. / val_10th_pct,
-                    1000. / avg_ms,
-                    1000. / val_90th_pct
-                );
-                break;
+        match window {
+            WindowWrapper::Headless(..) => {
+                events.push(glutin::Event::Awakened);
+            }
+            WindowWrapper::Window(ref window, _) => {
+                events.push(window.wait_events().next().unwrap());
+                events.extend(window.poll_events());
             }
         }
 
-        let event = match window {
-            WindowWrapper::Headless(..) => glutin::Event::Awakened,
-            WindowWrapper::Window(ref window, _) => window.wait_events().next().unwrap(),
-        };
+        let mut do_frame = false;
 
-        if let Some(limit) = limit_seconds {
-            if (time::SteadyTime::now() - time_start) >= limit {
-                break 'outer;
-            }
-        }
-
-        match event {
-            glutin::Event::Awakened => {
-                let (width, height) = window.get_inner_size_pixels();
-                let dim = DeviceUintSize::new(width, height);
-                wrench.update(dim);
-
-                let frame_num = thing.do_frame(&mut wrench);
-                unsafe {
-                    CURRENT_FRAME_NUMBER = frame_num;
-                }
-
-                if show_help {
-                    wrench.show_onscreen_help();
-                }
-
-                wrench.render();
-                window.swap_buffers();
-
-                let now = time::SteadyTime::now();
-                let dur = now - last;
-
-                min_time = min(min_time, dur);
-                min_min_time = min(min_min_time, dur);
-                max_time = max(max_time, dur);
-                max_max_time = max(max_max_time, dur);
-                sum_time = sum_time + dur;
-
-                if warmed_up {
-                    min_min_time = min(min_min_time, dur);
-                    max_max_time = max(max_max_time, dur);
-                }
-
-                frame_count += 1;
-                if frame_count == frames_between_dumps {
-                    let avg_time = sum_time / frame_count;
-                    if warmed_up {
-                        block_avg_time.push(avg_time);
-                    }
-
-                    if wrench.verbose {
-                        print!(
-                            "{:3.3} [{:3.3} .. {:3.3}]  -- {:4.3} fps",
-                            as_ms(avg_time),
-                            as_ms(min_time),
-                            as_ms(max_time),
-                            as_fps(avg_time)
-                        );
-                        if warmed_up {
-                            println!(
-                                "  -- (global {:3.3} .. {:3.3})",
-                                as_ms(min_min_time),
-                                as_ms(max_max_time)
-                            );
-                        } else {
-                            println!("");
-                        }
-                    }
-
-                    min_time = time::Duration::max_value();
-                    max_time = time::Duration::min_value();
-                    sum_time = time::Duration::zero();
-                    frame_count = 0;
-                    warmed_up = true;
-                }
-
-                last = now;
-
-                if do_loop {
-                    thing.next_frame();
-                }
-            }
-
-            glutin::Event::Closed => {
-                break 'outer;
-            }
-
-            glutin::Event::KeyboardInput(ElementState::Pressed, _scan_code, Some(vk)) => match vk {
-                VirtualKeyCode::Escape => {
+        for event in events {
+            match event {
+                glutin::Event::Closed => {
                     break 'outer;
                 }
-                VirtualKeyCode::P => {
-                    wrench.renderer.toggle_debug_flags(DebugFlags::PROFILER_DBG);
+
+                glutin::Event::KeyboardInput(ElementState::Pressed, _scan_code, Some(vk)) => match vk {
+                    VirtualKeyCode::Escape => {
+                        break 'outer;
+                    }
+                    VirtualKeyCode::P => {
+                        wrench.renderer.toggle_debug_flags(DebugFlags::PROFILER_DBG);
+                    }
+                    VirtualKeyCode::O => {
+                        wrench.renderer.toggle_debug_flags(DebugFlags::RENDER_TARGET_DBG);
+                    }
+                    VirtualKeyCode::I => {
+                        wrench.renderer.toggle_debug_flags(DebugFlags::TEXTURE_CACHE_DBG);
+                    }
+                    VirtualKeyCode::B => {
+                        wrench.renderer.toggle_debug_flags(DebugFlags::ALPHA_PRIM_DBG);
+                    }
+                    VirtualKeyCode::C => {
+                        wrench.renderer.toggle_debug_flags(DebugFlags::COMPACT_PROFILER);
+                    }
+                    VirtualKeyCode::Q => {
+                        wrench.renderer.toggle_debug_flags(
+                            DebugFlags::GPU_TIME_QUERIES | DebugFlags::GPU_SAMPLE_QUERIES
+                        );
+                    }
+                    VirtualKeyCode::R => {
+                        wrench.set_page_zoom(ZoomFactor::new(1.0));
+                        do_frame = true;
+                    }
+                    VirtualKeyCode::M => {
+                        wrench.api.notify_memory_pressure();
+                    }
+                    VirtualKeyCode::L => {
+                        do_loop = !do_loop;
+                    }
+                    VirtualKeyCode::Left => {
+                        thing.prev_frame();
+                        do_frame = true;
+                    }
+                    VirtualKeyCode::Right => {
+                        thing.next_frame();
+                        do_frame = true;
+                    }
+                    VirtualKeyCode::H => {
+                        show_help = !show_help;
+                    }
+                    VirtualKeyCode::T => {
+                        let file_name = format!("profile-{}.json", cpu_profile_index);
+                        wrench.renderer.save_cpu_profile(&file_name);
+                        cpu_profile_index += 1;
+                    }
+                    VirtualKeyCode::Up => {
+                        let current_zoom = wrench.get_page_zoom();
+                        let new_zoom_factor = ZoomFactor::new(current_zoom.get() + 0.1);
+
+                        wrench.set_page_zoom(new_zoom_factor);
+                        do_frame = true;
+                    }
+                    VirtualKeyCode::Down => {
+                        let current_zoom = wrench.get_page_zoom();
+                        let new_zoom_factor = ZoomFactor::new((current_zoom.get() - 0.1).max(0.1));
+
+                        wrench.set_page_zoom(new_zoom_factor);
+                        do_frame = true;
+                    }
+                    _ => (),
                 }
-                VirtualKeyCode::O => {
-                    wrench.renderer.toggle_debug_flags(DebugFlags::RENDER_TARGET_DBG);
-                }
-                VirtualKeyCode::I => {
-                    wrench.renderer.toggle_debug_flags(DebugFlags::TEXTURE_CACHE_DBG);
-                }
-                VirtualKeyCode::B => {
-                    wrench.renderer.toggle_debug_flags(DebugFlags::ALPHA_PRIM_DBG);
-                }
-                VirtualKeyCode::C => {
-                    wrench.renderer.toggle_debug_flags(DebugFlags::COMPACT_PROFILER);
-                }
-                VirtualKeyCode::Q => {
-                    wrench.renderer.toggle_debug_flags(
-                        DebugFlags::GPU_TIME_QUERIES | DebugFlags::GPU_SAMPLE_QUERIES
-                    );
-                }
-                VirtualKeyCode::M => {
-                    wrench.api.notify_memory_pressure();
-                }
-                VirtualKeyCode::L => {
-                    do_loop = !do_loop;
-                }
-                VirtualKeyCode::Left => {
-                    thing.prev_frame();
-                }
-                VirtualKeyCode::Right => {
-                    thing.next_frame();
-                }
-                VirtualKeyCode::H => {
-                    show_help = !show_help;
-                }
-                VirtualKeyCode::T => {
-                    let file_name = format!("profile-{}.json", cpu_profile_index);
-                    wrench.renderer.save_cpu_profile(&file_name);
-                    cpu_profile_index += 1;
-                }
-                _ => (),
-            },
-            _ => (),
+                _ => {}
+            }
+        }
+
+        let (width, height) = window.get_inner_size_pixels();
+        let dim = DeviceUintSize::new(width, height);
+        wrench.update(dim);
+
+        if do_frame {
+            let frame_num = thing.do_frame(&mut wrench);
+            unsafe {
+                CURRENT_FRAME_NUMBER = frame_num;
+            }
+        }
+
+        if show_help {
+            wrench.show_onscreen_help();
+        }
+
+        wrench.render();
+        window.swap_buffers();
+
+        if do_loop {
+            thing.next_frame();
         }
     }
 
