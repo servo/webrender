@@ -6,6 +6,7 @@
 == boxshadow-spread-only.yaml boxshadow-spread-only-ref.png
 fuzzy(1,396) == inset-large-offset.yaml inset-large-offset-ref.png
 == inset-border-radius.yaml inset-border-radius.png
+== inset-neg-offset.yaml inset-neg-offset.png
 == box-shadow-suite-no-blur.yaml box-shadow-suite-no-blur.png
 == box-shadow-suite-blur.yaml box-shadow-suite-blur.png
 == box-shadow-large-blur-radius.yaml box-shadow-large-blur-radius-ref.yaml
