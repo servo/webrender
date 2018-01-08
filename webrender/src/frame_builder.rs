@@ -7,10 +7,10 @@ use api::{ColorU, DeviceIntPoint, DevicePixelScale, DeviceUintPoint, DeviceUintR
 use api::{DeviceUintSize, DocumentLayer, ExtendMode, FontRenderMode, GlyphInstance, GlyphOptions};
 use api::{GradientStop, HitTestFlags, HitTestItem, HitTestResult, ImageKey, ImageRendering};
 use api::{ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect, LayerSize};
-use api::{LayerToWorldScale, LayerTransform, LayerVector2D, LayoutTransform, LayoutVector2D};
-use api::{LineOrientation, LineStyle, LocalClip, PipelineId, PremultipliedColorF, PropertyBinding};
-use api::{RepeatMode, ScrollSensitivity, Shadow, TileOffset, TransformStyle, WorldPoint};
-use api::{WorldRect, YuvColorSpace, YuvData};
+use api::{LayerTransform, LayerVector2D, LayoutTransform, LayoutVector2D, LineOrientation};
+use api::{LineStyle, LocalClip, PipelineId, PremultipliedColorF, PropertyBinding, RepeatMode};
+use api::{ScrollSensitivity, Shadow, TileOffset, TransformStyle, WorldPoint, YuvColorSpace};
+use api::YuvData;
 use app_units::Au;
 use border::ImageBorderSegment;
 use clip::{ClipRegion, ClipSource, ClipSources, ClipStore, Contains};
@@ -591,19 +591,11 @@ impl FrameBuilder {
 
     pub fn setup_viewport_offset(
         &mut self,
-        window_size: DeviceUintSize,
         inner_rect: DeviceUintRect,
         device_pixel_scale: DevicePixelScale,
         clip_scroll_tree: &mut ClipScrollTree,
     ) {
         let viewport_offset = (inner_rect.origin.to_vector().to_f32() / device_pixel_scale).round();
-        let outer_size = (window_size.to_f32() / device_pixel_scale).round();
-
-        let viewport_clip = WorldRect::new(
-            (-viewport_offset).to_point(),
-            outer_size + viewport_offset.to_size() * 2.0,
-        ) / LayerToWorldScale::new(1.0);
-
         let root_id = clip_scroll_tree.root_reference_frame_id();
         if let Some(root_node) = clip_scroll_tree.nodes.get_mut(&root_id) {
             if let NodeType::ReferenceFrame(ref mut info) = root_node.node_type {
@@ -613,12 +605,6 @@ impl FrameBuilder {
                     0.0,
                 );
             }
-            root_node.local_clip_rect = viewport_clip;
-        }
-
-        let clip_id = clip_scroll_tree.topmost_scrolling_node_id();
-        if let Some(root_node) = clip_scroll_tree.nodes.get_mut(&clip_id) {
-            root_node.local_clip_rect = viewport_clip;
         }
     }
 

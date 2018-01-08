@@ -1586,6 +1586,7 @@ impl PrimitiveStore {
                     // on.
                     local_clip_rect: LayerRect::zero(),
                     screen_inner_rect,
+                    screen_outer_rect: screen_outer_rect.unwrap_or(prim_screen_rect),
                     combined_outer_screen_rect:
                         combined_outer_rect.unwrap_or_else(DeviceIntRect::zero),
                     combined_inner_screen_rect: DeviceIntRect::zero(),
@@ -1786,8 +1787,11 @@ impl PrimitiveStore {
                 prim_context.device_pixel_scale,
             );
 
-            let clip_bounds = &prim_context.clip_node.combined_clip_outer_bounds;
-            metadata.screen_rect = screen_bounding_rect.intersection(clip_bounds);
+            let clip_bounds = match prim_context.clip_node.clip_chain_node {
+                Some(ref node) => node.combined_outer_screen_rect,
+                None => *screen_rect,
+            };
+            metadata.screen_rect = screen_bounding_rect.intersection(&clip_bounds);
 
             if metadata.screen_rect.is_none() && perform_culling {
                 return None;
