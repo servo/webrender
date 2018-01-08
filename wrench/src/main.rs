@@ -457,6 +457,25 @@ fn main() {
                     break 'outer;
                 }
 
+                glutin::Event::MouseWheel(delta, _, _) => {
+                    let dy = match delta {
+                        glutin::MouseScrollDelta::LineDelta(_, dy) => dy,
+                        glutin::MouseScrollDelta::PixelDelta(_, dy) => dy,
+                    };
+
+                    let delta = if dy > 0.0 {
+                        1.1
+                    } else {
+                        0.9
+                    };
+
+                    let current_zoom = wrench.get_page_zoom();
+                    let new_zoom_factor = ZoomFactor::new(current_zoom.get() * delta);
+
+                    wrench.set_page_zoom(new_zoom_factor);
+                    do_frame = true;
+                }
+
                 glutin::Event::KeyboardInput(ElementState::Pressed, _scan_code, Some(vk)) => match vk {
                     VirtualKeyCode::Escape => {
                         break 'outer;
@@ -480,6 +499,10 @@ fn main() {
                         wrench.renderer.toggle_debug_flags(
                             DebugFlags::GPU_TIME_QUERIES | DebugFlags::GPU_SAMPLE_QUERIES
                         );
+                    }
+                    VirtualKeyCode::R => {
+                        wrench.set_page_zoom(ZoomFactor::new(1.0));
+                        do_frame = true;
                     }
                     VirtualKeyCode::M => {
                         wrench.api.notify_memory_pressure();
