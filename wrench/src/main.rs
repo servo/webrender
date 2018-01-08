@@ -481,6 +481,10 @@ fn main() {
                             DebugFlags::GPU_TIME_QUERIES | DebugFlags::GPU_SAMPLE_QUERIES
                         );
                     }
+                    VirtualKeyCode::R => {
+                        wrench.set_page_zoom(ZoomFactor::new(1.0));
+                        do_frame = true;
+                    }
                     VirtualKeyCode::M => {
                         wrench.api.notify_memory_pressure();
                     }
@@ -502,6 +506,20 @@ fn main() {
                         let file_name = format!("profile-{}.json", cpu_profile_index);
                         wrench.renderer.save_cpu_profile(&file_name);
                         cpu_profile_index += 1;
+                    }
+                    VirtualKeyCode::Up => {
+                        let current_zoom = wrench.get_page_zoom();
+                        let new_zoom_factor = ZoomFactor::new(current_zoom.get() + 0.1);
+
+                        wrench.set_page_zoom(new_zoom_factor);
+                        do_frame = true;
+                    }
+                    VirtualKeyCode::Down => {
+                        let current_zoom = wrench.get_page_zoom();
+                        let new_zoom_factor = ZoomFactor::new((current_zoom.get() - 0.1).max(0.1));
+
+                        wrench.set_page_zoom(new_zoom_factor);
+                        do_frame = true;
                     }
                     _ => (),
                 }

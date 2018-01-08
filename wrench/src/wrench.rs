@@ -124,6 +124,7 @@ pub trait WrenchThing {
 pub struct Wrench {
     window_size: DeviceUintSize,
     device_pixel_ratio: f32,
+    page_zoom_factor: ZoomFactor,
 
     pub renderer: webrender::Renderer,
     pub api: RenderApi,
@@ -223,6 +224,7 @@ impl Wrench {
             rebuild_display_lists: do_rebuild,
             verbose,
             device_pixel_ratio: dp_ratio,
+            page_zoom_factor: ZoomFactor::new(1.0),
 
             root_pipeline_id: PipelineId(0, 0),
 
@@ -238,6 +240,16 @@ impl Wrench {
             .set_root_pipeline(wrench.document_id, wrench.root_pipeline_id);
 
         wrench
+    }
+
+    pub fn get_page_zoom(&self) -> ZoomFactor {
+        self.page_zoom_factor
+    }
+
+    pub fn set_page_zoom(&mut self, zoom_factor: ZoomFactor) {
+        self.page_zoom_factor = zoom_factor;
+        self.api.set_page_zoom(self.document_id, self.page_zoom_factor);
+        self.set_title("");
     }
 
     pub fn layout_simple_ascii(
@@ -311,9 +323,10 @@ impl Wrench {
 
     pub fn set_title(&mut self, extra: &str) {
         self.window_title_to_set = Some(format!(
-            "Wrench: {} ({}x) - {} - {}",
+            "Wrench: {} ({}x zoom={}) - {} - {}",
             extra,
             self.device_pixel_ratio,
+            self.page_zoom_factor.get(),
             self.graphics_api.renderer,
             self.graphics_api.version
         ));
