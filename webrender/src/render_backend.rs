@@ -812,6 +812,7 @@ impl ToDebugString for SpecificDisplayItem {
 }
 
 
+
 #[cfg(feature = "capture")]
 impl RenderBackend {
     // Note: the mutable `self` is only needed here for resolving blob images

@@ -10,6 +10,7 @@ use util::recycle_vec;
 //           retain() style functionality.
 
 #[derive(Debug, Copy, Clone, PartialEq)]
+#[cfg_attr(feature = "capture2", derive(Serialize))]
 struct Epoch(u32);
 
 #[derive(Debug)]
@@ -40,6 +41,7 @@ impl<T> Clone for WeakFreeListHandle<T> {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "capture2", derive(Serialize))]
 pub struct WeakFreeListHandle<T> {
     index: u32,
     epoch: Epoch,

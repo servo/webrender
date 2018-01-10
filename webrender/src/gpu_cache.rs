@@ -123,6 +123,7 @@ impl GpuCacheHandle {
 // as part of the primitive instances, to allow the vertex
 // shader to fetch the specific data.
 #[derive(Copy, Debug, Clone)]
+#[cfg_attr(feature = "capture2", derive(Serialize))]
 pub struct GpuCacheAddress {
     pub u: u16,
     pub v: u16,
