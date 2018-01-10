@@ -114,6 +114,18 @@ impl FontTransform {
             self.scale_y - self.skew_y * skew_factor,
         )
     }
+
+    pub fn swap_xy(&self) -> Self {
+        FontTransform::new(self.skew_x, self.scale_x, self.scale_y, self.skew_y)
+    }
+
+    pub fn flip_x(&self) -> Self {
+        FontTransform::new(-self.scale_x, self.skew_x, -self.skew_y, self.scale_y)
+    }
+
+    pub fn flip_y(&self) -> Self {
+        FontTransform::new(self.scale_x, -self.skew_y, self.skew_y, -self.scale_y)
+    }
 }
 
 impl<'a> From<&'a LayerToWorldTransform> for FontTransform {
