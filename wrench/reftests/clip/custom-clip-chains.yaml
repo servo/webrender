@@ -1,0 +1,56 @@
+root:
+  items:
+    -
+      bounds: [0, 0, 200, 200]
+      type: stacking-context
+      transform: rotate(180)
+      items:
+       - type: clip
+         id: 1
+         bounds: [0, 0, 200, 200]
+         complex:
+           - rect: [0, 0, 200, 200]
+             radius: {
+               top-left: 20,
+             }
+       - type: clip
+         id: 2
+         bounds: [0, 0, 200, 200]
+         complex:
+           - rect: [0, 0, 200, 200]
+             radius: {
+               top-right: 20,
+             }
+    -
+      bounds: [0, 0, 200, 200]
+      type: stacking-context
+      transform: rotate(90)
+      items:
+       - type: clip
+         id: 3
+         bounds: [0, 0, 200, 200]
+         complex:
+           - rect: [0, 0, 200, 200]
+             radius: {
+               bottom-left: 20,
+             }
+       - type: clip
+         id: 4
+         bounds: [0, 0, 200, 200]
+         complex:
+           - rect: [0, 0, 200, 200]
+             radius: {
+               top-left: 20,
+             }
+
+    - type: clip-chain
+      id: 5
+      clips: [1, 2]
+    - type: clip-chain
+      id: 6
+      parent: 5
+      clips: [3, 4]
+    - type: rect
+      bounds: [0, 0, 200, 200]
+      color: green
+      clip-and-scroll: [0, 6]

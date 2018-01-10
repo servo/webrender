@@ -197,6 +197,10 @@ pub struct YamlFrameReader {
     fonts: HashMap<FontDescriptor, FontKey>,
     font_instances: HashMap<(FontKey, Au), FontInstanceKey>,
     font_render_mode: Option<FontRenderMode>,
+
+    /// A HashMap that allows specifying a numeric id for clip and clip chains in YAML
+    /// and having each of those ids correspond to a unique ClipId.
+    clip_id_map: HashMap<u64, ClipId>,
 }
 
 impl YamlFrameReader {
@@ -215,7 +219,8 @@ impl YamlFrameReader {
             fonts: HashMap::new(),
             font_instances: HashMap::new(),
             font_render_mode: None,
-            image_map: HashMap::new()
+            image_map: HashMap::new(),
+            clip_id_map: HashMap::new(),
         }
     }
 
@@ -268,25 +273,31 @@ impl YamlFrameReader {
         self.reset();
 
         let yaml = yaml_doc.pop().unwrap();
-        if !yaml["pipelines"].is_badvalue() {
-            let pipelines = yaml["pipelines"].as_vec().unwrap();
+        if let Some(pipelines) = yaml["pipelines"].as_vec() {
             for pipeline in pipelines {
-                let pipeline_id = pipeline["id"].as_pipeline_id().unwrap();
-                let content_size = self.get_root_size_from_yaml(wrench, pipeline);
-
-                let mut dl = DisplayListBuilder::new(pipeline_id, content_size);
-                let mut info = LayoutPrimitiveInfo::new(LayoutRect::zero());
-                self.add_stacking_context_from_yaml(&mut dl, wrench, pipeline, true, &mut info);
-                self.display_lists.push(dl.finalize());
+                self.build_pipeline(wrench, pipeline["id"].as_pipeline_id().unwrap(), pipeline);
             }
         }
 
         assert!(!yaml["root"].is_badvalue(), "Missing root stacking context");
-        let content_size = self.get_root_size_from_yaml(wrench, &yaml["root"]);
-        let mut dl = DisplayListBuilder::new(wrench.root_pipeline_id, content_size);
+        let root_pipeline_id = wrench.root_pipeline_id;
+        self.build_pipeline(wrench, root_pipeline_id, &yaml["root"]);
+    }
+
+    pub fn build_pipeline(
+        &mut self,
+        wrench: &mut Wrench,
+        pipeline_id: PipelineId,
+        yaml: &Yaml
+    ) {
+        // Don't allow referencing clips between pipelines for now.
+        self.clip_id_map.clear();
+
+        let content_size = self.get_root_size_from_yaml(wrench, yaml);
+        let mut builder = DisplayListBuilder::new(pipeline_id, content_size);
         let mut info = LayoutPrimitiveInfo::new(LayoutRect::zero());
-        self.add_stacking_context_from_yaml(&mut dl, wrench, &yaml["root"], true, &mut info);
-        self.display_lists.push(dl.finalize());
+        self.add_stacking_context_from_yaml(&mut builder, wrench, yaml, true, &mut info);
+        self.display_lists.push(builder.finalize());
     }
 
     fn to_complex_clip_region(&mut self, item: &Yaml) -> ComplexClipRegion {
@@ -323,6 +334,37 @@ impl YamlFrameReader {
                 array[1].as_f32().unwrap_or(0.0),
             ),
             _ => StickyOffsetBounds::new(0.0, 0.0),
+        }
+    }
+
+    pub fn to_clip_id(&self, id: u64, pipeline_id: PipelineId) -> ClipId {
+        if id == 0 {
+            return ClipId::root_scroll_node(pipeline_id);
+        }
+        self.clip_id_map[&id]
+    }
+
+    fn to_clip_and_scroll_info(
+        &self,
+        item: &Yaml,
+        pipeline_id: PipelineId
+    ) -> Option<ClipAndScrollInfo> {
+        match *item {
+            Yaml::Integer(value) => {
+                Some(ClipAndScrollInfo::simple(self.to_clip_id(value as u64, pipeline_id)))
+            }
+            Yaml::Array(ref array) if array.len() == 2 => {
+                let id_ints = (array[0].as_i64(), array[1].as_i64());
+                if let (Some(scroll_node_numeric_id), Some(clip_node_numeric_id)) = id_ints {
+                    Some(ClipAndScrollInfo::new(
+                        self.to_clip_id(scroll_node_numeric_id as u64, pipeline_id),
+                        self.to_clip_id(clip_node_numeric_id as u64, pipeline_id)
+                    ))
+                } else {
+                    None
+                }
+            }
+            _ => None,
         }
     }
 
@@ -1161,7 +1203,10 @@ impl YamlFrameReader {
                 continue;
             }
 
-            let clip_scroll_info = item["clip-and-scroll"].as_clip_and_scroll_info(dl.pipeline_id);
+            let clip_scroll_info = self.to_clip_and_scroll_info(
+                &item["clip-and-scroll"],
+                dl.pipeline_id
+            );
             if let Some(clip_scroll_info) = clip_scroll_info {
                 dl.push_clip_and_scroll_info(clip_scroll_info);
             }
@@ -1177,6 +1222,7 @@ impl YamlFrameReader {
                 "scroll-frame" => self.handle_scroll_frame(dl, wrench, item),
                 "sticky-frame" => self.handle_sticky_frame(dl, wrench, item),
                 "clip" => self.handle_clip(dl, wrench, item),
+                "clip-chain" => self.handle_clip_chain(dl, item),
                 "border" => self.handle_border(dl, wrench, item, &mut info),
                 "gradient" => self.handle_gradient(dl, item, &mut info),
                 "radial-gradient" => self.handle_radial_gradient(dl, item, &mut info),
@@ -1208,31 +1254,31 @@ impl YamlFrameReader {
         let content_size = yaml["content-size"].as_size().unwrap_or(clip_rect.size);
         let content_rect = LayerRect::new(clip_rect.origin, content_size);
 
-        let id = yaml["id"]
-            .as_i64()
-            .map(|id| ClipId::new(id as u64, dl.pipeline_id));
+        let numeric_id = yaml["id"].as_i64().map(|id| id as u64);
         let complex_clips = self.to_complex_clip_regions(&yaml["complex"]);
         let image_mask = self.to_image_mask(&yaml["image-mask"], wrench);
 
-        let id = dl.define_scroll_frame(
-            id,
+        let real_id = dl.define_scroll_frame(
+            None,
             content_rect,
             clip_rect,
             complex_clips,
             image_mask,
             ScrollSensitivity::Script,
         );
+        if let Some(numeric_id) = numeric_id {
+            self.clip_id_map.insert(numeric_id, real_id);
+        }
 
         if let Some(size) = yaml["scroll-offset"].as_point() {
-            self.scroll_offsets
-                .insert(id, LayerPoint::new(size.x, size.y));
+            self.scroll_offsets.insert(real_id, LayerPoint::new(size.x, size.y));
         }
 
-        dl.push_clip_id(id);
         if !yaml["items"].is_badvalue() {
+            dl.push_clip_id(real_id);
             self.add_display_list_items_from_yaml(dl, wrench, &yaml["items"]);
+            dl.pop_clip_id();
         }
-        dl.pop_clip_id();
     }
 
     pub fn handle_sticky_frame(
@@ -1241,15 +1287,11 @@ impl YamlFrameReader {
         wrench: &mut Wrench,
         yaml: &Yaml,
     ) {
-        let bounds = yaml["bounds"]
-            .as_rect()
-            .expect("sticky frame must have a bounds");
-        let id = yaml["id"]
-            .as_i64()
-            .map(|id| ClipId::new(id as u64, dl.pipeline_id));
+        let bounds = yaml["bounds"].as_rect().expect("sticky frame must have a bounds");
+        let numeric_id = yaml["id"].as_i64().map(|id| id as u64);
 
-        let id = dl.define_sticky_frame(
-            id,
+        let real_id = dl.define_sticky_frame(
+            None,
             bounds,
             SideOffsets2D::new(
                 yaml["margin-top"].as_f32(),
@@ -1262,11 +1304,15 @@ impl YamlFrameReader {
             yaml["previously-applied-offset"].as_vector().unwrap_or(LayoutVector2D::zero()),
         );
 
-        dl.push_clip_id(id);
-        if !yaml["items"].is_badvalue() {
-            self.add_display_list_items_from_yaml(dl, wrench, &yaml["items"]);
+        if let Some(numeric_id) = numeric_id {
+            self.clip_id_map.insert(numeric_id, real_id);
         }
-        dl.pop_clip_id();
+
+        if !yaml["items"].is_badvalue() {
+            dl.push_clip_id(real_id);
+            self.add_display_list_items_from_yaml(dl, wrench, &yaml["items"]);
+            dl.pop_clip_id();
+        }
     }
 
     pub fn handle_push_shadow(
@@ -1298,26 +1344,43 @@ impl YamlFrameReader {
         dl.pop_all_shadows();
     }
 
+    pub fn handle_clip_chain(&mut self, builder: &mut DisplayListBuilder, yaml: &Yaml) {
+        let numeric_id = yaml["id"].as_i64().expect("clip chains must have an id");
+        let clip_ids: Vec<ClipId> = yaml["clips"]
+            .as_vec_u64()
+            .unwrap_or_else(Vec::new)
+            .iter().map(|id| self.to_clip_id(*id, builder.pipeline_id))
+            .collect();
+
+        let parent = yaml["parent"].as_i64().map(|id|
+            self.to_clip_id(id as u64, builder.pipeline_id)
+        );
+        let parent = match parent {
+            Some(ClipId::ClipChain(clip_chain_id)) => Some(clip_chain_id),
+            Some(_) => panic!("Tried to create a ClipChain with a non-ClipChain parent"),
+            None => None,
+        };
+
+        let real_id = builder.define_clip_chain(parent, clip_ids);
+        self.clip_id_map.insert(numeric_id as u64, ClipId::ClipChain(real_id));
+    }
+
     pub fn handle_clip(&mut self, dl: &mut DisplayListBuilder, wrench: &mut Wrench, yaml: &Yaml) {
         let clip_rect = yaml["bounds"].as_rect().expect("clip must have a bounds");
-        let id = yaml["id"]
-            .as_i64()
-            .map(|id| ClipId::new(id as u64, dl.pipeline_id));
+        let numeric_id = yaml["id"].as_i64();
         let complex_clips = self.to_complex_clip_regions(&yaml["complex"]);
         let image_mask = self.to_image_mask(&yaml["image-mask"], wrench);
 
-        let id = dl.define_clip(id, clip_rect, complex_clips, image_mask);
-
-        if let Some(size) = yaml["scroll-offset"].as_point() {
-            self.scroll_offsets
-                .insert(id, LayerPoint::new(size.x, size.y));
+        let real_id = dl.define_clip(None, clip_rect, complex_clips, image_mask);
+        if let Some(numeric_id) = numeric_id {
+            self.clip_id_map.insert(numeric_id as u64, real_id);
         }
 
-        dl.push_clip_id(id);
         if !yaml["items"].is_badvalue() {
+            dl.push_clip_id(real_id);
             self.add_display_list_items_from_yaml(dl, wrench, &yaml["items"]);
+            dl.pop_clip_id();
         }
-        dl.pop_clip_id();
     }
 
     pub fn get_root_size_from_yaml(&mut self, wrench: &mut Wrench, yaml: &Yaml) -> LayoutSize {

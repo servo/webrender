@@ -801,6 +801,7 @@ impl ToDebugString for SpecificDisplayItem {
             SpecificDisplayItem::PushStackingContext(..) => String::from("push_stacking_context"),
             SpecificDisplayItem::Iframe(..) => String::from("iframe"),
             SpecificDisplayItem::Clip(..) => String::from("clip"),
+            SpecificDisplayItem::ClipChain(..) => String::from("clip_chain"),
             SpecificDisplayItem::ScrollFrame(..) => String::from("scroll_frame"),
             SpecificDisplayItem::StickyFrame(..) => String::from("sticky_frame"),
             SpecificDisplayItem::SetGradientStops => String::from("set_gradient_stops"),

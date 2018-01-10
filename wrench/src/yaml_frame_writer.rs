@@ -1007,6 +1007,22 @@ impl YamlFrameWriter {
                         yaml_node(&mut v, "image-mask", mask_yaml);
                     }
                 }
+                ClipChain(item) => {
+                    str_node(&mut v, "type", "clip-chain");
+
+                    let id = ClipId::ClipChain(item.id);
+                    u32_node(&mut v, "id", clip_id_mapper.map_id(&id) as u32);
+
+                    let clip_ids: Vec<u32> = display_list.get(base.clip_chain_items()).map(|clip_id| {
+                        clip_id_mapper.map_id(&clip_id) as u32
+                    }).collect();
+                    u32_vec_node(&mut v, "clips", &clip_ids);
+
+                    if let Some(parent) = item.parent {
+                        let parent = ClipId::ClipChain(parent);
+                        u32_node(&mut v, "parent", clip_id_mapper.map_id(&parent) as u32);
+                    }
+                }
                 ScrollFrame(item) => {
                     str_node(&mut v, "type", "scroll-frame");
                     usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
