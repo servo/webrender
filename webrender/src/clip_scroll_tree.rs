@@ -2,9 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ClipId, DeviceIntRect, DevicePixelScale, LayerPoint, LayerRect};
-use api::{LayerToWorldTransform, LayerVector2D, PipelineId, ScrollClamping, ScrollEventPhase};
-use api::{PropertyBinding, LayoutTransform, ScrollLayerState, ScrollLocation, WorldPoint};
+use api::{ClipId, DeviceIntRect, DevicePixelScale, LayerPoint, LayerRect, LayerToWorldTransform};
+use api::{LayerVector2D, LayoutTransform, PipelineId, PropertyBinding, ScrollClamping};
+use api::{ScrollEventPhase, ScrollLayerState, ScrollLocation, WorldPoint};
 use clip::ClipStore;
 use clip_scroll_node::{ClipScrollNode, NodeType, ScrollingState, StickyFrameInfo};
 use gpu_cache::GpuCache;
@@ -359,7 +359,7 @@ impl ClipScrollTree {
             parent_accumulated_scroll_offset: LayerVector2D::zero(),
             nearest_scrolling_ancestor_offset: LayerVector2D::zero(),
             nearest_scrolling_ancestor_viewport: LayerRect::zero(),
-            parent_clip_chain: None,
+            parent_clip_chain: ClipChain::empty(screen_rect),
             current_coordinate_system_id: CoordinateSystemId::root(),
             coordinate_system_relative_transform: TransformOrOffset::zero(),
             invertible: true,
@@ -369,7 +369,6 @@ impl ClipScrollTree {
             root_reference_frame_id,
             &mut state,
             &mut next_coordinate_system_id,
-            screen_rect,
             device_pixel_scale,
             clip_store,
             resource_cache,
@@ -384,7 +383,6 @@ impl ClipScrollTree {
         layer_id: ClipId,
         state: &mut TransformUpdateState,
         next_coordinate_system_id: &mut CoordinateSystemId,
-        screen_rect: &DeviceIntRect,
         device_pixel_scale: DevicePixelScale,
         clip_store: &mut ClipStore,
         resource_cache: &mut ResourceCache,
@@ -407,7 +405,6 @@ impl ClipScrollTree {
             node.update(
                 &mut state,
                 next_coordinate_system_id,
-                screen_rect,
                 device_pixel_scale,
                 clip_store,
                 resource_cache,
@@ -421,7 +418,6 @@ impl ClipScrollTree {
                 return;
             }
 
-
             node.prepare_state_for_children(&mut state);
             node.children.clone()
         };
@@ -431,7 +427,6 @@ impl ClipScrollTree {
                 child_node_id,
                 &mut state,
                 next_coordinate_system_id,
-                screen_rect,
                 device_pixel_scale,
                 clip_store,
                 resource_cache,
@@ -612,4 +607,8 @@ impl ClipScrollTree {
                    .unwrap_or_else(|| WorldPoint::new(point.x, point.y))
 
     }
+
+    pub fn get_clip_chain(&self, id: &ClipId) -> Option<&ClipChain> {
+        self.nodes[id].clip_chain.as_ref()
+     }
 }
