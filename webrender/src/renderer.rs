@@ -2099,7 +2099,7 @@ impl Renderer {
                 &mut texture,
                 8,
                 8,
-                ImageFormat::A8,
+                ImageFormat::R8,
                 TextureFilter::Nearest,
                 None,
                 1,

@@ -559,7 +559,7 @@ impl RenderPass {
         RenderPass {
             kind: RenderPassKind::OffScreen {
                 color: RenderTargetList::new(screen_size, ImageFormat::BGRA8),
-                alpha: RenderTargetList::new(screen_size, ImageFormat::A8),
+                alpha: RenderTargetList::new(screen_size, ImageFormat::R8),
             },
             tasks: vec![],
             dynamic_tasks: FastHashMap::default(),

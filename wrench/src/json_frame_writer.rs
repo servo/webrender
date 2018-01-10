@@ -234,7 +234,7 @@ impl JsonFrameWriter {
             } else {
                 false
             },
-            ImageFormat::A8 => if data.stride == data.width {
+            ImageFormat::R8 => if data.stride == data.width {
                 save_buffer(
                     &path_file,
                     &bytes,
