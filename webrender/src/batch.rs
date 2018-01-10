@@ -806,7 +806,7 @@ impl AlphaBatcher {
                                     } else if ctx.use_dual_source_blending {
                                         BlendMode::SubpixelDualSource
                                     } else {
-                                        BlendMode::SubpixelConstantTextColor(text_cpu.font.color.into())
+                                        BlendMode::SubpixelConstantTextColor(text_cpu.get_color())
                                     }
                                 }
                                 GlyphFormat::Alpha |

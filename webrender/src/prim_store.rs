@@ -679,6 +679,14 @@ impl TextRunPrimitiveCpu {
         self.shadow_color.a != 0
     }
 
+    pub fn get_color(&self) -> ColorF {
+        ColorF::from(if self.is_shadow() {
+            self.shadow_color
+        } else {
+            self.font.color
+        })
+    }
+
     fn prepare_for_render(
         &mut self,
         resource_cache: &mut ResourceCache,
@@ -728,14 +736,9 @@ impl TextRunPrimitiveCpu {
     }
 
     fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
-        let bg_color = ColorF::from(self.font.bg_color);
-        let color = ColorF::from(if self.is_shadow() {
-            self.shadow_color
-        } else {
-            self.font.color
-        });
-        request.push(color.premultiplied());
+        request.push(self.get_color().premultiplied());
         // this is the only case where we need to provide plain color to GPU
+        let bg_color = ColorF::from(self.font.bg_color);
         request.extend_from_slice(&[
             GpuBlockData { data: [bg_color.r, bg_color.g, bg_color.b, 1.0] }
         ]);
