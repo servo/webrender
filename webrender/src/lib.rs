@@ -55,6 +55,8 @@ extern crate serde;
 mod batch;
 mod border;
 mod box_shadow;
+#[cfg(feature = "capture")]
+mod capture;
 mod clip;
 mod clip_scroll_node;
 mod clip_scroll_tree;

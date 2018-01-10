@@ -5,8 +5,6 @@
 use api::{ClipId, DevicePoint, DeviceUintRect, DocumentId, Epoch};
 use api::{ExternalImageData, ExternalImageId};
 use api::{ImageFormat, PipelineId};
-#[cfg(feature = "capture")]
-use api::ImageDescriptor;
 use api::DebugCommand;
 use device::TextureFilter;
 use fxhash::FxHasher;
@@ -17,6 +15,9 @@ use std::f32;
 use std::hash::BuildHasherDefault;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+#[cfg(feature = "capture")]
+use capture::{ExternalCaptureImage};
 use tiling;
 
 pub type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
@@ -108,7 +109,7 @@ pub struct TextureUpdateList {
 }
 
 impl TextureUpdateList {
-    pub fn new() -> TextureUpdateList {
+    pub fn new() -> Self {
         TextureUpdateList {
             updates: Vec::new(),
         }
@@ -144,13 +145,6 @@ impl RenderedDocument {
             frame,
         }
     }
-}
-
-#[cfg(feature = "capture")]
-pub struct ExternalCaptureImage {
-    pub short_path: String,
-    pub descriptor: ImageDescriptor,
-    pub external: ExternalImageData,
 }
 
 pub enum DebugOutput {

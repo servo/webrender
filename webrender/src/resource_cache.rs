@@ -14,14 +14,14 @@ use api::{TileOffset, TileSize};
 #[cfg(feature = "capture")]
 use api::{NativeFontHandle};
 use app_units::Au;
+#[cfg(feature = "capture")]
+use capture::ExternalCaptureImage;
 use device::TextureFilter;
 use frame::FrameId;
 use glyph_cache::GlyphCache;
 use glyph_rasterizer::{FontInstance, GlyphFormat, GlyphRasterizer, GlyphRequest};
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use internal_types::{FastHashMap, FastHashSet, SourceTexture, TextureUpdateList};
-#[cfg(feature = "capture")]
-use internal_types::ExternalCaptureImage;
 use profiler::{ResourceProfileCounters, TextureCacheProfileCounters};
 use rayon::ThreadPool;
 use render_task::{RenderTaskCache, RenderTaskCacheKey, RenderTaskId, RenderTaskTree};
