@@ -4082,6 +4082,7 @@ impl Renderer {
             }
         } else {
             if list.texture.is_some() {
+                list.check_ready();
                 return
             }
             match self.texture_resolver.render_target_pool.pop() {
@@ -4103,6 +4104,7 @@ impl Renderer {
             None,
         );
         list.texture = Some(texture);
+        list.check_ready();
     }
 
     fn prepare_tile_frame(&mut self, frame: &mut Frame) {
@@ -4217,8 +4219,8 @@ impl Renderer {
                     (None, None)
                 }
                 RenderPassKind::OffScreen { ref mut alpha, ref mut color } => {
-                    assert!(alpha.targets.is_empty() || alpha.texture.is_some());
-                    assert!(color.targets.is_empty() || color.texture.is_some());
+                    alpha.check_ready();
+                    color.check_ready();
 
                     for (target_index, target) in alpha.targets.iter().enumerate() {
                         stats.alpha_target_count += 1;

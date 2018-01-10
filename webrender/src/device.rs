@@ -21,6 +21,11 @@ use std::ptr;
 use std::rc::Rc;
 use std::thread;
 
+// Apparently, in some cases calling `glTexImage3D` with
+// similar parameters that the texture already has confuses
+// Angle when running with optimizations.
+const WORK_AROUND_TEX_IMAGE: bool = cfg!(windows);
+
 #[derive(Debug, Copy, Clone, PartialEq, Ord, Eq, PartialOrd)]
 pub struct FrameId(usize);
 
@@ -467,6 +472,10 @@ impl Texture {
 
     pub fn has_depth(&self) -> bool {
         self.depth_rb.is_some()
+    }
+
+    pub fn get_rt_info(&self) -> Option<&RenderTargetInfo> {
+        self.render_target.as_ref()
     }
 }
 
@@ -962,7 +971,7 @@ impl Device {
 
         self.bind_texture(DEFAULT_TEXTURE, texture);
         self.set_texture_parameters(texture.target, texture.filter);
-        self.update_texture_storage(texture, &rt_info, true);
+        self.update_texture_storage(texture, &rt_info, true, false);
 
         let rect = DeviceIntRect::new(DeviceIntPoint::zero(), old_size.to_i32());
         for (read_fbo, &draw_fbo) in old_fbos.into_iter().zip(&texture.fbo_ids) {
@@ -984,13 +993,13 @@ impl Device {
         filter: TextureFilter,
         render_target: Option<RenderTargetInfo>,
         layer_count: i32,
+
         pixels: Option<&[u8]>,
     ) {
         debug_assert!(self.inside_frame);
 
-        let resized = texture.width != width ||
-            texture.height != height ||
-            texture.format != format;
+        let is_resized = texture.width != width || texture.height != height;
+        let is_format_changed = texture.format != format;
 
         texture.format = format;
         texture.width = width;
@@ -1005,7 +1014,7 @@ impl Device {
         match render_target {
             Some(info) => {
                 assert!(pixels.is_none());
-                self.update_texture_storage(texture, &info, resized);
+                self.update_texture_storage(texture, &info, is_resized, is_format_changed);
             }
             None => {
                 let (internal_format, gl_format) = gl_texture_formats_for_image_format(self.gl(), format);
@@ -1065,11 +1074,12 @@ impl Device {
         texture: &mut Texture,
         rt_info: &RenderTargetInfo,
         is_resized: bool,
+        is_format_changed: bool,
     ) {
         assert!(texture.layer_count > 0);
 
         let needed_layer_count = texture.layer_count - texture.fbo_ids.len() as i32;
-        let allocate_color = needed_layer_count != 0 || is_resized;
+        let allocate_color = needed_layer_count != 0 || is_resized || is_format_changed;
 
         if allocate_color {
             let (internal_format, gl_format) =
@@ -1078,6 +1088,19 @@ impl Device {
 
             match texture.target {
                 gl::TEXTURE_2D_ARRAY => {
+                    if WORK_AROUND_TEX_IMAGE {
+                        // reset the contents before resizing
+                        self.gl.tex_image_3d(
+                            texture.target,
+                            0,
+                            gl::RGBA32F as _,
+                            2, 2, 1,
+                            0,
+                            gl::RGBA,
+                            gl::FLOAT,
+                            None,
+                        )
+                    }
                     self.gl.tex_image_3d(
                         texture.target,
                         0,
@@ -1138,8 +1161,8 @@ impl Device {
                 self.gl.renderbuffer_storage(
                     gl::RENDERBUFFER,
                     gl::DEPTH_COMPONENT24,
-                    texture.width as gl::GLsizei,
-                    texture.height as gl::GLsizei,
+                    texture.width as _,
+                    texture.height as _,
                 );
             } else {
                 self.gl.delete_renderbuffers(&[depth_rb]);
@@ -1149,6 +1172,7 @@ impl Device {
         }
 
         if allocate_color || allocate_depth {
+            let original_bound_fbo = self.bound_draw_fbo;
             for (fbo_index, &fbo_id) in texture.fbo_ids.iter().enumerate() {
                 self.bind_external_draw_target(fbo_id);
                 match texture.target {
@@ -1158,7 +1182,7 @@ impl Device {
                             gl::COLOR_ATTACHMENT0,
                             texture.id,
                             0,
-                            fbo_index as gl::GLint,
+                            fbo_index as _,
                         )
                     }
                     _ => {
@@ -1180,9 +1204,7 @@ impl Device {
                     depth_rb,
                 );
             }
-            // restore the previous FBO
-            let bound_fbo = self.bound_draw_fbo;
-            self.bind_external_draw_target(bound_fbo);
+            self.bind_external_draw_target(original_bound_fbo);
         }
     }
 
