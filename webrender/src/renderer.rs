@@ -2419,9 +2419,7 @@ impl Renderer {
                             };
                             handler.unlock(id, channel_index);
 
-                            let full_path = format!("{}/{}",
-                                path.to_string_lossy(), def.short_path);
-                            File::create(full_path)
+                            File::create(path.join(&def.short_path))
                                 .expect(&format!("Unable to create {}", def.short_path))
                                 .write_all(&data)
                                 .unwrap();

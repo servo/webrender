@@ -765,16 +765,6 @@ pub struct Frame {
     pub deferred_resolves: Vec<DeferredResolve>,
 }
 
-#[cfg(feature = "capture2")]
-#[derive(Serialize)]
-pub struct PlainFrame {
-    background_color: Option<ColorF>,
-    passes: Vec<RenderPass>,
-    node_data: Vec<ClipScrollNodeData>,
-    clip_chain_local_clip_rects: Vec<LayerRect>,
-    render_tasks: RenderTaskTree,
-}
-
 impl BlurTask {
     fn add_instances(
         &self,

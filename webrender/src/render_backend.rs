@@ -10,14 +10,14 @@ use api::{DocumentId, DocumentLayer, DocumentMsg};
 use api::{IdNamespace, PipelineId, RenderNotifier};
 use api::channel::{MsgReceiver, PayloadReceiver, PayloadReceiverHelperMethods};
 use api::channel::{PayloadSender, PayloadSenderHelperMethods};
+#[cfg(feature = "capture")]
+use capture::{CaptureBits, CaptureConfig, ExternalCaptureImage};
 #[cfg(feature = "debugger")]
 use debug_server;
 use frame::FrameContext;
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use gpu_cache::GpuCache;
 use internal_types::{DebugOutput, FastHashMap, FastHashSet, RenderedDocument, ResultMsg};
-#[cfg(feature = "capture")]
-use internal_types::ExternalCaptureImage;
 use profiler::{BackendProfileCounters, ResourceProfileCounters};
 use rayon::ThreadPool;
 use record::ApiRecordingReceiver;
@@ -26,11 +26,9 @@ use resource_cache::ResourceCache;
 use resource_cache::PlainResources;
 use scene::Scene;
 #[cfg(feature = "serialize")]
-use serde::{Serialize, Serializer};
+use serde::{Serialize, Deserialize};
 #[cfg(feature = "debugger")]
 use serde_json;
-#[cfg(feature = "capture")]
-use std::path::PathBuf;
 use std::sync::atomic::{ATOMIC_USIZE_INIT, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
@@ -588,14 +586,16 @@ impl RenderBackend {
                         }
                         #[cfg(feature = "capture")]
                         DebugCommand::SaveCapture(root) => {
-                            let deferred = self.save_capture(&root);
-                            ResultMsg::DebugOutput(DebugOutput::SaveCapture(root, deferred))
+                            let config = CaptureConfig::new(root, CaptureBits::SCENE);
+                            let deferred = self.save_capture(&config);
+                            ResultMsg::DebugOutput(DebugOutput::SaveCapture(config.root, deferred))
                         },
                         #[cfg(feature = "capture")]
                         DebugCommand::LoadCapture(root) => {
                             NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed);
                             frame_counter += 1;
-                            self.load_capture(&root, &mut profile_counters);
+                            let config = CaptureConfig::new(root, CaptureBits::SCENE);
+                            self.load_capture(&config, &mut profile_counters);
                             ResultMsg::DebugOutput(DebugOutput::LoadCapture)
                         },
                         DebugCommand::EnableDualSourceBlending(enable) => {
@@ -811,27 +811,17 @@ impl ToDebugString for SpecificDisplayItem {
     }
 }
 
-
-
 #[cfg(feature = "capture")]
 impl RenderBackend {
     // Note: the mutable `self` is only needed here for resolving blob images
-    fn save_capture(&mut self, root: &PathBuf) -> Vec<ExternalCaptureImage> {
-        use ron::ser::{to_string_pretty, PrettyConfig};
-        use std::fs;
-        use std::io::Write;
-
-        info!("capture: saving {}", root.to_string_lossy());
-        let ron_config = PrettyConfig::default();
-        let (resources, deferred) = self.resource_cache.save_capture(root);
+    fn save_capture(&mut self, config: &CaptureConfig) -> Vec<ExternalCaptureImage> {
+        info!("capture: saving {:?}", config.root);
+        let (resources, deferred) = self.resource_cache.save_capture(&config.root);
 
         for (&id, doc) in &self.documents {
             info!("\tdocument {:?}", id);
-            let ron = to_string_pretty(&doc.scene, ron_config.clone()).unwrap();
-            let file_name = format!("scene-{}-{}.ron", (id.0).0, id.1);
-            let ron_path = root.clone().join(file_name);
-            let mut file = fs::File::create(ron_path).unwrap();
-            write!(file, "{}\n", ron).unwrap();
+            let file_name = format!("scene-{}-{}", (id.0).0, id.1);
+            config.serialize(&doc.scene, file_name);
         }
 
         info!("\tbackend");
@@ -846,38 +836,24 @@ impl RenderBackend {
             resources,
         };
 
-        let ron = to_string_pretty(&serial, ron_config).unwrap();
-        let ron_path = root.clone().join("backend.ron");
-        let mut file = fs::File::create(ron_path).unwrap();
-        write!(file, "{}\n", ron).unwrap();
+        config.serialize(&serial, "backend");
 
         deferred
     }
 
     fn load_capture(
         &mut self,
-        root: &PathBuf,
+        config: &CaptureConfig,
         profile_counters: &mut BackendProfileCounters,
     ) {
-        use ron::de;
-        use std::fs::File;
-        use std::io::Read;
-
-        let mut string = String::new();
-        info!("capture: loading {}", root.to_string_lossy());
-
-        File::open(root.join("backend.ron"))
-            .unwrap()
-            .read_to_string(&mut string)
-            .unwrap();
-        let backend: PlainRenderBackend = de::from_str(&string)
-            .unwrap();
+        info!("capture: loading {:?}", config.root);
+        let backend: PlainRenderBackend = config.deserialize("backend");
 
         // Note: it would be great to have RenderBackend to be split
         // rather explicitly on what's used before and after scene building
         // so that, for example, we never miss anything in the code below:
 
-        self.resource_cache.load_capture(backend.resources, root);
+        self.resource_cache.load_capture(backend.resources, &config.root);
         self.gpu_cache = GpuCache::new();
         self.documents.clear();
         self.default_device_pixel_ratio = backend.default_device_pixel_ratio;
@@ -886,14 +862,8 @@ impl RenderBackend {
 
         for (id, view) in backend.documents {
             info!("\tdocument {:?}", id);
-            string.clear();
-            let file_name = format!("scene-{}-{}.ron", (id.0).0, id.1);
-            File::open(root.join(file_name))
-                .expect(&format!("Unable to open scene {:?}", id))
-                .read_to_string(&mut string)
-                .unwrap();
-            let scene: Scene = de::from_str(&string)
-                .unwrap();
+            let file_name = format!("scene-{}-{}", (id.0).0, id.1);
+            let scene: Scene = config.deserialize(file_name);
 
             let mut doc = Document {
                 scene,

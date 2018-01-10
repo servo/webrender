@@ -207,7 +207,7 @@ pub struct ClipScrollNodeData {
 }
 
 impl ClipScrollNodeData {
-    pub fn invalid() -> ClipScrollNodeData {
+    pub fn invalid() -> Self {
         ClipScrollNodeData {
             transform: LayerToWorldTransform::identity(),
             transform_kind: 0.0,
