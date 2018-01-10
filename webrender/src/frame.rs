@@ -463,6 +463,7 @@ impl<'a> FlattenContext<'a> {
                     info.orientation,
                     &info.color,
                     info.style,
+                    self.clip_scroll_tree,
                 );
             }
             SpecificDisplayItem::Gradient(ref info) => {

@@ -818,6 +818,7 @@ impl FrameBuilder {
         orientation: LineOrientation,
         line_color: &ColorF,
         style: LineStyle,
+        clip_scroll_tree: &ClipScrollTree,
     ) {
         let line = LinePrimitive {
             wavy_line_thickness,
@@ -843,12 +844,35 @@ impl FrameBuilder {
             line.color = shadow_color.premultiplied();
             let mut info = info.clone();
             info.rect = info.rect.translate(&shadow_offset);
+
+            // Since the shadow items share the same clip with original elements,
+            // an offset is needed for correct clipping; Therefore, instead of
+            // creating an additional clip node, we adjust the local clip rect
+            // in the LayerPrimitiveInfo to perform the right clipping.
+            let (_, shadow_clip) = self.shadow_prim_stack[idx].1[0];
+            let fast_clip_and_scroll;
+            if clip_and_scroll == shadow_clip {
+                fast_clip_and_scroll = clip_and_scroll;
+            } else {
+                let node = clip_scroll_tree.nodes.get(&clip_and_scroll.clip_node_id()).unwrap();
+                let mut clip_rect = node.local_viewport_rect.translate(&shadow_offset);
+                clip_rect =
+                  clip_rect.intersection(info.local_clip.clip_rect()).unwrap_or_else(LayerRect::zero);
+                info.local_clip = LocalClip::from(clip_rect);
+
+                let parent_clip = match node.parent {
+                    Some(parent_id) => parent_id,
+                    None => panic!("Parent node should exist."),
+                };
+                fast_clip_and_scroll = ClipAndScrollInfo::simple(parent_clip);
+            }
+
             let prim_index = self.create_primitive(
                 &info,
                 Vec::new(),
                 PrimitiveContainer::Line(line),
             );
-            self.shadow_prim_stack[idx].1.push((prim_index, clip_and_scroll));
+            self.shadow_prim_stack[idx].1.push((prim_index, fast_clip_and_scroll));
         }
 
         let prim_index = self.create_primitive(
