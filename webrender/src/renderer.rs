@@ -480,6 +480,7 @@ pub struct GraphicsApiInfo {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "capture2", derive(Serialize))]
 pub enum ImageBufferKind {
     Texture2D = 0,
     TextureRect = 1,
@@ -757,6 +758,7 @@ impl SourceTextureResolver {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
+#[cfg_attr(feature = "capture2", derive(Serialize))]
 #[allow(dead_code)] // SubpixelVariableTextColor is not used at the moment.
 pub enum BlendMode {
     None,

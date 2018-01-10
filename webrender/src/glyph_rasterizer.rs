@@ -219,6 +219,7 @@ impl FontInstance {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "capture2", derive(Serialize))]
 #[allow(dead_code)]
 pub enum GlyphFormat {
     Alpha,

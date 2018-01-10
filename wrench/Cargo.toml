@@ -25,7 +25,7 @@ time = "0.1"
 crossbeam = "0.2"
 osmesa-sys = { version = "0.1.2", optional = true }
 osmesa-src = { git = "https://github.com/servo/osmesa-src", optional = true }
-webrender = {path = "../webrender", features=["capture","debugger","profiler"]}
+webrender = {path = "../webrender", features=["capture2","debugger","profiler"]}
 webrender_api = {path = "../webrender_api", features=["debug-serialization"]}
 serde = {version = "1.0", features = ["derive"] }
 

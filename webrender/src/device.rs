@@ -85,6 +85,7 @@ impl TextureTarget {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "capture2", derive(Serialize))]
 pub enum TextureFilter {
     Nearest,
     Linear,
@@ -423,7 +424,9 @@ impl ExternalTexture {
     }
 }
 
+#[cfg_attr(feature = "capture2", derive(Serialize))]
 pub struct Texture {
+    #[serde(skip)]
     id: gl::GLuint,
     target: gl::GLuint,
     layer_count: i32,
@@ -432,7 +435,9 @@ pub struct Texture {
     height: u32,
     filter: TextureFilter,
     render_target: Option<RenderTargetInfo>,
+    #[serde(skip)]
     fbo_ids: Vec<FBOId>,
+    #[serde(skip)]
     depth_rb: Option<RBOId>,
 }
 
