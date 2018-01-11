@@ -379,6 +379,14 @@ impl TextureCache {
         &mut texture_array.regions[region_index as usize]
     }
 
+    // Check if a given texture handle has a valid allocation
+    // in the texture cache.
+    pub fn is_allocated(&self, handle: &TextureCacheHandle) -> bool {
+        handle.entry.as_ref().map_or(false, |handle| {
+            self.entries.get_opt(handle).is_some()
+        })
+    }
+
     // Retrieve the details of an item in the cache. This is used
     // during batch creation to provide the resource rect address
     // to the shaders and texture ID to the batching logic.
@@ -406,28 +414,28 @@ impl TextureCache {
         &self,
         handle: &TextureCacheHandle,
     ) -> (SourceTexture, i32, DeviceUintRect) {
-        match handle.entry {
-            Some(ref handle) => {
-                let entry = self.entries
-                    .get_opt(handle)
-                    .expect("BUG: was dropped from cache or not updated!");
-                debug_assert_eq!(entry.last_access, self.frame_id);
-                let (layer_index, origin) = match entry.kind {
-                    EntryKind::Standalone { .. } => {
-                        (0, DeviceUintPoint::zero())
-                    }
-                    EntryKind::Cache {
-                        layer_index,
-                        origin,
-                        ..
-                    } => (layer_index, origin),
-                };
-                (SourceTexture::TextureCache(entry.texture_id),
-                 layer_index as i32,
-                 DeviceUintRect::new(origin, entry.size))
+        let handle = handle
+            .entry
+            .as_ref()
+            .expect("BUG: handle not requested earlier in frame");
+
+        let entry = self.entries
+            .get_opt(handle)
+            .expect("BUG: was dropped from cache or not updated!");
+        debug_assert_eq!(entry.last_access, self.frame_id);
+        let (layer_index, origin) = match entry.kind {
+            EntryKind::Standalone { .. } => {
+                (0, DeviceUintPoint::zero())
             }
-            None => panic!("BUG: handle not requested earlier in frame"),
-        }
+            EntryKind::Cache {
+                layer_index,
+                origin,
+                ..
+            } => (layer_index, origin),
+        };
+        (SourceTexture::TextureCache(entry.texture_id),
+         layer_index as i32,
+         DeviceUintRect::new(origin, entry.size))
     }
 
     // Expire old standalone textures.

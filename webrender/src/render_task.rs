@@ -8,7 +8,6 @@ use box_shadow::BoxShadowCacheKey;
 use clip::{ClipSourcesWeakHandle};
 use clip_scroll_tree::CoordinateSystemId;
 use device::TextureFilter;
-use frame::FrameId;
 use gpu_cache::GpuCache;
 use gpu_types::{ClipScrollNodeIndex, PictureType};
 use internal_types::{FastHashMap, RenderPassIndex, SourceTexture};
@@ -24,7 +23,6 @@ use tiling::{RenderPass, RenderTargetIndex};
 use tiling::{RenderTargetKind};
 
 const FLOATS_PER_RENDER_TASK_INFO: usize = 12;
-const FRAMES_BEFORE_EVICTION: u32 = 60;
 pub const MAX_BLUR_STD_DEVIATION: f32 = 4.0;
 pub const MIN_DOWNSCALING_RT_SIZE: i32 = 128;
 
@@ -654,19 +652,18 @@ pub struct RenderTaskCacheKey {
 
 struct RenderTaskCacheEntry {
     handle: TextureCacheHandle,
-    last_access: FrameId,
 }
 
+// A cache of render tasks that are stored in the texture
+// cache for usage across frames.
 pub struct RenderTaskCache {
     entries: FastHashMap<RenderTaskCacheKey, RenderTaskCacheEntry>,
-    frame_id: FrameId,
 }
 
 impl RenderTaskCache {
     pub fn new() -> RenderTaskCache {
         RenderTaskCache {
             entries: FastHashMap::default(),
-            frame_id: FrameId(0),
         }
     }
 
@@ -674,11 +671,12 @@ impl RenderTaskCache {
         self.entries.clear();
     }
 
-    pub fn begin_frame(&mut self, frame_id: FrameId) {
-        self.frame_id = frame_id;
-
-        // Drop any items from the cache that haven't been
-        // used for a while.
+    pub fn begin_frame(
+        &mut self,
+        texture_cache: &mut TextureCache,
+    ) {
+        // Drop any items from the cache that have been
+        // evicted from the texture cache.
         //
         // This isn't actually necessary for the texture
         // cache to be able to evict old render tasks.
@@ -691,7 +689,7 @@ impl RenderTaskCache {
         // from here so that this hash map doesn't
         // grow indefinitely!
         self.entries.retain(|_, value| {
-            value.last_access.0 + FRAMES_BEFORE_EVICTION > frame_id.0
+            texture_cache.is_allocated(&value.handle)
         });
     }
 
@@ -705,16 +703,11 @@ impl RenderTaskCache {
     ) -> CacheItem where F: FnMut(&mut RenderTaskTree) -> (RenderTaskId, [f32; 3]) {
         // Get the texture cache handle for this cache key,
         // or create one.
-        let frame_id = self.frame_id;
         let cache_entry = self.entries
                               .entry(key)
-                              .or_insert_with(|| {
-                                RenderTaskCacheEntry {
-                                    handle: TextureCacheHandle::new(),
-                                    last_access: frame_id,
-                                }
+                              .or_insert(RenderTaskCacheEntry {
+                                  handle: TextureCacheHandle::new(),
                               });
-        cache_entry.last_access = frame_id;
 
         // Check if this texture cache handle is valie.
         if texture_cache.request(&mut cache_entry.handle, gpu_cache) {

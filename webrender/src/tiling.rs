@@ -516,11 +516,7 @@ pub struct TextureCacheRenderTarget {
     pub horizontal_blurs: Vec<BlurInstance>,
 }
 
-impl RenderTarget for TextureCacheRenderTarget {
-    fn allocate(&mut self, _size: DeviceUintSize) -> Option<DeviceUintPoint> {
-        panic!("BUG: allocations are handled by texture cache");
-    }
-
+impl TextureCacheRenderTarget {
     fn new(
         _size: Option<DeviceUintSize>,
         _screen_size: DeviceIntSize,
@@ -530,22 +526,10 @@ impl RenderTarget for TextureCacheRenderTarget {
         }
     }
 
-    fn build(
-        &mut self,
-        _ctx: &RenderTargetContext,
-        _gpu_cache: &mut GpuCache,
-        _render_tasks: &mut RenderTaskTree,
-        _deferred_resolves: &mut Vec<DeferredResolve>,
-    ) {
-    }
-
     fn add_task(
         &mut self,
         task_id: RenderTaskId,
-        _ctx: &RenderTargetContext,
-        _: &GpuCache,
         render_tasks: &RenderTaskTree,
-        _: &ClipStore,
     ) {
         let task = &render_tasks[task_id];
 
@@ -567,14 +551,6 @@ impl RenderTarget for TextureCacheRenderTarget {
                 panic!("BUG: unexpected task kind for texture cache target");
             }
         }
-    }
-
-    fn used_rect(&self) -> DeviceIntRect {
-        panic!("BUG: used_rect not relevant for texture cache targets");
-    }
-
-    fn needs_depth(&self) -> bool {
-        panic!("BUG: needs_depth not relevant for texture cache targets");
     }
 }
 
@@ -695,7 +671,7 @@ impl RenderPass {
                                 .or_insert(
                                     TextureCacheRenderTarget::new(None, DeviceIntSize::zero())
                                 );
-                            texture.add_task(task_id, ctx, gpu_cache, render_tasks, clip_store);
+                            texture.add_task(task_id, render_tasks);
                         }
                         None => {
                             match target_kind {
@@ -708,9 +684,6 @@ impl RenderPass {
 
                 color.build(ctx, gpu_cache, render_tasks, deferred_resolves);
                 alpha.build(ctx, gpu_cache, render_tasks, deferred_resolves);
-                for (_, texture) in texture_cache {
-                    texture.build(ctx, gpu_cache, render_tasks, deferred_resolves);
-                }
             }
         }
     }

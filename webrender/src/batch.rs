@@ -469,9 +469,9 @@ impl AlphaBatcher {
             let pic = &ctx.prim_store.cpu_pictures[pic_metadata.cpu_prim_index.0];
             let batch = self.batch_list.get_suitable_batch(key, pic_metadata.screen_rect.as_ref().expect("bug"));
 
-            let render_task_id = match *pic.surface.as_ref().expect("BUG: no surface for splitting") {
-                PictureSurface::RenderTask(render_task_id) => render_task_id,
-                PictureSurface::TextureCache(..) => panic!("BUG: texture cache item in splitting"),
+            let render_task_id = match pic.surface {
+                Some(PictureSurface::RenderTask(render_task_id)) => render_task_id,
+                Some(PictureSurface::TextureCache(..)) | None => panic!("BUG: unexpected surface in splitting"),
             };
             let source_task_address = render_tasks.get_task_address(render_task_id);
             let gpu_address = gpu_handle.as_int(gpu_cache);

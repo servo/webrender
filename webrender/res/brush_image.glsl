@@ -51,18 +51,13 @@ void brush_vs(
     //           as texture cacheable items. Once we port the
     //           drop-shadows and text-shadows to be cacheable,
     //           most of this code can be merged together.
-#if defined WR_FEATURE_COLOR_TARGET
+#if defined WR_FEATURE_COLOR_TARGET || defined WR_FEATURE_COLOR_TARGET_ALPHA_MASK
     BlurTask blur_task = fetch_blur_task(user_data.x);
     vUv.z = blur_task.common_data.texture_layer_index;
     vec2 texture_size = vec2(textureSize(sColor0, 0).xy);
-    vec2 uv0 = blur_task.common_data.task_rect.p0;
-    vec2 src_size = blur_task.common_data.task_rect.size * blur_task.scale_factor;
-    vec2 uv1 = uv0 + blur_task.common_data.task_rect.size;
-#elif defined WR_FEATURE_COLOR_TARGET_ALPHA_MASK
-    BlurTask blur_task = fetch_blur_task(user_data.x);
-    vUv.z = blur_task.common_data.texture_layer_index;
-    vec2 texture_size = vec2(textureSize(sColor0, 0).xy);
+#if defined WR_FEATURE_COLOR_TARGET_ALPHA_MASK
     vColor = blur_task.color;
+#endif
     vec2 uv0 = blur_task.common_data.task_rect.p0;
     vec2 src_size = blur_task.common_data.task_rect.size * blur_task.scale_factor;
     vec2 uv1 = uv0 + blur_task.common_data.task_rect.size;
