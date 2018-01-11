@@ -284,7 +284,7 @@ impl TextureCache {
         handle: &mut TextureCacheHandle,
         descriptor: ImageDescriptor,
         filter: TextureFilter,
-        data: ImageData,
+        data: Option<ImageData>,
         user_data: [f32; 3],
         mut dirty_rect: Option<DeviceUintRect>,
         gpu_cache: &mut GpuCache,
@@ -337,25 +337,27 @@ impl TextureCache {
         // Create an update command, which the render thread processes
         // to upload the new image data into the correct location
         // in GPU memory.
-        let (layer_index, origin) = match entry.kind {
-            EntryKind::Standalone { .. } => (0, DeviceUintPoint::zero()),
-            EntryKind::Cache {
-                layer_index,
-                origin,
-                ..
-            } => (layer_index, origin),
-        };
+        if let Some(data) = data {
+            let (layer_index, origin) = match entry.kind {
+                EntryKind::Standalone { .. } => (0, DeviceUintPoint::zero()),
+                EntryKind::Cache {
+                    layer_index,
+                    origin,
+                    ..
+                } => (layer_index, origin),
+            };
 
-        let op = TextureUpdate::new_update(
-            data,
-            &descriptor,
-            origin,
-            entry.size,
-            entry.texture_id,
-            layer_index as i32,
-            dirty_rect,
-        );
-        self.pending_updates.push(op);
+            let op = TextureUpdate::new_update(
+                data,
+                &descriptor,
+                origin,
+                entry.size,
+                entry.texture_id,
+                layer_index as i32,
+                dirty_rect,
+            );
+            self.pending_updates.push(op);
+        }
     }
 
     // Get a specific region by index from a shared texture array.
@@ -393,6 +395,36 @@ impl TextureCache {
                     uv_rect_handle: entry.uv_rect_handle,
                     texture_id: SourceTexture::TextureCache(entry.texture_id),
                 }
+            }
+            None => panic!("BUG: handle not requested earlier in frame"),
+        }
+    }
+
+    // A more detailed version of get(). This allows access to the actual
+    // device rect of the cache allocation.
+    pub fn get_cache_location(
+        &self,
+        handle: &TextureCacheHandle,
+    ) -> (SourceTexture, i32, DeviceUintRect) {
+        match handle.entry {
+            Some(ref handle) => {
+                let entry = self.entries
+                    .get_opt(handle)
+                    .expect("BUG: was dropped from cache or not updated!");
+                debug_assert_eq!(entry.last_access, self.frame_id);
+                let (layer_index, origin) = match entry.kind {
+                    EntryKind::Standalone { .. } => {
+                        (0, DeviceUintPoint::zero())
+                    }
+                    EntryKind::Cache {
+                        layer_index,
+                        origin,
+                        ..
+                    } => (layer_index, origin),
+                };
+                (SourceTexture::TextureCache(entry.texture_id),
+                 layer_index as i32,
+                 DeviceUintRect::new(origin, entry.size))
             }
             None => panic!("BUG: handle not requested earlier in frame"),
         }
@@ -470,7 +502,7 @@ impl TextureCache {
         // want to evict everything we can, since that will result in
         // more items being uploaded than necessary.
         // Instead, we say we will keep evicting until both of these
-        // consitions are met:
+        // conditions are met:
         // - We have evicted some arbitrary number of items (512 currently).
         //   AND
         // - We have freed an item that will definitely allow us to

@@ -22,7 +22,7 @@ use glyph_rasterizer::FontInstance;
 use gpu_cache::GpuCache;
 use gpu_types::{ClipScrollNodeData, PictureType};
 use internal_types::{FastHashMap, FastHashSet, RenderPassIndex};
-use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive};
+use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
 use prim_store::{BrushKind, BrushPrimitive, TexelRect, YuvImagePrimitiveCpu};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, LinePrimitive, PrimitiveKind};
 use prim_store::{PrimitiveContainer, PrimitiveIndex, SpecificPrimitiveIndex};
@@ -33,8 +33,7 @@ use render_task::{ClearMode, RenderTask, RenderTaskId, RenderTaskTree};
 use resource_cache::ResourceCache;
 use scene::{ScenePipeline, SceneProperties};
 use std::{mem, usize, f32};
-use tiling::{CompositeOps, Frame};
-use tiling::{RenderPass, RenderTargetKind};
+use tiling::{CompositeOps, Frame, RenderPass, RenderTargetKind};
 use tiling::{RenderTargetContext, ScrollbarPrimitive};
 use util::{self, MaxRect, pack_as_float, RectHelpers, recycle_vec};
 
@@ -1620,12 +1619,12 @@ impl FrameBuilder {
             PremultipliedColorF::TRANSPARENT,
             ClearMode::Transparent,
             child_tasks,
-            None,
             PictureType::Image,
         );
 
-        pic.render_task_id = Some(render_tasks.add(root_render_task));
-        pic.render_task_id
+        let render_task_id = render_tasks.add(root_render_task);
+        pic.surface = Some(PictureSurface::RenderTask(render_task_id));
+        Some(render_task_id)
     }
 
     fn update_scroll_bars(&mut self, clip_scroll_tree: &ClipScrollTree, gpu_cache: &mut GpuCache) {

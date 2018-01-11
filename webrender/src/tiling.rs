@@ -14,16 +14,15 @@ use gpu_cache::{GpuCache, GpuCacheUpdateList};
 use gpu_types::{BlurDirection, BlurInstance, BrushInstance, ClipChainRectIndex};
 use gpu_types::{ClipScrollNodeData, ClipScrollNodeIndex};
 use gpu_types::{PrimitiveInstance};
-use internal_types::{FastHashMap, RenderPassIndex};
+use internal_types::{FastHashMap, RenderPassIndex, SourceTexture};
 use picture::{PictureKind};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveStore};
 use prim_store::{BrushMaskKind, BrushKind, DeferredResolve};
 use profiler::FrameProfileCounters;
-use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKey, RenderTaskKind};
+use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKind};
 use render_task::{BlurTask, ClearMode, RenderTaskLocation, RenderTaskTree};
 use resource_cache::{ResourceCache};
 use std::{cmp, usize, f32, i32};
-use std::collections::hash_map::Entry;
 use texture_allocator::GuillotineAllocator;
 
 const MIN_TARGET_SIZE: u32 = 2048;
@@ -37,12 +36,6 @@ pub struct ScrollbarPrimitive {
 
 #[derive(Debug, Copy, Clone)]
 pub struct RenderTargetIndex(pub usize);
-
-#[derive(Debug)]
-struct DynamicTaskInfo {
-    task_id: RenderTaskId,
-    rect: DeviceIntRect,
-}
 
 pub struct RenderTargetContext<'a> {
     pub device_pixel_scale: DevicePixelScale,
@@ -282,9 +275,6 @@ impl RenderTarget for ColorRenderTarget {
         let task = &render_tasks[task_id];
 
         match task.kind {
-            RenderTaskKind::Alias(..) => {
-                panic!("BUG: add_task() called on invalidated task");
-            }
             RenderTaskKind::VerticalBlur(ref info) => {
                 info.add_instances(
                     &mut self.vertical_blurs,
@@ -409,9 +399,6 @@ impl RenderTarget for AlphaRenderTarget {
         }
 
         match task.kind {
-            RenderTaskKind::Alias(..) => {
-                panic!("BUG: add_task() called on invalidated task");
-            }
             RenderTaskKind::Readback(..) => {
                 panic!("Should not be added to alpha target!");
             }
@@ -525,12 +512,78 @@ impl RenderTarget for AlphaRenderTarget {
     }
 }
 
+pub struct TextureCacheRenderTarget {
+    pub horizontal_blurs: Vec<BlurInstance>,
+}
+
+impl RenderTarget for TextureCacheRenderTarget {
+    fn allocate(&mut self, _size: DeviceUintSize) -> Option<DeviceUintPoint> {
+        panic!("BUG: allocations are handled by texture cache");
+    }
+
+    fn new(
+        _size: Option<DeviceUintSize>,
+        _screen_size: DeviceIntSize,
+    ) -> Self {
+        TextureCacheRenderTarget {
+            horizontal_blurs: Vec::new(),
+        }
+    }
+
+    fn build(
+        &mut self,
+        _ctx: &RenderTargetContext,
+        _gpu_cache: &mut GpuCache,
+        _render_tasks: &mut RenderTaskTree,
+        _deferred_resolves: &mut Vec<DeferredResolve>,
+    ) {
+    }
+
+    fn add_task(
+        &mut self,
+        task_id: RenderTaskId,
+        _ctx: &RenderTargetContext,
+        _: &GpuCache,
+        render_tasks: &RenderTaskTree,
+        _: &ClipStore,
+    ) {
+        let task = &render_tasks[task_id];
+
+        match task.kind {
+            RenderTaskKind::HorizontalBlur(ref info) => {
+                info.add_instances(
+                    &mut self.horizontal_blurs,
+                    task_id,
+                    task.children[0],
+                    BlurDirection::Horizontal,
+                    render_tasks,
+                );
+            }
+            RenderTaskKind::VerticalBlur(..) |
+            RenderTaskKind::Picture(..) |
+            RenderTaskKind::CacheMask(..) |
+            RenderTaskKind::Readback(..) |
+            RenderTaskKind::Scaling(..) => {
+                panic!("BUG: unexpected task kind for texture cache target");
+            }
+        }
+    }
+
+    fn used_rect(&self) -> DeviceIntRect {
+        panic!("BUG: used_rect not relevant for texture cache targets");
+    }
+
+    fn needs_depth(&self) -> bool {
+        panic!("BUG: needs_depth not relevant for texture cache targets");
+    }
+}
 
 pub enum RenderPassKind {
     MainFramebuffer(ColorRenderTarget),
     OffScreen {
         alpha: RenderTargetList<AlphaRenderTarget>,
         color: RenderTargetList<ColorRenderTarget>,
+        texture_cache: FastHashMap<(SourceTexture, i32), TextureCacheRenderTarget>,
     },
 }
 
@@ -542,7 +595,6 @@ pub enum RenderPassKind {
 pub struct RenderPass {
     pub kind: RenderPassKind,
     tasks: Vec<RenderTaskId>,
-    dynamic_tasks: FastHashMap<RenderTaskKey, DynamicTaskInfo>,
 }
 
 impl RenderPass {
@@ -551,7 +603,6 @@ impl RenderPass {
         RenderPass {
             kind: RenderPassKind::MainFramebuffer(target),
             tasks: vec![],
-            dynamic_tasks: FastHashMap::default(),
         }
     }
 
@@ -560,9 +611,9 @@ impl RenderPass {
             kind: RenderPassKind::OffScreen {
                 color: RenderTargetList::new(screen_size, ImageFormat::BGRA8),
                 alpha: RenderTargetList::new(screen_size, ImageFormat::A8),
+                texture_cache: FastHashMap::default(),
             },
             tasks: vec![],
-            dynamic_tasks: FastHashMap::default(),
         }
     }
 
@@ -572,7 +623,7 @@ impl RenderPass {
         size: DeviceIntSize,
         target_kind: RenderTargetKind,
     ) {
-        if let RenderPassKind::OffScreen { ref mut color, ref mut alpha } = self.kind {
+        if let RenderPassKind::OffScreen { ref mut color, ref mut alpha, .. } = self.kind {
             let max_size = match target_kind {
                 RenderTargetKind::Color => &mut color.max_size,
                 RenderTargetKind::Alpha => &mut alpha.max_size,
@@ -604,10 +655,10 @@ impl RenderPass {
                 }
                 target.build(ctx, gpu_cache, render_tasks, deferred_resolves);
             }
-            RenderPassKind::OffScreen { ref mut color, ref mut alpha } => {
+            RenderPassKind::OffScreen { ref mut color, ref mut alpha, ref mut texture_cache } => {
                 // Step through each task, adding to batches as appropriate.
                 for &task_id in &self.tasks {
-                    let target_kind = {
+                    let (target_kind, texture_target) = {
                         let task = &mut render_tasks[task_id];
                         task.pass_index = Some(pass_index);
                         let target_kind = task.target_kind();
@@ -615,22 +666,16 @@ impl RenderPass {
                         // Find a target to assign this task to, or create a new
                         // one if required.
                         match task.location {
-                            RenderTaskLocation::Fixed => {}
+                            RenderTaskLocation::TextureCache(texture_id, layer, _) => {
+                                // TODO(gw): When we support caching color items, we will
+                                //           need to calculate that here to get the
+                                //           correct target kind.
+                                (RenderTargetKind::Alpha, Some((texture_id, layer)))
+                            }
+                            RenderTaskLocation::Fixed => {
+                                (RenderTargetKind::Color, None)
+                            }
                             RenderTaskLocation::Dynamic(ref mut origin, size) => {
-                                let dynamic_entry = match task.cache_key {
-                                    // See if this task is a duplicate.
-                                    // If so, just skip adding it!
-                                    Some(cache_key) => match self.dynamic_tasks.entry(cache_key) {
-                                        Entry::Occupied(entry) => {
-                                            debug_assert_eq!(entry.get().rect.size, size);
-                                            task.kind = RenderTaskKind::Alias(entry.get().task_id);
-                                            continue;
-                                        },
-                                        Entry::Vacant(entry) => Some(entry),
-                                    },
-                                    None => None,
-                                };
-
                                 let alloc_size = DeviceUintSize::new(size.width as u32, size.height as u32);
                                 let (alloc_origin, target_index) =  match target_kind {
                                     RenderTargetKind::Color => color.allocate(alloc_size),
@@ -638,28 +683,34 @@ impl RenderPass {
                                 };
                                 *origin = Some((alloc_origin.to_i32(), target_index));
 
-                                // If this task is cacheable / sharable, store it in the task hash
-                                // for this pass.
-                                if let Some(entry) = dynamic_entry {
-                                    entry.insert(DynamicTaskInfo {
-                                        task_id,
-                                        rect: DeviceIntRect::new(alloc_origin.to_i32(), size),
-                                    });
-                                }
+                                (target_kind, None)
                             }
                         }
-
-                        target_kind
                     };
 
-                    match target_kind {
-                        RenderTargetKind::Color => color.add_task(task_id, ctx, gpu_cache, render_tasks, clip_store),
-                        RenderTargetKind::Alpha => alpha.add_task(task_id, ctx, gpu_cache, render_tasks, clip_store),
+                    match texture_target {
+                        Some(texture_target) => {
+                            let texture = texture_cache
+                                .entry(texture_target)
+                                .or_insert(
+                                    TextureCacheRenderTarget::new(None, DeviceIntSize::zero())
+                                );
+                            texture.add_task(task_id, ctx, gpu_cache, render_tasks, clip_store);
+                        }
+                        None => {
+                            match target_kind {
+                                RenderTargetKind::Color => color.add_task(task_id, ctx, gpu_cache, render_tasks, clip_store),
+                                RenderTargetKind::Alpha => alpha.add_task(task_id, ctx, gpu_cache, render_tasks, clip_store),
+                            }
+                        }
                     }
                 }
 
                 color.build(ctx, gpu_cache, render_tasks, deferred_resolves);
                 alpha.build(ctx, gpu_cache, render_tasks, deferred_resolves);
+                for (_, texture) in texture_cache {
+                    texture.build(ctx, gpu_cache, render_tasks, deferred_resolves);
+                }
             }
         }
     }
@@ -726,18 +777,8 @@ impl BlurTask {
             task_address: render_tasks.get_task_address(task_id),
             src_task_address: render_tasks.get_task_address(source_task_id),
             blur_direction,
-            region: LayerRect::zero(),
         };
 
-        if self.regions.is_empty() {
-            instances.push(instance);
-        } else {
-            for region in &self.regions {
-                instances.push(BlurInstance {
-                    region: *region,
-                    ..instance
-                });
-            }
-        }
+        instances.push(instance);
     }
 }

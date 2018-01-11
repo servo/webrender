@@ -66,7 +66,7 @@ use texture_cache::TextureCache;
 use thread_profiler::{register_thread_with_profiler, write_profile};
 use tiling::{AlphaRenderTarget, ColorRenderTarget};
 use tiling::{RenderPass, RenderPassKind, RenderTargetList};
-use tiling::{Frame, RenderTarget, ScalingInfo};
+use tiling::{Frame, RenderTarget, ScalingInfo, TextureCacheRenderTarget};
 use time::precise_time_ns;
 use util::TransformedRectKind;
 
@@ -412,11 +412,6 @@ const DESC_BLUR: VertexDescriptor = VertexDescriptor {
             name: "aBlurDirection",
             count: 1,
             kind: VertexAttributeKind::I32,
-        },
-        VertexAttribute {
-            name: "aBlurRegion",
-            count: 4,
-            kind: VertexAttributeKind::F32
         },
     ],
 };
@@ -2586,6 +2581,19 @@ impl Renderer {
     }
 
     #[cfg(feature = "debugger")]
+    fn debug_texture_cache_target(target: &TextureCacheRenderTarget) -> debug_server::Target {
+        let mut debug_target = debug_server::Target::new("Texture Cache");
+
+        debug_target.add(
+            debug_server::BatchKind::Cache,
+            "Horizontal Blur",
+            target.horizontal_blurs.len(),
+        );
+
+        debug_target
+    }
+
+    #[cfg(feature = "debugger")]
     fn get_passes_for_debugger(&self) -> String {
         let mut debug_passes = debug_server::PassList::new();
 
@@ -2596,9 +2604,10 @@ impl Renderer {
                     RenderPassKind::MainFramebuffer(ref target) => {
                         debug_targets.push(Self::debug_color_target(target));
                     }
-                    RenderPassKind::OffScreen { ref alpha, ref color } => {
+                    RenderPassKind::OffScreen { ref alpha, ref color, ref texture_cache } => {
                         debug_targets.extend(alpha.targets.iter().map(Self::debug_alpha_target));
                         debug_targets.extend(color.targets.iter().map(Self::debug_color_target));
+                        debug_targets.extend(texture_cache.iter().map(|(_, target)| Self::debug_texture_cache_target(target)))
                     }
                 }
 
@@ -3963,6 +3972,51 @@ impl Renderer {
         self.gpu_profile.finish_sampler(alpha_sampler);
     }
 
+    fn draw_texture_cache_target(
+        &mut self,
+        texture: &SourceTexture,
+        layer: i32,
+        target: &TextureCacheRenderTarget,
+        stats: &mut RendererStats,
+    ) {
+        let projection = {
+            let texture = self.texture_resolver
+                .resolve(texture)
+                .expect("BUG: invalid target texture");
+            let target_size = texture.get_dimensions();
+
+            self.device
+                .bind_draw_target(Some((texture, layer)), Some(target_size));
+            self.device.disable_depth();
+            self.device.disable_depth_write();
+            self.device.set_blend(false);
+
+            Transform3D::ortho(
+                0.0,
+                target_size.width as f32,
+                0.0,
+                target_size.height as f32,
+                ORTHO_NEAR_PLANE,
+                ORTHO_FAR_PLANE,
+            )
+        };
+
+        // Draw any blurs for this target.
+        if !target.horizontal_blurs.is_empty() {
+            let _timer = self.gpu_profile.start_timer(GPU_TAG_BLUR);
+
+            self.cs_blur_a8
+                .bind(&mut self.device, &projection, 0, &mut self.renderer_errors);
+
+            self.draw_instanced_batch(
+                &target.horizontal_blurs,
+                VertexArrayKind::Blur,
+                &BatchTextures::no_texture(),
+                stats,
+            );
+        }
+    }
+
     fn update_deferred_resolves(&mut self, frame: &Frame) -> Option<GpuCacheUpdateList> {
         // The first thing we do is run through any pending deferred
         // resolves, and use a callback to get the UV rect for this
@@ -4109,7 +4163,7 @@ impl Renderer {
         // Init textures and render targets to match this scene.
         // First pass grabs all the perfectly matching targets from the pool.
         for pass in &mut frame.passes {
-            if let RenderPassKind::OffScreen { ref mut alpha, ref mut color } = pass.kind {
+            if let RenderPassKind::OffScreen { ref mut alpha, ref mut color, .. } = pass.kind {
                 self.prepare_target_list(alpha, true);
                 self.prepare_target_list(color, true);
             }
@@ -4123,7 +4177,7 @@ impl Renderer {
         // Some of the textures are already assigned by `prepare_frame`.
         // Now re-allocate the space for the rest of the target textures.
         for pass in &mut frame.passes {
-            if let RenderPassKind::OffScreen { ref mut alpha, ref mut color } = pass.kind {
+            if let RenderPassKind::OffScreen { ref mut alpha, ref mut color, .. } = pass.kind {
                 self.prepare_target_list(alpha, false);
                 self.prepare_target_list(color, false);
             }
@@ -4216,9 +4270,18 @@ impl Renderer {
 
                     (None, None)
                 }
-                RenderPassKind::OffScreen { ref mut alpha, ref mut color } => {
+                RenderPassKind::OffScreen { ref mut alpha, ref mut color, ref mut texture_cache } => {
                     assert!(alpha.targets.is_empty() || alpha.texture.is_some());
                     assert!(color.targets.is_empty() || color.texture.is_some());
+
+                    for (&(texture_id, target_index), target) in texture_cache {
+                        self.draw_texture_cache_target(
+                            &texture_id,
+                            target_index,
+                            target,
+                            stats,
+                        );
+                    }
 
                     for (target_index, target) in alpha.targets.iter().enumerate() {
                         stats.alpha_target_count += 1;

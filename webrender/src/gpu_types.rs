@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{LayerRect, LayerToWorldTransform};
+use api::{LayerToWorldTransform};
 use gpu_cache::GpuCacheAddress;
 use render_task::RenderTaskAddress;
 
@@ -21,7 +21,6 @@ pub struct BlurInstance {
     pub task_address: RenderTaskAddress,
     pub src_task_address: RenderTaskAddress,
     pub blur_direction: BlurDirection,
-    pub region: LayerRect,
 }
 
 /// A clipping primitive drawn into the clipping mask.
