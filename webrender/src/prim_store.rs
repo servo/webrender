@@ -1178,6 +1178,8 @@ impl PrimitiveStore {
                         &metadata.local_rect,
                         child_tasks,
                         parent_tasks,
+                        resource_cache,
+                        gpu_cache,
                     );
             }
             PrimitiveKind::TextRun => {
@@ -1513,7 +1515,6 @@ impl PrimitiveStore {
 
                 combined_outer_rect.intersection(&segment_screen_rect).map(|bounds| {
                     let clip_task = RenderTask::new_mask(
-                        None,
                         bounds,
                         clips.clone(),
                         prim_context.scroll_node.coordinate_system_id,
@@ -1651,7 +1652,6 @@ impl PrimitiveStore {
         }
 
         let clip_task = RenderTask::new_mask(
-            None,
             combined_outer_rect,
             clips,
             prim_coordinate_system_id,
