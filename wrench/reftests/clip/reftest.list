@@ -2,3 +2,4 @@
 == clip-ellipse.yaml clip-ellipse.png
 == clip-45-degree-rotation.yaml clip-45-degree-rotation-ref.png
 == clip-3d-transform.yaml clip-3d-transform-ref.yaml
+== clip-corner-overlap.yaml clip-corner-overlap-ref.yaml
