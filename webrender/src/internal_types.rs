@@ -104,6 +104,7 @@ pub struct TextureUpdate {
     pub op: TextureUpdateOp,
 }
 
+#[derive(Default)]
 pub struct TextureUpdateList {
     pub updates: Vec<TextureUpdate>,
 }

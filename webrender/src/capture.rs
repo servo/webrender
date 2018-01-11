@@ -6,13 +6,10 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use api::{ColorF, ExternalImageData, ImageDescriptor, LayerRect};
+use api::{ExternalImageData, ImageDescriptor};
 use ron::{de, ser};
 use serde::{Deserialize, Serialize};
 
-use gpu_types::{ClipScrollNodeData};
-use render_task::RenderTaskTree;
-use tiling::{RenderPass};
 
 bitflags!{
     pub struct CaptureBits: u8 {
@@ -74,13 +71,4 @@ pub struct ExternalCaptureImage {
     pub short_path: String,
     pub descriptor: ImageDescriptor,
     pub external: ExternalImageData,
-}
-
-#[derive(Serialize)]
-pub struct PlainFrame {
-    background_color: Option<ColorF>,
-    passes: Vec<RenderPass>,
-    node_data: Vec<ClipScrollNodeData>,
-    clip_chain_local_clip_rects: Vec<LayerRect>,
-    render_tasks: RenderTaskTree,
 }

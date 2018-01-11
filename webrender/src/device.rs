@@ -26,6 +26,7 @@ use std::thread;
 const WORK_AROUND_TEX_IMAGE: bool = cfg!(windows);
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, Eq, PartialOrd)]
+#[cfg_attr(feature = "capture2", derive(Serialize))]
 pub struct FrameId(usize);
 
 impl FrameId {
@@ -426,7 +427,7 @@ impl ExternalTexture {
 
 #[cfg_attr(feature = "capture2", derive(Serialize))]
 pub struct Texture {
-    #[serde(skip)]
+    #[cfg_attr(feature = "capture2", serde(skip))]
     id: gl::GLuint,
     target: gl::GLuint,
     layer_count: i32,
@@ -435,9 +436,9 @@ pub struct Texture {
     height: u32,
     filter: TextureFilter,
     render_target: Option<RenderTargetInfo>,
-    #[serde(skip)]
+    #[cfg_attr(feature = "capture2", serde(skip))]
     fbo_ids: Vec<FBOId>,
-    #[serde(skip)]
+    #[cfg_attr(feature = "capture2", serde(skip))]
     depth_rb: Option<RBOId>,
 }
 
