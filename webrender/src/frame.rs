@@ -24,6 +24,7 @@ use scene::{Scene, StackingContextHelpers, ScenePipeline, SceneProperties};
 use tiling::CompositeOps;
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Eq, Ord)]
+#[cfg_attr(feature = "capture2", derive(Serialize))]
 pub struct FrameId(pub u32);
 
 static DEFAULT_SCROLLBAR_COLOR: ColorF = ColorF {

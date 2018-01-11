@@ -597,6 +597,7 @@ impl FontContext {
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug, Ord, PartialOrd)]
+#[cfg_attr(feature = "capture2", derive(Serialize))]
 pub struct GlyphRequest {
     pub key: GlyphKey,
     pub font: FontInstance,

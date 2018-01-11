@@ -14,6 +14,7 @@ use util::recycle_vec;
 struct Epoch(u32);
 
 #[derive(Debug)]
+#[cfg_attr(feature = "capture2", derive(Serialize))]
 pub struct FreeListHandle<T> {
     index: u32,
     epoch: Epoch,
@@ -31,7 +32,7 @@ impl<T> FreeListHandle<T> {
 }
 
 impl<T> Clone for WeakFreeListHandle<T> {
-    fn clone(&self) -> WeakFreeListHandle<T> {
+    fn clone(&self) -> Self {
         WeakFreeListHandle {
             index: self.index,
             epoch: self.epoch,
@@ -48,12 +49,14 @@ pub struct WeakFreeListHandle<T> {
     _marker: PhantomData<T>,
 }
 
+#[cfg_attr(feature = "capture2", derive(Serialize))]
 struct Slot<T> {
     next: Option<u32>,
     epoch: Epoch,
     value: Option<T>,
 }
 
+#[cfg_attr(feature = "capture2", derive(Serialize))]
 pub struct FreeList<T> {
     slots: Vec<Slot<T>>,
     free_list_head: Option<u32>,
@@ -65,7 +68,7 @@ pub enum UpsertResult<T> {
 }
 
 impl<T> FreeList<T> {
-    pub fn new() -> FreeList<T> {
+    pub fn new() -> Self {
         FreeList {
             slots: Vec::new(),
             free_list_head: None,

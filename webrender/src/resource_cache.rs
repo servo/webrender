@@ -118,19 +118,22 @@ impl ImageTemplates {
     }
 }
 
+#[cfg_attr(feature = "capture2", derive(Serialize))]
 struct CachedImageInfo {
     texture_cache_handle: TextureCacheHandle,
     epoch: Epoch,
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "capture2", derive(Serialize))]
 pub enum ResourceClassCacheError {
     OverLimitSize,
 }
 
 pub type ResourceCacheResult<V> = Result<V, ResourceClassCacheError>;
 
-pub struct ResourceClassCache<K, V> {
+#[cfg_attr(feature = "capture2", derive(Serialize))]
+pub struct ResourceClassCache<K: Hash + Eq, V> {
     resources: FastHashMap<K, ResourceCacheResult<V>>,
 }
 
@@ -183,6 +186,7 @@ where
 
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "capture2", derive(Serialize))]
 struct ImageRequest {
     key: ImageKey,
     rendering: ImageRendering,
@@ -218,6 +222,8 @@ impl BlobImageResources for Resources {
     }
 }
 
+pub type GlyphDimensionsCache = FastHashMap<GlyphRequest, Option<GlyphDimensions>>;
+
 pub struct ResourceCache {
     cached_glyphs: GlyphCache,
     cached_images: ImageCache,
@@ -230,7 +236,7 @@ pub struct ResourceCache {
     texture_cache: TextureCache,
 
     // TODO(gw): We should expire (parts of) this cache semi-regularly!
-    cached_glyph_dimensions: FastHashMap<GlyphRequest, Option<GlyphDimensions>>,
+    cached_glyph_dimensions: GlyphDimensionsCache,
     glyph_rasterizer: GlyphRasterizer,
 
     // The set of images that aren't present or valid in the texture cache,
@@ -994,7 +1000,38 @@ pub struct PlainResources {
 }
 
 #[cfg(feature = "capture")]
+#[derive(Serialize)]
+pub struct PlainCacheRef<'a> {
+    cached_glyphs: &'a GlyphCache,
+    cached_images: &'a ImageCache,
+    current_frame_id: FrameId,
+    texture_cache: &'a TextureCache,
+    cached_glyph_dimensions: &'a GlyphDimensionsCache,
+}
+
+#[cfg(feature = "capture")]
+#[derive(Deserialize)]
+pub struct PlainCacheOwn {
+    //TODO
+    //cached_glyphs: GlyphCache,
+    //cached_images: ImageCache,
+    //current_frame_id: FrameId,
+    //texture_cache: TextureCache,
+    //cached_glyph_dimensions: GlyphDimensionsCache,
+}
+
+#[cfg(feature = "capture")]
 impl ResourceCache {
+    pub fn to_cache(&self) -> PlainCacheRef {
+        PlainCacheRef {
+            cached_glyphs: &self.cached_glyphs,
+            cached_images: &self.cached_images,
+            current_frame_id: self.current_frame_id,
+            texture_cache: &self.texture_cache,
+            cached_glyph_dimensions: &self.cached_glyph_dimensions,
+        }
+    }
+
     pub fn save_capture(
         &mut self, root: &PathBuf
     ) -> (PlainResources, Vec<ExternalCaptureImage>) {

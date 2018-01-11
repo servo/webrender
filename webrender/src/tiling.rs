@@ -741,6 +741,7 @@ impl CompositeOps {
 
 /// A rendering-oriented representation of frame::Frame built by the render backend
 /// and presented to the renderer.
+#[cfg_attr(feature = "capture2", derive(Serialize))]
 pub struct Frame {
     pub window_size: DeviceUintSize,
     pub inner_rect: DeviceUintRect,
@@ -748,6 +749,7 @@ pub struct Frame {
     pub layer: DocumentLayer,
     pub device_pixel_ratio: f32,
     pub passes: Vec<RenderPass>,
+    #[cfg_attr(feature = "capture2", serde(default = "FrameProfileCounters::new", skip))]
     pub profile_counters: FrameProfileCounters,
 
     pub node_data: Vec<ClipScrollNodeData>,
@@ -756,12 +758,14 @@ pub struct Frame {
 
     // List of updates that need to be pushed to the
     // gpu resource cache.
+    #[cfg_attr(feature = "capture2", serde(skip))]
     pub gpu_cache_updates: Option<GpuCacheUpdateList>,
 
     // List of textures that we don't know about yet
     // from the backend thread. The render thread
     // will use a callback to resolve these and
     // patch the data structures.
+    #[cfg_attr(feature = "capture2", serde(skip))]
     pub deferred_resolves: Vec<DeferredResolve>,
 }
 

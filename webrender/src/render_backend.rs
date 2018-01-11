@@ -23,7 +23,7 @@ use rayon::ThreadPool;
 use record::ApiRecordingReceiver;
 use resource_cache::ResourceCache;
 #[cfg(feature = "capture")]
-use resource_cache::PlainResources;
+use resource_cache::{PlainCacheOwn, PlainResources};
 use scene::Scene;
 #[cfg(feature = "serialize")]
 use serde::{Serialize, Deserialize};
@@ -177,12 +177,13 @@ static NEXT_NAMESPACE_ID: AtomicUsize = ATOMIC_USIZE_INIT;
 
 #[cfg(feature = "capture")]
 #[derive(Serialize, Deserialize)]
-struct PlainRenderBackend {
+struct PlainRenderBackend<C> {
     default_device_pixel_ratio: f32,
     enable_render_on_scroll: bool,
     frame_config: FrameBuilderConfig,
     documents: FastHashMap<DocumentId, DocumentView>,
     resources: PlainResources,
+    cache: Option<C>,
 }
 
 /// The render backend is responsible for transforming high level display lists into
@@ -587,7 +588,7 @@ impl RenderBackend {
                         #[cfg(feature = "capture")]
                         DebugCommand::SaveCapture(root) => {
                             let config = CaptureConfig::new(root, CaptureBits::SCENE);
-                            let deferred = self.save_capture(&config);
+                            let deferred = self.save_capture(&config, &mut profile_counters);
                             ResultMsg::DebugOutput(DebugOutput::SaveCapture(config.root, deferred))
                         },
                         #[cfg(feature = "capture")]
@@ -814,14 +815,30 @@ impl ToDebugString for SpecificDisplayItem {
 #[cfg(feature = "capture")]
 impl RenderBackend {
     // Note: the mutable `self` is only needed here for resolving blob images
-    fn save_capture(&mut self, config: &CaptureConfig) -> Vec<ExternalCaptureImage> {
+    fn save_capture(
+        &mut self,
+        config: &CaptureConfig,
+        profile_counters: &mut BackendProfileCounters,
+    ) -> Vec<ExternalCaptureImage> {
         info!("capture: saving {:?}", config.root);
         let (resources, deferred) = self.resource_cache.save_capture(&config.root);
 
-        for (&id, doc) in &self.documents {
+        for (&id, doc) in &mut self.documents {
             info!("\tdocument {:?}", id);
-            let file_name = format!("scene-{}-{}", (id.0).0, id.1);
-            config.serialize(&doc.scene, file_name);
+            if config.bits.contains(CaptureBits::SCENE) {
+                let file_name = format!("scene-{}-{}", (id.0).0, id.1);
+                config.serialize(&doc.scene, file_name);
+            }
+            if config.bits.contains(CaptureBits::FRAME) {
+                let rendered_document = doc.render(
+                    &mut self.resource_cache,
+                    &mut self.gpu_cache,
+                    &mut profile_counters.resources,
+                );
+                //TODO: write down full `RenderedDocument`?
+                let file_name = format!("frame-{}-{}", (id.0).0, id.1);
+                config.serialize(&rendered_document.frame, file_name);
+            }
         }
 
         info!("\tbackend");
@@ -834,6 +851,11 @@ impl RenderBackend {
                 .map(|(id, doc)| (*id, doc.view.clone()))
                 .collect(),
             resources,
+            cache: if config.bits.contains(CaptureBits::FRAME) {
+                Some(self.resource_cache.to_cache())
+            } else {
+                None
+            },
         };
 
         config.serialize(&serial, "backend");
@@ -847,7 +869,7 @@ impl RenderBackend {
         profile_counters: &mut BackendProfileCounters,
     ) {
         info!("capture: loading {:?}", config.root);
-        let backend: PlainRenderBackend = config.deserialize("backend");
+        let backend: PlainRenderBackend<PlainCacheOwn> = config.deserialize("backend");
 
         // Note: it would be great to have RenderBackend to be split
         // rather explicitly on what's used before and after scene building
