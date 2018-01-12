@@ -177,13 +177,12 @@ static NEXT_NAMESPACE_ID: AtomicUsize = ATOMIC_USIZE_INIT;
 
 #[cfg(feature = "capture")]
 #[derive(Serialize, Deserialize)]
-struct PlainRenderBackend<C> {
+struct PlainRenderBackend {
     default_device_pixel_ratio: f32,
     enable_render_on_scroll: bool,
     frame_config: FrameBuilderConfig,
     documents: FastHashMap<DocumentId, DocumentView>,
     resources: PlainResources,
-    cache: Option<C>,
 }
 
 /// The render backend is responsible for transforming high level display lists into
@@ -587,7 +586,7 @@ impl RenderBackend {
                         }
                         #[cfg(feature = "capture")]
                         DebugCommand::SaveCapture(root) => {
-                            let config = CaptureConfig::new(root, CaptureBits::SCENE);
+                            let config = CaptureConfig::new(root, CaptureBits::FRAME);
                             let deferred = self.save_capture(&config, &mut profile_counters);
                             ResultMsg::DebugOutput(DebugOutput::SaveCapture(config.root, deferred))
                         },
@@ -595,7 +594,7 @@ impl RenderBackend {
                         DebugCommand::LoadCapture(root) => {
                             NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed);
                             frame_counter += 1;
-                            let config = CaptureConfig::new(root, CaptureBits::SCENE);
+                            let config = CaptureConfig::new(root, CaptureBits::FRAME);
                             self.load_capture(&config, &mut profile_counters);
                             ResultMsg::DebugOutput(DebugOutput::LoadCapture)
                         },
@@ -842,7 +841,7 @@ impl RenderBackend {
         }
 
         info!("\tbackend");
-        let serial = PlainRenderBackend {
+        let backend = PlainRenderBackend {
             default_device_pixel_ratio: self.default_device_pixel_ratio,
             enable_render_on_scroll: self.enable_render_on_scroll,
             frame_config: self.frame_config.clone(),
@@ -851,14 +850,15 @@ impl RenderBackend {
                 .map(|(id, doc)| (*id, doc.view.clone()))
                 .collect(),
             resources,
-            cache: if config.bits.contains(CaptureBits::FRAME) {
-                Some(self.resource_cache.to_cache())
-            } else {
-                None
-            },
         };
 
-        config.serialize(&serial, "backend");
+        config.serialize(&backend, "backend");
+
+        if config.bits.contains(CaptureBits::FRAME) {
+            info!("\tcache");
+            let caches = self.resource_cache.save_caches(&config.root);
+            config.serialize(&caches, "cache");
+        }
 
         deferred
     }
@@ -869,7 +869,7 @@ impl RenderBackend {
         profile_counters: &mut BackendProfileCounters,
     ) {
         info!("capture: loading {:?}", config.root);
-        let backend: PlainRenderBackend<PlainCacheOwn> = config.deserialize("backend");
+        let backend: PlainRenderBackend = config.deserialize("backend");
 
         // Note: it would be great to have RenderBackend to be split
         // rather explicitly on what's used before and after scene building

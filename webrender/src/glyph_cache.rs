@@ -10,24 +10,31 @@ use std::sync::Arc;
 use texture_cache::TextureCacheHandle;
 
 #[cfg_attr(feature = "capture2", derive(Serialize))]
-pub struct CachedGlyphInfo {
+pub struct GenericCachedGlyphInfo<D> {
     pub texture_cache_handle: TextureCacheHandle,
-    pub glyph_bytes: Arc<Vec<u8>>,
+    pub glyph_bytes: D,
     pub size: DeviceUintSize,
     pub offset: DevicePoint,
     pub scale: f32,
     pub format: GlyphFormat,
 }
 
+pub type CachedGlyphInfo = GenericCachedGlyphInfo<Arc<Vec<u8>>>;
 pub type GlyphKeyCache = ResourceClassCache<GlyphKey, Option<CachedGlyphInfo>>;
 
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg(feature = "capture2")]
+pub type PlainCachedGlyphInfo = GenericCachedGlyphInfo<String>;
+#[cfg(feature = "capture2")]
+pub type PlainGlyphKeyCache = ResourceClassCache<GlyphKey, Option<PlainCachedGlyphInfo>>;
+#[cfg(feature = "capture2")]
+pub type PlainGlyphCache<'a> = FastHashMap<&'a FontInstance, PlainGlyphKeyCache>;
+
 pub struct GlyphCache {
     pub glyph_key_caches: FastHashMap<FontInstance, GlyphKeyCache>,
 }
 
 impl GlyphCache {
-    pub fn new() -> GlyphCache {
+    pub fn new() -> Self {
         GlyphCache {
             glyph_key_caches: FastHashMap::default(),
         }
