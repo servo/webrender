@@ -117,7 +117,6 @@ fn get_glyph_metrics(
 
     if let Some(transform) = transform {
         bounds = bounds.apply_transform(transform);
-        advance = advance.apply_transform(transform);
     }
 
     // First round out to pixel boundaries
