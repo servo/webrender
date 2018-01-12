@@ -588,16 +588,16 @@ impl RenderBackend {
                         }
                         #[cfg(feature = "capture")]
                         DebugCommand::SaveCapture(root) => {
-                            let config = CaptureConfig::new(root, CaptureBits::FRAME);
+                            let config = CaptureConfig::new(root, CaptureBits::all());
                             let deferred = self.save_capture(&config, &mut profile_counters);
-                            ResultMsg::DebugOutput(DebugOutput::SaveCapture(config.root, deferred))
+                            ResultMsg::DebugOutput(DebugOutput::SaveCapture(config, deferred))
                         },
                         #[cfg(feature = "capture")]
                         DebugCommand::LoadCapture(root) => {
                             NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed);
                             frame_counter += 1;
                             self.load_capture(&root, &mut profile_counters);
-                            ResultMsg::DebugOutput(DebugOutput::LoadCapture)
+                            ResultMsg::DebugOutput(DebugOutput::LoadCapture { reset_textures: true })
                         },
                         DebugCommand::EnableDualSourceBlending(enable) => {
                             // Set in the config used for any future documents

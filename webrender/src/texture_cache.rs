@@ -224,7 +224,7 @@ impl TextureCache {
             array_rgba8_nearest: TextureArray::new(
                 ImageFormat::BGRA8,
                 TextureFilter::Nearest,
-                TEXTURE_ARRAY_LAYERS_NEAREST
+                TEXTURE_ARRAY_LAYERS_NEAREST,
             ),
             cache_textures: CacheTextureIdList::new(),
             pending_updates: TextureUpdateList::new(),
@@ -808,18 +808,12 @@ impl SlabSize {
 
 // The x/y location within a texture region of an allocation.
 #[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
-struct TextureLocation {
-    x: u8,
-    y: u8,
-}
+struct TextureLocation(u8, u8);
 
 impl TextureLocation {
     fn new(x: u32, y: u32) -> Self {
-        debug_assert!(x < 256 && y < 256);
-        TextureLocation {
-            x: x as u8,
-            y: y as u8,
-        }
+        debug_assert!(x < 0x100 && y < 0x100);
+        TextureLocation(x as u8, y as u8)
     }
 }
 
@@ -884,8 +878,8 @@ impl TextureRegion {
     fn alloc(&mut self) -> Option<DeviceUintPoint> {
         self.free_slots.pop().map(|location| {
             DeviceUintPoint::new(
-                self.origin.x + self.slab_size * location.x as u32,
-                self.origin.y + self.slab_size * location.y as u32,
+                self.origin.x + self.slab_size * location.0 as u32,
+                self.origin.y + self.slab_size * location.1 as u32,
             )
         })
     }

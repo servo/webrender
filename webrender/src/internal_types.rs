@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 #[cfg(feature = "capture")]
-use capture::{ExternalCaptureImage};
+use capture::{CaptureConfig, ExternalCaptureImage};
 use tiling;
 
 pub type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
@@ -152,9 +152,11 @@ pub enum DebugOutput {
     FetchDocuments(String),
     FetchClipScrollTree(String),
     #[cfg(feature = "capture")]
-    SaveCapture(PathBuf, Vec<ExternalCaptureImage>),
+    SaveCapture(CaptureConfig, Vec<ExternalCaptureImage>),
     #[cfg(feature = "capture")]
-    LoadCapture,
+    LoadCapture {
+        reset_textures: bool,
+    }
 }
 
 pub enum ResultMsg {

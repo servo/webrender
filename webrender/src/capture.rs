@@ -14,7 +14,6 @@ use serde::{Deserialize, Serialize};
 bitflags!{
     pub struct CaptureBits: u8 {
         const SCENE = 0x1;
-        #[cfg(feature = "capture")]
         const FRAME = 0x2;
     }
 }
@@ -63,8 +62,8 @@ impl CaptureConfig {
             .ok()?
             .read_to_string(&mut string)
             .unwrap();
-        de::from_str(&string)
-            .unwrap()
+        Some(de::from_str(&string)
+            .unwrap())
     }
 }
 
