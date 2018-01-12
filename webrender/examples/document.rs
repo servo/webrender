@@ -127,17 +127,16 @@ impl Example for App {
             );
             builder.pop_stacking_context();
 
-            api.set_display_list(
-                doc.id,
+            let mut txn = Transaction::new();
+            txn.set_display_list(
                 Epoch(0),
                 None,
                 doc.content_rect.size,
                 builder.finalize(),
                 true,
-                ResourceUpdates::new(),
             );
-
-            api.generate_frame(doc.id, None);
+            txn.generate_frame();
+            api.send_transaction(doc.id, txn);
         }
     }
 }
