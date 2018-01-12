@@ -169,7 +169,7 @@ fn is_image_opaque(format: ImageFormat, bytes: &[u8]) -> bool {
             is_opaque
         }
         ImageFormat::RG8 => true,
-        ImageFormat::A8 => false,
+        ImageFormat::R8 => false,
         ImageFormat::Invalid | ImageFormat::RGBAF32 => unreachable!(),
     }
 }
@@ -343,7 +343,7 @@ impl YamlFrameReader {
                 let image_dims = image.dimensions();
                 let (format, bytes) = match image {
                     image::ImageLuma8(_) => {
-                        (ImageFormat::A8, image.raw_pixels())
+                        (ImageFormat::R8, image.raw_pixels())
                     }
                     image::ImageRgba8(_) => {
                         let mut pixels = image.raw_pixels();

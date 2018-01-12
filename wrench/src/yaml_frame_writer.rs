@@ -555,7 +555,7 @@ impl YamlFrameWriter {
         assert!(data.stride > 0);
         let (color_type, bpp) = match data.format {
             ImageFormat::BGRA8 => (ColorType::RGBA(8), 4),
-            ImageFormat::A8 => (ColorType::Gray(8), 1),
+            ImageFormat::R8 => (ColorType::Gray(8), 1),
             _ => {
                 println!(
                     "Failed to write image with format {:?}, dimensions {}x{}, stride {}",

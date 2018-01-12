@@ -12,7 +12,6 @@ use smallvec::SmallVec;
 use std::cell::RefCell;
 use std::fs::File;
 use std::io::Read;
-use std::iter::repeat;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::Add;
@@ -37,12 +36,6 @@ impl Add<usize> for FrameId {
         FrameId(self.0 + other)
     }
 }
-
-#[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
-const GL_FORMAT_A: gl::GLuint = gl::RED;
-
-#[cfg(any(target_arch = "arm", target_arch = "aarch64"))]
-const GL_FORMAT_A: gl::GLuint = gl::ALPHA;
 
 const GL_FORMAT_BGRA_GL: gl::GLuint = gl::BGRA;
 
@@ -457,7 +450,7 @@ impl Texture {
 
     pub fn get_bpp(&self) -> u32 {
         match self.format {
-            ImageFormat::A8 => 1,
+            ImageFormat::R8 => 1,
             ImageFormat::BGRA8 => 4,
             ImageFormat::RG8 => 2,
             ImageFormat::RGBAF32 => 16,
@@ -1011,20 +1004,6 @@ impl Device {
                 let (internal_format, gl_format) = gl_texture_formats_for_image_format(self.gl(), format);
                 let type_ = gl_type_for_texture_format(format);
 
-                let expanded_data: Vec<u8>;
-                let actual_pixels = if pixels.is_some() && format == ImageFormat::A8 &&
-                    cfg!(any(target_arch = "arm", target_arch = "aarch64"))
-                {
-                    expanded_data = pixels
-                        .unwrap()
-                        .iter()
-                        .flat_map(|&byte| repeat(byte).take(4))
-                        .collect();
-                    Some(expanded_data.as_slice())
-                } else {
-                    pixels
-                };
-
                 match texture.target {
                     gl::TEXTURE_2D_ARRAY => {
                         self.gl.tex_image_3d(
@@ -1037,7 +1016,7 @@ impl Device {
                             0,
                             gl_format,
                             type_,
-                            actual_pixels,
+                            pixels,
                         );
                     }
                     gl::TEXTURE_2D | gl::TEXTURE_RECTANGLE | gl::TEXTURE_EXTERNAL_OES => {
@@ -1050,7 +1029,7 @@ impl Device {
                             0,
                             gl_format,
                             type_,
-                            actual_pixels,
+                            pixels,
                         );
                     }
                     _ => panic!("BUG: Unexpected texture target!"),
@@ -1924,11 +1903,7 @@ fn gl_texture_formats_for_image_format(
     format: ImageFormat,
 ) -> (gl::GLint, gl::GLuint) {
     match format {
-        ImageFormat::A8 => if cfg!(any(target_arch = "arm", target_arch = "aarch64")) {
-            (get_gl_format_bgra(gl) as gl::GLint, get_gl_format_bgra(gl))
-        } else {
-            (GL_FORMAT_A as gl::GLint, GL_FORMAT_A)
-        },
+        ImageFormat::R8 => (gl::RED as gl::GLint, gl::RED),
         ImageFormat::BGRA8 => match gl.get_type() {
             gl::GlType::Gl => (gl::RGBA as gl::GLint, get_gl_format_bgra(gl)),
             gl::GlType::Gles => (get_gl_format_bgra(gl) as gl::GLint, get_gl_format_bgra(gl)),
@@ -2053,7 +2028,7 @@ impl<'a, T> TextureUploader<'a, T> {
 impl<'a> UploadTarget<'a> {
     fn update_impl(&mut self, chunk: UploadChunk) {
         let (gl_format, bpp, data_type) = match self.texture.format {
-            ImageFormat::A8 => (GL_FORMAT_A, 1, gl::UNSIGNED_BYTE),
+            ImageFormat::R8 => (gl::RED, 1, gl::UNSIGNED_BYTE),
             ImageFormat::BGRA8 => (get_gl_format_bgra(self.gl), 4, gl::UNSIGNED_BYTE),
             ImageFormat::RG8 => (gl::RG, 2, gl::UNSIGNED_BYTE),
             ImageFormat::RGBAF32 => (gl::RGBA, 16, gl::FLOAT),

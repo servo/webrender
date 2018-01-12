@@ -65,7 +65,7 @@ fn render_blob(
                     texels.push(color.r * checker + tc);
                     texels.push(color.a * checker + tc);
                 }
-                ImageFormat::A8 => {
+                ImageFormat::R8 => {
                     texels.push(color.a * checker + tc);
                 }
                 _ => {

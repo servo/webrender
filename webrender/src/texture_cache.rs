@@ -206,7 +206,7 @@ impl TextureCache {
         TextureCache {
             max_texture_size,
             array_a8_linear: TextureArray::new(
-                ImageFormat::A8,
+                ImageFormat::R8,
                 TextureFilter::Linear,
                 TEXTURE_ARRAY_LAYERS_LINEAR,
             ),
@@ -365,13 +365,13 @@ impl TextureCache {
         region_index: u16
     ) -> &mut TextureRegion {
         let texture_array = match (format, filter) {
-            (ImageFormat::A8, TextureFilter::Linear) => &mut self.array_a8_linear,
+            (ImageFormat::R8, TextureFilter::Linear) => &mut self.array_a8_linear,
             (ImageFormat::BGRA8, TextureFilter::Linear) => &mut self.array_rgba8_linear,
             (ImageFormat::BGRA8, TextureFilter::Nearest) => &mut self.array_rgba8_nearest,
             (ImageFormat::Invalid, _) |
             (ImageFormat::RGBAF32, _) |
             (ImageFormat::RG8, _) |
-            (ImageFormat::A8, TextureFilter::Nearest) => unreachable!(),
+            (ImageFormat::R8, TextureFilter::Nearest) => unreachable!(),
         };
 
         &mut texture_array.regions[region_index as usize]
@@ -537,12 +537,12 @@ impl TextureCache {
     ) -> Option<CacheEntry> {
         // Work out which cache it goes in, based on format.
         let texture_array = match (descriptor.format, filter) {
-            (ImageFormat::A8, TextureFilter::Linear) => &mut self.array_a8_linear,
+            (ImageFormat::R8, TextureFilter::Linear) => &mut self.array_a8_linear,
             (ImageFormat::BGRA8, TextureFilter::Linear) => &mut self.array_rgba8_linear,
             (ImageFormat::BGRA8, TextureFilter::Nearest) => &mut self.array_rgba8_nearest,
             (ImageFormat::Invalid, _) |
             (ImageFormat::RGBAF32, _) |
-            (ImageFormat::A8, TextureFilter::Nearest) |
+            (ImageFormat::R8, TextureFilter::Nearest) |
             (ImageFormat::RG8, _) => unreachable!(),
         };
 
