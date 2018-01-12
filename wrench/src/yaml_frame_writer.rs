@@ -765,6 +765,10 @@ impl YamlFrameWriter {
                         ImageRendering::CrispEdges => str_node(&mut v, "rendering", "crisp-edges"),
                         ImageRendering::Pixelated => str_node(&mut v, "rendering", "pixelated"),
                     };
+                    match item.alpha_type {
+                        AlphaType::PremultipliedAlpha => str_node(&mut v, "alpha-type", "premultiplied-alpha"),
+                        AlphaType::Alpha => str_node(&mut v, "alpha-type", "alpha"),
+                    };
                 }
                 YuvImage(_) => {
                     str_node(&mut v, "type", "yuv-image");

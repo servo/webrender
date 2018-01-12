@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderRadius, BuiltDisplayList, ClipAndScrollInfo, ClipId, ClipMode, ColorF, ColorU};
-use api::{DeviceIntRect, DevicePixelScale, DevicePoint};
+use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipAndScrollInfo, ClipId, ClipMode};
+use api::{ColorF, ColorU, DeviceIntRect, DevicePixelScale, DevicePoint};
 use api::{ComplexClipRegion, ExtendMode, FontRenderMode};
 use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
@@ -362,6 +362,7 @@ pub struct ImagePrimitiveCpu {
     pub image_rendering: ImageRendering,
     pub tile_offset: Option<TileOffset>,
     pub tile_spacing: LayerSize,
+    pub alpha_type: AlphaType,
     // TODO(gw): Build on demand
     pub gpu_blocks: [GpuBlockData; BLOCKS_PER_UV_RECT],
 }

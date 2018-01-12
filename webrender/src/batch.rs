@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{DeviceIntRect, DeviceIntSize, ImageKey, LayerToWorldScale};
+use api::{AlphaType, DeviceIntRect, DeviceIntSize, ImageKey, LayerToWorldScale};
 use api::{ExternalImageType, FilterOp, ImageRendering, LayerRect};
 use api::{SubpixelDirection, TileOffset, YuvColorSpace, YuvFormat};
 use api::{LayerToWorldTransform, WorldPixel};
@@ -344,6 +344,7 @@ impl BatchList {
                 self.opaque_batch_list
                     .get_suitable_batch(key, item_bounding_rect)
             }
+            BlendMode::Alpha |
             BlendMode::PremultipliedAlpha |
             BlendMode::PremultipliedDestOut |
             BlendMode::SubpixelConstantTextColor(..) |
@@ -1356,7 +1357,6 @@ impl AlphaBatchHelpers for PrimitiveStore {
             // Can only resolve the TextRun's blend mode once glyphs are fetched.
             PrimitiveKind::TextRun => BlendMode::PremultipliedAlpha,
             PrimitiveKind::Border |
-            PrimitiveKind::Image |
             PrimitiveKind::YuvImage |
             PrimitiveKind::AlignedGradient |
             PrimitiveKind::AngleGradient |
@@ -1365,6 +1365,15 @@ impl AlphaBatchHelpers for PrimitiveStore {
             PrimitiveKind::Brush |
             PrimitiveKind::Picture => if needs_blending {
                 BlendMode::PremultipliedAlpha
+            } else {
+                BlendMode::None
+            },
+            PrimitiveKind::Image => if needs_blending {
+                let image_cpu = &self.cpu_images[metadata.cpu_prim_index.0];
+                match image_cpu.alpha_type {
+                    AlphaType::PremultipliedAlpha => BlendMode::PremultipliedAlpha,
+                    AlphaType::Alpha => BlendMode::Alpha,
+                }
             } else {
                 BlendMode::None
             },

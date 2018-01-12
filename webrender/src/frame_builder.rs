@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderDetails, BorderDisplayItem, BuiltDisplayList, ClipAndScrollInfo, ClipId, ColorF};
-use api::{ColorU, DeviceIntPoint, DevicePixelScale, DeviceUintPoint, DeviceUintRect};
+use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayList, ClipAndScrollInfo, ClipId};
+use api::{ColorF, ColorU, DeviceIntPoint, DevicePixelScale, DeviceUintPoint, DeviceUintRect};
 use api::{DeviceUintSize, DocumentLayer, ExtendMode, FontRenderMode, GlyphInstance, GlyphOptions};
 use api::{GradientStop, HitTestFlags, HitTestItem, HitTestResult, ImageKey, ImageRendering};
 use api::{ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect, LayerSize};
@@ -1087,6 +1087,7 @@ impl FrameBuilder {
                         Some(segment.sub_rect),
                         border.image_key,
                         ImageRendering::Auto,
+                        AlphaType::PremultipliedAlpha,
                         None,
                     );
                 }
@@ -1410,6 +1411,7 @@ impl FrameBuilder {
         sub_rect: Option<TexelRect>,
         image_key: ImageKey,
         image_rendering: ImageRendering,
+        alpha_type: AlphaType,
         tile: Option<TileOffset>,
     ) {
         let sub_rect_block = sub_rect.unwrap_or(TexelRect::invalid()).into();
@@ -1429,6 +1431,7 @@ impl FrameBuilder {
             image_rendering,
             tile_offset: tile,
             tile_spacing,
+            alpha_type,
             gpu_blocks: [
                 [
                     stretch_size.width,

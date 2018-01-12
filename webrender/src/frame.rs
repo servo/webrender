@@ -405,6 +405,7 @@ impl<'a> FlattenContext<'a> {
                             None,
                             info.image_key,
                             info.image_rendering,
+                            info.alpha_type,
                             None,
                         );
                     }
@@ -915,6 +916,7 @@ impl<'a> FlattenContext<'a> {
                 None,
                 info.image_key,
                 info.image_rendering,
+                info.alpha_type,
                 Some(tile_offset),
             );
         }

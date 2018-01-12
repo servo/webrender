@@ -1001,7 +1001,15 @@ impl YamlFrameReader {
                 item
             ),
         };
-        dl.push_image(&info, stretch_size, tile_spacing, rendering, image_key);
+        let alpha_type = match item["alpha-type"].as_str() {
+            Some("premultiplied-alpha") | None => AlphaType::PremultipliedAlpha,
+            Some("alpha") => AlphaType::Alpha,
+            Some(_) => panic!(
+                "AlphaType can be premultiplied-alpha or alpha -- got {:?}",
+                item
+            ),
+        };
+        dl.push_image(&info, stretch_size, tile_spacing, rendering, alpha_type, image_key);
     }
 
     fn handle_text(

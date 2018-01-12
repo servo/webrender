@@ -1860,6 +1860,12 @@ impl Device {
         }
     }
 
+    pub fn set_blend_mode_alpha(&self) {
+        self.gl.blend_func_separate(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA,
+                                    gl::ONE, gl::ONE);
+        self.gl.blend_equation(gl::FUNC_ADD);
+    }
+
     pub fn set_blend_mode_premultiplied_alpha(&self) {
         self.gl.blend_func(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);
         self.gl.blend_equation(gl::FUNC_ADD);

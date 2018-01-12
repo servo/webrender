@@ -98,6 +98,7 @@ impl<'a> RawtestHarness<'a> {
             size(151., 56.0),
             size(151.0, 56.0),
             ImageRendering::Auto,
+            AlphaType::PremultipliedAlpha,
             blob_img,
         );
 
@@ -149,6 +150,7 @@ impl<'a> RawtestHarness<'a> {
             size(200.0, 200.0),
             size(0.0, 0.0),
             ImageRendering::Auto,
+            AlphaType::PremultipliedAlpha,
             blob_img,
         );
 
@@ -166,6 +168,7 @@ impl<'a> RawtestHarness<'a> {
             size(200.0, 200.0),
             size(0.0, 0.0),
             ImageRendering::Auto,
+            AlphaType::PremultipliedAlpha,
             blob_img,
         );
 
@@ -252,6 +255,7 @@ impl<'a> RawtestHarness<'a> {
                 size(200.0, 200.0),
                 size(0.0, 0.0),
                 ImageRendering::Auto,
+                AlphaType::PremultipliedAlpha,
                 blob_img,
             );
             builder.push_image(
@@ -259,6 +263,7 @@ impl<'a> RawtestHarness<'a> {
                 size(200.0, 200.0),
                 size(0.0, 0.0),
                 ImageRendering::Auto,
+                AlphaType::PremultipliedAlpha,
                 blob_img2,
             );
         };
@@ -345,6 +350,7 @@ impl<'a> RawtestHarness<'a> {
             size(200.0, 200.0),
             size(0.0, 0.0),
             ImageRendering::Auto,
+            AlphaType::PremultipliedAlpha,
             blob_img,
         );
 
@@ -370,6 +376,7 @@ impl<'a> RawtestHarness<'a> {
             size(200.0, 200.0),
             size(0.0, 0.0),
             ImageRendering::Auto,
+            AlphaType::PremultipliedAlpha,
             blob_img,
         );
 
@@ -393,6 +400,7 @@ impl<'a> RawtestHarness<'a> {
             size(200.0, 200.0),
             size(0.0, 0.0),
             ImageRendering::Auto,
+            AlphaType::PremultipliedAlpha,
             blob_img,
         );
 
@@ -495,6 +503,7 @@ impl<'a> RawtestHarness<'a> {
             size(150.0, 50.0),
             size(0.0, 0.0),
             ImageRendering::Auto,
+            AlphaType::PremultipliedAlpha,
             image,
         );
 
