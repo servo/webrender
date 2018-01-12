@@ -140,7 +140,7 @@ pub struct DeferredResolve {
 pub struct SpecificPrimitiveIndex(pub usize);
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct PrimitiveIndex(pub usize);
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

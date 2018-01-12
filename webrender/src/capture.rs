@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 bitflags!{
     pub struct CaptureBits: u8 {
         const SCENE = 0x1;
-        #[cfg(feature = "capture2")]
+        #[cfg(feature = "capture")]
         const FRAME = 0x2;
     }
 }
@@ -50,17 +50,17 @@ impl CaptureConfig {
             .unwrap();
     }
 
-    pub fn deserialize<T, P>(&self, name: P) -> T
+    pub fn deserialize<T, P>(root: &PathBuf, name: P) -> Option<T>
     where
         T: for<'a> Deserialize<'a>,
         P: AsRef<Path>,
     {
         let mut string = String::new();
-        let path = self.root
+        let path = root
             .join(name)
             .with_extension("ron");
         File::open(path)
-            .unwrap()
+            .ok()?
             .read_to_string(&mut string)
             .unwrap();
         de::from_str(&string)

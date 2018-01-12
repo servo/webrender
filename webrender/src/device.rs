@@ -26,7 +26,7 @@ use std::thread;
 const WORK_AROUND_TEX_IMAGE: bool = cfg!(windows);
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, Eq, PartialOrd)]
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct FrameId(usize);
 
 impl FrameId {
@@ -86,7 +86,7 @@ impl TextureTarget {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub enum TextureFilter {
     Nearest,
     Linear,
@@ -425,9 +425,9 @@ impl ExternalTexture {
     }
 }
 
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct Texture {
-    #[cfg_attr(feature = "capture2", serde(skip))]
+    #[cfg_attr(feature = "capture", serde(skip))]
     id: gl::GLuint,
     target: gl::GLuint,
     layer_count: i32,
@@ -436,9 +436,9 @@ pub struct Texture {
     height: u32,
     filter: TextureFilter,
     render_target: Option<RenderTargetInfo>,
-    #[cfg_attr(feature = "capture2", serde(skip))]
+    #[cfg_attr(feature = "capture", serde(skip))]
     fbo_ids: Vec<FBOId>,
-    #[cfg_attr(feature = "capture2", serde(skip))]
+    #[cfg_attr(feature = "capture", serde(skip))]
     depth_rb: Option<RBOId>,
 }
 

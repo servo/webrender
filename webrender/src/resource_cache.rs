@@ -20,7 +20,7 @@ use device::TextureFilter;
 use frame::FrameId;
 use glyph_cache::GlyphCache;
 #[cfg(feature = "capture")]
-use glyph_cache::{PlainGlyphCache, PlainCachedGlyphInfo};
+use glyph_cache::{CachedGlyphInfo, PlainGlyphCacheOwn, PlainGlyphCacheRef, PlainCachedGlyphInfo};
 use glyph_rasterizer::{FontInstance, GlyphFormat, GlyphRasterizer, GlyphRequest};
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use internal_types::{FastHashMap, FastHashSet, SourceTexture, TextureUpdateList};
@@ -40,7 +40,7 @@ use texture_cache::{TextureCache, TextureCacheHandle};
 
 const DEFAULT_TILE_SIZE: TileSize = 512;
 
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct GlyphFetchResult {
     pub index_in_text_run: i32,
     pub uv_rect_address: GpuCacheAddress,
@@ -120,21 +120,21 @@ impl ImageTemplates {
     }
 }
 
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 struct CachedImageInfo {
     texture_cache_handle: TextureCacheHandle,
     epoch: Epoch,
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture2", derive(Clone, Serialize))]
+#[cfg_attr(feature = "capture", derive(Clone, Deserialize, Serialize))]
 pub enum ResourceClassCacheError {
     OverLimitSize,
 }
 
 pub type ResourceCacheResult<V> = Result<V, ResourceClassCacheError>;
 
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub struct ResourceClassCache<K: Hash + Eq, V> {
     resources: FastHashMap<K, ResourceCacheResult<V>>,
 }
@@ -188,7 +188,7 @@ where
 
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 struct ImageRequest {
     key: ImageKey,
     rendering: ImageRendering,
@@ -1005,7 +1005,7 @@ pub struct PlainResources {
 #[derive(Serialize)]
 pub struct PlainCacheRef<'a> {
     current_frame_id: FrameId,
-    glyphs: PlainGlyphCache<'a>,
+    glyphs: PlainGlyphCacheRef<'a>,
     glyph_dimensions: &'a GlyphDimensionsCache,
     images: &'a ImageCache,
     textures: &'a TextureCache,
@@ -1014,12 +1014,11 @@ pub struct PlainCacheRef<'a> {
 #[cfg(feature = "capture")]
 #[derive(Deserialize)]
 pub struct PlainCacheOwn {
-    //TODO
-    //cached_glyphs: GlyphCache,
-    //cached_images: ImageCache,
-    //current_frame_id: FrameId,
-    //texture_cache: TextureCache,
-    //cached_glyph_dimensions: GlyphDimensionsCache,
+    current_frame_id: FrameId,
+    glyphs: PlainGlyphCacheOwn,
+    glyph_dimensions: GlyphDimensionsCache,
+    images: ImageCache,
+    textures: TextureCache,
 }
 
 #[cfg(feature = "capture")]
@@ -1210,25 +1209,24 @@ impl ResourceCache {
             glyphs: self.cached_glyphs.glyph_key_caches
                 .iter()
                 .map(|(font_instance, cache)| {
-                    (font_instance, ResourceClassCache {
-                        resources: cache.resources
-                            .iter()
-                            .map(|(key, result)|
-                                (key.clone(), match *result {
-                                    Ok(Some(ref info)) => Ok(Some(PlainCachedGlyphInfo {
-                                        texture_cache_handle: info.texture_cache_handle.clone(),
-                                        glyph_bytes: glyph_paths[&info.glyph_bytes.as_ptr()].clone(),
-                                        size: info.size,
-                                        offset: info.offset,
-                                        scale: info.scale,
-                                        format: info.format,
-                                    })),
-                                    Ok(None) => Ok(None),
-                                    Err(ref e) => Err(e.clone()),
-                                })
-                            )
-                            .collect()
-                    })
+                    let resources = cache.resources
+                        .iter()
+                        .map(|(key, result)| {
+                            (key.clone(), match *result {
+                                Ok(Some(ref info)) => Ok(Some(PlainCachedGlyphInfo {
+                                    texture_cache_handle: info.texture_cache_handle.clone(),
+                                    glyph_bytes: glyph_paths[&info.glyph_bytes.as_ptr()].clone(),
+                                    size: info.size,
+                                    offset: info.offset,
+                                    scale: info.scale,
+                                    format: info.format,
+                                })),
+                                Ok(None) => Ok(None),
+                                Err(ref e) => Err(e.clone()),
+                            })
+                        })
+                        .collect();
+                    (font_instance, ResourceClassCache { resources })
                 })
                 .collect(),
             glyph_dimensions: &self.cached_glyph_dimensions,
@@ -1237,22 +1235,76 @@ impl ResourceCache {
         }
     }
 
-    pub fn load_capture(&mut self, resources: PlainResources, root: &PathBuf) {
+    pub fn load_capture(
+        &mut self,
+        resources: PlainResources,
+        caches: Option<PlainCacheOwn>,
+        root: &PathBuf,
+    ) {
         use std::fs::File;
         use std::io::Read;
 
         info!("loading resource cache");
-        self.cached_glyphs.clear();
-        self.cached_images.clear();
-        self.cached_render_tasks.clear();
+        //TODO: pre-load the raw map
+        let mut raw_map = FastHashMap::<String, Arc<Vec<u8>>>::default();
+
+        match caches {
+            Some(cached) => {
+                let glyph_key_caches = cached.glyphs
+                    .into_iter()
+                    .map(|(font_instance, rcc)| {
+                        let resources = rcc.resources
+                            .into_iter()
+                            .map(|(key, result)| {
+                                (key, match result {
+                                    Ok(Some(info)) => {
+                                        let glyph_bytes = match raw_map.entry(info.glyph_bytes) {
+                                            Entry::Occupied(e) => {
+                                                e.get().clone()
+                                            }
+                                            Entry::Vacant(e) => {
+                                                let mut buffer = Vec::new();
+                                                File::open(root.join(e.key()))
+                                                    .expect(&format!("Unable to open {}", e.key()))
+                                                    .read_to_end(&mut buffer)
+                                                    .unwrap();
+                                                e.insert(Arc::new(buffer))
+                                                    .clone()
+                                            }
+                                        };
+                                        Ok(Some(CachedGlyphInfo {
+                                            texture_cache_handle: info.texture_cache_handle,
+                                            glyph_bytes,
+                                            size: info.size,
+                                            offset: info.offset,
+                                            scale: info.scale,
+                                            format: info.format,
+                                        }))
+                                    },
+                                    Ok(None) => Ok(None),
+                                    Err(e) => Err(e),
+                                })
+                            })
+                            .collect();
+                        (font_instance, ResourceClassCache { resources })
+                    })
+                    .collect();
+                self.current_frame_id = cached.current_frame_id;
+                self.cached_glyphs = GlyphCache { glyph_key_caches };
+                self.cached_glyph_dimensions = cached.glyph_dimensions;
+                self.texture_cache = cached.textures;
+            }
+            None => {
+                self.current_frame_id = FrameId(0);
+                self.cached_glyphs.clear();
+                self.cached_glyph_dimensions.clear();
+                self.cached_images.clear();
+                let max_texture_size = self.texture_cache.max_texture_size();
+                self.texture_cache = TextureCache::new(max_texture_size);
+            }
+        }
 
         self.state = State::Idle;
-        self.current_frame_id = FrameId(0);
-
-        let max_texture_size = self.texture_cache.max_texture_size();
-        self.texture_cache = TextureCache::new(max_texture_size);
-
-        self.cached_glyph_dimensions.clear();
         self.glyph_rasterizer.reset();
         self.pending_image_requests.clear();
 
@@ -1260,7 +1312,6 @@ impl ResourceCache {
         res.font_templates.clear();
         *res.font_instances.write().unwrap() = resources.font_instances;
         res.image_templates.images.clear();
-        let mut raw_map = FastHashMap::<String, Arc<Vec<u8>>>::default();
 
         info!("\tfont templates...");
         for (key, plain_template) in resources.font_templates {
@@ -1271,9 +1322,8 @@ impl ResourceCache {
                             e.get().clone()
                         }
                         Entry::Vacant(e) => {
-                            let path = format!("{}/{}", root.to_string_lossy(), e.key());
                             let mut buffer = Vec::new();
-                            File::open(path)
+                            File::open(root.join(e.key()))
                                 .expect(&format!("Unable to open {}", e.key()))
                                 .read_to_end(&mut buffer)
                                 .unwrap();
@@ -1300,9 +1350,8 @@ impl ResourceCache {
                 }
                 Entry::Vacant(e) => {
                     //TODO: consider merging the code path with font loading
-                    let path = format!("{}/{}", root.to_string_lossy(), e.key());
                     let mut buffer = Vec::new();
-                    File::open(path)
+                    File::open(root.join(e.key()))
                         .expect(&format!("Unable to open {}", e.key()))
                         .read_to_end(&mut buffer)
                         .unwrap();
