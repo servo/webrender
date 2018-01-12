@@ -15,10 +15,12 @@ use api::{TileOffset, TileSize};
 use api::{NativeFontHandle};
 use app_units::Au;
 #[cfg(feature = "capture")]
-use capture::ExternalCaptureImage;
+use capture::{ExternalCaptureImage};
 use device::TextureFilter;
 use frame::FrameId;
 use glyph_cache::GlyphCache;
+#[cfg(feature = "capture")]
+use glyph_cache::{PlainGlyphCache, PlainCachedGlyphInfo};
 use glyph_rasterizer::{FontInstance, GlyphFormat, GlyphRasterizer, GlyphRequest};
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use internal_types::{FastHashMap, FastHashSet, SourceTexture, TextureUpdateList};
@@ -125,7 +127,7 @@ struct CachedImageInfo {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture2", derive(Clone, Serialize))]
 pub enum ResourceClassCacheError {
     OverLimitSize,
 }
@@ -1002,11 +1004,11 @@ pub struct PlainResources {
 #[cfg(feature = "capture")]
 #[derive(Serialize)]
 pub struct PlainCacheRef<'a> {
-    cached_glyphs: &'a GlyphCache,
-    cached_images: &'a ImageCache,
     current_frame_id: FrameId,
-    texture_cache: &'a TextureCache,
-    cached_glyph_dimensions: &'a GlyphDimensionsCache,
+    glyphs: PlainGlyphCache<'a>,
+    glyph_dimensions: &'a GlyphDimensionsCache,
+    images: &'a ImageCache,
+    textures: &'a TextureCache,
 }
 
 #[cfg(feature = "capture")]
@@ -1022,16 +1024,6 @@ pub struct PlainCacheOwn {
 
 #[cfg(feature = "capture")]
 impl ResourceCache {
-    pub fn to_cache(&self) -> PlainCacheRef {
-        PlainCacheRef {
-            cached_glyphs: &self.cached_glyphs,
-            cached_images: &self.cached_images,
-            current_frame_id: self.current_frame_id,
-            texture_cache: &self.texture_cache,
-            cached_glyph_dimensions: &self.cached_glyph_dimensions,
-        }
-    }
-
     pub fn save_capture(
         &mut self, root: &PathBuf
     ) -> (PlainResources, Vec<ExternalCaptureImage>) {
@@ -1041,38 +1033,36 @@ impl ResourceCache {
         info!("saving resource cache");
         let res = &self.resources;
         if !root.is_dir() {
-            fs::create_dir_all(&root).unwrap()
+            fs::create_dir_all(root).unwrap()
         }
-        let path_fonts = root.clone().join("fonts");
+        let path_fonts = root.join("fonts");
         if !path_fonts.is_dir() {
             fs::create_dir(&path_fonts).unwrap();
         }
-        let path_images = root.clone().join("images");
+        let path_images = root.join("images");
         if !path_images.is_dir() {
             fs::create_dir(&path_images).unwrap();
         }
-        let path_blobs = root.clone().join("blobs");
+        let path_blobs = root.join("blobs");
         if !path_blobs.is_dir() {
             fs::create_dir(&path_blobs).unwrap();
         }
 
         info!("\tfont templates");
         let mut font_paths = FastHashMap::default();
-        let mut num_fonts = 0;
         for template in res.font_templates.values() {
             let data: &[u8] = match *template {
                 FontTemplate::Raw(ref arc, _) => arc,
                 FontTemplate::Native(_) => continue,
             };
+            let font_id = res.font_templates.len() + 1;
             let entry = match font_paths.entry(data.as_ptr()) {
                 Entry::Occupied(_) => continue,
                 Entry::Vacant(e) => e,
             };
-            num_fonts += 1;
-            let file_name = format!("{}.raw", num_fonts);
+            let file_name = format!("{}.raw", font_id);
             let short_path = format!("fonts/{}", file_name);
-            let full_path = path_fonts.clone().join(&file_name);
-            fs::File::create(full_path)
+            fs::File::create(path_fonts.join(file_name))
                 .expect(&format!("Unable to create {}", short_path))
                 .write_all(data)
                 .unwrap();
@@ -1082,23 +1072,21 @@ impl ResourceCache {
         info!("\timage templates");
         let mut image_paths = FastHashMap::default();
         let mut other_paths = FastHashMap::default();
-        let mut num_images = 0;
         let mut external_images = Vec::new();
         for (&key, template) in res.image_templates.images.iter() {
             let desc = &template.descriptor;
             match template.data {
                 ImageData::Raw(ref arc) => {
+                    let image_id = image_paths.len() + 1;
                     let entry = match image_paths.entry(arc.as_ptr()) {
                         Entry::Occupied(_) => continue,
                         Entry::Vacant(e) => e,
                     };
 
                     //TODO: option to save as PNG
-                    num_images += 1;
-                    let file_name = format!("{}.raw", num_images);
+                    let file_name = format!("{}.raw", image_id);
                     let short_path = format!("images/{}", file_name);
-                    let full_path = path_images.clone().join(&file_name);
-                    fs::File::create(full_path)
+                    fs::File::create(path_images.join(file_name))
                         .expect(&format!("Unable to create {}", short_path))
                         .write_all(&*arc)
                         .unwrap();
@@ -1182,6 +1170,71 @@ impl ResourceCache {
         };
 
         (resources, external_images)
+    }
+
+    pub fn save_caches(&self, root: &PathBuf) -> PlainCacheRef {
+        use std::io::Write;
+        use std::fs;
+
+        let path_glyphs = root.join("glyphs");
+        if !path_glyphs.is_dir() {
+            fs::create_dir(&path_glyphs).unwrap();
+        }
+
+        info!("\tcached glyphs");
+        let mut glyph_paths = FastHashMap::default();
+        for cache in self.cached_glyphs.glyph_key_caches.values() {
+            for result in cache.resources.values() {
+                let arc = match *result {
+                    Ok(Some(ref info)) => &info.glyph_bytes,
+                    Ok(None) | Err(_) => continue,
+                };
+                let glyph_id = glyph_paths.len() + 1;
+                let entry = match glyph_paths.entry(arc.as_ptr()) {
+                    Entry::Occupied(_) => continue,
+                    Entry::Vacant(e) => e,
+                };
+
+                let file_name = format!("{}.raw", glyph_id);
+                let short_path = format!("glyphs/{}", file_name);
+                fs::File::create(path_glyphs.join(&file_name))
+                    .expect(&format!("Unable to create {}", short_path))
+                    .write_all(&*arc)
+                    .unwrap();
+                entry.insert(short_path);
+            }
+        }
+
+        PlainCacheRef {
+            current_frame_id: self.current_frame_id,
+            glyphs: self.cached_glyphs.glyph_key_caches
+                .iter()
+                .map(|(font_instance, cache)| {
+                    (font_instance, ResourceClassCache {
+                        resources: cache.resources
+                            .iter()
+                            .map(|(key, result)|
+                                (key.clone(), match *result {
+                                    Ok(Some(ref info)) => Ok(Some(PlainCachedGlyphInfo {
+                                        texture_cache_handle: info.texture_cache_handle.clone(),
+                                        glyph_bytes: glyph_paths[&info.glyph_bytes.as_ptr()].clone(),
+                                        size: info.size,
+                                        offset: info.offset,
+                                        scale: info.scale,
+                                        format: info.format,
+                                    })),
+                                    Ok(None) => Ok(None),
+                                    Err(ref e) => Err(e.clone()),
+                                })
+                            )
+                            .collect()
+                    })
+                })
+                .collect(),
+            glyph_dimensions: &self.cached_glyph_dimensions,
+            images: &self.cached_images,
+            textures: &self.texture_cache,
+        }
     }
 
     pub fn load_capture(&mut self, resources: PlainResources, root: &PathBuf) {

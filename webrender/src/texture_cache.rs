@@ -156,7 +156,7 @@ type WeakCacheEntryHandle = WeakFreeListHandle<CacheEntry>;
 // In this case, the cache handle needs to re-upload this item
 // to the texture cache (see request() below).
 #[derive(Debug)]
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture2", derive(Clone, Serialize))]
 pub struct TextureCacheHandle {
     entry: Option<WeakCacheEntryHandle>,
 }

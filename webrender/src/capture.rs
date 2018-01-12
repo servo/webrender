@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 bitflags!{
     pub struct CaptureBits: u8 {
         const SCENE = 0x1;
+        #[cfg(feature = "capture2")]
         const FRAME = 0x2;
     }
 }
