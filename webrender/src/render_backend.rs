@@ -296,14 +296,7 @@ impl RenderBackend {
                 content_size,
                 list_descriptor,
                 preserve_frame_state,
-                resources,
             } => {
-                // TODO: this will be removed from the SetDisplayList message soon.
-                self.resource_cache.update_resources(
-                    resources,
-                    &mut profile_counters.resources
-                );
-
                 profile_scope!("SetDisplayList");
 
                 let mut data;
@@ -375,17 +368,6 @@ impl RenderBackend {
             DocumentMsg::UpdateEpoch(pipeline_id, epoch) => {
                 doc.scene.update_epoch(pipeline_id, epoch);
                 doc.frame_ctx.update_epoch(pipeline_id, epoch);
-                DocumentOps::nop()
-            }
-            DocumentMsg::UpdatePipelineResources { resources, pipeline_id, epoch } => {
-                profile_scope!("UpdateResources");
-
-                self.resource_cache
-                    .update_resources(resources, &mut profile_counters.resources);
-
-                doc.scene.update_epoch(pipeline_id, epoch);
-                doc.frame_ctx.update_epoch(pipeline_id, epoch);
-
                 DocumentOps::nop()
             }
             DocumentMsg::SetRootPipeline(pipeline_id) => {

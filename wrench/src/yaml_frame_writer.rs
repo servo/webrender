@@ -1113,10 +1113,8 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                             ref background,
                             ref viewport_size,
                             ref list_descriptor,
-                            ref resources,
                             ..
                         } => {
-                            self.frame_writer.update_resources(resources);
                             self.frame_writer.begin_write_display_list(
                                 &mut self.scene,
                                 epoch,

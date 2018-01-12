@@ -290,10 +290,8 @@ impl webrender::ApiRecordingReceiver for JsonFrameWriter {
                             ref background,
                             ref viewport_size,
                             ref list_descriptor,
-                            ref resources,
                             ..
                         } => {
-                            self.update_resources(resources);
                             self.begin_write_display_list(
                                 epoch,
                                 pipeline_id,

@@ -60,19 +60,22 @@ impl<'a> RawtestHarness<'a> {
         builder: DisplayListBuilder,
         resources: Option<ResourceUpdates>
     ) {
+        let mut txn = Transaction::new();
         let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
-        self.wrench.api.set_display_list(
-            self.wrench.document_id,
+        if let Some(resources) = resources {
+            txn.update_resources(resources);
+        }
+        txn.set_display_list(
             *epoch,
             root_background_color,
             layout_size,
             builder.finalize(),
             false,
-            resources.unwrap_or(ResourceUpdates::new()),
         );
         epoch.0 += 1;
 
-        self.wrench.api.generate_frame(self.wrench.document_id, None);
+        txn.generate_frame();
+        self.wrench.api.send_transaction(self.wrench.document_id, txn);
     }
 
     fn test_tile_decomposition(&mut self) {
@@ -498,17 +501,19 @@ impl<'a> RawtestHarness<'a> {
             image,
         );
 
-        self.wrench.api.set_display_list(
-            self.wrench.document_id,
+        let mut txn = Transaction::new();
+
+        txn.set_display_list(
             Epoch(0),
             Some(ColorF::new(1.0, 1.0, 1.0, 1.0)),
             layout_size,
             builder.finalize(),
             false,
-            resources,
         );
+        txn.generate_frame();
 
-        self.wrench.api.generate_frame(self.wrench.document_id, None);
+        self.wrench.api.send_transaction(self.wrench.document_id, txn);
+
         let pixels0 = self.render_and_get_pixels(window_rect);
 
         // 2. capture it
@@ -520,15 +525,15 @@ impl<'a> RawtestHarness<'a> {
 
         builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
 
-        self.wrench.api.set_display_list(
-            self.wrench.document_id,
+        let mut txn = Transaction::new();
+        txn.set_display_list(
             Epoch(1),
             Some(ColorF::new(1.0, 0.0, 0.0, 1.0)),
             layout_size,
             builder.finalize(),
             false,
-            ResourceUpdates::new(),
         );
+        self.wrench.api.send_transaction(self.wrench.document_id, txn);
 
         // 4. load the first one
 

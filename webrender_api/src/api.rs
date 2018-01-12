@@ -193,8 +193,6 @@ impl Transaction {
     /// * `preserve_frame_state`: If a previous frame exists which matches this pipeline
     ///                           id, this setting determines if frame state (such as scrolling
     ///                           position) should be preserved for this new display list.
-    /// * `resources`: A set of resource updates that must be applied at the same time as the
-    ///                display list.
     ///
     /// [notifier]: trait.RenderNotifier.html#tymethod.new_frame_ready
     pub fn set_display_list(
@@ -215,7 +213,6 @@ impl Transaction {
                 content_size,
                 list_descriptor,
                 preserve_frame_state,
-                resources: ResourceUpdates::new(),
             }
         );
         self.payloads.push(Payload { epoch, pipeline_id, display_list_data });
@@ -287,6 +284,12 @@ impl Transaction {
     /// bindings in the current display list.
     pub fn update_dynamic_properties(&mut self, properties: DynamicProperties) {
         self.ops.push(DocumentMsg::UpdateDynamicProperties(properties));
+    }
+
+    /// Enable copying of the output of this pipeline id to
+    /// an external texture for callers to consume.
+    pub fn enable_frame_output(&mut self, pipeline_id: PipelineId, enable: bool) {
+        self.ops.push(DocumentMsg::EnableFrameOutput(pipeline_id, enable));
     }
 }
 
@@ -365,15 +368,8 @@ pub enum DocumentMsg {
         viewport_size: LayoutSize,
         content_size: LayoutSize,
         preserve_frame_state: bool,
-        resources: ResourceUpdates,
     },
     UpdateResources(ResourceUpdates),
-    // TODO(nical): Remove this once gecko doesn't use it anymore.
-    UpdatePipelineResources {
-        resources: ResourceUpdates,
-        pipeline_id: PipelineId,
-        epoch: Epoch,
-    },
     UpdateEpoch(PipelineId, Epoch),
     SetPageZoom(ZoomFactor),
     SetPinchZoom(ZoomFactor),
@@ -398,7 +394,6 @@ impl fmt::Debug for DocumentMsg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(match *self {
             DocumentMsg::SetDisplayList { .. } => "DocumentMsg::SetDisplayList",
-            DocumentMsg::UpdatePipelineResources { .. } => "DocumentMsg::UpdatePipelineResources",
             DocumentMsg::HitTest(..) => "DocumentMsg::HitTest",
             DocumentMsg::SetPageZoom(..) => "DocumentMsg::SetPageZoom",
             DocumentMsg::SetPinchZoom(..) => "DocumentMsg::SetPinchZoom",
@@ -674,24 +669,6 @@ impl RenderApi {
             .unwrap();
     }
 
-    /// Add/remove/update resources such as images and fonts.
-    ///
-    /// This is similar to update_resources with the addition that it allows updating
-    /// a pipeline's epoch.
-    pub fn update_pipeline_resources(
-        &self,
-        resources: ResourceUpdates,
-        document_id: DocumentId,
-        pipeline_id: PipelineId,
-        epoch: Epoch,
-    ) {
-        self.send(document_id, DocumentMsg::UpdatePipelineResources {
-            resources,
-            pipeline_id,
-            epoch,
-        });
-    }
-
     pub fn send_external_event(&self, evt: ExternalEvent) {
         let msg = ApiMsg::ExternalEvent(evt);
         self.api_sender.send(msg).unwrap();
@@ -798,8 +775,6 @@ impl RenderApi {
     /// * `preserve_frame_state`: If a previous frame exists which matches this pipeline
     ///                           id, this setting determines if frame state (such as scrolling
     ///                           position) should be preserved for this new display list.
-    /// * `resources`: A set of resource updates that must be applied at the same time as the
-    ///                display list.
     ///
     /// [notifier]: trait.RenderNotifier.html#tymethod.new_document_ready
     pub fn set_display_list(
@@ -810,7 +785,6 @@ impl RenderApi {
         viewport_size: LayoutSize,
         (pipeline_id, content_size, display_list): (PipelineId, LayoutSize, BuiltDisplayList),
         preserve_frame_state: bool,
-        resources: ResourceUpdates, // TODO: this will be removed soon.
     ) {
         // TODO(nical) set_display_list uses the epoch to match the displaylist and the payload
         // coming from different channels when receiving in the render backend.
@@ -829,7 +803,6 @@ impl RenderApi {
                 content_size,
                 list_descriptor,
                 preserve_frame_state,
-                resources,
             },
         );
 
@@ -842,7 +815,7 @@ impl RenderApi {
             .unwrap();
     }
 
-    pub fn send_transaction(&mut self, document_id: DocumentId, transaction: Transaction) {
+    pub fn send_transaction(&self, document_id: DocumentId, transaction: Transaction) {
         for payload in transaction.payloads {
             self.payload_sender.send_payload(payload).unwrap();
         }

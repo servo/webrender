@@ -173,17 +173,18 @@ pub fn main_wrapper<E: Example>(
         pipeline_id,
         document_id,
     );
-    api.set_display_list(
-        document_id,
+    let mut txn = Transaction::new();
+    txn.set_display_list(
         epoch,
         None,
         layout_size,
         builder.finalize(),
         true,
-        resources,
     );
-    api.set_root_pipeline(document_id, pipeline_id);
-    api.generate_frame(document_id, None);
+    txn.update_resources(resources);
+    txn.set_root_pipeline(pipeline_id);
+    txn.generate_frame();
+    api.send_transaction(document_id, txn);
 
     println!("Entering event loop");
     'outer: for event in window.wait_events() {
@@ -288,16 +289,17 @@ pub fn main_wrapper<E: Example>(
                         pipeline_id,
                         document_id,
                     );
-                    api.set_display_list(
-                        document_id,
+                    let mut txn = Transaction::new();
+                    txn.set_display_list(
                         epoch,
                         None,
                         layout_size,
                         builder.finalize(),
                         true,
-                        resources,
                     );
-                    api.generate_frame(document_id, None);
+                    txn.update_resources(resources);
+                    txn.generate_frame();
+                    api.send_transaction(document_id, txn);
                 }
             }
         }
