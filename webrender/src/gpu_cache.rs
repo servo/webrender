@@ -127,21 +127,21 @@ impl GpuCacheHandle {
 // as part of the primitive instances, to allow the vertex
 // shader to fetch the specific data.
 #[derive(Copy, Debug, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub struct GpuCacheAddress {
     pub u: u16,
     pub v: u16,
 }
 
 impl GpuCacheAddress {
-    fn new(u: usize, v: usize) -> GpuCacheAddress {
+    fn new(u: usize, v: usize) -> Self {
         GpuCacheAddress {
             u: u as u16,
             v: v as u16,
         }
     }
 
-    pub fn invalid() -> GpuCacheAddress {
+    pub fn invalid() -> Self {
         GpuCacheAddress {
             u: u16::MAX,
             v: u16::MAX,
