@@ -324,6 +324,7 @@ impl<'a, 'b> DisplayItemRef<'a, 'b> {
             rect: info.rect.translate(&offset),
             local_clip: info.local_clip.create_with_offset(offset),
             is_backface_visible: info.is_backface_visible,
+            non_premultiplied: info.non_premultiplied,
             tag: info.tag,
         }
     }

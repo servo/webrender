@@ -344,6 +344,7 @@ impl BatchList {
                 self.opaque_batch_list
                     .get_suitable_batch(key, item_bounding_rect)
             }
+            BlendMode::Alpha |
             BlendMode::PremultipliedAlpha |
             BlendMode::PremultipliedDestOut |
             BlendMode::SubpixelConstantTextColor(..) |
@@ -1347,7 +1348,11 @@ impl AlphaBatchHelpers for PrimitiveStore {
             PrimitiveKind::Line |
             PrimitiveKind::Brush |
             PrimitiveKind::Picture => if needs_blending {
-                BlendMode::PremultipliedAlpha
+                if metadata.non_premultiplied {
+                    BlendMode::Alpha
+                } else {
+                    BlendMode::PremultipliedAlpha
+                }
             } else {
                 BlendMode::None
             },
