@@ -561,11 +561,10 @@ impl<'a> RawtestHarness<'a> {
         assert!(pixels0 == pixels1);
 
         // 6. rebuild the scene and compare again
-        self.wrench.api.set_root_pipeline(
-            captured.document_id,
-            captured.root_pipeline_id.unwrap()
-        );
-        self.wrench.api.generate_frame(captured.document_id, None);
+        let mut txn = Transaction::new();
+        txn.set_root_pipeline(captured.root_pipeline_id.unwrap());
+        txn.generate_frame();
+        self.wrench.api.send_transaction(captured.document_id, txn);
         let pixels2 = self.render_and_get_pixels(window_rect);
         assert!(pixels0 == pixels2);
     }

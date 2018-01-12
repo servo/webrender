@@ -88,8 +88,6 @@ impl App {
         let bounds = DeviceUintRect::new(DeviceUintPoint::zero(), framebuffer_size);
         let document_id = api.add_document(framebuffer_size, layer);
 
-        api.set_root_pipeline(document_id, pipeline_id);
-
         let document = Document {
             id: document_id,
             pipeline_id,
@@ -117,6 +115,7 @@ impl App {
         builder.pop_stacking_context();
 
         let mut txn = Transaction::new();
+        txn.set_root_pipeline(pipeline_id);
         txn.enable_frame_output(document.pipeline_id, true);
         txn.update_resources(resources);
         txn.set_display_list(

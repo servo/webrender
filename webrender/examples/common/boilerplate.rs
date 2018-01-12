@@ -196,6 +196,7 @@ pub fn main_wrapper<E: Example>(
         events.push(event);
         events.extend(window.poll_events());
 
+        let mut txn = Transaction::new();
         for event in events {
             match event {
                 glutin::Event::Closed |
@@ -249,8 +250,7 @@ pub fn main_wrapper<E: Example>(
                     _,
                     Some(glutin::VirtualKeyCode::Key1),
                 ) => {
-                    api.set_window_parameters(
-                        document_id,
+                    txn.set_window_parameters(
                         framebuffer_size,
                         DeviceUintRect::new(DeviceUintPoint::zero(), framebuffer_size),
                         1.0
@@ -261,8 +261,7 @@ pub fn main_wrapper<E: Example>(
                     _,
                     Some(glutin::VirtualKeyCode::Key2),
                 ) => {
-                    api.set_window_parameters(
-                        document_id,
+                    txn.set_window_parameters(
                         framebuffer_size,
                         DeviceUintRect::new(DeviceUintPoint::zero(), framebuffer_size),
                         2.0
@@ -299,7 +298,6 @@ pub fn main_wrapper<E: Example>(
                         pipeline_id,
                         document_id,
                     );
-                    let mut txn = Transaction::new();
                     txn.set_display_list(
                         epoch,
                         None,
@@ -309,10 +307,10 @@ pub fn main_wrapper<E: Example>(
                     );
                     txn.update_resources(resources);
                     txn.generate_frame();
-                    api.send_transaction(document_id, txn);
                 }
             }
         }
+        api.send_transaction(document_id, txn);
 
         renderer.update();
         renderer.render(framebuffer_size).unwrap();
