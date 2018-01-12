@@ -425,7 +425,7 @@ impl ExternalTexture {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub struct Texture {
     #[cfg_attr(feature = "capture", serde(skip))]
     id: gl::GLuint,

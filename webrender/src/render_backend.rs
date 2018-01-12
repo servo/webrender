@@ -869,6 +869,8 @@ impl RenderBackend {
         root: &PathBuf,
         profile_counters: &mut BackendProfileCounters,
     ) {
+        use tiling::Frame;
+
         info!("capture: loading {:?}", root);
         let backend = CaptureConfig::deserialize::<PlainRenderBackend, _>(root, "backend")
             .expect("Unable to open backend.ron");
@@ -887,9 +889,9 @@ impl RenderBackend {
 
         for (id, view) in backend.documents {
             info!("\tdocument {:?}", id);
-            let file_name = format!("scene-{}-{}", (id.0).0, id.1);
-            let scene = CaptureConfig::deserialize::<Scene, _>(root, &file_name)
-                .expect(&format!("Unable to open {}.ron", file_name));
+            let scene_name = format!("scene-{}-{}", (id.0).0, id.1);
+            let scene = CaptureConfig::deserialize::<Scene, _>(root, &scene_name)
+                .expect(&format!("Unable to open {}.ron", scene_name));
 
             let mut doc = Document {
                 scene,
@@ -900,25 +902,32 @@ impl RenderBackend {
                 render_on_scroll: None,
             };
 
-            doc.build_scene(&mut self.resource_cache);
-            let render_doc = doc.render(
-                &mut self.resource_cache,
-                &mut self.gpu_cache,
-                &mut profile_counters.resources,
-            );
+            let frame_name = format!("frame-{}-{}", (id.0).0, id.1);
+            let render_doc = match CaptureConfig::deserialize::<Frame, _>(root, frame_name) {
+                Some(frame) => {
+                    info!("\tfound built frame");
+                    doc.frame_ctx.make_rendered_document(frame)
+                }
+                None => {
+                    doc.build_scene(&mut self.resource_cache);
+                    doc.render(
+                        &mut self.resource_cache,
+                        &mut self.gpu_cache,
+                        &mut profile_counters.resources,
+                    )
+                }
+            };
 
-            let pending_update = self.resource_cache.pending_updates();
             let msg = ResultMsg::PublishDocument(
                 id,
                 render_doc,
-                pending_update,
-                profile_counters.clone()
+                self.resource_cache.pending_updates(),
+                profile_counters.clone(),
             );
             self.result_tx.send(msg).unwrap();
             profile_counters.reset();
 
             self.notifier.new_document_ready(id, false, true);
-
             self.documents.insert(id, doc);
         }
     }

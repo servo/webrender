@@ -21,7 +21,7 @@ use internal_types::{FastHashMap, FastHashSet, RenderedDocument};
 use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
 use resource_cache::{FontInstanceMap,ResourceCache, TiledImageMap};
 use scene::{Scene, StackingContextHelpers, ScenePipeline, SceneProperties};
-use tiling::CompositeOps;
+use tiling::{CompositeOps, Frame};
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Eq, Ord)]
 #[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
@@ -1072,6 +1072,11 @@ impl FrameContext {
         self.pipeline_epoch_map.insert(pipeline_id, epoch);
     }
 
+    pub fn make_rendered_document(&self, frame: Frame) -> RenderedDocument {
+        let nodes_bouncing_back = self.clip_scroll_tree.collect_nodes_bouncing_back();
+        RenderedDocument::new(self.pipeline_epoch_map.clone(), nodes_bouncing_back, frame)
+    }
+
     pub fn build_rendered_document(
         &mut self,
         frame_builder: &mut FrameBuilder,
@@ -1099,8 +1104,6 @@ impl FrameContext {
             gpu_cache_profile,
             scene_properties,
         );
-
-        let nodes_bouncing_back = self.clip_scroll_tree.collect_nodes_bouncing_back();
-        RenderedDocument::new(self.pipeline_epoch_map.clone(), nodes_bouncing_back, frame)
+        self.make_rendered_document(frame)
     }
 }
