@@ -248,7 +248,9 @@ impl Wrench {
 
     pub fn set_page_zoom(&mut self, zoom_factor: ZoomFactor) {
         self.page_zoom_factor = zoom_factor;
-        self.api.set_page_zoom(self.document_id, self.page_zoom_factor);
+        let mut txn = Transaction::new();
+        txn.set_page_zoom(self.page_zoom_factor);
+        self.api.send_transaction(self.document_id, txn);
         self.set_title("");
     }
 

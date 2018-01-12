@@ -755,36 +755,6 @@ impl RenderApi {
         self.api_sender.send(ApiMsg::UpdateDocument(document_id, transaction.ops)).unwrap();
     }
 
-    /// Scrolls the scrolling layer under the `cursor`
-    ///
-    /// WebRender looks for the layer closest to the user
-    /// which has `ScrollPolicy::Scrollable` set.
-    pub fn scroll(
-        &self,
-        document_id: DocumentId,
-        scroll_location: ScrollLocation,
-        cursor: WorldPoint,
-        phase: ScrollEventPhase,
-    ) {
-        self.send(
-            document_id,
-            DocumentMsg::Scroll(scroll_location, cursor, phase),
-        );
-    }
-
-    pub fn scroll_node_with_id(
-        &self,
-        document_id: DocumentId,
-        origin: LayoutPoint,
-        id: ClipId,
-        clamp: ScrollClamping,
-    ) {
-        self.send(
-            document_id,
-            DocumentMsg::ScrollNodeWithId(origin, id, clamp),
-        );
-    }
-
     /// Does a hit test on display items in the specified document, at the given
     /// point. If a pipeline_id is specified, it is used to further restrict the
     /// hit results so that only items inside that pipeline are matched. If the
@@ -802,18 +772,6 @@ impl RenderApi {
         rx.recv().unwrap()
     }
 
-    pub fn set_page_zoom(&self, document_id: DocumentId, page_zoom: ZoomFactor) {
-        self.send(document_id, DocumentMsg::SetPageZoom(page_zoom));
-    }
-
-    pub fn set_pinch_zoom(&self, document_id: DocumentId, pinch_zoom: ZoomFactor) {
-        self.send(document_id, DocumentMsg::SetPinchZoom(pinch_zoom));
-    }
-
-    pub fn set_pan(&self, document_id: DocumentId, pan: DeviceIntPoint) {
-        self.send(document_id, DocumentMsg::SetPan(pan));
-    }
-
     pub fn set_window_parameters(
         &self,
         document_id: DocumentId,
@@ -829,10 +787,6 @@ impl RenderApi {
                 device_pixel_ratio,
             },
         );
-    }
-
-    pub fn tick_scrolling_bounce_animations(&self, document_id: DocumentId) {
-        self.send(document_id, DocumentMsg::TickScrollingBounce);
     }
 
     pub fn get_scroll_node_state(&self, document_id: DocumentId) -> Vec<ScrollLayerState> {
