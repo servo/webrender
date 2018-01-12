@@ -269,7 +269,7 @@ pub fn main_wrapper<E: Example>(
                     _,
                     Some(glutin::VirtualKeyCode::C),
                 ) => {
-                    let path: PathBuf = "captures/example".into();
+                    let path: PathBuf = "../captures/example".into();
                     if path.is_dir() {
                         api.load_capture(path);
                     } else {

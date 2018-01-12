@@ -128,6 +128,14 @@ pub enum UploadMethod {
     PixelBuffer(VertexUsageHint),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ReadPixelsFormat {
+    R8,
+    Rgba8,
+    Bgra8,
+    Rgba32F,
+}
+
 pub fn get_gl_format_bgra(gl: &gl::Gl) -> gl::GLuint {
     match gl.get_type() {
         gl::GlType::Gl => GL_FORMAT_BGRA_GL,
@@ -425,9 +433,7 @@ impl ExternalTexture {
     }
 }
 
-#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub struct Texture {
-    #[cfg_attr(feature = "capture", serde(skip))]
     id: gl::GLuint,
     target: gl::GLuint,
     layer_count: i32,
@@ -436,9 +442,7 @@ pub struct Texture {
     height: u32,
     filter: TextureFilter,
     render_target: Option<RenderTargetInfo>,
-    #[cfg_attr(feature = "capture", serde(skip))]
     fbo_ids: Vec<FBOId>,
-    #[cfg_attr(feature = "capture", serde(skip))]
     depth_rb: Option<RBOId>,
 }
 
@@ -457,6 +461,14 @@ impl Texture {
 
     pub fn get_format(&self) -> ImageFormat {
         self.format
+    }
+
+    pub fn get_filter(&self) -> TextureFilter {
+        self.filter
+    }
+
+    pub fn get_render_target(&self) -> Option<RenderTargetInfo> {
+        self.render_target.clone()
     }
 
     pub fn get_bpp(&self) -> u32 {
@@ -835,7 +847,7 @@ impl Device {
         self.bind_texture_impl(sampler.into(), external_texture.id, external_texture.target);
     }
 
-    fn bind_read_target_impl(&mut self, fbo_id: FBOId) {
+    pub fn bind_read_target_impl(&mut self, fbo_id: FBOId) {
         debug_assert!(self.inside_frame);
 
         if self.bound_read_fbo != fbo_id {
@@ -884,7 +896,7 @@ impl Device {
 
     pub fn create_fbo_for_external_texture(&mut self, texture_id: u32) -> FBOId {
         let fbo = FBOId(self.gl.gen_framebuffers(1)[0]);
-        self.bind_external_draw_target(fbo);
+        fbo.bind(self.gl(), FBOTarget::Draw);
         self.gl.framebuffer_texture_2d(
             gl::DRAW_FRAMEBUFFER,
             gl::COLOR_ATTACHMENT0,
@@ -892,6 +904,7 @@ impl Device {
             texture_id,
             0,
         );
+        self.bound_draw_fbo.bind(self.gl(), FBOTarget::Draw);
         fbo
     }
 
@@ -1507,6 +1520,72 @@ impl Device {
             gl_format,
             type_,
         )
+    }
+
+    /// Read rectangle of RGBA8 or BGRA8 pixels into the specified output slice.
+    pub fn read_pixels_into(
+        &mut self,
+        rect: DeviceUintRect,
+        format: ReadPixelsFormat,
+        output: &mut Vec<u8>,
+    ) {
+        let (gl_format, gl_type, pixel_size) = match format {
+            ReadPixelsFormat::R8 => (gl::RED, gl::UNSIGNED_BYTE, 1),
+            ReadPixelsFormat::Rgba8 => (gl::RGBA, gl::UNSIGNED_BYTE, 4),
+            ReadPixelsFormat::Bgra8 => (get_gl_format_bgra(self.gl()), gl::UNSIGNED_BYTE, 4),
+            ReadPixelsFormat::Rgba32F => (gl::RGBA, gl::FLOAT, 16),
+        };
+        let size = (pixel_size * rect.size.width * rect.size.height) as usize;
+        let base = output.len();
+        output.extend((0..size).map(|_| 0));
+
+        self.gl.flush();
+        self.gl.read_pixels_into_buffer(
+            rect.origin.x as _,
+            rect.origin.y as _,
+            rect.size.width as _,
+            rect.size.height as _,
+            gl_format,
+            gl_type,
+            &mut output[base ..],
+        );
+    }
+
+    /// Attaches the provided texture to the current Read FBO binding.
+    fn attach_read_texture_raw(
+        &mut self, texture_id: gl::GLuint, target: gl::GLuint, layer_id: i32
+    ) {
+        match target {
+            gl::TEXTURE_2D_ARRAY => {
+                self.gl.framebuffer_texture_layer(
+                    gl::READ_FRAMEBUFFER,
+                    gl::COLOR_ATTACHMENT0,
+                    texture_id,
+                    0,
+                    layer_id,
+                )
+            }
+            _ => {
+                assert_eq!(layer_id, 0);
+                self.gl.framebuffer_texture_2d(
+                    gl::READ_FRAMEBUFFER,
+                    gl::COLOR_ATTACHMENT0,
+                    target,
+                    texture_id,
+                    0,
+                )
+            }
+        }
+    }
+
+    pub fn attach_read_texture_external(
+        &mut self, texture_id: gl::GLuint, target: TextureTarget, layer_id: i32
+    ) {
+        self.attach_read_texture_raw(texture_id, target.to_gl_target(), layer_id)
+    }
+
+    pub fn attach_read_texture(&mut self, texture: &Texture, layer_id: i32) {
+        self.attach_read_texture_raw(texture.id, texture.target, layer_id)
     }
 
     fn bind_vao_impl(&mut self, id: gl::GLuint) {

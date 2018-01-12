@@ -20,17 +20,18 @@ use api::DebugCommand;
 use api::channel::MsgSender;
 use batch::{BatchKey, BatchKind, BatchTextures, BrushBatchKind};
 use batch::{BrushImageSourceKind, TransformBatchKind};
+#[cfg(feature = "capture")]
+use capture::{CaptureBits, CaptureConfig, ExternalCaptureImage};
 use debug_colors;
 use debug_render::DebugRenderer;
 #[cfg(feature = "debugger")]
 use debug_server::{self, DebugServer};
 use device::{DepthFunction, Device, FrameId, Program, UploadMethod, Texture,
              VertexDescriptor, PBO};
-use device::{get_gl_format_bgra, ExternalTexture, FBOId, TextureSlot, VertexAttribute,
-             VertexAttributeKind};
+use device::{ExternalTexture, FBOId, TextureSlot, VertexAttribute, VertexAttributeKind};
 use device::{FileWatcherHandler, ShaderError, TextureFilter, TextureTarget,
              VertexUsageHint, VAO, VBO, CustomVAO};
-use device::ProgramCache;
+use device::{ProgramCache, ReadPixelsFormat};
 use euclid::{rect, Transform3D};
 use frame_builder::FrameBuilderConfig;
 use gleam::gl;
@@ -1541,12 +1542,6 @@ impl FileWatcherHandler for FileWatcher {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum ReadPixelsFormat {
-    Rgba8,
-    Bgra8,
-}
-
 struct FrameOutput {
     last_access: FrameId,
     fbo_id: FBOId,
@@ -1665,6 +1660,9 @@ pub struct Renderer {
     /// via get_frame_profiles().
     cpu_profiles: VecDeque<CpuProfile>,
     gpu_profiles: VecDeque<GpuProfile>,
+
+    #[cfg(feature = "capture")]
+    capture_read_fbo: FBOId,
 }
 
 #[derive(Debug)]
@@ -2222,6 +2220,9 @@ impl Renderer {
             })
         };
 
+        #[cfg(feature = "capture")]
+        let capture_read_fbo = device.create_fbo_for_external_texture(0);
+
         let gpu_profile = GpuProfiler::new(Rc::clone(device.rc_gl()));
 
         let mut renderer = Renderer {
@@ -2286,6 +2287,8 @@ impl Renderer {
             texture_cache_upload_pbo,
             texture_resolver,
             renderer_errors: Vec::new(),
+            #[cfg(feature = "capture")]
+            capture_read_fbo,
         };
 
         renderer.set_debug_flags(options.debug_flags);
@@ -2388,45 +2391,19 @@ impl Renderer {
                         self.debug_server.send(string);
                     }
                     #[cfg(feature = "capture")]
-                    DebugOutput::SaveCapture(path, deferred)=> {
-                        use std::fs::File;
-                        use std::io::Write;
-                        use api::ExternalImageData;
-
-                        if deferred.is_empty() {
-                            continue
-                        }
-
-                        info!("saving external images");
-                        let handler = self.external_image_handler
-                            .as_mut()
-                            .expect("Unable to lock the external image handler!");
-                        for def in deferred {
-                            let ExternalImageData { id, channel_index, .. } = def.external;
-                            let data = match handler.lock(id, channel_index).source {
-                                ExternalImageSource::RawData(data) => data.to_vec(),
-                                ExternalImageSource::NativeTexture(_gl_id) => {
-                                    //TODO: make a read FBO with this GL texture
-                                    //self.device.read_pixels(&def.descriptor);
-                                    unimplemented!()
-                                }
-                                ExternalImageSource::Invalid => {
-                                    // Create a dummy buffer...
-                                    let stride = def.descriptor.compute_stride();
-                                    let total_size = def.descriptor.height * stride;
-                                    vec![0xFF; total_size as usize]
-                                }
-                            };
-                            handler.unlock(id, channel_index);
-
-                            File::create(path.join(&def.short_path))
-                                .expect(&format!("Unable to create {}", def.short_path))
-                                .write_all(&data)
-                                .unwrap();
-                        }
+                    DebugOutput::SaveCapture(config, deferred) => {
+                        self.save_capture(config, deferred);
                     }
                     #[cfg(feature = "capture")]
-                    DebugOutput::LoadCapture => {}
+                    DebugOutput::LoadCapture { reset_textures } => {
+                        if reset_textures {
+                            self.device.begin_frame();
+                            for mut texture in self.texture_resolver.cache_texture_map.drain(..) {
+                                self.device.free_texture_storage(&mut texture);
+                            }
+                            self.device.end_frame();
+                        }
+                    }
                 },
                 ResultMsg::DebugCommand(command) => {
                     self.handle_debug_command(command);
@@ -3758,10 +3735,9 @@ impl Renderer {
                 .as_mut()
                 .expect("Found output image, but no handler set!");
             if let Some((texture_id, output_size)) = handler.lock(output.pipeline_id) {
-                let device = &mut self.device;
                 let fbo_id = match self.output_targets.entry(texture_id) {
                     Entry::Vacant(entry) => {
-                        let fbo_id = device.create_fbo_for_external_texture(texture_id);
+                        let fbo_id = self.device.create_fbo_for_external_texture(texture_id);
                         entry.insert(FrameOutput {
                             fbo_id,
                             last_access: frame_id,
@@ -3776,9 +3752,9 @@ impl Renderer {
                 };
                 let (src_rect, _) = render_tasks[output.task_id].get_target_rect();
                 let dest_rect = DeviceIntRect::new(DeviceIntPoint::zero(), output_size);
-                device.bind_read_target(render_target);
-                device.bind_external_draw_target(fbo_id);
-                device.blit_render_target(src_rect, dest_rect);
+                self.device.bind_read_target(render_target);
+                self.device.bind_external_draw_target(fbo_id);
+                self.device.blit_render_target(src_rect, dest_rect);
                 handler.unlock(output.pipeline_id);
             }
         }
@@ -4533,51 +4509,25 @@ impl Renderer {
         );
     }
 
-    pub fn read_pixels_rgba8(&self, rect: DeviceUintRect) -> Vec<u8> {
-        let mut pixels = vec![0u8; (4 * rect.size.width * rect.size.height) as usize];
-        self.read_pixels_into(rect, ReadPixelsFormat::Rgba8, &mut pixels);
+    pub fn read_pixels_rgba8(&mut self, rect: DeviceUintRect) -> Vec<u8> {
+        let mut pixels = Vec::new();
+        self.device.read_pixels_into(rect, ReadPixelsFormat::Rgba8, &mut pixels);
         pixels
     }
 
     pub fn read_gpu_cache(&mut self) -> (DeviceUintSize, Vec<u8>) {
         let size = self.gpu_cache_texture.texture.get_dimensions();
-        let mut texels = vec![0u8; 4 * (size.width * size.height) as usize];
+        let mut texels = Vec::new();
         self.device.begin_frame();
         self.device.bind_read_target(Some((&self.gpu_cache_texture.texture, 0)));
-        self.read_pixels_into(
+        self.device.read_pixels_into(
             DeviceUintRect::new(DeviceUintPoint::zero(), size),
-            ReadPixelsFormat::Rgba8,
+            ReadPixelsFormat::Rgba32F,
             &mut texels,
         );
         self.device.bind_read_target(None);
         self.device.end_frame();
         (size, texels)
-    }
-
-    pub fn read_pixels_into(
-        &self,
-        rect: DeviceUintRect,
-        format: ReadPixelsFormat,
-        output: &mut [u8],
-    ) {
-        let (gl_format, gl_type, size) = match format {
-            ReadPixelsFormat::Rgba8 => (gl::RGBA, gl::UNSIGNED_BYTE, 4),
-            ReadPixelsFormat::Bgra8 => (get_gl_format_bgra(self.device.gl()), gl::UNSIGNED_BYTE, 4),
-        };
-        assert_eq!(
-            output.len(),
-            (size * rect.size.width * rect.size.height) as usize
-        );
-        self.device.gl().flush();
-        self.device.gl().read_pixels_into_buffer(
-            rect.origin.x as gl::GLint,
-            rect.origin.y as gl::GLint,
-            rect.size.width as gl::GLsizei,
-            rect.size.height as gl::GLsizei,
-            gl_format,
-            gl_type,
-            output,
-        );
     }
 
     // De-initialize the Renderer safely, assuming the GL is still alive and active.
@@ -4758,7 +4708,7 @@ pub struct DebugServer;
 
 #[cfg(not(feature = "debugger"))]
 impl DebugServer {
-    pub fn new(_: MsgSender<ApiMsg>) -> DebugServer {
+    pub fn new(_: MsgSender<ApiMsg>) -> Self {
         DebugServer
     }
 
@@ -4776,11 +4726,119 @@ pub struct RendererStats {
 }
 
 impl RendererStats {
-    pub fn empty() -> RendererStats {
+    pub fn empty() -> Self {
         RendererStats {
             total_draw_calls: 0,
             alpha_target_count: 0,
             color_target_count: 0,
         }
+    }
+}
+
+#[cfg(feature = "capture")]
+impl Renderer {
+    fn save_capture(&mut self, config: CaptureConfig, deferred_images: Vec<ExternalCaptureImage>) {
+        use std::fs;
+        use std::io::Write;
+        use api::ExternalImageData;
+
+        #[derive(Serialize)]
+        struct PlainTexture {
+            data: String,
+            size: (u32, u32, i32),
+            format: ImageFormat,
+            filter: TextureFilter,
+            render_target: Option<RenderTargetInfo>,
+        }
+
+        self.device.begin_frame();
+        self.device.bind_read_target_impl(self.capture_read_fbo);
+
+        if !deferred_images.is_empty() {
+            info!("saving external images");
+            //TODO: add a switch to check `self.texture_resolver.external_images`
+            // instead of locking with the actual handler.
+            let handler = self.external_image_handler
+                .as_mut()
+                .expect("Unable to lock the external image handler!");
+            for def in deferred_images {
+                let ExternalImageData { id, channel_index, image_type } = def.external;
+                let data = match handler.lock(id, channel_index).source {
+                    ExternalImageSource::RawData(data) => data.to_vec(),
+                    ExternalImageSource::NativeTexture(gl_id) => {
+                        let target = match image_type {
+                            ExternalImageType::Texture2DHandle => TextureTarget::Default,
+                            ExternalImageType::Texture2DArrayHandle => TextureTarget::Array, // layer is always 0?
+                            ExternalImageType::TextureRectHandle => TextureTarget::Rect,
+                            ExternalImageType::TextureExternalHandle => TextureTarget::External,
+                            ExternalImageType::ExternalBuffer => unimplemented!(),
+                        };
+                        self.device.attach_read_texture_external(gl_id, target, 0);
+                        self.device.read_pixels(&def.descriptor)
+                    }
+                    ExternalImageSource::Invalid => {
+                        // Create a dummy buffer...
+                        let stride = def.descriptor.compute_stride();
+                        let total_size = def.descriptor.height * stride;
+                        vec![0xFF; total_size as usize]
+                    }
+                };
+                handler.unlock(id, channel_index);
+
+                fs::File::create(config.root.join(&def.short_path))
+                    .expect(&format!("Unable to create {}", def.short_path))
+                    .write_all(&data)
+                    .unwrap();
+            }
+        }
+
+        if config.bits.contains(CaptureBits::FRAME) {
+            info!("saving cached textures");
+            let mut data = Vec::new();
+            let path_textures = config.root.join("textures");
+            if !path_textures.is_dir() {
+                fs::create_dir(&path_textures).unwrap();
+            }
+            let mut plain_textures = Vec::new();
+
+            for texture in &self.texture_resolver.cache_texture_map {
+                let file_name = format!("{}.raw", plain_textures.len() + 1);
+                info!("\t{}", file_name);
+                let short_path = format!("textures/{}", file_name);
+
+                let read_format = match texture.get_format() {
+                    ImageFormat::A8 => ReadPixelsFormat::R8,
+                    ImageFormat::BGRA8 => ReadPixelsFormat::Bgra8,
+                    ImageFormat::RGBAF32 => ReadPixelsFormat::Rgba32F,
+                    _ => unimplemented!()
+                };
+                let rect = DeviceUintRect::new(
+                    DeviceUintPoint::zero(),
+                    texture.get_dimensions(),
+                );
+
+                data.clear();
+                for layer_id in 0 .. texture.get_layer_count() {
+                    self.device.attach_read_texture(texture, layer_id);
+                    self.device.read_pixels_into(rect, read_format, &mut data);
+                }
+
+                fs::File::create(path_textures.join(file_name))
+                    .expect(&format!("Unable to create {}", short_path))
+                    .write_all(&data)
+                    .unwrap();
+
+                plain_textures.push(PlainTexture {
+                    data: short_path,
+                    size: (rect.size.width, rect.size.height, texture.get_layer_count()),
+                    format: texture.get_format(),
+                    filter: texture.get_filter(),
+                    render_target: texture.get_render_target(),
+                });
+            }
+            config.serialize(&plain_textures, "textures");
+        }
+
+        self.device.end_frame();
     }
 }

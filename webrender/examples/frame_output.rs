@@ -77,7 +77,7 @@ impl App {
             ImageData::External(ExternalImageData {
                 id: ExternalImageId(0),
                 channel_index: 0,
-                image_type: ExternalImageType::Texture2DHandle
+                image_type: ExternalImageType::Texture2DHandle,
             }),
             None,
         );
@@ -126,7 +126,7 @@ impl App {
             true,
             resources,
         );
-        
+
         api.generate_frame(document.id, None);
         self.output_document = Some(document);
     }
@@ -173,7 +173,7 @@ impl Example for App {
     fn get_image_handlers(
         &mut self,
         gl: &gl::Gl,
-    ) -> (Option<Box<webrender::ExternalImageHandler>>, 
+    ) -> (Option<Box<webrender::ExternalImageHandler>>,
           Option<Box<webrender::OutputImageHandler>>) {
         let texture_id = gl.gen_textures(1)[0];
 
@@ -211,8 +211,8 @@ impl Example for App {
         );
         gl.bind_texture(gl::TEXTURE_2D, 0);
 
-        (   
-            Some(Box::new(ExternalHandler { texture_id })), 
+        (
+            Some(Box::new(ExternalHandler { texture_id })),
             Some(Box::new(OutputHandler { texture_id }))
         )
     }

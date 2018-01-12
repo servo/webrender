@@ -125,6 +125,7 @@ pub struct RenderTargetList<T> {
     pub format: ImageFormat,
     pub max_size: DeviceUintSize,
     pub targets: Vec<T>,
+    #[cfg_attr(feature = "capture", serde(skip))]
     pub texture: Option<Texture>,
 }
 
