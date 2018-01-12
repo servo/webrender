@@ -17,7 +17,7 @@ use gpu_types::{PrimitiveInstance};
 use internal_types::{FastHashMap, RenderPassIndex, SourceTexture};
 use picture::{PictureKind};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveStore};
-use prim_store::{BrushMaskKind, BrushKind, DeferredResolve};
+use prim_store::{BrushMaskKind, BrushKind, DeferredResolve, EdgeAaSegmentMask};
 use profiler::FrameProfileCounters;
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKind};
 use render_task::{BlurTask, ClearMode, RenderTaskLocation, RenderTaskTree};
@@ -468,6 +468,7 @@ impl RenderTarget for AlphaRenderTarget {
                                             clip_task_address: RenderTaskAddress(0),
                                             z: 0,
                                             segment_index: 0,
+                                            edge_flags: EdgeAaSegmentMask::empty(),
                                             user_data0: 0,
                                             user_data1: 0,
                                         };

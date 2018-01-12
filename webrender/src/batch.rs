@@ -19,7 +19,7 @@ use internal_types::{FastHashMap, SourceTexture};
 use picture::{PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
 use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
-use prim_store::{BrushPrimitive, BrushKind, DeferredResolve, PrimitiveRun};
+use prim_store::{BrushPrimitive, BrushKind, DeferredResolve, EdgeAaSegmentMask, PrimitiveRun};
 use render_task::{ClipWorkItem};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKind};
 use render_task::{RenderTaskTree};
@@ -663,6 +663,7 @@ impl AlphaBatcher {
                     scroll_id,
                     clip_task_address,
                     z,
+                    edge_flags: EdgeAaSegmentMask::empty(),
                     segment_index: 0,
                     user_data0: 0,
                     user_data1: 0,
@@ -862,6 +863,7 @@ impl AlphaBatcher {
                                     clip_task_address,
                                     z,
                                     segment_index: 0,
+                                    edge_flags: EdgeAaSegmentMask::empty(),
                                     user_data0: cache_item.uv_rect_handle.as_int(gpu_cache),
                                     user_data1: image_kind as i32,
                                 };
@@ -890,6 +892,7 @@ impl AlphaBatcher {
                                     clip_task_address,
                                     z,
                                     segment_index: 0,
+                                    edge_flags: EdgeAaSegmentMask::empty(),
                                     user_data0: cache_task_address.0 as i32,
                                     user_data1: BrushImageKind::Simple as i32,
                                 };
@@ -971,6 +974,7 @@ impl AlphaBatcher {
                                                     clip_task_address,
                                                     z,
                                                     segment_index: 0,
+                                                    edge_flags: EdgeAaSegmentMask::empty(),
                                                     user_data0: cache_task_address.0 as i32,
                                                     user_data1: BrushImageKind::Simple as i32,
                                                 };
@@ -1261,6 +1265,7 @@ impl AlphaBatcher {
             clip_task_address,
             z,
             segment_index: 0,
+            edge_flags: EdgeAaSegmentMask::empty(),
             user_data0: 0,
             user_data1: 0,
         };
@@ -1292,6 +1297,7 @@ impl AlphaBatcher {
 
                     let instance = PrimitiveInstance::from(BrushInstance {
                         segment_index: i as i32,
+                        edge_flags: segment.edge_flags,
                         clip_task_address,
                         ..base_instance
                     });

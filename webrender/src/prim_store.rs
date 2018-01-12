@@ -1264,13 +1264,7 @@ impl PrimitiveStore {
                     //           up in the future so it's enforced that these
                     //           types use a shared function to write out the
                     //           GPU blocks...
-                    request.push(metadata.local_rect);
-                    request.push([
-                        EdgeAaSegmentMask::empty().bits() as f32,
-                        0.0,
-                        0.0,
-                        0.0
-                    ]);
+                    request.write_segment(metadata.local_rect);
                 }
                 PrimitiveKind::Border => {
                     let border = &self.cpu_borders[metadata.cpu_prim_index.0];
@@ -1311,13 +1305,7 @@ impl PrimitiveStore {
                     //           up in the future so it's enforced that these
                     //           types use a shared function to write out the
                     //           GPU blocks...
-                    request.push(metadata.local_rect);
-                    request.push([
-                        EdgeAaSegmentMask::empty().bits() as f32,
-                        0.0,
-                        0.0,
-                        0.0
-                    ]);
+                    request.write_segment(metadata.local_rect);
                 }
                 PrimitiveKind::Brush => {
                     let brush = &self.cpu_brushes[metadata.cpu_prim_index.0];
@@ -1326,23 +1314,11 @@ impl PrimitiveStore {
                         Some(ref segment_desc) => {
                             for segment in &segment_desc.segments {
                                 // has to match VECS_PER_SEGMENT
-                                request.push(segment.local_rect);
-                                request.push([
-                                    segment.edge_flags.bits() as f32,
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ]);
+                                request.write_segment(segment.local_rect);
                             }
                         }
                         None => {
-                            request.push(metadata.local_rect);
-                            request.push([
-                                EdgeAaSegmentMask::empty().bits() as f32,
-                                0.0,
-                                0.0,
-                                0.0
-                            ]);
+                            request.write_segment(metadata.local_rect);
                         }
                     }
                 }
@@ -2060,5 +2036,25 @@ fn get_local_clip_rect_for_nodes(
         Some(local_rect) =>
             Some(scroll_node.coordinate_system_relative_transform.unapply(&local_rect)),
         None => None,
+    }
+}
+
+impl<'a> GpuDataRequest<'a> {
+    // Write the GPU cache data for an individual segment.
+    // TODO(gw): The second block is currently unused. In
+    //           the future, it will be used to store a
+    //           UV rect, allowing segments to reference
+    //           part of an image.
+    fn write_segment(
+        &mut self,
+        local_rect: LayerRect,
+    ) {
+        self.push(local_rect);
+        self.push([
+            0.0,
+            0.0,
+            0.0,
+            0.0
+        ]);
     }
 }
