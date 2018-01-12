@@ -542,7 +542,10 @@ impl<'a> RawtestHarness<'a> {
 
         // 5. render and compare
 
-        self.wrench.api.generate_frame(self.wrench.document_id, None);
+        let mut txn = Transaction::new();
+        txn.generate_frame();
+        self.wrench.api.send_transaction(self.wrench.document_id, txn);
+
         let pixels1 = self.render_and_get_pixels(window_rect);
         assert!(pixels0 == pixels1);
     }

@@ -235,9 +235,9 @@ impl Wrench {
         };
 
         wrench.set_title("start");
-        wrench
-            .api
-            .set_root_pipeline(wrench.document_id, wrench.root_pipeline_id);
+        let mut txn = Transaction::new();
+        txn.set_root_pipeline(wrench.root_pipeline_id);
+        wrench.api.send_transaction(wrench.document_id, txn);
 
         wrench
     }
@@ -510,7 +510,9 @@ impl Wrench {
 
     pub fn refresh(&mut self) {
         self.begin_frame();
-        self.api.generate_frame(self.document_id, None);
+        let mut txn = Transaction::new();
+        txn.generate_frame();
+        self.api.send_transaction(self.document_id, txn);
     }
 
     pub fn show_onscreen_help(&mut self) {

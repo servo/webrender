@@ -731,23 +731,6 @@ impl RenderApi {
     // it makes things easier for servo.
     // They are all equivalent to creating a transaction with a single command.
 
-    /// Sets the root pipeline.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use webrender_api::{DeviceUintSize, PipelineId, RenderApiSender};
-    /// # fn example(sender: RenderApiSender) {
-    /// let api = sender.create_api();
-    /// let document_id = api.add_document(DeviceUintSize::zero(), 0);
-    /// let pipeline_id = PipelineId(0, 0);
-    /// api.set_root_pipeline(document_id, pipeline_id);
-    /// # }
-    /// ```
-    pub fn set_root_pipeline(&self, document_id: DocumentId, pipeline_id: PipelineId) {
-        self.send(document_id, DocumentMsg::SetRootPipeline(pipeline_id));
-    }
-
     pub fn send_transaction(&self, document_id: DocumentId, transaction: Transaction) {
         for payload in transaction.payloads {
             self.payload_sender.send_payload(payload).unwrap();
@@ -793,34 +776,6 @@ impl RenderApi {
         let (tx, rx) = channel::msg_channel().unwrap();
         self.send(document_id, DocumentMsg::GetScrollNodeState(tx));
         rx.recv().unwrap()
-    }
-
-    /// Enable copying of the output of this pipeline id to
-    /// an external texture for callers to consume.
-    pub fn enable_frame_output(
-        &self,
-        document_id: DocumentId,
-        pipeline_id: PipelineId,
-        enable: bool,
-    ) {
-        self.send(
-            document_id,
-            DocumentMsg::EnableFrameOutput(pipeline_id, enable),
-        );
-    }
-
-    /// Generate a new frame. Optionally, supply a list of animated
-    /// property bindings that should be used to resolve bindings
-    /// in the current display list.
-    pub fn generate_frame(
-        &self,
-        document_id: DocumentId,
-        property_bindings: Option<DynamicProperties>,
-    ) {
-        if let Some(properties) = property_bindings {
-            self.send(document_id, DocumentMsg::UpdateDynamicProperties(properties));
-        }
-        self.send(document_id, DocumentMsg::GenerateFrame);
     }
 
     /// Save a capture of the current frame state for debugging.

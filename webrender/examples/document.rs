@@ -67,12 +67,10 @@ impl App {
             let bounds = DeviceUintRect::new(offset, size);
 
             let document_id = api.add_document(size, layer);
-            api.set_window_parameters(document_id,
-                framebuffer_size,
-                bounds,
-                1.0
-            );
-            api.set_root_pipeline(document_id, pipeline_id);
+            let mut txn = Transaction::new();
+            txn.set_window_parameters(framebuffer_size, bounds, 1.0);
+            txn.set_root_pipeline(pipeline_id);
+            api.send_transaction(document_id, txn);
 
             self.documents.push(Document {
                 id: document_id,
