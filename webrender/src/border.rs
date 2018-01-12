@@ -149,6 +149,14 @@ impl NormalBorderHelpers for NormalBorder {
                 BorderCornerKind::None
             }
 
+            // If one of the edges is none or hidden, we just draw one style.
+            (BorderStyle::None, _) |
+            (_, BorderStyle::None) |
+            (BorderStyle::Hidden, _) |
+            (_, BorderStyle::Hidden) => {
+                BorderCornerKind::Clip(BorderCornerInstance::Single)
+            }
+
             // If both borders are solid, we can draw them with a simple rectangle if
             // both the colors match and there is no radius.
             (BorderStyle::Solid, BorderStyle::Solid) => {
@@ -280,6 +288,7 @@ impl FrameBuilder {
         widths: &BorderWidths,
         clip_and_scroll: ClipAndScrollInfo,
         corner_instances: [BorderCornerInstance; 4],
+        edges: [BorderEdgeKind; 4],
         clip_sources: Vec<ClipSource>,
     ) {
         let radius = &border.radius;
@@ -296,6 +305,7 @@ impl FrameBuilder {
 
         let prim_cpu = BorderPrimitiveCpu {
             corner_instances,
+            edges,
 
             // TODO(gw): In the future, we will build these on demand
             //           from the deserialized display list, rather
@@ -536,6 +546,7 @@ impl FrameBuilder {
                 widths,
                 clip_and_scroll,
                 corner_instances,
+                edges,
                 extra_clips,
             );
         }

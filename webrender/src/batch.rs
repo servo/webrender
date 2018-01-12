@@ -6,7 +6,7 @@ use api::{DeviceIntRect, DeviceIntSize, ImageKey, LayerToWorldScale};
 use api::{ExternalImageType, FilterOp, ImageRendering, LayerRect};
 use api::{SubpixelDirection, TileOffset, YuvColorSpace, YuvFormat};
 use api::{LayerToWorldTransform, WorldPixel};
-use border::{BorderCornerInstance, BorderCornerSide};
+use border::{BorderCornerInstance, BorderCornerSide, BorderEdgeKind};
 use clip::{ClipSource, ClipStore};
 use clip_scroll_tree::{CoordinateSystemId};
 use euclid::{TypedTransform3D, vec3};
@@ -646,8 +646,13 @@ impl AlphaBatcher {
                 }
 
                 let batch = self.batch_list.get_suitable_batch(edge_key, item_bounding_rect);
-                for border_segment in 0 .. 4 {
-                    batch.push(base_instance.build(border_segment, 0, 0));
+                for (border_segment, instance_kind) in border_cpu.edges.iter().enumerate() {
+                    match *instance_kind {
+                        BorderEdgeKind::None => {},
+                        _ => {
+                          batch.push(base_instance.build(border_segment as i32, 0, 0));
+                        }
+                    }
                 }
             }
             PrimitiveKind::Line => {
