@@ -4735,20 +4735,67 @@ impl RendererStats {
     }
 }
 
+
+#[cfg(feature = "capture")]
+#[derive(Serialize)]
+struct PlainTexture {
+    data: String,
+    size: (u32, u32, i32),
+    format: ImageFormat,
+    filter: TextureFilter,
+    render_target: Option<RenderTargetInfo>,
+}
+
 #[cfg(feature = "capture")]
 impl Renderer {
+    fn save_texture(
+        texture: &Texture, name: &str, root: &PathBuf, device: &mut Device
+    ) -> PlainTexture {
+        use std::fs;
+        use std::io::Write;
+
+        let short_path = format!("textures/{}.raw", name);
+
+        let read_format = match texture.get_format() {
+            ImageFormat::A8 => ReadPixelsFormat::R8,
+            ImageFormat::BGRA8 => ReadPixelsFormat::Bgra8,
+            ImageFormat::RGBAF32 => ReadPixelsFormat::Rgba32F,
+            _ => unimplemented!()
+        };
+        let rect = DeviceUintRect::new(
+            DeviceUintPoint::zero(),
+            texture.get_dimensions(),
+        );
+
+        let mut data = Vec::new();
+        for layer_id in 0 .. texture.get_layer_count() {
+            device.attach_read_texture(texture, layer_id);
+            device.read_pixels_into(rect, read_format, &mut data);
+        }
+
+        fs::File::create(root.join(&short_path))
+            .expect(&format!("Unable to create {}", short_path))
+            .write_all(&data)
+            .unwrap();
+
+        PlainTexture {
+            data: short_path,
+            size: (rect.size.width, rect.size.height, texture.get_layer_count()),
+            format: texture.get_format(),
+            filter: texture.get_filter(),
+            render_target: texture.get_render_target(),
+        }
+    }
+
     fn save_capture(&mut self, config: CaptureConfig, deferred_images: Vec<ExternalCaptureImage>) {
         use std::fs;
         use std::io::Write;
         use api::ExternalImageData;
 
         #[derive(Serialize)]
-        struct PlainTexture {
-            data: String,
-            size: (u32, u32, i32),
-            format: ImageFormat,
-            filter: TextureFilter,
-            render_target: Option<RenderTargetInfo>,
+        struct PlainRenderer {
+            gpu_cache: PlainTexture,
+            textures: Vec<PlainTexture>,
         }
 
         self.device.begin_frame();
@@ -4793,52 +4840,32 @@ impl Renderer {
         }
 
         if config.bits.contains(CaptureBits::FRAME) {
-            info!("saving cached textures");
-            let mut data = Vec::new();
             let path_textures = config.root.join("textures");
             if !path_textures.is_dir() {
                 fs::create_dir(&path_textures).unwrap();
             }
-            let mut plain_textures = Vec::new();
 
+            info!("saving GPU cache");
+            let mut plain_self = PlainRenderer {
+                gpu_cache: Self::save_texture(
+                    &self.gpu_cache_texture.texture,
+                    "gpu", &config.root, &mut self.device,
+                ),
+                textures: Vec::new(),
+            };
+
+            info!("saving cached textures");
             for texture in &self.texture_resolver.cache_texture_map {
-                let file_name = format!("{}.raw", plain_textures.len() + 1);
+                let file_name = format!("cache-{}", plain_self.textures.len() + 1);
                 info!("\t{}", file_name);
-                let short_path = format!("textures/{}", file_name);
-
-                let read_format = match texture.get_format() {
-                    ImageFormat::A8 => ReadPixelsFormat::R8,
-                    ImageFormat::BGRA8 => ReadPixelsFormat::Bgra8,
-                    ImageFormat::RGBAF32 => ReadPixelsFormat::Rgba32F,
-                    _ => unimplemented!()
-                };
-                let rect = DeviceUintRect::new(
-                    DeviceUintPoint::zero(),
-                    texture.get_dimensions(),
-                );
-
-                data.clear();
-                for layer_id in 0 .. texture.get_layer_count() {
-                    self.device.attach_read_texture(texture, layer_id);
-                    self.device.read_pixels_into(rect, read_format, &mut data);
-                }
-
-                fs::File::create(path_textures.join(file_name))
-                    .expect(&format!("Unable to create {}", short_path))
-                    .write_all(&data)
-                    .unwrap();
-
-                plain_textures.push(PlainTexture {
-                    data: short_path,
-                    size: (rect.size.width, rect.size.height, texture.get_layer_count()),
-                    format: texture.get_format(),
-                    filter: texture.get_filter(),
-                    render_target: texture.get_render_target(),
-                });
+                let plain = Self::save_texture(texture, &file_name, &config.root, &mut self.device);
+                plain_self.textures.push(plain);
             }
-            config.serialize(&plain_textures, "textures");
+
+            config.serialize(&plain_self, "renderer");
         }
 
+        self.device.bind_read_target(None);
         self.device.end_frame();
     }
 }
