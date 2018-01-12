@@ -10,11 +10,11 @@ use util::recycle_vec;
 //           retain() style functionality.
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 struct Epoch(u32);
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub struct FreeListHandle<T> {
     index: u32,
     epoch: Epoch,
@@ -42,21 +42,21 @@ impl<T> Clone for WeakFreeListHandle<T> {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub struct WeakFreeListHandle<T> {
     index: u32,
     epoch: Epoch,
     _marker: PhantomData<T>,
 }
 
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 struct Slot<T> {
     next: Option<u32>,
     epoch: Epoch,
     value: Option<T>,
 }
 
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub struct FreeList<T> {
     slots: Vec<Slot<T>>,
     free_list_head: Option<u32>,

@@ -23,7 +23,7 @@ pub type ScrollStates = FastHashMap<ClipId, ScrollingState>;
 /// system are the same or are in the same axis-aligned space. This allows
 /// for optimizing mask generation.
 #[derive(Debug, Copy, Clone, PartialEq)]
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct CoordinateSystemId(pub u32);
 
 impl CoordinateSystemId {

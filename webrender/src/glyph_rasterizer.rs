@@ -219,7 +219,7 @@ impl FontInstance {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 #[allow(dead_code)]
 pub enum GlyphFormat {
     Alpha,
@@ -597,7 +597,7 @@ impl FontContext {
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug, Ord, PartialOrd)]
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub struct GlyphRequest {
     pub key: GlyphKey,
     pub font: FontInstance,

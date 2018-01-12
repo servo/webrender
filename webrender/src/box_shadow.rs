@@ -29,7 +29,7 @@ pub const MAX_BLUR_RADIUS : f32 = 300.;
 pub const MASK_CORNER_PADDING: f32 = 4.0;
 
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct BoxShadowCacheKey {
     pub width: Au,
     pub height: Au,

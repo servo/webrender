@@ -33,11 +33,11 @@ pub type FastHashSet<K> = HashSet<K, BuildHasherDefault<FxHasher>>;
 // map from cache texture ID to native texture.
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub struct CacheTextureId(pub usize);
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct RenderPassIndex(pub usize);
 
 // Represents the source for a texture.
@@ -47,7 +47,7 @@ pub struct RenderPassIndex(pub usize);
 // native texture ID.
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
 pub enum SourceTexture {
     Invalid,
     TextureCache(CacheTextureId),
@@ -64,7 +64,7 @@ pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;
 pub const ORTHO_FAR_PLANE: f32 = 1000000.0;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "capture2", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct RenderTargetInfo {
     pub has_depth: bool,
 }

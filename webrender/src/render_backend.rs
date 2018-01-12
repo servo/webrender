@@ -29,6 +29,8 @@ use scene::Scene;
 use serde::{Serialize, Deserialize};
 #[cfg(feature = "debugger")]
 use serde_json;
+#[cfg(feature = "capture")]
+use std::path::PathBuf;
 use std::sync::atomic::{ATOMIC_USIZE_INIT, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
@@ -594,8 +596,7 @@ impl RenderBackend {
                         DebugCommand::LoadCapture(root) => {
                             NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed);
                             frame_counter += 1;
-                            let config = CaptureConfig::new(root, CaptureBits::FRAME);
-                            self.load_capture(&config, &mut profile_counters);
+                            self.load_capture(&root, &mut profile_counters);
                             ResultMsg::DebugOutput(DebugOutput::LoadCapture)
                         },
                         DebugCommand::EnableDualSourceBlending(enable) => {
@@ -865,17 +866,19 @@ impl RenderBackend {
 
     fn load_capture(
         &mut self,
-        config: &CaptureConfig,
+        root: &PathBuf,
         profile_counters: &mut BackendProfileCounters,
     ) {
-        info!("capture: loading {:?}", config.root);
-        let backend: PlainRenderBackend = config.deserialize("backend");
+        info!("capture: loading {:?}", root);
+        let backend = CaptureConfig::deserialize::<PlainRenderBackend, _>(root, "backend")
+            .expect("Unable to open backend.ron");
+        let caches_maybe = CaptureConfig::deserialize::<PlainCacheOwn, _>(root, "cache");
 
         // Note: it would be great to have RenderBackend to be split
         // rather explicitly on what's used before and after scene building
         // so that, for example, we never miss anything in the code below:
 
-        self.resource_cache.load_capture(backend.resources, &config.root);
+        self.resource_cache.load_capture(backend.resources, caches_maybe,root);
         self.gpu_cache = GpuCache::new();
         self.documents.clear();
         self.default_device_pixel_ratio = backend.default_device_pixel_ratio;
@@ -885,7 +888,8 @@ impl RenderBackend {
         for (id, view) in backend.documents {
             info!("\tdocument {:?}", id);
             let file_name = format!("scene-{}-{}", (id.0).0, id.1);
-            let scene: Scene = config.deserialize(file_name);
+            let scene = CaptureConfig::deserialize::<Scene, _>(root, &file_name)
+                .expect(&format!("Unable to open {}.ron", file_name));
 
             let mut doc = Document {
                 scene,
