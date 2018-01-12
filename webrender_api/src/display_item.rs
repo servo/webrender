@@ -67,6 +67,7 @@ pub struct PrimitiveInfo<T> {
     pub rect: TypedRect<f32, T>,
     pub local_clip: LocalClip,
     pub is_backface_visible: bool,
+    pub premultiplied: bool,
     pub tag: Option<ItemTag>,
 }
 
@@ -87,6 +88,7 @@ impl LayerPrimitiveInfo {
             rect: rect,
             local_clip: clip,
             is_backface_visible: true,
+            premultiplied: true,
             tag: None,
         }
     }

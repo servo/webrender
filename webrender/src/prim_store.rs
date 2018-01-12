@@ -189,6 +189,7 @@ pub struct PrimitiveMetadata {
     pub clip_chain_rect_index: ClipChainRectIndex,
     pub is_backface_visible: bool,
     pub screen_rect: Option<DeviceIntRect>,
+    pub premultiplied: bool,
 
     /// A tag used to identify this primitive outside of WebRender. This is
     /// used for returning useful data during hit testing.
@@ -1001,6 +1002,7 @@ impl PrimitiveStore {
         local_rect: &LayerRect,
         local_clip_rect: &LayerRect,
         is_backface_visible: bool,
+        premultiplied: bool,
         clip_sources: ClipSourcesHandle,
         tag: Option<ItemTag>,
         container: PrimitiveContainer,
@@ -1016,6 +1018,7 @@ impl PrimitiveStore {
             clip_chain_rect_index: ClipChainRectIndex(0),
             is_backface_visible: is_backface_visible,
             screen_rect: None,
+            premultiplied,
             tag,
             opacity: PrimitiveOpacity::translucent(),
             prim_kind: PrimitiveKind::Brush,
