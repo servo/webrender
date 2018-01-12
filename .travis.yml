@@ -32,8 +32,8 @@ addons:
       - libedit-dev
       - python
 env:
-  - BUILD_KIND=DEBUG RUST_BACKTRACE=1 RUSTFLAGS='--deny warnings'
-  - BUILD_KIND=RELEASE RUST_BACKTRACE=1 RUSTFLAGS='--deny warnings'
+  - BUILD_KIND=DEBUG RUST_BACKTRACE=1 RUSTFLAGS='--deny warnings' RUST_LOG=info
+  - BUILD_KIND=RELEASE RUST_BACKTRACE=1 RUSTFLAGS='--deny warnings' RUST_LOG=info
 before_install:
   - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then export LLVM_CONFIG=/usr/lib/llvm-3.9/bin/llvm-config; fi
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew update; fi
@@ -45,10 +45,11 @@ before_install:
   - pip install mako servo-tidy
 script:
   - servo-tidy
+  - unset -f cd
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender_api && cargo test --verbose --features "ipc"); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo build --verbose --no-default-features); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo build --verbose --features profiler,capture); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cargo test --all --verbose); fi
-  - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && python script/headless.py reftest); fi
+  - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && travis_wait 30 python script/headless.py reftest); fi
   - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && cargo build --release); fi
   - if [ $TRAVIS_RUST_VERSION == "nightly" ]; then (cd webrender && cargo bench --verbose); fi
