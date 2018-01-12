@@ -260,6 +260,7 @@ impl Wrench {
         text: &str,
         size: Au,
         origin: LayerPoint,
+        flags: FontInstanceFlags,
     ) -> (Vec<u32>, Vec<LayerPoint>, LayoutRect) {
         // Map the string codepoints to glyph indices in this font.
         // Just drop any glyph that isn't present in this font.
@@ -287,26 +288,36 @@ impl Wrench {
         let mut bounding_rect = LayoutRect::zero();
         let mut positions = Vec::new();
 
-        let mut x = origin.x;
-        let y = origin.y;
+        let mut cursor = origin;
+        let direction = if flags.contains(FontInstanceFlags::TRANSPOSE) {
+            LayerVector2D::new(
+                0.0,
+                if flags.contains(FontInstanceFlags::FLIP_Y) { -1.0 } else { 1.0 },
+            )
+        } else {
+            LayerVector2D::new(
+                if flags.contains(FontInstanceFlags::FLIP_X) { -1.0 } else { 1.0 },
+                0.0,
+            )
+        };
         for metric in metrics {
-            positions.push(LayerPoint::new(x, y));
+            positions.push(cursor);
 
             match metric {
                 Some(metric) => {
                     let glyph_rect = LayoutRect::new(
-                        LayoutPoint::new(x + metric.left as f32, y - metric.top as f32),
+                        LayoutPoint::new(cursor.x + metric.left as f32, cursor.y - metric.top as f32),
                         LayoutSize::new(metric.width as f32, metric.height as f32)
                     );
                     bounding_rect = bounding_rect.union(&glyph_rect);
-                    x += metric.advance;
+                    cursor += direction * metric.advance;
                 }
                 None => {
                     // Extract the advances from the metrics. The get_glyph_dimensions API
                     // has a limitation that it can't currently get dimensions for non-renderable
                     // glyphs (e.g. spaces), so just use a rough estimate in that case.
                     let space_advance = size.to_f32_px() / 3.0;
-                    x += space_advance;
+                    cursor += direction * space_advance;
                 }
             }
         }

@@ -49,3 +49,4 @@ platform(linux) == subpixel-skew.yaml subpixel-skew.png
 platform(linux) == embedded-bitmaps.yaml embedded-bitmaps.png
 platform(linux) == clipped-transform.yaml clipped-transform.png
 platform(mac) == color-bitmap-shadow.yaml color-bitmap-shadow-ref.yaml
+== writing-modes.yaml writing-modes-ref.yaml
