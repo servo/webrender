@@ -470,9 +470,9 @@ impl Wrench {
     ) {
         let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
 
+        let mut txn = Transaction::new();
         for display_list in display_lists {
-            self.api.set_display_list(
-                self.document_id,
+            txn.set_display_list(
                 Epoch(frame_number),
                 root_background_color,
                 self.window_size_f32(),
@@ -482,15 +482,15 @@ impl Wrench {
         }
 
         for (id, offset) in scroll_offsets {
-            self.api.scroll_node_with_id(
-                self.document_id,
+            txn.scroll_node_with_id(
                 *offset,
                 *id,
                 ScrollClamping::NoClamping,
             );
         }
 
-        self.api.generate_frame(self.document_id, None);
+        txn.generate_frame();
+        self.api.send_transaction(self.document_id, txn);
     }
 
     pub fn get_frame_profiles(
