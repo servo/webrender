@@ -21,8 +21,8 @@ use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuData
 use gpu_types::{ClipChainRectIndex, ClipScrollNodeData};
 use picture::{PictureKind, PicturePrimitive};
 use profiler::FrameProfileCounters;
-use render_task::{ClipChain, ClipChainNode, ClipChainNodeIter, ClipWorkItem, RenderTask};
-use render_task::{RenderTaskId, RenderTaskTree};
+use render_task::{ClipChain, ClipChainNode, ClipChainNodeIter, ClipChainNodeRef, ClipWorkItem};
+use render_task::{RenderTask, RenderTaskId, RenderTaskTree};
 use renderer::{BLOCKS_PER_UV_RECT, MAX_VERTEX_TEXTURE_WIDTH};
 use resource_cache::{ImageProperties, ResourceCache};
 use scene::{ScenePipeline, SceneProperties};
@@ -1555,11 +1555,12 @@ impl PrimitiveStore {
             }
         };
 
-        let clip_chain = prim_context.clip_node.clip_chain_node.clone();
-        let mut combined_outer_rect = match clip_chain {
-            Some(ref node) => prim_screen_rect.intersection(&node.combined_outer_screen_rect),
+        let mut combined_outer_rect = match prim_context.clip_chain {
+            Some(ref chain) => prim_screen_rect.intersection(&chain.combined_outer_screen_rect),
             None => Some(prim_screen_rect),
         };
+
+        let clip_chain = prim_context.clip_chain.map_or(None, |x| x.nodes.clone());
 
         let prim_coordinate_system_id = prim_context.scroll_node.coordinate_system_id;
         let transform = &prim_context.scroll_node.world_content_transform;
@@ -1588,9 +1589,6 @@ impl PrimitiveStore {
                     local_clip_rect: LayerRect::zero(),
                     screen_inner_rect,
                     screen_outer_rect: screen_outer_rect.unwrap_or(prim_screen_rect),
-                    combined_outer_screen_rect:
-                        combined_outer_rect.unwrap_or_else(DeviceIntRect::zero),
-                    combined_inner_screen_rect: DeviceIntRect::zero(),
                     prev: None,
                 }))
             } else {
@@ -1788,7 +1786,7 @@ impl PrimitiveStore {
                 prim_context.device_pixel_scale,
             );
 
-            let clip_bounds = match prim_context.clip_node.clip_chain_node {
+            let clip_bounds = match prim_context.clip_chain {
                 Some(ref node) => node.combined_outer_screen_rect,
                 None => *screen_rect,
             };
@@ -1871,12 +1869,23 @@ impl PrimitiveStore {
             //           a new primitive context for every run (if the hash
             //           lookups ever show up in a profile).
             let scroll_node = &clip_scroll_tree.nodes[&run.clip_and_scroll.scroll_node_id];
-            let clip_node = &clip_scroll_tree.nodes[&run.clip_and_scroll.clip_node_id()];
+            let clip_chain = clip_scroll_tree.get_clip_chain(&run.clip_and_scroll.clip_node_id());
 
-            if perform_culling && !clip_node.is_visible() {
-                debug!("{:?} of clipped out {:?}", run.base_prim_index, pipeline_id);
-                continue;
+            if perform_culling {
+                if !scroll_node.invertible {
+                    debug!("{:?} {:?}: position not invertible", run.base_prim_index, pipeline_id);
+                    continue;
+                }
+
+                match clip_chain {
+                     Some(ref chain) if chain.combined_outer_screen_rect.is_empty() => {
+                        debug!("{:?} {:?}: clipped out", run.base_prim_index, pipeline_id);
+                        continue;
+                    }
+                    _ => {},
+                }
             }
+
 
             let parent_relative_transform = parent_prim_context
                 .scroll_node
@@ -1905,13 +1914,13 @@ impl PrimitiveStore {
             let child_prim_context = PrimitiveContext::new(
                 parent_prim_context.device_pixel_scale,
                 display_list,
-                clip_node,
+                clip_chain,
                 scroll_node,
             );
 
 
             let clip_chain_rect = match perform_culling {
-                true => get_local_clip_rect_for_nodes(scroll_node, clip_node),
+                true => get_local_clip_rect_for_nodes(scroll_node, clip_chain),
                 false => None,
             };
 
@@ -1994,17 +2003,14 @@ impl InsideTest<ComplexClipRegion> for ComplexClipRegion {
 }
 
 fn convert_clip_chain_to_clip_vector(
-    clip_chain: ClipChain,
-    extra_clip: ClipChain,
+    clip_chain_nodes: ClipChainNodeRef,
+    extra_clip: ClipChainNodeRef,
     combined_outer_rect: &DeviceIntRect,
     combined_inner_rect: &mut DeviceIntRect,
 ) -> Vec<ClipWorkItem> {
     // Filter out all the clip instances that don't contribute to the result.
     ClipChainNodeIter { current: extra_clip }
-        .chain(ClipChainNodeIter { current: clip_chain })
-        .take_while(|node| {
-            !node.combined_inner_screen_rect.contains_rect(&combined_outer_rect)
-        })
+        .chain(ClipChainNodeIter { current: clip_chain_nodes })
         .filter_map(|node| {
             *combined_inner_rect = if !node.screen_inner_rect.is_empty() {
                 // If this clip's inner area contains the area of the primitive clipped
@@ -2025,9 +2031,14 @@ fn convert_clip_chain_to_clip_vector(
 
 fn get_local_clip_rect_for_nodes(
     scroll_node: &ClipScrollNode,
-    clip_node: &ClipScrollNode,
+    clip_chain: Option<&ClipChain>,
 ) -> Option<LayerRect> {
-    let local_rect = ClipChainNodeIter { current: clip_node.clip_chain_node.clone() }.fold(
+    let clip_chain_nodes = match clip_chain {
+        Some(ref clip_chain) => clip_chain.nodes.clone(),
+        None => return None,
+    };
+
+    let local_rect = ClipChainNodeIter { current: clip_chain_nodes }.fold(
         None,
         |combined_local_clip_rect: Option<LayerRect>, node| {
             if node.work_item.coordinate_system_id != scroll_node.coordinate_system_id {

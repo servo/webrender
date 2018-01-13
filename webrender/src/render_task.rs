@@ -35,72 +35,82 @@ pub struct RenderTaskTree {
     pub task_data: Vec<RenderTaskData>,
 }
 
-pub type ClipChain = Option<Rc<ClipChainNode>>;
+pub type ClipChainNodeRef = Option<Rc<ClipChainNode>>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ClipChainNode {
     pub work_item: ClipWorkItem,
     pub local_clip_rect: LayerRect,
     pub screen_outer_rect: DeviceIntRect,
     pub screen_inner_rect: DeviceIntRect,
-    pub combined_outer_screen_rect: DeviceIntRect,
-    pub combined_inner_screen_rect: DeviceIntRect,
-    pub prev: ClipChain,
+    pub prev: ClipChainNodeRef,
 }
 
-impl ClipChainNode {
-    pub fn new(
+#[derive(Debug, Clone)]
+pub struct ClipChain {
+    pub combined_outer_screen_rect: DeviceIntRect,
+    pub combined_inner_screen_rect: DeviceIntRect,
+    pub nodes: ClipChainNodeRef,
+}
+
+impl ClipChain {
+    pub fn empty(screen_rect: &DeviceIntRect) -> ClipChain {
+        ClipChain {
+            combined_inner_screen_rect: *screen_rect,
+            combined_outer_screen_rect: *screen_rect,
+            nodes: None,
+        }
+    }
+
+    pub fn new_with_added_node(
+        &self,
         work_item: ClipWorkItem,
         local_clip_rect: LayerRect,
         screen_outer_rect: DeviceIntRect,
         screen_inner_rect: DeviceIntRect,
-        parent_chain: ClipChain,
-    ) -> ClipChainNode {
-        let mut node = ClipChainNode {
+    ) -> ClipChain {
+        let new_node = ClipChainNode {
             work_item,
             local_clip_rect,
             screen_outer_rect,
             screen_inner_rect,
-            combined_outer_screen_rect: screen_outer_rect,
-            combined_inner_screen_rect: screen_inner_rect,
             prev: None,
         };
-        node.set_parent(parent_chain);
-        node
+
+        let mut new_chain = self.clone();
+        new_chain.add_node(new_node);
+        new_chain
     }
 
-    fn set_parent(&mut self, new_parent: ClipChain) {
-        self.prev = new_parent.clone();
-
-        let parent_node = match new_parent {
-            Some(ref parent_node) => parent_node,
-            None => return,
-        };
+    pub fn add_node(&mut self, mut new_node: ClipChainNode) {
+        new_node.prev = self.nodes.clone();
 
         // If this clip's outer rectangle is completely enclosed by the clip
         // chain's inner rectangle, then the only clip that matters from this point
         // on is this clip. We can disconnect this clip from the parent clip chain.
-        if parent_node.combined_inner_screen_rect.contains_rect(&self.screen_outer_rect) {
-            self.prev = None;
+        if self.combined_inner_screen_rect.contains_rect(&new_node.screen_outer_rect) {
+            new_node.prev = None;
         }
 
         self.combined_outer_screen_rect =
-            parent_node.combined_outer_screen_rect.intersection(&self.screen_outer_rect)
+            self.combined_outer_screen_rect.intersection(&new_node.screen_outer_rect)
             .unwrap_or_else(DeviceIntRect::zero);
         self.combined_inner_screen_rect =
-            parent_node.combined_inner_screen_rect.intersection(&self.screen_inner_rect)
+            self.combined_inner_screen_rect.intersection(&new_node.screen_inner_rect)
             .unwrap_or_else(DeviceIntRect::zero);
+
+        self.nodes = Some(Rc::new(new_node));
     }
 }
 
 pub struct ClipChainNodeIter {
-    pub current: ClipChain,
+    pub current: ClipChainNodeRef,
 }
 
 impl Iterator for ClipChainNodeIter {
     type Item = Rc<ClipChainNode>;
 
-    fn next(&mut self) -> ClipChain {
+    fn next(&mut self) -> ClipChainNodeRef {
         let previous = self.current.clone();
         self.current = match self.current {
             Some(ref item) => item.prev.clone(),

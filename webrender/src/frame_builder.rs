@@ -29,7 +29,7 @@ use prim_store::{PrimitiveContainer, PrimitiveIndex, SpecificPrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
 use prim_store::{BrushSegmentDescriptor, TextRunPrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
-use render_task::{ClearMode, RenderTask, RenderTaskId, RenderTaskTree};
+use render_task::{ClearMode, ClipChain, RenderTask, RenderTaskId, RenderTaskTree};
 use resource_cache::ResourceCache;
 use scene::{ScenePipeline, SceneProperties};
 use std::{mem, usize, f32};
@@ -129,7 +129,7 @@ pub struct FrameBuilder {
 pub struct PrimitiveContext<'a> {
     pub device_pixel_scale: DevicePixelScale,
     pub display_list: &'a BuiltDisplayList,
-    pub clip_node: &'a ClipScrollNode,
+    pub clip_chain: Option<&'a ClipChain>,
     pub scroll_node: &'a ClipScrollNode,
 }
 
@@ -137,13 +137,13 @@ impl<'a> PrimitiveContext<'a> {
     pub fn new(
         device_pixel_scale: DevicePixelScale,
         display_list: &'a BuiltDisplayList,
-        clip_node: &'a ClipScrollNode,
+        clip_chain: Option<&'a ClipChain>,
         scroll_node: &'a ClipScrollNode,
     ) -> Self {
         PrimitiveContext {
             device_pixel_scale,
             display_list,
-            clip_node,
+            clip_chain,
             scroll_node,
         }
     }
@@ -1582,7 +1582,7 @@ impl FrameBuilder {
         let root_prim_context = PrimitiveContext::new(
             device_pixel_scale,
             display_list,
-            root_clip_scroll_node,
+            root_clip_scroll_node.clip_chain.as_ref(),
             root_clip_scroll_node,
         );
 
