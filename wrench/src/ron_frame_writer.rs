@@ -82,7 +82,7 @@ impl RonFrameWriter {
 
         let mut file = fs::File::create(&frame_file_name).unwrap();
 
-        let s = ron::ser::pretty::to_string(&dl).unwrap();
+        let s = ron::ser::to_string_pretty(&dl, Default::default()).unwrap();
         file.write_all(&s.into_bytes()).unwrap();
         file.write_all(b"\n").unwrap();
     }
