@@ -24,7 +24,7 @@ use gpu_types::{ClipScrollNodeData, PictureType};
 use internal_types::{FastHashMap, FastHashSet, RenderPassIndex};
 use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
 use prim_store::{BrushKind, BrushPrimitive, TexelRect, YuvImagePrimitiveCpu};
-use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, LinePrimitive, PrimitiveKind};
+use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, PrimitiveKind};
 use prim_store::{PrimitiveContainer, PrimitiveIndex, SpecificPrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
 use prim_store::{BrushSegmentDescriptor, TextRunPrimitiveCpu};
@@ -818,12 +818,15 @@ impl FrameBuilder {
         line_color: &ColorF,
         style: LineStyle,
     ) {
-        let line = LinePrimitive {
-            wavy_line_thickness,
-            color: line_color.premultiplied(),
-            style,
-            orientation,
-        };
+        let line = BrushPrimitive::new(
+            BrushKind::Line {
+                wavy_line_thickness,
+                color: line_color.premultiplied(),
+                style,
+                orientation,
+            },
+            None,
+        );
 
         let mut fast_shadow_prims = Vec::new();
         for (idx, &(shadow_prim_index, _)) in self.shadow_prim_stack.iter().enumerate() {
@@ -838,14 +841,21 @@ impl FrameBuilder {
         }
 
         for (idx, shadow_offset, shadow_color) in fast_shadow_prims {
-            let mut line = line.clone();
-            line.color = shadow_color.premultiplied();
+            let line = BrushPrimitive::new(
+                BrushKind::Line {
+                    wavy_line_thickness,
+                    color: shadow_color.premultiplied(),
+                    style,
+                    orientation,
+                },
+                None,
+            );
             let mut info = info.clone();
             info.rect = info.rect.translate(&shadow_offset);
             let prim_index = self.create_primitive(
                 &info,
                 Vec::new(),
-                PrimitiveContainer::Line(line),
+                PrimitiveContainer::Brush(line),
             );
             self.shadow_prim_stack[idx].1.push((prim_index, clip_and_scroll));
         }
@@ -853,7 +863,7 @@ impl FrameBuilder {
         let prim_index = self.create_primitive(
             &info,
             Vec::new(),
-            PrimitiveContainer::Line(line),
+            PrimitiveContainer::Brush(line),
         );
 
         if line_color.a > 0.0 {

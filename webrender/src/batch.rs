@@ -365,7 +365,6 @@ impl BatchList {
 pub struct AlphaBatcher {
     pub batch_list: BatchList,
     pub text_run_cache_prims: FastHashMap<SourceTexture, Vec<PrimitiveInstance>>,
-    pub line_cache_prims: Vec<PrimitiveInstance>,
     glyph_fetch_buffer: Vec<GlyphFetchResult>,
 }
 
@@ -375,7 +374,6 @@ impl AlphaBatcher {
             batch_list: BatchList::new(screen_size),
             glyph_fetch_buffer: Vec::new(),
             text_run_cache_prims: FastHashMap::default(),
-            line_cache_prims: Vec::new(),
         }
     }
 
@@ -653,36 +651,6 @@ impl AlphaBatcher {
                 let batch = self.batch_list.get_suitable_batch(edge_key, item_bounding_rect);
                 for border_segment in 0 .. 4 {
                     batch.push(base_instance.build(border_segment, 0, 0));
-                }
-            }
-            PrimitiveKind::Line => {
-                let base_instance = BrushInstance {
-                    picture_address: task_address,
-                    prim_address: prim_cache_address,
-                    clip_chain_rect_index,
-                    scroll_id,
-                    clip_task_address,
-                    z,
-                    edge_flags: EdgeAaSegmentMask::empty(),
-                    segment_index: 0,
-                    user_data0: 0,
-                    user_data1: 0,
-                };
-
-                let instance = PrimitiveInstance::from(base_instance);
-
-                match pic_type {
-                    PictureType::TextShadow => {
-                        self.line_cache_prims.push(instance);
-                    }
-                    PictureType::Image => {
-                        let kind =
-                            BatchKind::Brush(BrushBatchKind::Line);
-                        let key = BatchKey::new(kind, blend_mode, no_textures);
-                        let batch = self.batch_list.get_suitable_batch(key, item_bounding_rect);
-                        batch.push(instance);
-                    }
-                    PictureType::BoxShadow => unreachable!(),
                 }
             }
             PrimitiveKind::Image => {
@@ -1320,6 +1288,13 @@ impl AlphaBatcher {
 impl BrushPrimitive {
     fn get_batch_key(&self, blend_mode: BlendMode) -> BatchKey {
         match self.kind {
+            BrushKind::Line { .. } => {
+                BatchKey::new(
+                    BatchKind::Brush(BrushBatchKind::Line),
+                    blend_mode,
+                    BatchTextures::no_texture(),
+                )
+            }
             BrushKind::Solid { .. } => {
                 BatchKey::new(
                     BatchKind::Brush(BrushBatchKind::Solid),
@@ -1367,7 +1342,6 @@ impl AlphaBatchHelpers for PrimitiveStore {
             PrimitiveKind::AlignedGradient |
             PrimitiveKind::AngleGradient |
             PrimitiveKind::RadialGradient |
-            PrimitiveKind::Line |
             PrimitiveKind::Brush |
             PrimitiveKind::Picture => if needs_blending {
                 BlendMode::PremultipliedAlpha

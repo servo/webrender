@@ -475,7 +475,8 @@ impl RenderTarget for AlphaRenderTarget {
                                         let brush = &ctx.prim_store.cpu_brushes[sub_metadata.cpu_prim_index.0];
                                         let batch = match brush.kind {
                                             BrushKind::Solid { .. } |
-                                            BrushKind::Clear => {
+                                            BrushKind::Clear |
+                                            BrushKind::Line { .. } => {
                                                 unreachable!("bug: unexpected brush here");
                                             }
                                             BrushKind::Mask { ref kind, .. } => {
