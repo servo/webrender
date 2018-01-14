@@ -237,12 +237,12 @@ pub fn ensure_no_corner_overlap(
     let bottom_right_radius = &mut radius.bottom_right;
     let bottom_left_radius = &mut radius.bottom_left;
 
-    let sum = top_left_radius.width + bottom_left_radius.width;
+    let sum = top_left_radius.width + top_right_radius.width;
     if rect.size.width < sum {
         ratio = f32::min(ratio, rect.size.width / sum);
     }
 
-    let sum = top_right_radius.width + bottom_right_radius.width;
+    let sum = bottom_left_radius.width + bottom_right_radius.width;
     if rect.size.width < sum {
         ratio = f32::min(ratio, rect.size.width / sum);
     }
