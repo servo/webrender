@@ -6,8 +6,7 @@
 != shadow-cover-1.yaml blank.yaml
 != shadow-cover-2.yaml blank.yaml
 
-# needs issue #1483
-# == shadow.yaml shadow-ref.yaml
+== shadow.yaml shadow-ref.yaml
 != shadow-cover-1.yaml shadow-cover-2.yaml
 != shadow-many.yaml shadow.yaml
 != shadow-complex.yaml shadow-many.yaml

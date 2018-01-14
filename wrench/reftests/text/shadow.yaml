@@ -18,7 +18,7 @@ root:
           type: "pop-all-shadows"
         -
           type: "shadow"
-          bounds: [14, 318, 205, 35]
+          bounds: [12, 314, 205, 35]
           blur-radius: 5
           offset: [-2, -4]
           color: red
