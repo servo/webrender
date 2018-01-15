@@ -154,9 +154,7 @@ pub enum DebugOutput {
     #[cfg(feature = "capture")]
     SaveCapture(CaptureConfig, Vec<ExternalCaptureImage>),
     #[cfg(feature = "capture")]
-    LoadCapture {
-        reset_textures: bool,
-    }
+    LoadCapture(PathBuf),
 }
 
 pub enum ResultMsg {

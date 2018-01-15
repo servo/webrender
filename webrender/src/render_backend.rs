@@ -596,8 +596,14 @@ impl RenderBackend {
                         DebugCommand::LoadCapture(root) => {
                             NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed);
                             frame_counter += 1;
+                            let msg = ResultMsg::DebugOutput(
+                                DebugOutput::LoadCapture(root.clone())
+                            );
+                            self.result_tx.send(msg).unwrap();
                             self.load_capture(&root, &mut profile_counters);
-                            ResultMsg::DebugOutput(DebugOutput::LoadCapture { reset_textures: true })
+                            // Note: we can't pass `LoadCapture` here since it needs to arrive
+                            // before the `PublishDocument` messages sent by `load_capture`.
+                            continue
                         },
                         DebugCommand::EnableDualSourceBlending(enable) => {
                             // Set in the config used for any future documents

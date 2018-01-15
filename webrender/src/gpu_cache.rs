@@ -213,7 +213,6 @@ impl Row {
 // this frame. The list of updates is created by the render backend
 // during frame construction. It's passed to the render thread
 // where GL commands can be applied.
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub enum GpuCacheUpdate {
     Copy {
         block_index: usize,
@@ -286,7 +285,6 @@ impl FreeBlockLists {
 }
 
 // CPU-side representation of the GPU resource cache texture.
-#[cfg_attr(feature = "capture", derive(Serialize))]
 struct Texture {
     // Current texture height
     height: u32,
@@ -501,7 +499,6 @@ impl<'a> Drop for GpuDataRequest<'a> {
 
 
 /// The main LRU cache interface.
-#[cfg_attr(feature = "capture", derive(Serialize))]
 pub struct GpuCache {
     /// Current frame ID.
     frame_id: FrameId,
