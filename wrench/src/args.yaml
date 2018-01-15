@@ -149,3 +149,11 @@ subcommands:
               help: second benchmark file to compare
               required: true
               index: 2
+    - load:
+        about: load a capture
+        args:
+          - path:
+              help: directory containing the capture
+              takes_value: true
+              required: false
+              index: 1

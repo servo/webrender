@@ -121,6 +121,23 @@ pub trait WrenchThing {
     }
 }
 
+impl WrenchThing for CapturedDocument {
+    fn next_frame(&mut self) {}
+    fn prev_frame(&mut self) {}
+    fn do_frame(&mut self, wrench: &mut Wrench) -> u32 {
+        match self.root_pipeline_id.take() {
+            Some(root_pipeline_id) => {
+                // skip the first frame - to not overwrite the loaded one
+                wrench.api.set_root_pipeline(self.document_id, root_pipeline_id);
+            }
+            None => {
+                wrench.refresh();
+            }
+        }
+        0
+    }
+}
+
 pub struct Wrench {
     window_size: DeviceUintSize,
     device_pixel_ratio: f32,

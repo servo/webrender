@@ -513,7 +513,7 @@ impl<'a> RawtestHarness<'a> {
 
         // 2. capture it
 
-        self.wrench.api.save_capture("capture".into());
+        self.wrench.api.save_capture("capture".into(), CaptureBits::all());
         self.rx.recv().unwrap();
 
         // 3. set a different scene
