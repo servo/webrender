@@ -490,7 +490,18 @@ impl Wrench {
                 ScrollClamping::NoClamping,
             );
         }
+        // TODO(nical) - Wrench does not notify frames when there was scrolling
+        // in the transaction (See RenderNotifier implementations). If we don't
+        // generate a frame after scrolling, wrench just stops and some tests
+        // will time out.
+        // I suppose this was to avoid taking the screeshot after scrolling if
+        // there was other updates coming in a subsequent messages but it's very
+        // error-prone with transactions.
+        // For now just send two transactions to avoid the deadlock, but we should
+        // figure this out.
+        self.api.send_transaction(self.document_id, txn);
 
+        let mut txn = Transaction::new();
         txn.generate_frame();
         self.api.send_transaction(self.document_id, txn);
     }
