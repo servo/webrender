@@ -9,7 +9,7 @@ matrix:
   - rust: nightly
 os:
   - linux
-  - osx
+#  - osx
 
 # Travis is slow and often backlogged so we only run it on the "auto" branch
 # which is what bors uses to test the merge commit when merging a PR. Individual
