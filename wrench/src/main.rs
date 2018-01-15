@@ -422,7 +422,7 @@ fn main() {
     } else if let Some(subargs) = args.subcommand_matches("load") {
         let dir = subargs.value_of("path").unwrap_or("../captures/example");
         let mut documents = wrench.api.load_capture(PathBuf::from(dir));
-        println!("loaded {:#?}", documents);
+        println!("loaded {:?}", documents.iter().map(|cd| cd.document_id).collect::<Vec<_>>());
         let captured = documents.swap_remove(0);
         wrench.document_id = captured.document_id;
         Box::new(captured) as Box<WrenchThing>
