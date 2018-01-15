@@ -66,7 +66,7 @@ impl Example for App {
         );
 
         // Fill it with a white rect
-        builder.push_rect(&info, ColorF::new(1.0, 1.0, 1.0, 1.0));
+        builder.push_rect(&info, ColorF::new(0.0, 1.0, 0.0, 1.0));
 
         builder.pop_stacking_context();
     }

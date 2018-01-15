@@ -473,17 +473,6 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
         use display_item::CompletelySpecificDisplayItem::*;
         use display_item::{CompletelySpecificDisplayItem, GenericDisplayItem};
 
-        // Push a vector of things into the DL according to the
-        // convention used by `skip_iter` and `push_iter`
-        fn push_vec<T: Clone + Serialize>(data: &mut Vec<u8>, vec: Vec<T>) {
-            let vec_len = vec.len();
-            let byte_size = mem::size_of::<T>() * vec_len;
-            serialize_fast(data, &byte_size);
-            serialize_fast(data, &vec_len);
-            let count = serialize_iter_fast(data, vec.into_iter());
-            assert_eq!(count, vec_len);
-        }
-
         let list = Vec::<GenericDisplayItem<CompletelySpecificDisplayItem>>
             ::deserialize(deserializer)?;
 
@@ -493,11 +482,11 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
             let item = DisplayItem {
                 item: match complete.item {
                     Clip(v, complex_clips) => {
-                        push_vec(&mut temp, complex_clips);
+                        DisplayListBuilder::push_iter_impl(&mut temp, complex_clips);
                         SpecificDisplayItem::Clip(v)
                     },
                     ScrollFrame(v, complex_clips) => {
-                        push_vec(&mut temp, complex_clips);
+                        DisplayListBuilder::push_iter_impl(&mut temp, complex_clips);
                         SpecificDisplayItem::ScrollFrame(v)
                     },
                     StickyFrame(v) => SpecificDisplayItem::StickyFrame(v),
@@ -505,7 +494,7 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
                     ClearRectangle => SpecificDisplayItem::ClearRectangle,
                     Line(v) => SpecificDisplayItem::Line(v),
                     Text(v, glyphs) => {
-                        push_vec(&mut temp, glyphs);
+                        DisplayListBuilder::push_iter_impl(&mut temp, glyphs);
                         SpecificDisplayItem::Text(v)
                     },
                     Image(v) => SpecificDisplayItem::Image(v),
@@ -516,12 +505,12 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
                     RadialGradient(v) => SpecificDisplayItem::RadialGradient(v),
                     Iframe(v) => SpecificDisplayItem::Iframe(v),
                     PushStackingContext(v, filters) => {
-                        push_vec(&mut temp, filters);
+                        DisplayListBuilder::push_iter_impl(&mut temp, filters);
                         SpecificDisplayItem::PushStackingContext(v)
                     },
                     PopStackingContext => SpecificDisplayItem::PopStackingContext,
                     SetGradientStops(stops) => {
-                        push_vec(&mut temp, stops);
+                        DisplayListBuilder::push_iter_impl(&mut temp, stops);
                         SpecificDisplayItem::SetGradientStops
                     },
                     PushShadow(v) => SpecificDisplayItem::PushShadow(v),
@@ -899,36 +888,46 @@ impl DisplayListBuilder {
         )
     }
 
+    fn push_iter_impl<I>(data: &mut Vec<u8>, iter_source: I)
+    where
+        I: IntoIterator,
+        I::IntoIter: ExactSizeIterator + Clone,
+        I::Item: Serialize,
+    {
+        let iter = iter_source.into_iter();
+        let len = iter.len();
+        // Format:
+        // payload_byte_size: usize, item_count: usize, [I; item_count]
+
+        // We write a dummy value so there's room for later
+        let byte_size_offset = data.len();
+        serialize_fast(data, &0usize);
+        serialize_fast(data, &len);
+        let payload_offset = data.len();
+
+        let count = serialize_iter_fast(data, iter);
+
+        // Now write the actual byte_size
+        let final_offset = data.len();
+        let byte_size = final_offset - payload_offset;
+
+        // Note we don't use serialize_fast because we don't want to change the Vec's len
+        bincode::serialize_into(
+            &mut &mut data[byte_size_offset..],
+            &byte_size,
+            bincode::Infinite,
+        ).unwrap();
+
+        debug_assert_eq!(len, count);
+    }
+
     fn push_iter<I>(&mut self, iter: I)
     where
         I: IntoIterator,
         I::IntoIter: ExactSizeIterator + Clone,
         I::Item: Serialize,
     {
-        let iter = iter.into_iter();
-        let len = iter.len();
-
-        // Format:
-        // payload_byte_size: usize, item_count: usize, [I; item_count]
-
-        // We write a dummy value so there's room for later
-        let byte_size_offset = self.data.len();
-        serialize_fast(&mut self.data, &0usize);
-        serialize_fast(&mut self.data, &len);
-        let payload_offset = self.data.len();
-
-        let count = serialize_iter_fast(&mut self.data, iter.into_iter());
-
-        // Now write the actual byte_size
-        let final_offset = self.data.len();
-        let byte_size = final_offset - payload_offset;
-
-        // Note we don't use serialize_fast because we don't want to change the Vec's len
-        bincode::serialize_into(&mut &mut self.data[byte_size_offset..],
-                                &byte_size,
-                                bincode::Infinite).unwrap();
-
-        debug_assert_eq!(len, count);
+        Self::push_iter_impl(&mut self.data, iter);
     }
 
     pub fn push_rect(&mut self, info: &LayoutPrimitiveInfo, color: ColorF) {
@@ -1224,7 +1223,7 @@ impl DisplayListBuilder {
     }
 
     /// Pushes a linear gradient to be displayed.
-    /// 
+    ///
     /// The gradient itself is described in the
     /// `gradient` parameter. It is drawn on
     /// a "tile" with the dimensions from `tile_size`.
@@ -1232,9 +1231,9 @@ impl DisplayListBuilder {
     /// to the bottom infinitly. If `tile_spacing`
     /// is not zero spacers with the given dimensions
     /// are inserted between the tiles as seams.
-    /// 
+    ///
     /// The origin of the tiles is given in `info.rect.origin`.
-    /// If the gradient should only be displayed once limit 
+    /// If the gradient should only be displayed once limit
     /// the `info.rect.size` to a single tile.
     /// The gradient is only visible within the local clip.
     pub fn push_gradient(
@@ -1254,7 +1253,7 @@ impl DisplayListBuilder {
     }
 
     /// Pushes a radial gradient to be displayed.
-    /// 
+    ///
     /// See [`push_gradient`](#method.push_gradient) for explanation.
     pub fn push_radial_gradient(
         &mut self,
