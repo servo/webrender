@@ -760,6 +760,7 @@ impl YamlFrameWriter {
                     }
                     size_node(&mut v, "stretch-size", &item.stretch_size);
                     size_node(&mut v, "tile-spacing", &item.tile_spacing);
+                    bool_node(&mut v, "premultiplied", item.premultiplied);
                     match item.image_rendering {
                         ImageRendering::Auto => (),
                         ImageRendering::CrispEdges => str_node(&mut v, "rendering", "crisp-edges"),

@@ -164,6 +164,7 @@ impl Example for App {
             info.rect.size,
             LayoutSize::zero(),
             ImageRendering::Auto,
+            true,
             self.external_image_key.unwrap()
         );
 

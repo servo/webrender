@@ -138,6 +138,7 @@ impl FrameBuilder {
                         None,
                     )
                 ),
+                true,
             );
         } else {
             let blur_offset = BLUR_SAMPLE_SCALE * blur_radius;
@@ -235,6 +236,7 @@ impl FrameBuilder {
                         &brush_info,
                         Vec::new(),
                         PrimitiveContainer::Brush(brush_prim),
+                        true,
                     );
 
                     // Create a box shadow picture and add the mask primitive to it.
@@ -270,6 +272,7 @@ impl FrameBuilder {
                         &pic_info,
                         extra_clips,
                         PrimitiveContainer::Picture(pic_prim),
+                        true,
                     );
                 }
                 BoxShadowClipMode::Inset => {
@@ -313,6 +316,7 @@ impl FrameBuilder {
                         &brush_info,
                         Vec::new(),
                         PrimitiveContainer::Brush(brush_prim),
+                        true,
                     );
 
                     // Create a box shadow picture primitive and add
@@ -357,6 +361,7 @@ impl FrameBuilder {
                         &pic_info,
                         extra_clips,
                         PrimitiveContainer::Picture(pic_prim),
+                        true,
                     );
                 }
             }

@@ -324,7 +324,6 @@ impl<'a, 'b> DisplayItemRef<'a, 'b> {
             rect: info.rect.translate(&offset),
             local_clip: info.local_clip.create_with_offset(offset),
             is_backface_visible: info.is_backface_visible,
-            premultiplied: info.premultiplied,
             tag: info.tag,
         }
     }
@@ -965,6 +964,7 @@ impl DisplayListBuilder {
         stretch_size: LayoutSize,
         tile_spacing: LayoutSize,
         image_rendering: ImageRendering,
+        premultiplied: bool,
         key: ImageKey,
     ) {
         let item = SpecificDisplayItem::Image(ImageDisplayItem {
@@ -972,6 +972,7 @@ impl DisplayListBuilder {
             stretch_size,
             tile_spacing,
             image_rendering,
+            premultiplied,
         });
 
         self.push_item(item, info);

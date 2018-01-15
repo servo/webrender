@@ -265,6 +265,7 @@ impl Example for App {
             api::LayoutSize::new(500.0, 500.0),
             api::LayoutSize::new(0.0, 0.0),
             api::ImageRendering::Auto,
+            true,
             blob_img1,
         );
 
@@ -274,6 +275,7 @@ impl Example for App {
             api::LayoutSize::new(200.0, 200.0),
             api::LayoutSize::new(0.0, 0.0),
             api::ImageRendering::Auto,
+            true,
             blob_img2,
         );
 

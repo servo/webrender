@@ -59,6 +59,7 @@ impl Example for App {
             image_size,
             LayoutSize::zero(),
             ImageRendering::Auto,
+            true,
             self.image_key,
         );
 
@@ -71,6 +72,7 @@ impl Example for App {
             image_size,
             LayoutSize::zero(),
             ImageRendering::Pixelated,
+            true,
             self.image_key,
         );
 

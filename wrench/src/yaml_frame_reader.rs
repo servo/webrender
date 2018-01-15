@@ -1001,7 +1001,8 @@ impl YamlFrameReader {
                 item
             ),
         };
-        dl.push_image(&info, stretch_size, tile_spacing, rendering, image_key);
+        let premultiplied = item["premultiplied"].as_bool().unwrap_or(true);
+        dl.push_image(&info, stretch_size, tile_spacing, rendering, premultiplied, image_key);
     }
 
     fn handle_text(

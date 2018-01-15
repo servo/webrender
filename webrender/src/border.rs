@@ -332,6 +332,7 @@ impl FrameBuilder {
             info,
             clip_sources,
             PrimitiveContainer::Border(prim_cpu),
+            true,
         );
     }
 

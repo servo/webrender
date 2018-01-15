@@ -202,6 +202,7 @@ impl FrameBuilder {
         info: &LayerPrimitiveInfo,
         mut clip_sources: Vec<ClipSource>,
         container: PrimitiveContainer,
+        premultiplied: bool,
     ) -> PrimitiveIndex {
         if let &LocalClip::RoundedRect(main, region) = &info.local_clip {
             clip_sources.push(ClipSource::Rectangle(main));
@@ -220,7 +221,7 @@ impl FrameBuilder {
             &info.rect,
             &info.local_clip.clip_rect(),
             info.is_backface_visible && stacking_context.is_backface_visible,
-            info.premultiplied,
+            premultiplied,
             clip_sources,
             info.tag,
             container,
@@ -278,9 +279,10 @@ impl FrameBuilder {
         info: &LayerPrimitiveInfo,
         clip_sources: Vec<ClipSource>,
         container: PrimitiveContainer,
+        premultiplied: bool,
     ) -> PrimitiveIndex {
         self.add_primitive_to_hit_testing_list(info, clip_and_scroll);
-        let prim_index = self.create_primitive(info, clip_sources, container);
+        let prim_index = self.create_primitive(info, clip_sources, container, premultiplied);
 
         self.add_primitive_to_draw_list(prim_index, clip_and_scroll);
         prim_index
@@ -707,6 +709,7 @@ impl FrameBuilder {
             info,
             Vec::new(),
             PrimitiveContainer::Picture(prim),
+            true,
         );
 
         let pending = vec![(prim_index, clip_and_scroll)];
@@ -761,6 +764,7 @@ impl FrameBuilder {
             info,
             Vec::new(),
             PrimitiveContainer::Brush(prim),
+            true,
         );
     }
 
@@ -779,6 +783,7 @@ impl FrameBuilder {
             info,
             Vec::new(),
             PrimitiveContainer::Brush(prim),
+            true,
         );
     }
 
@@ -805,6 +810,7 @@ impl FrameBuilder {
             info,
             Vec::new(),
             PrimitiveContainer::Brush(prim),
+            true,
         );
 
         self.scrollbar_prims.push(ScrollbarPrimitive {
@@ -851,6 +857,7 @@ impl FrameBuilder {
                 &info,
                 Vec::new(),
                 PrimitiveContainer::Line(line),
+                true,
             );
             self.shadow_prim_stack[idx].1.push((prim_index, clip_and_scroll));
         }
@@ -859,6 +866,7 @@ impl FrameBuilder {
             &info,
             Vec::new(),
             PrimitiveContainer::Line(line),
+            true,
         );
 
         if line_color.a > 0.0 {
@@ -1092,6 +1100,7 @@ impl FrameBuilder {
                         Some(segment.sub_rect),
                         border.image_key,
                         ImageRendering::Auto,
+                        true,
                         None,
                     );
                 }
@@ -1207,7 +1216,7 @@ impl FrameBuilder {
             PrimitiveContainer::AngleGradient(gradient_cpu)
         };
 
-        self.add_primitive(clip_and_scroll, info, Vec::new(), prim);
+        self.add_primitive(clip_and_scroll, info, Vec::new(), prim, true);
     }
 
     pub fn add_radial_gradient(
@@ -1252,6 +1261,7 @@ impl FrameBuilder {
             info,
             Vec::new(),
             PrimitiveContainer::RadialGradient(radial_gradient_cpu),
+            true,
         );
     }
 
@@ -1358,6 +1368,7 @@ impl FrameBuilder {
                 &info,
                 Vec::new(),
                 PrimitiveContainer::TextRun(text_prim),
+                true,
             );
             self.shadow_prim_stack[idx].1.push((prim_index, clip_and_scroll));
         }
@@ -1368,6 +1379,7 @@ impl FrameBuilder {
             info,
             Vec::new(),
             PrimitiveContainer::TextRun(prim),
+            true,
         );
 
         // Only add a visual element if it can contribute to the scene.
@@ -1415,6 +1427,7 @@ impl FrameBuilder {
         sub_rect: Option<TexelRect>,
         image_key: ImageKey,
         image_rendering: ImageRendering,
+        premultiplied: bool,
         tile: Option<TileOffset>,
     ) {
         let sub_rect_block = sub_rect.unwrap_or(TexelRect::invalid()).into();
@@ -1450,6 +1463,7 @@ impl FrameBuilder {
             info,
             Vec::new(),
             PrimitiveContainer::Image(prim_cpu),
+            premultiplied,
         );
     }
 
@@ -1481,6 +1495,7 @@ impl FrameBuilder {
             info,
             Vec::new(),
             PrimitiveContainer::YuvImage(prim_cpu),
+            true,
         );
     }
 
