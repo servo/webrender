@@ -764,6 +764,7 @@ impl SourceTextureResolver {
 #[allow(dead_code)] // SubpixelVariableTextColor is not used at the moment.
 pub enum BlendMode {
     None,
+    Alpha,
     PremultipliedAlpha,
     PremultipliedDestOut,
     SubpixelDualSource,
@@ -1294,6 +1295,7 @@ impl BrushShader {
             BlendMode::None => {
                 self.opaque.bind(device, projection, mode, renderer_errors)
             }
+            BlendMode::Alpha |
             BlendMode::PremultipliedAlpha |
             BlendMode::PremultipliedDestOut |
             BlendMode::SubpixelDualSource |
@@ -3521,6 +3523,7 @@ impl Renderer {
                 if self.debug_flags.contains(DebugFlags::ALPHA_PRIM_DBG) {
                     let color = match batch.key.blend_mode {
                         BlendMode::None => debug_colors::BLACK,
+                        BlendMode::Alpha |
                         BlendMode::PremultipliedAlpha => debug_colors::GREY,
                         BlendMode::PremultipliedDestOut => debug_colors::SALMON,
                         BlendMode::SubpixelConstantTextColor(..) => debug_colors::GREEN,
@@ -3547,6 +3550,7 @@ impl Renderer {
                         self.device.set_blend(true);
 
                         match batch.key.blend_mode {
+                            BlendMode::Alpha => panic!("Attempt to composite non-premultiplied text primitives."),
                             BlendMode::PremultipliedAlpha => {
                                 self.device.set_blend_mode_premultiplied_alpha();
 
@@ -3714,6 +3718,10 @@ impl Renderer {
                             match batch.key.blend_mode {
                                 BlendMode::None => {
                                     self.device.set_blend(false);
+                                }
+                                BlendMode::Alpha => {
+                                    self.device.set_blend(true);
+                                    self.device.set_blend_mode_alpha();
                                 }
                                 BlendMode::PremultipliedAlpha => {
                                     self.device.set_blend(true);

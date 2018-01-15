@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use {BorderDetails, BorderDisplayItem, BorderRadius, BorderWidths, BoxShadowClipMode};
+use {AlphaType, BorderDetails, BorderDisplayItem, BorderRadius, BorderWidths, BoxShadowClipMode};
 use {BoxShadowDisplayItem, ClipAndScrollInfo, ClipDisplayItem, ClipId, ColorF, ComplexClipRegion};
 use {DisplayItem, ExtendMode, FilterOp, FontInstanceKey, GlyphInstance, GlyphOptions, Gradient};
 use {GradientDisplayItem, GradientStop, IframeDisplayItem, ImageDisplayItem, ImageKey, ImageMask};
@@ -964,6 +964,7 @@ impl DisplayListBuilder {
         stretch_size: LayoutSize,
         tile_spacing: LayoutSize,
         image_rendering: ImageRendering,
+        alpha_type: AlphaType,
         key: ImageKey,
     ) {
         let item = SpecificDisplayItem::Image(ImageDisplayItem {
@@ -971,6 +972,7 @@ impl DisplayListBuilder {
             stretch_size,
             tile_spacing,
             image_rendering,
+            alpha_type,
         });
 
         self.push_item(item, info);
