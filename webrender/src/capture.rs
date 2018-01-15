@@ -6,17 +6,10 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use api::{ExternalImageData, ImageDescriptor};
+use api::{CaptureBits, ExternalImageData, ImageDescriptor};
 use ron::{de, ser};
 use serde::{Deserialize, Serialize};
 
-
-bitflags!{
-    pub struct CaptureBits: u8 {
-        const SCENE = 0x1;
-        const FRAME = 0x2;
-    }
-}
 
 pub struct CaptureConfig {
     pub root: PathBuf,

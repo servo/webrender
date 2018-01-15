@@ -26,7 +26,7 @@ use std::thread;
 const WORK_AROUND_TEX_IMAGE: bool = cfg!(windows);
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, Eq, PartialOrd)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub struct FrameId(usize);
 
 impl FrameId {

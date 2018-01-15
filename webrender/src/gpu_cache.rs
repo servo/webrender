@@ -56,7 +56,7 @@ struct CacheLocation {
 
 /// A single texel in RGBAF32 texture - 16 bytes.
 #[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub struct GpuBlockData {
     pub data: [f32; 4],
 }
@@ -162,7 +162,7 @@ impl Add<usize> for GpuCacheAddress {
 
 // An entry in a free-list of blocks in the GPU cache.
 #[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 struct Block {
     // The location in the cache of this block.
     address: GpuCacheAddress,
@@ -192,7 +192,7 @@ impl Block {
 struct BlockIndex(usize);
 
 // A row in the cache texture.
-#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 struct Row {
     // The fixed size of blocks that this row supports.
     // Each row becomes a slab allocator for a fixed block size.
@@ -213,6 +213,7 @@ impl Row {
 // this frame. The list of updates is created by the render backend
 // during frame construction. It's passed to the render thread
 // where GL commands can be applied.
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub enum GpuCacheUpdate {
     Copy {
         block_index: usize,
@@ -234,7 +235,7 @@ pub struct GpuCacheUpdateList {
 
 // Holds the free lists of fixed size blocks. Mostly
 // just serves to work around the borrow checker.
-#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 struct FreeBlockLists {
     free_list_1: Option<BlockIndex>,
     free_list_2: Option<BlockIndex>,
@@ -248,7 +249,7 @@ struct FreeBlockLists {
 }
 
 impl FreeBlockLists {
-    fn new() -> FreeBlockLists {
+    fn new() -> Self {
         FreeBlockLists {
             free_list_1: None,
             free_list_2: None,
@@ -285,6 +286,7 @@ impl FreeBlockLists {
 }
 
 // CPU-side representation of the GPU resource cache texture.
+#[cfg_attr(feature = "capture", derive(Serialize, Deserialize))]
 struct Texture {
     // Current texture height
     height: u32,
@@ -499,6 +501,7 @@ impl<'a> Drop for GpuDataRequest<'a> {
 
 
 /// The main LRU cache interface.
+#[cfg_attr(feature = "capture", derive(Serialize, Deserialize))]
 pub struct GpuCache {
     /// Current frame ID.
     frame_id: FrameId,
