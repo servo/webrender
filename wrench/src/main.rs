@@ -419,6 +419,13 @@ fn main() {
         let second_filename = subargs.value_of("second_filename").unwrap();
         perf::compare(first_filename, second_filename);
         return;
+    } else if let Some(subargs) = args.subcommand_matches("load") {
+        let dir = subargs.value_of("path").unwrap_or("../captures/example");
+        let mut documents = wrench.api.load_capture(PathBuf::from(dir));
+        println!("loaded {:#?}", documents);
+        let captured = documents.swap_remove(0);
+        wrench.document_id = captured.document_id;
+        Box::new(captured) as Box<WrenchThing>
     } else {
         panic!("Should never have gotten here! {:?}", args);
     };
@@ -551,15 +558,8 @@ fn main() {
     }
 
     if is_headless {
-        let pixels = window.gl().read_pixels(
-            0,
-            0,
-            size.width as gl::GLsizei,
-            size.height as gl::GLsizei,
-            gl::RGBA,
-            gl::UNSIGNED_BYTE,
-        );
-
+        let rect = DeviceUintRect::new(DeviceUintPoint::zero(), size);
+        let pixels = wrench.renderer.read_pixels_rgba8(rect);
         save_flipped("screenshot.png", pixels, size);
     }
 
