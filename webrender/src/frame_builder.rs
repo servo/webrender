@@ -1282,8 +1282,10 @@ impl FrameBuilder {
         let mut render_mode = self.config
             .default_font_render_mode
             .limit_by(font.render_mode);
+        let mut flags = font.flags;
         if let Some(options) = glyph_options {
             render_mode = render_mode.limit_by(options.render_mode);
+            flags |= options.flags;
         }
 
         // There are some conditions under which we can't use
@@ -1308,7 +1310,7 @@ impl FrameBuilder {
             font.bg_color,
             render_mode,
             font.subpx_dir,
-            font.flags,
+            flags,
             font.platform_options,
             font.variations.clone(),
         );

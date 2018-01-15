@@ -195,7 +195,7 @@ pub struct YamlFrameReader {
     image_map: HashMap<(PathBuf, Option<i64>), (ImageKey, LayoutSize)>,
 
     fonts: HashMap<FontDescriptor, FontKey>,
-    font_instances: HashMap<(FontKey, Au), FontInstanceKey>,
+    font_instances: HashMap<(FontKey, Au, FontInstanceFlags), FontInstanceKey>,
     font_render_mode: Option<FontRenderMode>,
 }
 
@@ -461,7 +461,7 @@ impl YamlFrameReader {
         let font_render_mode = self.font_render_mode;
 
         *self.font_instances
-            .entry((font_key, size))
+            .entry((font_key, size, flags))
             .or_insert_with(|| {
                 wrench.add_font_instance(
                     font_key,
@@ -1023,6 +1023,15 @@ impl YamlFrameReader {
         if item["embedded-bitmaps"].as_bool().unwrap_or(false) {
             flags |= FontInstanceFlags::EMBEDDED_BITMAPS;
         }
+        if item["transpose"].as_bool().unwrap_or(false) {
+            flags |= FontInstanceFlags::TRANSPOSE;
+        }
+        if item["flip-x"].as_bool().unwrap_or(false) {
+            flags |= FontInstanceFlags::FLIP_X;
+        }
+        if item["flip-y"].as_bool().unwrap_or(false) {
+            flags |= FontInstanceFlags::FLIP_Y;
+        }
 
         assert!(
             item["blur-radius"].is_badvalue(),
@@ -1082,6 +1091,7 @@ impl YamlFrameReader {
                 text,
                 size,
                 origin,
+                flags,
             );
 
             let glyphs = glyph_indices
