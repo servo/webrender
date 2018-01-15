@@ -76,6 +76,7 @@ impl<'a> RawtestHarness<'a> {
     }
 
     fn test_tile_decomposition(&mut self) {
+        println!("\ttile decomposition...");
         // This exposes a crash in tile decomposition
         let layout_size = LayoutSize::new(800., 800.);
         let mut resources = ResourceUpdates::new();
@@ -116,6 +117,7 @@ impl<'a> RawtestHarness<'a> {
     }
 
     fn test_retained_blob_images_test(&mut self) {
+        println!("\tretained blob images test...");
         let blob_img;
         let window_size = self.window.get_inner_size_pixels();
         let window_size = DeviceUintSize::new(window_size.0, window_size.1);
@@ -194,6 +196,7 @@ impl<'a> RawtestHarness<'a> {
     }
 
     fn test_blob_update_epoch_test(&mut self) {
+        println!("\tblob update epoch test...");
         let (blob_img, blob_img2);
         let window_size = self.window.get_inner_size_pixels();
         let window_size = DeviceUintSize::new(window_size.0, window_size.1);
@@ -313,6 +316,7 @@ impl<'a> RawtestHarness<'a> {
     }
 
     fn test_blob_update_test(&mut self) {
+        println!("\tblob update test...");
         let window_size = self.window.get_inner_size_pixels();
         let window_size = DeviceUintSize::new(window_size.0, window_size.1);
 
@@ -405,6 +409,7 @@ impl<'a> RawtestHarness<'a> {
 
     // Ensures that content doing a save-restore produces the same results as not
     fn test_save_restore(&mut self) {
+        println!("\tsave/restore...");
         let window_size = self.window.get_inner_size_pixels();
         let window_size = DeviceUintSize::new(window_size.0, window_size.1);
 
@@ -470,6 +475,8 @@ impl<'a> RawtestHarness<'a> {
     }
 
     fn test_capture(&mut self) {
+        println!("\tcapture...");
+        let path = "../captures/test";
         let layout_size = LayoutSize::new(400., 400.);
         let (_, windows_height) = self.window.get_inner_size_pixels();
         let window_rect = DeviceUintRect::new(
@@ -513,7 +520,7 @@ impl<'a> RawtestHarness<'a> {
 
         // 2. capture it
 
-        self.wrench.api.save_capture("capture".into(), CaptureBits::all());
+        self.wrench.api.save_capture(path.into(), CaptureBits::all());
         self.rx.recv().unwrap();
 
         // 3. set a different scene
@@ -532,13 +539,20 @@ impl<'a> RawtestHarness<'a> {
 
         // 4. load the first one
 
-        self.wrench.api.load_capture("capture".into());
-        self.rx.recv().unwrap();
+        let mut documents = self.wrench.api.load_capture(path.into());
+        let captured = documents.swap_remove(0);
 
-        // 5. render and compare
-
-        self.wrench.api.generate_frame(self.wrench.document_id, None);
+        // 5. render the built frame and compare
         let pixels1 = self.render_and_get_pixels(window_rect);
         assert!(pixels0 == pixels1);
+
+        // 6. rebuild the scene and compare again
+        self.wrench.api.set_root_pipeline(
+            captured.document_id,
+            captured.root_pipeline_id.unwrap()
+        );
+        self.wrench.api.generate_frame(captured.document_id, None);
+        let pixels2 = self.render_and_get_pixels(window_rect);
+        assert!(pixels0 == pixels2);
     }
 }

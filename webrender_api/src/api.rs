@@ -431,7 +431,7 @@ bitflags!{
 
 /// Information about a loaded capture of each document
 /// that is returned by `RenderBackend`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CapturedDocument {
     pub document_id: DocumentId,
     pub root_pipeline_id: Option<PipelineId>,
