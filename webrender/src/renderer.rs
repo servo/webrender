@@ -781,7 +781,7 @@ struct CacheRow {
 }
 
 impl CacheRow {
-    fn new() -> CacheRow {
+    fn new() -> Self {
         CacheRow { is_dirty: false }
     }
 }
@@ -2395,14 +2395,9 @@ impl Renderer {
                         self.save_capture(config, deferred);
                     }
                     #[cfg(feature = "capture")]
-                    DebugOutput::LoadCapture { reset_textures } => {
-                        if reset_textures {
-                            self.device.begin_frame();
-                            for mut texture in self.texture_resolver.cache_texture_map.drain(..) {
-                                self.device.free_texture_storage(&mut texture);
-                            }
-                            self.device.end_frame();
-                        }
+                    DebugOutput::LoadCapture(root) => {
+                        self.active_documents.clear();
+                        self.load_capture(root);
                     }
                 },
                 ResultMsg::DebugCommand(command) => {
@@ -4737,13 +4732,20 @@ impl RendererStats {
 
 
 #[cfg(feature = "capture")]
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 struct PlainTexture {
     data: String,
     size: (u32, u32, i32),
     format: ImageFormat,
     filter: TextureFilter,
     render_target: Option<RenderTargetInfo>,
+}
+
+#[cfg(feature = "capture")]
+#[derive(Deserialize, Serialize)]
+struct PlainRenderer {
+    gpu_cache: PlainTexture,
+    textures: Vec<PlainTexture>,
 }
 
 #[cfg(feature = "capture")]
@@ -4757,7 +4759,7 @@ impl Renderer {
         let short_path = format!("textures/{}.raw", name);
 
         let read_format = match texture.get_format() {
-            ImageFormat::A8 => ReadPixelsFormat::R8,
+            ImageFormat::R8 => ReadPixelsFormat::R8,
             ImageFormat::BGRA8 => ReadPixelsFormat::Bgra8,
             ImageFormat::RGBAF32 => ReadPixelsFormat::Rgba32F,
             _ => unimplemented!()
@@ -4787,16 +4789,27 @@ impl Renderer {
         }
     }
 
+    fn load_texture(texture: &mut Texture, plain: &PlainTexture, root: &PathBuf, device: &mut Device) {
+        use std::fs::File;
+        use std::io::Read;
+
+        let mut texels = Vec::new();
+        File::open(root.join(&plain.data))
+            .unwrap()
+            .read_to_end(&mut texels)
+            .unwrap();
+
+        device.init_texture(
+            texture, plain.size.0, plain.size.1,
+            plain.format, plain.filter, plain.render_target,
+            plain.size.2, Some(texels.as_slice()),
+        );
+    }
+
     fn save_capture(&mut self, config: CaptureConfig, deferred_images: Vec<ExternalCaptureImage>) {
         use std::fs;
         use std::io::Write;
         use api::ExternalImageData;
-
-        #[derive(Serialize)]
-        struct PlainRenderer {
-            gpu_cache: PlainTexture,
-            textures: Vec<PlainTexture>,
-        }
 
         self.device.begin_frame();
         self.device.bind_read_target_impl(self.capture_read_fbo);
@@ -4867,5 +4880,46 @@ impl Renderer {
 
         self.device.bind_read_target(None);
         self.device.end_frame();
+        info!("done.");
+    }
+
+    fn load_capture(&mut self, root: PathBuf) {
+        let renderer = match CaptureConfig::deserialize::<PlainRenderer, _>(&root, "renderer") {
+            Some(r) => r,
+            None => return,
+        };
+
+        self.device.begin_frame();
+        info!("loading cached textures");
+
+        for texture in self.texture_resolver.cache_texture_map.drain(..) {
+            self.device.delete_texture(texture);
+        }
+        for texture in renderer.textures {
+            info!("\t{}", texture.data);
+            let mut t = self.device.create_texture(TextureTarget::Array);
+            Self::load_texture(&mut t, &texture, &root, &mut self.device);
+            self.texture_resolver.cache_texture_map.push(t);
+        }
+
+        info!("loading gpu cache");
+        Self::load_texture(
+            &mut self.gpu_cache_texture.texture,
+            &renderer.gpu_cache,
+            &root,
+            &mut self.device,
+        );
+        match self.gpu_cache_texture.bus {
+            CacheBus::PixelBuffer { ref mut rows, ref mut cpu_blocks, .. } => {
+                rows.clear();
+                cpu_blocks.clear();
+            }
+            CacheBus::Scatter { ref mut count, .. } => {
+                *count = 0; //TODO?
+            }
+        }
+
+        self.device.end_frame();
+        info!("done.");
     }
 }

@@ -983,7 +983,7 @@ impl Device {
 
         self.bind_texture(DEFAULT_TEXTURE, texture);
         self.set_texture_parameters(texture.target, texture.filter);
-        self.update_texture_storage(texture, &rt_info, true, false);
+        self.update_target_storage(texture, &rt_info, true, false, None);
 
         let rect = DeviceIntRect::new(DeviceIntPoint::zero(), old_size.to_i32());
         for (read_fbo, &draw_fbo) in old_fbos.into_iter().zip(&texture.fbo_ids) {
@@ -1025,65 +1025,31 @@ impl Device {
 
         match render_target {
             Some(info) => {
-                assert!(pixels.is_none());
-                self.update_texture_storage(texture, &info, is_resized, is_format_changed);
+                self.update_target_storage(texture, &info, is_resized, is_format_changed, pixels);
             }
             None => {
-                let (internal_format, gl_format) = gl_texture_formats_for_image_format(self.gl(), format);
-                let type_ = gl_type_for_texture_format(format);
-
-                match texture.target {
-                    gl::TEXTURE_2D_ARRAY => {
-                        self.gl.tex_image_3d(
-                            gl::TEXTURE_2D_ARRAY,
-                            0,
-                            internal_format as gl::GLint,
-                            width as gl::GLint,
-                            height as gl::GLint,
-                            layer_count,
-                            0,
-                            gl_format,
-                            type_,
-                            pixels,
-                        );
-                    }
-                    gl::TEXTURE_2D | gl::TEXTURE_RECTANGLE | gl::TEXTURE_EXTERNAL_OES => {
-                        self.gl.tex_image_2d(
-                            texture.target,
-                            0,
-                            internal_format as gl::GLint,
-                            width as gl::GLint,
-                            height as gl::GLint,
-                            0,
-                            gl_format,
-                            type_,
-                            pixels,
-                        );
-                    }
-                    _ => panic!("BUG: Unexpected texture target!"),
-                }
+                self.update_texture_storage(texture, pixels);
             }
         }
     }
 
-    /// Updates the texture storage for the texture, creating FBOs as required.
-    fn update_texture_storage(
+    /// Updates the render target storage for the texture, creating FBOs as required.
+    fn update_target_storage(
         &mut self,
         texture: &mut Texture,
         rt_info: &RenderTargetInfo,
         is_resized: bool,
         is_format_changed: bool,
+        pixels: Option<&[u8]>,
     ) {
         assert!(texture.layer_count > 0);
 
         let needed_layer_count = texture.layer_count - texture.fbo_ids.len() as i32;
-        let allocate_color = needed_layer_count != 0 || is_resized || is_format_changed;
+        let allocate_color = needed_layer_count != 0 ||
+            is_resized || is_format_changed || pixels.is_some();
 
         if allocate_color {
-            let (internal_format, gl_format) =
-                gl_texture_formats_for_image_format(&*self.gl, texture.format);
-            let type_ = gl_type_for_texture_format(texture.format);
-
+            let desc = gl_describe_format(self.gl(), texture.format);
             match texture.target {
                 gl::TEXTURE_2D_ARRAY => {
                     if WORK_AROUND_TEX_IMAGE {
@@ -1102,14 +1068,14 @@ impl Device {
                     self.gl.tex_image_3d(
                         texture.target,
                         0,
-                        internal_format as _,
+                        desc.internal,
                         texture.width as _,
                         texture.height as _,
                         texture.layer_count,
                         0,
-                        gl_format,
-                        type_,
-                        None,
+                        desc.external,
+                        desc.pixel_type,
+                        pixels,
                     )
                 }
                 _ => {
@@ -1117,13 +1083,13 @@ impl Device {
                     self.gl.tex_image_2d(
                         texture.target,
                         0,
-                        internal_format as _,
+                        desc.internal,
                         texture.width as _,
                         texture.height as _,
                         0,
-                        gl_format,
-                        type_,
-                        None,
+                        desc.external,
+                        desc.pixel_type,
+                        pixels,
                     )
                 }
             }
@@ -1206,6 +1172,40 @@ impl Device {
         }
     }
 
+    fn update_texture_storage(&mut self, texture: &Texture, pixels: Option<&[u8]>) {
+        let desc = gl_describe_format(self.gl(), texture.format);
+        match texture.target {
+            gl::TEXTURE_2D_ARRAY => {
+                self.gl.tex_image_3d(
+                    gl::TEXTURE_2D_ARRAY,
+                    0,
+                    desc.internal,
+                    texture.width as _,
+                    texture.height as _,
+                    texture.layer_count,
+                    0,
+                    desc.external,
+                    desc.pixel_type,
+                    pixels,
+                );
+            }
+            gl::TEXTURE_2D | gl::TEXTURE_RECTANGLE | gl::TEXTURE_EXTERNAL_OES => {
+                self.gl.tex_image_2d(
+                    texture.target,
+                    0,
+                    desc.internal,
+                    texture.width as _,
+                    texture.height as _,
+                    0,
+                    desc.external,
+                    desc.pixel_type,
+                    pixels,
+                );
+            }
+            _ => panic!("BUG: Unexpected texture target!"),
+        }
+    }
+
     pub fn blit_render_target(&mut self, src_rect: DeviceIntRect, dest_rect: DeviceIntRect) {
         debug_assert!(self.inside_frame);
 
@@ -1231,23 +1231,20 @@ impl Device {
         }
 
         self.bind_texture(DEFAULT_TEXTURE, texture);
-
-        let (internal_format, gl_format) =
-            gl_texture_formats_for_image_format(&*self.gl, texture.format);
-        let type_ = gl_type_for_texture_format(texture.format);
+        let desc = gl_describe_format(self.gl(), texture.format);
 
         match texture.target {
             gl::TEXTURE_2D_ARRAY => {
                 self.gl.tex_image_3d(
                     gl::TEXTURE_2D_ARRAY,
                     0,
-                    internal_format as gl::GLint,
+                    desc.internal,
                     0,
                     0,
                     0,
                     0,
-                    gl_format,
-                    type_,
+                    desc.external,
+                    desc.pixel_type,
                     None,
                 );
             }
@@ -1255,12 +1252,12 @@ impl Device {
                 self.gl.tex_image_2d(
                     texture.target,
                     0,
-                    internal_format,
+                    desc.internal,
                     0,
                     0,
                     0,
-                    gl_format,
-                    type_,
+                    desc.external,
+                    desc.pixel_type,
                     None,
                 );
             }
@@ -1509,16 +1506,14 @@ impl Device {
         }
     }
 
-    pub fn read_pixels(&mut self, desc: &ImageDescriptor) -> Vec<u8> {
-        let (_, gl_format) = gl_texture_formats_for_image_format(self.gl(), desc.format);
-        let type_ = gl_type_for_texture_format(desc.format);
-
+    pub fn read_pixels(&mut self, img_desc: &ImageDescriptor) -> Vec<u8> {
+        let desc = gl_describe_format(self.gl(), img_desc.format);
         self.gl.read_pixels(
             0, 0,
-            desc.width as i32,
-            desc.height as i32,
-            gl_format,
-            type_,
+            img_desc.width as i32,
+            img_desc.height as i32,
+            desc.external,
+            desc.pixel_type,
         )
     }
 
@@ -2004,30 +1999,43 @@ impl Device {
     }
 }
 
-/// return (gl_internal_format, gl_format)
-fn gl_texture_formats_for_image_format(
-    gl: &gl::Gl,
-    format: ImageFormat,
-) -> (gl::GLint, gl::GLuint) {
+struct FormatDesc {
+    internal: gl::GLint,
+    external: gl::GLuint,
+    pixel_type: gl::GLuint,
+}
+
+fn gl_describe_format(gl: &gl::Gl, format: ImageFormat) -> FormatDesc {
     match format {
-        ImageFormat::R8 => (gl::RED as gl::GLint, gl::RED),
-        ImageFormat::BGRA8 => match gl.get_type() {
-            gl::GlType::Gl => (gl::RGBA as gl::GLint, get_gl_format_bgra(gl)),
-            gl::GlType::Gles => (get_gl_format_bgra(gl) as gl::GLint, get_gl_format_bgra(gl)),
+        ImageFormat::R8 => FormatDesc {
+            internal: gl::RED as _,
+            external: gl::RED,
+            pixel_type: gl::UNSIGNED_BYTE,
         },
-        ImageFormat::RGBAF32 => (gl::RGBA32F as gl::GLint, gl::RGBA),
-        ImageFormat::RG8 => (gl::RG8 as gl::GLint, gl::RG),
+        ImageFormat::BGRA8 => {
+            let external = get_gl_format_bgra(gl);
+            FormatDesc {
+                internal: match gl.get_type() {
+                    gl::GlType::Gl => gl::RGBA as _,
+                    gl::GlType::Gles => external as _,
+                },
+                external,
+                pixel_type: gl::UNSIGNED_BYTE,
+            }
+        },
+        ImageFormat::RGBAF32 => FormatDesc {
+            internal: gl::RGBA32F as _,
+            external: gl::RGBA,
+            pixel_type: gl::FLOAT,
+        },
+        ImageFormat::RG8 => FormatDesc {
+            internal: gl::RG8 as _,
+            external: gl::RG,
+            pixel_type: gl::UNSIGNED_BYTE,
+        },
         ImageFormat::Invalid => unreachable!(),
     }
 }
-
-fn gl_type_for_texture_format(format: ImageFormat) -> gl::GLuint {
-    match format {
-        ImageFormat::RGBAF32 => gl::FLOAT,
-        _ => gl::UNSIGNED_BYTE,
-    }
-}
-
 
 struct UploadChunk {
     rect: DeviceUintRect,

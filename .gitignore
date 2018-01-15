@@ -3,7 +3,7 @@ target/
 *#
 
 # WR internals
-webrender/captures
+captures
 wrench/json_frames
 wrench/ron_frames
 
