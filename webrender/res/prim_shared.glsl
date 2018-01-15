@@ -16,6 +16,11 @@
 #define SUBPX_DIR_HORIZONTAL  1
 #define SUBPX_DIR_VERTICAL    2
 
+// Fixed value for the edge extrusion for AA,
+// specified in pixels. If not defined, the extrusion
+// is computed automatically.
+//#define FIXED_EDGE_EXTRUSION    (2.0)
+
 uniform sampler2DArray sCacheA8;
 uniform sampler2DArray sCacheRGBA8;
 
@@ -145,6 +150,9 @@ vec4 fetch_from_resource_cache_1(int address) {
 
 struct ClipScrollNode {
     mat4 transform;
+#ifndef FIXED_EDGE_EXTRUSION
+    mat4 inverse_transform;
+#endif
     bool is_axis_aligned;
 };
 
@@ -162,6 +170,9 @@ ClipScrollNode fetch_clip_scroll_node(int index) {
     node.transform[1] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(1, 0));
     node.transform[2] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(2, 0));
     node.transform[3] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(3, 0));
+#ifndef FIXED_EDGE_EXTRUSION
+    node.inverse_transform = inverse(node.transform);
+#endif
 
     vec4 misc = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(4, 0));
     node.is_axis_aligned = misc.x == 0.0;
@@ -518,10 +529,27 @@ vec4 get_node_pos(vec2 pos, ClipScrollNode node) {
     vec3 a = ah.xyz / ah.w;
 
     // get the normal to the scroll node plane
+#ifdef FIXED_EDGE_EXTRUSION
     mat4 inv_transform = inverse(node.transform);
+#else
+    mat4 inv_transform = node.inverse_transform;
+#endif
     vec3 n = transpose(mat3(inv_transform)) * vec3(0.0, 0.0, 1.0);
     return untransform(pos, n, a, inv_transform);
 }
+
+#ifndef FIXED_EDGE_EXTRUSION
+// Given a local CSS space position, and an expected offset of its transformed result,
+// produce a new local space CSS position in homogeneous coordinates.
+vec4 retransform(vec2 pos, vec2 transformed_offset, ClipScrollNode node) {
+    vec4 ah = node.transform * vec4(0.0, 0.0, 0.0, 1.0);
+    vec3 a = ah.xyz / ah.w;
+    vec3 n = transpose(mat3(node.inverse_transform)) * vec3(0.0, 0.0, 1.0);
+
+    vec4 pt = node.transform * vec4(pos, 0.0, 1.0);
+    return untransform(pt.xy/pt.w + transformed_offset, n, a, node.inverse_transform);
+}
+#endif //ifndef FIXED_EDGE_EXTRUSION
 
 // Compute a snapping offset in world space (adjusted to pixel ratio),
 // given local position on the scroll_node and a snap rectangle.
@@ -626,20 +654,41 @@ VertexInfo write_transform_vertex(RectWithSize local_segment_rect,
     prim_rect.p0 = clamp(prim_rect.p0, clip_rect.p0, clip_rect.p1);
     prim_rect.p1 = clamp(prim_rect.p1, clip_rect.p0, clip_rect.p1);
 
-    // As this is a transform shader, extrude by 2 (local space) pixels
-    // in each direction. This gives enough space around the edge to
+    // Note: only those sides are extruded that have AA applied.
+    vec4 extrude_edge_mask = clip_edge_mask * vec4(-1.0, -1.0, 1.0, 1.0);
+    vec2 local_pos;
+
+#ifdef FIXED_EDGE_EXTRUSION
+    // Extrude the edges by a given value (in local space) in each direction.
+    // Hopefully, this gives enough space around the edge to
     // apply distance anti-aliasing. Technically, it:
     // (a) slightly over-estimates the number of required pixels in the simple case.
     // (b) might not provide enough edge in edge case perspective projections.
-    // However, it's fast and simple. If / when we ever run into issues, we
-    // can do some math on the projection matrix to work out a variable
-    // amount to extrude.
-    float extrude_distance = 2.0;
-    local_segment_rect.p0 -= vec2(extrude_distance);
-    local_segment_rect.size += vec2(2.0 * extrude_distance);
+    // (c) simple and fast
 
     // Select the corner of the local rect that we are processing.
-    vec2 local_pos = local_segment_rect.p0 + local_segment_rect.size * aPosition.xy;
+    local_pos = local_segment_rect.p0 + aPosition.xy * local_segment_rect.size +
+        FIXED_EDGE_EXTRUSION * mix(extrude_edge_mask.xy, extrude_edge_mask.zw, aPosition.xy);
+#else
+    // Dynamic extrusion distance computation based on the inverse transform.
+    {
+        extrude_edge_mask *= 0.5; // half a pixel offset. TODO: divide by `uDevicePixelRatio`?
+        vec4 rect = vec4(local_segment_rect.p0, local_segment_rect.p0 + local_segment_rect.size);
+
+        vec4 p00 = retransform(rect.xy, extrude_edge_mask.xy, scroll_node);
+        vec4 p10 = retransform(rect.zy, extrude_edge_mask.zy, scroll_node);
+        vec4 p11 = retransform(rect.zw, extrude_edge_mask.zw, scroll_node);
+        vec4 p01 = retransform(rect.xw, extrude_edge_mask.xw, scroll_node);
+
+        vec4 diag0 = vec4(p00.xy, p11.xy) / vec4(p00.ww, p11.ww);
+        vec4 diag1 = vec4(p10.xy, p01.xy) / vec4(p10.ww, p01.ww);
+        // This should work for affine transformations.
+        local_pos = mix(
+            mix(diag0.xy, diag1.xw, aPosition.xy),
+            mix(diag1.zy, diag0.zw, aPosition.xy),
+            aPosition.yx);
+    }
+#endif
 
     // Transform the current vertex to the world cpace.
     vec4 world_pos = scroll_node.transform * vec4(local_pos, 0.0, 1.0);
@@ -672,7 +721,7 @@ VertexInfo write_transform_vertex_primitive(Primitive prim) {
         prim.local_rect,
         prim.local_rect,
         prim.local_clip_rect,
-        vec4(0.0),
+        vec4(1.0),
         prim.z,
         prim.scroll_node,
         prim.task
@@ -722,7 +771,7 @@ TextRun fetch_text_run(int address) {
 struct Image {
     vec4 stretch_size_and_tile_spacing;  // Size of the actual image and amount of space between
                                          //     tiled instances of this image.
-    vec4 sub_rect;                          // If negative, ignored.
+    vec4 sub_rect;                       // If negative, ignored.
 };
 
 Image fetch_image(int address) {
