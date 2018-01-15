@@ -482,7 +482,12 @@ impl Wrench {
                 false,
             );
         }
+        // TODO(nical) - Need to separate the set_display_list from the scrolling
+        // operations into separate transactions for mysterious -but probably related
+        // to the other comment below- reasons.
+        self.api.send_transaction(self.document_id, txn);
 
+        let mut txn = Transaction::new();
         for (id, offset) in scroll_offsets {
             txn.scroll_node_with_id(
                 *offset,
