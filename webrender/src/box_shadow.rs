@@ -300,7 +300,7 @@ impl FrameBuilder {
                         inflate_size *= 2.0;
                     }
 
-                    let brush_rect = brush_rect.inflate(inflate_size, inflate_size);
+                    let brush_rect = brush_rect.inflate(inflate_size + box_offset.x.abs(), inflate_size + box_offset.y.abs());
                     let brush_prim = BrushPrimitive::new(
                         BrushKind::Mask {
                             clip_mode: brush_clip_mode,
@@ -335,7 +335,7 @@ impl FrameBuilder {
                     // rect to account for the inflate above. This
                     // extra edge will be clipped by the local clip
                     // rect set below.
-                    let pic_rect = prim_info.rect.inflate(inflate_size, inflate_size);
+                    let pic_rect = prim_info.rect.inflate(inflate_size + box_offset.x.abs(), inflate_size + box_offset.y.abs());
                     let pic_info = LayerPrimitiveInfo::with_clip_rect(
                         pic_rect,
                         prim_info.rect
