@@ -8,6 +8,7 @@
 == border-suite-2.yaml border-suite-2.png
 == border-suite-3.yaml border-suite-3.png
 == border-double-simple.yaml border-double-simple-ref.yaml
+== border-double-simple-2.yaml border-double-simple-2-ref.yaml
 == border-groove-simple.yaml border-groove-simple-ref.yaml
 == border-ridge-simple.yaml border-ridge-simple-ref.yaml
 == degenerate-curve.yaml degenerate-curve.png
