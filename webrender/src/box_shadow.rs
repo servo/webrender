@@ -242,7 +242,6 @@ impl FrameBuilder {
                     let mut pic_prim = PicturePrimitive::new_box_shadow(
                         blur_radius,
                         *color,
-                        Vec::new(),
                         clip_mode,
                         image_kind,
                         cache_key,
@@ -321,7 +320,6 @@ impl FrameBuilder {
                     let mut pic_prim = PicturePrimitive::new_box_shadow(
                         blur_radius,
                         *color,
-                        Vec::new(),
                         BoxShadowClipMode::Inset,
                         // TODO(gw): Make use of optimization for inset.
                         BrushImageKind::NinePatch,
