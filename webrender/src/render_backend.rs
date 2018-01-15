@@ -11,7 +11,9 @@ use api::{IdNamespace, PipelineId, RenderNotifier};
 use api::channel::{MsgReceiver, PayloadReceiver, PayloadReceiverHelperMethods};
 use api::channel::{PayloadSender, PayloadSenderHelperMethods};
 #[cfg(feature = "capture")]
-use capture::{CaptureBits, CaptureConfig, ExternalCaptureImage};
+use api::CapturedDocument;
+#[cfg(feature = "capture")]
+use capture::{CaptureConfig, ExternalCaptureImage};
 #[cfg(feature = "debugger")]
 use debug_server;
 use frame::FrameContext;
@@ -587,13 +589,13 @@ impl RenderBackend {
                             ResultMsg::DebugOutput(DebugOutput::FetchClipScrollTree(json))
                         }
                         #[cfg(feature = "capture")]
-                        DebugCommand::SaveCapture(root) => {
-                            let config = CaptureConfig::new(root, CaptureBits::all());
+                        DebugCommand::SaveCapture(root, bits) => {
+                            let config = CaptureConfig::new(root, bits);
                             let deferred = self.save_capture(&config, &mut profile_counters);
                             ResultMsg::DebugOutput(DebugOutput::SaveCapture(config, deferred))
                         },
                         #[cfg(feature = "capture")]
-                        DebugCommand::LoadCapture(root) => {
+                        DebugCommand::LoadCapture(root, tx) => {
                             NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed);
                             frame_counter += 1;
                             let msg = ResultMsg::DebugOutput(
@@ -601,6 +603,14 @@ impl RenderBackend {
                             );
                             self.result_tx.send(msg).unwrap();
                             self.load_capture(&root, &mut profile_counters);
+
+                            for (id, doc) in &self.documents {
+                                let captured = CapturedDocument {
+                                    document_id: *id,
+                                    root_pipeline_id: doc.scene.root_pipeline_id,
+                                };
+                                tx.send(captured).unwrap();
+                            }
                             // Note: we can't pass `LoadCapture` here since it needs to arrive
                             // before the `PublishDocument` messages sent by `load_capture`.
                             continue
@@ -677,6 +687,9 @@ impl RenderBackend {
                 &mut self.gpu_cache,
                 &mut profile_counters.resources,
             );
+
+            info!("generated frame for document {:?} with {} passes",
+                document_id, rendered_document.frame.passes.len());
 
             // Publish the frame
             let pending_update = self.resource_cache.pending_updates();
@@ -826,6 +839,8 @@ impl RenderBackend {
         config: &CaptureConfig,
         profile_counters: &mut BackendProfileCounters,
     ) -> Vec<ExternalCaptureImage> {
+        use api::CaptureBits;
+
         info!("capture: saving {:?}", config.root);
         let (resources, deferred) = self.resource_cache.save_capture(&config.root);
 
@@ -862,9 +877,11 @@ impl RenderBackend {
         config.serialize(&backend, "backend");
 
         if config.bits.contains(CaptureBits::FRAME) {
-            info!("\tcache");
+            info!("\tresource cache");
             let caches = self.resource_cache.save_caches(&config.root);
-            config.serialize(&caches, "cache");
+            config.serialize(&caches, "resource_cache");
+            info!("\tgpu cache");
+            config.serialize(&self.gpu_cache, "gpu_cache");
         }
 
         deferred
@@ -880,14 +897,19 @@ impl RenderBackend {
         info!("capture: loading {:?}", root);
         let backend = CaptureConfig::deserialize::<PlainRenderBackend, _>(root, "backend")
             .expect("Unable to open backend.ron");
-        let caches_maybe = CaptureConfig::deserialize::<PlainCacheOwn, _>(root, "cache");
+        let caches_maybe = CaptureConfig::deserialize::<PlainCacheOwn, _>(root, "resource_cache");
 
         // Note: it would be great to have RenderBackend to be split
         // rather explicitly on what's used before and after scene building
         // so that, for example, we never miss anything in the code below:
 
         self.resource_cache.load_capture(backend.resources, caches_maybe,root);
-        self.gpu_cache = GpuCache::new();
+
+        self.gpu_cache = match CaptureConfig::deserialize::<GpuCache, _>(root, "gpu_cache") {
+            Some(gpu_cache) => gpu_cache,
+            None => GpuCache::new(),
+        };
+
         self.documents.clear();
         self.default_device_pixel_ratio = backend.default_device_pixel_ratio;
         self.frame_config = backend.frame_config;
@@ -911,7 +933,7 @@ impl RenderBackend {
             let frame_name = format!("frame-{}-{}", (id.0).0, id.1);
             let render_doc = match CaptureConfig::deserialize::<Frame, _>(root, frame_name) {
                 Some(frame) => {
-                    info!("\tfound built frame");
+                    info!("\tloaded a built frame with {} passes", frame.passes.len());
                     doc.frame_ctx.make_rendered_document(frame)
                 }
                 None => {

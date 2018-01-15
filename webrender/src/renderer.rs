@@ -21,7 +21,7 @@ use api::channel::MsgSender;
 use batch::{BatchKey, BatchKind, BatchTextures, BrushBatchKind};
 use batch::{BrushImageSourceKind, TransformBatchKind};
 #[cfg(feature = "capture")]
-use capture::{CaptureBits, CaptureConfig, ExternalCaptureImage};
+use capture::{CaptureConfig, ExternalCaptureImage};
 use debug_colors;
 use debug_render::DebugRenderer;
 #[cfg(feature = "debugger")]
@@ -2649,9 +2649,9 @@ impl Renderer {
                 let json = self.get_screenshot_for_debugger();
                 self.debug_server.send(json);
             }
-            DebugCommand::SaveCapture(_) |
-            DebugCommand::LoadCapture(_) => {
-                panic!("Capture commands are not welcome here!")
+            DebugCommand::SaveCapture(..) |
+            DebugCommand::LoadCapture(..) => {
+                panic!("Capture commands are not welcome here! Did you build with 'capture' feature?")
             }
             DebugCommand::EnableDualSourceBlending(_) => {
                 panic!("Should be handled by render backend");
@@ -4809,7 +4809,7 @@ impl Renderer {
     fn save_capture(&mut self, config: CaptureConfig, deferred_images: Vec<ExternalCaptureImage>) {
         use std::fs;
         use std::io::Write;
-        use api::ExternalImageData;
+        use api::{CaptureBits, ExternalImageData};
 
         self.device.begin_frame();
         self.device.bind_read_target_impl(self.capture_read_fbo);

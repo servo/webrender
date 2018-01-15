@@ -419,7 +419,25 @@ impl fmt::Debug for DocumentMsg {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+bitflags!{
+    /// Bit flags for WR stages to store in a capture.
+    // Note: capturing `FRAME` without `SCENE` is not currently supported.
+    #[derive(Deserialize, Serialize)]
+    pub struct CaptureBits: u8 {
+        const SCENE = 0x1;
+        const FRAME = 0x2;
+    }
+}
+
+/// Information about a loaded capture of each document
+/// that is returned by `RenderBackend`.
+#[derive(Clone, Debug)]
+pub struct CapturedDocument {
+    pub document_id: DocumentId,
+    pub root_pipeline_id: Option<PipelineId>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
 pub enum DebugCommand {
     /// Display the frame profiler on screen.
     EnableProfiler(bool),
@@ -444,9 +462,9 @@ pub enum DebugCommand {
     /// Fetch screenshot.
     FetchScreenshot,
     /// Save a capture of all the documents state.
-    SaveCapture(PathBuf),
+    SaveCapture(PathBuf, CaptureBits),
     /// Load a capture of all the documents state.
-    LoadCapture(PathBuf),
+    LoadCapture(PathBuf, MsgSender<CapturedDocument>),
     /// Configure if dual-source blending is used, if available.
     EnableDualSourceBlending(bool),
 }
@@ -964,15 +982,22 @@ impl RenderApi {
     }
 
     /// Save a capture of the current frame state for debugging.
-    pub fn save_capture(&self, path: PathBuf) {
-        let msg = ApiMsg::DebugCommand(DebugCommand::SaveCapture(path));
+    pub fn save_capture(&self, path: PathBuf, bits: CaptureBits) {
+        let msg = ApiMsg::DebugCommand(DebugCommand::SaveCapture(path, bits));
         self.send_message(msg);
     }
 
     /// Load a capture of the current frame state for debugging.
-    pub fn load_capture(&self, path: PathBuf) {
-        let msg = ApiMsg::DebugCommand(DebugCommand::LoadCapture(path));
+    pub fn load_capture(&self, path: PathBuf) -> Vec<CapturedDocument> {
+        let (tx, rx) = channel::msg_channel().unwrap();
+        let msg = ApiMsg::DebugCommand(DebugCommand::LoadCapture(path, tx));
         self.send_message(msg);
+
+        let mut documents = Vec::new();
+        while let Ok(captured_doc) = rx.recv() {
+            documents.push(captured_doc);
+        }
+        documents
     }
 
     pub fn send_debug_cmd(&self, cmd: DebugCommand) {
