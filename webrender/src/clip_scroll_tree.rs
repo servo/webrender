@@ -2,9 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ClipId, DeviceIntRect, DevicePixelScale, LayerPoint, LayerRect, LayerToWorldTransform};
-use api::{LayerVector2D, LayoutTransform, PipelineId, PropertyBinding, ScrollClamping};
-use api::{ScrollEventPhase, ScrollLayerState, ScrollLocation, WorldPoint};
+use api::{ClipId, ClipChainId, DeviceIntRect, DevicePixelScale, LayerPoint, LayerRect};
+use api::{LayerToWorldTransform, LayerVector2D, LayoutTransform, PipelineId, PropertyBinding};
+use api::{ScrollClamping, ScrollEventPhase, ScrollLayerState, ScrollLocation, WorldPoint};
 use clip::ClipStore;
 use clip_scroll_node::{ClipScrollNode, NodeType, ScrollingState, StickyFrameInfo};
 use gpu_cache::GpuCache;
@@ -40,8 +40,23 @@ impl CoordinateSystemId {
     }
 }
 
+struct ClipChainDescriptor {
+    id: ClipChainId,
+    parent: Option<ClipChainId>,
+    clips: Vec<ClipId>,
+}
+
 pub struct ClipScrollTree {
     pub nodes: FastHashMap<ClipId, ClipScrollNode>,
+
+    /// A Vec of all descriptors that describe ClipChains in the order in which they are
+    /// encountered during display list flattening. ClipChains are expected to never be
+    /// the children of ClipChains later in the list.
+    clip_chains_descriptors: Vec<ClipChainDescriptor>,
+
+    /// A HashMap of built ClipChains that are described by `clip_chains_descriptors`.
+    pub clip_chains: FastHashMap<ClipChainId, ClipChain>,
+
     pub pending_scroll_offsets: FastHashMap<ClipId, (LayerPoint, ScrollClamping)>,
 
     /// The ClipId of the currently scrolling node. Used to allow the same
@@ -94,6 +109,8 @@ impl ClipScrollTree {
         let dummy_pipeline = PipelineId::dummy();
         ClipScrollTree {
             nodes: FastHashMap::default(),
+            clip_chains_descriptors: Vec::new(),
+            clip_chains: FastHashMap::default(),
             pending_scroll_offsets: FastHashMap::default(),
             currently_scrolling_node_id: None,
             root_reference_frame_id: ClipId::root_reference_frame(dummy_pipeline),
@@ -243,6 +260,8 @@ impl ClipScrollTree {
         }
 
         self.pipelines_to_discard.clear();
+        self.clip_chains.clear();
+        self.clip_chains_descriptors.clear();
         scroll_states
     }
 
@@ -376,6 +395,8 @@ impl ClipScrollTree {
             node_data,
             scene_properties,
         );
+
+        self.build_clip_chains(screen_rect);
     }
 
     fn update_node(
@@ -434,6 +455,25 @@ impl ClipScrollTree {
                 gpu_node_data,
                 scene_properties,
             );
+        }
+    }
+
+    pub fn build_clip_chains(&mut self, screen_rect: &DeviceIntRect) {
+        for descriptor in &self.clip_chains_descriptors {
+            let mut chain = match descriptor.parent {
+                Some(id) => self.clip_chains[&id].clone(),
+                None => ClipChain::empty(screen_rect),
+            };
+
+            for clip_id in &descriptor.clips {
+                if let Some(ref node_chain) = self.nodes[&clip_id].clip_chain {
+                    if let Some(ref nodes) = node_chain.nodes {
+                        chain.add_node((**nodes).clone());
+                    }
+                }
+            }
+
+            self.clip_chains.insert(descriptor.id, chain);
         }
     }
 
@@ -505,6 +545,15 @@ impl ClipScrollTree {
             id.pipeline_id(),
         );
         self.add_node(node, id);
+    }
+
+    pub fn add_clip_chain_descriptor(
+        &mut self,
+        id: ClipChainId,
+        parent: Option<ClipChainId>,
+        clips: Vec<ClipId>
+    ) {
+        self.clip_chains_descriptors.push(ClipChainDescriptor { id, parent, clips });
     }
 
     pub fn add_node(&mut self, node: ClipScrollNode, id: ClipId) {
@@ -609,6 +658,10 @@ impl ClipScrollTree {
     }
 
     pub fn get_clip_chain(&self, id: &ClipId) -> Option<&ClipChain> {
-        self.nodes[id].clip_chain.as_ref()
-     }
+        match id {
+            &ClipId::ClipChain(clip_chain_id) => Some(&self.clip_chains[&clip_chain_id]),
+            _ => self.nodes[id].clip_chain.as_ref(),
+        }
+    }
+
 }

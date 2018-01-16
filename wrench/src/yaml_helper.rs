@@ -15,6 +15,7 @@ pub trait YamlHelper {
     fn as_force_f32(&self) -> Option<f32>;
     fn as_vec_f32(&self) -> Option<Vec<f32>>;
     fn as_vec_u32(&self) -> Option<Vec<u32>>;
+    fn as_vec_u64(&self) -> Option<Vec<u64>>;
     fn as_pipeline_id(&self) -> Option<PipelineId>;
     fn as_rect(&self) -> Option<LayoutRect>;
     fn as_size(&self) -> Option<LayoutSize>;
@@ -28,7 +29,6 @@ pub trait YamlHelper {
     fn as_pt_to_au(&self) -> Option<Au>;
     fn as_vec_string(&self) -> Option<Vec<String>>;
     fn as_border_radius_component(&self) -> LayoutSize;
-    fn as_clip_and_scroll_info(&self, pipeline_id: PipelineId) -> Option<ClipAndScrollInfo>;
     fn as_border_radius(&self) -> Option<BorderRadius>;
     fn as_transform_style(&self) -> Option<TransformStyle>;
     fn as_clip_mode(&self) -> Option<ClipMode>;
@@ -207,6 +207,14 @@ impl YamlHelper for Yaml {
     fn as_vec_u32(&self) -> Option<Vec<u32>> {
         if let Some(v) = self.as_vec() {
             Some(v.iter().map(|v| v.as_i64().unwrap() as u32).collect())
+        } else {
+            None
+        }
+    }
+
+    fn as_vec_u64(&self) -> Option<Vec<u64>> {
+        if let Some(v) = self.as_vec() {
+            Some(v.iter().map(|v| v.as_i64().unwrap() as u64).collect())
         } else {
             None
         }
@@ -453,26 +461,6 @@ impl YamlHelper for Yaml {
             return LayoutSize::new(integer as f32, integer as f32);
         }
         self.as_size().unwrap_or(TypedSize2D::zero())
-    }
-
-    fn as_clip_and_scroll_info(&self, pipeline_id: PipelineId) -> Option<ClipAndScrollInfo> {
-        match *self {
-            Yaml::Integer(value) => Some(ClipAndScrollInfo::simple(
-                ClipId::new(value as u64, pipeline_id),
-            )),
-            Yaml::Array(ref array) if array.len() == 2 => {
-                let id_ints = (array[0].as_i64(), array[1].as_i64());
-                if let (Some(scroll_node_id), Some(clip_node_id)) = id_ints {
-                    Some(ClipAndScrollInfo::new(
-                        ClipId::new(scroll_node_id as u64, pipeline_id),
-                        ClipId::new(clip_node_id as u64, pipeline_id),
-                    ))
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
     }
 
     fn as_border_radius(&self) -> Option<BorderRadius> {
