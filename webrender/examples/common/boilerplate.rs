@@ -280,12 +280,11 @@ pub fn main_wrapper<E: Example>(
                     _,
                     Some(glutin::VirtualKeyCode::C),
                 ) => {
-                    let path: PathBuf = "captures/example".into();
-                    if path.is_dir() {
-                        api.load_capture(path);
-                    } else {
-                        api.save_capture(path);
-                    }
+                    let path: PathBuf = "../captures/example".into();
+                    //TODO: switch between SCENE/FRAME capture types
+                    // based on "shift" modifier, when `glutin` is updated.
+                    let bits = CaptureBits::all();
+                    api.save_capture(path, bits);
                 }
                 _ => if example.on_event(event, &api, document_id) {
                     let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);

@@ -29,13 +29,14 @@ const TEXTURE_REGION_DIMENSIONS: u32 = 512;
 
 // Maintains a simple freelist of texture IDs that are mapped
 // to real API-specific texture IDs in the renderer.
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 struct CacheTextureIdList {
     free_list: Vec<CacheTextureId>,
     next_id: usize,
 }
 
 impl CacheTextureIdList {
-    fn new() -> CacheTextureIdList {
+    fn new() -> Self {
         CacheTextureIdList {
             next_id: 0,
             free_list: Vec::new(),
@@ -63,6 +64,7 @@ impl CacheTextureIdList {
 // Items in the texture cache can either be standalone textures,
 // or a sub-rect inside the shared cache.
 #[derive(Debug)]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 enum EntryKind {
     Standalone,
     Cache {
@@ -79,6 +81,7 @@ enum EntryKind {
 // cache. This is stored for each item whether it's in the shared
 // cache or a standalone texture.
 #[derive(Debug)]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 struct CacheEntry {
     // Size the requested item, in device pixels.
     size: DeviceUintSize,
@@ -153,16 +156,18 @@ type WeakCacheEntryHandle = WeakFreeListHandle<CacheEntry>;
 // In this case, the cache handle needs to re-upload this item
 // to the texture cache (see request() below).
 #[derive(Debug)]
+#[cfg_attr(feature = "capture", derive(Clone, Deserialize, Serialize))]
 pub struct TextureCacheHandle {
     entry: Option<WeakCacheEntryHandle>,
 }
 
 impl TextureCacheHandle {
-    pub fn new() -> TextureCacheHandle {
+    pub fn new() -> Self {
         TextureCacheHandle { entry: None }
     }
 }
 
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub struct TextureCache {
     // A lazily allocated, fixed size, texture array for
     // each format the texture cache supports.
@@ -181,6 +186,7 @@ pub struct TextureCache {
 
     // A list of updates that need to be applied to the
     // texture cache in the rendering thread this frame.
+    #[cfg_attr(feature = "capture", serde(skip))]
     pending_updates: TextureUpdateList,
 
     // The current frame ID. Used for cache eviction policies.
@@ -218,7 +224,7 @@ impl TextureCache {
             array_rgba8_nearest: TextureArray::new(
                 ImageFormat::BGRA8,
                 TextureFilter::Nearest,
-                TEXTURE_ARRAY_LAYERS_NEAREST
+                TEXTURE_ARRAY_LAYERS_NEAREST,
             ),
             cache_textures: CacheTextureIdList::new(),
             pending_updates: TextureUpdateList::new(),
@@ -801,23 +807,19 @@ impl SlabSize {
 }
 
 // The x/y location within a texture region of an allocation.
-struct TextureLocation {
-    x: u8,
-    y: u8,
-}
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
+struct TextureLocation(u8, u8);
 
 impl TextureLocation {
-    fn new(x: u32, y: u32) -> TextureLocation {
-        debug_assert!(x < 256 && y < 256);
-        TextureLocation {
-            x: x as u8,
-            y: y as u8,
-        }
+    fn new(x: u32, y: u32) -> Self {
+        debug_assert!(x < 0x100 && y < 0x100);
+        TextureLocation(x as u8, y as u8)
     }
 }
 
 // A region is a sub-rect of a texture array layer.
 // All allocations within a region are of the same size.
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 struct TextureRegion {
     layer_index: i32,
     region_size: u32,
@@ -829,7 +831,7 @@ struct TextureRegion {
 }
 
 impl TextureRegion {
-    fn new(region_size: u32, layer_index: i32, origin: DeviceUintPoint) -> TextureRegion {
+    fn new(region_size: u32, layer_index: i32, origin: DeviceUintPoint) -> Self {
         TextureRegion {
             layer_index,
             region_size,
@@ -876,8 +878,8 @@ impl TextureRegion {
     fn alloc(&mut self) -> Option<DeviceUintPoint> {
         self.free_slots.pop().map(|location| {
             DeviceUintPoint::new(
-                self.origin.x + self.slab_size * location.x as u32,
-                self.origin.y + self.slab_size * location.y as u32,
+                self.origin.x + self.slab_size * location.0 as u32,
+                self.origin.y + self.slab_size * location.1 as u32,
             )
         })
     }
@@ -900,6 +902,7 @@ impl TextureRegion {
 // A texture array contains a number of texture layers, where
 // each layer contains one or more regions that can act
 // as slab allocators.
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 struct TextureArray {
     filter: TextureFilter,
     layer_count: usize,
@@ -914,7 +917,7 @@ impl TextureArray {
         format: ImageFormat,
         filter: TextureFilter,
         layer_count: usize
-    ) -> TextureArray {
+    ) -> Self {
         TextureArray {
             format,
             filter,
