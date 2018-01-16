@@ -1550,7 +1550,7 @@ impl Device {
         &mut self,
         rect: DeviceUintRect,
         format: ReadPixelsFormat,
-        output: &mut Vec<u8>,
+        output: &mut [u8],
     ) {
         let (gl_format, gl_type, pixel_size) = match format {
             ReadPixelsFormat::R8 => (gl::RED, gl::UNSIGNED_BYTE, 1),
@@ -1558,9 +1558,8 @@ impl Device {
             ReadPixelsFormat::Bgra8 => (get_gl_format_bgra(self.gl()), gl::UNSIGNED_BYTE, 4),
             ReadPixelsFormat::Rgba32F => (gl::RGBA, gl::FLOAT, 16),
         };
-        let size = (pixel_size * rect.size.width * rect.size.height) as usize;
-        let base = output.len();
-        output.extend((0..size).map(|_| 0));
+        let size_in_bytes = (pixel_size * rect.size.width * rect.size.height) as usize;
+        assert_eq!(output.len(), size_in_bytes);
 
         self.gl.flush();
         self.gl.read_pixels_into_buffer(
@@ -1570,7 +1569,7 @@ impl Device {
             rect.size.height as _,
             gl_format,
             gl_type,
-            &mut output[base ..],
+            output,
         );
     }
 

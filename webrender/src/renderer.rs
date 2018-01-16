@@ -4492,15 +4492,20 @@ impl Renderer {
         );
     }
 
+    /// Pass-through to `Device::read_pixels_into`, used by Gecko's WR bindings.
+    pub fn read_pixels_into(&mut self, rect: DeviceUintRect, format: ReadPixelsFormat, output: &mut [u8]) {
+        self.device.read_pixels_into(rect, format, output);
+    }
+
     pub fn read_pixels_rgba8(&mut self, rect: DeviceUintRect) -> Vec<u8> {
-        let mut pixels = Vec::new();
+        let mut pixels = vec![0; (rect.size.width * rect.size.height * 4) as usize];
         self.device.read_pixels_into(rect, ReadPixelsFormat::Rgba8, &mut pixels);
         pixels
     }
 
     pub fn read_gpu_cache(&mut self) -> (DeviceUintSize, Vec<u8>) {
         let size = self.gpu_cache_texture.texture.get_dimensions();
-        let mut texels = Vec::new();
+        let mut texels = vec![0; (size.width * size.height * 16) as usize];
         self.device.begin_frame();
         self.device.bind_read_target(Some((&self.gpu_cache_texture.texture, 0)));
         self.device.read_pixels_into(
@@ -4783,10 +4788,10 @@ impl Renderer {
 
         let short_path = format!("textures/{}.raw", name);
 
-        let read_format = match texture.get_format() {
-            ImageFormat::R8 => ReadPixelsFormat::R8,
-            ImageFormat::BGRA8 => ReadPixelsFormat::Bgra8,
-            ImageFormat::RGBAF32 => ReadPixelsFormat::Rgba32F,
+        let (read_format, bytes_per_pixel) = match texture.get_format() {
+            ImageFormat::R8 => (ReadPixelsFormat::R8, 1u32),
+            ImageFormat::BGRA8 => (ReadPixelsFormat::Bgra8, 4u32),
+            ImageFormat::RGBAF32 => (ReadPixelsFormat::Rgba32F, 16u32),
             _ => unimplemented!()
         };
         let rect = DeviceUintRect::new(
@@ -4794,16 +4799,17 @@ impl Renderer {
             texture.get_dimensions(),
         );
 
-        let mut data = Vec::new();
+        let mut file = fs::File::create(root.join(&short_path))
+            .expect(&format!("Unable to create {}", short_path));
+        let bytes_per_layer = (rect.size.width * rect.size.height * bytes_per_pixel) as usize;
+        let mut data = vec![0; bytes_per_layer];
+
         for layer_id in 0 .. texture.get_layer_count() {
             device.attach_read_texture(texture, layer_id);
             device.read_pixels_into(rect, read_format, &mut data);
+            file.write_all(&data)
+                .unwrap();
         }
-
-        fs::File::create(root.join(&short_path))
-            .expect(&format!("Unable to create {}", short_path))
-            .write_all(&data)
-            .unwrap();
 
         PlainTexture {
             data: short_path,
@@ -4843,8 +4849,6 @@ impl Renderer {
 
         if !deferred_images.is_empty() {
             info!("saving external images");
-            //TODO: add a switch to check `self.texture_resolver.external_images`
-            // instead of locking with the actual handler.
             let handler = self.external_image_handler
                 .as_mut()
                 .expect("Unable to lock the external image handler!");
@@ -4936,9 +4940,7 @@ impl Renderer {
                 rows.clear();
                 cpu_blocks.clear();
             }
-            CacheBus::Scatter { ref mut count, .. } => {
-                *count = 0; //TODO?
-            }
+            CacheBus::Scatter { .. } => {}
         }
 
         info!("loading external images");
@@ -4949,12 +4951,13 @@ impl Renderer {
 
         for ExternalCaptureImage { short_path, external, descriptor } in renderer.external_images {
             let target = get_external_image_target(external.image_type).unwrap();
-            let layer_count = 1; //TODO?
+            //TODO: provide a way to query both the layer count and the filter from external images
+            let (layer_count, filter) = (1, TextureFilter::Linear);
             let plain = PlainTexture {
                 data: short_path,
                 size: (descriptor.width, descriptor.height, layer_count),
                 format: descriptor.format,
-                filter: TextureFilter::Linear, //TODO?
+                filter,
                 render_target: None,
             };
 

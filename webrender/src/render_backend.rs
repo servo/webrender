@@ -858,6 +858,8 @@ impl RenderBackend {
                     &mut profile_counters.resources,
                 );
                 //TODO: write down full `RenderedDocument`?
+                // it has `pipeline_epoch_map` and `layers_bouncing_back`,
+                // which may capture necessary details for some cases.
                 let file_name = format!("frame-{}-{}", (id.0).0, id.1);
                 config.serialize(&rendered_document.frame, file_name);
             }

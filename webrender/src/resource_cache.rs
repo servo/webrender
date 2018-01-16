@@ -1082,7 +1082,8 @@ impl ResourceCache {
                         Entry::Vacant(e) => e,
                     };
 
-                    //TODO: option to save as PNG
+                    //TODO: option to save as PNG:
+                    // https://github.com/servo/webrender/issues/2234
                     let file_name = format!("{}.raw", image_id);
                     let short_path = format!("images/{}", file_name);
                     fs::File::create(path_images.join(file_name))
@@ -1095,7 +1096,9 @@ impl ResourceCache {
                     assert_eq!(template.tiling, None);
                     let request = BlobImageRequest {
                         key,
-                        tile: None, //TODO: tiled blob images
+                        //TODO: support tiled blob images
+                        // https://github.com/servo/webrender/issues/2236
+                        tile: None,
                     };
 
                     let renderer = self.blob_image_renderer.as_mut().unwrap();
@@ -1245,7 +1248,9 @@ impl ResourceCache {
         use std::io::Read;
 
         info!("loading resource cache");
-        //TODO: pre-load the raw map
+        //TODO: instead of filling the local path to Arc<data> map as we process
+        // each of the resource types, we could go through all of the local paths
+        // and fill out the map as the first step.
         let mut raw_map = FastHashMap::<String, Arc<Vec<u8>>>::default();
 
         match caches {
@@ -1349,7 +1354,6 @@ impl ResourceCache {
                     e.get().clone()
                 }
                 Entry::Vacant(e) => {
-                    //TODO: consider merging the code path with font loading
                     let mut buffer = Vec::new();
                     File::open(root.join(e.key()))
                         .expect(&format!("Unable to open {}", e.key()))
