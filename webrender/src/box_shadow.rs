@@ -83,6 +83,9 @@ impl FrameBuilder {
             .inflate(spread_amount, spread_amount);
 
         if blur_radius == 0.0 {
+            if box_offset.x == 0.0 && box_offset.y == 0.0 && spread_amount == 0.0 {
+                return;
+            }
             let mut clips = Vec::new();
 
             let fast_info = match clip_mode {

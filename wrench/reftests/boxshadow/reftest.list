@@ -8,6 +8,7 @@ fuzzy(1,396) == inset-large-offset.yaml inset-large-offset-ref.png
 == inset-border-radius.yaml inset-border-radius.png
 == inset-offset.yaml inset-offset.png
 == inset-neg-offset.yaml inset-neg-offset.png
+== box-shadow-empty.yaml blank.yaml
 == box-shadow-suite-no-blur.yaml box-shadow-suite-no-blur.png
 == box-shadow-suite-blur.yaml box-shadow-suite-blur.png
 == box-shadow-large-blur-radius.yaml box-shadow-large-blur-radius-ref.yaml
@@ -15,6 +16,7 @@ fuzzy(1,6388) == rounding.yaml rounding-ref.yaml
 == box-shadow-border-radii.yaml box-shadow-border-radii.png
 == box-shadow-spread.yaml box-shadow-spread.png
 == invalid.yaml invalid-ref.yaml
+== inset-empty.yaml blank.yaml
 == inset-subpx.yaml inset-subpx.png
 == inset-downscale.yaml inset-downscale.png
 == box-shadow-cache.yaml box-shadow-cache.png
