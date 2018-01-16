@@ -215,12 +215,14 @@ impl FrameBuilder {
                         // as a simple blit.
                         if width > prim_info.rect.size.width || height > prim_info.rect.size.height {
                             image_kind = BrushImageKind::Simple;
-                            width = prim_info.rect.size.width;
-                            height = prim_info.rect.size.height;
+                            width = prim_info.rect.size.width + spread_amount * 2.0;
+                            height = prim_info.rect.size.height + spread_amount * 2.0;
                         }
 
-                        let clip_rect = LayerRect::new(LayerPoint::zero(),
-                                                       LayerSize::new(width, height));
+                        let clip_rect = LayerRect::new(
+                            LayerPoint::zero(),
+                            LayerSize::new(width, height)
+                        );
 
                         brush_prim = BrushPrimitive::new(
                             BrushKind::Mask {
