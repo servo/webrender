@@ -151,7 +151,6 @@ pub enum PrimitiveKind {
     AlignedGradient,
     AngleGradient,
     RadialGradient,
-    Line,
     Picture,
     Brush,
 }
@@ -212,6 +211,12 @@ pub enum BrushKind {
         color: ColorF,
     },
     Clear,
+    Line {
+        color: PremultipliedColorF,
+        wavy_line_thickness: f32,
+        style: LineStyle,
+        orientation: LineOrientation,
+    }
 }
 
 impl BrushKind {
@@ -331,28 +336,16 @@ impl BrushPrimitive {
                     radii.bottom_left.height,
                 ]);
             }
+            BrushKind::Line { color, wavy_line_thickness, style, orientation } => {
+                request.push(color);
+                request.push([
+                    wavy_line_thickness,
+                    pack_as_float(style as u32),
+                    pack_as_float(orientation as u32),
+                    0.0,
+                ]);
+            }
         }
-    }
-}
-
-#[derive(Debug, Clone)]
-#[repr(C)]
-pub struct LinePrimitive {
-    pub color: PremultipliedColorF,
-    pub wavy_line_thickness: f32,
-    pub style: LineStyle,
-    pub orientation: LineOrientation,
-}
-
-impl LinePrimitive {
-    fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
-        request.push(self.color);
-        request.push([
-            self.wavy_line_thickness,
-            pack_as_float(self.style as u32),
-            pack_as_float(self.orientation as u32),
-            0.0,
-        ]);
     }
 }
 
@@ -948,7 +941,6 @@ pub enum PrimitiveContainer {
     AngleGradient(GradientPrimitiveCpu),
     RadialGradient(RadialGradientPrimitiveCpu),
     Picture(PicturePrimitive),
-    Line(LinePrimitive),
     Brush(BrushPrimitive),
 }
 
@@ -963,7 +955,6 @@ pub struct PrimitiveStore {
     pub cpu_radial_gradients: Vec<RadialGradientPrimitiveCpu>,
     pub cpu_metadata: Vec<PrimitiveMetadata>,
     pub cpu_borders: Vec<BorderPrimitiveCpu>,
-    pub cpu_lines: Vec<LinePrimitive>,
 }
 
 impl PrimitiveStore {
@@ -978,7 +969,6 @@ impl PrimitiveStore {
             cpu_gradients: Vec::new(),
             cpu_radial_gradients: Vec::new(),
             cpu_borders: Vec::new(),
-            cpu_lines: Vec::new(),
         }
     }
 
@@ -993,7 +983,6 @@ impl PrimitiveStore {
             cpu_gradients: recycle_vec(self.cpu_gradients),
             cpu_radial_gradients: recycle_vec(self.cpu_radial_gradients),
             cpu_borders: recycle_vec(self.cpu_borders),
-            cpu_lines: recycle_vec(self.cpu_lines),
         }
     }
 
@@ -1029,6 +1018,7 @@ impl PrimitiveStore {
                     BrushKind::Clear => PrimitiveOpacity::translucent(),
                     BrushKind::Solid { ref color } => PrimitiveOpacity::from_alpha(color.a),
                     BrushKind::Mask { .. } => PrimitiveOpacity::translucent(),
+                    BrushKind::Line { .. } => PrimitiveOpacity::translucent(),
                 };
 
                 let metadata = PrimitiveMetadata {
@@ -1040,17 +1030,6 @@ impl PrimitiveStore {
 
                 self.cpu_brushes.push(brush);
 
-                metadata
-            }
-            PrimitiveContainer::Line(line) => {
-                let metadata = PrimitiveMetadata {
-                    opacity: PrimitiveOpacity::translucent(),
-                    prim_kind: PrimitiveKind::Line,
-                    cpu_prim_index: SpecificPrimitiveIndex(self.cpu_lines.len()),
-                    ..base_metadata
-                };
-
-                self.cpu_lines.push(line);
                 metadata
             }
             PrimitiveContainer::TextRun(text_cpu) => {
@@ -1171,7 +1150,7 @@ impl PrimitiveStore {
     ) {
         let metadata = &mut self.cpu_metadata[prim_index.0];
         match metadata.prim_kind {
-            PrimitiveKind::Border | PrimitiveKind::Line => {}
+            PrimitiveKind::Border => {}
             PrimitiveKind::Picture => {
                 self.cpu_pictures[metadata.cpu_prim_index.0]
                     .prepare_for_render(
@@ -1254,19 +1233,6 @@ impl PrimitiveStore {
             request.push(metadata.local_clip_rect);
 
             match metadata.prim_kind {
-                PrimitiveKind::Line => {
-                    let line = &self.cpu_lines[metadata.cpu_prim_index.0];
-                    line.write_gpu_blocks(&mut request);
-
-                    // TODO(gw): This is a bit of a hack. The Line type
-                    //           is drawn by the brush_line shader, so the
-                    //           layout here needs to conform to the same
-                    //           BrushPrimitive layout. We should tidy this
-                    //           up in the future so it's enforced that these
-                    //           types use a shared function to write out the
-                    //           GPU blocks...
-                    request.write_segment(metadata.local_rect);
-                }
                 PrimitiveKind::Border => {
                     let border = &self.cpu_borders[metadata.cpu_prim_index.0];
                     border.write_gpu_blocks(request);

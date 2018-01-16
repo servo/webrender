@@ -103,10 +103,6 @@ const GPU_TAG_CACHE_TEXT_RUN: GpuProfileTag = GpuProfileTag {
     label: "C_TextRun",
     color: debug_colors::MISTYROSE,
 };
-const GPU_TAG_CACHE_LINE: GpuProfileTag = GpuProfileTag {
-    label: "C_Line",
-    color: debug_colors::BROWN,
-};
 const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag {
     label: "target init",
     color: debug_colors::SLATEGREY,
@@ -2550,11 +2546,6 @@ impl Renderer {
                 batch.len(),
             );
         }
-        debug_target.add(
-            debug_server::BatchKind::Cache,
-            "Lines",
-            target.alpha_batcher.line_cache_prims.len(),
-        );
 
         for batch in target
             .alpha_batcher
@@ -3454,27 +3445,6 @@ impl Renderer {
                     stats,
                 );
             }
-        }
-        if !target.alpha_batcher.line_cache_prims.is_empty() {
-            // TODO(gw): Technically, we don't need blend for solid
-            //           lines. We could check that here?
-            self.device.set_blend(true);
-            self.device.set_blend_mode_premultiplied_alpha();
-
-            let _timer = self.gpu_profile.start_timer(GPU_TAG_CACHE_LINE);
-            self.brush_line.bind(
-                &mut self.device,
-                BlendMode::PremultipliedAlpha,
-                projection,
-                0,
-                &mut self.renderer_errors,
-            );
-            self.draw_instanced_batch(
-                &target.alpha_batcher.line_cache_prims,
-                VertexArrayKind::Primitive,
-                &BatchTextures::no_texture(),
-                stats,
-            );
         }
 
         //TODO: record the pixel count for cached primitives
