@@ -1329,6 +1329,7 @@ impl PrimitiveStore {
 
         let mut segment_builder = SegmentBuilder::new(
             metadata.local_rect,
+            None,
             metadata.local_clip_rect
         );
 
