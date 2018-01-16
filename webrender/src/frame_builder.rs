@@ -2,15 +2,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayList, ClipAndScrollInfo, ClipId};
-use api::{ColorF, ColorU, DeviceIntPoint, DevicePixelScale, DeviceUintPoint, DeviceUintRect};
-use api::{DeviceUintSize, DocumentLayer, ExtendMode, FontRenderMode, GlyphInstance, GlyphOptions};
-use api::{GradientStop, HitTestFlags, HitTestItem, HitTestResult, ImageKey, ImageRendering};
-use api::{Epoch, ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect, LayerSize};
-use api::{LayerTransform, LayerVector2D, LayoutTransform, LayoutVector2D, LineOrientation};
-use api::{LineStyle, LocalClip, PipelineId, PremultipliedColorF, PropertyBinding, RepeatMode};
-use api::{ScrollSensitivity, Shadow, TexelRect, TileOffset, TransformStyle, WorldPoint};
-use api::{DeviceIntRect, DeviceIntSize, YuvColorSpace, YuvData};
+use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayList, ClipAndScrollInfo};
+use api::{ClipId, ColorF, ColorU, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixelScale};
+use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentLayer, Epoch, ExtendMode};
+use api::{ExternalScrollId, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop};
+use api::{HitTestFlags, HitTestItem, HitTestResult, ImageKey, ImageRendering, ItemRange, ItemTag};
+use api::{LayerPoint, LayerPrimitiveInfo, LayerRect, LayerSize, LayerTransform, LayerVector2D};
+use api::{LayoutTransform, LayoutVector2D, LineOrientation, LineStyle, LocalClip, PipelineId};
+use api::{PremultipliedColorF, PropertyBinding, RepeatMode, ScrollSensitivity, Shadow, TexelRect};
+use api::{TileOffset, TransformStyle, WorldPoint, YuvColorSpace, YuvData};
 use app_units::Au;
 use border::ImageBorderSegment;
 use clip::{ClipRegion, ClipSource, ClipSources, ClipStore, Contains};
@@ -632,6 +632,7 @@ impl FrameBuilder {
         self.add_scroll_frame(
             topmost_scrolling_node_id,
             clip_scroll_tree.root_reference_frame_id,
+            Some(ExternalScrollId(0, pipeline_id)),
             pipeline_id,
             &viewport_rect,
             content_size,
@@ -664,6 +665,7 @@ impl FrameBuilder {
         &mut self,
         new_node_id: ClipId,
         parent_id: ClipId,
+        external_id: Option<ExternalScrollId>,
         pipeline_id: PipelineId,
         frame_rect: &LayerRect,
         content_size: &LayerSize,
@@ -673,6 +675,7 @@ impl FrameBuilder {
         let node = ClipScrollNode::new_scroll_frame(
             pipeline_id,
             parent_id,
+            external_id,
             frame_rect,
             content_size,
             scroll_sensitivity,
