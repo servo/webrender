@@ -476,6 +476,7 @@ impl RenderTarget for AlphaRenderTarget {
                                         let batch = match brush.kind {
                                             BrushKind::Solid { .. } |
                                             BrushKind::Clear |
+                                            BrushKind::Picture |
                                             BrushKind::Line { .. } => {
                                                 unreachable!("bug: unexpected brush here");
                                             }

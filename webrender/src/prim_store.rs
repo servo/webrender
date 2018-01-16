@@ -216,13 +216,15 @@ pub enum BrushKind {
         wavy_line_thickness: f32,
         style: LineStyle,
         orientation: LineOrientation,
-    }
+    },
+    Picture,
 }
 
 impl BrushKind {
-    fn is_solid(&self) -> bool {
+    fn supports_segments(&self) -> bool {
         match *self {
-            BrushKind::Solid { .. } => true,
+            BrushKind::Solid { .. } |
+            BrushKind::Picture => true,
             _ => false,
         }
     }
@@ -300,6 +302,8 @@ impl BrushPrimitive {
     fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
         // has to match VECS_PER_SPECIFIC_BRUSH
         match self.kind {
+            BrushKind::Picture => {
+            }
             BrushKind::Solid { color } => {
                 request.push(color.premultiplied());
             }
@@ -1020,6 +1024,11 @@ impl PrimitiveStore {
                     BrushKind::Solid { ref color } => PrimitiveOpacity::from_alpha(color.a),
                     BrushKind::Mask { .. } => PrimitiveOpacity::translucent(),
                     BrushKind::Line { .. } => PrimitiveOpacity::translucent(),
+                    BrushKind::Picture => {
+                        // TODO(gw): This is not currently used. In the future
+                        //           we should detect opaque pictures.
+                        unreachable!();
+                    }
                 };
 
                 let metadata = PrimitiveMetadata {
@@ -1263,17 +1272,22 @@ impl PrimitiveStore {
                     text.write_gpu_blocks(&mut request);
                 }
                 PrimitiveKind::Picture => {
-                    self.cpu_pictures[metadata.cpu_prim_index.0]
-                        .write_gpu_blocks(&mut request);
+                    let pic = &self.cpu_pictures[metadata.cpu_prim_index.0];
+                    pic.write_gpu_blocks(&mut request);
 
-                    // TODO(gw): This is a bit of a hack. The Picture type
-                    //           is drawn by the brush_image shader, so the
-                    //           layout here needs to conform to the same
-                    //           BrushPrimitive layout. We should tidy this
-                    //           up in the future so it's enforced that these
-                    //           types use a shared function to write out the
-                    //           GPU blocks...
-                    request.write_segment(metadata.local_rect);
+                    let brush = &pic.brush;
+                    brush.write_gpu_blocks(&mut request);
+                    match brush.segment_desc {
+                        Some(ref segment_desc) => {
+                            for segment in &segment_desc.segments {
+                                // has to match VECS_PER_SEGMENT
+                                request.write_segment(segment.local_rect);
+                            }
+                        }
+                        None => {
+                            request.write_segment(metadata.local_rect);
+                        }
+                    }
                 }
                 PrimitiveKind::Brush => {
                     let brush = &self.cpu_brushes[metadata.cpu_prim_index.0];
@@ -1295,18 +1309,13 @@ impl PrimitiveStore {
     }
 
     fn write_brush_segment_description(
-        &mut self,
-        prim_index: PrimitiveIndex,
+        brush: &mut BrushPrimitive,
+        metadata: &PrimitiveMetadata,
         prim_context: &PrimitiveContext,
         clip_store: &mut ClipStore,
         node_data: &[ClipScrollNodeData],
         clips: &Vec<ClipWorkItem>,
     ) {
-        debug_assert!(self.cpu_metadata[prim_index.0].prim_kind == PrimitiveKind::Brush);
-
-        let metadata = &self.cpu_metadata[prim_index.0];
-        let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
-
         match brush.segment_desc {
             Some(ref segment_desc) => {
                 // If we already have a segment descriptor, only run through the
@@ -1318,7 +1327,7 @@ impl PrimitiveStore {
             None => {
                 // If no segment descriptor built yet, see if it is a brush
                 // type that wants to be segmented.
-                if !brush.kind.is_solid() {
+                if !brush.kind.supports_segments() {
                     return;
                 }
                 if metadata.local_rect.size.area() <= MIN_BRUSH_SPLIT_AREA {
@@ -1433,20 +1442,28 @@ impl PrimitiveStore {
         clips: &Vec<ClipWorkItem>,
         combined_outer_rect: &DeviceIntRect,
     ) -> bool {
-        if self.cpu_metadata[prim_index.0].prim_kind != PrimitiveKind::Brush {
-            return false;
-        }
+        let metadata = &self.cpu_metadata[prim_index.0];
+        let brush = match metadata.prim_kind {
+            PrimitiveKind::Brush => {
+                &mut self.cpu_brushes[metadata.cpu_prim_index.0]
+            }
+            PrimitiveKind::Picture => {
+                &mut self.cpu_pictures[metadata.cpu_prim_index.0].brush
+            }
+            _ => {
+                return false;
+            }
+        };
 
-        self.write_brush_segment_description(
-            prim_index,
+        PrimitiveStore::write_brush_segment_description(
+            brush,
+            metadata,
             prim_context,
             clip_store,
             node_data,
             clips
         );
 
-        let metadata = &self.cpu_metadata[prim_index.0];
-        let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
         let segment_desc = match brush.segment_desc {
             Some(ref mut description) => description,
             None => return false,
