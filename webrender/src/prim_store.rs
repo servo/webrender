@@ -9,7 +9,7 @@ use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemR
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
 use api::{LineStyle, PipelineId, PremultipliedColorF, TileOffset, WorldToLayerTransform};
 use api::{YuvColorSpace, YuvFormat};
-use border::BorderCornerInstance;
+use border::{BorderCornerInstance, BorderEdgeKind};
 use clip_scroll_tree::{CoordinateSystemId, ClipScrollTree};
 use clip_scroll_node::ClipScrollNode;
 use clip::{ClipSource, ClipSourcesHandle, ClipStore};
@@ -387,6 +387,7 @@ impl ToGpuBlocks for YuvImagePrimitiveCpu {
 #[derive(Debug)]
 pub struct BorderPrimitiveCpu {
     pub corner_instances: [BorderCornerInstance; 4],
+    pub edges: [BorderEdgeKind; 4],
     pub gpu_blocks: [GpuBlockData; 8],
 }
 
