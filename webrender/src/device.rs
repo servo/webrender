@@ -419,13 +419,14 @@ impl<T> Drop for VBO<T> {
     }
 }
 
+#[cfg_attr(feature = "capture", derive(Clone))]
 pub struct ExternalTexture {
     id: gl::GLuint,
     target: gl::GLuint,
 }
 
 impl ExternalTexture {
-    pub fn new(id: u32, target: TextureTarget) -> ExternalTexture {
+    pub fn new(id: u32, target: TextureTarget) -> Self {
         ExternalTexture {
             id,
             target: target.to_gl_target(),
@@ -487,6 +488,16 @@ impl Texture {
 
     pub fn get_rt_info(&self) -> Option<&RenderTargetInfo> {
         self.render_target.as_ref()
+    }
+
+    #[cfg(feature = "capture")]
+    pub fn into_external(mut self) -> ExternalTexture {
+        let ext = ExternalTexture {
+            id: self.id,
+            target: self.target,
+        };
+        self.id = 0; // don't complain, moved out
+        ext
     }
 }
 
@@ -1223,17 +1234,8 @@ impl Device {
         );
     }
 
-    pub fn free_texture_storage(&mut self, texture: &mut Texture) {
-        debug_assert!(self.inside_frame);
-
-        if texture.format == ImageFormat::Invalid {
-            return;
-        }
-
-        self.bind_texture(DEFAULT_TEXTURE, texture);
-        let desc = gl_describe_format(self.gl(), texture.format);
-
-        match texture.target {
+    fn free_texture_storage_impl(&mut self, target: gl::GLenum, desc: FormatDesc) {
+        match target {
             gl::TEXTURE_2D_ARRAY => {
                 self.gl.tex_image_3d(
                     gl::TEXTURE_2D_ARRAY,
@@ -1250,7 +1252,7 @@ impl Device {
             }
             _ => {
                 self.gl.tex_image_2d(
-                    texture.target,
+                    target,
                     0,
                     desc.internal,
                     0,
@@ -1262,6 +1264,19 @@ impl Device {
                 );
             }
         }
+    }
+
+    pub fn free_texture_storage(&mut self, texture: &mut Texture) {
+        debug_assert!(self.inside_frame);
+
+        if texture.format == ImageFormat::Invalid {
+            return;
+        }
+
+        self.bind_texture(DEFAULT_TEXTURE, texture);
+        let desc = gl_describe_format(self.gl(), texture.format);
+
+        self.free_texture_storage_impl(texture.target, desc);
 
         if let Some(RBOId(depth_rb)) = texture.depth_rb.take() {
             self.gl.delete_renderbuffers(&[depth_rb]);
@@ -1286,6 +1301,19 @@ impl Device {
         self.free_texture_storage(&mut texture);
         self.gl.delete_textures(&[texture.id]);
         texture.id = 0;
+    }
+
+    #[cfg(feature = "capture")]
+    pub fn delete_external_texture(&mut self, mut external: ExternalTexture) {
+        self.bind_external_texture(DEFAULT_TEXTURE, &external);
+        //Note: the format descriptor here doesn't really matter
+        self.free_texture_storage_impl(external.target, FormatDesc {
+            internal: gl::R8 as _,
+            external: gl::RED,
+            pixel_type: gl::UNSIGNED_BYTE,
+        });
+        self.gl.delete_textures(&[external.id]);
+        external.id = 0;
     }
 
     pub fn delete_program(&mut self, mut program: Program) {

@@ -60,6 +60,7 @@ impl CaptureConfig {
     }
 }
 
+#[derive(Deserialize, Serialize)]
 pub struct ExternalCaptureImage {
     pub short_path: String,
     pub descriptor: ImageDescriptor,
