@@ -607,12 +607,12 @@ struct SourceTextureResolver {
 
 impl SourceTextureResolver {
     fn new(device: &mut Device) -> SourceTextureResolver {
-        let mut dummy_cache_texture = device.create_texture(TextureTarget::Array);
+        let mut dummy_cache_texture = device
+            .create_texture(TextureTarget::Array, ImageFormat::BGRA8);
         device.init_texture(
             &mut dummy_cache_texture,
             1,
             1,
-            ImageFormat::BGRA8,
             TextureFilter::Linear,
             None,
             1,
@@ -821,7 +821,7 @@ struct CacheTexture {
 
 impl CacheTexture {
     fn new(device: &mut Device, use_scatter: bool) -> Result<Self, RendererError> {
-        let texture = device.create_texture(TextureTarget::Default);
+        let texture = device.create_texture(TextureTarget::Default, ImageFormat::RGBAF32);
 
         let bus = if use_scatter {
             let program = device
@@ -894,7 +894,6 @@ impl CacheTexture {
                         &mut self.texture,
                         new_size.width,
                         new_size.height,
-                        ImageFormat::RGBAF32,
                         TextureFilter::Nearest,
                         None,
                         1,
@@ -929,7 +928,6 @@ impl CacheTexture {
                             &mut self.texture,
                             new_size.width,
                             new_size.height,
-                            ImageFormat::RGBAF32,
                             TextureFilter::Nearest,
                             Some(RenderTargetInfo {
                                 has_depth: false,
@@ -1074,7 +1072,7 @@ struct VertexDataTexture {
 
 impl VertexDataTexture {
     fn new(device: &mut Device) -> VertexDataTexture {
-        let texture = device.create_texture(TextureTarget::Default);
+        let texture = device.create_texture(TextureTarget::Default, ImageFormat::RGBAF32);
         let pbo = device.create_pbo();
 
         VertexDataTexture { texture, pbo }
@@ -1112,7 +1110,6 @@ impl VertexDataTexture {
                 &mut self.texture,
                 width,
                 new_height,
-                ImageFormat::RGBAF32,
                 TextureFilter::Nearest,
                 None,
                 1,
@@ -2109,12 +2106,12 @@ impl Renderer {
                 21,
             ];
 
-            let mut texture = device.create_texture(TextureTarget::Default);
+            let mut texture = device
+                .create_texture(TextureTarget::Default, ImageFormat::R8);
             device.init_texture(
                 &mut texture,
                 8,
                 8,
-                ImageFormat::R8,
                 TextureFilter::Nearest,
                 None,
                 1,
@@ -2987,11 +2984,12 @@ impl Renderer {
                         let CacheTextureId(cache_texture_index) = update.id;
                         if self.texture_resolver.cache_texture_map.len() == cache_texture_index {
                             // Create a new native texture, as requested by the texture cache.
-                            let texture = self.device.create_texture(TextureTarget::Array);
+                            let texture = self.device.create_texture(TextureTarget::Array, format);
                             self.texture_resolver.cache_texture_map.push(texture);
                         }
                         let texture =
                             &mut self.texture_resolver.cache_texture_map[cache_texture_index];
+                        assert_eq!(texture.get_format(), format);
 
                         // Ensure no PBO is bound when creating the texture storage,
                         // or GL will attempt to read data from there.
@@ -2999,7 +2997,6 @@ impl Renderer {
                             texture,
                             width,
                             height,
-                            format,
                             filter,
                             render_target,
                             layer_count,
@@ -3040,7 +3037,7 @@ impl Renderer {
                                     }
                                     ExternalImageSource::Invalid => {
                                         // Create a local buffer to fill the pbo.
-                                        let bpp = texture.get_bpp();
+                                        let bpp = texture.get_format().bytes_per_pixel();
                                         let width = stride.unwrap_or(rect.size.width * bpp);
                                         let total_size = width * rect.size.height;
                                         // WR haven't support RGBAF32 format in texture_cache, so
@@ -4132,9 +4129,12 @@ impl Renderer {
                 list.check_ready();
                 return
             }
-            match self.texture_resolver.render_target_pool.pop() {
-                Some(texture) => texture,
-                None => self.device.create_texture(TextureTarget::Array),
+            let index = self.texture_resolver.render_target_pool
+                .iter()
+                .position(|texture| texture.get_format() == list.format);
+            match index {
+                Some(pos) => self.texture_resolver.render_target_pool.swap_remove(pos),
+                None => self.device.create_texture(TextureTarget::Array, list.format),
             }
         };
 
@@ -4142,7 +4142,6 @@ impl Renderer {
             &mut texture,
             list.max_size.width,
             list.max_size.height,
-            list.format,
             TextureFilter::Linear,
             Some(RenderTargetInfo {
                 has_depth: list.needs_depth(),
@@ -4549,7 +4548,7 @@ impl Renderer {
         self.device.bind_read_target(Some((&self.gpu_cache_texture.texture, 0)));
         self.device.read_pixels_into(
             DeviceUintRect::new(DeviceUintPoint::zero(), size),
-            ReadPixelsFormat::Rgba32F,
+            ReadPixelsFormat::Standard(ImageFormat::RGBAF32),
             &mut texels,
         );
         self.device.bind_read_target(None);
@@ -4827,12 +4826,8 @@ impl Renderer {
 
         let short_path = format!("textures/{}.raw", name);
 
-        let (read_format, bytes_per_pixel) = match texture.get_format() {
-            ImageFormat::R8 => (ReadPixelsFormat::R8, 1u32),
-            ImageFormat::BGRA8 => (ReadPixelsFormat::Bgra8, 4u32),
-            ImageFormat::RGBAF32 => (ReadPixelsFormat::Rgba32F, 16u32),
-            _ => unimplemented!()
-        };
+        let bytes_per_pixel = texture.get_format().bytes_per_pixel();
+        let read_format = ReadPixelsFormat::Standard(texture.get_format());
         let rect = DeviceUintRect::new(
             DeviceUintPoint::zero(),
             texture.get_dimensions(),
@@ -4864,6 +4859,7 @@ impl Renderer {
         use std::io::Read;
 
         let mut texels = Vec::new();
+        assert_eq!(plain.format, texture.get_format());
         File::open(root.join(&plain.data))
             .unwrap()
             .read_to_end(&mut texels)
@@ -4871,7 +4867,7 @@ impl Renderer {
 
         device.init_texture(
             texture, plain.size.0, plain.size.1,
-            plain.format, plain.filter, plain.render_target,
+            plain.filter, plain.render_target,
             plain.size.2, Some(texels.as_slice()),
         );
 
@@ -4962,7 +4958,7 @@ impl Renderer {
         }
         for texture in renderer.textures {
             info!("\t{}", texture.data);
-            let mut t = self.device.create_texture(TextureTarget::Array);
+            let mut t = self.device.create_texture(TextureTarget::Array, texture.format);
             Self::load_texture(&mut t, &texture, &root, &mut self.device);
             self.texture_resolver.cache_texture_map.push(t);
         }
@@ -4989,7 +4985,10 @@ impl Renderer {
         };
 
         for ExternalCaptureImage { short_path, external, descriptor } in renderer.external_images {
-            let target = get_external_image_target(external.image_type).unwrap();
+            let target = match get_external_image_target(external.image_type) {
+                Some(target) => target,
+                None => continue,
+            };
             //TODO: provide a way to query both the layer count and the filter from external images
             let (layer_count, filter) = (1, TextureFilter::Linear);
             let plain = PlainTexture {
@@ -5000,7 +4999,7 @@ impl Renderer {
                 render_target: None,
             };
 
-            let mut t = self.device.create_texture(target);
+            let mut t = self.device.create_texture(target, plain.format);
             let data = Self::load_texture(&mut t, &plain, &root, &mut self.device);
             let key = (external.id, external.channel_index);
             self.capture.owned_external_images.insert(key, t.into_external());
