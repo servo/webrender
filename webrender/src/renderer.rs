@@ -2377,7 +2377,15 @@ impl Renderer {
                     // Add a new document to the active set, expressed as a `Vec` in order
                     // to re-order based on `DocumentLayer` during rendering.
                     match self.active_documents.iter().position(|&(id, _)| id == document_id) {
-                        Some(pos) => self.active_documents[pos].1 = doc,
+                        Some(pos) => {
+                            // If the document we are replacing must be drawn
+                            // (in order to update the texture cache), issue
+                            // a render just to off-screen targets.
+                            if self.active_documents[pos].1.frame.must_be_drawn() {
+                                self.render_impl(None).ok();
+                            }
+                            self.active_documents[pos].1 = doc;
+                        }
                         None => self.active_documents.push((document_id, doc)),
                     }
                 }
@@ -2716,7 +2724,18 @@ impl Renderer {
     /// [genframe]: ../../webrender_api/struct.DocumentApi.html#method.generate_frame
     pub fn render(
         &mut self,
-        framebuffer_size: DeviceUintSize
+        framebuffer_size: DeviceUintSize,
+    ) -> Result<RendererStats, Vec<RendererError>> {
+        self.render_impl(Some(framebuffer_size))
+    }
+
+    // If framebuffer_size is None, don't render
+    // to the main frame buffer. This is useful
+    // to update texture cache render tasks but
+    // avoid doing a full frame render.
+    fn render_impl(
+        &mut self,
+        framebuffer_size: Option<DeviceUintSize>
     ) -> Result<RendererStats, Vec<RendererError>> {
         profile_scope!("render");
 
@@ -2775,24 +2794,26 @@ impl Renderer {
             active_documents.sort_by_key(|&(_, ref render_doc)| render_doc.frame.layer);
 
             // don't clear the framebuffer if one of the rendered documents will overwrite it
-            let needs_color_clear = !active_documents
-                .iter()
-                .any(|&(_, RenderedDocument { ref frame, .. })| {
-                    frame.background_color.is_some() &&
-                    frame.inner_rect.origin == DeviceUintPoint::zero() &&
-                    frame.inner_rect.size == framebuffer_size
-                });
+            if let Some(framebuffer_size) = framebuffer_size {
+                let needs_color_clear = !active_documents
+                    .iter()
+                    .any(|&(_, RenderedDocument { ref frame, .. })| {
+                        frame.background_color.is_some() &&
+                        frame.inner_rect.origin == DeviceUintPoint::zero() &&
+                        frame.inner_rect.size == framebuffer_size
+                    });
 
-            if needs_color_clear || clear_depth_value.is_some() {
-                let clear_color = if needs_color_clear {
-                    self.clear_color.map(|color| color.to_array())
-                } else {
-                    None
-                };
-                self.device.bind_draw_target(None, None);
-                self.device.enable_depth_write();
-                self.device.clear_target(clear_color, clear_depth_value, None);
-                self.device.disable_depth_write();
+                if needs_color_clear || clear_depth_value.is_some() {
+                    let clear_color = if needs_color_clear {
+                        self.clear_color.map(|color| color.to_array())
+                    } else {
+                        None
+                    };
+                    self.device.bind_draw_target(None, None);
+                    self.device.enable_depth_write();
+                    self.device.clear_target(clear_color, clear_depth_value, None);
+                    self.device.disable_depth_write();
+                }
             }
 
             // Re-use whatever targets possible from the pool, before
@@ -2844,24 +2865,26 @@ impl Renderer {
         }
 
         if self.debug_flags.contains(DebugFlags::PROFILER_DBG) {
-            //TODO: take device/pixel ratio into equation?
-            let screen_fraction = 1.0 / framebuffer_size.to_f32().area();
-            self.profiler.draw_profile(
-                &frame_profiles,
-                &self.backend_profile_counters,
-                &self.profile_counters,
-                &mut profile_timers,
-                &profile_samplers,
-                screen_fraction,
-                &mut self.debug,
-                self.debug_flags.contains(DebugFlags::COMPACT_PROFILER),
-            );
+            if let Some(framebuffer_size) = framebuffer_size {
+                //TODO: take device/pixel ratio into equation?
+                let screen_fraction = 1.0 / framebuffer_size.to_f32().area();
+                self.profiler.draw_profile(
+                    &frame_profiles,
+                    &self.backend_profile_counters,
+                    &self.profile_counters,
+                    &mut profile_timers,
+                    &profile_samplers,
+                    screen_fraction,
+                    &mut self.debug,
+                    self.debug_flags.contains(DebugFlags::COMPACT_PROFILER),
+                );
+            }
         }
 
         self.profile_counters.reset();
         self.profile_counters.frame_counter.inc();
 
-        self.debug.render(&mut self.device, &framebuffer_size);
+        self.debug.render(&mut self.device, framebuffer_size);
         profile_timers.cpu_time.profile(|| {
             let _gm = self.gpu_profile.start_marker("end frame");
             self.gpu_profile.end_frame();
@@ -4170,12 +4193,13 @@ impl Renderer {
     fn draw_tile_frame(
         &mut self,
         frame: &mut Frame,
-        framebuffer_size: DeviceUintSize,
+        framebuffer_size: Option<DeviceUintSize>,
         framebuffer_depth_is_ready: bool,
         frame_id: FrameId,
         stats: &mut RendererStats,
     ) {
         let _gm = self.gpu_profile.start_marker("tile frame draw");
+        frame.has_been_rendered = true;
 
         if frame.passes.is_empty() {
             return;
@@ -4204,30 +4228,32 @@ impl Renderer {
 
             let (cur_alpha, cur_color) = match pass.kind {
                 RenderPassKind::MainFramebuffer(ref target) => {
-                    stats.color_target_count += 1;
+                    if let Some(framebuffer_size) = framebuffer_size {
+                        stats.color_target_count += 1;
 
-                    let clear_color = frame.background_color.map(|color| color.to_array());
-                    let projection = Transform3D::ortho(
-                        0.0,
-                        framebuffer_size.width as f32,
-                        framebuffer_size.height as f32,
-                        0.0,
-                        ORTHO_NEAR_PLANE,
-                        ORTHO_FAR_PLANE,
-                    );
+                        let clear_color = frame.background_color.map(|color| color.to_array());
+                        let projection = Transform3D::ortho(
+                            0.0,
+                            framebuffer_size.width as f32,
+                            framebuffer_size.height as f32,
+                            0.0,
+                            ORTHO_NEAR_PLANE,
+                            ORTHO_FAR_PLANE,
+                        );
 
-                    self.draw_color_target(
-                        None,
-                        target,
-                        frame.inner_rect,
-                        framebuffer_size,
-                        framebuffer_depth_is_ready,
-                        clear_color,
-                        &frame.render_tasks,
-                        &projection,
-                        frame_id,
-                        stats,
-                    );
+                        self.draw_color_target(
+                            None,
+                            target,
+                            frame.inner_rect,
+                            framebuffer_size,
+                            framebuffer_depth_is_ready,
+                            clear_color,
+                            &frame.render_tasks,
+                            &projection,
+                            frame_id,
+                            stats,
+                        );
+                    }
 
                     (None, None)
                 }
@@ -4314,8 +4340,10 @@ impl Renderer {
         }
 
         self.texture_resolver.end_frame(RenderPassIndex(frame.passes.len()));
-        self.draw_render_target_debug(framebuffer_size);
-        self.draw_texture_cache_debug(framebuffer_size);
+        if let Some(framebuffer_size) = framebuffer_size {
+            self.draw_render_target_debug(framebuffer_size);
+            self.draw_texture_cache_debug(framebuffer_size);
+        }
         self.draw_epoch_debug();
 
         // Garbage collect any frame outputs that weren't used this frame.
