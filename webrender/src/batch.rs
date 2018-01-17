@@ -598,11 +598,12 @@ impl AlphaBatcher {
         match prim_metadata.prim_kind {
             PrimitiveKind::Brush => {
                 let brush = &ctx.prim_store.cpu_brushes[prim_metadata.cpu_prim_index.0];
+                let batch_key = brush.get_batch_key(blend_mode);
 
                 self.add_brush_to_batch(
                     brush,
                     prim_metadata,
-                    blend_mode,
+                    batch_key,
                     clip_chain_rect_index,
                     clip_task_address,
                     item_bounding_rect,
@@ -612,6 +613,8 @@ impl AlphaBatcher {
                     transform_kind,
                     z,
                     render_tasks,
+                    0,
+                    0,
                 );
             }
             PrimitiveKind::Border => {
@@ -838,22 +841,28 @@ impl AlphaBatcher {
                                     BrushBatchKind::Image(
                                         BrushImageSourceKind::from_render_target_kind(picture.target_kind())),
                                 );
-                                let key = BatchKey::new(kind, blend_mode, textures);
-                                let batch = self.batch_list.get_suitable_batch(key, item_bounding_rect);
+                                let alpha_batch_key = BatchKey::new(
+                                    kind,
+                                    blend_mode,
+                                    textures,
+                                );
 
-                                let instance = BrushInstance {
-                                    picture_address: task_address,
-                                    prim_address: prim_cache_address,
+                                self.add_brush_to_batch(
+                                    &picture.brush,
+                                    prim_metadata,
+                                    alpha_batch_key,
                                     clip_chain_rect_index,
-                                    scroll_id,
                                     clip_task_address,
+                                    item_bounding_rect,
+                                    prim_cache_address,
+                                    scroll_id,
+                                    task_address,
+                                    transform_kind,
                                     z,
-                                    segment_index: 0,
-                                    edge_flags: EdgeAaSegmentMask::empty(),
-                                    user_data0: cache_item.uv_rect_handle.as_int(gpu_cache),
-                                    user_data1: image_kind as i32,
-                                };
-                                batch.push(PrimitiveInstance::from(instance));
+                                    render_tasks,
+                                    cache_item.uv_rect_handle.as_int(gpu_cache),
+                                    image_kind as i32,
+                                );
                             }
                         }
                     }
@@ -1232,7 +1241,7 @@ impl AlphaBatcher {
         &mut self,
         brush: &BrushPrimitive,
         prim_metadata: &PrimitiveMetadata,
-        blend_mode: BlendMode,
+        batch_key: BatchKey,
         clip_chain_rect_index: ClipChainRectIndex,
         clip_task_address: RenderTaskAddress,
         item_bounding_rect: &DeviceIntRect,
@@ -1242,6 +1251,8 @@ impl AlphaBatcher {
         transform_kind: TransformedRectKind,
         z: i32,
         render_tasks: &RenderTaskTree,
+        user_data0: i32,
+        user_data1: i32,
     ) {
         let base_instance = BrushInstance {
             picture_address: task_address,
@@ -1251,23 +1262,30 @@ impl AlphaBatcher {
             clip_task_address,
             z,
             segment_index: 0,
-            edge_flags: EdgeAaSegmentMask::empty(),
-            user_data0: 0,
-            user_data1: 0,
+            edge_flags: EdgeAaSegmentMask::all(),
+            user_data0,
+            user_data1,
         };
 
         match brush.segment_desc {
             Some(ref segment_desc) => {
-                let opaque_batch = self.batch_list.opaque_batch_list.get_suitable_batch(
-                    brush.get_batch_key(
-                        BlendMode::None
-                    ),
+                let alpha_batch_key = BatchKey {
+                    blend_mode: BlendMode::PremultipliedAlpha,
+                    ..batch_key
+                };
+
+                let alpha_batch = self.batch_list.alpha_batch_list.get_suitable_batch(
+                    alpha_batch_key,
                     item_bounding_rect
                 );
-                let alpha_batch = self.batch_list.alpha_batch_list.get_suitable_batch(
-                    brush.get_batch_key(
-                        BlendMode::PremultipliedAlpha
-                    ),
+
+                let opaque_batch_key = BatchKey {
+                    blend_mode: BlendMode::None,
+                    ..batch_key
+                };
+
+                let opaque_batch = self.batch_list.opaque_batch_list.get_suitable_batch(
+                    opaque_batch_key,
                     item_bounding_rect
                 );
 
@@ -1296,7 +1314,7 @@ impl AlphaBatcher {
                 }
             }
             None => {
-                let batch = self.batch_list.get_suitable_batch(brush.get_batch_key(blend_mode), item_bounding_rect);
+                let batch = self.batch_list.get_suitable_batch(batch_key, item_bounding_rect);
                 batch.push(PrimitiveInstance::from(base_instance));
             }
         }
@@ -1312,6 +1330,9 @@ impl BrushPrimitive {
                     blend_mode,
                     BatchTextures::no_texture(),
                 )
+            }
+            BrushKind::Picture => {
+                panic!("bug: get_batch_key is handled at higher level for pictures");
             }
             BrushKind::Solid { .. } => {
                 BatchKey::new(

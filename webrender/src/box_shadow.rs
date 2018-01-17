@@ -256,12 +256,6 @@ impl FrameBuilder {
                         clip_and_scroll
                     );
 
-                    // TODO(gw): Right now, we always use a clip out
-                    //           mask for outset shadows. We can make this
-                    //           much more efficient when we have proper
-                    //           segment logic, by avoiding drawing
-                    //           most of the pixels inside and just
-                    //           clipping out along the edges.
                     extra_clips.push(ClipSource::new_rounded_rect(
                         prim_info.rect,
                         border_radius,

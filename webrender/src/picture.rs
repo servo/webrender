@@ -10,7 +10,7 @@ use box_shadow::{BLUR_SAMPLE_SCALE, BoxShadowCacheKey};
 use frame_builder::PrimitiveContext;
 use gpu_cache::{GpuCache, GpuDataRequest};
 use gpu_types::{BrushImageKind, PictureType};
-use prim_store::{PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
+use prim_store::{BrushKind, BrushPrimitive, PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
 use render_task::{ClearMode, RenderTask, RenderTaskCacheKey};
 use render_task::{RenderTaskCacheKeyKind, RenderTaskId, RenderTaskTree};
 use resource_cache::{CacheItem, ResourceCache};
@@ -119,6 +119,15 @@ pub struct PicturePrimitive {
     // picture. For text shadows and box shadows, we want to
     // unconditionally draw them.
     pub cull_children: bool,
+
+    // The brush primitive that will be used to draw this
+    // picture.
+    // TODO(gw): Having a brush primitive embedded here
+    //           makes the code complex in a few places.
+    //           Consider a better way to structure this.
+    //           Maybe embed the PicturePrimitive inside
+    //           the BrushKind enum instead?
+    pub brush: BrushPrimitive,
 }
 
 impl PicturePrimitive {
@@ -134,6 +143,10 @@ impl PicturePrimitive {
             },
             pipeline_id,
             cull_children: false,
+            brush: BrushPrimitive::new(
+                BrushKind::Picture,
+                None,
+            ),
         }
     }
 
@@ -179,6 +192,10 @@ impl PicturePrimitive {
             },
             pipeline_id,
             cull_children: false,
+            brush: BrushPrimitive::new(
+                BrushKind::Picture,
+                None,
+            ),
         }
     }
 
@@ -202,6 +219,10 @@ impl PicturePrimitive {
             },
             pipeline_id,
             cull_children: true,
+            brush: BrushPrimitive::new(
+                BrushKind::Picture,
+                None,
+            ),
         }
     }
 
