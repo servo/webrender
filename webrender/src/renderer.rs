@@ -2895,10 +2895,10 @@ impl Renderer {
         self.profile_counters.reset();
         self.profile_counters.frame_counter.inc();
 
-        self.debug.render(&mut self.device, framebuffer_size);
         profile_timers.cpu_time.profile(|| {
             let _gm = self.gpu_profile.start_marker("end frame");
             self.gpu_profile.end_frame();
+            self.debug.render(&mut self.device, framebuffer_size);
             self.device.end_frame();
         });
         self.last_time = current_time;
