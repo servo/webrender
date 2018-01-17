@@ -582,7 +582,7 @@ impl PicturePrimitive {
                         // TODO(gw): Remove the nastiness with having to pass
                         //           the scale factor through the texture cache
                         //           item user data. This will disappear once
-                        //           the brush_image shader is updated to draw
+                        //           the brush_picture shader is updated to draw
                         //           segments, since the scale factor will not
                         //           be used at all then during drawing.
                         (root_task_id, [scale_factor, 0.0, 0.0])
