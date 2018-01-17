@@ -769,6 +769,22 @@ pub struct Frame {
     // patch the data structures.
     #[cfg_attr(feature = "capture", serde(skip))]
     pub deferred_resolves: Vec<DeferredResolve>,
+
+    // True if this frame contains any render tasks
+    // that write to the texture cache.
+    pub has_texture_cache_tasks: bool,
+
+    // True if this frame has been drawn by the
+    // renderer.
+    pub has_been_rendered: bool,
+}
+
+impl Frame {
+    // This frame must be flushed if it writes to the
+    // texture cache, and hasn't been drawn yet.
+    pub fn must_be_drawn(&self) -> bool {
+        self.has_texture_cache_tasks && !self.has_been_rendered
+    }
 }
 
 impl BlurTask {

@@ -34,7 +34,7 @@ use resource_cache::ResourceCache;
 use scene::{ScenePipeline, SceneProperties};
 use std::{mem, usize, f32};
 use tiling::{CompositeOps, Frame, RenderPass, RenderTargetKind};
-use tiling::{RenderTargetContext, ScrollbarPrimitive};
+use tiling::{RenderPassKind, RenderTargetContext, ScrollbarPrimitive};
 use util::{self, MaxRect, pack_as_float, RectHelpers, recycle_vec};
 
 #[derive(Debug)]
@@ -1757,6 +1757,7 @@ impl FrameBuilder {
         }
 
         let mut deferred_resolves = vec![];
+        let mut has_texture_cache_tasks = false;
         let use_dual_source_blending = self.config.dual_source_blending_is_enabled &&
                                        self.config.dual_source_blending_is_supported;
 
@@ -1778,6 +1779,10 @@ impl FrameBuilder {
                 &self.clip_store,
                 RenderPassIndex(pass_index),
             );
+
+            if let RenderPassKind::OffScreen { ref texture_cache, .. } = pass.kind {
+                has_texture_cache_tasks |= !texture_cache.is_empty();
+            }
         }
 
         let gpu_cache_updates = gpu_cache.end_frame(gpu_cache_profile);
@@ -1799,6 +1804,8 @@ impl FrameBuilder {
             render_tasks,
             deferred_resolves,
             gpu_cache_updates: Some(gpu_cache_updates),
+            has_been_rendered: false,
+            has_texture_cache_tasks,
         }
     }
 }
