@@ -20,10 +20,6 @@ use std::ptr;
 use std::rc::Rc;
 use std::thread;
 
-// Apparently, in some cases calling `glTexImage3D` with
-// similar parameters that the texture already has confuses
-// Angle when running with optimizations.
-const WORK_AROUND_TEX_IMAGE: bool = cfg!(windows);
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, Eq, PartialOrd)]
 #[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
@@ -1038,7 +1034,7 @@ impl Device {
         is_resized: bool,
         pixels: Option<&[u8]>,
     ) {
-        assert!(texture.layer_count > 0);
+        assert!(texture.layer_count > 0 || texture.width + texture.height == 0);
 
         let needed_layer_count = texture.layer_count - texture.fbo_ids.len() as i32;
         let allocate_color = needed_layer_count != 0 || is_resized || pixels.is_some();
@@ -1047,19 +1043,6 @@ impl Device {
             let desc = gl_describe_format(self.gl(), texture.format);
             match texture.target {
                 gl::TEXTURE_2D_ARRAY => {
-                    if WORK_AROUND_TEX_IMAGE {
-                        // reset the contents before resizing
-                        self.gl.tex_image_3d(
-                            texture.target,
-                            0,
-                            gl::RGBA32F as _,
-                            2, 2, 1,
-                            0,
-                            gl::RGBA,
-                            gl::FLOAT,
-                            None,
-                        )
-                    }
                     self.gl.tex_image_3d(
                         texture.target,
                         0,

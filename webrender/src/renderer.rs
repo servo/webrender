@@ -4985,7 +4985,10 @@ impl Renderer {
         };
 
         for ExternalCaptureImage { short_path, external, descriptor } in renderer.external_images {
-            let target = get_external_image_target(external.image_type).unwrap();
+            let target = match get_external_image_target(external.image_type) {
+                Some(target) => target,
+                None => continue,
+            };
             //TODO: provide a way to query both the layer count and the filter from external images
             let (layer_count, filter) = (1, TextureFilter::Linear);
             let plain = PlainTexture {

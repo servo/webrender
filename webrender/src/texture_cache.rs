@@ -9,7 +9,7 @@ use device::TextureFilter;
 use frame::FrameId;
 use freelist::{FreeList, FreeListHandle, UpsertResult, WeakFreeListHandle};
 use gpu_cache::{GpuCache, GpuCacheHandle};
-use internal_types::{CacheTextureId, TextureUpdateList, TextureUpdateSource};
+use internal_types::{CacheTextureId, FastHashMap, TextureUpdateList, TextureUpdateSource};
 use internal_types::{RenderTargetInfo, SourceTexture, TextureUpdate, TextureUpdateOp};
 use profiler::{ResourceProfileCounter, TextureCacheProfileCounters};
 use resource_cache::CacheItem;
@@ -31,7 +31,7 @@ const TEXTURE_REGION_DIMENSIONS: u32 = 512;
 // to real API-specific texture IDs in the renderer.
 #[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 struct CacheTextureIdList {
-    free_list: Vec<CacheTextureId>,
+    free_lists: FastHashMap<ImageFormat, Vec<CacheTextureId>>,
     next_id: usize,
 }
 
@@ -39,25 +39,26 @@ impl CacheTextureIdList {
     fn new() -> Self {
         CacheTextureIdList {
             next_id: 0,
-            free_list: Vec::new(),
+            free_lists: FastHashMap::default(),
         }
     }
 
-    fn allocate(&mut self) -> CacheTextureId {
+    fn allocate(&mut self, format: ImageFormat) -> CacheTextureId {
         // If nothing on the free list of texture IDs,
         // allocate a new one.
-        match self.free_list.pop() {
-            Some(id) => id,
-            None => {
-                let id = CacheTextureId(self.next_id);
+        self.free_lists.get_mut(&format)
+            .and_then(|fl| fl.pop())
+            .unwrap_or_else(|| {
                 self.next_id += 1;
-                id
-            }
-        }
+                CacheTextureId(self.next_id - 1)
+            })
     }
 
-    fn free(&mut self, id: CacheTextureId) {
-        self.free_list.push(id);
+    fn free(&mut self, id: CacheTextureId, format: ImageFormat) {
+        self.free_lists
+            .entry(format)
+            .or_insert(Vec::new())
+            .push(id);
     }
 }
 
@@ -553,7 +554,7 @@ impl TextureCache {
                     id: entry.texture_id,
                     op: TextureUpdateOp::Free,
                 });
-                self.cache_textures.free(entry.texture_id);
+                self.cache_textures.free(entry.texture_id, entry.format);
                 None
             }
             EntryKind::Cache {
@@ -592,7 +593,7 @@ impl TextureCache {
 
         // Lazy initialize this texture array if required.
         if texture_array.texture_id.is_none() {
-            let texture_id = self.cache_textures.allocate();
+            let texture_id = self.cache_textures.allocate(descriptor.format);
 
             let update_op = TextureUpdate {
                 id: texture_id,
@@ -686,7 +687,7 @@ impl TextureCache {
         // will just have to be in a unique texture. This hurts batching but should
         // only occur on a small number of images (or pathological test cases!).
         if new_cache_entry.is_none() {
-            let texture_id = self.cache_textures.allocate();
+            let texture_id = self.cache_textures.allocate(descriptor.format);
 
             // Create an update operation to allocate device storage
             // of the right size / format.
