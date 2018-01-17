@@ -852,6 +852,8 @@ impl FrameBuilder {
             );
             let mut info = info.clone();
             info.rect = info.rect.translate(&shadow_offset);
+            info.local_clip =
+              LocalClip::from(info.local_clip.clip_rect().translate(&shadow_offset));
             let prim_index = self.create_primitive(
                 &info,
                 Vec::new(),
@@ -1362,6 +1364,8 @@ impl FrameBuilder {
             let rect = info.rect;
             let mut info = info.clone();
             info.rect = rect.translate(&text_prim.offset);
+            info.local_clip =
+              LocalClip::from(info.local_clip.clip_rect().translate(&text_prim.offset));
             let prim_index = self.create_primitive(
                 &info,
                 Vec::new(),
