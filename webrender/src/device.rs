@@ -470,16 +470,6 @@ impl Texture {
         self.render_target.clone()
     }
 
-    pub fn get_bpp(&self) -> u32 {
-        match self.format {
-            ImageFormat::R8 => 1,
-            ImageFormat::BGRA8 => 4,
-            ImageFormat::RG8 => 2,
-            ImageFormat::RGBAF32 => 16,
-            ImageFormat::Invalid => unreachable!(),
-        }
-    }
-
     pub fn has_depth(&self) -> bool {
         self.depth_rb.is_some()
     }
@@ -939,14 +929,16 @@ impl Device {
         }
     }
 
-    pub fn create_texture(&mut self, target: TextureTarget) -> Texture {
+    pub fn create_texture(
+        &mut self, target: TextureTarget, format: ImageFormat,
+    ) -> Texture {
         Texture {
             id: self.gl.gen_textures(1)[0],
             target: target.to_gl_target(),
             width: 0,
             height: 0,
             layer_count: 0,
-            format: ImageFormat::Invalid,
+            format,
             filter: TextureFilter::Nearest,
             render_target: None,
             fbo_ids: vec![],
@@ -992,7 +984,7 @@ impl Device {
 
         self.bind_texture(DEFAULT_TEXTURE, texture);
         self.set_texture_parameters(texture.target, texture.filter);
-        self.update_target_storage(texture, &rt_info, true, false, None);
+        self.update_target_storage(texture, &rt_info, true, None);
 
         let rect = DeviceIntRect::new(DeviceIntPoint::zero(), old_size.to_i32());
         for (read_fbo, &draw_fbo) in old_fbos.into_iter().zip(&texture.fbo_ids) {
@@ -1010,19 +1002,15 @@ impl Device {
         texture: &mut Texture,
         width: u32,
         height: u32,
-        format: ImageFormat,
         filter: TextureFilter,
         render_target: Option<RenderTargetInfo>,
         layer_count: i32,
-
         pixels: Option<&[u8]>,
     ) {
         debug_assert!(self.inside_frame);
 
         let is_resized = texture.width != width || texture.height != height;
-        let is_format_changed = texture.format != format;
 
-        texture.format = format;
         texture.width = width;
         texture.height = height;
         texture.filter = filter;
@@ -1034,7 +1022,7 @@ impl Device {
 
         match render_target {
             Some(info) => {
-                self.update_target_storage(texture, &info, is_resized, is_format_changed, pixels);
+                self.update_target_storage(texture, &info, is_resized, pixels);
             }
             None => {
                 self.update_texture_storage(texture, pixels);
@@ -1048,14 +1036,12 @@ impl Device {
         texture: &mut Texture,
         rt_info: &RenderTargetInfo,
         is_resized: bool,
-        is_format_changed: bool,
         pixels: Option<&[u8]>,
     ) {
         assert!(texture.layer_count > 0);
 
         let needed_layer_count = texture.layer_count - texture.fbo_ids.len() as i32;
-        let allocate_color = needed_layer_count != 0 ||
-            is_resized || is_format_changed || pixels.is_some();
+        let allocate_color = needed_layer_count != 0 || is_resized || pixels.is_some();
 
         if allocate_color {
             let desc = gl_describe_format(self.gl(), texture.format);
@@ -1267,7 +1253,7 @@ impl Device {
     pub fn free_texture_storage(&mut self, texture: &mut Texture) {
         debug_assert!(self.inside_frame);
 
-        if texture.format == ImageFormat::Invalid {
+        if texture.width + texture.height == 0 {
             return;
         }
 
@@ -1289,7 +1275,6 @@ impl Device {
             self.gl.delete_framebuffers(&fbo_ids[..]);
         }
 
-        texture.format = ImageFormat::Invalid;
         texture.width = 0;
         texture.height = 0;
         texture.layer_count = 0;
@@ -2070,7 +2055,6 @@ fn gl_describe_format(gl: &gl::Gl, format: ImageFormat) -> FormatDesc {
             external: gl::RG,
             pixel_type: gl::UNSIGNED_BYTE,
         },
-        ImageFormat::Invalid => unreachable!(),
     }
 }
 
@@ -2184,7 +2168,6 @@ impl<'a> UploadTarget<'a> {
             ImageFormat::BGRA8 => (get_gl_format_bgra(self.gl), 4, gl::UNSIGNED_BYTE),
             ImageFormat::RG8 => (gl::RG, 2, gl::UNSIGNED_BYTE),
             ImageFormat::RGBAF32 => (gl::RGBA, 16, gl::FLOAT),
-            ImageFormat::Invalid => unreachable!(),
         };
 
         let row_length = match chunk.stride {
