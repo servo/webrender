@@ -130,10 +130,8 @@ pub enum UploadMethod {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ReadPixelsFormat {
-    R8,
+    Standard(ImageFormat),
     Rgba8,
-    Bgra8,
-    Rgba32F,
 }
 
 pub fn get_gl_format_bgra(gl: &gl::Gl) -> gl::GLuint {
@@ -1552,13 +1550,19 @@ impl Device {
         format: ReadPixelsFormat,
         output: &mut [u8],
     ) {
-        let (gl_format, gl_type, pixel_size) = match format {
-            ReadPixelsFormat::R8 => (gl::RED, gl::UNSIGNED_BYTE, 1),
-            ReadPixelsFormat::Rgba8 => (gl::RGBA, gl::UNSIGNED_BYTE, 4),
-            ReadPixelsFormat::Bgra8 => (get_gl_format_bgra(self.gl()), gl::UNSIGNED_BYTE, 4),
-            ReadPixelsFormat::Rgba32F => (gl::RGBA, gl::FLOAT, 16),
+        let (bytes_per_pixel, desc) = match format {
+            ReadPixelsFormat::Standard(imf) => {
+                (imf.bytes_per_pixel(), gl_describe_format(self.gl(), imf))
+            }
+            ReadPixelsFormat::Rgba8 => {
+                (4, FormatDesc {
+                    external: gl::RGBA,
+                    internal: gl::RGBA8 as _,
+                    pixel_type: gl::UNSIGNED_BYTE,
+                })
+            }
         };
-        let size_in_bytes = (pixel_size * rect.size.width * rect.size.height) as usize;
+        let size_in_bytes = (bytes_per_pixel * rect.size.width * rect.size.height) as usize;
         assert_eq!(output.len(), size_in_bytes);
 
         self.gl.flush();
@@ -1567,8 +1571,8 @@ impl Device {
             rect.origin.y as _,
             rect.size.width as _,
             rect.size.height as _,
-            gl_format,
-            gl_type,
+            desc.external,
+            desc.pixel_type,
             output,
         );
     }

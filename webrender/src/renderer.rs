@@ -4549,7 +4549,7 @@ impl Renderer {
         self.device.bind_read_target(Some((&self.gpu_cache_texture.texture, 0)));
         self.device.read_pixels_into(
             DeviceUintRect::new(DeviceUintPoint::zero(), size),
-            ReadPixelsFormat::Rgba32F,
+            ReadPixelsFormat::Standard(ImageFormat::RGBAF32),
             &mut texels,
         );
         self.device.bind_read_target(None);
@@ -4827,12 +4827,8 @@ impl Renderer {
 
         let short_path = format!("textures/{}.raw", name);
 
-        let (read_format, bytes_per_pixel) = match texture.get_format() {
-            ImageFormat::R8 => (ReadPixelsFormat::R8, 1u32),
-            ImageFormat::BGRA8 => (ReadPixelsFormat::Bgra8, 4u32),
-            ImageFormat::RGBAF32 => (ReadPixelsFormat::Rgba32F, 16u32),
-            _ => unimplemented!()
-        };
+        let bytes_per_pixel = texture.get_format().bytes_per_pixel();
+        let read_format = ReadPixelsFormat::Standard(texture.get_format());
         let rect = DeviceUintRect::new(
             DeviceUintPoint::zero(),
             texture.get_dimensions(),
