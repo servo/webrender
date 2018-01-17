@@ -1563,6 +1563,17 @@ struct TargetSelector {
     format: ImageFormat,
 }
 
+#[cfg(feature = "capture")]
+struct RendererCapture {
+    read_fbo: FBOId,
+    owned_external_images: FastHashMap<(ExternalImageId, u8), ExternalTexture>,
+}
+
+// Note: we can't just feature-gate the fields because `cbindgen` fails on those.
+// see https://github.com/eqrion/cbindgen/issues/116
+#[cfg(not(feature = "capture"))]
+struct RendererCapture;
+
 /// The renderer is responsible for submitting to the GPU the work prepared by the
 /// RenderBackend.
 pub struct Renderer {
@@ -1670,10 +1681,8 @@ pub struct Renderer {
     cpu_profiles: VecDeque<CpuProfile>,
     gpu_profiles: VecDeque<GpuProfile>,
 
-    #[cfg(feature = "capture")]
-    capture_read_fbo: FBOId,
-    #[cfg(feature = "capture")]
-    owned_external_images: FastHashMap<(ExternalImageId, u8), ExternalTexture>,
+    #[cfg_attr(not(feature = "capture"), allow(dead_code))]
+    capture: RendererCapture,
 }
 
 #[derive(Debug)]
@@ -2232,7 +2241,12 @@ impl Renderer {
         };
 
         #[cfg(feature = "capture")]
-        let capture_read_fbo = device.create_fbo_for_external_texture(0);
+        let capture = RendererCapture {
+            read_fbo: device.create_fbo_for_external_texture(0),
+            owned_external_images: FastHashMap::default(),
+        };
+        #[cfg(not(feature = "capture"))]
+        let capture = RendererCapture;
 
         let gpu_profile = GpuProfiler::new(Rc::clone(device.rc_gl()));
 
@@ -2298,10 +2312,7 @@ impl Renderer {
             texture_cache_upload_pbo,
             texture_resolver,
             renderer_errors: Vec::new(),
-            #[cfg(feature = "capture")]
-            capture_read_fbo,
-            #[cfg(feature = "capture")]
-            owned_external_images: FastHashMap::default(),
+            capture,
         };
 
         renderer.set_debug_flags(options.debug_flags);
@@ -2824,7 +2835,7 @@ impl Renderer {
 
             #[cfg(feature = "capture")]
             self.texture_resolver.external_images.extend(
-                self.owned_external_images.iter().map(|(key, value)| (*key, value.clone()))
+                self.capture.owned_external_images.iter().map(|(key, value)| (*key, value.clone()))
             );
 
             for &mut (_, RenderedDocument { ref mut frame, .. }) in &mut active_documents {
@@ -4601,9 +4612,9 @@ impl Renderer {
         self.ps_split_composite.deinit(&mut self.device);
         self.ps_composite.deinit(&mut self.device);
         #[cfg(feature = "capture")]
-        self.device.delete_fbo(self.capture_read_fbo);
+        self.device.delete_fbo(self.capture.read_fbo);
         #[cfg(feature = "capture")]
-        for (_, ext) in self.owned_external_images {
+        for (_, ext) in self.capture.owned_external_images {
             self.device.delete_external_texture(ext);
         }
         self.device.end_frame();
@@ -4873,7 +4884,7 @@ impl Renderer {
         use api::{CaptureBits, ExternalImageData};
 
         self.device.begin_frame();
-        self.device.bind_read_target_impl(self.capture_read_fbo);
+        self.device.bind_read_target_impl(self.capture.read_fbo);
 
         if !deferred_images.is_empty() {
             info!("saving external images");
@@ -4992,7 +5003,7 @@ impl Renderer {
             let mut t = self.device.create_texture(target);
             let data = Self::load_texture(&mut t, &plain, &root, &mut self.device);
             let key = (external.id, external.channel_index);
-            self.owned_external_images.insert(key, t.into_external());
+            self.capture.owned_external_images.insert(key, t.into_external());
             image_handler.data.insert(key, data);
         }
 
