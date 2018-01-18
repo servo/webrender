@@ -15,7 +15,7 @@ use api::{TileOffset, TileSize};
 use api::{NativeFontHandle};
 use app_units::Au;
 #[cfg(feature = "capture")]
-use capture::{ExternalCaptureImage};
+use capture::{CaptureConfig, ExternalCaptureImage, PlainExternalImage};
 use device::TextureFilter;
 use frame::FrameId;
 use glyph_cache::GlyphCache;
@@ -1046,6 +1046,10 @@ impl ResourceCache {
         if !path_blobs.is_dir() {
             fs::create_dir(&path_blobs).unwrap();
         }
+        let path_externals = root.join("externals");
+        if !path_externals.is_dir() {
+            fs::create_dir(&path_externals).unwrap();
+        }
 
         info!("\tfont templates");
         let mut font_paths = FastHashMap::default();
@@ -1071,6 +1075,7 @@ impl ResourceCache {
         info!("\timage templates");
         let mut image_paths = FastHashMap::default();
         let mut other_paths = FastHashMap::default();
+        let mut num_blobs = 0;
         let mut external_images = Vec::new();
         for (&key, template) in res.image_templates.images.iter() {
             let desc = &template.descriptor;
@@ -1100,7 +1105,6 @@ impl ResourceCache {
                         // https://github.com/servo/webrender/issues/2236
                         tile: None,
                     };
-
                     let renderer = self.blob_image_renderer.as_mut().unwrap();
                     renderer.request(
                         &self.resources,
@@ -1116,8 +1120,10 @@ impl ResourceCache {
                     let result = renderer.resolve(request)
                         .expect("Blob resolve failed");
                     assert_eq!((result.width, result.height), (desc.width, desc.height));
+                    assert_eq!(result.data.len(), desc.compute_total_size() as usize);
 
-                    let file_name = format!("{}.raw", other_paths.len() + 1);
+                    num_blobs += 1;
+                    let file_name = format!("{}.raw", num_blobs);
                     let short_path = format!("blobs/{}", file_name);
                     let full_path = path_blobs.clone().join(&file_name);
                     fs::File::create(full_path)
@@ -1127,7 +1133,7 @@ impl ResourceCache {
                     other_paths.insert(key, short_path);
                 }
                 ImageData::External(ref ext) => {
-                    let short_path = format!("blobs/{}.raw", other_paths.len() + 1);
+                    let short_path = format!("externals/{}", external_images.len() + 1);
                     other_paths.insert(key, short_path.clone());
                     external_images.push(ExternalCaptureImage {
                         short_path,
@@ -1243,7 +1249,7 @@ impl ResourceCache {
         resources: PlainResources,
         caches: Option<PlainCacheOwn>,
         root: &PathBuf,
-    ) {
+    ) -> Vec<PlainExternalImage> {
         use std::fs::File;
         use std::io::Read;
 
@@ -1348,29 +1354,46 @@ impl ResourceCache {
         }
 
         info!("\timage templates...");
+        let mut external_images = Vec::new();
         for (key, template) in resources.image_templates {
-            let arc = match raw_map.entry(template.data) {
-                Entry::Occupied(e) => {
-                    e.get().clone()
+            let data = match CaptureConfig::deserialize::<PlainExternalImage, _>(root, &template.data) {
+                Some(plain) => {
+                    let ext_data = ExternalImageData {
+                        id: plain.id,
+                        channel_index: plain.channel_index,
+                        image_type: ExternalImageType::ExternalBuffer,
+                    };
+                    external_images.push(plain);
+                    ImageData::External(ext_data)
                 }
-                Entry::Vacant(e) => {
-                    let mut buffer = Vec::new();
-                    File::open(root.join(e.key()))
-                        .expect(&format!("Unable to open {}", e.key()))
-                        .read_to_end(&mut buffer)
-                        .unwrap();
-                    e.insert(Arc::new(buffer))
-                        .clone()
+                None => {
+                    let arc = match raw_map.entry(template.data) {
+                        Entry::Occupied(e) => {
+                            e.get().clone()
+                        }
+                        Entry::Vacant(e) => {
+                            let mut buffer = Vec::new();
+                            File::open(root.join(e.key()))
+                                .expect(&format!("Unable to open {}", e.key()))
+                                .read_to_end(&mut buffer)
+                                .unwrap();
+                            e.insert(Arc::new(buffer))
+                                .clone()
+                        }
+                    };
+                    ImageData::Raw(arc)
                 }
             };
 
             res.image_templates.images.insert(key, ImageResource {
-                data: ImageData::Raw(arc),
+                data,
                 descriptor: template.descriptor,
                 tiling: template.tiling,
-                epoch: Epoch(0),
+                epoch: Epoch(0), //TODO!!!!
                 dirty_rect: None,
             });
         }
+
+        external_images
     }
 }

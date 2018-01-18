@@ -708,7 +708,7 @@ impl TextRunPrimitiveCpu {
             // TODO(gw): If we support chunks() on AuxIter
             //           in the future, this code below could
             //           be much simpler...
-            let mut gpu_block = GpuBlockData::empty();
+            let mut gpu_block = GpuBlockData::EMPTY;
             for (i, src) in src_glyphs.enumerate() {
                 let key = GlyphKey::new(src.index, src.point, font.render_mode, subpx_dir);
                 self.glyph_keys.push(key);

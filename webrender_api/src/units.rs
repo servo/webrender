@@ -35,6 +35,14 @@ pub type DevicePoint = TypedPoint2D<f32, DevicePixel>;
 pub type DeviceVector2D = TypedVector2D<f32, DevicePixel>;
 pub type DeviceSize = TypedSize2D<f32, DevicePixel>;
 
+/// Geometry in UV Space
+#[derive(Hash, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct UvPixel;
+
+pub type UvRect = TypedRect<f32, UvPixel>;
+pub type UvPoint = TypedPoint2D<f32, UvPixel>;
+pub type UvSize = TypedSize2D<f32, UvPixel>;
+
 /// Geometry in a stacking context's local coordinate space (logical pixels).
 ///
 /// For now layout pixels are equivalent to layer pixels, but it may change.

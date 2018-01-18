@@ -514,6 +514,10 @@ fn main() {
                         wrench.renderer.save_cpu_profile(&file_name);
                         cpu_profile_index += 1;
                     }
+                    VirtualKeyCode::S => {
+                        let path = PathBuf::from("../capture/wrench");
+                        wrench.api.save_capture(path, CaptureBits::all());
+                    }
                     VirtualKeyCode::Up => {
                         let current_zoom = wrench.get_page_zoom();
                         let new_zoom_factor = ZoomFactor::new(current_zoom.get() + 0.1);

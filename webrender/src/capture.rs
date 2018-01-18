@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use api::{CaptureBits, ExternalImageData, ImageDescriptor};
+use api::{CaptureBits, ExternalImageData, ExternalImageId, ImageDescriptor, UvRect};
 use ron::{de, ser};
 use serde::{Deserialize, Serialize};
 
@@ -65,4 +65,12 @@ pub struct ExternalCaptureImage {
     pub short_path: String,
     pub descriptor: ImageDescriptor,
     pub external: ExternalImageData,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct PlainExternalImage {
+    pub data: String,
+    pub id: ExternalImageId,
+    pub channel_index: u8,
+    pub uv: UvRect,
 }

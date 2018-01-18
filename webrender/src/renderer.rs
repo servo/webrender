@@ -11,8 +11,9 @@
 
 use api::{BlobImageRenderer, ColorF, ColorU, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentId, Epoch, ExternalImageId};
-use api::{ExternalImageType, FontRenderMode, ImageFormat, PipelineId, RenderApiSender};
-use api::{RenderNotifier, YUV_COLOR_SPACES, YUV_FORMATS, YuvColorSpace, YuvFormat, channel};
+use api::{ExternalImageType, FontRenderMode, ImageFormat, PipelineId};
+use api::{RenderApiSender, RenderNotifier, YuvColorSpace, YuvFormat, UvRect};
+use api::{YUV_COLOR_SPACES, YUV_FORMATS, channel};
 #[cfg(not(feature = "debugger"))]
 use api::ApiMsg;
 use api::DebugCommand;
@@ -21,7 +22,7 @@ use api::channel::MsgSender;
 use batch::{BatchKey, BatchKind, BatchTextures, BrushBatchKind};
 use batch::{BrushImageSourceKind, TransformBatchKind};
 #[cfg(feature = "capture")]
-use capture::{CaptureConfig, ExternalCaptureImage};
+use capture::{CaptureConfig, ExternalCaptureImage, PlainExternalImage};
 use debug_colors;
 use debug_render::DebugRenderer;
 #[cfg(feature = "debugger")]
@@ -960,7 +961,7 @@ impl CacheTexture {
                                 rows.push(CacheRow::new());
                                 // Add enough GPU blocks for this row.
                                 cpu_blocks
-                                    .extend_from_slice(&[GpuBlockData::empty(); MAX_VERTEX_TEXTURE_WIDTH]);
+                                    .extend_from_slice(&[GpuBlockData::EMPTY; MAX_VERTEX_TEXTURE_WIDTH]);
                             }
 
                             // This row is dirty (needs to be updated in GPU texture).
@@ -2424,9 +2425,9 @@ impl Renderer {
                         self.save_capture(config, deferred);
                     }
                     #[cfg(feature = "capture")]
-                    DebugOutput::LoadCapture(root) => {
+                    DebugOutput::LoadCapture(root, deferred) => {
                         self.active_documents.clear();
-                        self.load_capture(root);
+                        self.load_capture(root, deferred);
                     }
                 },
                 ResultMsg::DebugCommand(command) => {
@@ -4075,7 +4076,7 @@ impl Renderer {
                 block_count: BLOCKS_PER_UV_RECT,
                 address: deferred_resolve.address,
             });
-            list.blocks.push([image.u0, image.v0, image.u1, image.v1].into());
+            list.blocks.push(image.uv.into());
             list.blocks.push([0f32; 4].into());
         }
 
@@ -4636,10 +4637,7 @@ pub enum ExternalImageSource<'a> {
 /// will know to re-upload the image data to the GPU.
 /// Note that the UV coords are supplied in texel-space!
 pub struct ExternalImage<'a> {
-    pub u0: f32,
-    pub v0: f32,
-    pub u1: f32,
-    pub v1: f32,
+    pub uv: UvRect,
     pub source: ExternalImageSource<'a>,
 }
 
@@ -4788,19 +4786,16 @@ struct PlainRenderer {
 
 #[cfg(feature = "capture")]
 struct DummyExternalImageHandler {
-    data: FastHashMap<(ExternalImageId, u8), Vec<u8>>,
+    data: FastHashMap<(ExternalImageId, u8), (Arc<Vec<u8>>, UvRect)>,
 }
 
 #[cfg(feature = "capture")]
 impl ExternalImageHandler for DummyExternalImageHandler {
     fn lock(&mut self, key: ExternalImageId, channel_index: u8) -> ExternalImage {
-        let slice = &self.data[&(key, channel_index)];
+        let (ref arc, ref uv) = self.data[&(key, channel_index)];
         ExternalImage {
-            u0: 0.0,
-            v0: 0.0,
-            u1: 1.0,
-            v1: 1.0,
-            source: ExternalImageSource::RawData(slice),
+            uv: *uv,
+            source: ExternalImageSource::RawData(&*arc),
         }
     }
     fn unlock(&mut self, _key: ExternalImageId, _channel_index: u8) {}
@@ -4874,7 +4869,11 @@ impl Renderer {
         texels
     }
 
-    fn save_capture(&mut self, config: CaptureConfig, deferred_images: Vec<ExternalCaptureImage>) {
+    fn save_capture(
+        &mut self,
+        config: CaptureConfig,
+        deferred_images: Vec<ExternalCaptureImage>,
+    ) {
         use std::fs;
         use std::io::Write;
         use api::{CaptureBits, ExternalImageData};
@@ -4884,31 +4883,66 @@ impl Renderer {
 
         if !deferred_images.is_empty() {
             info!("saving external images");
+            let mut arc_map = FastHashMap::<*const u8, String>::default();
+            let mut tex_map = FastHashMap::<u32, String>::default();
             let handler = self.external_image_handler
                 .as_mut()
                 .expect("Unable to lock the external image handler!");
             for def in &deferred_images {
+                info!("\t{}", def.short_path);
                 let ExternalImageData { id, channel_index, image_type } = def.external;
-                let data = match handler.lock(id, channel_index).source {
-                    ExternalImageSource::RawData(data) => data.to_vec(),
+                let ext_image = handler.lock(id, channel_index);
+                let (data, short_path) = match ext_image.source {
+                    ExternalImageSource::RawData(data) => {
+                        let arc_id = arc_map.len() + 1;
+                        match arc_map.entry(data.as_ptr()) {
+                            Entry::Occupied(e) => {
+                                (None, e.get().clone())
+                            }
+                            Entry::Vacant(e) => {
+                                let short_path = format!("externals/d{}.raw", arc_id);
+                                (Some(data.to_vec()), e.insert(short_path).clone())
+                            }
+                        }
+                    }
                     ExternalImageSource::NativeTexture(gl_id) => {
-                        let target = get_external_image_target(image_type).unwrap();
-                        self.device.attach_read_texture_external(gl_id, target, 0);
-                        self.device.read_pixels(&def.descriptor)
+                        let tex_id = tex_map.len() + 1;
+                        match tex_map.entry(gl_id) {
+                            Entry::Occupied(e) => {
+                                (None, e.get().clone())
+                            }
+                            Entry::Vacant(e) => {
+                                let target = get_external_image_target(image_type).unwrap();
+                                info!("\t\tnative texture of target {:?}", target);
+                                let layer_index = 0; //TODO: what about layered textures?
+                                self.device.attach_read_texture_external(gl_id, target, layer_index);
+                                let data = self.device.read_pixels(&def.descriptor);
+                                let short_path = format!("externals/t{}.raw", tex_id);
+                                (Some(data), e.insert(short_path).clone())
+                            }
+                        }
                     }
                     ExternalImageSource::Invalid => {
-                        // Create a dummy buffer...
-                        let stride = def.descriptor.compute_stride();
-                        let total_size = def.descriptor.height * stride;
-                        vec![0xFF; total_size as usize]
+                        info!("\t\tinvalid source!");
+                        (None, String::new())
                     }
                 };
-                handler.unlock(id, channel_index);
-
-                fs::File::create(config.root.join(&def.short_path))
-                    .expect(&format!("Unable to create {}", def.short_path))
-                    .write_all(&data)
-                    .unwrap();
+                if let Some(bytes) = data {
+                    fs::File::create(config.root.join(&short_path))
+                        .expect(&format!("Unable to create {}", short_path))
+                        .write_all(&bytes)
+                        .unwrap();
+                }
+                let plain = PlainExternalImage {
+                    data: short_path,
+                    id: def.external.id,
+                    channel_index: def.external.channel_index,
+                    uv: ext_image.uv,
+                };
+                config.serialize(&plain, &def.short_path);
+            }
+            for def in &deferred_images {
+                handler.unlock(def.external.id, def.external.channel_index);
             }
         }
 
@@ -4944,71 +4978,93 @@ impl Renderer {
         info!("done.");
     }
 
-    fn load_capture(&mut self, root: PathBuf) {
-        let renderer = match CaptureConfig::deserialize::<PlainRenderer, _>(&root, "renderer") {
-            Some(r) => r,
-            None => return,
-        };
+    fn load_capture(
+        &mut self, root: PathBuf, external_images: Vec<PlainExternalImage>
+    ) {
+        use std::fs::File;
+        use std::io::Read;
+        use util::RectHelpers;
 
-        self.device.begin_frame();
-        info!("loading cached textures");
-
-        for texture in self.texture_resolver.cache_texture_map.drain(..) {
-            self.device.delete_texture(texture);
-        }
-        for texture in renderer.textures {
-            info!("\t{}", texture.data);
-            let mut t = self.device.create_texture(TextureTarget::Array, texture.format);
-            Self::load_texture(&mut t, &texture, &root, &mut self.device);
-            self.texture_resolver.cache_texture_map.push(t);
-        }
-
-        info!("loading gpu cache");
-        Self::load_texture(
-            &mut self.gpu_cache_texture.texture,
-            &renderer.gpu_cache,
-            &root,
-            &mut self.device,
-        );
-        match self.gpu_cache_texture.bus {
-            CacheBus::PixelBuffer { ref mut rows, ref mut cpu_blocks, .. } => {
-                rows.clear();
-                cpu_blocks.clear();
-            }
-            CacheBus::Scatter { .. } => {}
-        }
-
-        info!("loading external images");
+        info!("loading external buffer-backed images");
         assert!(self.texture_resolver.external_images.is_empty());
+        let mut raw_map = FastHashMap::<String, Arc<Vec<u8>>>::default();
         let mut image_handler = DummyExternalImageHandler {
             data: FastHashMap::default(),
         };
-
-        for ExternalCaptureImage { short_path, external, descriptor } in renderer.external_images {
-            let target = match get_external_image_target(external.image_type) {
-                Some(target) => target,
-                None => continue,
+        for ext in external_images {
+            let data = match raw_map.entry(ext.data) {
+                Entry::Occupied(e) => e.get().clone(),
+                Entry::Vacant(e) => {
+                    let mut buffer = Vec::new();
+                    File::open(root.join(e.key()))
+                        .expect(&format!("Unable to open {}", e.key()))
+                        .read_to_end(&mut buffer)
+                        .unwrap();
+                    e.insert(Arc::new(buffer)).clone()
+                }
             };
-            //TODO: provide a way to query both the layer count and the filter from external images
-            let (layer_count, filter) = (1, TextureFilter::Linear);
-            let plain = PlainTexture {
-                data: short_path,
-                size: (descriptor.width, descriptor.height, layer_count),
-                format: descriptor.format,
-                filter,
-                render_target: None,
-            };
-
-            let mut t = self.device.create_texture(target, plain.format);
-            let data = Self::load_texture(&mut t, &plain, &root, &mut self.device);
-            let key = (external.id, external.channel_index);
-            self.capture.owned_external_images.insert(key, t.into_external());
-            image_handler.data.insert(key, data);
+            let key = (ext.id, ext.channel_index);
+            image_handler.data.insert(key, (data, ext.uv));
         }
 
-        self.device.end_frame();
-        self.external_image_handler = Some(Box::new(image_handler) as Box<_>);
+        if let Some(renderer) = CaptureConfig::deserialize::<PlainRenderer, _>(&root, "renderer") {
+            info!("loading cached textures");
+            self.device.begin_frame();
+
+            for texture in self.texture_resolver.cache_texture_map.drain(..) {
+                self.device.delete_texture(texture);
+            }
+            for texture in renderer.textures {
+                info!("\t{}", texture.data);
+                let mut t = self.device.create_texture(TextureTarget::Array, texture.format);
+                Self::load_texture(&mut t, &texture, &root, &mut self.device);
+                self.texture_resolver.cache_texture_map.push(t);
+            }
+
+            info!("loading gpu cache");
+            Self::load_texture(
+                &mut self.gpu_cache_texture.texture,
+                &renderer.gpu_cache,
+                &root,
+                &mut self.device,
+            );
+            match self.gpu_cache_texture.bus {
+                CacheBus::PixelBuffer { ref mut rows, ref mut cpu_blocks, .. } => {
+                    rows.clear();
+                    cpu_blocks.clear();
+                }
+                CacheBus::Scatter { .. } => {}
+            }
+
+            info!("loading external texture-backed images");
+            for ExternalCaptureImage { short_path, external, descriptor } in renderer.external_images {
+                let target = match get_external_image_target(external.image_type) {
+                    Some(target) => target,
+                    None => continue,
+                };
+                //TODO: provide a way to query both the layer count and the filter from external images
+                let (layer_count, filter) = (1, TextureFilter::Linear);
+                let plain = PlainTexture {
+                    data: short_path,
+                    size: (descriptor.width, descriptor.height, layer_count),
+                    format: descriptor.format,
+                    filter,
+                    render_target: None,
+                };
+
+                let mut t = self.device.create_texture(target, plain.format);
+                let data = Self::load_texture(&mut t, &plain, &root, &mut self.device);
+                let key = (external.id, external.channel_index);
+                self.capture.owned_external_images.insert(key, t.into_external());
+                let uv = UvRect::from_floats(0.0, 0.0, 1.0, 1.0);
+                image_handler.data.insert(key, (Arc::new(data), uv));
+            }
+
+            self.device.end_frame();
+        }
+
         self.output_image_handler = Some(Box::new(()) as Box<_>);
+        self.external_image_handler = Some(Box::new(image_handler) as Box<_>);
         info!("done.");
     }
 }

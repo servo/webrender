@@ -29,6 +29,7 @@ impl ImageKey {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct ExternalImageId(pub u64);
 
+//TODO: split the enum into handle and non-handle parts
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub enum ExternalImageType {
@@ -92,6 +93,10 @@ impl ImageDescriptor {
     pub fn compute_stride(&self) -> u32 {
         self.stride
             .unwrap_or(self.width * self.format.bytes_per_pixel())
+    }
+
+    pub fn compute_total_size(&self) -> u32 {
+        self.compute_stride() * self.height
     }
 }
 

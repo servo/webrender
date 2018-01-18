@@ -53,11 +53,11 @@ void main(void) {
     vec2 uv0, uv1;
 
     if (image.sub_rect.x < 0.0) {
-        uv0 = res.uv_rect.xy;
-        uv1 = res.uv_rect.zw;
+        uv0 = res.uv_rect.p0;
+        uv1 = res.uv_rect.p1;
     } else {
-        uv0 = res.uv_rect.xy + image.sub_rect.xy;
-        uv1 = res.uv_rect.xy + image.sub_rect.zw;
+        uv0 = res.uv_rect.p0 + image.sub_rect.xy;
+        uv1 = res.uv_rect.p0 + image.sub_rect.zw;
     }
 
     // vUv will contain how many times this image has wrapped around the image size.
