@@ -67,7 +67,7 @@ impl BrushImageSourceKind {
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 #[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub enum BrushBatchKind {
-    Image(BrushImageSourceKind),
+    Picture(BrushImageSourceKind),
     Solid,
     Line,
 }
@@ -838,7 +838,7 @@ impl AlphaBatcher {
                             PictureKind::BoxShadow { image_kind, .. } => {
                                 let textures = BatchTextures::color(cache_item.texture_id);
                                 let kind = BatchKind::Brush(
-                                    BrushBatchKind::Image(
+                                    BrushBatchKind::Picture(
                                         BrushImageSourceKind::from_render_target_kind(picture.target_kind())),
                                 );
                                 let alpha_batch_key = BatchKey::new(
@@ -873,7 +873,7 @@ impl AlphaBatcher {
                         match picture.kind {
                             PictureKind::TextShadow { .. } => {
                                 let kind = BatchKind::Brush(
-                                    BrushBatchKind::Image(
+                                    BrushBatchKind::Picture(
                                         BrushImageSourceKind::from_render_target_kind(picture.target_kind())),
                                 );
                                 let key = BatchKey::new(kind, blend_mode, textures);
@@ -957,7 +957,7 @@ impl AlphaBatcher {
                                             }
                                             FilterOp::DropShadow(offset, _, _) => {
                                                 let kind = BatchKind::Brush(
-                                                    BrushBatchKind::Image(BrushImageSourceKind::ColorAlphaMask),
+                                                    BrushBatchKind::Picture(BrushImageSourceKind::ColorAlphaMask),
                                                 );
                                                 let key = BatchKey::new(kind, blend_mode, textures);
 
