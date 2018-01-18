@@ -4,3 +4,4 @@
 == clip-3d-transform.yaml clip-3d-transform-ref.yaml
 == clip-corner-overlap.yaml clip-corner-overlap-ref.yaml
 == custom-clip-chains.yaml custom-clip-chains-ref.yaml
+== segmentation-with-other-coordinate-system-clip.yaml segmentation-with-other-coordinate-system-clip-ref.yaml

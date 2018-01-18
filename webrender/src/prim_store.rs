@@ -1316,6 +1316,7 @@ impl PrimitiveStore {
         clip_store: &mut ClipStore,
         node_data: &[ClipScrollNodeData],
         clips: &Vec<ClipWorkItem>,
+        has_clips_from_other_coordinate_systems: bool,
     ) {
         match brush.segment_desc {
             Some(ref segment_desc) => {
@@ -1343,21 +1344,20 @@ impl PrimitiveStore {
             metadata.local_clip_rect
         );
 
-        // If true, we need a clip mask for the entire primitive. This
-        // is either because we don't handle segmenting this clip source,
-        // or we have a clip source from a different coordinate system.
-        let mut clip_mask_kind = BrushClipMaskKind::Individual;
+        // If this primitive is clipped by clips from a different coordinate system, then we
+        // need to apply a clip mask for the entire primitive.
+        let mut clip_mask_kind = match has_clips_from_other_coordinate_systems {
+            true => BrushClipMaskKind::Global,
+            false => BrushClipMaskKind::Individual,
+        };
 
-        // Segment the primitive on all the local-space clip sources
-        // that we can.
+        // Segment the primitive on all the local-space clip sources that we can.
         for clip_item in clips {
             if clip_item.coordinate_system_id != prim_context.scroll_node.coordinate_system_id {
-                clip_mask_kind = BrushClipMaskKind::Global;
                 continue;
             }
 
             let local_clips = clip_store.get_opt(&clip_item.clip_sources).expect("bug");
-
             for &(ref clip, _) in &local_clips.clips {
                 let (local_clip_rect, radius, mode) = match *clip {
                     ClipSource::RoundedRectangle(rect, radii, clip_mode) => {
@@ -1394,11 +1394,7 @@ impl PrimitiveStore {
                     relative_transform.transform_rect(&local_clip_rect)
                 };
 
-                segment_builder.push_rect(
-                    local_clip_rect,
-                    radius,
-                    mode
-                );
+                segment_builder.push_rect(local_clip_rect, radius, mode);
             }
         }
 
@@ -1442,6 +1438,7 @@ impl PrimitiveStore {
         node_data: &[ClipScrollNodeData],
         clips: &Vec<ClipWorkItem>,
         combined_outer_rect: &DeviceIntRect,
+        has_clips_from_other_coordinate_systems: bool,
     ) -> bool {
         let metadata = &self.cpu_metadata[prim_index.0];
         let brush = match metadata.prim_kind {
@@ -1462,7 +1459,8 @@ impl PrimitiveStore {
             prim_context,
             clip_store,
             node_data,
-            clips
+            clips,
+            has_clips_from_other_coordinate_systems,
         );
 
         let segment_desc = match brush.segment_desc {
@@ -1472,28 +1470,30 @@ impl PrimitiveStore {
         let clip_mask_kind = segment_desc.clip_mask_kind;
 
         for segment in &mut segment_desc.segments {
-            segment.clip_task_id = if segment.may_need_clip_mask || clip_mask_kind == BrushClipMaskKind::Global {
-                let segment_screen_rect = calculate_screen_bounding_rect(
-                    &prim_context.scroll_node.world_content_transform,
-                    &segment.local_rect,
-                    prim_context.device_pixel_scale,
+            if !segment.may_need_clip_mask && clip_mask_kind != BrushClipMaskKind::Global {
+                segment.clip_task_id = None;
+                continue;
+            }
+
+            let segment_screen_rect = calculate_screen_bounding_rect(
+                &prim_context.scroll_node.world_content_transform,
+                &segment.local_rect,
+                prim_context.device_pixel_scale,
+            );
+
+            let intersected_rect = combined_outer_rect.intersection(&segment_screen_rect);
+            segment.clip_task_id = intersected_rect.map(|bounds| {
+                let clip_task = RenderTask::new_mask(
+                    bounds,
+                    clips.clone(),
+                    prim_context.scroll_node.coordinate_system_id,
                 );
 
-                combined_outer_rect.intersection(&segment_screen_rect).map(|bounds| {
-                    let clip_task = RenderTask::new_mask(
-                        bounds,
-                        clips.clone(),
-                        prim_context.scroll_node.coordinate_system_id,
-                    );
+                let clip_task_id = render_tasks.add(clip_task);
+                tasks.push(clip_task_id);
 
-                    let clip_task_id = render_tasks.add(clip_task);
-                    tasks.push(clip_task_id);
-
-                    clip_task_id
-                })
-            } else {
-                None
-            };
+                clip_task_id
+            })
         }
 
         true
@@ -1572,12 +1572,15 @@ impl PrimitiveStore {
             }
         };
 
+        let mut has_clips_from_other_coordinate_systems = false;
         let mut combined_inner_rect = *screen_rect;
         let clips = convert_clip_chain_to_clip_vector(
             clip_chain,
             extra_clip,
             &combined_outer_rect,
-            &mut combined_inner_rect
+            &mut combined_inner_rect,
+            prim_context.scroll_node.coordinate_system_id,
+            &mut has_clips_from_other_coordinate_systems
         );
 
         if clips.is_empty() {
@@ -1613,6 +1616,7 @@ impl PrimitiveStore {
             node_data,
             &clips,
             &combined_outer_rect,
+            has_clips_from_other_coordinate_systems,
         ) {
             return true;
         }
@@ -1973,11 +1977,16 @@ fn convert_clip_chain_to_clip_vector(
     extra_clip: ClipChainNodeRef,
     combined_outer_rect: &DeviceIntRect,
     combined_inner_rect: &mut DeviceIntRect,
+    prim_coordinate_system: CoordinateSystemId,
+    has_clips_from_other_coordinate_systems: &mut bool,
 ) -> Vec<ClipWorkItem> {
     // Filter out all the clip instances that don't contribute to the result.
     ClipChainNodeIter { current: extra_clip }
         .chain(ClipChainNodeIter { current: clip_chain_nodes })
         .filter_map(|node| {
+            *has_clips_from_other_coordinate_systems |=
+                prim_coordinate_system != node.work_item.coordinate_system_id;
+
             *combined_inner_rect = if !node.screen_inner_rect.is_empty() {
                 // If this clip's inner area contains the area of the primitive clipped
                 // by previous clips, then it's not going to affect rendering in any way.
