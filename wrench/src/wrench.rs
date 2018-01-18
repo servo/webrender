@@ -128,7 +128,9 @@ impl WrenchThing for CapturedDocument {
         match self.root_pipeline_id.take() {
             Some(root_pipeline_id) => {
                 // skip the first frame - to not overwrite the loaded one
-                wrench.api.set_root_pipeline(self.document_id, root_pipeline_id);
+                let mut txn = Transaction::new();
+                txn.set_root_pipeline(root_pipeline_id);
+                wrench.api.send_transaction(self.document_id, txn);
             }
             None => {
                 wrench.refresh();
@@ -252,9 +254,9 @@ impl Wrench {
         };
 
         wrench.set_title("start");
-        wrench
-            .api
-            .set_root_pipeline(wrench.document_id, wrench.root_pipeline_id);
+        let mut txn = Transaction::new();
+        txn.set_root_pipeline(wrench.root_pipeline_id);
+        wrench.api.send_transaction(wrench.document_id, txn);
 
         wrench
     }
@@ -265,7 +267,9 @@ impl Wrench {
 
     pub fn set_page_zoom(&mut self, zoom_factor: ZoomFactor) {
         self.page_zoom_factor = zoom_factor;
-        self.api.set_page_zoom(self.document_id, self.page_zoom_factor);
+        let mut txn = Transaction::new();
+        txn.set_page_zoom(self.page_zoom_factor);
+        self.api.send_transaction(self.document_id, txn);
         self.set_title("");
     }
 
@@ -498,28 +502,43 @@ impl Wrench {
     ) {
         let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
 
+        let mut txn = Transaction::new();
         for display_list in display_lists {
-            self.api.set_display_list(
-                self.document_id,
+            txn.set_display_list(
                 Epoch(frame_number),
                 root_background_color,
                 self.window_size_f32(),
                 display_list,
                 false,
-                ResourceUpdates::new(),
             );
         }
+        // TODO(nical) - Need to separate the set_display_list from the scrolling
+        // operations into separate transactions for mysterious -but probably related
+        // to the other comment below- reasons.
+        self.api.send_transaction(self.document_id, txn);
 
+        let mut txn = Transaction::new();
         for (id, offset) in scroll_offsets {
-            self.api.scroll_node_with_id(
-                self.document_id,
+            txn.scroll_node_with_id(
                 *offset,
                 *id,
                 ScrollClamping::NoClamping,
             );
         }
+        // TODO(nical) - Wrench does not notify frames when there was scrolling
+        // in the transaction (See RenderNotifier implementations). If we don't
+        // generate a frame after scrolling, wrench just stops and some tests
+        // will time out.
+        // I suppose this was to avoid taking the snapshot after scrolling if
+        // there was other updates coming in a subsequent messages but it's very
+        // error-prone with transactions.
+        // For now just send two transactions to avoid the deadlock, but we should
+        // figure this out.
+        self.api.send_transaction(self.document_id, txn);
 
-        self.api.generate_frame(self.document_id, None);
+        let mut txn = Transaction::new();
+        txn.generate_frame();
+        self.api.send_transaction(self.document_id, txn);
     }
 
     pub fn get_frame_profiles(
@@ -537,7 +556,9 @@ impl Wrench {
 
     pub fn refresh(&mut self) {
         self.begin_frame();
-        self.api.generate_frame(self.document_id, None);
+        let mut txn = Transaction::new();
+        txn.generate_frame();
+        self.api.send_transaction(self.document_id, txn);
     }
 
     pub fn show_onscreen_help(&mut self) {

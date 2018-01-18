@@ -88,8 +88,6 @@ impl App {
         let bounds = DeviceUintRect::new(DeviceUintPoint::zero(), framebuffer_size);
         let document_id = api.add_document(framebuffer_size, layer);
 
-        api.set_root_pipeline(document_id, pipeline_id);
-
         let document = Document {
             id: document_id,
             pipeline_id,
@@ -116,18 +114,19 @@ impl App {
         builder.push_rect(&info, ColorF::new(1.0, 1.0, 0.0, 1.0));
         builder.pop_stacking_context();
 
-        api.enable_frame_output(document.id, document.pipeline_id, true);
-        api.set_display_list(
-            document.id,
+        let mut txn = Transaction::new();
+        txn.set_root_pipeline(pipeline_id);
+        txn.enable_frame_output(document.pipeline_id, true);
+        txn.update_resources(resources);
+        txn.set_display_list(
             Epoch(0),
             Some(document.color),
             document.content_rect.size,
             builder.finalize(),
             true,
-            resources,
         );
-
-        api.generate_frame(document.id, None);
+        txn.generate_frame();
+        api.send_transaction(document.id, txn);
         self.output_document = Some(document);
     }
 }
