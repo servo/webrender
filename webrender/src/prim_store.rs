@@ -1583,12 +1583,13 @@ impl PrimitiveStore {
             &mut has_clips_from_other_coordinate_systems
         );
 
+        // This can happen if we had no clips or if all the clips were optimized away. In
+        // some cases we still need to create a clip mask in order to create a rectangular
+        // clip in screen space coordinates.
         if clips.is_empty() {
-            // If this item is in the root coordinate system, then
-            // we know that the local_clip_rect in the clip node
-            // will take care of applying this clip, so no need
-            // for a mask.
-            if prim_coordinate_system_id == CoordinateSystemId::root() {
+            // If we don't have any clips from other coordinate systems, the local clip
+            // calculated from the clip chain should be sufficient to ensure proper clipping.
+            if !has_clips_from_other_coordinate_systems {
                 return true;
             }
 
