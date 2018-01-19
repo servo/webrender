@@ -570,11 +570,11 @@ impl Wrench {
             "O - Toggle showing intermediate targets",
             "I - Toggle showing texture caches",
             "B - Toggle showing alpha primitive rects",
-            "C - Toggle compact profiler",
+            "S - Toggle compact profiler",
             "Q - Toggle GPU queries for time and samples",
             "M - Trigger memory pressure event",
             "T - Save CPU profile to a file",
-            "S - Save a capture to captures/wrench/",
+            "C - Save a capture to captures/wrench/",
         ];
 
         let color_and_offset = [(*BLACK_COLOR, 2.0), (*WHITE_COLOR, 0.0)];

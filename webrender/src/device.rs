@@ -417,6 +417,11 @@ impl ExternalTexture {
             target: get_gl_target(target),
         }
     }
+
+    #[cfg(feature = "capture")]
+    pub fn internal_id(&self) -> gl::GLuint {
+        self.id
+    }
 }
 
 pub struct Texture {

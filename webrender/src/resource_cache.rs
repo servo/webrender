@@ -985,6 +985,7 @@ enum PlainFontTemplate {
 struct PlainImageTemplate {
     data: String,
     descriptor: ImageDescriptor,
+    epoch: Epoch,
     tiling: Option<TileSize>,
 }
 
@@ -1167,6 +1168,7 @@ impl ResourceCache {
                         },
                         descriptor: template.descriptor.clone(),
                         tiling: template.tiling,
+                        epoch: template.epoch,
                     })
                 })
                 .collect(),
@@ -1384,7 +1386,7 @@ impl ResourceCache {
                 data,
                 descriptor: template.descriptor,
                 tiling: template.tiling,
-                epoch: Epoch(0), //TODO!!!!
+                epoch: template.epoch,
                 dirty_rect: None,
             });
         }

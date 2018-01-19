@@ -4791,17 +4791,26 @@ struct PlainRenderer {
 }
 
 #[cfg(feature = "capture")]
+enum CapturedExternalImageData {
+    NativeTexture(gl::GLuint),
+    Buffer(Arc<Vec<u8>>),
+}
+
+#[cfg(feature = "capture")]
 struct DummyExternalImageHandler {
-    data: FastHashMap<(ExternalImageId, u8), (Arc<Vec<u8>>, TexelRect)>,
+    data: FastHashMap<(ExternalImageId, u8), (CapturedExternalImageData, TexelRect)>,
 }
 
 #[cfg(feature = "capture")]
 impl ExternalImageHandler for DummyExternalImageHandler {
     fn lock(&mut self, key: ExternalImageId, channel_index: u8) -> ExternalImage {
-        let (ref arc, ref uv) = self.data[&(key, channel_index)];
+        let (ref captured_data, ref uv) = self.data[&(key, channel_index)];
         ExternalImage {
             uv: *uv,
-            source: ExternalImageSource::RawData(&*arc),
+            source: match *captured_data {
+                CapturedExternalImageData::NativeTexture(tid) => ExternalImageSource::NativeTexture(tid),
+                CapturedExternalImageData::Buffer(ref arc) => ExternalImageSource::RawData(&*arc),
+            }
         }
     }
     fn unlock(&mut self, _key: ExternalImageId, _channel_index: u8) {}
@@ -4862,7 +4871,7 @@ impl Renderer {
         let mut texels = Vec::new();
         assert_eq!(plain.format, texture.get_format());
         File::open(root.join(&plain.data))
-            .unwrap()
+            .expect(&format!("Unable to open texture at {}", plain.data))
             .read_to_end(&mut texels)
             .unwrap();
 
@@ -5012,7 +5021,8 @@ impl Renderer {
                 }
             };
             let key = (ext.id, ext.channel_index);
-            image_handler.data.insert(key, (data, ext.uv));
+            let value = (CapturedExternalImageData::Buffer(data), ext.uv);
+            image_handler.data.insert(key, value);
         }
 
         if let Some(renderer) = CaptureConfig::deserialize::<PlainRenderer, _>(&root, "renderer") {
@@ -5045,27 +5055,38 @@ impl Renderer {
             }
 
             info!("loading external texture-backed images");
+            let mut native_map = FastHashMap::<String, gl::GLuint>::default();
             for ExternalCaptureImage { short_path, external, descriptor } in renderer.external_images {
                 let target = match external.image_type {
                     ExternalImageType::TextureHandle(target) => target,
                     ExternalImageType::Buffer => continue,
                 };
-                //TODO: provide a way to query both the layer count and the filter from external images
-                let (layer_count, filter) = (1, TextureFilter::Linear);
-                let plain = PlainTexture {
-                    data: short_path,
-                    size: (descriptor.width, descriptor.height, layer_count),
-                    format: descriptor.format,
-                    filter,
-                    render_target: None,
+                let plain_ext = CaptureConfig::deserialize::<PlainExternalImage, _>(&root, &short_path)
+                    .expect(&format!("Unable to read {}.ron", short_path));
+                let key = (external.id, external.channel_index);
+
+                let tid = match native_map.entry(plain_ext.data) {
+                    Entry::Occupied(e) => e.get().clone(),
+                    Entry::Vacant(e) => {
+                        //TODO: provide a way to query both the layer count and the filter from external images
+                        let (layer_count, filter) = (1, TextureFilter::Linear);
+                        let plain_tex = PlainTexture {
+                            data: e.key().clone(),
+                            size: (descriptor.width, descriptor.height, layer_count),
+                            format: descriptor.format,
+                            filter,
+                            render_target: None,
+                        };
+                        let mut t = self.device.create_texture(target, plain_tex.format);
+                        Self::load_texture(&mut t, &plain_tex, &root, &mut self.device);
+                        let extex = t.into_external();
+                        self.capture.owned_external_images.insert(key, extex.clone());
+                        extex.internal_id()
+                    }
                 };
 
-                let mut t = self.device.create_texture(target, plain.format);
-                let data = Self::load_texture(&mut t, &plain, &root, &mut self.device);
-                let key = (external.id, external.channel_index);
-                self.capture.owned_external_images.insert(key, t.into_external());
-                let uv = TexelRect::new(0.0, 0.0, 1.0, 1.0);
-                image_handler.data.insert(key, (Arc::new(data), uv));
+                let value = (CapturedExternalImageData::NativeTexture(tid), plain_ext.uv);
+                image_handler.data.insert(key, value);
             }
 
             self.device.end_frame();

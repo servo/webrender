@@ -480,7 +480,7 @@ fn main() {
                     VirtualKeyCode::B => {
                         wrench.renderer.toggle_debug_flags(DebugFlags::ALPHA_PRIM_DBG);
                     }
-                    VirtualKeyCode::C => {
+                    VirtualKeyCode::S => {
                         wrench.renderer.toggle_debug_flags(DebugFlags::COMPACT_PROFILER);
                     }
                     VirtualKeyCode::Q => {
@@ -514,7 +514,7 @@ fn main() {
                         wrench.renderer.save_cpu_profile(&file_name);
                         cpu_profile_index += 1;
                     }
-                    VirtualKeyCode::S => {
+                    VirtualKeyCode::C => {
                         let path = PathBuf::from("../capture/wrench");
                         wrench.api.save_capture(path, CaptureBits::all());
                     }
