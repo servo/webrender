@@ -12,7 +12,7 @@
 use api::{BlobImageRenderer, ColorF, ColorU, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentId, Epoch, ExternalImageId};
 use api::{ExternalImageType, FontRenderMode, ImageFormat, PipelineId};
-use api::{RenderApiSender, RenderNotifier, YuvColorSpace, YuvFormat, UvRect};
+use api::{RenderApiSender, RenderNotifier, TexelRect, YuvColorSpace, YuvFormat};
 use api::{YUV_COLOR_SPACES, YUV_FORMATS, channel};
 #[cfg(not(feature = "debugger"))]
 use api::ApiMsg;
@@ -4637,7 +4637,7 @@ pub enum ExternalImageSource<'a> {
 /// will know to re-upload the image data to the GPU.
 /// Note that the UV coords are supplied in texel-space!
 pub struct ExternalImage<'a> {
-    pub uv: UvRect,
+    pub uv: TexelRect,
     pub source: ExternalImageSource<'a>,
 }
 
@@ -4786,7 +4786,7 @@ struct PlainRenderer {
 
 #[cfg(feature = "capture")]
 struct DummyExternalImageHandler {
-    data: FastHashMap<(ExternalImageId, u8), (Arc<Vec<u8>>, UvRect)>,
+    data: FastHashMap<(ExternalImageId, u8), (Arc<Vec<u8>>, TexelRect)>,
 }
 
 #[cfg(feature = "capture")]
@@ -4983,7 +4983,6 @@ impl Renderer {
     ) {
         use std::fs::File;
         use std::io::Read;
-        use util::RectHelpers;
 
         info!("loading external buffer-backed images");
         assert!(self.texture_resolver.external_images.is_empty());
@@ -5056,7 +5055,7 @@ impl Renderer {
                 let data = Self::load_texture(&mut t, &plain, &root, &mut self.device);
                 let key = (external.id, external.channel_index);
                 self.capture.owned_external_images.insert(key, t.into_external());
-                let uv = UvRect::from_floats(0.0, 0.0, 1.0, 1.0);
+                let uv = TexelRect::new(0.0, 0.0, 1.0, 1.0);
                 image_handler.data.insert(key, (Arc::new(data), uv));
             }
 

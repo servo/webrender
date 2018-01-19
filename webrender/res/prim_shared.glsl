@@ -703,13 +703,13 @@ struct ImageResource {
 ImageResource fetch_image_resource(int address) {
     //Note: number of blocks has to match `renderer::BLOCKS_PER_UV_RECT`
     vec4 data[2] = fetch_from_resource_cache_2(address);
-    RectWithEndpoint uv_rect = to_rect_with_endpoint(RectWithSize(data[0].xy, data[0].zw));
+    RectWithEndpoint uv_rect = RectWithEndpoint(data[0].xy, data[0].zw);
     return ImageResource(uv_rect, data[1].x, data[1].yzw);
 }
 
 ImageResource fetch_image_resource_direct(ivec2 address) {
     vec4 data[2] = fetch_from_resource_cache_2_direct(address);
-    RectWithEndpoint uv_rect = to_rect_with_endpoint(RectWithSize(data[0].xy, data[0].zw));
+    RectWithEndpoint uv_rect = RectWithEndpoint(data[0].xy, data[0].zw);
     return ImageResource(uv_rect, data[1].x, data[1].yzw);
 }
 

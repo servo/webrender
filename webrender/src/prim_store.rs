@@ -3,12 +3,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipAndScrollInfo, ClipId, ClipMode};
-use api::{ColorF, ColorU, DeviceIntRect, DevicePixelScale, DevicePoint};
+use api::{ColorF, ColorU, DeviceIntRect, DevicePixelScale};
 use api::{ComplexClipRegion, ExtendMode, FontRenderMode};
 use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
-use api::{LineStyle, PipelineId, PremultipliedColorF, TileOffset, WorldToLayerTransform};
-use api::{YuvColorSpace, YuvFormat};
+use api::{LineStyle, PipelineId, PremultipliedColorF, TexelRect, TileOffset};
+use api::{WorldToLayerTransform, YuvColorSpace, YuvFormat};
 use border::{BorderCornerInstance, BorderEdgeKind};
 use clip_scroll_tree::{CoordinateSystemId, ClipScrollTree};
 use clip_scroll_node::ClipScrollNode;
@@ -23,7 +23,7 @@ use picture::{PictureKind, PicturePrimitive};
 use profiler::FrameProfileCounters;
 use render_task::{ClipChain, ClipChainNode, ClipChainNodeIter, ClipChainNodeRef, ClipWorkItem};
 use render_task::{RenderTask, RenderTaskId, RenderTaskTree};
-use renderer::{BLOCKS_PER_UV_RECT, MAX_VERTEX_TEXTURE_WIDTH};
+use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
 use resource_cache::{ImageProperties, ResourceCache};
 use scene::{ScenePipeline, SceneProperties};
 use segment::SegmentBuilder;
@@ -86,41 +86,6 @@ impl PrimitiveOpacity {
 pub struct PrimitiveRunLocalRect {
     pub local_rect_in_actual_parent_space: LayerRect,
     pub local_rect_in_original_parent_space: LayerRect,
-}
-
-/// Stores two coordinates in texel space. The coordinates
-/// are stored in texel coordinates because the texture atlas
-/// may grow. Storing them as texel coords and normalizing
-/// the UVs in the vertex shader means nothing needs to be
-/// updated on the CPU when the texture size changes.
-#[derive(Copy, Clone, Debug)]
-pub struct TexelRect {
-    pub uv0: DevicePoint,
-    pub uv1: DevicePoint,
-}
-
-impl TexelRect {
-    pub fn new(u0: f32, v0: f32, u1: f32, v1: f32) -> TexelRect {
-        TexelRect {
-            uv0: DevicePoint::new(u0, v0),
-            uv1: DevicePoint::new(u1, v1),
-        }
-    }
-
-    pub fn invalid() -> TexelRect {
-        TexelRect {
-            uv0: DevicePoint::new(-1.0, -1.0),
-            uv1: DevicePoint::new(-1.0, -1.0),
-        }
-    }
-}
-
-impl Into<GpuBlockData> for TexelRect {
-    fn into(self) -> GpuBlockData {
-        GpuBlockData {
-            data: [self.uv0.x, self.uv0.y, self.uv1.x, self.uv1.y],
-        }
-    }
 }
 
 /// For external images, it's not possible to know the
@@ -361,13 +326,18 @@ pub struct ImagePrimitiveCpu {
     pub tile_offset: Option<TileOffset>,
     pub tile_spacing: LayerSize,
     pub alpha_type: AlphaType,
-    // TODO(gw): Build on demand
-    pub gpu_blocks: [GpuBlockData; BLOCKS_PER_UV_RECT],
+    pub stretch_size: LayerSize,
+    pub texel_rect: TexelRect,
 }
 
 impl ToGpuBlocks for ImagePrimitiveCpu {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        request.extend_from_slice(&self.gpu_blocks);
+        // has to match BLOCKS_PER_UV_RECT
+        request.push([
+            self.stretch_size.width, self.stretch_size.height,
+            self.tile_spacing.width, self.tile_spacing.height,
+        ]);
+        request.push(self.texel_rect);
     }
 }
 
@@ -708,7 +678,7 @@ impl TextRunPrimitiveCpu {
             // TODO(gw): If we support chunks() on AuxIter
             //           in the future, this code below could
             //           be much simpler...
-            let mut gpu_block = GpuBlockData::EMPTY;
+            let mut gpu_block = [0.0; 4];
             for (i, src) in src_glyphs.enumerate() {
                 let key = GlyphKey::new(src.index, src.point, font.render_mode, subpx_dir);
                 self.glyph_keys.push(key);
@@ -716,19 +686,19 @@ impl TextRunPrimitiveCpu {
                 // Two glyphs are packed per GPU block.
 
                 if (i & 1) == 0 {
-                    gpu_block.data[0] = src.point.x;
-                    gpu_block.data[1] = src.point.y;
+                    gpu_block[0] = src.point.x;
+                    gpu_block[1] = src.point.y;
                 } else {
-                    gpu_block.data[2] = src.point.x;
-                    gpu_block.data[3] = src.point.y;
-                    self.glyph_gpu_blocks.push(gpu_block);
+                    gpu_block[2] = src.point.x;
+                    gpu_block[3] = src.point.y;
+                    self.glyph_gpu_blocks.push(gpu_block.into());
                 }
             }
 
             // Ensure the last block is added in the case
             // of an odd number of glyphs.
             if (self.glyph_keys.len() & 1) != 0 {
-                self.glyph_gpu_blocks.push(gpu_block);
+                self.glyph_gpu_blocks.push(gpu_block.into());
             }
         }
 
@@ -739,9 +709,7 @@ impl TextRunPrimitiveCpu {
         request.push(self.get_color().premultiplied());
         // this is the only case where we need to provide plain color to GPU
         let bg_color = ColorF::from(self.font.bg_color);
-        request.extend_from_slice(&[
-            GpuBlockData { data: [bg_color.r, bg_color.g, bg_color.b, 1.0] }
-        ]);
+        request.push([bg_color.r, bg_color.g, bg_color.b, 1.0]);
         request.push([
             self.offset.x,
             self.offset.y,

@@ -35,14 +35,6 @@ pub type DevicePoint = TypedPoint2D<f32, DevicePixel>;
 pub type DeviceVector2D = TypedVector2D<f32, DevicePixel>;
 pub type DeviceSize = TypedSize2D<f32, DevicePixel>;
 
-/// Geometry in UV Space
-#[derive(Hash, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct UvPixel;
-
-pub type UvRect = TypedRect<f32, UvPixel>;
-pub type UvPoint = TypedPoint2D<f32, UvPixel>;
-pub type UvSize = TypedSize2D<f32, UvPixel>;
-
 /// Geometry in a stacking context's local coordinate space (logical pixels).
 ///
 /// For now layout pixels are equivalent to layer pixels, but it may change.
@@ -121,4 +113,31 @@ pub fn as_scroll_parent_rect(rect: &LayerRect) -> ScrollLayerRect {
 
 pub fn as_scroll_parent_vector(vector: &LayerVector2D) -> ScrollLayerVector2D {
     ScrollLayerVector2D::from_untyped(&vector.to_untyped())
+}
+
+/// Stores two coordinates in texel space. The coordinates
+/// are stored in texel coordinates because the texture atlas
+/// may grow. Storing them as texel coords and normalizing
+/// the UVs in the vertex shader means nothing needs to be
+/// updated on the CPU when the texture size changes.
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub struct TexelRect {
+    pub uv0: DevicePoint,
+    pub uv1: DevicePoint,
+}
+
+impl TexelRect {
+    pub fn new(u0: f32, v0: f32, u1: f32, v1: f32) -> Self {
+        TexelRect {
+            uv0: DevicePoint::new(u0, v0),
+            uv1: DevicePoint::new(u1, v1),
+        }
+    }
+
+    pub fn invalid() -> Self {
+        TexelRect {
+            uv0: DevicePoint::new(-1.0, -1.0),
+            uv1: DevicePoint::new(-1.0, -1.0),
+        }
+    }
 }

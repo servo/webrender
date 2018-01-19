@@ -63,7 +63,7 @@ impl webrender::ExternalImageHandler for ImageGenerator {
     fn lock(&mut self, _key: ExternalImageId, channel_index: u8) -> webrender::ExternalImage {
         self.generate_image(channel_index as u32);
         webrender::ExternalImage {
-            uv: UvRect::new(UvPoint::zero(), UvSize::new(1.0, 1.0)),
+            uv: TexelRect::new(0.0, 0.0, 1.0, 1.0),
             source: webrender::ExternalImageSource::RawData(&self.current_image),
         }
     }

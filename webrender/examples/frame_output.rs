@@ -51,7 +51,7 @@ impl webrender::OutputImageHandler for OutputHandler {
 impl webrender::ExternalImageHandler for ExternalHandler {
     fn lock(&mut self, _key: ExternalImageId, _channel_index: u8) -> webrender::ExternalImage {
         webrender::ExternalImage {
-            uv: UvRect::new(UvPoint::zero(), UvSize::new(1.0, 1.0)),
+            uv: TexelRect::new(0.0, 0.0, 1.0, 1.0),
             source: webrender::ExternalImageSource::NativeTexture(self.texture_id),
         }
     }

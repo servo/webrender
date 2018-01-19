@@ -24,7 +24,7 @@
 //! address in the GPU cache of a given resource slot
 //! for this frame.
 
-use api::PremultipliedColorF;
+use api::{PremultipliedColorF, TexelRect};
 use device::FrameId;
 use euclid::TypedRect;
 use profiler::GpuCacheProfileCounters;
@@ -58,7 +58,7 @@ struct CacheLocation {
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub struct GpuBlockData {
-    pub data: [f32; 4],
+    data: [f32; 4],
 }
 
 impl GpuBlockData {
@@ -92,6 +92,15 @@ impl<P> From<TypedRect<f32, P>> for GpuBlockData {
         }
     }
 }
+
+impl From<TexelRect> for GpuBlockData {
+    fn from(tr: TexelRect) -> Self {
+        GpuBlockData {
+            data: [tr.uv0.x, tr.uv0.y, tr.uv1.x, tr.uv1.y],
+        }
+    }
+}
+
 
 // Any data type that can be stored in the GPU cache should
 // implement this trait.
