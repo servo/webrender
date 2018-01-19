@@ -12,7 +12,7 @@
 use api::{BlobImageRenderer, ColorF, ColorU, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentId, Epoch, ExternalImageId};
 use api::{ExternalImageType, FontRenderMode, ImageFormat, PipelineId};
-use api::{RenderApiSender, RenderNotifier, TexelRect, YuvColorSpace, YuvFormat};
+use api::{RenderApiSender, RenderNotifier, TexelRect, TextureTarget, YuvColorSpace, YuvFormat};
 use api::{YUV_COLOR_SPACES, YUV_FORMATS, channel};
 #[cfg(not(feature = "debugger"))]
 use api::ApiMsg;
@@ -30,7 +30,7 @@ use debug_server::{self, DebugServer};
 use device::{DepthFunction, Device, FrameId, Program, UploadMethod, Texture,
              VertexDescriptor, PBO};
 use device::{ExternalTexture, FBOId, TextureSlot, VertexAttribute, VertexAttributeKind};
-use device::{FileWatcherHandler, ShaderError, TextureFilter, TextureTarget,
+use device::{FileWatcherHandler, ShaderError, TextureFilter,
              VertexUsageHint, VAO, VBO, CustomVAO};
 use device::{ProgramCache, ReadPixelsFormat};
 use euclid::{rect, Transform3D};
@@ -489,6 +489,18 @@ pub enum ImageBufferKind {
     TextureRect = 1,
     TextureExternal = 2,
     Texture2DArray = 3,
+}
+
+//TODO: those types are the same, can we merge them?
+impl From<TextureTarget> for ImageBufferKind {
+    fn from(target: TextureTarget) -> Self {
+        match target {
+            TextureTarget::Default => ImageBufferKind::Texture2D,
+            TextureTarget::Rect => ImageBufferKind::TextureRect,
+            TextureTarget::Array => ImageBufferKind::Texture2DArray,
+            TextureTarget::External => ImageBufferKind::TextureExternal,
+        }
+    }
 }
 
 pub const IMAGE_BUFFER_KINDS: [ImageBufferKind; 4] = [
@@ -1525,16 +1537,6 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program
     }
 
     program
-}
-
-fn get_external_image_target(ext_type: ExternalImageType) -> Option<TextureTarget> {
-    Some(match ext_type {
-        ExternalImageType::Texture2DHandle => TextureTarget::Default,
-        ExternalImageType::Texture2DArrayHandle => TextureTarget::Array,
-        ExternalImageType::TextureRectHandle => TextureTarget::Rect,
-        ExternalImageType::TextureExternalHandle => TextureTarget::External,
-        ExternalImageType::ExternalBuffer => return None,
-    })
 }
 
 struct FileWatcher {
@@ -4044,8 +4046,12 @@ impl Renderer {
                 .external_image
                 .expect("BUG: Deferred resolves must be external images!");
             let image = handler.lock(ext_image.id, ext_image.channel_index);
-            let texture_target = get_external_image_target(ext_image.image_type)
-                .expect(&format!("{:?} is not a suitable image type in update_deferred_resolves()", ext_image.image_type));
+            let texture_target = match ext_image.image_type {
+                ExternalImageType::TextureHandle(target) => target,
+                ExternalImageType::Buffer => {
+                    panic!("{:?} is not a suitable image type in update_deferred_resolves()", ext_image.image_type);
+                }
+            };
 
             // In order to produce the handle, the external image handler may call into
             // the GL context and change some states.
@@ -4912,7 +4918,10 @@ impl Renderer {
                                 (None, e.get().clone())
                             }
                             Entry::Vacant(e) => {
-                                let target = get_external_image_target(image_type).unwrap();
+                                let target = match image_type {
+                                    ExternalImageType::TextureHandle(target) => target,
+                                    ExternalImageType::Buffer => unreachable!(),
+                                };
                                 info!("\t\tnative texture of target {:?}", target);
                                 let layer_index = 0; //TODO: what about layered textures?
                                 self.device.attach_read_texture_external(gl_id, target, layer_index);
@@ -5037,9 +5046,9 @@ impl Renderer {
 
             info!("loading external texture-backed images");
             for ExternalCaptureImage { short_path, external, descriptor } in renderer.external_images {
-                let target = match get_external_image_target(external.image_type) {
-                    Some(target) => target,
-                    None => continue,
+                let target = match external.image_type {
+                    ExternalImageType::TextureHandle(target) => target,
+                    ExternalImageType::Buffer => continue,
                 };
                 //TODO: provide a way to query both the layer count and the filter from external images
                 let (layer_count, filter) = (1, TextureFilter::Linear);

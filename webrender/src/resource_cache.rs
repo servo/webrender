@@ -285,7 +285,7 @@ impl ResourceCache {
             ImageData::External(info) => {
                 // External handles already represent existing textures so it does
                 // not make sense to tile them into smaller ones.
-                info.image_type == ExternalImageType::ExternalBuffer && size_check
+                info.image_type == ExternalImageType::Buffer && size_check
             }
         }
     }
@@ -747,16 +747,11 @@ impl ResourceCache {
 
         image_template.map(|image_template| {
             let external_image = match image_template.data {
-                ImageData::External(ext_image) => {
-                    match ext_image.image_type {
-                        ExternalImageType::Texture2DHandle |
-                        ExternalImageType::Texture2DArrayHandle |
-                        ExternalImageType::TextureRectHandle |
-                        ExternalImageType::TextureExternalHandle => Some(ext_image),
-                        // external buffer uses resource_cache.
-                        ExternalImageType::ExternalBuffer => None,
-                    }
-                }
+                ImageData::External(ext_image) => match ext_image.image_type {
+                    ExternalImageType::TextureHandle(_) => Some(ext_image),
+                    // external buffer uses resource_cache.
+                    ExternalImageType::Buffer => None,
+                },
                 // raw and blob image are all using resource_cache.
                 ImageData::Raw(..) | ImageData::Blob(..) => None,
             };
@@ -1361,7 +1356,7 @@ impl ResourceCache {
                     let ext_data = ExternalImageData {
                         id: plain.id,
                         channel_index: plain.channel_index,
-                        image_type: ExternalImageType::ExternalBuffer,
+                        image_type: ExternalImageType::Buffer,
                     };
                     external_images.push(plain);
                     ImageData::External(ext_data)

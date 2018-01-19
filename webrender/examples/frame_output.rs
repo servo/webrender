@@ -74,7 +74,7 @@ impl App {
             ImageData::External(ExternalImageData {
                 id: ExternalImageId(0),
                 channel_index: 0,
-                image_type: ExternalImageType::Texture2DHandle,
+                image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
             }),
             None,
         );

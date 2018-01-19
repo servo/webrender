@@ -1051,13 +1051,10 @@ impl TextureUpdate {
                 panic!("The vector image should have been rasterized.");
             }
             ImageData::External(ext_image) => match ext_image.image_type {
-                ExternalImageType::Texture2DHandle |
-                ExternalImageType::Texture2DArrayHandle |
-                ExternalImageType::TextureRectHandle |
-                ExternalImageType::TextureExternalHandle => {
+                ExternalImageType::TextureHandle(_) => {
                     panic!("External texture handle should not go through texture_cache.");
                 }
-                ExternalImageType::ExternalBuffer => TextureUpdateSource::External {
+                ExternalImageType::Buffer => TextureUpdateSource::External {
                     id: ext_image.id,
                     channel_index: ext_image.channel_index,
                 },

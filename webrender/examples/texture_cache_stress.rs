@@ -242,7 +242,7 @@ impl Example for App {
                         let image_data = ExternalImageData {
                             id: ExternalImageId(0),
                             channel_index: size as u8,
-                            image_type: ExternalImageType::ExternalBuffer,
+                            image_type: ExternalImageType::Buffer,
                         };
 
                         updates.add_image(

@@ -5,6 +5,7 @@
 use super::shader_source;
 use api::{ColorF, ImageDescriptor, ImageFormat};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceUintRect, DeviceUintSize};
+use api::TextureTarget;
 use euclid::Transform3D;
 use gleam::gl;
 use internal_types::{FastHashMap, RenderTargetInfo};
@@ -26,7 +27,7 @@ use std::thread;
 pub struct FrameId(usize);
 
 impl FrameId {
-    pub fn new(value: usize) -> FrameId {
+    pub fn new(value: usize) -> Self {
         FrameId(value)
     }
 }
@@ -60,25 +61,6 @@ const DEFAULT_TEXTURE: TextureSlot = TextureSlot(0);
 pub enum DepthFunction {
     Less = gl::LESS,
     LessEqual = gl::LEQUAL,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum TextureTarget {
-    Default,
-    Array,
-    Rect,
-    External,
-}
-
-impl TextureTarget {
-    pub fn to_gl_target(&self) -> gl::GLuint {
-        match *self {
-            TextureTarget::Default => gl::TEXTURE_2D,
-            TextureTarget::Array => gl::TEXTURE_2D_ARRAY,
-            TextureTarget::Rect => gl::TEXTURE_RECTANGLE,
-            TextureTarget::External => gl::TEXTURE_EXTERNAL_OES,
-        }
-    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -128,6 +110,15 @@ pub enum UploadMethod {
 pub enum ReadPixelsFormat {
     Standard(ImageFormat),
     Rgba8,
+}
+
+pub fn get_gl_target(target: TextureTarget) -> gl::GLuint {
+    match target {
+        TextureTarget::Default => gl::TEXTURE_2D,
+        TextureTarget::Array => gl::TEXTURE_2D_ARRAY,
+        TextureTarget::Rect => gl::TEXTURE_RECTANGLE,
+        TextureTarget::External => gl::TEXTURE_EXTERNAL_OES,
+    }
 }
 
 pub fn get_gl_format_bgra(gl: &gl::Gl) -> gl::GLuint {
@@ -423,7 +414,7 @@ impl ExternalTexture {
     pub fn new(id: u32, target: TextureTarget) -> Self {
         ExternalTexture {
             id,
-            target: target.to_gl_target(),
+            target: get_gl_target(target),
         }
     }
 }
@@ -930,7 +921,7 @@ impl Device {
     ) -> Texture {
         Texture {
             id: self.gl.gen_textures(1)[0],
-            target: target.to_gl_target(),
+            target: get_gl_target(target),
             width: 0,
             height: 0,
             layer_count: 0,
@@ -1575,7 +1566,7 @@ impl Device {
     pub fn attach_read_texture_external(
         &mut self, texture_id: gl::GLuint, target: TextureTarget, layer_id: i32
     ) {
-        self.attach_read_texture_raw(texture_id, target.to_gl_target(), layer_id)
+        self.attach_read_texture_raw(texture_id, get_gl_target(target), layer_id)
     }
 
     pub fn attach_read_texture(&mut self, texture: &Texture, layer_id: i32) {

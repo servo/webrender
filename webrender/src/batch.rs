@@ -547,6 +547,24 @@ impl AlphaBatcher {
         }
     }
 
+    fn get_buffer_kind(texture: SourceTexture) -> ImageBufferKind {
+        match texture {
+            SourceTexture::External(ext_image) => {
+                match ext_image.image_type {
+                    ExternalImageType::TextureHandle(target) => {
+                        target.into()
+                    }
+                    ExternalImageType::Buffer => {
+                        // The ExternalImageType::Buffer should be handled by resource_cache.
+                        // It should go through the non-external case.
+                        panic!("Unexpected non-texture handle type");
+                    }
+                }
+            }
+            _ => ImageBufferKind::Texture2DArray,
+        }
+    }
+
     // Adds a primitive to a batch.
     // It can recursively call itself in some situations, for
     // example if it encounters a picture where the items
@@ -691,45 +709,17 @@ impl AlphaBatcher {
                     return;
                 }
 
-                let batch_kind = match color_texture_id {
-                    SourceTexture::External(ext_image) => {
-                        match ext_image.image_type {
-                            ExternalImageType::Texture2DHandle => {
-                                TransformBatchKind::Image(ImageBufferKind::Texture2D)
-                            }
-                            ExternalImageType::Texture2DArrayHandle => {
-                                TransformBatchKind::Image(ImageBufferKind::Texture2DArray)
-                            }
-                            ExternalImageType::TextureRectHandle => {
-                                TransformBatchKind::Image(ImageBufferKind::TextureRect)
-                            }
-                            ExternalImageType::TextureExternalHandle => {
-                                TransformBatchKind::Image(ImageBufferKind::TextureExternal)
-                            }
-                            ExternalImageType::ExternalBuffer => {
-                                // The ExternalImageType::ExternalBuffer should be handled by resource_cache.
-                                // It should go through the non-external case.
-                                panic!(
-                                    "Non-texture handle type should be handled in other way"
-                                );
-                            }
-                        }
-                    }
-                    _ => TransformBatchKind::Image(ImageBufferKind::Texture2DArray),
-                };
-
-                let textures = BatchTextures {
-                    colors: [
-                        color_texture_id,
-                        SourceTexture::Invalid,
-                        SourceTexture::Invalid,
-                    ],
-                };
-
+                let batch_kind = TransformBatchKind::Image(Self::get_buffer_kind(color_texture_id));
                 let key = BatchKey::new(
                     BatchKind::Transformable(transform_kind, batch_kind),
                     blend_mode,
-                    textures,
+                    BatchTextures {
+                        colors: [
+                            color_texture_id,
+                            SourceTexture::Invalid,
+                            SourceTexture::Invalid,
+                        ],
+                    },
                 );
                 let batch = self.batch_list.get_suitable_batch(key, item_bounding_rect);
                 batch.push(base_instance.build(uv_address.as_int(gpu_cache), 0, 0));
@@ -1182,39 +1172,12 @@ impl AlphaBatcher {
                     uv_rect_addresses[channel] = address.as_int(gpu_cache);
                 }
 
-                let get_buffer_kind = |texture: SourceTexture| {
-                    match texture {
-                        SourceTexture::External(ext_image) => {
-                            match ext_image.image_type {
-                                ExternalImageType::Texture2DHandle => {
-                                    ImageBufferKind::Texture2D
-                                }
-                                ExternalImageType::Texture2DArrayHandle => {
-                                    ImageBufferKind::Texture2DArray
-                                }
-                                ExternalImageType::TextureRectHandle => {
-                                    ImageBufferKind::TextureRect
-                                }
-                                ExternalImageType::TextureExternalHandle => {
-                                    ImageBufferKind::TextureExternal
-                                }
-                                ExternalImageType::ExternalBuffer => {
-                                    // The ExternalImageType::ExternalBuffer should be handled by resource_cache.
-                                    // It should go through the non-external case.
-                                    panic!("Unexpected non-texture handle type");
-                                }
-                            }
-                        }
-                        _ => ImageBufferKind::Texture2DArray,
-                    }
-                };
-
                 // All yuv textures should be the same type.
-                let buffer_kind = get_buffer_kind(textures.colors[0]);
+                let buffer_kind = Self::get_buffer_kind(textures.colors[0]);
                 assert!(
                     textures.colors[1 .. image_yuv_cpu.format.get_plane_num()]
                         .iter()
-                        .all(|&tid| buffer_kind == get_buffer_kind(tid))
+                        .all(|&tid| buffer_kind == Self::get_buffer_kind(tid))
                 );
 
                 let kind = BatchKind::Transformable(
