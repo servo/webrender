@@ -221,6 +221,7 @@ pub enum GpuCacheUpdate {
     },
 }
 
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub struct GpuCacheUpdateList {
     // The current height of the texture. The render thread
     // should resize the texture if required.

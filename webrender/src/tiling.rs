@@ -761,7 +761,6 @@ pub struct Frame {
 
     // List of updates that need to be pushed to the
     // gpu resource cache.
-    #[cfg_attr(feature = "capture", serde(skip))]
     pub gpu_cache_updates: Option<GpuCacheUpdateList>,
 
     // List of textures that we don't know about yet

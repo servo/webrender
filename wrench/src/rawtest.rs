@@ -123,8 +123,7 @@ impl<'a> RawtestHarness<'a> {
     fn test_retained_blob_images_test(&mut self) {
         println!("\tretained blob images test...");
         let blob_img;
-        let window_size = self.window.get_inner_size_pixels();
-        let window_size = DeviceUintSize::new(window_size.0, window_size.1);
+        let window_size = self.window.get_inner_size();
 
         let test_size = DeviceUintSize::new(400, 400);
 
@@ -204,8 +203,7 @@ impl<'a> RawtestHarness<'a> {
     fn test_blob_update_epoch_test(&mut self) {
         println!("\tblob update epoch test...");
         let (blob_img, blob_img2);
-        let window_size = self.window.get_inner_size_pixels();
-        let window_size = DeviceUintSize::new(window_size.0, window_size.1);
+        let window_size = self.window.get_inner_size();
 
         let test_size = DeviceUintSize::new(400, 400);
 
@@ -325,8 +323,7 @@ impl<'a> RawtestHarness<'a> {
 
     fn test_blob_update_test(&mut self) {
         println!("\tblob update test...");
-        let window_size = self.window.get_inner_size_pixels();
-        let window_size = DeviceUintSize::new(window_size.0, window_size.1);
+        let window_size = self.window.get_inner_size();
 
         let test_size = DeviceUintSize::new(400, 400);
 
@@ -421,8 +418,7 @@ impl<'a> RawtestHarness<'a> {
     // Ensures that content doing a save-restore produces the same results as not
     fn test_save_restore(&mut self) {
         println!("\tsave/restore...");
-        let window_size = self.window.get_inner_size_pixels();
-        let window_size = DeviceUintSize::new(window_size.0, window_size.1);
+        let window_size = self.window.get_inner_size();
 
         let test_size = DeviceUintSize::new(400, 400);
 
@@ -489,9 +485,9 @@ impl<'a> RawtestHarness<'a> {
         println!("\tcapture...");
         let path = "../captures/test";
         let layout_size = LayoutSize::new(400., 400.);
-        let (_, windows_height) = self.window.get_inner_size_pixels();
+        let dim = self.window.get_inner_size();
         let window_rect = DeviceUintRect::new(
-            point(0, windows_height - layout_size.height as u32),
+            point(0, dim.height - layout_size.height as u32),
             size(layout_size.width as u32, layout_size.height as u32),
         );
 

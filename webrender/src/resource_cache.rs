@@ -1022,6 +1022,7 @@ impl ResourceCache {
     pub fn save_capture(
         &mut self, root: &PathBuf
     ) -> (PlainResources, Vec<ExternalCaptureImage>) {
+        use device::ReadPixelsFormat;
         use std::fs;
         use std::io::Write;
 
@@ -1083,8 +1084,13 @@ impl ResourceCache {
                         Entry::Vacant(e) => e,
                     };
 
-                    //TODO: option to save as PNG:
-                    // https://github.com/servo/webrender/issues/2234
+                    #[cfg(feature = "png")]
+                    CaptureConfig::save_png(
+                        root.join(format!("images/{}.png", image_id)),
+                        (desc.width, desc.height),
+                        ReadPixelsFormat::Standard(desc.format),
+                        &arc,
+                    );
                     let file_name = format!("{}.raw", image_id);
                     let short_path = format!("images/{}", file_name);
                     fs::File::create(path_images.join(file_name))
@@ -1119,6 +1125,13 @@ impl ResourceCache {
                     assert_eq!(result.data.len(), desc.compute_total_size() as usize);
 
                     num_blobs += 1;
+                    #[cfg(feature = "png")]
+                    CaptureConfig::save_png(
+                        root.join(format!("blobs/{}.png", num_blobs)),
+                        (desc.width, desc.height),
+                        ReadPixelsFormat::Standard(desc.format),
+                        &result.data,
+                    );
                     let file_name = format!("{}.raw", num_blobs);
                     let short_path = format!("blobs/{}", file_name);
                     let full_path = path_blobs.clone().join(&file_name);

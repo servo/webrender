@@ -1507,7 +1507,7 @@ impl Device {
         )
     }
 
-    /// Read rectangle of RGBA8 or BGRA8 pixels into the specified output slice.
+    /// Read rectangle of pixels into the specified output slice.
     pub fn read_pixels_into(
         &mut self,
         rect: DeviceUintRect,
@@ -1535,6 +1535,24 @@ impl Device {
             rect.origin.y as _,
             rect.size.width as _,
             rect.size.height as _,
+            desc.external,
+            desc.pixel_type,
+            output,
+        );
+    }
+
+    /// Get texels of a texture into the specified output slice.
+    pub fn get_tex_image_into(
+        &mut self,
+        texture: &Texture,
+        format: ImageFormat,
+        output: &mut [u8],
+    ) {
+        self.bind_texture(DEFAULT_TEXTURE, texture);
+        let desc = gl_describe_format(self.gl(), format);
+        self.gl.get_tex_image_into_buffer(
+            texture.target,
+            0,
             desc.external,
             desc.pixel_type,
             output,

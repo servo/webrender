@@ -87,11 +87,8 @@ pub fn png(
 
     let (device_size, data, settings) = match surface {
         ReadSurface::Screen => {
-            let size = window.get_inner_size_pixels();
-            let rect = DeviceUintRect::new(
-                DeviceUintPoint::zero(),
-                DeviceUintSize::new(size.0, size.1),
-            );
+            let dim = window.get_inner_size();
+            let rect = DeviceUintRect::new(DeviceUintPoint::zero(), dim);
             let data = wrench.renderer
                 .read_pixels_rgba8(rect);
             (rect.size, data, SaveSettings {
