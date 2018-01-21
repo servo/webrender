@@ -587,6 +587,7 @@ impl RenderBackend {
                                 let captured = CapturedDocument {
                                     document_id: *id,
                                     root_pipeline_id: doc.scene.root_pipeline_id,
+                                    window_size: doc.view.window_size,
                                 };
                                 tx.send(captured).unwrap();
                             }

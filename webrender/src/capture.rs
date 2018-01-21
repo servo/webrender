@@ -7,6 +7,8 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use api::{CaptureBits, ExternalImageData, ExternalImageId, ImageDescriptor, TexelRect};
+#[cfg(feature = "png")]
+use api::ImageFormat;
 use ron::{de, ser};
 use serde::{Deserialize, Serialize};
 
@@ -57,6 +59,34 @@ impl CaptureConfig {
             .unwrap();
         Some(de::from_str(&string)
             .unwrap())
+    }
+
+    #[cfg(feature = "png")]
+    pub fn save_png(
+        path: PathBuf, size: (u32, u32), format: ImageFormat, data: &[u8],
+    ) {
+        use png::{BitDepth, ColorType, Encoder, HasParameters};
+        use std::io::BufWriter;
+
+        let color_type = match format {
+            ImageFormat::BGRA8 => ColorType::RGBA, //TODO?
+            ImageFormat::R8 => ColorType::Grayscale,
+            ImageFormat::RG8 => ColorType::GrayscaleAlpha,
+            _ => {
+                warn!("Unable to save PNG of {:?}", format);
+                return;
+            }
+        };
+        let w = BufWriter::new(File::create(path).unwrap());
+        let mut enc = Encoder::new(w, size.0, size.1);
+        enc
+            .set(color_type)
+            .set(BitDepth::Eight);
+        enc
+            .write_header()
+            .unwrap()
+            .write_image_data(&data)
+            .unwrap();
     }
 }
 

@@ -4070,7 +4070,9 @@ impl Renderer {
                     // Just use 0 as the gl handle for this failed case.
                     ExternalTexture::new(0, texture_target)
                 }
-                _ => panic!("No native texture found."),
+                ExternalImageSource::RawData(_) => {
+                    panic!("Raw external data is not expected for deferred resolves!");
+                }
             };
 
             self.texture_resolver
@@ -4848,8 +4850,29 @@ impl Renderer {
         let bytes_per_layer = (rect.size.width * rect.size.height * bytes_per_pixel) as usize;
         let mut data = vec![0; bytes_per_layer];
 
+        //TODO: instead of reading from an FBO with `read_pixels*`, we could
+        // read from textures directly with `get_tex_image*`.
+
         for layer_id in 0 .. texture.get_layer_count() {
             device.attach_read_texture(texture, layer_id);
+            #[cfg(feature = "png")]
+            {
+                let mut png_data;
+                let mut format = texture.get_format();
+                let data_ref = if format == ImageFormat::RGBAF32 {
+                    format = ImageFormat::BGRA8; // re-read with RGBA8
+                    png_data = vec![0; (rect.size.width * rect.size.height * 4) as usize];
+                    device.read_pixels_into(rect, ReadPixelsFormat::Rgba8, &mut png_data);
+                    &png_data
+                } else {
+                    &data
+                };
+                CaptureConfig::save_png(
+                    root.join(format!("textures/{}-{}.png", name, layer_id)),
+                    (rect.size.width, rect.size.height), format,
+                    data_ref,
+                );
+            }
             device.read_pixels_into(rect, read_format, &mut data);
             file.write_all(&data)
                 .unwrap();
@@ -4894,6 +4917,7 @@ impl Renderer {
         use api::{CaptureBits, ExternalImageData};
 
         self.device.begin_frame();
+        let _gm = self.gpu_profile.start_marker("read GPU data");
         self.device.bind_read_target_impl(self.capture.read_fbo);
 
         if !deferred_images.is_empty() {
