@@ -171,17 +171,25 @@ impl WindowWrapper {
         }
     }
 
-    fn get_inner_size_pixels(&self) -> (u32, u32) {
-        match *self {
+    fn get_inner_size(&self) -> DeviceUintSize {
+        let (w, h) = match *self {
             WindowWrapper::Window(ref window, _) => window.get_inner_size_pixels().unwrap(),
             WindowWrapper::Headless(ref context, _) => (context.width, context.height),
-        }
+        };
+        DeviceUintSize::new(w, h)
     }
 
     fn hidpi_factor(&self) -> f32 {
         match *self {
             WindowWrapper::Window(ref window, _) => window.hidpi_factor(),
             WindowWrapper::Headless(..) => 1.0,
+        }
+    }
+
+    fn resize(&mut self, size: DeviceUintSize) {
+        match *self {
+            WindowWrapper::Window(ref mut window, _) => window.set_inner_size(size.width, size.height),
+            WindowWrapper::Headless(_, _) => unimplemented!(), // requites Glutin update
         }
     }
 
@@ -342,8 +350,7 @@ fn main() {
 
     let mut window = make_window(size, dp_ratio, args.is_present("vsync"), is_headless);
     let dp_ratio = dp_ratio.unwrap_or(window.hidpi_factor());
-    let (width, height) = window.get_inner_size_pixels();
-    let dim = DeviceUintSize::new(width, height);
+    let dim = window.get_inner_size();
 
     let needs_frame_notifier = ["perf", "reftest", "png", "rawtest"]
         .iter()
@@ -387,14 +394,14 @@ fn main() {
         wrench.renderer.deinit();
         return;
     } else if let Some(subargs) = args.subcommand_matches("reftest") {
-        let (w, h) = window.get_inner_size_pixels();
+        let dim = window.get_inner_size();
         let harness = ReftestHarness::new(&mut wrench, &mut window, rx.unwrap());
         let base_manifest = Path::new("reftests/reftest.list");
         let specific_reftest = subargs.value_of("REFTEST").map(|x| Path::new(x));
         let mut reftest_options = ReftestOptions::default();
         if let Some(allow_max_diff) = subargs.value_of("fuzz_tolerance") {
             reftest_options.allow_max_difference = allow_max_diff.parse().unwrap_or(1);
-            reftest_options.allow_num_differences = w as usize * h as usize;
+            reftest_options.allow_num_differences = dim.width as usize * dim.height as usize;
         }
         harness.run(base_manifest, specific_reftest, &reftest_options);
         return;
@@ -420,10 +427,11 @@ fn main() {
         perf::compare(first_filename, second_filename);
         return;
     } else if let Some(subargs) = args.subcommand_matches("load") {
-        let dir = subargs.value_of("path").unwrap_or("../captures/example");
-        let mut documents = wrench.api.load_capture(PathBuf::from(dir));
+        let path = PathBuf::from(subargs.value_of("path").unwrap());
+        let mut documents = wrench.api.load_capture(path);
         println!("loaded {:?}", documents.iter().map(|cd| cd.document_id).collect::<Vec<_>>());
         let captured = documents.swap_remove(0);
+        window.resize(captured.window_size);
         wrench.document_id = captured.document_id;
         Box::new(captured) as Box<WrenchThing>
     } else {
@@ -434,8 +442,7 @@ fn main() {
     let mut do_loop = false;
     let mut cpu_profile_index = 0;
 
-    let (width, height) = window.get_inner_size_pixels();
-    let dim = DeviceUintSize::new(width, height);
+    let dim = window.get_inner_size();
     wrench.update(dim);
     thing.do_frame(&mut wrench);
 
@@ -480,7 +487,7 @@ fn main() {
                     VirtualKeyCode::B => {
                         wrench.renderer.toggle_debug_flags(DebugFlags::ALPHA_PRIM_DBG);
                     }
-                    VirtualKeyCode::C => {
+                    VirtualKeyCode::S => {
                         wrench.renderer.toggle_debug_flags(DebugFlags::COMPACT_PROFILER);
                     }
                     VirtualKeyCode::Q => {
@@ -514,6 +521,10 @@ fn main() {
                         wrench.renderer.save_cpu_profile(&file_name);
                         cpu_profile_index += 1;
                     }
+                    VirtualKeyCode::C => {
+                        let path = PathBuf::from("../captures/wrench");
+                        wrench.api.save_capture(path, CaptureBits::all());
+                    }
                     VirtualKeyCode::Up => {
                         let current_zoom = wrench.get_page_zoom();
                         let new_zoom_factor = ZoomFactor::new(current_zoom.get() + 0.1);
@@ -534,8 +545,7 @@ fn main() {
             }
         }
 
-        let (width, height) = window.get_inner_size_pixels();
-        let dim = DeviceUintSize::new(width, height);
+        let dim = window.get_inner_size();
         wrench.update(dim);
 
         if do_frame {

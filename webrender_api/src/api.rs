@@ -430,6 +430,7 @@ bitflags!{
 pub struct CapturedDocument {
     pub document_id: DocumentId,
     pub root_pipeline_id: Option<PipelineId>,
+    pub window_size: DeviceUintSize,
 }
 
 #[derive(Clone, Deserialize, Serialize)]

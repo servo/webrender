@@ -336,10 +336,7 @@ impl<'a> ReftestHarness<'a> {
                 );
         }
 
-        let window_size = DeviceUintSize::new(
-            self.window.get_inner_size_pixels().0,
-            self.window.get_inner_size_pixels().1,
-        );
+        let window_size = self.window.get_inner_size();
         let reference = match t.reference.extension().unwrap().to_str().unwrap() {
             "yaml" => {
                 let (reference, _) = self.render_yaml(
@@ -468,11 +465,11 @@ impl<'a> ReftestHarness<'a> {
         self.rx.recv().unwrap();
         let stats = self.wrench.render();
 
-        let window_size = self.window.get_inner_size_pixels();
-        assert!(size.width <= window_size.0 && size.height <= window_size.1);
+        let window_size = self.window.get_inner_size();
+        assert!(size.width <= window_size.width && size.height <= window_size.height);
 
         // taking the bottom left sub-rectangle
-        let rect = DeviceUintRect::new(DeviceUintPoint::new(0, window_size.1 - size.height), size);
+        let rect = DeviceUintRect::new(DeviceUintPoint::new(0, window_size.height - size.height), size);
         let pixels = self.wrench.renderer.read_pixels_rgba8(rect);
         self.window.swap_buffers();
 

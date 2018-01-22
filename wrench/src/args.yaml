@@ -155,5 +155,5 @@ subcommands:
           - path:
               help: directory containing the capture
               takes_value: true
-              required: false
+              required: true
               index: 1
