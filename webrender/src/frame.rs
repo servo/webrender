@@ -5,7 +5,7 @@
 
 use api::{BuiltDisplayListIter, ClipAndScrollInfo, ClipId, ColorF, ComplexClipRegion};
 use api::{DevicePixelScale, DeviceUintRect, DeviceUintSize};
-use api::{DisplayItemRef, DocumentLayer, Epoch, FilterOp};
+use api::{DisplayItemRef, DocumentLayer, Epoch, FilterOp, GradientStop};
 use api::{ImageDisplayItem, ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect};
 use api::{LayerSize, LayerVector2D, LayoutSize};
 use api::{LocalClip, PipelineId, ScrollClamping, ScrollEventPhase, ScrollLayerState};
@@ -43,6 +43,7 @@ struct FlattenContext<'a> {
     pipeline_epochs: Vec<(PipelineId, Epoch)>,
     replacements: Vec<(ClipId, ClipId)>,
     output_pipelines: &'a FastHashSet<PipelineId>,
+    gradient_stops: ItemRange<GradientStop>,
 }
 
 impl<'a> FlattenContext<'a> {
@@ -491,8 +492,8 @@ impl<'a> FlattenContext<'a> {
                     &prim_info,
                     info.gradient.start_point,
                     info.gradient.end_point,
-                    item.gradient_stops(),
-                    item.display_list().get(item.gradient_stops()).count(),
+                    self.gradient_stops,
+                    item.display_list().get(self.gradient_stops).count(),
                     info.gradient.extend_mode,
                     info.tile_size,
                     info.tile_spacing,
@@ -507,7 +508,7 @@ impl<'a> FlattenContext<'a> {
                     info.gradient.end_center,
                     info.gradient.end_radius,
                     info.gradient.ratio_xy,
-                    item.gradient_stops(),
+                    self.gradient_stops,
                     info.gradient.extend_mode,
                     info.tile_size,
                     info.tile_spacing,
@@ -536,8 +537,8 @@ impl<'a> FlattenContext<'a> {
                     clip_and_scroll,
                     &prim_info,
                     info,
-                    item.gradient_stops(),
-                    item.display_list().get(item.gradient_stops()).count(),
+                    self.gradient_stops,
+                    item.display_list().get(self.gradient_stops).count(),
                 );
             }
             SpecificDisplayItem::PushStackingContext(ref info) => {
@@ -624,8 +625,9 @@ impl<'a> FlattenContext<'a> {
                 );
             }
 
-            // Do nothing; these are dummy items for the display list parser
-            SpecificDisplayItem::SetGradientStops => {}
+            SpecificDisplayItem::SetGradientStops => {
+                self.gradient_stops = item.gradient_stops();
+            }
 
             SpecificDisplayItem::PopStackingContext => {
                 unreachable!("Should have returned in parent method.")
@@ -1056,6 +1058,7 @@ impl FrameContext {
                 pipeline_epochs: Vec::new(),
                 replacements: Vec::new(),
                 output_pipelines,
+                gradient_stops: ItemRange::default(),
             };
 
             roller.builder.push_root(
