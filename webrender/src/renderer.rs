@@ -4209,9 +4209,9 @@ impl Renderer {
         stats: &mut RendererStats,
     ) {
         let _gm = self.gpu_profile.start_marker("tile frame draw");
-        frame.has_been_rendered = true;
 
         if frame.passes.is_empty() {
+            frame.has_been_rendered = true;
             return;
         }
 
@@ -4270,13 +4270,19 @@ impl Renderer {
                 RenderPassKind::OffScreen { ref mut alpha, ref mut color, ref mut texture_cache } => {
                     alpha.check_ready();
                     color.check_ready();
-                    for (&(texture_id, target_index), target) in texture_cache {
-                        self.draw_texture_cache_target(
-                            &texture_id,
-                            target_index,
-                            target,
-                            stats,
-                        );
+
+                    // If this frame has already been drawn, then any texture
+                    // cache targets have already been updated and can be
+                    // skipped this time.
+                    if !frame.has_been_rendered {
+                        for (&(texture_id, target_index), target) in texture_cache {
+                            self.draw_texture_cache_target(
+                                &texture_id,
+                                target_index,
+                                target,
+                                stats,
+                            );
+                        }
                     }
 
                     for (target_index, target) in alpha.targets.iter().enumerate() {
@@ -4365,6 +4371,8 @@ impl Renderer {
             } else {
                 true
             });
+
+        frame.has_been_rendered = true;
     }
 
     pub fn debug_renderer<'b>(&'b mut self) -> &'b mut DebugRenderer {
