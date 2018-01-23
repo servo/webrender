@@ -62,6 +62,7 @@ pub struct CacheItem {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub struct ImageProperties {
     pub descriptor: ImageDescriptor,
     pub external_image: Option<ExternalImageData>,
@@ -1022,6 +1023,7 @@ impl ResourceCache {
     pub fn save_capture(
         &mut self, root: &PathBuf
     ) -> (PlainResources, Vec<ExternalCaptureImage>) {
+        #[cfg(feature = "png")]
         use device::ReadPixelsFormat;
         use std::fs;
         use std::io::Write;

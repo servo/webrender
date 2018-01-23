@@ -860,6 +860,15 @@ impl RenderBackend {
         config.serialize(&backend, "backend");
 
         if config.bits.contains(CaptureBits::FRAME) {
+            // After we rendered the frames, there are pending updates.
+            // Instead of serializing them, we are going to make sure
+            // they are applied on the `Renderer` side.
+            let msg = ResultMsg::UpdateResources {
+                updates: self.resource_cache.pending_updates(),
+                cancel_rendering: false,
+            };
+            self.result_tx.send(msg).unwrap();
+            // Save the texture/glyph/image caches.
             info!("\tresource cache");
             let caches = self.resource_cache.save_caches(&config.root);
             config.serialize(&caches, "resource_cache");
@@ -882,13 +891,13 @@ impl RenderBackend {
             .expect("Unable to open backend.ron");
         let caches_maybe = CaptureConfig::deserialize::<PlainCacheOwn, _>(root, "resource_cache");
 
-        // Note: it would be great to have RenderBackend to be split
+        // Note: it would be great to have `RenderBackend` to be split
         // rather explicitly on what's used before and after scene building
         // so that, for example, we never miss anything in the code below:
 
-        let deferred = self.resource_cache.load_capture(backend.resources, caches_maybe, root);
+        let plain_externals = self.resource_cache.load_capture(backend.resources, caches_maybe, root);
         let msg_load = ResultMsg::DebugOutput(
-            DebugOutput::LoadCapture(root.clone(), deferred)
+            DebugOutput::LoadCapture(root.clone(), plain_externals)
         );
         self.result_tx.send(msg_load).unwrap();
 

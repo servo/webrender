@@ -96,6 +96,7 @@ pub struct PrimitiveRunLocalRect {
 /// that is stored in the frame. This allows the render
 /// thread to iterate this list and update any changed
 /// texture data and update the UV rect.
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub struct DeferredResolve {
     pub address: GpuCacheAddress,
     pub image_properties: ImageProperties,
