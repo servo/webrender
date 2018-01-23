@@ -3,8 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipAndScrollInfo, ClipId, ClipMode};
-use api::{ColorF, ColorU, DeviceIntRect, DevicePixelScale};
-use api::{ComplexClipRegion, ExtendMode, FontRenderMode};
+use api::{ColorF, ColorU, DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch};
+use api::{ComplexClipRegion, DeviceIntPoint, ExtendMode, FontRenderMode};
 use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
 use api::{LineStyle, PipelineId, PremultipliedColorF, TexelRect, TileOffset};
@@ -21,10 +21,10 @@ use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuData
 use gpu_types::{ClipChainRectIndex, ClipScrollNodeData};
 use picture::{PictureKind, PicturePrimitive};
 use profiler::FrameProfileCounters;
-use render_task::{ClipChain, ClipChainNode, ClipChainNodeIter, ClipChainNodeRef, ClipWorkItem};
-use render_task::{RenderTask, RenderTaskId, RenderTaskTree};
+use render_task::{BlitSource, ClipChain, ClipChainNode, ClipChainNodeIter, ClipChainNodeRef, ClipWorkItem};
+use render_task::{RenderTask, RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId, RenderTaskTree};
 use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
-use resource_cache::{ImageProperties, ResourceCache};
+use resource_cache::{CacheItem, ImageProperties, ResourceCache};
 use scene::{ScenePipeline, SceneProperties};
 use segment::SegmentBuilder;
 use std::{mem, usize};
@@ -319,6 +319,37 @@ impl BrushPrimitive {
     }
 }
 
+// Key that identifies a unique (partial) image that is being
+// stored in the render task cache.
+#[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
+pub struct ImageCacheKey {
+    // TODO(gw): Consider introducing a struct that collectively
+    //           identifies an image in the resource cache
+    //           uniquely. We pass this around to a few places.
+    pub image_key: ImageKey,
+    pub image_rendering: ImageRendering,
+    pub tile_offset: Option<TileOffset>,
+    // TODO(gw): Can't store TexelRect here as it's an
+    //           f32 so not directly hashable. We should
+    //           probably make TexelRect be int-based.
+    pub texel_rect: Option<(DeviceIntPoint, DeviceIntPoint)>,
+}
+
+// Where to find the texture data for an image primitive.
+#[derive(Debug)]
+pub enum ImageSource {
+    // A normal image - just reference the texture cache.
+    Default,
+    // An image that is pre-rendered into the texture cache
+    // via a render task.
+    Cache {
+        size: DeviceIntSize,
+        key: ImageCacheKey,
+        item: CacheItem,
+    },
+}
+
 #[derive(Debug)]
 pub struct ImagePrimitiveCpu {
     pub image_key: ImageKey,
@@ -327,7 +358,9 @@ pub struct ImagePrimitiveCpu {
     pub tile_spacing: LayerSize,
     pub alpha_type: AlphaType,
     pub stretch_size: LayerSize,
-    pub texel_rect: TexelRect,
+    pub current_epoch: Epoch,
+    pub texel_rect: Option<TexelRect>,
+    pub source: ImageSource,
 }
 
 impl ToGpuBlocks for ImagePrimitiveCpu {
@@ -337,7 +370,6 @@ impl ToGpuBlocks for ImagePrimitiveCpu {
             self.stretch_size.width, self.stretch_size.height,
             self.tile_spacing.width, self.tile_spacing.height,
         ]);
-        request.push(self.texel_rect);
     }
 }
 
@@ -1165,24 +1197,116 @@ impl PrimitiveStore {
             }
             PrimitiveKind::Image => {
                 let image_cpu = &mut self.cpu_images[metadata.cpu_prim_index.0];
+                let image_properties = resource_cache.get_image_properties(image_cpu.image_key);
 
-                resource_cache.request_image(
-                    image_cpu.image_key,
-                    image_cpu.image_rendering,
-                    image_cpu.tile_offset,
-                    gpu_cache,
-                );
+                // TODO(gw): Add image.rs and move this code out to a separate
+                //           source file as it gets more complicated, and we
+                //           start pre-rendering images for other reasons.
 
-                // TODO(gw): This doesn't actually need to be calculated each frame.
-                // It's cheap enough that it's not worth introducing a cache for images
-                // right now, but if we introduce a cache for images for some other
-                // reason then we might as well cache this with it.
-                if let Some(image_properties) =
-                    resource_cache.get_image_properties(image_cpu.image_key)
-                {
-                    metadata.opacity.is_opaque = image_properties.descriptor.is_opaque &&
-                        image_cpu.tile_spacing.width == 0.0 &&
-                        image_cpu.tile_spacing.height == 0.0;
+                if let Some(image_properties) = image_properties {
+                    // See if this image has been updated since we last hit this code path.
+                    // If so, we need to (at least) update the opacity, and also rebuild
+                    // and render task cached portions of this image.
+                    if image_properties.epoch != image_cpu.current_epoch {
+                        image_cpu.current_epoch = image_properties.epoch;
+
+                        // Update the opacity.
+                        metadata.opacity.is_opaque = image_properties.descriptor.is_opaque &&
+                            image_cpu.tile_spacing.width == 0.0 &&
+                            image_cpu.tile_spacing.height == 0.0;
+
+                        // Work out whether this image is a normal / simple type, or if
+                        // we need to pre-render it to the render task cache.
+                        image_cpu.source = match image_cpu.texel_rect {
+                            Some(texel_rect) => {
+                                ImageSource::Cache {
+                                    // Cache key to identify this image portion.
+                                    key: ImageCacheKey {
+                                        image_key: image_cpu.image_key,
+                                        image_rendering: image_cpu.image_rendering,
+                                        tile_offset: image_cpu.tile_offset,
+                                        texel_rect: image_cpu.texel_rect.map(|texel_rect| {
+                                            (DeviceIntPoint::new(texel_rect.uv0.x as i32, texel_rect.uv0.y as i32),
+                                             DeviceIntPoint::new(texel_rect.uv1.x as i32, texel_rect.uv1.y as i32))
+                                        }),
+                                    },
+                                    // Size in device-pixels we need to allocate in render task cache.
+                                    size: DeviceIntSize::new(
+                                        (texel_rect.uv1.x - texel_rect.uv0.x) as i32,
+                                        (texel_rect.uv1.y - texel_rect.uv0.y) as i32,
+                                    ),
+                                    item: CacheItem::invalid(),
+                                }
+                            }
+                            None => {
+                                // Simple image - just use a normal texture cache entry.
+                                ImageSource::Default
+                            }
+                        };
+                    }
+
+                    // TODO(gw): Don't actually need this in cached source mode if
+                    //           the cache item is still valid...
+                    resource_cache.request_image(
+                        image_cpu.image_key,
+                        image_cpu.image_rendering,
+                        image_cpu.tile_offset,
+                        gpu_cache,
+                    );
+
+                    // Every frame, for cached items, we need to request the render
+                    // task cache item. The closure will be invoked on the first
+                    // time through, and any time the render task output has been
+                    // evicted from the texture cache.
+                    if let ImageSource::Cache { key, size, ref mut item } = image_cpu.source {
+                        let image_key = image_cpu.image_key;
+                        let image_rendering = image_cpu.image_rendering;
+                        let tile_offset = image_cpu.tile_offset;
+                        let sub_rect = image_cpu.texel_rect;
+
+                        // Request a pre-rendered image task.
+                        *item = resource_cache.request_render_task(
+                            RenderTaskCacheKey {
+                                size,
+                                kind: RenderTaskCacheKeyKind::Image(key),
+                            },
+                            gpu_cache,
+                            render_tasks,
+                            |render_tasks| {
+                                // Create a task to blit from the texture cache to
+                                // a normal transient render task surface. This will
+                                // copy only the sub-rect, if specified.
+                                let cache_to_target_task = RenderTask::new_blit(
+                                    size,
+                                    BlitSource::Image {
+                                        image_key,
+                                        image_rendering,
+                                        tile_offset,
+                                        sub_rect,
+                                    },
+                                );
+                                let cache_to_target_task_id = render_tasks.add(cache_to_target_task);
+
+                                // Create a task to blit the rect from the child render
+                                // task above back into the right spot in the persistent
+                                // render target cache.
+                                let target_to_cache_task = RenderTask::new_blit(
+                                    size,
+                                    BlitSource::RenderTask {
+                                        task_id: cache_to_target_task_id,
+                                    },
+                                );
+                                let target_to_cache_task_id = render_tasks.add(target_to_cache_task);
+
+                                // Hook this into the render task tree at the right spot.
+                                parent_tasks.push(target_to_cache_task_id);
+
+                                // Pass the image opacity, so that the cached render task
+                                // item inherits the same opacity properties.
+                                (target_to_cache_task_id, [0.0; 3], image_properties.descriptor.is_opaque)
+                            }
+                        );
+                    }
                 }
             }
             PrimitiveKind::YuvImage => {

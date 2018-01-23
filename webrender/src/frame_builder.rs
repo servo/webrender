@@ -6,7 +6,7 @@ use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayList, ClipAnd
 use api::{ColorF, ColorU, DeviceIntPoint, DevicePixelScale, DeviceUintPoint, DeviceUintRect};
 use api::{DeviceUintSize, DocumentLayer, ExtendMode, FontRenderMode, GlyphInstance, GlyphOptions};
 use api::{GradientStop, HitTestFlags, HitTestItem, HitTestResult, ImageKey, ImageRendering};
-use api::{ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect, LayerSize};
+use api::{Epoch, ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect, LayerSize};
 use api::{LayerTransform, LayerVector2D, LayoutTransform, LayoutVector2D, LineOrientation};
 use api::{LineStyle, LocalClip, PipelineId, PremultipliedColorF, PropertyBinding, RepeatMode};
 use api::{ScrollSensitivity, Shadow, TexelRect, TileOffset, TransformStyle, WorldPoint};
@@ -24,7 +24,7 @@ use gpu_types::{ClipScrollNodeData, PictureType};
 use internal_types::{FastHashMap, FastHashSet, RenderPassIndex};
 use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
 use prim_store::{BrushKind, BrushPrimitive, YuvImagePrimitiveCpu};
-use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, PrimitiveKind};
+use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, ImageSource, PrimitiveKind};
 use prim_store::{PrimitiveContainer, PrimitiveIndex, SpecificPrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
 use prim_store::{BrushSegmentDescriptor, TextRunPrimitiveCpu};
@@ -1445,7 +1445,9 @@ impl FrameBuilder {
             tile_spacing,
             alpha_type,
             stretch_size,
-            texel_rect: sub_rect.unwrap_or(TexelRect::invalid()),
+            texel_rect: sub_rect,
+            current_epoch: Epoch::invalid(),
+            source: ImageSource::Default,
         };
 
         self.add_primitive(
