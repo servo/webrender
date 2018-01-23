@@ -2427,9 +2427,9 @@ impl Renderer {
                         self.save_capture(config, deferred);
                     }
                     #[cfg(feature = "capture")]
-                    DebugOutput::LoadCapture(root, deferred) => {
+                    DebugOutput::LoadCapture(root, plain_externals) => {
                         self.active_documents.clear();
-                        self.load_capture(root, deferred);
+                        self.load_capture(root, plain_externals);
                     }
                 },
                 ResultMsg::DebugCommand(command) => {
@@ -5028,10 +5028,11 @@ impl Renderer {
     }
 
     fn load_capture(
-        &mut self, root: PathBuf, external_images: Vec<PlainExternalImage>
+        &mut self, root: PathBuf, plain_externals: Vec<PlainExternalImage>
     ) {
         use std::fs::File;
         use std::io::Read;
+        use std::slice;
 
         info!("loading external buffer-backed images");
         assert!(self.texture_resolver.external_images.is_empty());
@@ -5039,8 +5040,12 @@ impl Renderer {
         let mut image_handler = DummyExternalImageHandler {
             data: FastHashMap::default(),
         };
-        for ext in external_images {
-            let data = match raw_map.entry(ext.data) {
+        // Note: this is a `SCENE` level population of the external image handlers
+        // It would put both external buffers and texture into the map.
+        // But latter are going to be overwritten later in this function
+        // if we are in the `FRAME` level.
+        for plain_ext in plain_externals {
+            let data = match raw_map.entry(plain_ext.data) {
                 Entry::Occupied(e) => e.get().clone(),
                 Entry::Vacant(e) => {
                     let mut buffer = Vec::new();
@@ -5051,8 +5056,8 @@ impl Renderer {
                     e.insert(Arc::new(buffer)).clone()
                 }
             };
-            let key = (ext.id, ext.channel_index);
-            let value = (CapturedExternalImageData::Buffer(data), ext.uv);
+            let key = (plain_ext.id, plain_ext.channel_index);
+            let value = (CapturedExternalImageData::Buffer(data), plain_ext.uv);
             image_handler.data.insert(key, value);
         }
 
@@ -5071,7 +5076,7 @@ impl Renderer {
             }
 
             info!("loading gpu cache");
-            Self::load_texture(
+            let gpu_cache_data = Self::load_texture(
                 &mut self.gpu_cache_texture.texture,
                 &renderer.gpu_cache,
                 &root,
@@ -5079,8 +5084,18 @@ impl Renderer {
             );
             match self.gpu_cache_texture.bus {
                 CacheBus::PixelBuffer { ref mut rows, ref mut cpu_blocks, .. } => {
+                    let dim = self.gpu_cache_texture.texture.get_dimensions();
+                    let blocks = unsafe {
+                        slice::from_raw_parts(
+                            gpu_cache_data.as_ptr() as *const GpuBlockData,
+                            gpu_cache_data.len() / mem::size_of::<GpuBlockData>(),
+                        )
+                    };
+                    // fill up the CPU cache from the contents we just loaded
                     rows.clear();
                     cpu_blocks.clear();
+                    rows.extend((0 .. dim.height).map(|_| CacheRow::new()));
+                    cpu_blocks.extend_from_slice(blocks);
                 }
                 CacheBus::Scatter { .. } => {}
             }
@@ -5112,7 +5127,7 @@ impl Renderer {
                         Self::load_texture(&mut t, &plain_tex, &root, &mut self.device);
                         let extex = t.into_external();
                         self.capture.owned_external_images.insert(key, extex.clone());
-                        extex.internal_id()
+                        e.insert(extex.internal_id()).clone()
                     }
                 };
 

@@ -767,7 +767,6 @@ pub struct Frame {
     // from the backend thread. The render thread
     // will use a callback to resolve these and
     // patch the data structures.
-    #[cfg_attr(feature = "capture", serde(skip))]
     pub deferred_resolves: Vec<DeferredResolve>,
 
     // True if this frame contains any render tasks
