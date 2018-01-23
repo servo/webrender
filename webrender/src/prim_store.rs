@@ -4,10 +4,10 @@
 
 use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipAndScrollInfo, ClipId, ClipMode};
 use api::{ColorF, ColorU, DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch};
-use api::{ComplexClipRegion, DeviceIntPoint, ExtendMode, FontRenderMode};
+use api::{ComplexClipRegion, ExtendMode, FontRenderMode};
 use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
-use api::{LineStyle, PipelineId, PremultipliedColorF, TexelRect, TileOffset};
+use api::{LineStyle, PipelineId, PremultipliedColorF, TileOffset};
 use api::{WorldToLayerTransform, YuvColorSpace, YuvFormat};
 use border::{BorderCornerInstance, BorderEdgeKind};
 use clip_scroll_tree::{CoordinateSystemId, ClipScrollTree};
@@ -330,10 +330,7 @@ pub struct ImageCacheKey {
     pub image_key: ImageKey,
     pub image_rendering: ImageRendering,
     pub tile_offset: Option<TileOffset>,
-    // TODO(gw): Can't store TexelRect here as it's an
-    //           f32 so not directly hashable. We should
-    //           probably make TexelRect be int-based.
-    pub texel_rect: Option<(DeviceIntPoint, DeviceIntPoint)>,
+    pub texel_rect: Option<DeviceIntRect>,
 }
 
 // Where to find the texture data for an image primitive.
@@ -345,27 +342,22 @@ pub enum ImageSource {
     // via a render task.
     Cache {
         size: DeviceIntSize,
-        key: ImageCacheKey,
         item: CacheItem,
     },
 }
 
 #[derive(Debug)]
 pub struct ImagePrimitiveCpu {
-    pub image_key: ImageKey,
-    pub image_rendering: ImageRendering,
-    pub tile_offset: Option<TileOffset>,
     pub tile_spacing: LayerSize,
     pub alpha_type: AlphaType,
     pub stretch_size: LayerSize,
     pub current_epoch: Epoch,
-    pub texel_rect: Option<TexelRect>,
     pub source: ImageSource,
+    pub key: ImageCacheKey,
 }
 
 impl ToGpuBlocks for ImagePrimitiveCpu {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        // has to match BLOCKS_PER_UV_RECT
         request.push([
             self.stretch_size.width, self.stretch_size.height,
             self.tile_spacing.width, self.tile_spacing.height,
@@ -1197,7 +1189,7 @@ impl PrimitiveStore {
             }
             PrimitiveKind::Image => {
                 let image_cpu = &mut self.cpu_images[metadata.cpu_prim_index.0];
-                let image_properties = resource_cache.get_image_properties(image_cpu.image_key);
+                let image_properties = resource_cache.get_image_properties(image_cpu.key.image_key);
 
                 // TODO(gw): Add image.rs and move this code out to a separate
                 //           source file as it gets more complicated, and we
@@ -1217,24 +1209,11 @@ impl PrimitiveStore {
 
                         // Work out whether this image is a normal / simple type, or if
                         // we need to pre-render it to the render task cache.
-                        image_cpu.source = match image_cpu.texel_rect {
+                        image_cpu.source = match image_cpu.key.texel_rect {
                             Some(texel_rect) => {
                                 ImageSource::Cache {
-                                    // Cache key to identify this image portion.
-                                    key: ImageCacheKey {
-                                        image_key: image_cpu.image_key,
-                                        image_rendering: image_cpu.image_rendering,
-                                        tile_offset: image_cpu.tile_offset,
-                                        texel_rect: image_cpu.texel_rect.map(|texel_rect| {
-                                            (DeviceIntPoint::new(texel_rect.uv0.x as i32, texel_rect.uv0.y as i32),
-                                             DeviceIntPoint::new(texel_rect.uv1.x as i32, texel_rect.uv1.y as i32))
-                                        }),
-                                    },
                                     // Size in device-pixels we need to allocate in render task cache.
-                                    size: DeviceIntSize::new(
-                                        (texel_rect.uv1.x - texel_rect.uv0.x) as i32,
-                                        (texel_rect.uv1.y - texel_rect.uv0.y) as i32,
-                                    ),
+                                    size: texel_rect.size,
                                     item: CacheItem::invalid(),
                                 }
                             }
@@ -1248,9 +1227,9 @@ impl PrimitiveStore {
                     // TODO(gw): Don't actually need this in cached source mode if
                     //           the cache item is still valid...
                     resource_cache.request_image(
-                        image_cpu.image_key,
-                        image_cpu.image_rendering,
-                        image_cpu.tile_offset,
+                        image_cpu.key.image_key,
+                        image_cpu.key.image_rendering,
+                        image_cpu.key.tile_offset,
                         gpu_cache,
                     );
 
@@ -1258,11 +1237,8 @@ impl PrimitiveStore {
                     // task cache item. The closure will be invoked on the first
                     // time through, and any time the render task output has been
                     // evicted from the texture cache.
-                    if let ImageSource::Cache { key, size, ref mut item } = image_cpu.source {
-                        let image_key = image_cpu.image_key;
-                        let image_rendering = image_cpu.image_rendering;
-                        let tile_offset = image_cpu.tile_offset;
-                        let sub_rect = image_cpu.texel_rect;
+                    if let ImageSource::Cache { size, ref mut item } = image_cpu.source {
+                        let key = image_cpu.key;
 
                         // Request a pre-rendered image task.
                         *item = resource_cache.request_render_task(
@@ -1279,10 +1255,7 @@ impl PrimitiveStore {
                                 let cache_to_target_task = RenderTask::new_blit(
                                     size,
                                     BlitSource::Image {
-                                        image_key,
-                                        image_rendering,
-                                        tile_offset,
-                                        sub_rect,
+                                        key,
                                     },
                                 );
                                 let cache_to_target_task_id = render_tasks.add(cache_to_target_task);

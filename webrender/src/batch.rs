@@ -698,9 +698,9 @@ impl AlphaBatcher {
                 let cache_item = match image_cpu.source {
                     ImageSource::Default => {
                         resolve_image(
-                            image_cpu.image_key,
-                            image_cpu.image_rendering,
-                            image_cpu.tile_offset,
+                            image_cpu.key.image_key,
+                            image_cpu.key.image_rendering,
+                            image_cpu.key.tile_offset,
                             ctx.resource_cache,
                             gpu_cache,
                             deferred_resolves,

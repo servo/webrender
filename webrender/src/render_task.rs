@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, ImageKey, TexelRect, TileOffset};
-use api::{ImageDescriptor, ImageFormat, ImageRendering, LayerRect, PremultipliedColorF};
+use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize};
+use api::{ImageDescriptor, ImageFormat, LayerRect, PremultipliedColorF};
 use box_shadow::BoxShadowCacheKey;
 use clip::{ClipSourcesWeakHandle};
 use clip_scroll_tree::CoordinateSystemId;
@@ -268,10 +268,7 @@ impl BlurTask {
 #[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
 pub enum BlitSource {
     Image {
-        image_key: ImageKey,
-        image_rendering: ImageRendering,
-        tile_offset: Option<TileOffset>,
-        sub_rect: Option<TexelRect>,
+        key: ImageCacheKey,
     },
     RenderTask {
         task_id: RenderTaskId,

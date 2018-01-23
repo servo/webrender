@@ -100,6 +100,13 @@ pub trait RenderTarget {
         _deferred_resolves: &mut Vec<DeferredResolve>,
     ) {
     }
+    // TODO(gw): It's a bit odd that we need the deferred resolves and mutable
+    //           GPU cache here. They are typically used by the build step
+    //           above. They are used for the blit jobs to allow resolve_image
+    //           to be called. It's a bit of extra overhead to store the image
+    //           key here and the resolve them in the build step separately.
+    //           BUT: if/when we add more texture cache target jobs, we might
+    //           want to tidy this up.
     fn add_task(
         &mut self,
         task_id: RenderTaskId,
@@ -376,12 +383,12 @@ impl RenderTarget for ColorRenderTarget {
             }
             RenderTaskKind::Blit(ref task_info) => {
                 match task_info.source {
-                    BlitSource::Image { image_key, image_rendering, tile_offset, sub_rect } => {
+                    BlitSource::Image { key } => {
                         // Get the cache item for the source texture.
                         let cache_item = resolve_image(
-                            image_key,
-                            image_rendering,
-                            tile_offset,
+                            key.image_key,
+                            key.image_rendering,
+                            key.tile_offset,
                             ctx.resource_cache,
                             gpu_cache,
                             deferred_resolves,
@@ -392,16 +399,13 @@ impl RenderTarget for ColorRenderTarget {
                         // TODO(gw): We have much type confusion below - f32, i32 and u32 for
                         //           various representations of the texel rects. We should make
                         //           this consistent!
-                        let source_rect = sub_rect.map_or(cache_item.uv_rect.to_i32(), |sub_rect| {
+                        let source_rect = key.texel_rect.map_or(cache_item.uv_rect.to_i32(), |sub_rect| {
                             DeviceIntRect::new(
                                 DeviceIntPoint::new(
-                                    cache_item.uv_rect.origin.x as i32 + sub_rect.uv0.x as i32,
-                                    cache_item.uv_rect.origin.y as i32 + sub_rect.uv0.y as i32,
+                                    cache_item.uv_rect.origin.x as i32 + sub_rect.origin.x,
+                                    cache_item.uv_rect.origin.y as i32 + sub_rect.origin.y,
                                 ),
-                                DeviceIntSize::new(
-                                    (sub_rect.uv1.x - sub_rect.uv0.x) as i32,
-                                    (sub_rect.uv1.y - sub_rect.uv0.y) as i32,
-                                ),
+                                sub_rect.size,
                             )
                         });
 
