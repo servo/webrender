@@ -55,10 +55,23 @@ pub struct GlyphFetchResult {
 // storing the coordinates as texel values
 // we don't need to go through and update
 // various CPU-side structures.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CacheItem {
     pub texture_id: SourceTexture,
     pub uv_rect_handle: GpuCacheHandle,
+    pub uv_rect: DeviceUintRect,
+    pub texture_layer: i32,
+}
+
+impl CacheItem {
+    pub fn invalid() -> Self {
+        CacheItem {
+            texture_id: SourceTexture::Invalid,
+            uv_rect_handle: GpuCacheHandle::new(),
+            uv_rect: DeviceUintRect::zero(),
+            texture_layer: 0,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -66,6 +79,7 @@ pub struct ImageProperties {
     pub descriptor: ImageDescriptor,
     pub external_image: Option<ExternalImageData>,
     pub tiling: Option<TileSize>,
+    pub epoch: Epoch,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -301,7 +315,7 @@ impl ResourceCache {
         gpu_cache: &mut GpuCache,
         render_tasks: &mut RenderTaskTree,
         f: F,
-    ) -> CacheItem where F: FnMut(&mut RenderTaskTree) -> (RenderTaskId, [f32; 3]) {
+    ) -> CacheItem where F: FnMut(&mut RenderTaskTree) -> (RenderTaskId, [f32; 3], bool) {
         self.cached_render_tasks.request_render_task(
             key,
             &mut self.texture_cache,
@@ -760,6 +774,7 @@ impl ResourceCache {
                 descriptor: image_template.descriptor,
                 external_image,
                 tiling: image_template.tiling,
+                epoch: image_template.epoch,
             }
         })
     }

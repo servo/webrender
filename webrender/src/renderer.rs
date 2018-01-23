@@ -68,7 +68,7 @@ use std::thread;
 use texture_cache::TextureCache;
 use thread_profiler::{register_thread_with_profiler, write_profile};
 use tiling::{AlphaRenderTarget, ColorRenderTarget};
-use tiling::{RenderPass, RenderPassKind, RenderTargetList};
+use tiling::{BlitJob, BlitJobSource, RenderPass, RenderPassKind, RenderTargetList};
 use tiling::{Frame, RenderTarget, ScalingInfo, TextureCacheRenderTarget};
 use time::precise_time_ns;
 use util::TransformedRectKind;
@@ -165,6 +165,10 @@ const GPU_TAG_PRIM_BORDER_EDGE: GpuProfileTag = GpuProfileTag {
 const GPU_TAG_BLUR: GpuProfileTag = GpuProfileTag {
     label: "Blur",
     color: debug_colors::VIOLET,
+};
+const GPU_TAG_BLIT: GpuProfileTag = GpuProfileTag {
+    label: "Blit",
+    color: debug_colors::LIME,
 };
 
 const GPU_SAMPLER_TAG_ALPHA: GpuProfileTag = GpuProfileTag {
@@ -3327,6 +3331,48 @@ impl Renderer {
         );
     }
 
+    fn handle_blits(
+        &mut self,
+        blits: &[BlitJob],
+        render_tasks: &RenderTaskTree,
+    ) {
+        if !blits.is_empty() {
+            let _timer = self.gpu_profile.start_timer(GPU_TAG_BLIT);
+
+            // TODO(gw): For now, we don't bother batching these by source texture.
+            //           If if ever shows up as an issue, we can easily batch them.
+            for blit in blits {
+                let source_rect = match blit.source {
+                    BlitJobSource::Texture(texture_id, layer, source_rect) => {
+                        // A blit from a texture into this target.
+                        let src_texture = self.texture_resolver
+                            .resolve(&texture_id)
+                            .expect("BUG: invalid source texture");
+                        self.device.bind_read_target(Some((src_texture, layer)));
+                        source_rect
+                    }
+                    BlitJobSource::RenderTask(task_id) => {
+                        // A blit from the child render task into this target.
+                        // TODO(gw): Support R8 format here once we start
+                        //           creating mips for alpha masks.
+                        let src_texture = self.texture_resolver
+                            .resolve(&SourceTexture::CacheRGBA8)
+                            .expect("BUG: invalid source texture");
+                        let source = &render_tasks[task_id];
+                        let (source_rect, layer) = source.get_target_rect();
+                        self.device.bind_read_target(Some((src_texture, layer.0 as i32)));
+                        source_rect
+                    }
+                };
+                debug_assert_eq!(source_rect.size, blit.target_rect.size);
+                self.device.blit_render_target(
+                    source_rect,
+                    blit.target_rect,
+                );
+            }
+        }
+    }
+
     fn handle_scaling(
         &mut self,
         render_tasks: &RenderTaskTree,
@@ -3415,6 +3461,9 @@ impl Renderer {
                 self.device.disable_depth_write();
             }
         }
+
+        // Handle any blits from the texture cache to this target.
+        self.handle_blits(&target.blits, render_tasks);
 
         // Draw any blurs for this target.
         // Blurs are rendered as a standard 2-pass
@@ -3980,6 +4029,7 @@ impl Renderer {
         texture: &SourceTexture,
         layer: i32,
         target: &TextureCacheRenderTarget,
+        render_tasks: &RenderTaskTree,
         stats: &mut RendererStats,
     ) {
         let projection = {
@@ -4003,6 +4053,9 @@ impl Renderer {
                 ORTHO_FAR_PLANE,
             )
         };
+
+        // Handle any blits to this texture from child tasks.
+        self.handle_blits(&target.blits, render_tasks);
 
         // Draw any blurs for this target.
         if !target.horizontal_blurs.is_empty() {
@@ -4289,6 +4342,7 @@ impl Renderer {
                                 &texture_id,
                                 target_index,
                                 target,
+                                &frame.render_tasks,
                                 stats,
                             );
                         }

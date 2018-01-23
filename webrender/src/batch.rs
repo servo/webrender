@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AlphaType, DeviceIntRect, DeviceIntSize, ImageKey, LayerToWorldScale};
-use api::{ExternalImageType, FilterOp, ImageRendering, LayerRect};
+use api::{DeviceUintRect, DeviceUintPoint, DeviceUintSize, ExternalImageType, FilterOp, ImageRendering, LayerRect};
 use api::{SubpixelDirection, TileOffset, YuvColorSpace, YuvFormat};
 use api::{LayerToWorldTransform, WorldPixel};
 use border::{BorderCornerInstance, BorderCornerSide, BorderEdgeKind};
@@ -11,21 +11,21 @@ use clip::{ClipSource, ClipStore};
 use clip_scroll_tree::{CoordinateSystemId};
 use euclid::{TypedTransform3D, vec3};
 use glyph_rasterizer::GlyphFormat;
-use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
+use gpu_cache::{GpuCache, GpuCacheAddress};
 use gpu_types::{BrushImageKind, BrushInstance, ClipChainRectIndex};
 use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex, PictureType};
 use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
 use internal_types::{FastHashMap, SourceTexture};
 use picture::{PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
 use plane_split::{BspSplitter, Polygon, Splitter};
-use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
+use prim_store::{ImageSource, PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
 use prim_store::{BrushPrimitive, BrushKind, DeferredResolve, EdgeAaSegmentMask, PrimitiveRun};
 use render_task::{ClipWorkItem};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKind};
 use render_task::{RenderTaskTree};
 use renderer::{BlendMode, ImageBufferKind};
 use renderer::BLOCKS_PER_UV_RECT;
-use resource_cache::{GlyphFetchResult, ResourceCache};
+use resource_cache::{CacheItem, GlyphFetchResult, ResourceCache};
 use std::{usize, f32, i32};
 use tiling::{RenderTargetContext, RenderTargetKind};
 use util::{MatrixHelpers, TransformedRectKind};
@@ -695,34 +695,41 @@ impl AlphaBatcher {
             PrimitiveKind::Image => {
                 let image_cpu = &ctx.prim_store.cpu_images[prim_metadata.cpu_prim_index.0];
 
-                let (color_texture_id, uv_address) = resolve_image(
-                    image_cpu.image_key,
-                    image_cpu.image_rendering,
-                    image_cpu.tile_offset,
-                    ctx.resource_cache,
-                    gpu_cache,
-                    deferred_resolves,
-                );
+                let cache_item = match image_cpu.source {
+                    ImageSource::Default => {
+                        resolve_image(
+                            image_cpu.image_key,
+                            image_cpu.image_rendering,
+                            image_cpu.tile_offset,
+                            ctx.resource_cache,
+                            gpu_cache,
+                            deferred_resolves,
+                        )
+                    }
+                    ImageSource::Cache { ref item, .. } => {
+                        item.clone()
+                    }
+                };
 
-                if color_texture_id == SourceTexture::Invalid {
+                if cache_item.texture_id == SourceTexture::Invalid {
                     warn!("Warnings: skip a PrimitiveKind::Image at {:?}.\n", item_bounding_rect);
                     return;
                 }
 
-                let batch_kind = TransformBatchKind::Image(Self::get_buffer_kind(color_texture_id));
+                let batch_kind = TransformBatchKind::Image(Self::get_buffer_kind(cache_item.texture_id));
                 let key = BatchKey::new(
                     BatchKind::Transformable(transform_kind, batch_kind),
                     blend_mode,
                     BatchTextures {
                         colors: [
-                            color_texture_id,
+                            cache_item.texture_id,
                             SourceTexture::Invalid,
                             SourceTexture::Invalid,
                         ],
                     },
                 );
                 let batch = self.batch_list.get_suitable_batch(key, item_bounding_rect);
-                batch.push(base_instance.build(uv_address.as_int(gpu_cache), 0, 0));
+                batch.push(base_instance.build(cache_item.uv_rect_handle.as_int(gpu_cache), 0, 0));
             }
             PrimitiveKind::TextRun => {
                 let text_cpu =
@@ -1154,7 +1161,7 @@ impl AlphaBatcher {
                 for channel in 0 .. channel_count {
                     let image_key = image_yuv_cpu.yuv_key[channel];
 
-                    let (texture, address) = resolve_image(
+                    let cache_item = resolve_image(
                         image_key,
                         image_yuv_cpu.image_rendering,
                         None,
@@ -1163,13 +1170,13 @@ impl AlphaBatcher {
                         deferred_resolves,
                     );
 
-                    if texture == SourceTexture::Invalid {
+                    if cache_item.texture_id == SourceTexture::Invalid {
                         warn!("Warnings: skip a PrimitiveKind::YuvImage at {:?}.\n", item_bounding_rect);
                         return;
                     }
 
-                    textures.colors[channel] = texture;
-                    uv_rect_addresses[channel] = address.as_int(gpu_cache);
+                    textures.colors[channel] = cache_item.texture_id;
+                    uv_rect_addresses[channel] = cache_item.uv_rect_handle.as_int(gpu_cache);
                 }
 
                 // All yuv textures should be the same type.
@@ -1362,14 +1369,14 @@ impl AlphaBatchHelpers for PrimitiveStore {
     }
 }
 
-fn resolve_image(
+pub fn resolve_image(
     image_key: ImageKey,
     image_rendering: ImageRendering,
     tile_offset: Option<TileOffset>,
     resource_cache: &ResourceCache,
     gpu_cache: &mut GpuCache,
     deferred_resolves: &mut Vec<DeferredResolve>,
-) -> (SourceTexture, GpuCacheHandle) {
+) -> CacheItem {
     match resource_cache.get_image_properties(image_key) {
         Some(image_properties) => {
             // Check if an external image that needs to be resolved
@@ -1380,24 +1387,39 @@ fn resolve_image(
                     // the deferred resolves list to be patched by
                     // the render thread...
                     let cache_handle = gpu_cache.push_deferred_per_frame_blocks(BLOCKS_PER_UV_RECT);
+                    let cache_item = CacheItem {
+                        texture_id: SourceTexture::External(external_image),
+                        uv_rect_handle: cache_handle,
+                        uv_rect: DeviceUintRect::new(
+                            DeviceUintPoint::zero(),
+                            DeviceUintSize::new(
+                                image_properties.descriptor.width,
+                                image_properties.descriptor.height,
+                            )
+                        ),
+                        texture_layer: 0,
+                    };
+
                     deferred_resolves.push(DeferredResolve {
                         image_properties,
                         address: gpu_cache.get_address(&cache_handle),
                     });
 
-                    (SourceTexture::External(external_image), cache_handle)
+                    cache_item
                 }
                 None => {
                     if let Ok(cache_item) = resource_cache.get_cached_image(image_key, image_rendering, tile_offset) {
-                        (cache_item.texture_id, cache_item.uv_rect_handle)
+                        cache_item
                     } else {
                         // There is no usable texture entry for the image key. Just return an invalid texture here.
-                        (SourceTexture::Invalid, GpuCacheHandle::new())
+                        CacheItem::invalid()
                     }
                 }
             }
         }
-        None => (SourceTexture::Invalid, GpuCacheHandle::new()),
+        None => {
+            CacheItem::invalid()
+        }
     }
 }
 
