@@ -77,6 +77,11 @@ struct Document {
     // the first frame would produce inconsistent rendering results, because
     // scroll events are not necessarily received in deterministic order.
     render_on_scroll: Option<bool>,
+    // A helper flag to prevent any hit-tests from happening between calls
+    // to build_scene and rendering the document. In between these two calls,
+    // hit-tests produce inconsistent results because the clip_scroll_tree
+    // is out of sync with the display list.
+    render_on_hittest: bool,
 }
 
 impl Document {
@@ -105,8 +110,9 @@ impl Document {
             },
             frame_ctx: FrameContext::new(config),
             frame_builder: Some(FrameBuilder::empty()),
-            render_on_scroll,
             output_pipelines: FastHashSet::default(),
+            render_on_scroll,
+            render_on_hittest: false,
         }
     }
 
@@ -403,6 +409,15 @@ impl RenderBackend {
             }
             DocumentMsg::HitTest(pipeline_id, point, flags, tx) => {
                 profile_scope!("HitTest");
+                if doc.render_on_hittest {
+                    doc.render(
+                        &mut self.resource_cache,
+                        &mut self.gpu_cache,
+                        &mut profile_counters.resources,
+                    );
+                    doc.render_on_hittest = false;
+                }
+
                 let cst = doc.frame_ctx.get_clip_scroll_tree();
                 let result = doc.frame_builder
                     .as_ref()
@@ -656,6 +671,7 @@ impl RenderBackend {
         if op.build {
             profile_scope!("build scene");
             doc.build_scene(&mut self.resource_cache);
+            doc.render_on_hittest = true;
         }
 
         if op.render {
@@ -681,6 +697,7 @@ impl RenderBackend {
             );
             self.result_tx.send(msg).unwrap();
             profile_counters.reset();
+            doc.render_on_hittest = false;
         }
 
         if op.render || op.scroll {
@@ -924,6 +941,7 @@ impl RenderBackend {
                 frame_builder: Some(FrameBuilder::empty()),
                 output_pipelines: FastHashSet::default(),
                 render_on_scroll: None,
+                render_on_hittest: false,
             };
 
             let frame_name = format!("frame-{}-{}", (id.0).0, id.1);
