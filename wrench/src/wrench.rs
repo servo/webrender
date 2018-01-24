@@ -177,6 +177,7 @@ impl Wrench {
         no_batch: bool,
         precache_shaders: bool,
         disable_dual_source_blending: bool,
+        zoom_factor: f32,
         notifier: Option<Box<RenderNotifier>>,
     ) -> Self {
         println!("Shader override path: {:?}", shader_override_path);
@@ -231,6 +232,7 @@ impl Wrench {
         let document_id = api.add_document(size, 0);
 
         let graphics_api = renderer.get_graphics_api_info();
+        let zoom_factor = ZoomFactor::new(zoom_factor);
 
         let mut wrench = Wrench {
             window_size: size,
@@ -243,7 +245,7 @@ impl Wrench {
             rebuild_display_lists: do_rebuild,
             verbose,
             device_pixel_ratio: dp_ratio,
-            page_zoom_factor: ZoomFactor::new(1.0),
+            page_zoom_factor: zoom_factor,
 
             root_pipeline_id: PipelineId(0, 0),
 
@@ -253,6 +255,7 @@ impl Wrench {
             callbacks,
         };
 
+        wrench.set_page_zoom(zoom_factor);
         wrench.set_title("start");
         let mut txn = Transaction::new();
         txn.set_root_pipeline(wrench.root_pipeline_id);

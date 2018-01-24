@@ -11,4 +11,4 @@ fuzzy(1,88) == perspective.yaml perspective.png
 == segments-bug.yaml segments-bug-ref.yaml
 == content-offset.yaml content-offset.png
 == coord-system.yaml coord-system.png
-
+zoom(4) == border-zoom.yaml border-zoom.png

@@ -77,6 +77,7 @@ pub struct Reftest {
     expected_alpha_targets: Option<usize>,
     expected_color_targets: Option<usize>,
     disable_dual_source_blending: bool,
+    zoom_factor: f32,
 }
 
 impl Display for Reftest {
@@ -194,6 +195,7 @@ impl ReftestManifest {
             let mut expected_alpha_targets = None;
             let mut expected_draw_calls = None;
             let mut disable_dual_source_blending = false;
+            let mut zoom_factor = 1.0;
 
             for (i, token) in tokens.iter().enumerate() {
                 match *token {
@@ -213,6 +215,10 @@ impl ReftestManifest {
                             // Skip due to platform not matching
                             break;
                         }
+                    }
+                    function if function.starts_with("zoom") => {
+                        let (_, args, _) = parse_function(function);
+                        zoom_factor = args[0].parse().unwrap();
                     }
                     function if function.starts_with("fuzzy") => {
                         let (_, args, _) = parse_function(function);
@@ -261,6 +267,7 @@ impl ReftestManifest {
                             expected_alpha_targets,
                             expected_color_targets,
                             disable_dual_source_blending,
+                            zoom_factor,
                         });
 
                         break;
@@ -327,6 +334,8 @@ impl<'a> ReftestHarness<'a> {
 
     fn run_reftest(&mut self, t: &Reftest) -> bool {
         println!("REFTEST {}", t);
+
+        self.wrench.set_page_zoom(ZoomFactor::new(t.zoom_factor));
 
         if t.disable_dual_source_blending {
             self.wrench

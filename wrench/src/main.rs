@@ -347,7 +347,7 @@ fn main() {
         })
         .unwrap_or(DeviceUintSize::new(1920, 1080));
     let is_headless = args.is_present("headless");
-
+    let zoom_factor = args.value_of("zoom").map(|z| z.parse::<f32>().unwrap());
     let mut window = make_window(size, dp_ratio, args.is_present("vsync"), is_headless);
     let dp_ratio = dp_ratio.unwrap_or(window.hidpi_factor());
     let dim = window.get_inner_size();
@@ -376,6 +376,7 @@ fn main() {
         args.is_present("no_batch"),
         args.is_present("precache"),
         args.is_present("slow_subpixel"),
+        zoom_factor.unwrap_or(1.0),
         notifier,
     );
 
