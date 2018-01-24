@@ -464,11 +464,19 @@ fn main() {
         }
 
         let mut do_frame = false;
+        let mut do_render = false;
 
         for event in events {
             match event {
                 glutin::Event::Closed => {
                     break 'outer;
+                }
+
+                glutin::Event::Refresh |
+                glutin::Event::Awakened |
+                glutin::Event::Focused(..) |
+                glutin::Event::MouseMoved(..) => {
+                    do_render = true;
                 }
 
                 glutin::Event::KeyboardInput(ElementState::Pressed, _scan_code, Some(vk)) => match vk {
@@ -477,23 +485,29 @@ fn main() {
                     }
                     VirtualKeyCode::P => {
                         wrench.renderer.toggle_debug_flags(DebugFlags::PROFILER_DBG);
+                        do_render = true;
                     }
                     VirtualKeyCode::O => {
                         wrench.renderer.toggle_debug_flags(DebugFlags::RENDER_TARGET_DBG);
+                        do_render = true;
                     }
                     VirtualKeyCode::I => {
                         wrench.renderer.toggle_debug_flags(DebugFlags::TEXTURE_CACHE_DBG);
+                        do_render = true;
                     }
                     VirtualKeyCode::B => {
                         wrench.renderer.toggle_debug_flags(DebugFlags::ALPHA_PRIM_DBG);
+                        do_render = true;
                     }
                     VirtualKeyCode::S => {
                         wrench.renderer.toggle_debug_flags(DebugFlags::COMPACT_PROFILER);
+                        do_render = true;
                     }
                     VirtualKeyCode::Q => {
                         wrench.renderer.toggle_debug_flags(
                             DebugFlags::GPU_TIME_QUERIES | DebugFlags::GPU_SAMPLE_QUERIES
                         );
+                        do_render = true;
                     }
                     VirtualKeyCode::R => {
                         wrench.set_page_zoom(ZoomFactor::new(1.0));
@@ -501,9 +515,11 @@ fn main() {
                     }
                     VirtualKeyCode::M => {
                         wrench.api.notify_memory_pressure();
+                        do_render = true;
                     }
                     VirtualKeyCode::L => {
                         do_loop = !do_loop;
+                        do_render = true;
                     }
                     VirtualKeyCode::Left => {
                         thing.prev_frame();
@@ -515,6 +531,7 @@ fn main() {
                     }
                     VirtualKeyCode::H => {
                         show_help = !show_help;
+                        do_render = true;
                     }
                     VirtualKeyCode::T => {
                         let file_name = format!("profile-{}.json", cpu_profile_index);
@@ -539,7 +556,7 @@ fn main() {
                         wrench.set_page_zoom(new_zoom_factor);
                         do_frame = true;
                     }
-                    _ => (),
+                    _ => {}
                 }
                 _ => {}
             }
@@ -555,15 +572,17 @@ fn main() {
             }
         }
 
-        if show_help {
-            wrench.show_onscreen_help();
-        }
+        if do_render {
+            if show_help {
+                wrench.show_onscreen_help();
+            }
 
-        wrench.render();
-        window.swap_buffers();
+            wrench.render();
+            window.swap_buffers();
 
-        if do_loop {
-            thing.next_frame();
+            if do_loop {
+                thing.next_frame();
+            }
         }
     }
 

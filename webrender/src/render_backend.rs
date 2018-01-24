@@ -20,7 +20,7 @@ use frame::FrameContext;
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use gpu_cache::GpuCache;
 use internal_types::{DebugOutput, FastHashMap, FastHashSet, RenderedDocument, ResultMsg};
-use profiler::{BackendProfileCounters, ResourceProfileCounters};
+use profiler::{BackendProfileCounters, IpcProfileCounters, ResourceProfileCounters};
 use rayon::ThreadPool;
 use record::ApiRecordingReceiver;
 use resource_cache::ResourceCache;
@@ -260,7 +260,8 @@ impl RenderBackend {
         document_id: DocumentId,
         message: DocumentMsg,
         frame_counter: u32,
-        profile_counters: &mut BackendProfileCounters,
+        ipc_profile_counters: &mut IpcProfileCounters,
+        resource_profile_counters: &mut ResourceProfileCounters,
     ) -> DocumentOps {
         let doc = self.documents.get_mut(&document_id).expect("No document?");
 
@@ -332,7 +333,6 @@ impl RenderBackend {
                 let display_list_received_time = precise_time_ns();
 
                 {
-                    let _timer = profile_counters.total_time.timer();
                     doc.scene.set_display_list(
                         pipeline_id,
                         epoch,
@@ -352,7 +352,7 @@ impl RenderBackend {
                 // really simple and cheap to access, so it's not a big deal.
                 let display_list_consumed_time = precise_time_ns();
 
-                profile_counters.ipc.set(
+                ipc_profile_counters.set(
                     builder_start_time,
                     builder_finish_time,
                     send_start_time,
@@ -368,7 +368,7 @@ impl RenderBackend {
 
                 self.resource_cache.update_resources(
                     updates,
-                    &mut profile_counters.resources
+                    resource_profile_counters
                 );
 
                 DocumentOps::nop()
@@ -396,7 +396,6 @@ impl RenderBackend {
             }
             DocumentMsg::Scroll(delta, cursor, move_phase) => {
                 profile_scope!("Scroll");
-                let _timer = profile_counters.total_time.timer();
 
                 let should_render = doc.frame_ctx.scroll(delta, cursor, move_phase)
                     && doc.render_on_scroll == Some(true);
@@ -409,11 +408,12 @@ impl RenderBackend {
             }
             DocumentMsg::HitTest(pipeline_id, point, flags, tx) => {
                 profile_scope!("HitTest");
+
                 if doc.render_on_hittest {
                     doc.render(
                         &mut self.resource_cache,
                         &mut self.gpu_cache,
-                        &mut profile_counters.resources,
+                        resource_profile_counters,
                     );
                     doc.render_on_hittest = false;
                 }
@@ -428,7 +428,6 @@ impl RenderBackend {
             }
             DocumentMsg::ScrollNodeWithId(origin, id, clamp) => {
                 profile_scope!("ScrollNodeWithScrollId");
-                let _timer = profile_counters.total_time.timer();
 
                 let should_render = doc.frame_ctx.scroll_node(origin, id, clamp)
                     && doc.render_on_scroll == Some(true);
@@ -441,7 +440,6 @@ impl RenderBackend {
             }
             DocumentMsg::TickScrollingBounce => {
                 profile_scope!("TickScrollingBounce");
-                let _timer = profile_counters.total_time.timer();
 
                 doc.frame_ctx.tick_scrolling_bounce_animations();
 
@@ -471,8 +469,6 @@ impl RenderBackend {
                 DocumentOps::build()
             }
             DocumentMsg::GenerateFrame => {
-                let _timer = profile_counters.total_time.timer();
-
                 let mut op = DocumentOps::nop();
 
                 if let Some(ref mut ros) = doc.render_on_scroll {
@@ -656,12 +652,14 @@ impl RenderBackend {
     ) {
         let mut op = DocumentOps::nop();
         for doc_msg in doc_msgs {
+            let _timer = profile_counters.total_time.timer();
             op.combine(
                 self.process_document(
                     document_id,
                     doc_msg,
                     *frame_counter,
-                    profile_counters,
+                    &mut profile_counters.ipc,
+                    &mut profile_counters.resources,
                 )
             );
         }
@@ -669,6 +667,7 @@ impl RenderBackend {
         let doc = self.documents.get_mut(&document_id).unwrap();
 
         if op.build {
+            let _timer = profile_counters.total_time.timer();
             profile_scope!("build scene");
             doc.build_scene(&mut self.resource_cache);
             doc.render_on_hittest = true;
@@ -678,17 +677,26 @@ impl RenderBackend {
             profile_scope!("generate frame");
 
             *frame_counter += 1;
-            let rendered_document = doc.render(
-                &mut self.resource_cache,
-                &mut self.gpu_cache,
-                &mut profile_counters.resources,
-            );
 
-            info!("generated frame for document {:?} with {} passes",
-                document_id, rendered_document.frame.passes.len());
+            // borrow ck hack for profile_counters
+            let (pending_update, rendered_document) = {
+                let _timer = profile_counters.total_time.timer();
 
-            // Publish the frame
-            let pending_update = self.resource_cache.pending_updates();
+                let rendered_document = doc.render(
+                    &mut self.resource_cache,
+                    &mut self.gpu_cache,
+                    &mut profile_counters.resources,
+                );
+
+                info!("generated frame for document {:?} with {} passes",
+                    document_id, rendered_document.frame.passes.len());
+
+                // Publish the frame
+                let pending_update = self.resource_cache.pending_updates();
+
+                (pending_update, rendered_document)
+            };
+
             let msg = ResultMsg::PublishDocument(
                 document_id,
                 rendered_document,
