@@ -157,6 +157,7 @@ struct DocumentOps {
     scroll: bool,
     build: bool,
     render: bool,
+    queries: Vec<DocumentMsg>,
 }
 
 impl DocumentOps {
@@ -165,6 +166,7 @@ impl DocumentOps {
             scroll: false,
             build: false,
             render: false,
+            queries: vec![],
         }
     }
 
@@ -175,10 +177,11 @@ impl DocumentOps {
         }
     }
 
-    fn combine(&mut self, other: Self) {
+    fn combine(&mut self, mut other: Self) {
         self.scroll = self.scroll || other.scroll;
         self.build = self.build || other.build;
         self.render = self.render || other.render;
+        self.queries.extend(other.queries.drain(..));
     }
 }
 
@@ -402,29 +405,21 @@ impl RenderBackend {
 
                 DocumentOps {
                     scroll: true,
-                    build: false,
                     render: should_render,
+                    ..DocumentOps::nop()
                 }
             }
             DocumentMsg::HitTest(pipeline_id, point, flags, tx) => {
-                profile_scope!("HitTest");
-
+                let mut op = DocumentOps {
+                    queries: vec![DocumentMsg::HitTest(pipeline_id, point, flags, tx)],
+                    ..DocumentOps::nop()
+                };
                 if doc.render_on_hittest {
-                    doc.render(
-                        &mut self.resource_cache,
-                        &mut self.gpu_cache,
-                        resource_profile_counters,
-                    );
                     doc.render_on_hittest = false;
+                    op.render = true;
                 }
 
-                let cst = doc.frame_ctx.get_clip_scroll_tree();
-                let result = doc.frame_builder
-                    .as_ref()
-                    .unwrap()
-                    .hit_test(cst, pipeline_id, point, flags);
-                tx.send(result).unwrap();
-                DocumentOps::nop()
+                op
             }
             DocumentMsg::ScrollNodeWithId(origin, id, clamp) => {
                 profile_scope!("ScrollNodeWithScrollId");
@@ -434,8 +429,8 @@ impl RenderBackend {
 
                 DocumentOps {
                     scroll: true,
-                    build: false,
                     render: should_render,
+                    ..DocumentOps::nop()
                 }
             }
             DocumentMsg::TickScrollingBounce => {
@@ -445,8 +440,8 @@ impl RenderBackend {
 
                 DocumentOps {
                     scroll: true,
-                    build: false,
                     render: doc.render_on_scroll == Some(true),
+                    ..DocumentOps::nop()
                 }
             }
             DocumentMsg::GetScrollNodeState(tx) => {
@@ -481,6 +476,27 @@ impl RenderBackend {
 
                 op
             }
+        }
+    }
+
+    fn query_document(
+        &mut self,
+        document_id: DocumentId,
+        message: DocumentMsg,
+    ) {
+        let doc = self.documents.get_mut(&document_id).unwrap();
+
+        match message {
+            DocumentMsg::HitTest(pipeline_id, point, flags, tx) => {
+                profile_scope!("HitTest");
+                let cst = doc.frame_ctx.get_clip_scroll_tree();
+                let result = doc.frame_builder
+                    .as_ref()
+                    .unwrap()
+                    .hit_test(cst, pipeline_id, point, flags);
+                tx.send(result).unwrap();
+            }
+            _ => (),
         }
     }
 
@@ -664,17 +680,17 @@ impl RenderBackend {
             );
         }
 
-        let doc = self.documents.get_mut(&document_id).unwrap();
-
         if op.build {
             let _timer = profile_counters.total_time.timer();
             profile_scope!("build scene");
+            let doc = self.documents.get_mut(&document_id).unwrap();
             doc.build_scene(&mut self.resource_cache);
             doc.render_on_hittest = true;
         }
 
         if op.render {
             profile_scope!("generate frame");
+            let doc = self.documents.get_mut(&document_id).unwrap();
 
             *frame_counter += 1;
 
@@ -710,6 +726,13 @@ impl RenderBackend {
 
         if op.render || op.scroll {
             self.notifier.new_document_ready(document_id, op.scroll, op.render);
+        }
+
+        for doc_msg in op.queries {
+            self.query_document(
+                document_id,
+                doc_msg,
+            )
         }
     }
 
