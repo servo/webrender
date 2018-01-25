@@ -2368,7 +2368,6 @@ impl Renderer {
     /// Should be called before `render()`, as texture cache updates are done here.
     pub fn update(&mut self) {
         profile_scope!("update");
-
         // Pull any pending results and return the most recent.
         while let Ok(msg) = self.result_rx.try_recv() {
             match msg {
@@ -2753,7 +2752,6 @@ impl Renderer {
         framebuffer_size: Option<DeviceUintSize>
     ) -> Result<RendererStats, Vec<RendererError>> {
         profile_scope!("render");
-
         if self.active_documents.is_empty() {
             self.last_time = precise_time_ns();
             return Ok(RendererStats::empty());
@@ -2896,6 +2894,7 @@ impl Renderer {
             }
         }
 
+        self.backend_profile_counters.reset();
         self.profile_counters.reset();
         self.profile_counters.frame_counter.inc();
 
