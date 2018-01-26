@@ -120,7 +120,7 @@ impl Document {
         // this code is why we have `Option`, which is never `None`
         let frame_builder = self.frame_ctx.create(
             self.frame_builder.take().unwrap(),
-            &self.scene,
+            &mut self.scene,
             resource_cache,
             self.view.window_size,
             self.view.inner_rect,
