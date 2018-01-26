@@ -6,9 +6,9 @@ use api::{ApiMsg, BlobImageRenderer, BuiltDisplayList, DebugCommand, DeviceIntPo
 #[cfg(feature = "debugger")]
 use api::{BuiltDisplayListIter, SpecificDisplayItem};
 use api::{DevicePixelScale, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
-use api::{DocumentId, DocumentLayer, DocumentMsg};
-use api::{IdNamespace, PipelineId, RenderNotifier};
-use api::channel::{MsgReceiver, PayloadReceiver, PayloadReceiverHelperMethods};
+use api::{DocumentId, DocumentLayer, DocumentMsg, HitTestFlags, HitTestResult};
+use api::{IdNamespace, PipelineId, RenderNotifier, WorldPoint};
+use api::channel::{MsgReceiver, MsgSender, PayloadReceiver, PayloadReceiverHelperMethods};
 use api::channel::{PayloadSender, PayloadSenderHelperMethods};
 #[cfg(feature = "capture")]
 use api::CapturedDocument;
@@ -153,10 +153,13 @@ impl Document {
     }
 }
 
+type HitTestQuery = (Option<PipelineId>, WorldPoint, HitTestFlags, MsgSender<HitTestResult>);
+
 struct DocumentOps {
     scroll: bool,
     build: bool,
     render: bool,
+    queries: Vec<HitTestQuery>,
 }
 
 impl DocumentOps {
@@ -165,6 +168,7 @@ impl DocumentOps {
             scroll: false,
             build: false,
             render: false,
+            queries: vec![],
         }
     }
 
@@ -175,10 +179,11 @@ impl DocumentOps {
         }
     }
 
-    fn combine(&mut self, other: Self) {
+    fn combine(&mut self, mut other: Self) {
         self.scroll = self.scroll || other.scroll;
         self.build = self.build || other.build;
         self.render = self.render || other.render;
+        self.queries.extend(other.queries.drain(..));
     }
 }
 
@@ -402,29 +407,16 @@ impl RenderBackend {
 
                 DocumentOps {
                     scroll: true,
-                    build: false,
                     render: should_render,
+                    ..DocumentOps::nop()
                 }
             }
             DocumentMsg::HitTest(pipeline_id, point, flags, tx) => {
-                profile_scope!("HitTest");
-
-                if doc.render_on_hittest {
-                    doc.render(
-                        &mut self.resource_cache,
-                        &mut self.gpu_cache,
-                        resource_profile_counters,
-                    );
-                    doc.render_on_hittest = false;
+                DocumentOps {
+                    render: doc.render_on_hittest,
+                    queries: vec![(pipeline_id, point, flags, tx)],
+                    ..DocumentOps::nop()
                 }
-
-                let cst = doc.frame_ctx.get_clip_scroll_tree();
-                let result = doc.frame_builder
-                    .as_ref()
-                    .unwrap()
-                    .hit_test(cst, pipeline_id, point, flags);
-                tx.send(result).unwrap();
-                DocumentOps::nop()
             }
             DocumentMsg::ScrollNodeWithId(origin, id, clamp) => {
                 profile_scope!("ScrollNodeWithScrollId");
@@ -434,8 +426,8 @@ impl RenderBackend {
 
                 DocumentOps {
                     scroll: true,
-                    build: false,
                     render: should_render,
+                    ..DocumentOps::nop()
                 }
             }
             DocumentMsg::TickScrollingBounce => {
@@ -445,8 +437,8 @@ impl RenderBackend {
 
                 DocumentOps {
                     scroll: true,
-                    build: false,
                     render: doc.render_on_scroll == Some(true),
+                    ..DocumentOps::nop()
                 }
             }
             DocumentMsg::GetScrollNodeState(tx) => {
@@ -710,6 +702,16 @@ impl RenderBackend {
 
         if op.render || op.scroll {
             self.notifier.new_document_ready(document_id, op.scroll, op.render);
+        }
+
+        for (pipeline_id, point, flags, tx) in op.queries {
+            profile_scope!("HitTest");
+            let cst = doc.frame_ctx.get_clip_scroll_tree();
+            let result = doc.frame_builder
+                .as_ref()
+                .unwrap()
+                .hit_test(cst, pipeline_id, point, flags);
+            tx.send(result).unwrap();
         }
     }
 
