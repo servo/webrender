@@ -691,12 +691,14 @@ impl RenderBackend {
                 info!("generated frame for document {:?} with {} passes",
                     document_id, rendered_document.frame.passes.len());
 
-                // Publish the frame
-                let pending_update = self.resource_cache.pending_updates();
+                let msg = ResultMsg::UpdateGpuCache(self.gpu_cache.extract_updates());
+                self.result_tx.send(msg).unwrap();
 
+                let pending_update = self.resource_cache.pending_updates();
                 (pending_update, rendered_document)
             };
 
+            // Publish the frame
             let msg = ResultMsg::PublishDocument(
                 document_id,
                 rendered_document,
