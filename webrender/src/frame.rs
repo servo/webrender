@@ -22,6 +22,7 @@ use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
 use resource_cache::{FontInstanceMap,ResourceCache, TiledImageMap};
 use scene::{Scene, StackingContextHelpers, ScenePipeline, SceneProperties};
 use tiling::{CompositeOps, Frame};
+use std::mem::replace;
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Eq, Ord)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -958,6 +959,7 @@ pub struct FrameContext {
     window_size: DeviceUintSize,
     clip_scroll_tree: ClipScrollTree,
     pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
+    removed_pipelines: Vec<PipelineId>,
     id: FrameId,
     pub frame_builder_config: FrameBuilderConfig,
 }
@@ -967,6 +969,7 @@ impl FrameContext {
         FrameContext {
             window_size: DeviceUintSize::zero(),
             pipeline_epoch_map: FastHashMap::default(),
+            removed_pipelines: Vec::new(),
             clip_scroll_tree: ClipScrollTree::new(),
             id: FrameId(0),
             frame_builder_config: config,
@@ -1023,7 +1026,7 @@ impl FrameContext {
     pub fn create_frame_builder(
         &mut self,
         old_builder: FrameBuilder,
-        scene: &Scene,
+        scene: &mut Scene,
         resource_cache: &mut ResourceCache,
         window_size: DeviceUintSize,
         inner_rect: DeviceUintRect,
@@ -1101,6 +1104,9 @@ impl FrameContext {
 
         self.clip_scroll_tree
             .finalize_and_apply_pending_scroll_offsets(old_scrolling_states);
+
+        self.removed_pipelines.extend(scene.removed_pipelines.drain(..));
+
         frame_builder
     }
 
@@ -1108,9 +1114,14 @@ impl FrameContext {
         self.pipeline_epoch_map.insert(pipeline_id, epoch);
     }
 
-    pub fn make_rendered_document(&self, frame: Frame) -> RenderedDocument {
+    pub fn make_rendered_document(&mut self, frame: Frame) -> RenderedDocument {
         let nodes_bouncing_back = self.clip_scroll_tree.collect_nodes_bouncing_back();
-        RenderedDocument::new(self.pipeline_epoch_map.clone(), nodes_bouncing_back, frame)
+        RenderedDocument::new(
+            self.pipeline_epoch_map.clone(),
+            replace(&mut self.removed_pipelines, Vec::new()),
+            nodes_bouncing_back,
+            frame
+        )
     }
 
     //TODO: this can probably be simplified if `build()` is called directly by RB.

@@ -314,6 +314,8 @@ pub fn main_wrapper<E: Example>(
 
         renderer.update();
         renderer.render(framebuffer_size).unwrap();
+        let _ = renderer.flush_rendered_epochs();
+        let _ = renderer.flush_removed_pipelines();
         example.draw_custom(&*gl);
         window.swap_buffers().ok();
     }

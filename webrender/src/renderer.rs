@@ -1652,6 +1652,7 @@ pub struct Renderer {
     gpu_cache_frame_id: FrameId,
 
     pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
+    removed_pipelines: Vec<PipelineId>,
 
     // Manages and resolves source textures IDs to real texture IDs.
     texture_resolver: SourceTextureResolver,
@@ -2307,6 +2308,7 @@ impl Renderer {
             local_clip_rects_texture,
             render_task_texture,
             pipeline_epoch_map: FastHashMap::default(),
+            removed_pipelines: Vec::new(),
             dither_matrix_texture,
             external_image_handler: None,
             output_image_handler: None,
@@ -2362,6 +2364,12 @@ impl Renderer {
         mem::replace(&mut self.pipeline_epoch_map, FastHashMap::default())
     }
 
+    /// Returns a HashMap containing the pipeline ids that have been received by the renderer and
+    /// their respective epochs since the last time the method was called.
+    pub fn flush_removed_pipelines(&mut self) -> Vec<PipelineId> {
+        mem::replace(&mut self.removed_pipelines, Vec::new())
+    }
+
     // update the program cache with new binaries, e.g. when some of the lazy loaded
     // shader programs got activated in the mean time
     pub fn update_program_cache(&mut self, cached_programs: Rc<ProgramCache>) {
@@ -2378,7 +2386,7 @@ impl Renderer {
             match msg {
                 ResultMsg::PublishDocument(
                     document_id,
-                    doc,
+                    mut doc,
                     texture_update_list,
                     profile_counters,
                 ) => {
@@ -2387,6 +2395,7 @@ impl Renderer {
                     for (pipeline_id, epoch) in &doc.pipeline_epoch_map {
                         self.pipeline_epoch_map.insert(*pipeline_id, *epoch);
                     }
+                    self.removed_pipelines.extend(doc.removed_pipelines.drain(..));
 
                     // Add a new document to the active set, expressed as a `Vec` in order
                     // to re-order based on `DocumentLayer` during rendering.

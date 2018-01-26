@@ -135,6 +135,8 @@ pub struct RenderedDocument {
     /// This information is used to know if a certain transformation on the layout has
     /// been rendered, which is necessary for reftests.
     pub pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
+    /// Pipelines that were removed from the scene.
+    pub removed_pipelines: Vec<PipelineId>,
     /// The layers that are currently affected by the over-scrolling animation.
     pub layers_bouncing_back: FastHashSet<ClipId>,
 
@@ -144,11 +146,13 @@ pub struct RenderedDocument {
 impl RenderedDocument {
     pub fn new(
         pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
+        removed_pipelines: Vec<PipelineId>,
         layers_bouncing_back: FastHashSet<ClipId>,
         frame: tiling::Frame,
     ) -> Self {
         RenderedDocument {
             pipeline_epoch_map,
+            removed_pipelines,
             layers_bouncing_back,
             frame,
         }
