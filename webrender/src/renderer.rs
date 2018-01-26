@@ -1656,6 +1656,8 @@ pub struct Renderer {
     render_task_texture: VertexDataTexture,
     gpu_cache_texture: CacheTexture,
 
+    gpu_cache_frame_id: FrameId,
+
     pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
 
     // Manages and resolves source textures IDs to real texture IDs.
@@ -2313,6 +2315,7 @@ impl Renderer {
             cpu_profiles: VecDeque::new(),
             gpu_profiles: VecDeque::new(),
             gpu_cache_texture,
+            gpu_cache_frame_id: FrameId::new(0),
             texture_cache_upload_pbo,
             texture_resolver,
             renderer_errors: Vec::new(),
@@ -2843,8 +2846,8 @@ impl Renderer {
             );
 
             for &mut (_, RenderedDocument { ref mut frame, .. }) in &mut active_documents {
-                let gpu_cache_frame_id = self.prepare_gpu_cache(frame);
-                assert!(frame.gpu_cache_frame_id <= gpu_cache_frame_id);
+                self.prepare_gpu_cache(frame);
+                assert!(frame.gpu_cache_frame_id <= self.gpu_cache_frame_id);
 
                 self.draw_tile_frame(
                     frame,
@@ -2922,7 +2925,7 @@ impl Renderer {
             .any(|&(_, ref render_doc)| !render_doc.layers_bouncing_back.is_empty())
     }
 
-    fn prepare_gpu_cache(&mut self, frame: &Frame) -> FrameId {
+    fn prepare_gpu_cache(&mut self, frame: &Frame) {
         let _gm = self.gpu_profile.start_marker("gpu cache update");
 
         let deferred_update_list = self.update_deferred_resolves(&frame.deferred_resolves);
@@ -2956,11 +2959,10 @@ impl Renderer {
             max_requested_height,
         );
 
-        let mut last_gpu_cache_frame = FrameId::new(0);
         for update_list in self.pending_gpu_cache_updates.drain(..) {
             assert!(update_list.height <= max_requested_height);
-            if update_list.frame_id > last_gpu_cache_frame {
-                last_gpu_cache_frame = update_list.frame_id
+            if update_list.frame_id > self.gpu_cache_frame_id {
+                self.gpu_cache_frame_id = update_list.frame_id
             }
             self.gpu_cache_texture
                 .update(&mut self.device, &update_list);
@@ -2978,8 +2980,6 @@ impl Renderer {
         let counters = &mut self.backend_profile_counters.resources.gpu_cache;
         counters.updated_rows.set(updated_rows);
         counters.updated_blocks.set(updated_blocks);
-
-        last_gpu_cache_frame
     }
 
     fn update_texture_cache(&mut self) {
