@@ -487,10 +487,7 @@ impl ResourceCache {
         let max_texture_size = self.max_texture_size();
         let image = match self.resources.image_templates.get_mut(image_key) {
             Some(res) => res,
-            None => panic!(
-                "Attempt to update non-existent image (key {:?}).",
-                image_key
-            ),
+            None => panic!("Attempt to update non-existent image"),
         };
 
         let mut tiling = image.tiling;
@@ -529,7 +526,8 @@ impl ResourceCache {
                 self.blob_image_renderer.as_mut().unwrap().delete(image_key);
             },
             None => {
-                println!("Delete the non-exist key:{:?}", image_key);
+                warn!("Delete the non-exist key");
+                debug!("key={:?}", image_key);
             }
         }
     }
@@ -551,10 +549,8 @@ impl ResourceCache {
         let template = match self.resources.image_templates.get(key) {
             Some(template) => template,
             None => {
-                warn!(
-                    "ERROR: Trying to render deleted / non-existent key {:?}",
-                    key
-                );
+                warn!("ERROR: Trying to render deleted / non-existent key");
+                debug!("key={:?}", key);
                 return
             }
         };

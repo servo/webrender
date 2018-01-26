@@ -129,7 +129,7 @@ pub fn main_wrapper<E: Example>(
     };
 
     println!("OpenGL version {}", gl.get_string(gl::VERSION));
-    println!("Shader resource path: {:?}", res_path);
+    println!("Shader resource path: {}", res_path);
     let device_pixel_ratio = window.hidpi_factor();
     println!("Device pixel ratio: {}", device_pixel_ratio);
 

@@ -712,7 +712,8 @@ impl AlphaBatcher {
                 };
 
                 if cache_item.texture_id == SourceTexture::Invalid {
-                    warn!("Warnings: skip a PrimitiveKind::Image at {:?}.\n", item_bounding_rect);
+                    warn!("Warnings: skip a PrimitiveKind::Image");
+                    debug!("at {:?}.", item_bounding_rect);
                     return;
                 }
 
@@ -1171,7 +1172,8 @@ impl AlphaBatcher {
                     );
 
                     if cache_item.texture_id == SourceTexture::Invalid {
-                        warn!("Warnings: skip a PrimitiveKind::YuvImage at {:?}.\n", item_bounding_rect);
+                        warn!("Warnings: skip a PrimitiveKind::YuvImage");
+                        debug!("at {:?}.", item_bounding_rect);
                         return;
                     }
 
@@ -1510,7 +1512,8 @@ impl ClipBatcher {
                                     ..instance
                                 });
                         } else {
-                            warn!("Warnings: skip a image mask. Key:{:?} Rect::{:?}.\n", mask.image, mask.rect);
+                            warn!("Warnings: skip a image mask");
+                            debug!("Key:{:?} Rect::{:?}", mask.image, mask.rect);
                             continue;
                         }
                     }
