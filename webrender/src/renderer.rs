@@ -2408,7 +2408,9 @@ impl Renderer {
                     cancel_rendering,
                 } => {
                     self.pending_texture_updates.push(updates);
+                    self.device.begin_frame();
                     self.update_texture_cache();
+                    self.device.end_frame();
                     // If we receive a `PublishDocument` message followed by this one
                     // within the same update we need ot cancel the frame because we
                     // might have deleted the resources in use in the frame due to a

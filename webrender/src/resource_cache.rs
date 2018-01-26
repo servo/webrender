@@ -11,8 +11,6 @@ use api::{FontInstanceOptions, FontInstancePlatformOptions, FontVariation};
 use api::{GlyphDimensions, GlyphKey, IdNamespace};
 use api::{ImageData, ImageDescriptor, ImageKey, ImageRendering};
 use api::{TileOffset, TileSize};
-#[cfg(feature = "capture")]
-use api::{NativeFontHandle};
 use app_units::Au;
 #[cfg(feature = "capture")]
 use capture::{CaptureConfig, ExternalCaptureImage, PlainExternalImage};
@@ -993,7 +991,7 @@ enum PlainFontTemplate {
         data: String,
         index: u32,
     },
-    Native(NativeFontHandle),
+    Native,
 }
 
 #[cfg(feature = "capture")]
@@ -1032,6 +1030,9 @@ pub struct PlainCacheOwn {
     images: ImageCache,
     textures: TextureCache,
 }
+
+#[cfg(feature = "capture")]
+const NATIVE_FONT: &'static [u8] = include_bytes!("../res/Proggy.ttf");
 
 #[cfg(feature = "capture")]
 impl ResourceCache {
@@ -1181,8 +1182,8 @@ impl ResourceCache {
                                 index,
                             }
                         }
-                        FontTemplate::Native(ref native) => {
-                            PlainFontTemplate::Native(native.clone())
+                        FontTemplate::Native(_) => {
+                            PlainFontTemplate::Native
                         }
                     })
                 })
@@ -1352,6 +1353,7 @@ impl ResourceCache {
         res.image_templates.images.clear();
 
         info!("\tfont templates...");
+        let native_font_replacement = Arc::new(NATIVE_FONT.to_vec());
         for (key, plain_template) in resources.font_templates {
             let template = match plain_template {
                 PlainFontTemplate::Raw { data, index } => {
@@ -1371,8 +1373,8 @@ impl ResourceCache {
                     };
                     FontTemplate::Raw(arc, index)
                 }
-                PlainFontTemplate::Native(native) => {
-                    FontTemplate::Native(native)
+                PlainFontTemplate::Native => {
+                    FontTemplate::Raw(native_font_replacement.clone(), 0)
                 }
             };
 
