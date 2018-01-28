@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ApiMsg, BlobImageRenderer, BuiltDisplayList, DebugCommand, DeviceIntPoint};
+use api::{ApiMsg, BuiltDisplayList, DebugCommand, DeviceIntPoint};
 #[cfg(feature = "debugger")]
 use api::{BuiltDisplayListIter, SpecificDisplayItem};
 use api::{DevicePixelScale, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
@@ -21,7 +21,6 @@ use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use gpu_cache::GpuCache;
 use internal_types::{DebugOutput, FastHashMap, FastHashSet, RenderedDocument, ResultMsg};
 use profiler::{BackendProfileCounters, IpcProfileCounters, ResourceProfileCounters};
-use rayon::ThreadPool;
 use record::ApiRecordingReceiver;
 use resource_cache::ResourceCache;
 #[cfg(feature = "capture")]
@@ -34,10 +33,8 @@ use serde_json;
 #[cfg(feature = "capture")]
 use std::path::PathBuf;
 use std::sync::atomic::{ATOMIC_USIZE_INIT, AtomicUsize, Ordering};
-use std::sync::Arc;
 use std::sync::mpsc::Sender;
 use std::u32;
-use texture_cache::TextureCache;
 use time::precise_time_ns;
 
 
@@ -225,18 +222,14 @@ impl RenderBackend {
         payload_tx: PayloadSender,
         result_tx: Sender<ResultMsg>,
         default_device_pixel_ratio: f32,
-        texture_cache: TextureCache,
-        workers: Arc<ThreadPool>,
+        resource_cache: ResourceCache,
         notifier: Box<RenderNotifier>,
         frame_config: FrameBuilderConfig,
         recorder: Option<Box<ApiRecordingReceiver>>,
-        blob_image_renderer: Option<Box<BlobImageRenderer>>,
         enable_render_on_scroll: bool,
     ) -> RenderBackend {
         // The namespace_id should start from 1.
         NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed);
-
-        let resource_cache = ResourceCache::new(texture_cache, workers, blob_image_renderer);
 
         RenderBackend {
             api_rx,
@@ -250,7 +243,6 @@ impl RenderBackend {
             documents: FastHashMap::default(),
             notifier,
             recorder,
-
             enable_render_on_scroll,
         }
     }

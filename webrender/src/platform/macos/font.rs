@@ -23,7 +23,7 @@ use core_text::font::{CTFont, CTFontRef};
 use core_text::font_descriptor::{kCTFontDefaultOrientation, kCTFontColorGlyphsTrait};
 use gamma_lut::{ColorLut, GammaLut};
 use glyph_rasterizer::{FontInstance, FontTransform, GlyphFormat, RasterizedGlyph};
-use internal_types::FastHashMap;
+use internal_types::{FastHashMap, ResourceCacheError};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 
@@ -267,18 +267,18 @@ fn is_bitmap_font(ct_font: &CTFont) -> bool {
 const OBLIQUE_SKEW_FACTOR: f32 = 0.25;
 
 impl FontContext {
-    pub fn new() -> FontContext {
+    pub fn new() -> Result<FontContext, ResourceCacheError> {
         debug!("Test for subpixel AA support: {}", supports_subpixel_aa());
 
         // Force CG to use sRGB color space to gamma correct.
         let contrast = 0.0;
         let gamma = 0.0;
 
-        FontContext {
+        Ok(FontContext {
             cg_fonts: FastHashMap::default(),
             ct_fonts: FastHashMap::default(),
             gamma_lut: GammaLut::new(contrast, gamma, gamma),
-        }
+        })
     }
 
     pub fn has_font(&self, font_key: &FontKey) -> bool {
