@@ -2948,11 +2948,8 @@ impl Renderer {
             .any(|&(_, ref render_doc)| !render_doc.layers_bouncing_back.is_empty())
     }
 
-    fn prepare_gpu_cache(&mut self, frame: &Frame) {
+    fn update_gpu_cache(&mut self) {
         let _gm = self.gpu_profile.start_marker("gpu cache update");
-
-        let deferred_update_list = self.update_deferred_resolves(&frame.deferred_resolves);
-        self.pending_gpu_cache_updates.extend(deferred_update_list);
 
         // For an artificial stress test of GPU cache resizing,
         // always pass an extra update list with at least one block in it.
@@ -2993,16 +2990,23 @@ impl Renderer {
 
         let updated_rows = self.gpu_cache_texture.flush(&mut self.device);
 
+        let counters = &mut self.backend_profile_counters.resources.gpu_cache;
+        counters.updated_rows.set(updated_rows);
+        counters.updated_blocks.set(updated_blocks);
+    }
+
+    fn prepare_gpu_cache(&mut self, frame: &Frame) {
+        let deferred_update_list = self.update_deferred_resolves(&frame.deferred_resolves);
+        self.pending_gpu_cache_updates.extend(deferred_update_list);
+
+        self.update_gpu_cache();
+
         // Note: the texture might have changed during the `update`,
         // so we need to bind it here.
         self.device.bind_texture(
             TextureSampler::ResourceCache,
             &self.gpu_cache_texture.texture,
         );
-
-        let counters = &mut self.backend_profile_counters.resources.gpu_cache;
-        counters.updated_rows.set(updated_rows);
-        counters.updated_blocks.set(updated_blocks);
     }
 
     fn update_texture_cache(&mut self) {
@@ -4885,6 +4889,7 @@ struct PlainTexture {
 #[derive(Deserialize, Serialize)]
 struct PlainRenderer {
     gpu_cache: PlainTexture,
+    gpu_cache_frame_id: FrameId,
     textures: Vec<PlainTexture>,
     external_images: Vec<ExternalCaptureImage>
 }
@@ -5091,11 +5096,13 @@ impl Renderer {
             }
 
             info!("saving GPU cache");
+            self.update_gpu_cache(); // flush pending updates
             let mut plain_self = PlainRenderer {
                 gpu_cache: Self::save_texture(
                     &self.gpu_cache_texture.texture,
                     "gpu", &config.root, &mut self.device,
                 ),
+                gpu_cache_frame_id: self.gpu_cache_frame_id,
                 textures: Vec::new(),
                 external_images: deferred_images,
             };
@@ -5188,6 +5195,7 @@ impl Renderer {
                 }
                 CacheBus::Scatter { .. } => {}
             }
+            self.gpu_cache_frame_id = renderer.gpu_cache_frame_id;
 
             info!("loading external texture-backed images");
             let mut native_map = FastHashMap::<String, gl::GLuint>::default();
