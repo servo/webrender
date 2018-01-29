@@ -29,7 +29,8 @@ use texture_cache::{TextureCache, TextureCacheHandle};
 use thread_profiler::register_thread_with_profiler;
 
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-#[cfg_attr(feature = "capture", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct FontTransform {
     pub scale_x: f32,
     pub skew_x: f32,
@@ -135,7 +136,8 @@ impl<'a> From<&'a LayerToWorldTransform> for FontTransform {
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug, Ord, PartialOrd)]
-#[cfg_attr(feature = "capture", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct FontInstance {
     pub font_key: FontKey,
     // The font size is in *device* pixels, not logical pixels.
@@ -219,7 +221,8 @@ impl FontInstance {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[allow(dead_code)]
 pub enum GlyphFormat {
     Alpha,
@@ -577,7 +580,7 @@ impl GlyphRasterizer {
         }
     }
 
-    #[cfg(feature = "capture")]
+    #[cfg(feature = "replay")]
     pub fn reset(&mut self) {
         //TODO: any signals need to be sent to the workers?
         self.pending_glyphs.clear();
@@ -599,7 +602,8 @@ impl FontContext {
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug, Ord, PartialOrd)]
-#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct GlyphRequest {
     pub key: GlyphKey,
     pub font: FontInstance,
