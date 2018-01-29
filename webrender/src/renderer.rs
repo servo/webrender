@@ -39,7 +39,7 @@ use gleam::gl;
 use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
 use gpu_types::PrimitiveInstance;
-use internal_types::{SourceTexture, ORTHO_FAR_PLANE, ORTHO_NEAR_PLANE};
+use internal_types::{SourceTexture, ORTHO_FAR_PLANE, ORTHO_NEAR_PLANE, ResourceCacheError};
 use internal_types::{CacheTextureId, FastHashMap, RenderedDocument, ResultMsg, TextureUpdateOp};
 use internal_types::{DebugOutput, RenderPassIndex, RenderTargetInfo, TextureUpdateList, TextureUpdateSource};
 use picture::ContentOrigin;
@@ -52,6 +52,7 @@ use rayon::ThreadPool;
 use record::ApiRecordingReceiver;
 use render_backend::RenderBackend;
 use render_task::{RenderTaskKind, RenderTaskTree};
+use resource_cache::ResourceCache;
 #[cfg(feature = "debugger")]
 use serde_json;
 use std;
@@ -1695,6 +1696,7 @@ pub struct Renderer {
 pub enum RendererError {
     Shader(ShaderError),
     Thread(std::io::Error),
+    Resource(ResourceCacheError),
     MaxTextureSize,
 }
 
@@ -1707,6 +1709,12 @@ impl From<ShaderError> for RendererError {
 impl From<std::io::Error> for RendererError {
     fn from(err: std::io::Error) -> Self {
         RendererError::Thread(err)
+    }
+}
+
+impl From<ResourceCacheError> for RendererError {
+    fn from(err: ResourceCacheError) -> Self {
+        RendererError::Resource(err)
     }
 }
 
@@ -2219,6 +2227,11 @@ impl Renderer {
         let blob_image_renderer = options.blob_image_renderer.take();
         let thread_listener_for_render_backend = thread_listener.clone();
         let thread_name = format!("WRRenderBackend#{}", options.renderer_id.unwrap_or(0));
+        let resource_cache = ResourceCache::new(
+            texture_cache,
+            workers,
+            blob_image_renderer,
+        )?;
         try!{
             thread::Builder::new().name(thread_name.clone()).spawn(move || {
                 register_thread_with_profiler(thread_name.clone());
@@ -2231,12 +2244,10 @@ impl Renderer {
                     payload_tx_for_backend,
                     result_tx,
                     device_pixel_ratio,
-                    texture_cache,
-                    workers,
+                    resource_cache,
                     backend_notifier,
                     config,
                     recorder,
-                    blob_image_renderer,
                     enable_render_on_scroll,
                 );
                 backend.run(backend_profile_counters);

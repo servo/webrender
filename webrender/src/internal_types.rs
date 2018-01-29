@@ -174,3 +174,16 @@ pub enum ResultMsg {
         BackendProfileCounters,
     ),
 }
+
+#[derive(Clone, Debug)]
+pub struct ResourceCacheError {
+    description: String,
+}
+
+impl ResourceCacheError {
+    pub fn new(description: String) -> ResourceCacheError {
+        ResourceCacheError {
+            description,
+        }
+    }
+}
