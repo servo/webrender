@@ -67,7 +67,8 @@ struct StackingContext {
 }
 
 #[derive(Clone, Copy)]
-#[cfg_attr(feature = "capture", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct FrameBuilderConfig {
     pub enable_scrollbars: bool,
     pub default_font_render_mode: FontRenderMode,

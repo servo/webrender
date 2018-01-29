@@ -11,7 +11,9 @@ use api::{IdNamespace, PipelineId, RenderNotifier, WorldPoint};
 use api::channel::{MsgReceiver, MsgSender, PayloadReceiver, PayloadReceiverHelperMethods};
 use api::channel::{PayloadSender, PayloadSenderHelperMethods};
 #[cfg(feature = "capture")]
-use api::{CaptureBits, CapturedDocument};
+use api::CaptureBits;
+#[cfg(feature = "replay")]
+use api::CapturedDocument;
 #[cfg(feature = "debugger")]
 use debug_server;
 use frame::FrameContext;
@@ -21,14 +23,16 @@ use internal_types::{DebugOutput, FastHashMap, FastHashSet, RenderedDocument, Re
 use profiler::{BackendProfileCounters, IpcProfileCounters, ResourceProfileCounters};
 use record::ApiRecordingReceiver;
 use resource_cache::ResourceCache;
-#[cfg(feature = "capture")]
-use resource_cache::{PlainCacheOwn, PlainResources};
+#[cfg(feature = "replay")]
+use resource_cache::PlainCacheOwn;
+#[cfg(any(feature = "capture", feature = "replay"))]
+use resource_cache::PlainResources;
 use scene::Scene;
 #[cfg(feature = "serialize")]
 use serde::{Serialize, Deserialize};
 #[cfg(feature = "debugger")]
 use serde_json;
-#[cfg(feature = "capture")]
+#[cfg(any(feature = "capture", feature = "replay"))]
 use std::path::PathBuf;
 use std::sync::atomic::{ATOMIC_USIZE_INIT, AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
@@ -36,7 +40,8 @@ use std::u32;
 use time::precise_time_ns;
 
 
-#[cfg_attr(feature = "capture", derive(Clone, Serialize, Deserialize))]
+#[cfg_attr(feature = "capture", derive(Clone, Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct DocumentView {
     window_size: DeviceUintSize,
     inner_rect: DeviceUintRect,
@@ -188,8 +193,9 @@ impl DocumentOps {
 /// The unique id for WR resource identification.
 static NEXT_NAMESPACE_ID: AtomicUsize = ATOMIC_USIZE_INIT;
 
-#[cfg(feature = "capture")]
-#[derive(Serialize, Deserialize)]
+#[cfg(any(feature = "capture", feature = "replay"))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct PlainRenderBackend {
     default_device_pixel_ratio: f32,
     enable_render_on_scroll: bool,
@@ -582,7 +588,7 @@ impl RenderBackend {
                             let output = self.save_capture(root, bits, &mut profile_counters);
                             ResultMsg::DebugOutput(output)
                         },
-                        #[cfg(feature = "capture")]
+                        #[cfg(feature = "replay")]
                         DebugCommand::LoadCapture(root, tx) => {
                             NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed);
                             frame_counter += 1;
@@ -846,8 +852,8 @@ impl ToDebugString for SpecificDisplayItem {
     }
 }
 
-#[cfg(feature = "capture")]
 impl RenderBackend {
+    #[cfg(feature = "capture")]
     // Note: the mutable `self` is only needed here for resolving blob images
     fn save_capture(
         &mut self,
@@ -917,6 +923,7 @@ impl RenderBackend {
         DebugOutput::SaveCapture(config, deferred)
     }
 
+    #[cfg(feature = "replay")]
     fn load_capture(
         &mut self,
         root: &PathBuf,
