@@ -11,9 +11,7 @@ use api::{IdNamespace, PipelineId, RenderNotifier, WorldPoint};
 use api::channel::{MsgReceiver, MsgSender, PayloadReceiver, PayloadReceiverHelperMethods};
 use api::channel::{PayloadSender, PayloadSenderHelperMethods};
 #[cfg(feature = "capture")]
-use api::CapturedDocument;
-#[cfg(feature = "capture")]
-use capture::{CaptureConfig, ExternalCaptureImage};
+use api::{CaptureBits, CapturedDocument};
 #[cfg(feature = "debugger")]
 use debug_server;
 use frame::FrameContext;
@@ -581,9 +579,8 @@ impl RenderBackend {
                         }
                         #[cfg(feature = "capture")]
                         DebugCommand::SaveCapture(root, bits) => {
-                            let config = CaptureConfig::new(root, bits);
-                            let deferred = self.save_capture(&config, &mut profile_counters);
-                            ResultMsg::DebugOutput(DebugOutput::SaveCapture(config, deferred))
+                            let output = self.save_capture(root, bits, &mut profile_counters);
+                            ResultMsg::DebugOutput(output)
                         },
                         #[cfg(feature = "capture")]
                         DebugCommand::LoadCapture(root, tx) => {
@@ -854,13 +851,15 @@ impl RenderBackend {
     // Note: the mutable `self` is only needed here for resolving blob images
     fn save_capture(
         &mut self,
-        config: &CaptureConfig,
+        root: PathBuf,
+        bits: CaptureBits,
         profile_counters: &mut BackendProfileCounters,
-    ) -> Vec<ExternalCaptureImage> {
-        use api::CaptureBits;
+    ) -> DebugOutput {
+        use capture::CaptureConfig;
 
-        info!("capture: saving {:?}", config.root);
-        let (resources, deferred) = self.resource_cache.save_capture(&config.root);
+        info!("capture: saving {:?}", root);
+        let (resources, deferred) = self.resource_cache.save_capture(&root);
+        let config = CaptureConfig::new(root, bits);
 
         for (&id, doc) in &mut self.documents {
             info!("\tdocument {:?}", id);
@@ -897,14 +896,16 @@ impl RenderBackend {
         config.serialize(&backend, "backend");
 
         if config.bits.contains(CaptureBits::FRAME) {
-            // After we rendered the frames, there are pending updates.
-            // Instead of serializing them, we are going to make sure
+            // After we rendered the frames, there are pending updates to both
+            // GPU cache and resources. Instead of serializing them, we are going to make sure
             // they are applied on the `Renderer` side.
-            let msg = ResultMsg::UpdateResources {
+            let msg_update_gpu_cache = ResultMsg::UpdateGpuCache(self.gpu_cache.extract_updates());
+            self.result_tx.send(msg_update_gpu_cache).unwrap();
+            let msg_update_resources = ResultMsg::UpdateResources {
                 updates: self.resource_cache.pending_updates(),
                 cancel_rendering: false,
             };
-            self.result_tx.send(msg).unwrap();
+            self.result_tx.send(msg_update_resources).unwrap();
             // Save the texture/glyph/image caches.
             info!("\tresource cache");
             let caches = self.resource_cache.save_caches(&config.root);
@@ -913,7 +914,7 @@ impl RenderBackend {
             config.serialize(&self.gpu_cache, "gpu_cache");
         }
 
-        deferred
+        DebugOutput::SaveCapture(config, deferred)
     }
 
     fn load_capture(
@@ -921,6 +922,7 @@ impl RenderBackend {
         root: &PathBuf,
         profile_counters: &mut BackendProfileCounters,
     ) {
+        use capture::CaptureConfig;
         use tiling::Frame;
 
         info!("capture: loading {:?}", root);
