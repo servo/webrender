@@ -2380,10 +2380,6 @@ impl Renderer {
                     texture_update_list,
                     profile_counters,
                 ) => {
-                    //TODO: associate `document_id` with target window
-                    self.pending_texture_updates.push(texture_update_list);
-                    self.backend_profile_counters = profile_counters;
-
                     // Update the list of available epochs for use during reftests.
                     // This is a workaround for https://github.com/servo/servo/issues/13149.
                     for (pipeline_id, epoch) in &doc.pipeline_epoch_map {
@@ -2404,6 +2400,20 @@ impl Renderer {
                         }
                         None => self.active_documents.push((document_id, doc)),
                     }
+
+                    // IMPORTANT: The pending texture cache updates must be applied
+                    //            *after* the previous frame has been rendered above
+                    //            (if neceessary for a texture cache update). For
+                    //            an example of why this is required:
+                    //            1) Previous frame contains a render task that
+                    //               targets Texture X.
+                    //            2) New frame contains a texture cache update which
+                    //               frees Texture X.
+                    //            3) bad stuff happens.
+
+                    //TODO: associate `document_id` with target window
+                    self.pending_texture_updates.push(texture_update_list);
+                    self.backend_profile_counters = profile_counters;
                 }
                 ResultMsg::UpdateGpuCache(list) => {
                     self.pending_gpu_cache_updates.push(list);
