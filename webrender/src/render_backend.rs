@@ -156,6 +156,7 @@ struct DocumentOps {
     scroll: bool,
     build: bool,
     render: bool,
+    composite: bool,
     queries: Vec<HitTestQuery>,
 }
 
@@ -165,6 +166,7 @@ impl DocumentOps {
             scroll: false,
             build: false,
             render: false,
+            composite: false,
             queries: vec![],
         }
     }
@@ -180,6 +182,7 @@ impl DocumentOps {
         self.scroll = self.scroll || other.scroll;
         self.build = self.build || other.build;
         self.render = self.render || other.render;
+        self.composite = self.composite || other.composite;
         self.queries.extend(other.queries.drain(..));
     }
 }
@@ -400,10 +403,16 @@ impl RenderBackend {
                 DocumentOps {
                     scroll: true,
                     render: should_render,
+                    composite: should_render,
                     ..DocumentOps::nop()
                 }
             }
             DocumentMsg::HitTest(pipeline_id, point, flags, tx) => {
+                // note that we render without compositing here; we only
+                // need to render so we have an updated clip-scroll tree
+                // for handling the hit-test queries. Doing a composite
+                // here (without having being explicitly requested) causes
+                // Gecko assertion failures.
                 DocumentOps {
                     render: doc.render_on_hittest,
                     queries: vec![(pipeline_id, point, flags, tx)],
@@ -419,6 +428,7 @@ impl RenderBackend {
                 DocumentOps {
                     scroll: true,
                     render: should_render,
+                    composite: should_render,
                     ..DocumentOps::nop()
                 }
             }
@@ -427,9 +437,12 @@ impl RenderBackend {
 
                 doc.frame_ctx.tick_scrolling_bounce_animations();
 
+                let should_render = doc.render_on_scroll == Some(true);
+
                 DocumentOps {
                     scroll: true,
-                    render: doc.render_on_scroll == Some(true),
+                    render: should_render,
+                    composite: should_render,
                     ..DocumentOps::nop()
                 }
             }
@@ -461,6 +474,7 @@ impl RenderBackend {
 
                 if doc.scene.root_pipeline_id.is_some() {
                     op.render = true;
+                    op.composite = true;
                 }
 
                 op
@@ -648,6 +662,8 @@ impl RenderBackend {
             );
         }
 
+        debug_assert!(op.render || !op.composite);
+
         let doc = self.documents.get_mut(&document_id).unwrap();
 
         if op.build {
@@ -695,7 +711,7 @@ impl RenderBackend {
         }
 
         if op.render || op.scroll {
-            self.notifier.new_document_ready(document_id, op.scroll, op.render);
+            self.notifier.new_document_ready(document_id, op.scroll, op.composite);
         }
 
         for (pipeline_id, point, flags, tx) in op.queries {
