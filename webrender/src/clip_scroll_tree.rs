@@ -461,11 +461,16 @@ impl ClipScrollTree {
 
     pub fn build_clip_chains(&mut self, screen_rect: &DeviceIntRect) {
         for descriptor in &self.clip_chains_descriptors {
+            // A ClipChain is an optional parent (which is another ClipChain) and a list of
+            // ClipScrollNode clipping nodes. Here we start the ClipChain with a clone of the
+            // parent's node, if necessary.
             let mut chain = match descriptor.parent {
                 Some(id) => self.clip_chains[&id].clone(),
                 None => ClipChain::empty(screen_rect),
             };
 
+            // Now we walk through each ClipScrollNode in the vector of clip nodes and
+            // extract their ClipChain nodes to construct the final list.
             for clip_id in &descriptor.clips {
                 if let Some(ref node_chain) = self.nodes[&clip_id].clip_chain {
                     if let Some(ref nodes) = node_chain.nodes {
