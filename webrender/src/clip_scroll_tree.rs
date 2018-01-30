@@ -14,6 +14,7 @@ use print_tree::{PrintTree, PrintTreePrinter};
 use render_task::ClipChain;
 use resource_cache::ResourceCache;
 use scene::SceneProperties;
+use std::mem;
 use util::TransformOrOffset;
 
 pub type ScrollStates = FastHashMap<ClipId, ScrollingState>;
@@ -80,6 +81,10 @@ pub struct ClipScrollTree {
     /// A set of pipelines which should be discarded the next time this
     /// tree is drained.
     pub pipelines_to_discard: FastHashSet<PipelineId>,
+
+    /// A flat list of data for each clip-scroll node, that gets sent
+    /// directly to the GPU for access by shaders.
+    pub node_data: Vec<ClipScrollNodeData>,
 }
 
 #[derive(Clone)]
@@ -118,7 +123,12 @@ impl ClipScrollTree {
             topmost_scrolling_node_id: ClipId::root_scroll_node(dummy_pipeline),
             current_new_node_item: 1,
             pipelines_to_discard: FastHashSet::default(),
+            node_data: Vec::new(),
         }
+    }
+
+    pub fn take_node_data(&mut self) -> Vec<ClipScrollNodeData> {
+        mem::replace(&mut self.node_data, Vec::new())
     }
 
     pub fn root_reference_frame_id(&self) -> ClipId {
@@ -362,13 +372,13 @@ impl ClipScrollTree {
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
         pan: WorldPoint,
-        node_data: &mut Vec<ClipScrollNodeData>,
         scene_properties: &SceneProperties,
     ) {
         if self.nodes.is_empty() {
             return;
         }
 
+        let mut node_data = Vec::with_capacity(self.nodes.len());
         let root_reference_frame_id = self.root_reference_frame_id();
         let mut state = TransformUpdateState {
             parent_reference_frame_transform: LayerToWorldTransform::create_translation(
@@ -393,10 +403,11 @@ impl ClipScrollTree {
             clip_store,
             resource_cache,
             gpu_cache,
-            node_data,
+            &mut node_data,
             scene_properties,
         );
 
+        self.node_data = node_data;
         self.build_clip_chains(screen_rect);
     }
 

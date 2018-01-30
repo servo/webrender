@@ -17,7 +17,7 @@ use frame_builder::{FrameContext, PrimitiveRunContext};
 use glyph_rasterizer::{FontInstance, FontTransform};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
-use gpu_types::{ClipChainRectIndex, ClipScrollNodeData};
+use gpu_types::{ClipChainRectIndex};
 use picture::{PictureKind, PicturePrimitive};
 use profiler::FrameProfileCounters;
 use render_task::{BlitSource, ClipChain, ClipChainNode, ClipChainNodeIter, ClipChainNodeRef, ClipWorkItem};
@@ -1379,9 +1379,9 @@ impl PrimitiveStore {
         metadata: &PrimitiveMetadata,
         prim_run_context: &PrimitiveRunContext,
         clip_store: &mut ClipStore,
-        node_data: &[ClipScrollNodeData],
         clips: &Vec<ClipWorkItem>,
         has_clips_from_other_coordinate_systems: bool,
+        frame_context: &FrameContext,
     ) {
         match brush.segment_desc {
             Some(ref segment_desc) => {
@@ -1448,7 +1448,9 @@ impl PrimitiveStore {
                 let local_clip_rect = if clip_item.scroll_node_data_index == prim_run_context.scroll_node.node_data_index {
                     local_clip_rect
                 } else {
-                    let clip_transform_data = &node_data[clip_item.scroll_node_data_index.0 as usize];
+                    let clip_transform_data = &frame_context
+                        .clip_scroll_tree
+                        .node_data[clip_item.scroll_node_data_index.0 as usize];
                     let prim_transform = &prim_run_context.scroll_node.world_content_transform;
 
                     let relative_transform = prim_transform
@@ -1500,7 +1502,6 @@ impl PrimitiveStore {
         render_tasks: &mut RenderTaskTree,
         clip_store: &mut ClipStore,
         tasks: &mut Vec<RenderTaskId>,
-        node_data: &[ClipScrollNodeData],
         clips: &Vec<ClipWorkItem>,
         combined_outer_rect: &DeviceIntRect,
         has_clips_from_other_coordinate_systems: bool,
@@ -1524,9 +1525,9 @@ impl PrimitiveStore {
             metadata,
             prim_run_context,
             clip_store,
-            node_data,
             clips,
             has_clips_from_other_coordinate_systems,
+            frame_context,
         );
 
         let segment_desc = match brush.segment_desc {
@@ -1575,7 +1576,6 @@ impl PrimitiveStore {
         render_tasks: &mut RenderTaskTree,
         clip_store: &mut ClipStore,
         tasks: &mut Vec<RenderTaskId>,
-        node_data: &[ClipScrollNodeData],
         frame_context: &FrameContext,
     ) -> bool {
         self.cpu_metadata[prim_index.0].clip_task_id = None;
@@ -1680,7 +1680,6 @@ impl PrimitiveStore {
             render_tasks,
             clip_store,
             tasks,
-            node_data,
             &clips,
             &combined_outer_rect,
             has_clips_from_other_coordinate_systems,
@@ -1715,7 +1714,6 @@ impl PrimitiveStore {
         profile_counters: &mut FrameProfileCounters,
         pic_index: SpecificPrimitiveIndex,
         clip_chain_rect_index: ClipChainRectIndex,
-        node_data: &[ClipScrollNodeData],
         local_rects: &mut Vec<LayerRect>,
         frame_context: &FrameContext,
     ) -> Option<LayerRect> {
@@ -1780,7 +1778,6 @@ impl PrimitiveStore {
                 profile_counters,
                 rfid,
                 cpu_prim_index,
-                node_data,
                 local_rects,
                 frame_context,
             );
@@ -1842,7 +1839,6 @@ impl PrimitiveStore {
             render_tasks,
             clip_store,
             parent_tasks,
-            node_data,
             frame_context,
         ) {
             return None;
@@ -1885,7 +1881,6 @@ impl PrimitiveStore {
         profile_counters: &mut FrameProfileCounters,
         original_reference_frame_id: Option<ClipId>,
         pic_index: SpecificPrimitiveIndex,
-        node_data: &[ClipScrollNodeData],
         local_rects: &mut Vec<LayerRect>,
         frame_context: &FrameContext,
     ) -> PrimitiveRunLocalRect {
@@ -1982,7 +1977,6 @@ impl PrimitiveStore {
                     profile_counters,
                     pic_index,
                     clip_chain_rect_index,
-                    node_data,
                     local_rects,
                     frame_context,
                 ) {

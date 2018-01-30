@@ -585,7 +585,7 @@ impl AlphaBatcher {
     ) {
         let z = prim_index.0 as i32;
         let prim_metadata = ctx.prim_store.get_metadata(prim_index);
-        let scroll_node = &ctx.node_data[scroll_id.0 as usize];
+        let scroll_node = &ctx.clip_scroll_tree.node_data[scroll_id.0 as usize];
         // TODO(gw): Calculating this for every primitive is a bit
         //           wasteful. We should probably cache this in
         //           the scroll node...

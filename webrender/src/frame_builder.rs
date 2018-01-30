@@ -20,7 +20,7 @@ use euclid::{SideOffsets2D, vec2};
 use frame::FrameId;
 use glyph_rasterizer::FontInstance;
 use gpu_cache::GpuCache;
-use gpu_types::{ClipScrollNodeData, PictureType};
+use gpu_types::{PictureType};
 use internal_types::{FastHashMap, FastHashSet, RenderPassIndex};
 use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
 use prim_store::{BrushKind, BrushPrimitive, ImageCacheKey, YuvImagePrimitiveCpu};
@@ -1606,7 +1606,6 @@ impl FrameBuilder {
         profile_counters: &mut FrameProfileCounters,
         device_pixel_scale: DevicePixelScale,
         scene_properties: &SceneProperties,
-        node_data: &[ClipScrollNodeData],
         local_rects: &mut Vec<LayerRect>,
     ) -> Option<RenderTaskId> {
         profile_scope!("cull");
@@ -1653,7 +1652,6 @@ impl FrameBuilder {
             profile_counters,
             None,
             SpecificPrimitiveIndex(0),
-            node_data,
             local_rects,
             &frame_context,
         );
@@ -1735,7 +1733,6 @@ impl FrameBuilder {
         resource_cache.begin_frame(frame_id);
         gpu_cache.begin_frame();
 
-        let mut node_data = Vec::with_capacity(clip_scroll_tree.nodes.len());
         let total_prim_runs =
             self.prim_store.cpu_pictures.iter().fold(1, |count, ref pic| count + pic.runs.len());
         let mut clip_chain_local_clip_rects = Vec::with_capacity(total_prim_runs);
@@ -1748,7 +1745,6 @@ impl FrameBuilder {
             resource_cache,
             gpu_cache,
             pan,
-            &mut node_data,
             scene_properties,
         );
 
@@ -1765,7 +1761,6 @@ impl FrameBuilder {
             &mut profile_counters,
             device_pixel_scale,
             scene_properties,
-            &node_data,
             &mut clip_chain_local_clip_rects,
         );
 
@@ -1801,7 +1796,6 @@ impl FrameBuilder {
                 device_pixel_scale,
                 prim_store: &self.prim_store,
                 resource_cache,
-                node_data: &node_data,
                 clip_scroll_tree,
                 use_dual_source_blending,
             };
@@ -1834,7 +1828,7 @@ impl FrameBuilder {
             layer,
             profile_counters,
             passes,
-            node_data,
+            node_data: clip_scroll_tree.take_node_data(),
             clip_chain_local_clip_rects,
             render_tasks,
             deferred_resolves,
