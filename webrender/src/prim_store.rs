@@ -25,7 +25,7 @@ use render_task::{BlitSource, ClipChain, ClipChainNode, ClipChainNodeIter, ClipC
 use render_task::{RenderTask, RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId, RenderTaskTree};
 use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
 use resource_cache::{CacheItem, ImageProperties, ResourceCache};
-use scene::{ScenePipeline, SceneProperties};
+use scene::ScenePipeline;
 use segment::SegmentBuilder;
 use std::{mem, usize};
 use std::rc::Rc;
@@ -1717,7 +1717,6 @@ impl PrimitiveStore {
         pipelines: &FastHashMap<PipelineId, ScenePipeline>,
         perform_culling: bool,
         parent_tasks: &mut Vec<RenderTaskId>,
-        scene_properties: &SceneProperties,
         profile_counters: &mut FrameProfileCounters,
         pic_index: SpecificPrimitiveIndex,
         screen_rect: &DeviceIntRect,
@@ -1743,7 +1742,7 @@ impl PrimitiveStore {
                 PrimitiveKind::Picture => {
                     let pic = &mut self.cpu_pictures[metadata.cpu_prim_index.0];
 
-                    if !pic.resolve_scene_properties(scene_properties) {
+                    if !pic.resolve_scene_properties(frame_context.scene_properties) {
                         return None;
                     }
 
@@ -1788,7 +1787,6 @@ impl PrimitiveStore {
                 &mut child_tasks,
                 profile_counters,
                 rfid,
-                scene_properties,
                 cpu_prim_index,
                 screen_rect,
                 node_data,
@@ -1898,7 +1896,6 @@ impl PrimitiveStore {
         parent_tasks: &mut Vec<RenderTaskId>,
         profile_counters: &mut FrameProfileCounters,
         original_reference_frame_id: Option<ClipId>,
-        scene_properties: &SceneProperties,
         pic_index: SpecificPrimitiveIndex,
         screen_rect: &DeviceIntRect,
         node_data: &[ClipScrollNodeData],
@@ -1992,7 +1989,6 @@ impl PrimitiveStore {
                     pipelines,
                     perform_culling,
                     parent_tasks,
-                    scene_properties,
                     profile_counters,
                     pic_index,
                     screen_rect,

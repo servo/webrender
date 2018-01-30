@@ -125,16 +125,19 @@ pub struct FrameBuilder {
     sc_stack: Vec<StackingContext>,
 }
 
-pub struct FrameContext {
+pub struct FrameContext<'a> {
     pub device_pixel_scale: DevicePixelScale,
+    pub scene_properties: &'a SceneProperties,
 }
 
-impl FrameContext {
+impl<'a> FrameContext<'a> {
     pub fn new(
         device_pixel_scale: DevicePixelScale,
+        scene_properties: &'a SceneProperties,
     ) -> FrameContext {
         FrameContext {
             device_pixel_scale,
+            scene_properties,
         }
     }
 }
@@ -1614,6 +1617,7 @@ impl FrameBuilder {
 
         let frame_context = FrameContext::new(
             device_pixel_scale,
+            scene_properties,
         );
 
         let root_prim_run_context = PrimitiveRunContext::new(
@@ -1638,7 +1642,6 @@ impl FrameBuilder {
             &mut child_tasks,
             profile_counters,
             None,
-            scene_properties,
             SpecificPrimitiveIndex(0),
             &self.screen_rect.to_i32(),
             node_data,
