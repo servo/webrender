@@ -151,6 +151,20 @@ impl<'a> FrameContext<'a> {
     }
 }
 
+pub struct FrameState<'a> {
+    pub render_tasks: &'a mut RenderTaskTree,
+}
+
+impl<'a> FrameState<'a> {
+    pub fn new(
+        render_tasks: &'a mut RenderTaskTree,
+    ) -> FrameState {
+        FrameState {
+            render_tasks,
+        }
+    }
+}
+
 pub struct PrimitiveRunContext<'a> {
     pub display_list: &'a BuiltDisplayList,
     pub clip_chain: Option<&'a ClipChain>,
@@ -1631,6 +1645,10 @@ impl FrameBuilder {
             clip_scroll_tree,
         );
 
+        let mut frame_state = FrameState::new(
+            render_tasks,
+        );
+
         let root_prim_run_context = PrimitiveRunContext::new(
             display_list,
             root_clip_scroll_node.clip_chain.as_ref(),
@@ -1644,7 +1662,6 @@ impl FrameBuilder {
             root_clip_scroll_node.pipeline_id,
             gpu_cache,
             resource_cache,
-            render_tasks,
             &mut self.clip_store,
             &root_prim_run_context,
             true,
@@ -1654,6 +1671,7 @@ impl FrameBuilder {
             SpecificPrimitiveIndex(0),
             local_rects,
             &frame_context,
+            &mut frame_state,
         );
 
         let pic = &mut self.prim_store.cpu_pictures[0];
@@ -1670,7 +1688,7 @@ impl FrameBuilder {
             PictureType::Image,
         );
 
-        let render_task_id = render_tasks.add(root_render_task);
+        let render_task_id = frame_state.render_tasks.add(root_render_task);
         pic.surface = Some(PictureSurface::RenderTask(render_task_id));
         Some(render_task_id)
     }
