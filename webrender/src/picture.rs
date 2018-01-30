@@ -43,7 +43,8 @@ pub enum PictureCompositeMode {
 /// Configure whether the content to be drawn by a picture
 /// in local space rasterization or the screen space.
 #[derive(Debug, Copy, Clone, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum ContentOrigin {
     Local(LayerPoint),
     Screen(DeviceIntPoint),

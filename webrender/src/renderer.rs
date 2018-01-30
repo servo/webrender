@@ -21,7 +21,7 @@ use api::DebugCommand;
 use api::channel::MsgSender;
 use batch::{BatchKey, BatchKind, BatchTextures, BrushBatchKind};
 use batch::{BrushImageSourceKind, TransformBatchKind};
-#[cfg(feature = "capture")]
+#[cfg(any(feature = "capture", feature = "replay"))]
 use capture::{CaptureConfig, ExternalCaptureImage, PlainExternalImage};
 use debug_colors;
 use debug_render::DebugRenderer;
@@ -488,7 +488,8 @@ pub struct GraphicsApiInfo {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum ImageBufferKind {
     Texture2D = 0,
     TextureRect = 1,
@@ -778,7 +779,8 @@ impl SourceTextureResolver {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 #[allow(dead_code)] // SubpixelVariableTextColor is not used at the moment.
 pub enum BlendMode {
     None,
@@ -1568,16 +1570,6 @@ struct TargetSelector {
     format: ImageFormat,
 }
 
-#[cfg(feature = "capture")]
-struct RendererCapture {
-    read_fbo: FBOId,
-    owned_external_images: FastHashMap<(ExternalImageId, u8), ExternalTexture>,
-}
-
-// Note: we can't just feature-gate the fields because `cbindgen` fails on those.
-// see https://github.com/eqrion/cbindgen/issues/116
-#[cfg(not(feature = "capture"))]
-struct RendererCapture;
 
 /// The renderer is responsible for submitting to the GPU the work prepared by the
 /// RenderBackend.
@@ -1688,8 +1680,10 @@ pub struct Renderer {
     cpu_profiles: VecDeque<CpuProfile>,
     gpu_profiles: VecDeque<GpuProfile>,
 
-    #[cfg_attr(not(feature = "capture"), allow(dead_code))]
-    capture: RendererCapture,
+    #[cfg(feature = "capture")]
+    read_fbo: FBOId,
+    #[cfg(feature = "replay")]
+    owned_external_images: FastHashMap<(ExternalImageId, u8), ExternalTexture>,
 }
 
 #[derive(Debug)]
@@ -2257,15 +2251,9 @@ impl Renderer {
             })
         };
 
-        #[cfg(feature = "capture")]
-        let capture = RendererCapture {
-            read_fbo: device.create_fbo_for_external_texture(0),
-            owned_external_images: FastHashMap::default(),
-        };
-        #[cfg(not(feature = "capture"))]
-        let capture = RendererCapture;
-
         let gpu_profile = GpuProfiler::new(Rc::clone(device.rc_gl()));
+        #[cfg(feature = "capture")]
+        let read_fbo = device.create_fbo_for_external_texture(0);
 
         let mut renderer = Renderer {
             result_rx,
@@ -2330,7 +2318,10 @@ impl Renderer {
             texture_cache_upload_pbo,
             texture_resolver,
             renderer_errors: Vec::new(),
-            capture,
+            #[cfg(feature = "capture")]
+            read_fbo,
+            #[cfg(feature = "replay")]
+            owned_external_images: FastHashMap::default(),
         };
 
         renderer.set_debug_flags(options.debug_flags);
@@ -2457,7 +2448,7 @@ impl Renderer {
                     DebugOutput::SaveCapture(config, deferred) => {
                         self.save_capture(config, deferred);
                     }
-                    #[cfg(feature = "capture")]
+                    #[cfg(feature = "replay")]
                     DebugOutput::LoadCapture(root, plain_externals) => {
                         self.active_documents.clear();
                         self.load_capture(root, plain_externals);
@@ -2863,9 +2854,9 @@ impl Renderer {
                 self.prepare_tile_frame(&mut doc_with_id.1.frame);
             }
 
-            #[cfg(feature = "capture")]
+            #[cfg(feature = "replay")]
             self.texture_resolver.external_images.extend(
-                self.capture.owned_external_images.iter().map(|(key, value)| (*key, value.clone()))
+                self.owned_external_images.iter().map(|(key, value)| (*key, value.clone()))
             );
 
             for &mut (_, RenderedDocument { ref mut frame, .. }) in &mut active_documents {
@@ -4721,9 +4712,9 @@ impl Renderer {
         self.ps_split_composite.deinit(&mut self.device);
         self.ps_composite.deinit(&mut self.device);
         #[cfg(feature = "capture")]
-        self.device.delete_fbo(self.capture.read_fbo);
-        #[cfg(feature = "capture")]
-        for (_, ext) in self.capture.owned_external_images {
+        self.device.delete_fbo(self.read_fbo);
+        #[cfg(feature = "replay")]
+        for (_, ext) in self.owned_external_images {
             self.device.delete_external_texture(ext);
         }
         self.device.end_frame();
@@ -4875,8 +4866,10 @@ impl RendererStats {
 }
 
 
-#[cfg(feature = "capture")]
-#[derive(Deserialize, Serialize)]
+
+#[cfg(any(feature = "capture", feature = "replay"))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct PlainTexture {
     data: String,
     size: (u32, u32, i32),
@@ -4885,8 +4878,10 @@ struct PlainTexture {
     render_target: Option<RenderTargetInfo>,
 }
 
-#[cfg(feature = "capture")]
-#[derive(Deserialize, Serialize)]
+
+#[cfg(any(feature = "capture", feature = "replay"))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 struct PlainRenderer {
     gpu_cache: PlainTexture,
     gpu_cache_frame_id: FrameId,
@@ -4894,18 +4889,18 @@ struct PlainRenderer {
     external_images: Vec<ExternalCaptureImage>
 }
 
-#[cfg(feature = "capture")]
+#[cfg(feature = "replay")]
 enum CapturedExternalImageData {
     NativeTexture(gl::GLuint),
     Buffer(Arc<Vec<u8>>),
 }
 
-#[cfg(feature = "capture")]
+#[cfg(feature = "replay")]
 struct DummyExternalImageHandler {
     data: FastHashMap<(ExternalImageId, u8), (CapturedExternalImageData, TexelRect)>,
 }
 
-#[cfg(feature = "capture")]
+#[cfg(feature = "replay")]
 impl ExternalImageHandler for DummyExternalImageHandler {
     fn lock(&mut self, key: ExternalImageId, channel_index: u8) -> ExternalImage {
         let (ref captured_data, ref uv) = self.data[&(key, channel_index)];
@@ -4920,7 +4915,7 @@ impl ExternalImageHandler for DummyExternalImageHandler {
     fn unlock(&mut self, _key: ExternalImageId, _channel_index: u8) {}
 }
 
-#[cfg(feature = "capture")]
+#[cfg(feature = "replay")]
 impl OutputImageHandler for () {
     fn lock(&mut self, _: PipelineId) -> Option<(u32, DeviceIntSize)> {
         None
@@ -4930,8 +4925,8 @@ impl OutputImageHandler for () {
     }
 }
 
-#[cfg(feature = "capture")]
 impl Renderer {
+    #[cfg(feature = "capture")]
     fn save_texture(
         texture: &Texture, name: &str, root: &PathBuf, device: &mut Device
     ) -> PlainTexture {
@@ -4988,6 +4983,7 @@ impl Renderer {
         }
     }
 
+    #[cfg(feature = "replay")]
     fn load_texture(texture: &mut Texture, plain: &PlainTexture, root: &PathBuf, device: &mut Device) -> Vec<u8> {
         use std::fs::File;
         use std::io::Read;
@@ -5008,6 +5004,7 @@ impl Renderer {
         texels
     }
 
+    #[cfg(feature = "capture")]
     fn save_capture(
         &mut self,
         config: CaptureConfig,
@@ -5019,7 +5016,7 @@ impl Renderer {
 
         self.device.begin_frame();
         let _gm = self.gpu_profile.start_marker("read GPU data");
-        self.device.bind_read_target_impl(self.capture.read_fbo);
+        self.device.bind_read_target_impl(self.read_fbo);
 
         if !deferred_images.is_empty() {
             info!("saving external images");
@@ -5123,6 +5120,7 @@ impl Renderer {
         info!("done.");
     }
 
+    #[cfg(feature = "replay")]
     fn load_capture(
         &mut self, root: PathBuf, plain_externals: Vec<PlainExternalImage>
     ) {
@@ -5223,7 +5221,7 @@ impl Renderer {
                         let mut t = self.device.create_texture(target, plain_tex.format);
                         Self::load_texture(&mut t, &plain_tex, &root, &mut self.device);
                         let extex = t.into_external();
-                        self.capture.owned_external_images.insert(key, extex.clone());
+                        self.owned_external_images.insert(key, extex.clone());
                         e.insert(extex.internal_id()).clone()
                     }
                 };
