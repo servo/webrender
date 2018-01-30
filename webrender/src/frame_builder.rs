@@ -32,6 +32,7 @@ use render_task::{ClearMode, RenderTask, RenderTaskId, RenderTaskLocation, Rende
 use resource_cache::{ImageRequest, ResourceCache};
 use scene::{ScenePipeline, SceneProperties};
 use std::{mem, usize, f32};
+use std::sync::Arc;
 use tiling::{CompositeOps, Frame, RenderPass, RenderTargetKind};
 use tiling::{RenderPassKind, RenderTargetContext, ScrollbarPrimitive};
 use util::{self, MaxRect, RectHelpers, WorldToLayerFastTransform, recycle_vec};
@@ -110,7 +111,7 @@ pub struct FrameBuilder {
 pub struct FrameContext<'a> {
     pub device_pixel_scale: DevicePixelScale,
     pub scene_properties: &'a SceneProperties,
-    pub pipelines: &'a FastHashMap<PipelineId, ScenePipeline>,
+    pub pipelines: &'a FastHashMap<PipelineId, Arc<ScenePipeline>>,
     pub screen_rect: DeviceIntRect,
     pub clip_scroll_tree: &'a ClipScrollTree,
     pub node_data: &'a [ClipScrollNodeData],
@@ -1678,7 +1679,7 @@ impl FrameBuilder {
     fn build_layer_screen_rects_and_cull_layers(
         &mut self,
         clip_scroll_tree: &ClipScrollTree,
-        pipelines: &FastHashMap<PipelineId, ScenePipeline>,
+        pipelines: &FastHashMap<PipelineId, Arc<ScenePipeline>>,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
         render_tasks: &mut RenderTaskTree,
@@ -1794,7 +1795,7 @@ impl FrameBuilder {
         gpu_cache: &mut GpuCache,
         frame_id: FrameId,
         clip_scroll_tree: &mut ClipScrollTree,
-        pipelines: &FastHashMap<PipelineId, ScenePipeline>,
+        pipelines: &FastHashMap<PipelineId, Arc<ScenePipeline>>,
         window_size: DeviceUintSize,
         device_pixel_scale: DevicePixelScale,
         layer: DocumentLayer,
