@@ -20,7 +20,7 @@ use euclid::{SideOffsets2D, vec2};
 use frame::FrameId;
 use glyph_rasterizer::FontInstance;
 use gpu_cache::GpuCache;
-use gpu_types::{ClipScrollNodeData, PictureType};
+use gpu_types::{ClipChainRectIndex, ClipScrollNodeData, PictureType};
 use internal_types::{FastHashMap, FastHashSet, RenderPassIndex};
 use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
 use prim_store::{BrushKind, BrushPrimitive, ImageCacheKey, YuvImagePrimitiveCpu};
@@ -148,6 +148,7 @@ pub struct PrimitiveRunContext<'a> {
     pub display_list: &'a BuiltDisplayList,
     pub clip_chain: Option<&'a ClipChain>,
     pub scroll_node: &'a ClipScrollNode,
+    pub clip_chain_rect_index: ClipChainRectIndex,
 }
 
 impl<'a> PrimitiveRunContext<'a> {
@@ -155,11 +156,13 @@ impl<'a> PrimitiveRunContext<'a> {
         display_list: &'a BuiltDisplayList,
         clip_chain: Option<&'a ClipChain>,
         scroll_node: &'a ClipScrollNode,
+        clip_chain_rect_index: ClipChainRectIndex,
     ) -> Self {
         PrimitiveRunContext {
             display_list,
             clip_chain,
             scroll_node,
+            clip_chain_rect_index,
         }
     }
 }
@@ -1639,6 +1642,7 @@ impl FrameBuilder {
             display_list,
             root_clip_scroll_node.clip_chain.as_ref(),
             root_clip_scroll_node,
+            ClipChainRectIndex(0),
         );
 
         let mut child_tasks = Vec::new();

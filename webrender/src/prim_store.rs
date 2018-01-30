@@ -1705,7 +1705,6 @@ impl PrimitiveStore {
         perform_culling: bool,
         parent_tasks: &mut Vec<RenderTaskId>,
         pic_index: SpecificPrimitiveIndex,
-        clip_chain_rect_index: ClipChainRectIndex,
         frame_context: &FrameContext,
         frame_state: &mut FrameState,
     ) -> Option<LayerRect> {
@@ -1812,7 +1811,7 @@ impl PrimitiveStore {
                 return None;
             }
 
-            metadata.clip_chain_rect_index = clip_chain_rect_index;
+            metadata.clip_chain_rect_index = prim_run_context.clip_chain_rect_index;
 
             (local_rect, screen_bounding_rect)
         };
@@ -1918,12 +1917,6 @@ impl PrimitiveStore {
                 .expect("No display list?")
                 .display_list;
 
-            let child_prim_run_context = PrimitiveRunContext::new(
-                display_list,
-                clip_chain,
-                scroll_node,
-            );
-
             let clip_chain_rect = match perform_culling {
                 true => get_local_clip_rect_for_nodes(scroll_node, clip_chain),
                 false => None,
@@ -1938,6 +1931,12 @@ impl PrimitiveStore {
                 None => ClipChainRectIndex(0), // This is no clipping.
             };
 
+            let child_prim_run_context = PrimitiveRunContext::new(
+                display_list,
+                clip_chain,
+                scroll_node,
+                clip_chain_rect_index,
+            );
 
             for i in 0 .. run.count {
                 let prim_index = PrimitiveIndex(run.base_prim_index.0 + i);
@@ -1948,7 +1947,6 @@ impl PrimitiveStore {
                     perform_culling,
                     parent_tasks,
                     pic_index,
-                    clip_chain_rect_index,
                     frame_context,
                     frame_state,
                 ) {
