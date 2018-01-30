@@ -1709,7 +1709,6 @@ impl PrimitiveStore {
         parent_tasks: &mut Vec<RenderTaskId>,
         pic_index: SpecificPrimitiveIndex,
         clip_chain_rect_index: ClipChainRectIndex,
-        local_rects: &mut Vec<LayerRect>,
         frame_context: &FrameContext,
         frame_state: &mut FrameState,
     ) -> Option<LayerRect> {
@@ -1771,7 +1770,6 @@ impl PrimitiveStore {
                 &mut child_tasks,
                 rfid,
                 cpu_prim_index,
-                local_rects,
                 frame_context,
                 frame_state,
             );
@@ -1871,7 +1869,6 @@ impl PrimitiveStore {
         parent_tasks: &mut Vec<RenderTaskId>,
         original_reference_frame_id: Option<ClipId>,
         pic_index: SpecificPrimitiveIndex,
-        local_rects: &mut Vec<LayerRect>,
         frame_context: &FrameContext,
         frame_state: &mut FrameState,
     ) -> PrimitiveRunLocalRect {
@@ -1946,8 +1943,8 @@ impl PrimitiveStore {
             let clip_chain_rect_index = match clip_chain_rect {
                 Some(rect) if rect.is_empty() => continue,
                 Some(rect) => {
-                    local_rects.push(rect);
-                    ClipChainRectIndex(local_rects.len() - 1)
+                    frame_state.local_clip_rects.push(rect);
+                    ClipChainRectIndex(frame_state.local_clip_rects.len() - 1)
                 }
                 None => ClipChainRectIndex(0), // This is no clipping.
             };
@@ -1965,7 +1962,6 @@ impl PrimitiveStore {
                     parent_tasks,
                     pic_index,
                     clip_chain_rect_index,
-                    local_rects,
                     frame_context,
                     frame_state,
                 ) {

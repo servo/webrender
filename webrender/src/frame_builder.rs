@@ -139,6 +139,7 @@ pub struct FrameState<'a> {
     pub render_tasks: &'a mut RenderTaskTree,
     pub profile_counters: &'a mut FrameProfileCounters,
     pub clip_store: &'a mut ClipStore,
+    pub local_clip_rects: &'a mut Vec<LayerRect>,
 }
 
 pub struct PrimitiveRunContext<'a> {
@@ -1596,7 +1597,7 @@ impl FrameBuilder {
         profile_counters: &mut FrameProfileCounters,
         device_pixel_scale: DevicePixelScale,
         scene_properties: &SceneProperties,
-        local_rects: &mut Vec<LayerRect>,
+        local_clip_rects: &mut Vec<LayerRect>,
         node_data: &[ClipScrollNodeData],
     ) -> Option<RenderTaskId> {
         profile_scope!("cull");
@@ -1627,6 +1628,7 @@ impl FrameBuilder {
             render_tasks,
             profile_counters,
             clip_store: &mut self.clip_store,
+            local_clip_rects,
         };
 
         let root_prim_run_context = PrimitiveRunContext::new(
@@ -1647,7 +1649,6 @@ impl FrameBuilder {
             &mut child_tasks,
             None,
             SpecificPrimitiveIndex(0),
-            local_rects,
             &frame_context,
             &mut frame_state,
         );
