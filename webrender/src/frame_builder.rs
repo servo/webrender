@@ -126,22 +126,34 @@ pub struct FrameBuilder {
     sc_stack: Vec<StackingContext>,
 }
 
-pub struct PrimitiveContext<'a> {
+pub struct FrameContext<'a> {
     pub device_pixel_scale: DevicePixelScale,
+    pub scene_properties: &'a SceneProperties,
+    pub pipelines: &'a FastHashMap<PipelineId, ScenePipeline>,
+    pub screen_rect: DeviceIntRect,
+    pub clip_scroll_tree: &'a ClipScrollTree,
+    pub node_data: &'a [ClipScrollNodeData],
+}
+
+pub struct FrameState<'a> {
+    pub render_tasks: &'a mut RenderTaskTree,
+    pub profile_counters: &'a mut FrameProfileCounters,
+    pub clip_store: &'a mut ClipStore,
+}
+
+pub struct PrimitiveRunContext<'a> {
     pub display_list: &'a BuiltDisplayList,
     pub clip_chain: Option<&'a ClipChain>,
     pub scroll_node: &'a ClipScrollNode,
 }
 
-impl<'a> PrimitiveContext<'a> {
+impl<'a> PrimitiveRunContext<'a> {
     pub fn new(
-        device_pixel_scale: DevicePixelScale,
         display_list: &'a BuiltDisplayList,
         clip_chain: Option<&'a ClipChain>,
         scroll_node: &'a ClipScrollNode,
     ) -> Self {
-        PrimitiveContext {
-            device_pixel_scale,
+        PrimitiveRunContext {
             display_list,
             clip_chain,
             scroll_node,
@@ -1576,7 +1588,7 @@ impl FrameBuilder {
     /// primitives in screen space.
     fn build_layer_screen_rects_and_cull_layers(
         &mut self,
-        clip_scroll_tree: &mut ClipScrollTree,
+        clip_scroll_tree: &ClipScrollTree,
         pipelines: &FastHashMap<PipelineId, ScenePipeline>,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
@@ -1584,8 +1596,8 @@ impl FrameBuilder {
         profile_counters: &mut FrameProfileCounters,
         device_pixel_scale: DevicePixelScale,
         scene_properties: &SceneProperties,
-        node_data: &[ClipScrollNodeData],
         local_rects: &mut Vec<LayerRect>,
+        node_data: &[ClipScrollNodeData],
     ) -> Option<RenderTaskId> {
         profile_scope!("cull");
 
@@ -1602,8 +1614,22 @@ impl FrameBuilder {
             .expect("No display list?")
             .display_list;
 
-        let root_prim_context = PrimitiveContext::new(
+        let frame_context = FrameContext {
             device_pixel_scale,
+            scene_properties,
+            pipelines,
+            screen_rect: self.screen_rect.to_i32(),
+            clip_scroll_tree,
+            node_data,
+        };
+
+        let mut frame_state = FrameState {
+            render_tasks,
+            profile_counters,
+            clip_store: &mut self.clip_store,
+        };
+
+        let root_prim_run_context = PrimitiveRunContext::new(
             display_list,
             root_clip_scroll_node.clip_chain.as_ref(),
             root_clip_scroll_node,
@@ -1616,20 +1642,14 @@ impl FrameBuilder {
             root_clip_scroll_node.pipeline_id,
             gpu_cache,
             resource_cache,
-            render_tasks,
-            &mut self.clip_store,
-            clip_scroll_tree,
-            pipelines,
-            &root_prim_context,
+            &root_prim_run_context,
             true,
             &mut child_tasks,
-            profile_counters,
             None,
-            scene_properties,
             SpecificPrimitiveIndex(0),
-            &self.screen_rect.to_i32(),
-            node_data,
             local_rects,
+            &frame_context,
+            &mut frame_state,
         );
 
         let pic = &mut self.prim_store.cpu_pictures[0];
@@ -1646,7 +1666,7 @@ impl FrameBuilder {
             PictureType::Image,
         );
 
-        let render_task_id = render_tasks.add(root_render_task);
+        let render_task_id = frame_state.render_tasks.add(root_render_task);
         pic.surface = Some(PictureSurface::RenderTask(render_task_id));
         Some(render_task_id)
     }
@@ -1739,8 +1759,8 @@ impl FrameBuilder {
             &mut profile_counters,
             device_pixel_scale,
             scene_properties,
-            &node_data,
             &mut clip_chain_local_clip_rects,
+            &node_data,
         );
 
         let mut passes = Vec::new();
@@ -1775,9 +1795,9 @@ impl FrameBuilder {
                 device_pixel_scale,
                 prim_store: &self.prim_store,
                 resource_cache,
-                node_data: &node_data,
                 clip_scroll_tree,
                 use_dual_source_blending,
+                node_data: &node_data,
             };
 
             pass.build(
