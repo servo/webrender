@@ -20,7 +20,7 @@ use euclid::{SideOffsets2D, vec2};
 use frame::FrameId;
 use glyph_rasterizer::FontInstance;
 use gpu_cache::GpuCache;
-use gpu_types::{PictureType};
+use gpu_types::{ClipScrollNodeData, PictureType};
 use internal_types::{FastHashMap, FastHashSet, RenderPassIndex};
 use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
 use prim_store::{BrushKind, BrushPrimitive, ImageCacheKey, YuvImagePrimitiveCpu};
@@ -131,44 +131,13 @@ pub struct FrameContext<'a> {
     pub pipelines: &'a FastHashMap<PipelineId, ScenePipeline>,
     pub screen_rect: DeviceIntRect,
     pub clip_scroll_tree: &'a ClipScrollTree,
-}
-
-impl<'a> FrameContext<'a> {
-    pub fn new(
-        device_pixel_scale: DevicePixelScale,
-        scene_properties: &'a SceneProperties,
-        pipelines: &'a FastHashMap<PipelineId, ScenePipeline>,
-        screen_rect: DeviceIntRect,
-        clip_scroll_tree: &'a ClipScrollTree
-    ) -> FrameContext<'a> {
-        FrameContext {
-            device_pixel_scale,
-            scene_properties,
-            pipelines,
-            screen_rect,
-            clip_scroll_tree,
-        }
-    }
+    pub node_data: &'a [ClipScrollNodeData],
 }
 
 pub struct FrameState<'a> {
     pub render_tasks: &'a mut RenderTaskTree,
     pub profile_counters: &'a mut FrameProfileCounters,
     pub clip_store: &'a mut ClipStore,
-}
-
-impl<'a> FrameState<'a> {
-    pub fn new(
-        render_tasks: &'a mut RenderTaskTree,
-        profile_counters: &'a mut FrameProfileCounters,
-        clip_store: &'a mut ClipStore,
-    ) -> FrameState<'a> {
-        FrameState {
-            render_tasks,
-            profile_counters,
-            clip_store,
-        }
-    }
 }
 
 pub struct PrimitiveRunContext<'a> {
@@ -1627,6 +1596,7 @@ impl FrameBuilder {
         device_pixel_scale: DevicePixelScale,
         scene_properties: &SceneProperties,
         local_rects: &mut Vec<LayerRect>,
+        node_data: &[ClipScrollNodeData],
     ) -> Option<RenderTaskId> {
         profile_scope!("cull");
 
@@ -1643,19 +1613,20 @@ impl FrameBuilder {
             .expect("No display list?")
             .display_list;
 
-        let frame_context = FrameContext::new(
+        let frame_context = FrameContext {
             device_pixel_scale,
             scene_properties,
             pipelines,
-            self.screen_rect.to_i32(),
+            screen_rect: self.screen_rect.to_i32(),
             clip_scroll_tree,
-        );
+            node_data,
+        };
 
-        let mut frame_state = FrameState::new(
+        let mut frame_state = FrameState {
             render_tasks,
             profile_counters,
-            &mut self.clip_store,
-        );
+            clip_store: &mut self.clip_store,
+        };
 
         let root_prim_run_context = PrimitiveRunContext::new(
             display_list,
@@ -1757,6 +1728,7 @@ impl FrameBuilder {
         resource_cache.begin_frame(frame_id);
         gpu_cache.begin_frame();
 
+        let mut node_data = Vec::with_capacity(clip_scroll_tree.nodes.len());
         let total_prim_runs =
             self.prim_store.cpu_pictures.iter().fold(1, |count, ref pic| count + pic.runs.len());
         let mut clip_chain_local_clip_rects = Vec::with_capacity(total_prim_runs);
@@ -1769,6 +1741,7 @@ impl FrameBuilder {
             resource_cache,
             gpu_cache,
             pan,
+            &mut node_data,
             scene_properties,
         );
 
@@ -1786,6 +1759,7 @@ impl FrameBuilder {
             device_pixel_scale,
             scene_properties,
             &mut clip_chain_local_clip_rects,
+            &node_data,
         );
 
         let mut passes = Vec::new();
@@ -1822,6 +1796,7 @@ impl FrameBuilder {
                 resource_cache,
                 clip_scroll_tree,
                 use_dual_source_blending,
+                node_data: &node_data,
             };
 
             pass.build(
@@ -1852,7 +1827,7 @@ impl FrameBuilder {
             layer,
             profile_counters,
             passes,
-            node_data: clip_scroll_tree.take_node_data(),
+            node_data,
             clip_chain_local_clip_rects,
             render_tasks,
             deferred_resolves,

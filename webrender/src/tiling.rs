@@ -44,6 +44,7 @@ pub struct RenderTargetContext<'a> {
     pub resource_cache: &'a ResourceCache,
     pub clip_scroll_tree: &'a ClipScrollTree,
     pub use_dual_source_blending: bool,
+    pub node_data: &'a [ClipScrollNodeData],
 }
 
 #[cfg_attr(feature = "capture", derive(Deserialize, Serialize))]

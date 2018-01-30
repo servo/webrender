@@ -1448,7 +1448,6 @@ impl PrimitiveStore {
                     local_clip_rect
                 } else {
                     let clip_transform_data = &frame_context
-                        .clip_scroll_tree
                         .node_data[clip_item.scroll_node_data_index.0 as usize];
                     let prim_transform = &prim_run_context.scroll_node.world_content_transform;
 
