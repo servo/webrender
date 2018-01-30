@@ -18,8 +18,10 @@ use winapi::shared::windef::HWND;
 use winapi::um::d3d11::D3D11_CREATE_DEVICE_BGRA_SUPPORT;
 use winapi::um::d3d11::D3D11_SDK_VERSION;
 use winapi::um::d3d11::D3D11CreateDevice;
+use winapi::um::d3d11::ID3D11Device;
 use winapi::um::d3dcommon::D3D_DRIVER_TYPE_HARDWARE;
 use winapi::um::dcomp::IDCompositionDevice;
+use winapi::um::dcomp::IDCompositionTarget;
 use winapi::um::dcomp::DCompositionCreateDevice;
 use winapi::um::unknwnbase::IUnknown;
 
@@ -94,7 +96,9 @@ unsafe fn query_interface<T, U>(p: *mut T) -> Result<*mut U, HRESULT>
 
 /// https://msdn.microsoft.com/en-us/library/windows/desktop/hh449180(v=vs.85).aspx
 
-unsafe fn initialize_direct_composition_device(m_hwnd: HWND) -> Result<(), HRESULT> {
+unsafe fn initialize_direct_composition_device(m_hwnd: HWND)
+    -> Result<(*mut ID3D11Device, *mut IDCompositionDevice, *mut IDCompositionTarget), HRESULT>
+{
     let mut m_pD3D11Device = ptr::null_mut();
     let mut featureLevelSupported = 0;
 
@@ -130,5 +134,5 @@ unsafe fn initialize_direct_composition_device(m_hwnd: HWND) -> Result<(), HRESU
     // FIXME: make/use a type with a destructor, so that this runs even in case of early return
     (*pDXGIDevice).Release();
 
-    Ok(())
+    Ok((m_pD3D11Device, m_pDCompDevice, m_pDCompTarget))
 }
