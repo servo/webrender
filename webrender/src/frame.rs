@@ -24,6 +24,8 @@ use scene::{Scene, StackingContextHelpers, ScenePipeline, SceneProperties};
 use tiling::{CompositeOps, Frame};
 use renderer::PipelineInfo;
 
+use std::sync::Arc;
+
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Eq, Ord)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -356,7 +358,8 @@ impl<'a> FlattenContext<'a> {
             self.clip_scroll_tree,
         );
 
-        self.pipeline_epochs.push((pipeline_id, pipeline.epoch));
+        let epoch = *self.scene.pipeline_epochs.get(&pipeline_id).unwrap();
+        self.pipeline_epochs.push((pipeline_id, epoch));
 
         let iframe_rect = LayerRect::new(LayerPoint::zero(), bounds.size);
         let origin = reference_frame_relative_offset + bounds.origin.to_vector();
@@ -1048,8 +1051,9 @@ impl FrameContext {
 
         let old_scrolling_states = self.reset();
 
-        self.pipeline_epoch_map
-            .insert(root_pipeline_id, root_pipeline.epoch);
+        let root_epoch = *scene.pipeline_epochs.get(&root_pipeline_id).unwrap();
+        self.pipeline_epoch_map.insert(root_pipeline_id, root_epoch);
+
 
         let background_color = root_pipeline
             .background_color
@@ -1129,7 +1133,7 @@ impl FrameContext {
         frame_builder: &mut FrameBuilder,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
-        pipelines: &FastHashMap<PipelineId, ScenePipeline>,
+        pipelines: &FastHashMap<PipelineId, Arc<ScenePipeline>>,
         device_pixel_scale: DevicePixelScale,
         layer: DocumentLayer,
         pan: WorldPoint,
