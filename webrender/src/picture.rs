@@ -13,7 +13,7 @@ use gpu_types::{BrushImageKind, PictureType};
 use prim_store::{BrushKind, BrushPrimitive, PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
 use render_task::{ClearMode, RenderTask, RenderTaskCacheKey};
 use render_task::{RenderTaskCacheKeyKind, RenderTaskId};
-use resource_cache::{CacheItem, ResourceCache};
+use resource_cache::CacheItem;
 use scene::{FilterOpHelpers, SceneProperties};
 use tiling::RenderTargetKind;
 
@@ -333,7 +333,6 @@ impl PicturePrimitive {
         prim_local_rect: &LayerRect,
         child_tasks: Vec<RenderTaskId>,
         parent_tasks: &mut Vec<RenderTaskId>,
-        resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
         frame_context: &FrameContext,
         frame_state: &mut FrameState,
@@ -532,7 +531,7 @@ impl PicturePrimitive {
                 // Request the texture cache item for this box-shadow key. If it
                 // doesn't exist in the cache, the closure is invoked to build
                 // a render task chain to draw the cacheable result.
-                let cache_item = resource_cache.request_render_task(
+                let cache_item = frame_state.resource_cache.request_render_task(
                     RenderTaskCacheKey {
                         size: cache_size,
                         kind: RenderTaskCacheKeyKind::BoxShadow(cache_key),
