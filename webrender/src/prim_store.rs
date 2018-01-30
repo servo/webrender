@@ -1145,8 +1145,6 @@ impl PrimitiveStore {
         &mut self,
         prim_index: PrimitiveIndex,
         prim_run_context: &PrimitiveRunContext,
-        resource_cache: &mut ResourceCache,
-        gpu_cache: &mut GpuCache,
         child_tasks: Vec<RenderTaskId>,
         parent_tasks: &mut Vec<RenderTaskId>,
         pic_index: SpecificPrimitiveIndex,
@@ -1164,8 +1162,6 @@ impl PrimitiveStore {
                         &metadata.local_rect,
                         child_tasks,
                         parent_tasks,
-                        resource_cache,
-                        gpu_cache,
                         frame_context,
                         frame_state,
                     );
@@ -1182,16 +1178,18 @@ impl PrimitiveStore {
                     },
                 };
                 text.prepare_for_render(
-                    resource_cache,
+                    frame_state.resource_cache,
                     frame_context.device_pixel_scale,
                     transform,
                     prim_run_context.display_list,
-                    gpu_cache,
+                    frame_state.gpu_cache,
                 );
             }
             PrimitiveKind::Image => {
                 let image_cpu = &mut self.cpu_images[metadata.cpu_prim_index.0];
-                let image_properties = resource_cache.get_image_properties(image_cpu.key.image_key);
+                let image_properties = frame_state
+                    .resource_cache
+                    .get_image_properties(image_cpu.key.image_key);
 
                 // TODO(gw): Add image.rs and move this code out to a separate
                 //           source file as it gets more complicated, and we
@@ -1228,11 +1226,11 @@ impl PrimitiveStore {
 
                     // TODO(gw): Don't actually need this in cached source mode if
                     //           the cache item is still valid...
-                    resource_cache.request_image(
+                    frame_state.resource_cache.request_image(
                         image_cpu.key.image_key,
                         image_cpu.key.image_rendering,
                         image_cpu.key.tile_offset,
-                        gpu_cache,
+                        frame_state.gpu_cache,
                     );
 
                     // Every frame, for cached items, we need to request the render
@@ -1243,12 +1241,12 @@ impl PrimitiveStore {
                         let key = image_cpu.key;
 
                         // Request a pre-rendered image task.
-                        *item = resource_cache.request_render_task(
+                        *item = frame_state.resource_cache.request_render_task(
                             RenderTaskCacheKey {
                                 size,
                                 kind: RenderTaskCacheKeyKind::Image(key),
                             },
-                            gpu_cache,
+                            frame_state.gpu_cache,
                             frame_state.render_tasks,
                             |render_tasks| {
                                 // Create a task to blit from the texture cache to
@@ -1290,11 +1288,11 @@ impl PrimitiveStore {
                 let channel_num = image_cpu.format.get_plane_num();
                 debug_assert!(channel_num <= 3);
                 for channel in 0 .. channel_num {
-                    resource_cache.request_image(
+                    frame_state.resource_cache.request_image(
                         image_cpu.yuv_key[channel],
                         image_cpu.image_rendering,
                         None,
-                        gpu_cache,
+                        frame_state.gpu_cache,
                     );
                 }
             }
@@ -1305,7 +1303,7 @@ impl PrimitiveStore {
         }
 
         // Mark this GPU resource as required for this frame.
-        if let Some(mut request) = gpu_cache.request(&mut metadata.gpu_location) {
+        if let Some(mut request) = frame_state.gpu_cache.request(&mut metadata.gpu_location) {
             // has to match VECS_PER_BRUSH_PRIM
             request.push(metadata.local_rect);
             request.push(metadata.local_clip_rect);
@@ -1571,8 +1569,6 @@ impl PrimitiveStore {
         prim_index: PrimitiveIndex,
         prim_run_context: &PrimitiveRunContext,
         prim_screen_rect: &DeviceIntRect,
-        resource_cache: &mut ResourceCache,
-        gpu_cache: &mut GpuCache,
         tasks: &mut Vec<RenderTaskId>,
         frame_context: &FrameContext,
         frame_state: &mut FrameState,
@@ -1600,7 +1596,10 @@ impl PrimitiveStore {
             let metadata = &self.cpu_metadata[prim_index.0];
             let prim_clips = frame_state.clip_store.get_mut(&metadata.clip_sources);
             if prim_clips.has_clips() {
-                prim_clips.update(gpu_cache, resource_cache);
+                prim_clips.update(
+                    frame_state.gpu_cache,
+                    frame_state.resource_cache,
+                );
                 let (screen_inner_rect, screen_outer_rect) =
                     prim_clips.get_screen_bounds(transform, frame_context.device_pixel_scale);
 
@@ -1703,13 +1702,9 @@ impl PrimitiveStore {
         &mut self,
         prim_index: PrimitiveIndex,
         prim_run_context: &PrimitiveRunContext,
-        resource_cache: &mut ResourceCache,
-        gpu_cache: &mut GpuCache,
         perform_culling: bool,
         parent_tasks: &mut Vec<RenderTaskId>,
         pic_index: SpecificPrimitiveIndex,
-        clip_chain_rect_index: ClipChainRectIndex,
-        local_rects: &mut Vec<LayerRect>,
         frame_context: &FrameContext,
         frame_state: &mut FrameState,
     ) -> Option<LayerRect> {
@@ -1764,14 +1759,11 @@ impl PrimitiveStore {
             let result = self.prepare_prim_runs(
                 &dependencies,
                 pipeline_id,
-                gpu_cache,
-                resource_cache,
                 prim_run_context,
                 cull_children,
                 &mut child_tasks,
                 rfid,
                 cpu_prim_index,
-                local_rects,
                 frame_context,
                 frame_state,
             );
@@ -1819,7 +1811,7 @@ impl PrimitiveStore {
                 return None;
             }
 
-            metadata.clip_chain_rect_index = clip_chain_rect_index;
+            metadata.clip_chain_rect_index = prim_run_context.clip_chain_rect_index;
 
             (local_rect, screen_bounding_rect)
         };
@@ -1828,8 +1820,6 @@ impl PrimitiveStore {
             prim_index,
             prim_run_context,
             &unclipped_device_rect,
-            resource_cache,
-            gpu_cache,
             parent_tasks,
             frame_context,
             frame_state,
@@ -1840,8 +1830,6 @@ impl PrimitiveStore {
         self.prepare_prim_for_render_inner(
             prim_index,
             prim_run_context,
-            resource_cache,
-            gpu_cache,
             child_tasks,
             parent_tasks,
             pic_index,
@@ -1864,14 +1852,11 @@ impl PrimitiveStore {
         &mut self,
         runs: &[PrimitiveRun],
         pipeline_id: PipelineId,
-        gpu_cache: &mut GpuCache,
-        resource_cache: &mut ResourceCache,
         parent_prim_run_context: &PrimitiveRunContext,
         perform_culling: bool,
         parent_tasks: &mut Vec<RenderTaskId>,
         original_reference_frame_id: Option<ClipId>,
         pic_index: SpecificPrimitiveIndex,
-        local_rects: &mut Vec<LayerRect>,
         frame_context: &FrameContext,
         frame_state: &mut FrameState,
     ) -> PrimitiveRunLocalRect {
@@ -1932,12 +1917,6 @@ impl PrimitiveStore {
                 .expect("No display list?")
                 .display_list;
 
-            let child_prim_run_context = PrimitiveRunContext::new(
-                display_list,
-                clip_chain,
-                scroll_node,
-            );
-
             let clip_chain_rect = match perform_culling {
                 true => get_local_clip_rect_for_nodes(scroll_node, clip_chain),
                 false => None,
@@ -1946,12 +1925,18 @@ impl PrimitiveStore {
             let clip_chain_rect_index = match clip_chain_rect {
                 Some(rect) if rect.is_empty() => continue,
                 Some(rect) => {
-                    local_rects.push(rect);
-                    ClipChainRectIndex(local_rects.len() - 1)
+                    frame_state.local_clip_rects.push(rect);
+                    ClipChainRectIndex(frame_state.local_clip_rects.len() - 1)
                 }
                 None => ClipChainRectIndex(0), // This is no clipping.
             };
 
+            let child_prim_run_context = PrimitiveRunContext::new(
+                display_list,
+                clip_chain,
+                scroll_node,
+                clip_chain_rect_index,
+            );
 
             for i in 0 .. run.count {
                 let prim_index = PrimitiveIndex(run.base_prim_index.0 + i);
@@ -1959,13 +1944,9 @@ impl PrimitiveStore {
                 if let Some(prim_local_rect) = self.prepare_prim_for_render(
                     prim_index,
                     &child_prim_run_context,
-                    resource_cache,
-                    gpu_cache,
                     perform_culling,
                     parent_tasks,
                     pic_index,
-                    clip_chain_rect_index,
-                    local_rects,
                     frame_context,
                     frame_state,
                 ) {

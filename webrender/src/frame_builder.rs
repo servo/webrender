@@ -20,7 +20,7 @@ use euclid::{SideOffsets2D, vec2};
 use frame::FrameId;
 use glyph_rasterizer::FontInstance;
 use gpu_cache::GpuCache;
-use gpu_types::{ClipScrollNodeData, PictureType};
+use gpu_types::{ClipChainRectIndex, ClipScrollNodeData, PictureType};
 use internal_types::{FastHashMap, FastHashSet, RenderPassIndex};
 use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
 use prim_store::{BrushKind, BrushPrimitive, ImageCacheKey, YuvImagePrimitiveCpu};
@@ -139,12 +139,16 @@ pub struct FrameState<'a> {
     pub render_tasks: &'a mut RenderTaskTree,
     pub profile_counters: &'a mut FrameProfileCounters,
     pub clip_store: &'a mut ClipStore,
+    pub local_clip_rects: &'a mut Vec<LayerRect>,
+    pub resource_cache: &'a mut ResourceCache,
+    pub gpu_cache: &'a mut GpuCache,
 }
 
 pub struct PrimitiveRunContext<'a> {
     pub display_list: &'a BuiltDisplayList,
     pub clip_chain: Option<&'a ClipChain>,
     pub scroll_node: &'a ClipScrollNode,
+    pub clip_chain_rect_index: ClipChainRectIndex,
 }
 
 impl<'a> PrimitiveRunContext<'a> {
@@ -152,11 +156,13 @@ impl<'a> PrimitiveRunContext<'a> {
         display_list: &'a BuiltDisplayList,
         clip_chain: Option<&'a ClipChain>,
         scroll_node: &'a ClipScrollNode,
+        clip_chain_rect_index: ClipChainRectIndex,
     ) -> Self {
         PrimitiveRunContext {
             display_list,
             clip_chain,
             scroll_node,
+            clip_chain_rect_index,
         }
     }
 }
@@ -1596,7 +1602,7 @@ impl FrameBuilder {
         profile_counters: &mut FrameProfileCounters,
         device_pixel_scale: DevicePixelScale,
         scene_properties: &SceneProperties,
-        local_rects: &mut Vec<LayerRect>,
+        local_clip_rects: &mut Vec<LayerRect>,
         node_data: &[ClipScrollNodeData],
     ) -> Option<RenderTaskId> {
         profile_scope!("cull");
@@ -1627,12 +1633,16 @@ impl FrameBuilder {
             render_tasks,
             profile_counters,
             clip_store: &mut self.clip_store,
+            local_clip_rects,
+            resource_cache,
+            gpu_cache,
         };
 
         let root_prim_run_context = PrimitiveRunContext::new(
             display_list,
             root_clip_scroll_node.clip_chain.as_ref(),
             root_clip_scroll_node,
+            ClipChainRectIndex(0),
         );
 
         let mut child_tasks = Vec::new();
@@ -1640,14 +1650,11 @@ impl FrameBuilder {
         self.prim_store.prepare_prim_runs(
             &prim_run_cmds,
             root_clip_scroll_node.pipeline_id,
-            gpu_cache,
-            resource_cache,
             &root_prim_run_context,
             true,
             &mut child_tasks,
             None,
             SpecificPrimitiveIndex(0),
-            local_rects,
             &frame_context,
             &mut frame_state,
         );
