@@ -13,7 +13,7 @@ use border::{BorderCornerInstance, BorderEdgeKind};
 use clip_scroll_tree::{CoordinateSystemId, ClipScrollTree};
 use clip_scroll_node::ClipScrollNode;
 use clip::{ClipSource, ClipSourcesHandle, ClipStore};
-use frame_builder::PrimitiveRunContext;
+use frame_builder::{FrameContext, PrimitiveRunContext};
 use glyph_rasterizer::{FontInstance, FontTransform};
 use internal_types::{FastHashMap};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
@@ -1151,6 +1151,7 @@ impl PrimitiveStore {
         child_tasks: Vec<RenderTaskId>,
         parent_tasks: &mut Vec<RenderTaskId>,
         pic_index: SpecificPrimitiveIndex,
+        frame_context: &FrameContext,
     ) {
         let metadata = &mut self.cpu_metadata[prim_index.0];
         match metadata.prim_kind {
@@ -1159,7 +1160,7 @@ impl PrimitiveStore {
                 self.cpu_pictures[metadata.cpu_prim_index.0]
                     .prepare_for_render(
                         prim_index,
-                        prim_run_context,
+                        frame_context,
                         render_tasks,
                         metadata.screen_rect.as_ref().expect("bug: trying to draw an off-screen picture!?"),
                         &metadata.local_rect,
@@ -1182,7 +1183,7 @@ impl PrimitiveStore {
                 };
                 text.prepare_for_render(
                     resource_cache,
-                    prim_run_context.device_pixel_scale,
+                    frame_context.device_pixel_scale,
                     transform,
                     prim_run_context.display_list,
                     gpu_cache,
@@ -1505,6 +1506,7 @@ impl PrimitiveStore {
         clips: &Vec<ClipWorkItem>,
         combined_outer_rect: &DeviceIntRect,
         has_clips_from_other_coordinate_systems: bool,
+        frame_context: &FrameContext,
     ) -> bool {
         let metadata = &self.cpu_metadata[prim_index.0];
         let brush = match metadata.prim_kind {
@@ -1544,7 +1546,7 @@ impl PrimitiveStore {
             let segment_screen_rect = calculate_screen_bounding_rect(
                 &prim_run_context.scroll_node.world_content_transform,
                 &segment.local_rect,
-                prim_run_context.device_pixel_scale,
+                frame_context.device_pixel_scale,
             );
 
             let intersected_rect = combined_outer_rect.intersection(&segment_screen_rect);
@@ -1577,6 +1579,7 @@ impl PrimitiveStore {
         clip_store: &mut ClipStore,
         tasks: &mut Vec<RenderTaskId>,
         node_data: &[ClipScrollNodeData],
+        frame_context: &FrameContext,
     ) -> bool {
         self.cpu_metadata[prim_index.0].clip_task_id = None;
 
@@ -1603,7 +1606,7 @@ impl PrimitiveStore {
             if prim_clips.has_clips() {
                 prim_clips.update(gpu_cache, resource_cache);
                 let (screen_inner_rect, screen_outer_rect) =
-                    prim_clips.get_screen_bounds(transform, prim_run_context.device_pixel_scale);
+                    prim_clips.get_screen_bounds(transform, frame_context.device_pixel_scale);
 
                 if let Some(outer) = screen_outer_rect {
                     combined_outer_rect = combined_outer_rect.and_then(|r| r.intersection(&outer));
@@ -1684,6 +1687,7 @@ impl PrimitiveStore {
             &clips,
             &combined_outer_rect,
             has_clips_from_other_coordinate_systems,
+            frame_context,
         ) {
             return true;
         }
@@ -1720,6 +1724,7 @@ impl PrimitiveStore {
         clip_chain_rect_index: ClipChainRectIndex,
         node_data: &[ClipScrollNodeData],
         local_rects: &mut Vec<LayerRect>,
+        frame_context: &FrameContext,
     ) -> Option<LayerRect> {
         // Reset the visibility of this primitive.
         // Do some basic checks first, that can early out
@@ -1788,6 +1793,7 @@ impl PrimitiveStore {
                 screen_rect,
                 node_data,
                 local_rects,
+                frame_context,
             );
 
             let metadata = &mut self.cpu_metadata[prim_index.0];
@@ -1820,7 +1826,7 @@ impl PrimitiveStore {
             let screen_bounding_rect = calculate_screen_bounding_rect(
                 &prim_run_context.scroll_node.world_content_transform,
                 &local_rect,
-                prim_run_context.device_pixel_scale,
+                frame_context.device_pixel_scale,
             );
 
             let clip_bounds = match prim_run_context.clip_chain {
@@ -1849,6 +1855,7 @@ impl PrimitiveStore {
             clip_store,
             parent_tasks,
             node_data,
+            frame_context,
         ) {
             return None;
         }
@@ -1862,6 +1869,7 @@ impl PrimitiveStore {
             child_tasks,
             parent_tasks,
             pic_index,
+            frame_context,
         );
 
         Some(local_rect)
@@ -1895,6 +1903,7 @@ impl PrimitiveStore {
         screen_rect: &DeviceIntRect,
         node_data: &[ClipScrollNodeData],
         local_rects: &mut Vec<LayerRect>,
+        frame_context: &FrameContext,
     ) -> PrimitiveRunLocalRect {
         let mut result = PrimitiveRunLocalRect {
             local_rect_in_actual_parent_space: LayerRect::zero(),
@@ -1949,7 +1958,6 @@ impl PrimitiveStore {
                 .display_list;
 
             let child_prim_run_context = PrimitiveRunContext::new(
-                parent_prim_run_context.device_pixel_scale,
                 display_list,
                 clip_chain,
                 scroll_node,
@@ -1991,6 +1999,7 @@ impl PrimitiveStore {
                     clip_chain_rect_index,
                     node_data,
                     local_rects,
+                    frame_context,
                 ) {
                     profile_counters.visible_primitives.inc();
 

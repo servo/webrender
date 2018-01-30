@@ -125,8 +125,21 @@ pub struct FrameBuilder {
     sc_stack: Vec<StackingContext>,
 }
 
-pub struct PrimitiveRunContext<'a> {
+pub struct FrameContext {
     pub device_pixel_scale: DevicePixelScale,
+}
+
+impl FrameContext {
+    pub fn new(
+        device_pixel_scale: DevicePixelScale,
+    ) -> FrameContext {
+        FrameContext {
+            device_pixel_scale,
+        }
+    }
+}
+
+pub struct PrimitiveRunContext<'a> {
     pub display_list: &'a BuiltDisplayList,
     pub clip_chain: Option<&'a ClipChain>,
     pub scroll_node: &'a ClipScrollNode,
@@ -134,13 +147,11 @@ pub struct PrimitiveRunContext<'a> {
 
 impl<'a> PrimitiveRunContext<'a> {
     pub fn new(
-        device_pixel_scale: DevicePixelScale,
         display_list: &'a BuiltDisplayList,
         clip_chain: Option<&'a ClipChain>,
         scroll_node: &'a ClipScrollNode,
     ) -> Self {
         PrimitiveRunContext {
-            device_pixel_scale,
             display_list,
             clip_chain,
             scroll_node,
@@ -1601,8 +1612,11 @@ impl FrameBuilder {
             .expect("No display list?")
             .display_list;
 
-        let root_prim_run_context = PrimitiveRunContext::new(
+        let frame_context = FrameContext::new(
             device_pixel_scale,
+        );
+
+        let root_prim_run_context = PrimitiveRunContext::new(
             display_list,
             root_clip_scroll_node.clip_chain.as_ref(),
             root_clip_scroll_node,
@@ -1629,6 +1643,7 @@ impl FrameBuilder {
             &self.screen_rect.to_i32(),
             node_data,
             local_rects,
+            &frame_context,
         );
 
         let pic = &mut self.prim_store.cpu_pictures[0];
