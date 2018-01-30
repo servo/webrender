@@ -1570,7 +1570,6 @@ impl PrimitiveStore {
         prim_index: PrimitiveIndex,
         prim_run_context: &PrimitiveRunContext,
         prim_screen_rect: &DeviceIntRect,
-        screen_rect: &DeviceIntRect,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
         render_tasks: &mut RenderTaskTree,
@@ -1581,7 +1580,7 @@ impl PrimitiveStore {
     ) -> bool {
         self.cpu_metadata[prim_index.0].clip_task_id = None;
 
-        let prim_screen_rect = match prim_screen_rect.intersection(screen_rect) {
+        let prim_screen_rect = match prim_screen_rect.intersection(&frame_context.screen_rect) {
             Some(rect) => rect,
             None => {
                 self.cpu_metadata[prim_index.0].screen_rect = None;
@@ -1640,7 +1639,7 @@ impl PrimitiveStore {
         };
 
         let mut has_clips_from_other_coordinate_systems = false;
-        let mut combined_inner_rect = *screen_rect;
+        let mut combined_inner_rect = frame_context.screen_rect;
         let clips = convert_clip_chain_to_clip_vector(
             clip_chain,
             extra_clip,
@@ -1716,7 +1715,6 @@ impl PrimitiveStore {
         parent_tasks: &mut Vec<RenderTaskId>,
         profile_counters: &mut FrameProfileCounters,
         pic_index: SpecificPrimitiveIndex,
-        screen_rect: &DeviceIntRect,
         clip_chain_rect_index: ClipChainRectIndex,
         node_data: &[ClipScrollNodeData],
         local_rects: &mut Vec<LayerRect>,
@@ -1784,7 +1782,6 @@ impl PrimitiveStore {
                 profile_counters,
                 rfid,
                 cpu_prim_index,
-                screen_rect,
                 node_data,
                 local_rects,
                 frame_context,
@@ -1825,7 +1822,7 @@ impl PrimitiveStore {
 
             let clip_bounds = match prim_run_context.clip_chain {
                 Some(ref node) => node.combined_outer_screen_rect,
-                None => *screen_rect,
+                None => frame_context.screen_rect,
             };
             metadata.screen_rect = screen_bounding_rect.intersection(&clip_bounds);
 
@@ -1842,7 +1839,6 @@ impl PrimitiveStore {
             prim_index,
             prim_run_context,
             &unclipped_device_rect,
-            screen_rect,
             resource_cache,
             gpu_cache,
             render_tasks,
@@ -1892,7 +1888,6 @@ impl PrimitiveStore {
         profile_counters: &mut FrameProfileCounters,
         original_reference_frame_id: Option<ClipId>,
         pic_index: SpecificPrimitiveIndex,
-        screen_rect: &DeviceIntRect,
         node_data: &[ClipScrollNodeData],
         local_rects: &mut Vec<LayerRect>,
         frame_context: &FrameContext,
@@ -1985,7 +1980,6 @@ impl PrimitiveStore {
                     parent_tasks,
                     profile_counters,
                     pic_index,
-                    screen_rect,
                     clip_chain_rect_index,
                     node_data,
                     local_rects,

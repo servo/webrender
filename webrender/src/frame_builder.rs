@@ -129,6 +129,7 @@ pub struct FrameContext<'a> {
     pub device_pixel_scale: DevicePixelScale,
     pub scene_properties: &'a SceneProperties,
     pub pipelines: &'a FastHashMap<PipelineId, ScenePipeline>,
+    pub screen_rect: DeviceIntRect,
 }
 
 impl<'a> FrameContext<'a> {
@@ -136,11 +137,13 @@ impl<'a> FrameContext<'a> {
         device_pixel_scale: DevicePixelScale,
         scene_properties: &'a SceneProperties,
         pipelines: &'a FastHashMap<PipelineId, ScenePipeline>,
+        screen_rect: DeviceIntRect,
     ) -> FrameContext<'a> {
         FrameContext {
             device_pixel_scale,
             scene_properties,
             pipelines,
+            screen_rect,
         }
     }
 }
@@ -1622,6 +1625,7 @@ impl FrameBuilder {
             device_pixel_scale,
             scene_properties,
             pipelines,
+            self.screen_rect.to_i32(),
         );
 
         let root_prim_run_context = PrimitiveRunContext::new(
@@ -1646,7 +1650,6 @@ impl FrameBuilder {
             profile_counters,
             None,
             SpecificPrimitiveIndex(0),
-            &self.screen_rect.to_i32(),
             node_data,
             local_rects,
             &frame_context,
