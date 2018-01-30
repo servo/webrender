@@ -6,6 +6,7 @@ use api::{BuiltDisplayList, ColorF, DynamicProperties, Epoch, LayerSize, LayoutS
 use api::{FilterOp, LayoutTransform, PipelineId, PropertyBinding, PropertyBindingId};
 use api::{ItemRange, MixBlendMode, StackingContext};
 use internal_types::FastHashMap;
+use std::sync::Arc;
 
 /// Stores a map of the animated property bindings for the current display list. These
 /// can be used to animate the transform and/or opacity of a display list without
@@ -88,7 +89,6 @@ impl SceneProperties {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ScenePipeline {
     pub pipeline_id: PipelineId,
-    pub epoch: Epoch,
     pub viewport_size: LayerSize,
     pub content_size: LayoutSize,
     pub background_color: Option<ColorF>,
@@ -100,7 +100,8 @@ pub struct ScenePipeline {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct Scene {
     pub root_pipeline_id: Option<PipelineId>,
-    pub pipelines: FastHashMap<PipelineId, ScenePipeline>,
+    pub pipelines: FastHashMap<PipelineId, Arc<ScenePipeline>>,
+    pub pipeline_epochs: FastHashMap<PipelineId, Epoch>,
     pub removed_pipelines: Vec<PipelineId>,
     pub properties: SceneProperties,
 }
@@ -111,6 +112,7 @@ impl Scene {
             root_pipeline_id: None,
             pipelines: FastHashMap::default(),
             removed_pipelines: Vec::new(),
+            pipeline_epochs: FastHashMap::default(),
             properties: SceneProperties::new(),
         }
     }
@@ -130,14 +132,14 @@ impl Scene {
     ) {
         let new_pipeline = ScenePipeline {
             pipeline_id,
-            epoch,
             viewport_size,
             content_size,
             background_color,
             display_list,
         };
 
-        self.pipelines.insert(pipeline_id, new_pipeline);
+        self.pipelines.insert(pipeline_id, Arc::new(new_pipeline));
+        self.pipeline_epochs.insert(pipeline_id, epoch);
     }
 
     pub fn remove_pipeline(&mut self, pipeline_id: PipelineId) {
@@ -149,9 +151,7 @@ impl Scene {
     }
 
     pub fn update_epoch(&mut self, pipeline_id: PipelineId, epoch: Epoch) {
-        if let Some(pipeline) = self.pipelines.get_mut(&pipeline_id) {
-            pipeline.epoch = epoch;
-        }
+        self.pipeline_epochs.insert(pipeline_id, epoch);
     }
 }
 
