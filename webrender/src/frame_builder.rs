@@ -154,16 +154,19 @@ impl<'a> FrameContext<'a> {
 pub struct FrameState<'a> {
     pub render_tasks: &'a mut RenderTaskTree,
     pub profile_counters: &'a mut FrameProfileCounters,
+    pub clip_store: &'a mut ClipStore,
 }
 
 impl<'a> FrameState<'a> {
     pub fn new(
         render_tasks: &'a mut RenderTaskTree,
         profile_counters: &'a mut FrameProfileCounters,
+        clip_store: &'a mut ClipStore,
     ) -> FrameState<'a> {
         FrameState {
             render_tasks,
             profile_counters,
+            clip_store,
         }
     }
 }
@@ -1651,6 +1654,7 @@ impl FrameBuilder {
         let mut frame_state = FrameState::new(
             render_tasks,
             profile_counters,
+            &mut self.clip_store,
         );
 
         let root_prim_run_context = PrimitiveRunContext::new(
@@ -1666,7 +1670,6 @@ impl FrameBuilder {
             root_clip_scroll_node.pipeline_id,
             gpu_cache,
             resource_cache,
-            &mut self.clip_store,
             &root_prim_run_context,
             true,
             &mut child_tasks,
