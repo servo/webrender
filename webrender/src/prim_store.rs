@@ -19,7 +19,6 @@ use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuData
                 ToGpuBlocks};
 use gpu_types::{ClipChainRectIndex};
 use picture::{PictureKind, PicturePrimitive};
-use profiler::FrameProfileCounters;
 use render_task::{BlitSource, ClipChain, ClipChainNode, ClipChainNodeIter, ClipChainNodeRef, ClipWorkItem};
 use render_task::{RenderTask, RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId};
 use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
@@ -1710,7 +1709,6 @@ impl PrimitiveStore {
         clip_store: &mut ClipStore,
         perform_culling: bool,
         parent_tasks: &mut Vec<RenderTaskId>,
-        profile_counters: &mut FrameProfileCounters,
         pic_index: SpecificPrimitiveIndex,
         clip_chain_rect_index: ClipChainRectIndex,
         local_rects: &mut Vec<LayerRect>,
@@ -1774,7 +1772,6 @@ impl PrimitiveStore {
                 prim_run_context,
                 cull_children,
                 &mut child_tasks,
-                profile_counters,
                 rfid,
                 cpu_prim_index,
                 local_rects,
@@ -1877,7 +1874,6 @@ impl PrimitiveStore {
         parent_prim_run_context: &PrimitiveRunContext,
         perform_culling: bool,
         parent_tasks: &mut Vec<RenderTaskId>,
-        profile_counters: &mut FrameProfileCounters,
         original_reference_frame_id: Option<ClipId>,
         pic_index: SpecificPrimitiveIndex,
         local_rects: &mut Vec<LayerRect>,
@@ -1973,14 +1969,13 @@ impl PrimitiveStore {
                     clip_store,
                     perform_culling,
                     parent_tasks,
-                    profile_counters,
                     pic_index,
                     clip_chain_rect_index,
                     local_rects,
                     frame_context,
                     frame_state,
                 ) {
-                    profile_counters.visible_primitives.inc();
+                    frame_state.profile_counters.visible_primitives.inc();
 
                     if let Some(ref matrix) = original_relative_transform {
                         let bounds = matrix.transform_rect(&prim_local_rect);

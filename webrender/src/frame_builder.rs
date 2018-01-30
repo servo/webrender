@@ -153,14 +153,17 @@ impl<'a> FrameContext<'a> {
 
 pub struct FrameState<'a> {
     pub render_tasks: &'a mut RenderTaskTree,
+    pub profile_counters: &'a mut FrameProfileCounters,
 }
 
 impl<'a> FrameState<'a> {
     pub fn new(
         render_tasks: &'a mut RenderTaskTree,
-    ) -> FrameState {
+        profile_counters: &'a mut FrameProfileCounters,
+    ) -> FrameState<'a> {
         FrameState {
             render_tasks,
+            profile_counters,
         }
     }
 }
@@ -1647,6 +1650,7 @@ impl FrameBuilder {
 
         let mut frame_state = FrameState::new(
             render_tasks,
+            profile_counters,
         );
 
         let root_prim_run_context = PrimitiveRunContext::new(
@@ -1666,7 +1670,6 @@ impl FrameBuilder {
             &root_prim_run_context,
             true,
             &mut child_tasks,
-            profile_counters,
             None,
             SpecificPrimitiveIndex(0),
             local_rects,
