@@ -691,7 +691,7 @@ impl RenderBackend {
                     &mut profile_counters.resources,
                 );
 
-                info!("generated frame for document {:?} with {} passes",
+                debug!("generated frame for document {:?} with {} passes",
                     document_id, rendered_document.frame.passes.len());
 
                 let msg = ResultMsg::UpdateGpuCache(self.gpu_cache.extract_updates());
@@ -863,12 +863,12 @@ impl RenderBackend {
     ) -> DebugOutput {
         use capture::CaptureConfig;
 
-        info!("capture: saving {:?}", root);
+        debug!("capture: saving {:?}", root);
         let (resources, deferred) = self.resource_cache.save_capture(&root);
         let config = CaptureConfig::new(root, bits);
 
         for (&id, doc) in &mut self.documents {
-            info!("\tdocument {:?}", id);
+            debug!("\tdocument {:?}", id);
             if config.bits.contains(CaptureBits::SCENE) {
                 let file_name = format!("scene-{}-{}", (id.0).0, id.1);
                 config.serialize(&doc.scene, file_name);
@@ -932,7 +932,7 @@ impl RenderBackend {
         use capture::CaptureConfig;
         use tiling::Frame;
 
-        info!("capture: loading {:?}", root);
+        debug!("capture: loading {:?}", root);
         let backend = CaptureConfig::deserialize::<PlainRenderBackend, _>(root, "backend")
             .expect("Unable to open backend.ron");
         let caches_maybe = CaptureConfig::deserialize::<PlainCacheOwn, _>(root, "resource_cache");
@@ -958,7 +958,7 @@ impl RenderBackend {
         self.enable_render_on_scroll = backend.enable_render_on_scroll;
 
         for (id, view) in backend.documents {
-            info!("\tdocument {:?}", id);
+            debug!("\tdocument {:?}", id);
             let scene_name = format!("scene-{}-{}", (id.0).0, id.1);
             let scene = CaptureConfig::deserialize::<Scene, _>(root, &scene_name)
                 .expect(&format!("Unable to open {}.ron", scene_name));

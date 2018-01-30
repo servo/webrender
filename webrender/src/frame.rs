@@ -458,7 +458,8 @@ impl<'a> FlattenContext<'a> {
                         );
                     }
                     None => {
-                        warn!("Unknown font instance key: {:?}", text_info.font_key);
+                        warn!("Unknown font instance key");
+                        debug!("key={:?}", text_info.font_key);
                     }
                 }
             }
