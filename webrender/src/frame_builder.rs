@@ -128,16 +128,19 @@ pub struct FrameBuilder {
 pub struct FrameContext<'a> {
     pub device_pixel_scale: DevicePixelScale,
     pub scene_properties: &'a SceneProperties,
+    pub pipelines: &'a FastHashMap<PipelineId, ScenePipeline>,
 }
 
 impl<'a> FrameContext<'a> {
     pub fn new(
         device_pixel_scale: DevicePixelScale,
         scene_properties: &'a SceneProperties,
-    ) -> FrameContext {
+        pipelines: &'a FastHashMap<PipelineId, ScenePipeline>,
+    ) -> FrameContext<'a> {
         FrameContext {
             device_pixel_scale,
             scene_properties,
+            pipelines,
         }
     }
 }
@@ -1618,6 +1621,7 @@ impl FrameBuilder {
         let frame_context = FrameContext::new(
             device_pixel_scale,
             scene_properties,
+            pipelines,
         );
 
         let root_prim_run_context = PrimitiveRunContext::new(
@@ -1636,7 +1640,6 @@ impl FrameBuilder {
             render_tasks,
             &mut self.clip_store,
             clip_scroll_tree,
-            pipelines,
             &root_prim_run_context,
             true,
             &mut child_tasks,

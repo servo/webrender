@@ -15,7 +15,6 @@ use clip_scroll_node::ClipScrollNode;
 use clip::{ClipSource, ClipSourcesHandle, ClipStore};
 use frame_builder::{FrameContext, PrimitiveRunContext};
 use glyph_rasterizer::{FontInstance, FontTransform};
-use internal_types::{FastHashMap};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
 use gpu_types::{ClipChainRectIndex, ClipScrollNodeData};
@@ -25,7 +24,6 @@ use render_task::{BlitSource, ClipChain, ClipChainNode, ClipChainNodeIter, ClipC
 use render_task::{RenderTask, RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId, RenderTaskTree};
 use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
 use resource_cache::{CacheItem, ImageProperties, ResourceCache};
-use scene::ScenePipeline;
 use segment::SegmentBuilder;
 use std::{mem, usize};
 use std::rc::Rc;
@@ -1714,7 +1712,6 @@ impl PrimitiveStore {
         render_tasks: &mut RenderTaskTree,
         clip_store: &mut ClipStore,
         clip_scroll_tree: &ClipScrollTree,
-        pipelines: &FastHashMap<PipelineId, ScenePipeline>,
         perform_culling: bool,
         parent_tasks: &mut Vec<RenderTaskId>,
         profile_counters: &mut FrameProfileCounters,
@@ -1781,7 +1778,6 @@ impl PrimitiveStore {
                 render_tasks,
                 clip_store,
                 clip_scroll_tree,
-                pipelines,
                 prim_run_context,
                 cull_children,
                 &mut child_tasks,
@@ -1890,7 +1886,6 @@ impl PrimitiveStore {
         render_tasks: &mut RenderTaskTree,
         clip_store: &mut ClipStore,
         clip_scroll_tree: &ClipScrollTree,
-        pipelines: &FastHashMap<PipelineId, ScenePipeline>,
         parent_prim_run_context: &PrimitiveRunContext,
         perform_culling: bool,
         parent_tasks: &mut Vec<RenderTaskId>,
@@ -1949,7 +1944,7 @@ impl PrimitiveStore {
                         })
                 });
 
-            let display_list = &pipelines
+            let display_list = &frame_context.pipelines
                 .get(&pipeline_id)
                 .expect("No display list?")
                 .display_list;
@@ -1986,7 +1981,6 @@ impl PrimitiveStore {
                     render_tasks,
                     clip_store,
                     clip_scroll_tree,
-                    pipelines,
                     perform_culling,
                     parent_tasks,
                     profile_counters,
