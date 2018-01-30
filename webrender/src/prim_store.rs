@@ -10,7 +10,7 @@ use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D
 use api::{LineStyle, PipelineId, PremultipliedColorF, TileOffset};
 use api::{WorldToLayerTransform, YuvColorSpace, YuvFormat};
 use border::{BorderCornerInstance, BorderEdgeKind};
-use clip_scroll_tree::{CoordinateSystemId, ClipScrollTree};
+use clip_scroll_tree::{CoordinateSystemId};
 use clip_scroll_node::ClipScrollNode;
 use clip::{ClipSource, ClipSourcesHandle, ClipStore};
 use frame_builder::{FrameContext, PrimitiveRunContext};
@@ -1710,7 +1710,6 @@ impl PrimitiveStore {
         gpu_cache: &mut GpuCache,
         render_tasks: &mut RenderTaskTree,
         clip_store: &mut ClipStore,
-        clip_scroll_tree: &ClipScrollTree,
         perform_culling: bool,
         parent_tasks: &mut Vec<RenderTaskId>,
         profile_counters: &mut FrameProfileCounters,
@@ -1775,7 +1774,6 @@ impl PrimitiveStore {
                 resource_cache,
                 render_tasks,
                 clip_store,
-                clip_scroll_tree,
                 prim_run_context,
                 cull_children,
                 &mut child_tasks,
@@ -1881,7 +1879,6 @@ impl PrimitiveStore {
         resource_cache: &mut ResourceCache,
         render_tasks: &mut RenderTaskTree,
         clip_store: &mut ClipStore,
-        clip_scroll_tree: &ClipScrollTree,
         parent_prim_run_context: &PrimitiveRunContext,
         perform_culling: bool,
         parent_tasks: &mut Vec<RenderTaskId>,
@@ -1901,8 +1898,12 @@ impl PrimitiveStore {
             // TODO(gw): Perhaps we can restructure this to not need to create
             //           a new primitive context for every run (if the hash
             //           lookups ever show up in a profile).
-            let scroll_node = &clip_scroll_tree.nodes[&run.clip_and_scroll.scroll_node_id];
-            let clip_chain = clip_scroll_tree.get_clip_chain(&run.clip_and_scroll.clip_node_id());
+            let scroll_node = &frame_context
+                .clip_scroll_tree
+                .nodes[&run.clip_and_scroll.scroll_node_id];
+            let clip_chain = frame_context
+                .clip_scroll_tree
+                .get_clip_chain(&run.clip_and_scroll.clip_node_id());
 
             if perform_culling {
                 if !scroll_node.invertible {
@@ -1930,7 +1931,8 @@ impl PrimitiveStore {
 
             let original_relative_transform = original_reference_frame_id
                 .and_then(|original_reference_frame_id| {
-                    let parent = clip_scroll_tree
+                    let parent = frame_context
+                        .clip_scroll_tree
                         .nodes[&original_reference_frame_id]
                         .world_content_transform;
                     parent.inverse()
@@ -1975,7 +1977,6 @@ impl PrimitiveStore {
                     gpu_cache,
                     render_tasks,
                     clip_store,
-                    clip_scroll_tree,
                     perform_culling,
                     parent_tasks,
                     profile_counters,

@@ -130,6 +130,7 @@ pub struct FrameContext<'a> {
     pub scene_properties: &'a SceneProperties,
     pub pipelines: &'a FastHashMap<PipelineId, ScenePipeline>,
     pub screen_rect: DeviceIntRect,
+    pub clip_scroll_tree: &'a ClipScrollTree,
 }
 
 impl<'a> FrameContext<'a> {
@@ -138,12 +139,14 @@ impl<'a> FrameContext<'a> {
         scene_properties: &'a SceneProperties,
         pipelines: &'a FastHashMap<PipelineId, ScenePipeline>,
         screen_rect: DeviceIntRect,
+        clip_scroll_tree: &'a ClipScrollTree
     ) -> FrameContext<'a> {
         FrameContext {
             device_pixel_scale,
             scene_properties,
             pipelines,
             screen_rect,
+            clip_scroll_tree,
         }
     }
 }
@@ -1595,7 +1598,7 @@ impl FrameBuilder {
     /// primitives in screen space.
     fn build_layer_screen_rects_and_cull_layers(
         &mut self,
-        clip_scroll_tree: &mut ClipScrollTree,
+        clip_scroll_tree: &ClipScrollTree,
         pipelines: &FastHashMap<PipelineId, ScenePipeline>,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
@@ -1626,6 +1629,7 @@ impl FrameBuilder {
             scene_properties,
             pipelines,
             self.screen_rect.to_i32(),
+            clip_scroll_tree,
         );
 
         let root_prim_run_context = PrimitiveRunContext::new(
@@ -1643,7 +1647,6 @@ impl FrameBuilder {
             resource_cache,
             render_tasks,
             &mut self.clip_store,
-            clip_scroll_tree,
             &root_prim_run_context,
             true,
             &mut child_tasks,
