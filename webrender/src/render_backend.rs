@@ -36,8 +36,8 @@ use serde_json;
 #[cfg(any(feature = "capture", feature = "replay"))]
 use std::path::PathBuf;
 use std::sync::atomic::{ATOMIC_USIZE_INIT, AtomicUsize, Ordering};
-use std::sync::mpsc::Sender;
 use std::mem::replace;
+use std::sync::mpsc::{Sender, Receiver, channel};
 use std::u32;
 use time::precise_time_ns;
 
@@ -227,6 +227,9 @@ pub struct RenderBackend {
     payload_rx: PayloadReceiver,
     payload_tx: PayloadSender,
     result_tx: Sender<ResultMsg>,
+    scene_tx: Sender<SceneBuilderMsg>,
+    scene_rx: Receiver<BuiltScene>,
+
     default_device_pixel_ratio: f32,
 
     gpu_cache: GpuCache,
@@ -247,6 +250,8 @@ impl RenderBackend {
         payload_rx: PayloadReceiver,
         payload_tx: PayloadSender,
         result_tx: Sender<ResultMsg>,
+        scene_tx: Sender<SceneBuilderMsg>,
+        scene_rx: Receiver<BuiltScene>,
         default_device_pixel_ratio: f32,
         resource_cache: ResourceCache,
         notifier: Box<RenderNotifier>,
@@ -262,6 +267,8 @@ impl RenderBackend {
             payload_rx,
             payload_tx,
             result_tx,
+            scene_tx,
+            scene_rx,
             default_device_pixel_ratio,
             resource_cache,
             gpu_cache: GpuCache::new(),
@@ -510,6 +517,11 @@ impl RenderBackend {
         loop {
             profile_scope!("handle_msg");
 
+            while let Ok(msg) = self.scene_rx.try_recv() {
+                let mut doc = self.documents.get_mut(&msg.document_id).expect("No document?");
+                doc.frame_builder = Some(msg.frame_builder);
+            }
+
             let msg = match self.api_rx.recv() {
                 Ok(msg) => {
                     if let Some(ref mut r) = self.recorder {
@@ -518,6 +530,7 @@ impl RenderBackend {
                     msg
                 }
                 Err(..) => {
+                    self.scene_tx.send(SceneBuilderMsg::Stop);
                     self.notifier.shut_down();
                     break;
                 }
@@ -1019,5 +1032,60 @@ impl RenderBackend {
             self.notifier.new_document_ready(id, false, true);
             self.documents.insert(id, doc);
         }
+    }
+}
+
+pub enum SceneBuilderMsg {
+    BuildScene,
+    Stop
+}
+
+pub struct BuiltScene {
+    frame_builder: FrameBuilder,
+    document_id: DocumentId,
+}
+
+pub struct SceneBuilder {
+    rx: Receiver<SceneBuilderMsg>,
+    tx: Sender<BuiltScene>,
+}
+
+impl SceneBuilder {
+    pub fn new() -> (Self, Sender<SceneBuilderMsg>, Receiver<BuiltScene>) {
+        let (in_tx, in_rx) = channel();
+        let (out_tx, out_rx) = channel();
+        (
+            SceneBuilder {
+                rx: in_rx,
+                tx: out_tx,
+            },
+            in_tx,
+            out_rx,
+        )
+    }
+
+    pub fn run(&mut self) {
+        loop {
+            match self.rx.recv() {
+                Ok(msg) => {
+                    if !self.process_message(msg) {
+                        return;
+                    }
+                }
+                Err(_) => {
+                    return;
+                }
+            }
+        }
+    }
+
+    pub fn process_message(&mut self, msg: SceneBuilderMsg) -> bool {
+        match msg {
+            SceneBuilderMsg::BuildScene => {
+                // TODO - Do the thing.
+            }
+            SceneBuilderMsg::Stop => { return false; }
+        }
+        return true;
     }
 }

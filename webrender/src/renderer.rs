@@ -50,7 +50,7 @@ use profiler::{GpuProfileTag, RendererProfileCounters, RendererProfileTimers};
 use query::{GpuProfiler, GpuTimer};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use record::ApiRecordingReceiver;
-use render_backend::RenderBackend;
+use render_backend::{RenderBackend, SceneBuilder};
 use render_task::{RenderTaskKind, RenderTaskTree};
 use resource_cache::ResourceCache;
 #[cfg(feature = "debugger")]
@@ -2227,23 +2227,45 @@ impl Renderer {
 
         let blob_image_renderer = options.blob_image_renderer.take();
         let thread_listener_for_render_backend = thread_listener.clone();
-        let thread_name = format!("WRRenderBackend#{}", options.renderer_id.unwrap_or(0));
+        let thread_listener_for_scene_builder = thread_listener.clone();
+        let rb_thread_name = format!("WRRenderBackend#{}", options.renderer_id.unwrap_or(0));
+        let scene_thread_name = format!("WRSceneBuilder#{}", options.renderer_id.unwrap_or(0));
         let resource_cache = ResourceCache::new(
             texture_cache,
             workers,
             blob_image_renderer,
         )?;
+
+        let (scene_builder, scene_tx, scene_rx) = SceneBuilder::new();
+        try! {
+            thread::Builder::new().name(scene_thread_name.clone()).spawn(move || {
+                register_thread_with_profiler(scene_thread_name.clone());
+                if let Some(ref thread_listener) = *thread_listener_for_scene_builder {
+                    thread_listener.thread_started(&scene_thread_name);
+                }
+
+                let mut scene_builder = scene_builder;
+                scene_builder.run();
+
+                if let Some(ref thread_listener) = *thread_listener_for_scene_builder {
+                    thread_listener.thread_stopped(&scene_thread_name);
+                }
+            })
+        };
+
         try!{
-            thread::Builder::new().name(thread_name.clone()).spawn(move || {
-                register_thread_with_profiler(thread_name.clone());
+            thread::Builder::new().name(rb_thread_name.clone()).spawn(move || {
+                register_thread_with_profiler(rb_thread_name.clone());
                 if let Some(ref thread_listener) = *thread_listener_for_render_backend {
-                    thread_listener.thread_started(&thread_name);
+                    thread_listener.thread_started(&rb_thread_name);
                 }
                 let mut backend = RenderBackend::new(
                     api_rx,
                     payload_rx,
                     payload_tx_for_backend,
                     result_tx,
+                    scene_tx,
+                    scene_rx,
                     device_pixel_ratio,
                     resource_cache,
                     backend_notifier,
@@ -2253,7 +2275,7 @@ impl Renderer {
                 );
                 backend.run(backend_profile_counters);
                 if let Some(ref thread_listener) = *thread_listener_for_render_backend {
-                    thread_listener.thread_stopped(&thread_name);
+                    thread_listener.thread_stopped(&rb_thread_name);
                 }
             })
         };
