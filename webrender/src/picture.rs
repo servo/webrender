@@ -8,7 +8,7 @@ use api::{BoxShadowClipMode, LayerPoint, LayerRect, LayerVector2D, Shadow};
 use api::{ClipId, PremultipliedColorF};
 use box_shadow::{BLUR_SAMPLE_SCALE, BoxShadowCacheKey};
 use frame_builder::{FrameContext, FrameState};
-use gpu_cache::{GpuCache, GpuDataRequest};
+use gpu_cache::GpuDataRequest;
 use gpu_types::{BrushImageKind, PictureType};
 use prim_store::{BrushKind, BrushPrimitive, PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
 use render_task::{ClearMode, RenderTask, RenderTaskCacheKey};
@@ -333,7 +333,6 @@ impl PicturePrimitive {
         prim_local_rect: &LayerRect,
         child_tasks: Vec<RenderTaskId>,
         parent_tasks: &mut Vec<RenderTaskId>,
-        gpu_cache: &mut GpuCache,
         frame_context: &FrameContext,
         frame_state: &mut FrameState,
     ) {
@@ -536,7 +535,7 @@ impl PicturePrimitive {
                         size: cache_size,
                         kind: RenderTaskCacheKeyKind::BoxShadow(cache_key),
                     },
-                    gpu_cache,
+                    frame_state.gpu_cache,
                     frame_state.render_tasks,
                     |render_tasks| {
                         // Quote from https://drafts.csswg.org/css-backgrounds-3/#shadow-blur

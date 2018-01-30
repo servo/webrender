@@ -1145,7 +1145,6 @@ impl PrimitiveStore {
         &mut self,
         prim_index: PrimitiveIndex,
         prim_run_context: &PrimitiveRunContext,
-        gpu_cache: &mut GpuCache,
         child_tasks: Vec<RenderTaskId>,
         parent_tasks: &mut Vec<RenderTaskId>,
         pic_index: SpecificPrimitiveIndex,
@@ -1163,7 +1162,6 @@ impl PrimitiveStore {
                         &metadata.local_rect,
                         child_tasks,
                         parent_tasks,
-                        gpu_cache,
                         frame_context,
                         frame_state,
                     );
@@ -1184,7 +1182,7 @@ impl PrimitiveStore {
                     frame_context.device_pixel_scale,
                     transform,
                     prim_run_context.display_list,
-                    gpu_cache,
+                    frame_state.gpu_cache,
                 );
             }
             PrimitiveKind::Image => {
@@ -1232,7 +1230,7 @@ impl PrimitiveStore {
                         image_cpu.key.image_key,
                         image_cpu.key.image_rendering,
                         image_cpu.key.tile_offset,
-                        gpu_cache,
+                        frame_state.gpu_cache,
                     );
 
                     // Every frame, for cached items, we need to request the render
@@ -1248,7 +1246,7 @@ impl PrimitiveStore {
                                 size,
                                 kind: RenderTaskCacheKeyKind::Image(key),
                             },
-                            gpu_cache,
+                            frame_state.gpu_cache,
                             frame_state.render_tasks,
                             |render_tasks| {
                                 // Create a task to blit from the texture cache to
@@ -1294,7 +1292,7 @@ impl PrimitiveStore {
                         image_cpu.yuv_key[channel],
                         image_cpu.image_rendering,
                         None,
-                        gpu_cache,
+                        frame_state.gpu_cache,
                     );
                 }
             }
@@ -1305,7 +1303,7 @@ impl PrimitiveStore {
         }
 
         // Mark this GPU resource as required for this frame.
-        if let Some(mut request) = gpu_cache.request(&mut metadata.gpu_location) {
+        if let Some(mut request) = frame_state.gpu_cache.request(&mut metadata.gpu_location) {
             // has to match VECS_PER_BRUSH_PRIM
             request.push(metadata.local_rect);
             request.push(metadata.local_clip_rect);
@@ -1571,7 +1569,6 @@ impl PrimitiveStore {
         prim_index: PrimitiveIndex,
         prim_run_context: &PrimitiveRunContext,
         prim_screen_rect: &DeviceIntRect,
-        gpu_cache: &mut GpuCache,
         tasks: &mut Vec<RenderTaskId>,
         frame_context: &FrameContext,
         frame_state: &mut FrameState,
@@ -1599,7 +1596,10 @@ impl PrimitiveStore {
             let metadata = &self.cpu_metadata[prim_index.0];
             let prim_clips = frame_state.clip_store.get_mut(&metadata.clip_sources);
             if prim_clips.has_clips() {
-                prim_clips.update(gpu_cache, frame_state.resource_cache);
+                prim_clips.update(
+                    frame_state.gpu_cache,
+                    frame_state.resource_cache,
+                );
                 let (screen_inner_rect, screen_outer_rect) =
                     prim_clips.get_screen_bounds(transform, frame_context.device_pixel_scale);
 
@@ -1702,7 +1702,6 @@ impl PrimitiveStore {
         &mut self,
         prim_index: PrimitiveIndex,
         prim_run_context: &PrimitiveRunContext,
-        gpu_cache: &mut GpuCache,
         perform_culling: bool,
         parent_tasks: &mut Vec<RenderTaskId>,
         pic_index: SpecificPrimitiveIndex,
@@ -1761,7 +1760,6 @@ impl PrimitiveStore {
             let result = self.prepare_prim_runs(
                 &dependencies,
                 pipeline_id,
-                gpu_cache,
                 prim_run_context,
                 cull_children,
                 &mut child_tasks,
@@ -1823,7 +1821,6 @@ impl PrimitiveStore {
             prim_index,
             prim_run_context,
             &unclipped_device_rect,
-            gpu_cache,
             parent_tasks,
             frame_context,
             frame_state,
@@ -1834,7 +1831,6 @@ impl PrimitiveStore {
         self.prepare_prim_for_render_inner(
             prim_index,
             prim_run_context,
-            gpu_cache,
             child_tasks,
             parent_tasks,
             pic_index,
@@ -1857,7 +1853,6 @@ impl PrimitiveStore {
         &mut self,
         runs: &[PrimitiveRun],
         pipeline_id: PipelineId,
-        gpu_cache: &mut GpuCache,
         parent_prim_run_context: &PrimitiveRunContext,
         perform_culling: bool,
         parent_tasks: &mut Vec<RenderTaskId>,
@@ -1950,7 +1945,6 @@ impl PrimitiveStore {
                 if let Some(prim_local_rect) = self.prepare_prim_for_render(
                     prim_index,
                     &child_prim_run_context,
-                    gpu_cache,
                     perform_culling,
                     parent_tasks,
                     pic_index,

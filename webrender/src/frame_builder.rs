@@ -141,6 +141,7 @@ pub struct FrameState<'a> {
     pub clip_store: &'a mut ClipStore,
     pub local_clip_rects: &'a mut Vec<LayerRect>,
     pub resource_cache: &'a mut ResourceCache,
+    pub gpu_cache: &'a mut GpuCache,
 }
 
 pub struct PrimitiveRunContext<'a> {
@@ -1631,6 +1632,7 @@ impl FrameBuilder {
             clip_store: &mut self.clip_store,
             local_clip_rects,
             resource_cache,
+            gpu_cache,
         };
 
         let root_prim_run_context = PrimitiveRunContext::new(
@@ -1644,7 +1646,6 @@ impl FrameBuilder {
         self.prim_store.prepare_prim_runs(
             &prim_run_cmds,
             root_clip_scroll_node.pipeline_id,
-            gpu_cache,
             &root_prim_run_context,
             true,
             &mut child_tasks,
