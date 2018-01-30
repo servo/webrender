@@ -13,7 +13,7 @@ use border::{BorderCornerInstance, BorderEdgeKind};
 use clip_scroll_tree::{CoordinateSystemId, ClipScrollTree};
 use clip_scroll_node::ClipScrollNode;
 use clip::{ClipSource, ClipSourcesHandle, ClipStore};
-use frame_builder::PrimitiveContext;
+use frame_builder::PrimitiveRunContext;
 use glyph_rasterizer::{FontInstance, FontTransform};
 use internal_types::{FastHashMap};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
@@ -1144,7 +1144,7 @@ impl PrimitiveStore {
     fn prepare_prim_for_render_inner(
         &mut self,
         prim_index: PrimitiveIndex,
-        prim_context: &PrimitiveContext,
+        prim_run_context: &PrimitiveRunContext,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
         render_tasks: &mut RenderTaskTree,
@@ -1159,7 +1159,7 @@ impl PrimitiveStore {
                 self.cpu_pictures[metadata.cpu_prim_index.0]
                     .prepare_for_render(
                         prim_index,
-                        prim_context,
+                        prim_run_context,
                         render_tasks,
                         metadata.screen_rect.as_ref().expect("bug: trying to draw an off-screen picture!?"),
                         &metadata.local_rect,
@@ -1177,14 +1177,14 @@ impl PrimitiveStore {
                     PictureKind::BoxShadow { .. } => None,
                     PictureKind::TextShadow { .. } => None,
                     PictureKind::Image { .. } => {
-                        Some(&prim_context.scroll_node.world_content_transform)
+                        Some(&prim_run_context.scroll_node.world_content_transform)
                     },
                 };
                 text.prepare_for_render(
                     resource_cache,
-                    prim_context.device_pixel_scale,
+                    prim_run_context.device_pixel_scale,
                     transform,
-                    prim_context.display_list,
+                    prim_run_context.display_list,
                     gpu_cache,
                 );
             }
@@ -1324,15 +1324,15 @@ impl PrimitiveStore {
                 }
                 PrimitiveKind::AlignedGradient => {
                     let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];
-                    metadata.opacity = gradient.build_gpu_blocks_for_aligned(prim_context.display_list, request);
+                    metadata.opacity = gradient.build_gpu_blocks_for_aligned(prim_run_context.display_list, request);
                 }
                 PrimitiveKind::AngleGradient => {
                     let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];
-                    gradient.build_gpu_blocks_for_angle_radial(prim_context.display_list, request);
+                    gradient.build_gpu_blocks_for_angle_radial(prim_run_context.display_list, request);
                 }
                 PrimitiveKind::RadialGradient => {
                     let gradient = &self.cpu_radial_gradients[metadata.cpu_prim_index.0];
-                    gradient.build_gpu_blocks_for_angle_radial(prim_context.display_list, request);
+                    gradient.build_gpu_blocks_for_angle_radial(prim_run_context.display_list, request);
                 }
                 PrimitiveKind::TextRun => {
                     let text = &self.cpu_text_runs[metadata.cpu_prim_index.0];
@@ -1378,7 +1378,7 @@ impl PrimitiveStore {
     fn write_brush_segment_description(
         brush: &mut BrushPrimitive,
         metadata: &PrimitiveMetadata,
-        prim_context: &PrimitiveContext,
+        prim_run_context: &PrimitiveRunContext,
         clip_store: &mut ClipStore,
         node_data: &[ClipScrollNodeData],
         clips: &Vec<ClipWorkItem>,
@@ -1419,7 +1419,7 @@ impl PrimitiveStore {
 
         // Segment the primitive on all the local-space clip sources that we can.
         for clip_item in clips {
-            if clip_item.coordinate_system_id != prim_context.scroll_node.coordinate_system_id {
+            if clip_item.coordinate_system_id != prim_run_context.scroll_node.coordinate_system_id {
                 continue;
             }
 
@@ -1446,11 +1446,11 @@ impl PrimitiveStore {
                 // node and the primitive, we need to get the clip rect in the
                 // local space of the primitive, in order to generate correct
                 // local segments.
-                let local_clip_rect = if clip_item.scroll_node_data_index == prim_context.scroll_node.node_data_index {
+                let local_clip_rect = if clip_item.scroll_node_data_index == prim_run_context.scroll_node.node_data_index {
                     local_clip_rect
                 } else {
                     let clip_transform_data = &node_data[clip_item.scroll_node_data_index.0 as usize];
-                    let prim_transform = &prim_context.scroll_node.world_content_transform;
+                    let prim_transform = &prim_run_context.scroll_node.world_content_transform;
 
                     let relative_transform = prim_transform
                         .inverse()
@@ -1496,7 +1496,7 @@ impl PrimitiveStore {
 
     fn update_clip_task_for_brush(
         &mut self,
-        prim_context: &PrimitiveContext,
+        prim_run_context: &PrimitiveRunContext,
         prim_index: PrimitiveIndex,
         render_tasks: &mut RenderTaskTree,
         clip_store: &mut ClipStore,
@@ -1522,7 +1522,7 @@ impl PrimitiveStore {
         PrimitiveStore::write_brush_segment_description(
             brush,
             metadata,
-            prim_context,
+            prim_run_context,
             clip_store,
             node_data,
             clips,
@@ -1542,9 +1542,9 @@ impl PrimitiveStore {
             }
 
             let segment_screen_rect = calculate_screen_bounding_rect(
-                &prim_context.scroll_node.world_content_transform,
+                &prim_run_context.scroll_node.world_content_transform,
                 &segment.local_rect,
-                prim_context.device_pixel_scale,
+                prim_run_context.device_pixel_scale,
             );
 
             let intersected_rect = combined_outer_rect.intersection(&segment_screen_rect);
@@ -1552,7 +1552,7 @@ impl PrimitiveStore {
                 let clip_task = RenderTask::new_mask(
                     bounds,
                     clips.clone(),
-                    prim_context.scroll_node.coordinate_system_id,
+                    prim_run_context.scroll_node.coordinate_system_id,
                 );
 
                 let clip_task_id = render_tasks.add(clip_task);
@@ -1568,7 +1568,7 @@ impl PrimitiveStore {
     fn update_clip_task(
         &mut self,
         prim_index: PrimitiveIndex,
-        prim_context: &PrimitiveContext,
+        prim_run_context: &PrimitiveRunContext,
         prim_screen_rect: &DeviceIntRect,
         screen_rect: &DeviceIntRect,
         resource_cache: &mut ResourceCache,
@@ -1588,22 +1588,22 @@ impl PrimitiveStore {
             }
         };
 
-        let mut combined_outer_rect = match prim_context.clip_chain {
+        let mut combined_outer_rect = match prim_run_context.clip_chain {
             Some(ref chain) => prim_screen_rect.intersection(&chain.combined_outer_screen_rect),
             None => Some(prim_screen_rect),
         };
 
-        let clip_chain = prim_context.clip_chain.map_or(None, |x| x.nodes.clone());
+        let clip_chain = prim_run_context.clip_chain.map_or(None, |x| x.nodes.clone());
 
-        let prim_coordinate_system_id = prim_context.scroll_node.coordinate_system_id;
-        let transform = &prim_context.scroll_node.world_content_transform;
+        let prim_coordinate_system_id = prim_run_context.scroll_node.coordinate_system_id;
+        let transform = &prim_run_context.scroll_node.world_content_transform;
         let extra_clip =  {
             let metadata = &self.cpu_metadata[prim_index.0];
             let prim_clips = clip_store.get_mut(&metadata.clip_sources);
             if prim_clips.has_clips() {
                 prim_clips.update(gpu_cache, resource_cache);
                 let (screen_inner_rect, screen_outer_rect) =
-                    prim_clips.get_screen_bounds(transform, prim_context.device_pixel_scale);
+                    prim_clips.get_screen_bounds(transform, prim_run_context.device_pixel_scale);
 
                 if let Some(outer) = screen_outer_rect {
                     combined_outer_rect = combined_outer_rect.and_then(|r| r.intersection(&outer));
@@ -1611,7 +1611,7 @@ impl PrimitiveStore {
 
                 Some(Rc::new(ClipChainNode {
                     work_item: ClipWorkItem {
-                        scroll_node_data_index: prim_context.scroll_node.node_data_index,
+                        scroll_node_data_index: prim_run_context.scroll_node.node_data_index,
                         clip_sources: metadata.clip_sources.weak(),
                         coordinate_system_id: prim_coordinate_system_id,
                     },
@@ -1645,7 +1645,7 @@ impl PrimitiveStore {
             extra_clip,
             &combined_outer_rect,
             &mut combined_inner_rect,
-            prim_context.scroll_node.coordinate_system_id,
+            prim_run_context.scroll_node.coordinate_system_id,
             &mut has_clips_from_other_coordinate_systems
         );
 
@@ -1675,7 +1675,7 @@ impl PrimitiveStore {
 
         // First try to  render this primitive's mask using optimized brush rendering.
         if self.update_clip_task_for_brush(
-            prim_context,
+            prim_run_context,
             prim_index,
             render_tasks,
             clip_store,
@@ -1704,7 +1704,7 @@ impl PrimitiveStore {
     pub fn prepare_prim_for_render(
         &mut self,
         prim_index: PrimitiveIndex,
-        prim_context: &PrimitiveContext,
+        prim_run_context: &PrimitiveRunContext,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
         render_tasks: &mut RenderTaskTree,
@@ -1730,7 +1730,7 @@ impl PrimitiveStore {
 
             if perform_culling &&
                !metadata.is_backface_visible &&
-               prim_context.scroll_node.world_content_transform.is_backface_visible() {
+               prim_run_context.scroll_node.world_content_transform.is_backface_visible() {
                 return None;
             }
 
@@ -1778,7 +1778,7 @@ impl PrimitiveStore {
                 clip_store,
                 clip_scroll_tree,
                 pipelines,
-                prim_context,
+                prim_run_context,
                 cull_children,
                 &mut child_tasks,
                 profile_counters,
@@ -1818,12 +1818,12 @@ impl PrimitiveStore {
             };
 
             let screen_bounding_rect = calculate_screen_bounding_rect(
-                &prim_context.scroll_node.world_content_transform,
+                &prim_run_context.scroll_node.world_content_transform,
                 &local_rect,
-                prim_context.device_pixel_scale,
+                prim_run_context.device_pixel_scale,
             );
 
-            let clip_bounds = match prim_context.clip_chain {
+            let clip_bounds = match prim_run_context.clip_chain {
                 Some(ref node) => node.combined_outer_screen_rect,
                 None => *screen_rect,
             };
@@ -1840,7 +1840,7 @@ impl PrimitiveStore {
 
         if perform_culling && may_need_clip_mask && !self.update_clip_task(
             prim_index,
-            prim_context,
+            prim_run_context,
             &unclipped_device_rect,
             screen_rect,
             resource_cache,
@@ -1855,7 +1855,7 @@ impl PrimitiveStore {
 
         self.prepare_prim_for_render_inner(
             prim_index,
-            prim_context,
+            prim_run_context,
             resource_cache,
             gpu_cache,
             render_tasks,
@@ -1885,7 +1885,7 @@ impl PrimitiveStore {
         clip_store: &mut ClipStore,
         clip_scroll_tree: &ClipScrollTree,
         pipelines: &FastHashMap<PipelineId, ScenePipeline>,
-        parent_prim_context: &PrimitiveContext,
+        parent_prim_run_context: &PrimitiveRunContext,
         perform_culling: bool,
         parent_tasks: &mut Vec<RenderTaskId>,
         profile_counters: &mut FrameProfileCounters,
@@ -1924,7 +1924,7 @@ impl PrimitiveStore {
             }
 
 
-            let parent_relative_transform = parent_prim_context
+            let parent_relative_transform = parent_prim_run_context
                 .scroll_node
                 .world_content_transform
                 .inverse()
@@ -1948,13 +1948,12 @@ impl PrimitiveStore {
                 .expect("No display list?")
                 .display_list;
 
-            let child_prim_context = PrimitiveContext::new(
-                parent_prim_context.device_pixel_scale,
+            let child_prim_run_context = PrimitiveRunContext::new(
+                parent_prim_run_context.device_pixel_scale,
                 display_list,
                 clip_chain,
                 scroll_node,
             );
-
 
             let clip_chain_rect = match perform_culling {
                 true => get_local_clip_rect_for_nodes(scroll_node, clip_chain),
@@ -1976,7 +1975,7 @@ impl PrimitiveStore {
 
                 if let Some(prim_local_rect) = self.prepare_prim_for_render(
                     prim_index,
-                    &child_prim_context,
+                    &child_prim_run_context,
                     resource_cache,
                     gpu_cache,
                     render_tasks,
