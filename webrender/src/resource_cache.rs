@@ -4,7 +4,7 @@
 
 use api::{AddFont, BlobImageData, BlobImageResources, ResourceUpdate, ResourceUpdates};
 use api::{BlobImageDescriptor, BlobImageError, BlobImageRenderer, BlobImageRequest};
-use api::{ColorF, DevicePoint, DeviceUintRect, DeviceUintSize};
+use api::{ClearCache, ColorF, DevicePoint, DeviceUintRect, DeviceUintSize};
 use api::{Epoch, FontInstanceKey, FontKey, FontTemplate};
 use api::{ExternalImageData, ExternalImageType};
 use api::{FontInstanceOptions, FontInstancePlatformOptions, FontVariation};
@@ -938,18 +938,19 @@ impl ResourceCache {
         self.state = State::Idle;
     }
 
-    pub fn on_memory_pressure(&mut self) {
-        // This is drastic. It will basically flush everything out of the cache,
-        // and the next frame will have to rebuild all of its resources.
-        // We may want to look into something less extreme, but on the other hand this
-        // should only be used in situations where are running low enough on memory
-        // that we risk crashing if we don't do something about it.
-        // The advantage of clearing the cache completely is that it gets rid of any
-        // remaining fragmentation that could have persisted if we kept around the most
-        // recently used resources.
-        self.cached_images.clear();
-        self.cached_glyphs.clear();
-        self.cached_render_tasks.clear();
+    pub fn clear(&mut self, what: ClearCache) {
+        if what.contains(ClearCache::IMAGES) {
+            self.cached_images.clear();
+        }
+        if what.contains(ClearCache::GLYPHS) {
+            self.cached_glyphs.clear();
+        }
+        if what.contains(ClearCache::GLYPH_DIMENSIONS) {
+            self.cached_glyph_dimensions.clear();
+        }
+        if what.contains(ClearCache::RENDER_TASKS) {
+            self.cached_render_tasks.clear();
+        }
     }
 
     pub fn clear_namespace(&mut self, namespace: IdNamespace) {
@@ -1346,6 +1347,7 @@ impl ResourceCache {
                 self.current_frame_id = cached.current_frame_id;
                 self.cached_glyphs = GlyphCache { glyph_key_caches };
                 self.cached_glyph_dimensions = cached.glyph_dimensions;
+                self.cached_images = cached.images;
                 self.texture_cache = cached.textures;
             }
             None => {

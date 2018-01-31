@@ -2684,6 +2684,9 @@ impl Renderer {
             DebugCommand::EnableGpuSampleQueries(enable) => {
                 self.set_debug_flag(DebugFlags::GPU_SAMPLE_QUERIES, enable);
             }
+            DebugCommand::EnableDualSourceBlending(_) => {
+                panic!("Should be handled by render backend");
+            }
             DebugCommand::FetchDocuments |
             DebugCommand::FetchClipScrollTree => {}
             DebugCommand::FetchRenderTasks => {
@@ -2702,8 +2705,19 @@ impl Renderer {
             DebugCommand::LoadCapture(..) => {
                 panic!("Capture commands are not welcome here! Did you build with 'capture' feature?")
             }
-            DebugCommand::EnableDualSourceBlending(_) => {
-                panic!("Should be handled by render backend");
+            DebugCommand::ClearCaches(_) => {}
+            DebugCommand::InvalidateGpuCache => {
+                match self.gpu_cache_texture.bus {
+                    CacheBus::PixelBuffer { ref mut rows, .. } => {
+                        info!("Invalidating GPU caches");
+                        for row in rows {
+                            row.is_dirty = true;
+                        }
+                    }
+                    CacheBus::Scatter { .. } => {
+                        warn!("Unable to invalidate scattered GPU cache");
+                    }
+                }
             }
         }
     }
@@ -2861,7 +2875,7 @@ impl Renderer {
 
             for &mut (_, RenderedDocument { ref mut frame, .. }) in &mut active_documents {
                 self.prepare_gpu_cache(frame);
-                assert!(frame.gpu_cache_frame_id <= self.gpu_cache_frame_id);
+                //assert!(frame.gpu_cache_frame_id <= self.gpu_cache_frame_id);
 
                 self.draw_tile_frame(
                     frame,
