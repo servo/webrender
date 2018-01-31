@@ -1651,8 +1651,7 @@ pub struct Renderer {
 
     gpu_cache_frame_id: FrameId,
 
-    pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
-    removed_pipelines: Vec<PipelineId>,
+    pipeline_info: PipelineInfo,
 
     // Manages and resolves source textures IDs to real texture IDs.
     texture_resolver: SourceTextureResolver,
@@ -2307,8 +2306,7 @@ impl Renderer {
             node_data_texture,
             local_clip_rects_texture,
             render_task_texture,
-            pipeline_epoch_map: FastHashMap::default(),
-            removed_pipelines: Vec::new(),
+            pipeline_info: PipelineInfo::default(),
             dither_matrix_texture,
             external_image_handler: None,
             output_image_handler: None,
@@ -2355,19 +2353,11 @@ impl Renderer {
 
     /// Returns the Epoch of the current frame in a pipeline.
     pub fn current_epoch(&self, pipeline_id: PipelineId) -> Option<Epoch> {
-        self.pipeline_epoch_map.get(&pipeline_id).cloned()
+        self.pipeline_info.epochs.get(&pipeline_id).cloned()
     }
 
-    /// Returns a HashMap containing the pipeline ids that have been received by the renderer and
-    /// their respective epochs since the last time the method was called.
-    pub fn flush_rendered_epochs(&mut self) -> FastHashMap<PipelineId, Epoch> {
-        mem::replace(&mut self.pipeline_epoch_map, FastHashMap::default())
-    }
-
-    /// Returns a HashMap containing the pipeline ids that have been received by the renderer and
-    /// their respective epochs since the last time the method was called.
-    pub fn flush_removed_pipelines(&mut self) -> Vec<PipelineId> {
-        mem::replace(&mut self.removed_pipelines, Vec::new())
+    pub fn flush_pipeline_info(&mut self) -> PipelineInfo {
+        mem::replace(&mut self.pipeline_info, PipelineInfo::default())
     }
 
     // update the program cache with new binaries, e.g. when some of the lazy loaded
@@ -2392,10 +2382,10 @@ impl Renderer {
                 ) => {
                     // Update the list of available epochs for use during reftests.
                     // This is a workaround for https://github.com/servo/servo/issues/13149.
-                    for (pipeline_id, epoch) in &doc.pipeline_epoch_map {
-                        self.pipeline_epoch_map.insert(*pipeline_id, *epoch);
+                    for (pipeline_id, epoch) in &doc.pipeline_info.epochs {
+                        self.pipeline_info.epochs.insert(*pipeline_id, *epoch);
                     }
-                    self.removed_pipelines.extend(doc.removed_pipelines.drain(..));
+                    self.pipeline_info.removed_pipelines.extend(doc.pipeline_info.removed_pipelines.drain(..));
 
                     // Add a new document to the active set, expressed as a `Vec` in order
                     // to re-order based on `DocumentLayer` during rendering.
@@ -4634,7 +4624,7 @@ impl Renderer {
         let y0: f32 = 30.0;
         let mut y = y0;
         let mut text_width = 0.0;
-        for (pipeline, epoch) in  &self.pipeline_epoch_map {
+        for (pipeline, epoch) in  &self.pipeline_info.epochs {
             y += dy;
             let w = self.debug.add_text(
                 x0, y,
@@ -4947,6 +4937,12 @@ impl OutputImageHandler for () {
     fn unlock(&mut self, _: PipelineId) {
         unreachable!()
     }
+}
+
+#[derive(Default)]
+pub struct PipelineInfo {
+    pub epochs: FastHashMap<PipelineId, Epoch>,
+    pub removed_pipelines: Vec<PipelineId>,
 }
 
 impl Renderer {

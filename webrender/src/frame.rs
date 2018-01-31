@@ -22,6 +22,7 @@ use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
 use resource_cache::{FontInstanceMap,ResourceCache, TiledImageMap};
 use scene::{Scene, StackingContextHelpers, ScenePipeline, SceneProperties};
 use tiling::{CompositeOps, Frame};
+use renderer::PipelineInfo;
 use std::mem::replace;
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Eq, Ord)]
@@ -1117,8 +1118,10 @@ impl FrameContext {
     pub fn make_rendered_document(&mut self, frame: Frame) -> RenderedDocument {
         let nodes_bouncing_back = self.clip_scroll_tree.collect_nodes_bouncing_back();
         RenderedDocument::new(
-            self.pipeline_epoch_map.clone(),
-            replace(&mut self.removed_pipelines, Vec::new()),
+            PipelineInfo {
+                epochs: self.pipeline_epoch_map.clone(),
+                removed_pipelines: replace(&mut self.removed_pipelines, Vec::new()),
+            },
             nodes_bouncing_back,
             frame
         )
