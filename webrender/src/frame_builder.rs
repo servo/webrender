@@ -10,7 +10,7 @@ use api::{Epoch, ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect, 
 use api::{LayerTransform, LayerVector2D, LayoutTransform, LayoutVector2D, LineOrientation};
 use api::{LineStyle, LocalClip, PipelineId, PremultipliedColorF, PropertyBinding, RepeatMode};
 use api::{ScrollSensitivity, Shadow, TexelRect, TileOffset, TransformStyle, WorldPoint};
-use api::{DeviceIntRect, DeviceIntSize, YuvColorSpace, YuvData};
+use api::{DeviceIntRect, DeviceIntSize, WorldToLayerTransform, YuvColorSpace, YuvData};
 use app_units::Au;
 use border::ImageBorderSegment;
 use clip::{ClipRegion, ClipSource, ClipSources, ClipStore, Contains};
@@ -25,7 +25,7 @@ use internal_types::{FastHashMap, FastHashSet, RenderPassIndex};
 use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
 use prim_store::{BrushKind, BrushPrimitive, ImageCacheKey, YuvImagePrimitiveCpu};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, ImageSource, PrimitiveKind};
-use prim_store::{PrimitiveContainer, PrimitiveIndex, SpecificPrimitiveIndex};
+use prim_store::{PrimitiveContainer, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
 use prim_store::{BrushSegmentDescriptor, PrimitiveRun, TextRunPrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
@@ -144,12 +144,14 @@ pub struct FrameState<'a> {
     pub gpu_cache: &'a mut GpuCache,
 }
 
-pub struct PictureContext {
+pub struct PictureContext<'a> {
     pub pipeline_id: PipelineId,
-    pub pic_index: SpecificPrimitiveIndex,
     pub perform_culling: bool,
     pub prim_runs: Vec<PrimitiveRun>,
     pub original_reference_frame_id: Option<ClipId>,
+    pub display_list: &'a BuiltDisplayList,
+    pub draw_text_transformed: bool,
+    pub inv_world_transform: Option<WorldToLayerTransform>,
 }
 
 pub struct PictureState {
@@ -165,7 +167,6 @@ impl PictureState {
 }
 
 pub struct PrimitiveRunContext<'a> {
-    pub display_list: &'a BuiltDisplayList,
     pub clip_chain: Option<&'a ClipChain>,
     pub scroll_node: &'a ClipScrollNode,
     pub clip_chain_rect_index: ClipChainRectIndex,
@@ -173,13 +174,11 @@ pub struct PrimitiveRunContext<'a> {
 
 impl<'a> PrimitiveRunContext<'a> {
     pub fn new(
-        display_list: &'a BuiltDisplayList,
         clip_chain: Option<&'a ClipChain>,
         scroll_node: &'a ClipScrollNode,
         clip_chain_rect_index: ClipChainRectIndex,
     ) -> Self {
         PrimitiveRunContext {
-            display_list,
             clip_chain,
             scroll_node,
             clip_chain_rect_index,
@@ -1659,24 +1658,18 @@ impl FrameBuilder {
 
         let pic_context = PictureContext {
             pipeline_id: root_clip_scroll_node.pipeline_id,
-            pic_index: SpecificPrimitiveIndex(0),
             perform_culling: true,
             prim_runs: mem::replace(&mut self.prim_store.cpu_pictures[0].runs, Vec::new()),
             original_reference_frame_id: None,
+            display_list,
+            draw_text_transformed: true,
+            inv_world_transform: None,
         };
 
         let mut pic_state = PictureState::new();
 
-        let root_prim_run_context = PrimitiveRunContext::new(
-            display_list,
-            root_clip_scroll_node.clip_chain.as_ref(),
-            root_clip_scroll_node,
-            ClipChainRectIndex(0),
-        );
-
         self.prim_store.reset_prim_visibility();
         self.prim_store.prepare_prim_runs(
-            &root_prim_run_context,
             &pic_context,
             &mut pic_state,
             &frame_context,

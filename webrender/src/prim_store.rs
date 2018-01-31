@@ -1167,21 +1167,18 @@ impl PrimitiveStore {
                     );
             }
             PrimitiveKind::TextRun => {
-                let pic = &self.cpu_pictures[pic_context.pic_index.0];
                 let text = &mut self.cpu_text_runs[metadata.cpu_prim_index.0];
                 // The transform only makes sense for screen space rasterization
-                let transform = match pic.kind {
-                    PictureKind::BoxShadow { .. } => None,
-                    PictureKind::TextShadow { .. } => None,
-                    PictureKind::Image { .. } => {
-                        Some(&prim_run_context.scroll_node.world_content_transform)
-                    },
+                let transform = if pic_context.draw_text_transformed {
+                    Some(&prim_run_context.scroll_node.world_content_transform)
+                } else {
+                    None
                 };
                 text.prepare_for_render(
                     frame_state.resource_cache,
                     frame_context.device_pixel_scale,
                     transform,
-                    prim_run_context.display_list,
+                    pic_context.display_list,
                     frame_state.gpu_cache,
                 );
             }
@@ -1323,15 +1320,24 @@ impl PrimitiveStore {
                 }
                 PrimitiveKind::AlignedGradient => {
                     let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];
-                    metadata.opacity = gradient.build_gpu_blocks_for_aligned(prim_run_context.display_list, request);
+                    metadata.opacity = gradient.build_gpu_blocks_for_aligned(
+                        pic_context.display_list,
+                        request,
+                    );
                 }
                 PrimitiveKind::AngleGradient => {
                     let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];
-                    gradient.build_gpu_blocks_for_angle_radial(prim_run_context.display_list, request);
+                    gradient.build_gpu_blocks_for_angle_radial(
+                        pic_context.display_list,
+                        request,
+                    );
                 }
                 PrimitiveKind::RadialGradient => {
                     let gradient = &self.cpu_radial_gradients[metadata.cpu_prim_index.0];
-                    gradient.build_gpu_blocks_for_angle_radial(prim_run_context.display_list, request);
+                    gradient.build_gpu_blocks_for_angle_radial(
+                        pic_context.display_list,
+                        request,
+                    );
                 }
                 PrimitiveKind::TextRun => {
                     let text = &self.cpu_text_runs[metadata.cpu_prim_index.0];
@@ -1737,28 +1743,40 @@ impl PrimitiveStore {
                     return None;
                 }
 
-                let original_reference_frame_id = match pic.kind {
+                let (draw_text_transformed, original_reference_frame_id) = match pic.kind {
                     PictureKind::Image { reference_frame_id, .. } => {
                         may_need_clip_mask = false;
-                        Some(reference_frame_id)
+                        (true, Some(reference_frame_id))
                     }
                     PictureKind::BoxShadow { .. } |
                     PictureKind::TextShadow { .. } => {
-                        None
+                        (false, None)
                     }
                 };
 
+                let display_list = &frame_context
+                    .pipelines
+                    .get(&pic.pipeline_id)
+                    .expect("No display list?")
+                    .display_list;
+
+                let inv_world_transform = prim_run_context
+                    .scroll_node
+                    .world_content_transform
+                    .inverse();
+
                 PictureContext {
                     pipeline_id: pic.pipeline_id,
-                    pic_index: cpu_prim_index,
                     perform_culling: pic.cull_children,
                     prim_runs: mem::replace(&mut pic.runs, Vec::new()),
                     original_reference_frame_id,
+                    display_list,
+                    draw_text_transformed,
+                    inv_world_transform,
                 }
             };
 
             let result = self.prepare_prim_runs(
-                prim_run_context,
                 &pic_context_for_children,
                 &mut pic_state_for_children,
                 frame_context,
@@ -1846,7 +1864,6 @@ impl PrimitiveStore {
 
     pub fn prepare_prim_runs(
         &mut self,
-        parent_prim_run_context: &PrimitiveRunContext,
         pic_context: &PictureContext,
         pic_state: &mut PictureState,
         frame_context: &FrameContext,
@@ -1884,10 +1901,8 @@ impl PrimitiveStore {
             }
 
 
-            let parent_relative_transform = parent_prim_run_context
-                .scroll_node
-                .world_content_transform
-                .inverse()
+            let parent_relative_transform = pic_context
+                .inv_world_transform
                 .map(|inv_parent| {
                     inv_parent.pre_mul(&scroll_node.world_content_transform)
                 });
@@ -1904,11 +1919,6 @@ impl PrimitiveStore {
                         })
                 });
 
-            let display_list = &frame_context.pipelines
-                .get(&pic_context.pipeline_id)
-                .expect("No display list?")
-                .display_list;
-
             let clip_chain_rect = match pic_context.perform_culling {
                 true => get_local_clip_rect_for_nodes(scroll_node, clip_chain),
                 false => None,
@@ -1924,7 +1934,6 @@ impl PrimitiveStore {
             };
 
             let child_prim_run_context = PrimitiveRunContext::new(
-                display_list,
                 clip_chain,
                 scroll_node,
                 clip_chain_rect_index,
