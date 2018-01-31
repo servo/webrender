@@ -2,10 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ApiMsg, BuiltDisplayList, DebugCommand, DeviceIntPoint};
+use api::{ApiMsg, BuiltDisplayList, ClearCache, DebugCommand};
 #[cfg(feature = "debugger")]
 use api::{BuiltDisplayListIter, SpecificDisplayItem};
-use api::{DevicePixelScale, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
+use api::{DeviceIntPoint, DevicePixelScale, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{DocumentId, DocumentLayer, DocumentMsg, HitTestFlags, HitTestResult};
 use api::{IdNamespace, PipelineId, RenderNotifier, WorldPoint};
 use api::channel::{MsgReceiver, MsgSender, PayloadReceiver, PayloadReceiverHelperMethods};
@@ -563,7 +563,15 @@ impl RenderBackend {
                     }
                 }
                 ApiMsg::MemoryPressure => {
-                    self.resource_cache.on_memory_pressure();
+                    // This is drastic. It will basically flush everything out of the cache,
+                    // and the next frame will have to rebuild all of its resources.
+                    // We may want to look into something less extreme, but on the other hand this
+                    // should only be used in situations where are running low enough on memory
+                    // that we risk crashing if we don't do something about it.
+                    // The advantage of clearing the cache completely is that it gets rid of any
+                    // remaining fragmentation that could have persisted if we kept around the most
+                    // recently used resources.
+                    self.resource_cache.clear(ClearCache::all());
 
                     let pending_update = self.resource_cache.pending_updates();
                     let msg = ResultMsg::UpdateResources {
@@ -575,6 +583,22 @@ impl RenderBackend {
                 }
                 ApiMsg::DebugCommand(option) => {
                     let msg = match option {
+                        DebugCommand::EnableDualSourceBlending(enable) => {
+                            // Set in the config used for any future documents
+                            // that are created.
+                            self.frame_config
+                                .dual_source_blending_is_enabled = enable;
+
+                            // Set for any existing documents.
+                            for (_, doc) in &mut self.documents {
+                                doc.frame_ctx
+                                   .frame_builder_config
+                                   .dual_source_blending_is_enabled = enable;
+                            }
+
+                            // We don't want to forward this message to the renderer.
+                            continue;
+                        }
                         DebugCommand::FetchDocuments => {
                             let json = self.get_docs_for_debugger();
                             ResultMsg::DebugOutput(DebugOutput::FetchDocuments(json))
@@ -606,22 +630,10 @@ impl RenderBackend {
                             // Note: we can't pass `LoadCapture` here since it needs to arrive
                             // before the `PublishDocument` messages sent by `load_capture`.
                             continue
-                        },
-                        DebugCommand::EnableDualSourceBlending(enable) => {
-                            // Set in the config used for any future documents
-                            // that are created.
-                            self.frame_config
-                                .dual_source_blending_is_enabled = enable;
-
-                            // Set for any existing documents.
-                            for (_, doc) in &mut self.documents {
-                                doc.frame_ctx
-                                   .frame_builder_config
-                                   .dual_source_blending_is_enabled = enable;
-                            }
-
-                            // We don't want to forward this message to the renderer.
-                            continue;
+                        }
+                        DebugCommand::ClearCaches(mask) => {
+                            self.resource_cache.clear(mask);
+                            continue
                         }
                         _ => ResultMsg::DebugCommand(option),
                     };

@@ -425,6 +425,17 @@ bitflags!{
     }
 }
 
+bitflags!{
+    /// Mask for clearing caches in debug commands.
+    #[derive(Deserialize, Serialize)]
+    pub struct ClearCache: u8 {
+        const IMAGES = 0x1;
+        const GLYPHS = 0x2;
+        const GLYPH_DIMENSIONS = 0x4;
+        const RENDER_TASKS = 0x8;
+    }
+}
+
 /// Information about a loaded capture of each document
 /// that is returned by `RenderBackend`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -448,6 +459,8 @@ pub enum DebugCommand {
     EnableGpuTimeQueries(bool),
     /// Display GPU overdraw results
     EnableGpuSampleQueries(bool),
+    /// Configure if dual-source blending is used, if available.
+    EnableDualSourceBlending(bool),
     /// Fetch current documents and display lists.
     FetchDocuments,
     /// Fetch current passes and batches.
@@ -462,8 +475,10 @@ pub enum DebugCommand {
     SaveCapture(PathBuf, CaptureBits),
     /// Load a capture of all the documents state.
     LoadCapture(PathBuf, MsgSender<CapturedDocument>),
-    /// Configure if dual-source blending is used, if available.
-    EnableDualSourceBlending(bool),
+    /// Clear cached resources, forcing them to be re-uploaded from templates.
+    ClearCaches(ClearCache),
+    /// Invalidate GPU cache, forcing the update from the CPU mirror.
+    InvalidateGpuCache,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
