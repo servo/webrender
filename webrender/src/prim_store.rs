@@ -1707,12 +1707,13 @@ impl PrimitiveStore {
         frame_context: &FrameContext,
         frame_state: &mut FrameState,
     ) -> Option<LayerRect> {
-        // Reset the visibility of this primitive.
+        let mut may_need_clip_mask = true;
+        let mut pic_state_for_children = PictureState::new();
+
         // Do some basic checks first, that can early out
         // without even knowing the local rect.
-        let (cpu_prim_index, dependencies, cull_children, may_need_clip_mask) = {
-            let metadata = &mut self.cpu_metadata[prim_index.0];
-            metadata.screen_rect = None;
+        let (prim_kind, cpu_prim_index) = {
+            let metadata = &self.cpu_metadata[prim_index.0];
 
             if pic_context.perform_culling &&
                !metadata.is_backface_visible &&
@@ -1720,32 +1721,7 @@ impl PrimitiveStore {
                 return None;
             }
 
-            let (dependencies, cull_children, may_need_clip_mask) = match metadata.prim_kind {
-                PrimitiveKind::Picture => {
-                    let pic = &mut self.cpu_pictures[metadata.cpu_prim_index.0];
-
-                    if !pic.resolve_scene_properties(frame_context.scene_properties) {
-                        return None;
-                    }
-
-                    let (rfid, may_need_clip_mask) = match pic.kind {
-                        PictureKind::Image { reference_frame_id, .. } => {
-                            (Some(reference_frame_id), false)
-                        }
-                        _ => {
-                            (None, true)
-                        }
-                    };
-                    (Some((pic.pipeline_id, mem::replace(&mut pic.runs, Vec::new()), rfid)),
-                     pic.cull_children,
-                     may_need_clip_mask)
-                }
-                _ => {
-                    (None, true, true)
-                }
-            };
-
-            (metadata.cpu_prim_index, dependencies, cull_children, may_need_clip_mask)
+            (metadata.prim_kind, metadata.cpu_prim_index)
         };
 
         // If we have dependencies, we need to prepare them first, in order
@@ -1753,14 +1729,32 @@ impl PrimitiveStore {
         // For example, scrolling may affect the location of an item in
         // local space, which may force us to render this item on a larger
         // picture target, if being composited.
-        let mut pic_state_for_children = PictureState::new();
-        if let Some((pipeline_id, dependencies, rfid)) = dependencies {
-            let pic_context_for_children = PictureContext {
-                pipeline_id,
-                pic_index: cpu_prim_index,
-                perform_culling: cull_children,
-                prim_runs: dependencies,
-                original_reference_frame_id: rfid,
+        if let PrimitiveKind::Picture = prim_kind {
+            let pic_context_for_children = {
+                let pic = &mut self.cpu_pictures[cpu_prim_index.0];
+
+                if !pic.resolve_scene_properties(frame_context.scene_properties) {
+                    return None;
+                }
+
+                let original_reference_frame_id = match pic.kind {
+                    PictureKind::Image { reference_frame_id, .. } => {
+                        may_need_clip_mask = false;
+                        Some(reference_frame_id)
+                    }
+                    PictureKind::BoxShadow { .. } |
+                    PictureKind::TextShadow { .. } => {
+                        None
+                    }
+                };
+
+                PictureContext {
+                    pipeline_id: pic.pipeline_id,
+                    pic_index: cpu_prim_index,
+                    perform_culling: pic.cull_children,
+                    prim_runs: mem::replace(&mut pic.runs, Vec::new()),
+                    original_reference_frame_id,
+                }
             };
 
             let result = self.prepare_prim_runs(
@@ -1771,12 +1765,11 @@ impl PrimitiveStore {
                 frame_state,
             );
 
-            let metadata = &mut self.cpu_metadata[prim_index.0];
-
             // Restore the dependencies (borrow check dance)
             let pic = &mut self.cpu_pictures[cpu_prim_index.0];
             pic.runs = pic_context_for_children.prim_runs;
 
+            let metadata = &mut self.cpu_metadata[prim_index.0];
             metadata.local_rect = pic.update_local_rect(
                 metadata.local_rect,
                 result,
