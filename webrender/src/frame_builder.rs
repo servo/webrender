@@ -27,7 +27,7 @@ use prim_store::{BrushKind, BrushPrimitive, ImageCacheKey, YuvImagePrimitiveCpu}
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, ImageSource, PrimitiveKind};
 use prim_store::{PrimitiveContainer, PrimitiveIndex, SpecificPrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
-use prim_store::{BrushSegmentDescriptor, TextRunPrimitiveCpu};
+use prim_store::{BrushSegmentDescriptor, PrimitiveRun, TextRunPrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_task::{ClearMode, ClipChain, RenderTask, RenderTaskId, RenderTaskTree};
 use resource_cache::ResourceCache;
@@ -142,6 +142,26 @@ pub struct FrameState<'a> {
     pub local_clip_rects: &'a mut Vec<LayerRect>,
     pub resource_cache: &'a mut ResourceCache,
     pub gpu_cache: &'a mut GpuCache,
+}
+
+pub struct PictureContext {
+    pub pipeline_id: PipelineId,
+    pub pic_index: SpecificPrimitiveIndex,
+    pub perform_culling: bool,
+    pub prim_runs: Vec<PrimitiveRun>,
+    pub original_reference_frame_id: Option<ClipId>,
+}
+
+pub struct PictureState {
+    pub tasks: Vec<RenderTaskId>,
+}
+
+impl PictureState {
+    pub fn new() -> PictureState {
+        PictureState {
+            tasks: Vec::new(),
+        }
+    }
 }
 
 pub struct PrimitiveRunContext<'a> {
@@ -1612,7 +1632,6 @@ impl FrameBuilder {
         }
 
         // The root picture is always the first one added.
-        let prim_run_cmds = mem::replace(&mut self.prim_store.cpu_pictures[0].runs, Vec::new());
         let root_clip_scroll_node = &clip_scroll_tree.nodes[&clip_scroll_tree.root_reference_frame_id()];
 
         let display_list = &pipelines
@@ -1638,6 +1657,16 @@ impl FrameBuilder {
             gpu_cache,
         };
 
+        let pic_context = PictureContext {
+            pipeline_id: root_clip_scroll_node.pipeline_id,
+            pic_index: SpecificPrimitiveIndex(0),
+            perform_culling: true,
+            prim_runs: mem::replace(&mut self.prim_store.cpu_pictures[0].runs, Vec::new()),
+            original_reference_frame_id: None,
+        };
+
+        let mut pic_state = PictureState::new();
+
         let root_prim_run_context = PrimitiveRunContext::new(
             display_list,
             root_clip_scroll_node.clip_chain.as_ref(),
@@ -1645,22 +1674,17 @@ impl FrameBuilder {
             ClipChainRectIndex(0),
         );
 
-        let mut child_tasks = Vec::new();
         self.prim_store.reset_prim_visibility();
         self.prim_store.prepare_prim_runs(
-            &prim_run_cmds,
-            root_clip_scroll_node.pipeline_id,
             &root_prim_run_context,
-            true,
-            &mut child_tasks,
-            None,
-            SpecificPrimitiveIndex(0),
+            &pic_context,
+            &mut pic_state,
             &frame_context,
             &mut frame_state,
         );
 
         let pic = &mut self.prim_store.cpu_pictures[0];
-        pic.runs = prim_run_cmds;
+        pic.runs = pic_context.prim_runs;
 
         let root_render_task = RenderTask::new_picture(
             None,
@@ -1669,7 +1693,7 @@ impl FrameBuilder {
             ContentOrigin::Screen(DeviceIntPoint::zero()),
             PremultipliedColorF::TRANSPARENT,
             ClearMode::Transparent,
-            child_tasks,
+            pic_state.tasks,
             PictureType::Image,
         );
 
