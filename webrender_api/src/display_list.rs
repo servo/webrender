@@ -242,9 +242,6 @@ impl<'a> BuiltDisplayListIter<'a> {
             match self.cur_item.item {
                 SetGradientStops => {
                     self.cur_stops = skip_slice::<GradientStop>(self.list, &mut self.data).0;
-
-                    // This is a dummy item, skip over it
-                    continue;
                 }
                 ClipChain(_) => {
                     self.cur_clip_chain_items = skip_slice::<ClipId>(self.list, &mut self.data).0;

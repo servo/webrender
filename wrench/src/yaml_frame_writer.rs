@@ -648,6 +648,8 @@ impl YamlFrameWriter {
         list_iterator: &mut BuiltDisplayListIter,
         clip_id_mapper: &mut ClipIdMapper,
     ) {
+        let mut gradient_stops = ItemRange::<GradientStop>::default();
+
         // continue_traversal is a big borrowck hack
         let mut continue_traversal = None;
         loop {
@@ -878,7 +880,7 @@ impl YamlFrameWriter {
                             point_node(&mut v, "start", &details.gradient.start_point);
                             point_node(&mut v, "end", &details.gradient.end_point);
                             let mut stops = vec![];
-                            for stop in display_list.get(base.gradient_stops()) {
+                            for stop in display_list.get(gradient_stops) {
                                 stops.push(Yaml::Real(stop.offset.to_string()));
                                 stops.push(Yaml::String(color_to_string(stop.color)));
                             }
@@ -911,7 +913,7 @@ impl YamlFrameWriter {
                             f32_node(&mut v, "end-radius", details.gradient.end_radius);
                             f32_node(&mut v, "ratio-xy", details.gradient.ratio_xy);
                             let mut stops = vec![];
-                            for stop in display_list.get(base.gradient_stops()) {
+                            for stop in display_list.get(gradient_stops) {
                                 stops.push(Yaml::Real(stop.offset.to_string()));
                                 stops.push(Yaml::String(color_to_string(stop.color)));
                             }
@@ -948,7 +950,7 @@ impl YamlFrameWriter {
                     size_node(&mut v, "tile-size", &item.tile_size);
                     size_node(&mut v, "tile-spacing", &item.tile_spacing);
                     let mut stops = vec![];
-                    for stop in display_list.get(base.gradient_stops()) {
+                    for stop in display_list.get(gradient_stops) {
                         stops.push(Yaml::Real(stop.offset.to_string()));
                         stops.push(Yaml::String(color_to_string(stop.color)));
                     }
@@ -969,7 +971,7 @@ impl YamlFrameWriter {
                     size_node(&mut v, "tile-size", &item.tile_size);
                     size_node(&mut v, "tile-spacing", &item.tile_spacing);
                     let mut stops = vec![];
-                    for stop in display_list.get(base.gradient_stops()) {
+                    for stop in display_list.get(gradient_stops) {
                         stops.push(Yaml::Real(stop.offset.to_string()));
                         stops.push(Yaml::String(color_to_string(stop.color)));
                     }
@@ -1084,7 +1086,9 @@ impl YamlFrameWriter {
                 }
 
                 PopStackingContext => return,
-                SetGradientStops => panic!("dummy item yielded?"),
+                SetGradientStops => {
+                    gradient_stops = base.gradient_stops();
+                }
                 PushShadow(shadow) => {
                     str_node(&mut v, "type", "shadow");
                     vector_node(&mut v, "offset", &shadow.offset);
