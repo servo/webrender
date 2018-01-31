@@ -2,18 +2,18 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipAndScrollInfo, ClipId, ClipMode};
+use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipAndScrollInfo, ClipMode};
 use api::{ColorF, ColorU, DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch};
 use api::{ComplexClipRegion, ExtendMode, FontRenderMode};
 use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
-use api::{LineStyle, PipelineId, PremultipliedColorF, TileOffset};
+use api::{LineStyle, PremultipliedColorF, TileOffset};
 use api::{WorldToLayerTransform, YuvColorSpace, YuvFormat};
 use border::{BorderCornerInstance, BorderEdgeKind};
 use clip_scroll_tree::{CoordinateSystemId};
 use clip_scroll_node::ClipScrollNode;
 use clip::{ClipSource, ClipSourcesHandle};
-use frame_builder::{FrameContext, FrameState, PrimitiveRunContext};
+use frame_builder::{FrameContext, FrameState, PictureContext, PictureState, PrimitiveRunContext};
 use glyph_rasterizer::{FontInstance, FontTransform};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
@@ -1145,9 +1145,9 @@ impl PrimitiveStore {
         &mut self,
         prim_index: PrimitiveIndex,
         prim_run_context: &PrimitiveRunContext,
-        child_tasks: Vec<RenderTaskId>,
-        parent_tasks: &mut Vec<RenderTaskId>,
-        pic_index: SpecificPrimitiveIndex,
+        pic_state_for_children: PictureState,
+        pic_context: &PictureContext,
+        pic_state: &mut PictureState,
         frame_context: &FrameContext,
         frame_state: &mut FrameState,
     ) {
@@ -1160,14 +1160,14 @@ impl PrimitiveStore {
                         prim_index,
                         metadata.screen_rect.as_ref().expect("bug: trying to draw an off-screen picture!?"),
                         &metadata.local_rect,
-                        child_tasks,
-                        parent_tasks,
+                        pic_state_for_children,
+                        pic_state,
                         frame_context,
                         frame_state,
                     );
             }
             PrimitiveKind::TextRun => {
-                let pic = &self.cpu_pictures[pic_index.0];
+                let pic = &self.cpu_pictures[pic_context.pic_index.0];
                 let text = &mut self.cpu_text_runs[metadata.cpu_prim_index.0];
                 // The transform only makes sense for screen space rasterization
                 let transform = match pic.kind {
@@ -1272,7 +1272,7 @@ impl PrimitiveStore {
                                 let target_to_cache_task_id = render_tasks.add(target_to_cache_task);
 
                                 // Hook this into the render task tree at the right spot.
-                                parent_tasks.push(target_to_cache_task_id);
+                                pic_state.tasks.push(target_to_cache_task_id);
 
                                 // Pass the image opacity, so that the cached render task
                                 // item inherits the same opacity properties.
@@ -1498,10 +1498,10 @@ impl PrimitiveStore {
         &mut self,
         prim_run_context: &PrimitiveRunContext,
         prim_index: PrimitiveIndex,
-        tasks: &mut Vec<RenderTaskId>,
         clips: &Vec<ClipWorkItem>,
         combined_outer_rect: &DeviceIntRect,
         has_clips_from_other_coordinate_systems: bool,
+        pic_state: &mut PictureState,
         frame_context: &FrameContext,
         frame_state: &mut FrameState,
     ) -> bool {
@@ -1555,7 +1555,7 @@ impl PrimitiveStore {
                 );
 
                 let clip_task_id = frame_state.render_tasks.add(clip_task);
-                tasks.push(clip_task_id);
+                pic_state.tasks.push(clip_task_id);
 
                 clip_task_id
             })
@@ -1569,7 +1569,7 @@ impl PrimitiveStore {
         prim_index: PrimitiveIndex,
         prim_run_context: &PrimitiveRunContext,
         prim_screen_rect: &DeviceIntRect,
-        tasks: &mut Vec<RenderTaskId>,
+        pic_state: &mut PictureState,
         frame_context: &FrameContext,
         frame_state: &mut FrameState,
     ) -> bool {
@@ -1675,10 +1675,10 @@ impl PrimitiveStore {
         if self.update_clip_task_for_brush(
             prim_run_context,
             prim_index,
-            tasks,
             &clips,
             &combined_outer_rect,
             has_clips_from_other_coordinate_systems,
+            pic_state,
             frame_context,
             frame_state,
         ) {
@@ -1693,7 +1693,7 @@ impl PrimitiveStore {
 
         let clip_task_id = frame_state.render_tasks.add(clip_task);
         self.cpu_metadata[prim_index.0].clip_task_id = Some(clip_task_id);
-        tasks.push(clip_task_id);
+        pic_state.tasks.push(clip_task_id);
 
         true
     }
@@ -1702,9 +1702,8 @@ impl PrimitiveStore {
         &mut self,
         prim_index: PrimitiveIndex,
         prim_run_context: &PrimitiveRunContext,
-        perform_culling: bool,
-        parent_tasks: &mut Vec<RenderTaskId>,
-        pic_index: SpecificPrimitiveIndex,
+        pic_context: &PictureContext,
+        pic_state: &mut PictureState,
         frame_context: &FrameContext,
         frame_state: &mut FrameState,
     ) -> Option<LayerRect> {
@@ -1715,7 +1714,7 @@ impl PrimitiveStore {
             let metadata = &mut self.cpu_metadata[prim_index.0];
             metadata.screen_rect = None;
 
-            if perform_culling &&
+            if pic_context.perform_culling &&
                !metadata.is_backface_visible &&
                prim_run_context.scroll_node.world_content_transform.is_backface_visible() {
                 return None;
@@ -1754,16 +1753,20 @@ impl PrimitiveStore {
         // For example, scrolling may affect the location of an item in
         // local space, which may force us to render this item on a larger
         // picture target, if being composited.
-        let mut child_tasks = Vec::new();
+        let mut pic_state_for_children = PictureState::new();
         if let Some((pipeline_id, dependencies, rfid)) = dependencies {
-            let result = self.prepare_prim_runs(
-                &dependencies,
+            let pic_context_for_children = PictureContext {
                 pipeline_id,
+                pic_index: cpu_prim_index,
+                perform_culling: cull_children,
+                prim_runs: dependencies,
+                original_reference_frame_id: rfid,
+            };
+
+            let result = self.prepare_prim_runs(
                 prim_run_context,
-                cull_children,
-                &mut child_tasks,
-                rfid,
-                cpu_prim_index,
+                &pic_context_for_children,
+                &mut pic_state_for_children,
                 frame_context,
                 frame_state,
             );
@@ -1772,7 +1775,7 @@ impl PrimitiveStore {
 
             // Restore the dependencies (borrow check dance)
             let pic = &mut self.cpu_pictures[cpu_prim_index.0];
-            pic.runs = dependencies;
+            pic.runs = pic_context_for_children.prim_runs;
 
             metadata.local_rect = pic.update_local_rect(
                 metadata.local_rect,
@@ -1791,7 +1794,7 @@ impl PrimitiveStore {
             let local_rect = metadata.local_clip_rect.intersection(&metadata.local_rect);
             let local_rect = match local_rect {
                 Some(local_rect) => local_rect,
-                None if perform_culling => return None,
+                None if pic_context.perform_culling => return None,
                 None => LayerRect::zero(),
             };
 
@@ -1807,7 +1810,7 @@ impl PrimitiveStore {
             };
             metadata.screen_rect = screen_bounding_rect.intersection(&clip_bounds);
 
-            if metadata.screen_rect.is_none() && perform_culling {
+            if metadata.screen_rect.is_none() && pic_context.perform_culling {
                 return None;
             }
 
@@ -1816,11 +1819,11 @@ impl PrimitiveStore {
             (local_rect, screen_bounding_rect)
         };
 
-        if perform_culling && may_need_clip_mask && !self.update_clip_task(
+        if pic_context.perform_culling && may_need_clip_mask && !self.update_clip_task(
             prim_index,
             prim_run_context,
             &unclipped_device_rect,
-            parent_tasks,
+            pic_state,
             frame_context,
             frame_state,
         ) {
@@ -1830,9 +1833,9 @@ impl PrimitiveStore {
         self.prepare_prim_for_render_inner(
             prim_index,
             prim_run_context,
-            child_tasks,
-            parent_tasks,
-            pic_index,
+            pic_state_for_children,
+            pic_context,
+            pic_state,
             frame_context,
             frame_state,
         );
@@ -1850,13 +1853,9 @@ impl PrimitiveStore {
 
     pub fn prepare_prim_runs(
         &mut self,
-        runs: &[PrimitiveRun],
-        pipeline_id: PipelineId,
         parent_prim_run_context: &PrimitiveRunContext,
-        perform_culling: bool,
-        parent_tasks: &mut Vec<RenderTaskId>,
-        original_reference_frame_id: Option<ClipId>,
-        pic_index: SpecificPrimitiveIndex,
+        pic_context: &PictureContext,
+        pic_state: &mut PictureState,
         frame_context: &FrameContext,
         frame_state: &mut FrameState,
     ) -> PrimitiveRunLocalRect {
@@ -1865,7 +1864,7 @@ impl PrimitiveStore {
             local_rect_in_original_parent_space: LayerRect::zero(),
         };
 
-        for run in runs {
+        for run in &pic_context.prim_runs {
             // TODO(gw): Perhaps we can restructure this to not need to create
             //           a new primitive context for every run (if the hash
             //           lookups ever show up in a profile).
@@ -1876,15 +1875,15 @@ impl PrimitiveStore {
                 .clip_scroll_tree
                 .get_clip_chain(&run.clip_and_scroll.clip_node_id());
 
-            if perform_culling {
+            if pic_context.perform_culling {
                 if !scroll_node.invertible {
-                    debug!("{:?} {:?}: position not invertible", run.base_prim_index, pipeline_id);
+                    debug!("{:?} {:?}: position not invertible", run.base_prim_index, pic_context.pipeline_id);
                     continue;
                 }
 
                 match clip_chain {
                      Some(ref chain) if chain.combined_outer_screen_rect.is_empty() => {
-                        debug!("{:?} {:?}: clipped out", run.base_prim_index, pipeline_id);
+                        debug!("{:?} {:?}: clipped out", run.base_prim_index, pic_context.pipeline_id);
                         continue;
                     }
                     _ => {},
@@ -1900,7 +1899,7 @@ impl PrimitiveStore {
                     inv_parent.pre_mul(&scroll_node.world_content_transform)
                 });
 
-            let original_relative_transform = original_reference_frame_id
+            let original_relative_transform = pic_context.original_reference_frame_id
                 .and_then(|original_reference_frame_id| {
                     let parent = frame_context
                         .clip_scroll_tree
@@ -1913,11 +1912,11 @@ impl PrimitiveStore {
                 });
 
             let display_list = &frame_context.pipelines
-                .get(&pipeline_id)
+                .get(&pic_context.pipeline_id)
                 .expect("No display list?")
                 .display_list;
 
-            let clip_chain_rect = match perform_culling {
+            let clip_chain_rect = match pic_context.perform_culling {
                 true => get_local_clip_rect_for_nodes(scroll_node, clip_chain),
                 false => None,
             };
@@ -1944,9 +1943,8 @@ impl PrimitiveStore {
                 if let Some(prim_local_rect) = self.prepare_prim_for_render(
                     prim_index,
                     &child_prim_run_context,
-                    perform_culling,
-                    parent_tasks,
-                    pic_index,
+                    pic_context,
+                    pic_state,
                     frame_context,
                     frame_state,
                 ) {
