@@ -1760,6 +1760,11 @@ impl PrimitiveStore {
                     .expect("No display list?")
                     .display_list;
 
+                let inv_world_transform = prim_run_context
+                    .scroll_node
+                    .world_content_transform
+                    .inverse();
+
                 PictureContext {
                     pipeline_id: pic.pipeline_id,
                     perform_culling: pic.cull_children,
@@ -1767,11 +1772,11 @@ impl PrimitiveStore {
                     original_reference_frame_id,
                     display_list,
                     draw_text_transformed,
+                    inv_world_transform,
                 }
             };
 
             let result = self.prepare_prim_runs(
-                prim_run_context,
                 &pic_context_for_children,
                 &mut pic_state_for_children,
                 frame_context,
@@ -1859,7 +1864,6 @@ impl PrimitiveStore {
 
     pub fn prepare_prim_runs(
         &mut self,
-        parent_prim_run_context: &PrimitiveRunContext,
         pic_context: &PictureContext,
         pic_state: &mut PictureState,
         frame_context: &FrameContext,
@@ -1897,10 +1901,8 @@ impl PrimitiveStore {
             }
 
 
-            let parent_relative_transform = parent_prim_run_context
-                .scroll_node
-                .world_content_transform
-                .inverse()
+            let parent_relative_transform = pic_context
+                .inv_world_transform
                 .map(|inv_parent| {
                     inv_parent.pre_mul(&scroll_node.world_content_transform)
                 });

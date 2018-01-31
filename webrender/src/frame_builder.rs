@@ -10,7 +10,7 @@ use api::{Epoch, ItemRange, ItemTag, LayerPoint, LayerPrimitiveInfo, LayerRect, 
 use api::{LayerTransform, LayerVector2D, LayoutTransform, LayoutVector2D, LineOrientation};
 use api::{LineStyle, LocalClip, PipelineId, PremultipliedColorF, PropertyBinding, RepeatMode};
 use api::{ScrollSensitivity, Shadow, TexelRect, TileOffset, TransformStyle, WorldPoint};
-use api::{DeviceIntRect, DeviceIntSize, YuvColorSpace, YuvData};
+use api::{DeviceIntRect, DeviceIntSize, WorldToLayerTransform, YuvColorSpace, YuvData};
 use app_units::Au;
 use border::ImageBorderSegment;
 use clip::{ClipRegion, ClipSource, ClipSources, ClipStore, Contains};
@@ -151,6 +151,7 @@ pub struct PictureContext<'a> {
     pub original_reference_frame_id: Option<ClipId>,
     pub display_list: &'a BuiltDisplayList,
     pub draw_text_transformed: bool,
+    pub inv_world_transform: Option<WorldToLayerTransform>,
 }
 
 pub struct PictureState {
@@ -1662,19 +1663,13 @@ impl FrameBuilder {
             original_reference_frame_id: None,
             display_list,
             draw_text_transformed: true,
+            inv_world_transform: None,
         };
 
         let mut pic_state = PictureState::new();
 
-        let root_prim_run_context = PrimitiveRunContext::new(
-            root_clip_scroll_node.clip_chain.as_ref(),
-            root_clip_scroll_node,
-            ClipChainRectIndex(0),
-        );
-
         self.prim_store.reset_prim_visibility();
         self.prim_store.prepare_prim_runs(
-            &root_prim_run_context,
             &pic_context,
             &mut pic_state,
             &frame_context,
