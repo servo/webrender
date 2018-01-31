@@ -113,17 +113,12 @@ pub struct ImageTiling {
 
 pub type TiledImageMap = FastHashMap<ImageKey, ImageTiling>;
 
+#[derive(Default)]
 struct ImageTemplates {
     images: FastHashMap<ImageKey, ImageResource>,
 }
 
 impl ImageTemplates {
-    fn new() -> Self {
-        ImageTemplates {
-            images: FastHashMap::default(),
-        }
-    }
-
     fn insert(&mut self, key: ImageKey, resource: ImageResource) {
         self.images.insert(key, resource);
     }
@@ -232,6 +227,7 @@ impl Into<BlobImageRequest> for ImageRequest {
 type ImageCache = ResourceClassCache<ImageRequest, CachedImageInfo>;
 pub type FontInstanceMap = Arc<RwLock<FastHashMap<FontInstanceKey, FontInstance>>>;
 
+#[derive(Default)]
 struct Resources {
     font_templates: FastHashMap<FontKey, FontTemplate>,
     font_instances: FontInstanceMap,
@@ -286,11 +282,7 @@ impl ResourceCache {
             cached_glyphs: GlyphCache::new(),
             cached_images: ResourceClassCache::new(),
             cached_render_tasks: RenderTaskCache::new(),
-            resources: Resources {
-                font_templates: FastHashMap::default(),
-                font_instances: Arc::new(RwLock::new(FastHashMap::default())),
-                image_templates: ImageTemplates::new(),
-            },
+            resources: Resources::default(),
             cached_glyph_dimensions: FastHashMap::default(),
             texture_cache,
             state: State::Idle,
@@ -1032,6 +1024,7 @@ pub struct PlainCacheRef<'a> {
     glyphs: PlainGlyphCacheRef<'a>,
     glyph_dimensions: &'a GlyphDimensionsCache,
     images: &'a ImageCache,
+    render_tasks: &'a RenderTaskCache,
     textures: &'a TextureCache,
 }
 
@@ -1042,6 +1035,7 @@ pub struct PlainCacheOwn {
     glyphs: PlainGlyphCacheOwn,
     glyph_dimensions: GlyphDimensionsCache,
     images: ImageCache,
+    render_tasks: RenderTaskCache,
     textures: TextureCache,
 }
 
@@ -1283,6 +1277,7 @@ impl ResourceCache {
                 .collect(),
             glyph_dimensions: &self.cached_glyph_dimensions,
             images: &self.cached_images,
+            render_tasks: &self.cached_render_tasks,
             textures: &self.texture_cache,
         }
     }
@@ -1348,6 +1343,7 @@ impl ResourceCache {
                 self.cached_glyphs = GlyphCache { glyph_key_caches };
                 self.cached_glyph_dimensions = cached.glyph_dimensions;
                 self.cached_images = cached.images;
+                self.cached_render_tasks = cached.render_tasks;
                 self.texture_cache = cached.textures;
             }
             None => {
@@ -1355,15 +1351,13 @@ impl ResourceCache {
                 self.cached_glyphs.clear();
                 self.cached_glyph_dimensions.clear();
                 self.cached_images.clear();
+                self.cached_render_tasks.clear();
                 let max_texture_size = self.texture_cache.max_texture_size();
                 self.texture_cache = TextureCache::new(max_texture_size);
             }
         }
 
-        self.state = State::Idle;
         self.glyph_rasterizer.reset();
-        self.pending_image_requests.clear();
-
         let res = &mut self.resources;
         res.font_templates.clear();
         *res.font_instances.write().unwrap() = resources.font_instances;
