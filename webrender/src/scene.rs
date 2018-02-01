@@ -13,6 +13,7 @@ use std::sync::Arc;
 /// re-submitting the display list itself.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Clone)]
 pub struct SceneProperties {
     transform_properties: FastHashMap<PropertyBindingId, LayoutTransform>,
     float_properties: FastHashMap<PropertyBindingId, f32>,
@@ -87,6 +88,7 @@ impl SceneProperties {
 /// A representation of the layout within the display port for a given document or iframe.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Clone)]
 pub struct ScenePipeline {
     pub pipeline_id: PipelineId,
     pub viewport_size: LayerSize,
@@ -95,9 +97,12 @@ pub struct ScenePipeline {
     pub display_list: BuiltDisplayList,
 }
 
+// WIP: cloning the whole scene struct is probably more than wat we structly need to
+// do the async stuff, will look into this in more details later.
 /// A complete representation of the layout bundling visible pipelines together.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Clone)]
 pub struct Scene {
     pub root_pipeline_id: Option<PipelineId>,
     pub pipelines: FastHashMap<PipelineId, Arc<ScenePipeline>>,
