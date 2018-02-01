@@ -40,21 +40,26 @@ use std::mem::replace;
 use std::sync::mpsc::{Sender, Receiver, channel};
 use std::u32;
 use time::precise_time_ns;
+use resource_cache::{FontInstanceMap, TiledImageMap};
 
-#[cfg_attr(feature = "capture", derive(Clone, Serialize))]
+// WIP: I realize we don't really want to send the entire struct to the scene
+// building thread, this will be most likely a private struct again by the time
+// I figure the bigger picture out.
+#[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-struct DocumentView {
-    window_size: DeviceUintSize,
-    inner_rect: DeviceUintRect,
-    layer: DocumentLayer,
-    pan: DeviceIntPoint,
-    device_pixel_ratio: f32,
-    page_zoom_factor: f32,
-    pinch_zoom_factor: f32,
+#[derive(Clone)]
+pub struct DocumentView {
+    pub window_size: DeviceUintSize,
+    pub inner_rect: DeviceUintRect,
+    pub layer: DocumentLayer,
+    pub pan: DeviceIntPoint,
+    pub device_pixel_ratio: f32,
+    pub page_zoom_factor: f32,
+    pub pinch_zoom_factor: f32,
 }
 
 impl DocumentView {
-    fn accumulated_scale_factor(&self) -> DevicePixelScale {
+    pub fn accumulated_scale_factor(&self) -> DevicePixelScale {
         DevicePixelScale::new(
             self.device_pixel_ratio *
             self.page_zoom_factor *
@@ -142,6 +147,27 @@ impl Document {
         );
         self.removed_pipelines.extend(self.scene.removed_pipelines.drain(..));
         self.frame_builder = Some(frame_builder);
+    }
+
+    // WIP: this will become build_scene and replace the one above.
+    fn build_scene_async(
+        &mut self,
+        document_id: DocumentId,
+        resource_cache: &ResourceCache,
+        scene_tx: &Sender<SceneBuilderMsg>,
+        render: bool,
+    ) {
+        scene_tx.send(SceneBuilderMsg::BuildScene(
+            SceneRequest {
+                scene: self.scene.clone(),
+                view: self.view.clone(),
+                font_instances: resource_cache.get_font_instances(),
+                tiled_image_map: resource_cache.get_tiled_image_map(),
+                output_pipelines: self.output_pipelines.clone(),
+                document_id,
+                render,
+            }
+        )).unwrap();
     }
 
     fn render(
@@ -518,23 +544,48 @@ impl RenderBackend {
             profile_scope!("handle_msg");
 
             while let Ok(msg) = self.scene_rx.try_recv() {
-                let mut doc = self.documents.get_mut(&msg.document_id).expect("No document?");
-                doc.frame_builder = Some(msg.frame_builder);
+                {
+                    let mut doc = self.documents.get_mut(&msg.document_id).expect("No document?");
+                    doc.frame_builder = Some(msg.frame_builder);
+                }
+                if msg.render {
+                    self.process_api_msg(
+                        ApiMsg::UpdateDocument(
+                            msg.document_id,
+                            vec![DocumentMsg::GenerateFrame],
+                        ),
+                        &mut profile_counters,
+                        &mut frame_counter
+                    );
+                }
             }
 
-            let msg = match self.api_rx.recv() {
+            let keep_going = match self.api_rx.recv() {
                 Ok(msg) => {
                     if let Some(ref mut r) = self.recorder {
                         r.write_msg(frame_counter, &msg);
                     }
-                    msg
+                    self.process_api_msg(msg, &mut profile_counters, &mut frame_counter)
                 }
-                Err(..) => {
-                    self.scene_tx.send(SceneBuilderMsg::Stop);
-                    self.notifier.shut_down();
-                    break;
-                }
+                Err(..) => { false }
             };
+
+            if !keep_going {
+                let _ = self.scene_tx.send(SceneBuilderMsg::Stop);
+                self.notifier.shut_down();
+            }
+        }
+    }
+
+    fn process_api_msg(
+        &mut self,
+        msg: ApiMsg,
+        profile_counters: &mut BackendProfileCounters,
+        frame_counter: &mut u32,
+    ) -> bool {
+        // WIP: reeindent that when the work is closer to land (otherwise rebasing is
+        // is a pain).
+
 
             match msg {
                 ApiMsg::UpdateResources(updates) => {
@@ -624,7 +675,7 @@ impl RenderBackend {
                             }
 
                             // We don't want to forward this message to the renderer.
-                            continue;
+                            return true;
                         }
                         DebugCommand::FetchDocuments => {
                             let json = self.get_docs_for_debugger();
@@ -636,15 +687,15 @@ impl RenderBackend {
                         }
                         #[cfg(feature = "capture")]
                         DebugCommand::SaveCapture(root, bits) => {
-                            let output = self.save_capture(root, bits, &mut profile_counters);
+                            let output = self.save_capture(root, bits, profile_counters);
                             ResultMsg::DebugOutput(output)
                         },
                         #[cfg(feature = "replay")]
                         DebugCommand::LoadCapture(root, tx) => {
                             NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed);
-                            frame_counter += 1;
+                            *frame_counter += 1;
 
-                            self.load_capture(&root, &mut profile_counters);
+                            self.load_capture(&root, profile_counters);
 
                             for (id, doc) in &self.documents {
                                 let captured = CapturedDocument {
@@ -656,11 +707,11 @@ impl RenderBackend {
                             }
                             // Note: we can't pass `LoadCapture` here since it needs to arrive
                             // before the `PublishDocument` messages sent by `load_capture`.
-                            continue
+                            return true;
                         }
                         DebugCommand::ClearCaches(mask) => {
                             self.resource_cache.clear(mask);
-                            continue
+                            return true;
                         }
                         _ => ResultMsg::DebugCommand(option),
                     };
@@ -668,19 +719,19 @@ impl RenderBackend {
                     self.notifier.wake_up();
                 }
                 ApiMsg::ShutDown => {
-                    self.notifier.shut_down();
-                    break;
+                    return false;
                 }
                 ApiMsg::UpdateDocument(document_id, doc_msgs) => {
                     self.update_document(
                         document_id,
                         doc_msgs,
-                        &mut frame_counter,
-                        &mut profile_counters
+                        frame_counter,
+                        profile_counters
                     )
                 }
             }
-        }
+
+        return true;
     }
 
     fn update_document(
@@ -711,7 +762,15 @@ impl RenderBackend {
         if op.build {
             let _timer = profile_counters.total_time.timer();
             profile_scope!("build scene");
-            doc.build_scene(&mut self.resource_cache);
+
+            //doc.build_scene(&mut self.resource_cache);
+            doc.build_scene_async(
+                document_id,
+                &self.resource_cache,
+                &self.scene_tx,
+                op.render,
+            );
+            op.render = false;
             doc.render_on_hittest = true;
         }
 
@@ -1036,28 +1095,42 @@ impl RenderBackend {
 }
 
 pub enum SceneBuilderMsg {
-    BuildScene,
+    BuildScene(SceneRequest),
     Stop
 }
 
+/// Contains the the render backend data needed to build a scene.
+pub struct SceneRequest {
+    pub document_id: DocumentId,
+    pub scene: Scene,
+    pub view: DocumentView,
+    pub font_instances: FontInstanceMap,
+    pub tiled_image_map: TiledImageMap,
+    pub output_pipelines: FastHashSet<PipelineId>,
+    pub render: bool,
+}
+
 pub struct BuiltScene {
-    frame_builder: FrameBuilder,
-    document_id: DocumentId,
+    pub frame_builder: FrameBuilder,
+    pub document_id: DocumentId,
+    pub render: bool,
 }
 
 pub struct SceneBuilder {
     rx: Receiver<SceneBuilderMsg>,
     tx: Sender<BuiltScene>,
+    config: FrameBuilderConfig,
 }
 
 impl SceneBuilder {
-    pub fn new() -> (Self, Sender<SceneBuilderMsg>, Receiver<BuiltScene>) {
+    pub fn new(config: FrameBuilderConfig) -> (Self, Sender<SceneBuilderMsg>, Receiver<BuiltScene>) {
         let (in_tx, in_rx) = channel();
         let (out_tx, out_rx) = channel();
         (
             SceneBuilder {
                 rx: in_rx,
                 tx: out_tx,
+                config,
             },
             in_tx,
             out_rx,
@@ -1081,11 +1154,32 @@ impl SceneBuilder {
 
     pub fn process_message(&mut self, msg: SceneBuilderMsg) -> bool {
         match msg {
-            SceneBuilderMsg::BuildScene => {
-                // TODO - Do the thing.
+            SceneBuilderMsg::BuildScene(request) => {
+                let document_id = request.document_id;
+                let render = request.render;
+
+                let frame_builder = self.build_scene(request);
+
+                self.tx.send(BuiltScene {
+                    frame_builder,
+                    document_id,
+                    render,
+                }).unwrap();
             }
             SceneBuilderMsg::Stop => { return false; }
         }
         return true;
+    }
+
+    pub fn build_scene(&mut self, request: SceneRequest) -> FrameBuilder {
+        let frame_builder = FrameContext::create_async(
+            &self.config,
+            request,
+        );
+
+        // Here will go other things that could be offloaded from the render backend
+        // like some of the rasterization that we know we'd have to do in the next frame.
+
+        frame_builder.unwrap()
     }
 }

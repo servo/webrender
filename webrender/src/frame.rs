@@ -24,6 +24,7 @@ use resource_cache::{FontInstanceMap,ResourceCache, TiledImageMap};
 use scene::{Scene, StackingContextHelpers, ScenePipeline, SceneProperties};
 use tiling::{CompositeOps, Frame};
 use renderer::PipelineInfo;
+use render_backend::SceneRequest;
 
 use std::sync::Arc;
 
@@ -1158,6 +1159,86 @@ impl FrameContext {
             .finalize_and_apply_pending_scroll_offsets(old_scrolling_states);
 
         frame_builder
+    }
+
+    // WIP: this will likely not end up in FrameContext but for now I am mostly mimicking
+    // the current code.
+    pub fn create_async(
+        config: &FrameBuilderConfig,
+        request: SceneRequest
+    ) -> Option<FrameBuilder> {
+        let scene = &request.scene;
+        let inner_rect = request.view.inner_rect;
+        let window_size = request.view.window_size;
+        let device_pixel_scale = request.view.accumulated_scale_factor();
+
+        let root_pipeline_id = match scene.root_pipeline_id {
+            Some(root_pipeline_id) => root_pipeline_id,
+            None => return None,
+        };
+
+        let root_pipeline = match scene.pipelines.get(&root_pipeline_id) {
+            Some(root_pipeline) => root_pipeline,
+            None => return None,
+        };
+
+        if window_size.width == 0 || window_size.height == 0 {
+            error!("ERROR: Invalid window dimensions! Please call api.set_window_size()");
+        }
+
+        let background_color = root_pipeline
+            .background_color
+            .and_then(|color| if color.a > 0.0 { Some(color) } else { None });
+
+        // WIP: we need the real onw here.
+        let mut clip_scroll_tree = ClipScrollTree::new();
+
+        let frame_builder = {
+            let mut roller = FlattenContext {
+                scene,
+                builder: FrameBuilder::empty().recycle(
+                    inner_rect,
+                    background_color,
+                    *config,
+                ),
+                clip_scroll_tree: &mut clip_scroll_tree,
+                font_instances: request.font_instances,
+                tiled_image_map: request.tiled_image_map,
+                pipeline_epochs: Vec::new(),
+                replacements: Vec::new(),
+                output_pipelines: &request.output_pipelines,
+            };
+
+            roller.builder.push_root(
+                root_pipeline_id,
+                &root_pipeline.viewport_size,
+                &root_pipeline.content_size,
+                roller.clip_scroll_tree,
+            );
+
+            roller.builder.setup_viewport_offset(
+                inner_rect,
+                device_pixel_scale,
+                roller.clip_scroll_tree,
+            );
+
+            roller.flatten_root(
+                &mut root_pipeline.display_list.iter(),
+                root_pipeline_id,
+                &root_pipeline.viewport_size,
+            );
+
+            debug_assert!(roller.builder.picture_stack.is_empty());
+
+            // WIP: move this to the render backend thread I think
+            //self.pipeline_epoch_map.extend(roller.pipeline_epochs.drain(..));
+            roller.builder
+        };
+
+        // WIP
+        //clip_scroll_tree.finalize_and_apply_pending_scroll_offsets(old_scrolling_states);
+
+        Some(frame_builder)
     }
 
     pub fn update_epoch(&mut self, pipeline_id: PipelineId, epoch: Epoch) {
