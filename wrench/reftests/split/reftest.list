@@ -7,3 +7,4 @@
 == intermediate-2.yaml intermediate-1-ref.yaml
 == split-intersect1.yaml split-intersect1-ref.yaml
 #== cross.yaml cross-ref.yaml #TODO: investigate sub-pixel differences
+== ordering.yaml ordering-ref.yaml
