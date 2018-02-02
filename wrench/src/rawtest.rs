@@ -39,6 +39,7 @@ impl<'a> RawtestHarness<'a> {
     }
 
     pub fn run(mut self) {
+        self.test_tiled_blob_masks();
         self.test_retained_blob_images_test();
         self.test_blob_update_test();
         self.test_blob_update_epoch_test();
@@ -105,6 +106,53 @@ impl<'a> RawtestHarness<'a> {
             AlphaType::PremultipliedAlpha,
             blob_img,
         );
+
+        let mut epoch = Epoch(0);
+
+        self.submit_dl(&mut epoch, layout_size, builder, Some(resources));
+
+        self.rx.recv().unwrap();
+        self.wrench.render();
+
+        // Leaving a tiled blob image in the resource cache
+        // confuses the `test_capture`. TODO: remove this
+        resources = ResourceUpdates::new();
+        resources.delete_image(blob_img);
+        self.wrench.api.update_resources(resources);
+    }
+
+    fn test_tiled_blob_masks(&mut self) {
+        println!("\ttiled blob masks...");
+        // This exposes a crash when processing a clip mask that is also a blob-image
+        let layout_size = LayoutSize::new(800., 800.);
+        let mut resources = ResourceUpdates::new();
+
+        let bounds = rect(448.899994, 74.0, 257.0, 180.0);
+        let info = LayoutPrimitiveInfo::new(bounds);
+
+        let blob_img = self.wrench.api.generate_image_key();
+        resources.add_image(
+            blob_img,
+            ImageDescriptor::new(
+                bounds.size.width as u32,
+                bounds.size.height as u32,
+                ImageFormat::BGRA8,
+                true),
+            ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
+            Some(128),
+        );
+
+        let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
+
+        let mask = ImageMask { image: blob_img, rect: bounds, repeat: false };
+        let clip = builder.define_clip(
+            bounds,
+            None::<ComplexClipRegion>,
+            Some(mask));
+
+        builder.push_clip_id(clip);
+        builder.push_rect(&info, ColorF::new(0.5, 0.5, 0.8, 1.0));
+        builder.pop_clip_id();
 
         let mut epoch = Epoch(0);
 
