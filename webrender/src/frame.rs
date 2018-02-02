@@ -16,6 +16,7 @@ use clip_scroll_tree::{ClipScrollTree, ScrollStates};
 use euclid::rect;
 use frame_builder::{FrameBuilder, FrameBuilderConfig, ScrollbarInfo};
 use gpu_cache::GpuCache;
+use hit_test::HitTester;
 use internal_types::{FastHashMap, FastHashSet, RenderedDocument};
 use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
 use resource_cache::{FontInstanceMap,ResourceCache, TiledImageMap};
@@ -981,6 +982,7 @@ impl FrameContext {
         self.clip_scroll_tree.drain()
     }
 
+    #[cfg(feature = "debugger")]
     pub fn get_clip_scroll_tree(&self) -> &ClipScrollTree {
         &self.clip_scroll_tree
     }
@@ -1013,7 +1015,7 @@ impl FrameContext {
             .discard_frame_state_for_pipeline(pipeline_id);
     }
 
-    pub fn create(
+    pub fn create_frame_builder(
         &mut self,
         old_builder: FrameBuilder,
         scene: &Scene,
@@ -1119,8 +1121,8 @@ impl FrameContext {
         pan: WorldPoint,
         texture_cache_profile: &mut TextureCacheProfileCounters,
         gpu_cache_profile: &mut GpuCacheProfileCounters,
-		scene_properties: &SceneProperties,
-    ) -> RenderedDocument {
+        scene_properties: &SceneProperties,
+    ) -> (HitTester, RenderedDocument) {
         let frame = frame_builder.build(
             resource_cache,
             gpu_cache,
@@ -1135,6 +1137,9 @@ impl FrameContext {
             gpu_cache_profile,
             scene_properties,
         );
-        self.make_rendered_document(frame)
+
+        let hit_tester = frame_builder.create_hit_tester(&self.clip_scroll_tree);
+
+        (hit_tester, self.make_rendered_document(frame))
     }
 }
