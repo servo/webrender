@@ -4,6 +4,7 @@ root:
     -
       type: "stacking-context"
       perspective: 1000
+      perspective-origin: 0 0
       items:
         -
           type: "stacking-context"

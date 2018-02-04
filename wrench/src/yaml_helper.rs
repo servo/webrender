@@ -158,6 +158,16 @@ fn make_rotation(
     pre_transform.pre_mul(&transform).pre_mul(&post_transform)
 }
 
+pub fn make_perspective(
+    origin: LayoutPoint,
+    perspective: f32,
+) -> LayoutTransform {
+    let pre_transform = LayoutTransform::create_translation(origin.x, origin.y, 0.0);
+    let post_transform = LayoutTransform::create_translation(-origin.x, -origin.y, -0.0);
+    let transform = LayoutTransform::create_perspective(perspective);
+    pre_transform.pre_mul(&transform).pre_mul(&post_transform)
+}
+
 // Create a skew matrix, specified in degrees.
 fn make_skew(
     skew_x: f32,

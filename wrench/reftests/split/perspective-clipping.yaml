@@ -11,6 +11,7 @@ root:
           bounds: 0 0 1024 768
           transform-style: preserve-3d
           perspective: 300
+          perspective-origin: 0 0
           items:
             - type: stacking-context
               bounds: 0 0 1024 768
