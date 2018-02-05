@@ -1,0 +1,16 @@
+---
+root:
+  items:
+    -
+      bounds: [0, 0, 1000, 1000]
+      type: "stacking-context"
+      perspective: 300
+      items:
+        -
+          bounds: [0, 0, 1000, 1000]
+          type: "stacking-context"
+          transform: rotate-x(45)
+          items:
+            -
+              bounds: [300, 200, 400, 400]
+              image: checkerboard(2, 16, 12)
