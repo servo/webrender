@@ -5,11 +5,11 @@
 
 use api::{BuiltDisplayListIter, ClipAndScrollInfo, ClipId, ColorF, ComplexClipRegion};
 use api::{DevicePixelScale, DeviceUintRect, DeviceUintSize, DisplayItemRef, DocumentLayer, Epoch};
-use api::{ExternalScrollId, FilterOp, IdType, ImageDisplayItem, ItemRange, LayerPoint};
-use api::{LayerPrimitiveInfo, LayerRect, LayerSize, LayerVector2D, LayoutSize, LocalClip};
-use api::{PipelineId, ScrollClamping, ScrollEventPhase, ScrollLocation, ScrollNodeState};
-use api::{ScrollPolicy, ScrollSensitivity, SpecificDisplayItem, StackingContext, TileOffset};
-use api::{TransformStyle, WorldPoint};
+use api::{ExternalScrollId, FilterOp, ImageDisplayItem, ItemRange, LayerPoint, LayerPrimitiveInfo};
+use api::{LayerRect, LayerSize, LayerVector2D, LayoutSize, LocalClip, PipelineId, ScrollClamping};
+use api::{ScrollEventPhase, ScrollLocation, ScrollNodeIdType, ScrollNodeState, ScrollPolicy};
+use api::{ScrollSensitivity, SpecificDisplayItem, StackingContext, TileOffset, TransformStyle};
+use api::WorldPoint;
 use clip::ClipRegion;
 use clip_scroll_node::StickyFrameInfo;
 use clip_scroll_tree::{ClipScrollTree, ScrollStates};
@@ -992,7 +992,12 @@ impl FrameContext {
     }
 
     /// Returns true if the node actually changed position or false otherwise.
-    pub fn scroll_node(&mut self, origin: LayerPoint, id: IdType, clamp: ScrollClamping) -> bool {
+    pub fn scroll_node(
+        &mut self,
+        origin: LayerPoint,
+        id: ScrollNodeIdType,
+        clamp: ScrollClamping
+    ) -> bool {
         self.clip_scroll_tree.scroll_node(origin, id, clamp)
     }
 
