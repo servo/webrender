@@ -135,10 +135,17 @@ impl Example for App {
         builder.pop_stacking_context();
     }
 
-    fn on_event(&mut self, event: glutin::Event, api: &RenderApi, document_id: DocumentId) -> bool {
+    fn on_event(&mut self, event: glutin::WindowEvent, api: &RenderApi, document_id: DocumentId) -> bool {
         let mut txn = Transaction::new();
         match event {
-            glutin::Event::KeyboardInput(glutin::ElementState::Pressed, _, Some(key)) => {
+            glutin::WindowEvent::KeyboardInput {
+                input: glutin::KeyboardInput {
+                    state: glutin::ElementState::Pressed,
+                    virtual_keycode: Some(key),
+                    ..
+                },
+                ..
+            } => {
                 let offset = match key {
                     glutin::VirtualKeyCode::Down => (0.0, -10.0),
                     glutin::VirtualKeyCode::Up => (0.0, 10.0),
@@ -153,14 +160,10 @@ impl Example for App {
                     ScrollEventPhase::Start,
                 );
             }
-            glutin::Event::MouseMoved(x, y) => {
+            glutin::WindowEvent::CursorMoved { position: (x, y), .. } => {
                 self.cursor_position = WorldPoint::new(x as f32, y as f32);
             }
-            glutin::Event::MouseWheel(delta, _, event_cursor_position) => {
-                if let Some((x, y)) = event_cursor_position {
-                    self.cursor_position = WorldPoint::new(x as f32, y as f32);
-                }
-
+            glutin::WindowEvent::MouseWheel { delta, .. } => {
                 const LINE_HEIGHT: f32 = 38.0;
                 let (dx, dy) = match delta {
                     glutin::MouseScrollDelta::LineDelta(dx, dy) => (dx, dy * LINE_HEIGHT),
