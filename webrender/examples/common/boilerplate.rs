@@ -193,11 +193,11 @@ pub fn main_wrapper<E: Example>(
     api.send_transaction(document_id, txn);
 
     println!("Entering event loop");
-    events_loop.run_forever(|event| {
+    events_loop.run_forever(|global_event| {
         let mut txn = Transaction::new();
         let mut custom_event = true;
 
-        match event {
+        match global_event {
             glutin::Event::WindowEvent { event: glutin::WindowEvent::Closed, .. } => return glutin::ControlFlow::Break,
             glutin::Event::WindowEvent {
                 event: glutin::WindowEvent::KeyboardInput {
@@ -236,7 +236,7 @@ pub fn main_wrapper<E: Example>(
                     api.save_capture(path, bits);
                 },
                 _ => {
-                    let win_event = match event {
+                    let win_event = match global_event {
                         glutin::Event::WindowEvent { event, .. } => event,
                         _ => unreachable!()
                     };

@@ -57,7 +57,7 @@ mod cgfont_to_data;
 
 use binary_frame_reader::BinaryFrameReader;
 use gleam::gl;
-use glutin::{ElementState, VirtualKeyCode, WindowProxy};
+use glutin::{GlContext, VirtualKeyCode};
 use perf::PerfHarness;
 use png::save_flipped;
 use rawtest::RawtestHarness;
@@ -157,7 +157,7 @@ impl HeadlessContext {
 }
 
 pub enum WindowWrapper {
-    Window(glutin::Window, Rc<gl::Gl>),
+    Window(glutin::GlWindow, Rc<gl::Gl>),
     Headless(HeadlessContext, Rc<gl::Gl>),
 }
 
@@ -173,7 +173,15 @@ impl WindowWrapper {
 
     fn get_inner_size(&self) -> DeviceUintSize {
         let (w, h) = match *self {
-            WindowWrapper::Window(ref window, _) => window.get_inner_size_pixels().unwrap(),
+            //HACK: `winit` needs to figure out its hidpi story...
+            #[cfg(target_os = "macos")]
+            WindowWrapper::Window(ref window, _) => {
+                let (w, h) = window.get_inner_size().unwrap();
+                let factor = window.hidpi_factor();
+                ((w as f32 * factor) as _, (h as f32 * factor) as _)
+            },
+            #[cfg(not(target_os = "macos"))]
+            WindowWrapper::Window(ref window, _) => window.get_inner_size().unwrap(),
             WindowWrapper::Headless(ref context, _) => (context.width, context.height),
         };
         DeviceUintSize::new(w, h)
@@ -190,13 +198,6 @@ impl WindowWrapper {
         match *self {
             WindowWrapper::Window(ref mut window, _) => window.set_inner_size(size.width, size.height),
             WindowWrapper::Headless(_, _) => unimplemented!(), // requites Glutin update
-        }
-    }
-
-    fn create_window_proxy(&mut self) -> Option<WindowProxy> {
-        match *self {
-            WindowWrapper::Window(ref window, _) => Some(window.create_window_proxy()),
-            WindowWrapper::Headless(..) => None,
         }
     }
 
@@ -221,6 +222,7 @@ impl WindowWrapper {
 }
 
 fn make_window(
+    events_loop: &glutin::EventsLoop,
     size: DeviceUintSize,
     dp_ratio: Option<f32>,
     vsync: bool,
@@ -241,14 +243,19 @@ fn make_window(
         };
         WindowWrapper::Headless(HeadlessContext::new(size.width, size.height), gl)
     } else {
-        let mut builder = glutin::WindowBuilder::new()
+        let context_builder = glutin::ContextBuilder::new()
             .with_gl(glutin::GlRequest::GlThenGles {
                 opengl_version: (3, 2),
                 opengles_version: (3, 0),
             })
+            .with_vsync(vsync);
+        let window_builder = glutin::WindowBuilder::new()
+            .with_title("WRech")
+            .with_multitouch()
             .with_dimensions(size.width, size.height);
-        builder.opengl.vsync = vsync;
-        let window = builder.build().unwrap();
+        let window = glutin::GlWindow::new(window_builder, context_builder, &events_loop)
+            .unwrap();
+
         unsafe {
             window
                 .make_current()
@@ -313,7 +320,7 @@ fn create_notifier() -> (Box<RenderNotifier>, Receiver<()>) {
 
 fn main() {
     #[cfg(feature = "logging")]
-    env_logger::init().unwrap();
+    env_logger::init();
 
     let args_yaml = load_yaml!("args.yaml");
     let args = clap::App::from_yaml(args_yaml)
@@ -348,7 +355,9 @@ fn main() {
         .unwrap_or(DeviceUintSize::new(1920, 1080));
     let is_headless = args.is_present("headless");
     let zoom_factor = args.value_of("zoom").map(|z| z.parse::<f32>().unwrap());
-    let mut window = make_window(size, dp_ratio, args.is_present("vsync"), is_headless);
+
+    let mut events_loop = glutin::EventsLoop::new();
+    let mut window = make_window(&events_loop, size, dp_ratio, args.is_present("vsync"), is_headless);
     let dp_ratio = dp_ratio.unwrap_or(window.hidpi_factor());
     let dim = window.get_inner_size();
 
@@ -363,6 +372,7 @@ fn main() {
     };
 
     let mut wrench = Wrench::new(
+        events_loop.create_proxy(),
         &mut window,
         res_path,
         dp_ratio,
@@ -447,42 +457,39 @@ fn main() {
     wrench.update(dim);
     thing.do_frame(&mut wrench);
 
-    'outer: loop {
+    events_loop.run_forever(|global_event| {
         if let Some(window_title) = wrench.take_title() {
             window.set_title(&window_title);
-        }
-
-        let mut events = Vec::new();
-
-        match window {
-            WindowWrapper::Headless(..) => {
-                events.push(glutin::Event::Awakened);
-            }
-            WindowWrapper::Window(ref window, _) => {
-                events.push(window.wait_events().next().unwrap());
-                events.extend(window.poll_events());
-            }
         }
 
         let mut do_frame = false;
         let mut do_render = false;
 
-        for event in events {
-            match event {
-                glutin::Event::Closed => {
-                    break 'outer;
+        match global_event {
+            glutin::Event::Awakened => {
+                do_render = true;
+            }
+            glutin::Event::WindowEvent { event, .. } => match event {
+                glutin::WindowEvent::Closed => {
+                    return glutin::ControlFlow::Break;
                 }
 
-                glutin::Event::Refresh |
-                glutin::Event::Awakened |
-                glutin::Event::Focused(..) |
-                glutin::Event::MouseMoved(..) => {
+                glutin::WindowEvent::Refresh |
+                glutin::WindowEvent::Focused(..) |
+                glutin::WindowEvent::CursorMoved { .. } => {
                     do_render = true;
                 }
 
-                glutin::Event::KeyboardInput(ElementState::Pressed, _scan_code, Some(vk)) => match vk {
+                glutin::WindowEvent::KeyboardInput {
+                    input: glutin::KeyboardInput {
+                        state: glutin::ElementState::Pressed,
+                        virtual_keycode: Some(vk),
+                        ..
+                    },
+                    ..
+                } => match vk {
                     VirtualKeyCode::Escape => {
-                        break 'outer;
+                        return glutin::ControlFlow::Break;
                     }
                     VirtualKeyCode::P => {
                         wrench.renderer.toggle_debug_flags(DebugFlags::PROFILER_DBG);
@@ -556,8 +563,9 @@ fn main() {
                     _ => {}
                 }
                 _ => {}
-            }
-        }
+            },
+            _ => return glutin::ControlFlow::Continue,
+        };
 
         let dim = window.get_inner_size();
         wrench.update(dim);
@@ -581,7 +589,9 @@ fn main() {
                 thing.next_frame();
             }
         }
-    }
+
+        glutin::ControlFlow::Continue
+    });
 
     if is_headless {
         let rect = DeviceUintRect::new(DeviceUintPoint::zero(), size);

@@ -10,7 +10,7 @@ use crossbeam::sync::chase_lev;
 use dwrote;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use font_loader::system_fonts;
-use glutin::WindowProxy;
+use glutin::EventsLoopProxy;
 use json_frame_writer::JsonFrameWriter;
 use ron_frame_writer::RonFrameWriter;
 use std::collections::HashMap;
@@ -46,7 +46,7 @@ pub enum SaveType {
 }
 
 struct NotifierData {
-    window_proxy: Option<WindowProxy>,
+    events_loop_proxy: EventsLoopProxy,
     frames_notified: u32,
     timing_receiver: chase_lev::Stealer<time::SteadyTime>,
     verbose: bool,
@@ -54,12 +54,12 @@ struct NotifierData {
 
 impl NotifierData {
     fn new(
-        window_proxy: Option<WindowProxy>,
+        events_loop_proxy: EventsLoopProxy,
         timing_receiver: chase_lev::Stealer<time::SteadyTime>,
         verbose: bool,
     ) -> Self {
         NotifierData {
-            window_proxy,
+            events_loop_proxy,
             frames_notified: 0,
             timing_receiver,
             verbose,
@@ -91,10 +91,8 @@ impl Notifier {
                 }
             }
         }
-        if let Some(ref window_proxy) = data.window_proxy {
-            #[cfg(not(target_os = "android"))]
-            window_proxy.wakeup_event_loop();
-        }
+        #[cfg(not(target_os = "android"))]
+        let _ = data.events_loop_proxy.wakeup();
     }
 }
 
@@ -164,6 +162,7 @@ pub struct Wrench {
 
 impl Wrench {
     pub fn new(
+        proxy: EventsLoopProxy,
         window: &mut WindowWrapper,
         shader_override_path: Option<PathBuf>,
         dp_ratio: f32,
@@ -214,12 +213,9 @@ impl Wrench {
             ..Default::default()
         };
 
-        let proxy = window.create_window_proxy();
         // put an Awakened event into the queue to kick off the first frame
-        if let Some(ref wp) = proxy {
-            #[cfg(not(target_os = "android"))]
-            wp.wakeup_event_loop();
-        }
+        #[cfg(not(target_os = "android"))]
+        let _ = proxy.wakeup();
 
         let (timing_sender, timing_receiver) = chase_lev::deque();
         let notifier = notifier.unwrap_or_else(|| {
