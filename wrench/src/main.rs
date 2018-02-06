@@ -496,10 +496,6 @@ fn main() {
                         wrench.renderer.toggle_debug_flags(DebugFlags::TEXTURE_CACHE_DBG);
                         do_render = true;
                     }
-                    VirtualKeyCode::B => {
-                        wrench.renderer.toggle_debug_flags(DebugFlags::ALPHA_PRIM_DBG);
-                        do_render = true;
-                    }
                     VirtualKeyCode::S => {
                         wrench.renderer.toggle_debug_flags(DebugFlags::COMPACT_PROFILER);
                         do_render = true;
