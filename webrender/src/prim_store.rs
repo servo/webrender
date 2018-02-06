@@ -136,6 +136,12 @@ impl GpuCacheAddress {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct ScreenRect {
+    pub clipped: DeviceIntRect,
+    pub unclipped: DeviceIntRect,
+}
+
 // TODO(gw): Pack the fields here better!
 #[derive(Debug)]
 pub struct PrimitiveMetadata {
@@ -153,7 +159,7 @@ pub struct PrimitiveMetadata {
     pub local_clip_rect: LayerRect,
     pub clip_chain_rect_index: ClipChainRectIndex,
     pub is_backface_visible: bool,
-    pub screen_rect: Option<DeviceIntRect>,
+    pub screen_rect: Option<ScreenRect>,
 
     /// A tag used to identify this primitive outside of WebRender. This is
     /// used for returning useful data during hit testing.
@@ -1158,7 +1164,9 @@ impl PrimitiveStore {
                 self.cpu_pictures[metadata.cpu_prim_index.0]
                     .prepare_for_render(
                         prim_index,
-                        metadata.screen_rect.as_ref().expect("bug: trying to draw an off-screen picture!?"),
+                        &metadata.screen_rect
+                            .expect("bug: trying to draw an off-screen picture!?")
+                            .clipped,
                         &metadata.local_rect,
                         pic_state_for_children,
                         pic_state,
@@ -1819,7 +1827,14 @@ impl PrimitiveStore {
                 Some(ref node) => node.combined_outer_screen_rect,
                 None => frame_context.screen_rect,
             };
-            metadata.screen_rect = screen_bounding_rect.intersection(&clip_bounds);
+            metadata.screen_rect = screen_bounding_rect
+                .intersection(&clip_bounds)
+                .map(|clipped| {
+                    ScreenRect {
+                        clipped,
+                        unclipped: screen_bounding_rect,
+                    }
+                });
 
             if metadata.screen_rect.is_none() && pic_context.perform_culling {
                 return None;
