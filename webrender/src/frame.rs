@@ -947,7 +947,6 @@ impl<'a> FlattenContext<'a> {
 /// Frame context contains the information required to update
 /// (e.g. scroll) a renderer frame builder (`FrameBuilder`).
 pub struct FrameContext {
-    window_size: DeviceUintSize,
     clip_scroll_tree: ClipScrollTree,
     pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
     id: FrameId,
@@ -957,7 +956,6 @@ pub struct FrameContext {
 impl FrameContext {
     pub fn new(config: FrameBuilderConfig) -> Self {
         FrameContext {
-            window_size: DeviceUintSize::zero(),
             pipeline_epoch_map: FastHashMap::default(),
             clip_scroll_tree: ClipScrollTree::new(),
             id: FrameId(0),
@@ -972,6 +970,12 @@ impl FrameContext {
         self.id.0 += 1;
 
         self.clip_scroll_tree.drain()
+    }
+
+    pub fn set_clip_scroll_tree(&mut self, tree: ClipScrollTree) {
+        let old_scrolling_states = self.reset();
+        self.clip_scroll_tree = tree;
+        self.clip_scroll_tree.finalize_and_apply_pending_scroll_offsets(old_scrolling_states);
     }
 
     #[cfg(feature = "debugger")]
@@ -1035,7 +1039,6 @@ impl FrameContext {
         if window_size.width == 0 || window_size.height == 0 {
             error!("ERROR: Invalid window dimensions! Please call api.set_window_size()");
         }
-        self.window_size = window_size;
 
         let old_scrolling_states = self.reset();
 
@@ -1053,6 +1056,7 @@ impl FrameContext {
                 builder: old_builder.recycle(
                     inner_rect,
                     background_color,
+                    window_size,
                     self.frame_builder_config,
                 ),
                 clip_scroll_tree: &mut self.clip_scroll_tree,
@@ -1098,7 +1102,8 @@ impl FrameContext {
     // the current code.
     pub fn create_async(
         config: &FrameBuilderConfig,
-        request: SceneRequest
+        request: SceneRequest,
+        clip_scroll_tree: &mut ClipScrollTree,
     ) -> Option<FrameBuilder> {
         let scene = &request.scene;
         let inner_rect = request.view.inner_rect;
@@ -1123,18 +1128,17 @@ impl FrameContext {
             .background_color
             .and_then(|color| if color.a > 0.0 { Some(color) } else { None });
 
-        // WIP: we need the real onw here.
-        let mut clip_scroll_tree = ClipScrollTree::new();
-
         let frame_builder = {
             let mut roller = FlattenContext {
                 scene,
+                // WIP, we're not really recycling anything here, clean this up.
                 builder: FrameBuilder::empty().recycle(
                     inner_rect,
                     background_color,
+                    window_size,
                     *config,
                 ),
-                clip_scroll_tree: &mut clip_scroll_tree,
+                clip_scroll_tree,
                 font_instances: request.font_instances,
                 tiled_image_map: request.tiled_image_map,
                 pipeline_epochs: Vec::new(),
@@ -1212,7 +1216,6 @@ impl FrameContext {
             self.id,
             &mut self.clip_scroll_tree,
             pipelines,
-            self.window_size,
             device_pixel_scale,
             layer,
             pan,

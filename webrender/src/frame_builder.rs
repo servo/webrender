@@ -84,6 +84,7 @@ pub struct FrameBuilderConfig {
 pub struct FrameBuilder {
     screen_rect: DeviceUintRect,
     background_color: Option<ColorF>,
+    window_size: DeviceUintSize,
     prim_store: PrimitiveStore,
     pub clip_store: ClipStore,
     hit_testing_runs: Vec<HitTestingRun>,
@@ -183,6 +184,7 @@ impl FrameBuilder {
             prim_store: PrimitiveStore::new(),
             clip_store: ClipStore::new(),
             screen_rect: DeviceUintRect::zero(),
+            window_size: DeviceUintSize::zero(),
             background_color: None,
             config: FrameBuilderConfig {
                 enable_scrollbars: false,
@@ -198,6 +200,7 @@ impl FrameBuilder {
         self,
         screen_rect: DeviceUintRect,
         background_color: Option<ColorF>,
+        window_size: DeviceUintSize,
         config: FrameBuilderConfig,
     ) -> Self {
         FrameBuilder {
@@ -212,6 +215,7 @@ impl FrameBuilder {
             clip_store: self.clip_store.recycle(),
             screen_rect,
             background_color,
+            window_size,
             config,
         }
     }
@@ -1725,7 +1729,6 @@ impl FrameBuilder {
         frame_id: FrameId,
         clip_scroll_tree: &mut ClipScrollTree,
         pipelines: &FastHashMap<PipelineId, Arc<ScenePipeline>>,
-        window_size: DeviceUintSize,
         device_pixel_scale: DevicePixelScale,
         layer: DocumentLayer,
         pan: WorldPoint,
@@ -1735,7 +1738,7 @@ impl FrameBuilder {
     ) -> Frame {
         profile_scope!("build");
         debug_assert!(
-            DeviceUintRect::new(DeviceUintPoint::zero(), window_size)
+            DeviceUintRect::new(DeviceUintPoint::zero(), self.window_size)
                 .contains_rect(&self.screen_rect)
         );
 
@@ -1839,7 +1842,7 @@ impl FrameBuilder {
         resource_cache.end_frame();
 
         Frame {
-            window_size,
+            window_size: self.window_size,
             inner_rect: self.screen_rect,
             device_pixel_ratio: device_pixel_scale.0,
             background_color: self.background_color,

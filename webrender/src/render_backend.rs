@@ -41,6 +41,7 @@ use std::sync::mpsc::{Sender, Receiver, channel};
 use std::u32;
 use time::precise_time_ns;
 use resource_cache::{FontInstanceMap, TiledImageMap};
+use clip_scroll_tree::ClipScrollTree;
 
 // WIP: I realize we don't really want to send the entire struct to the scene
 // building thread, this will be most likely a private struct again by the time
@@ -126,13 +127,15 @@ impl Document {
                 device_pixel_ratio: default_device_pixel_ratio,
             },
             frame_ctx: FrameContext::new(config),
-            frame_builder: Some(FrameBuilder::empty()),
+            frame_builder: None,
             output_pipelines: FastHashSet::default(),
             render_on_scroll,
             render_on_hittest: false,
             hit_tester: None,
         }
     }
+
+    fn can_render(&self) -> bool { self.frame_builder.is_some() }
 
     fn build_scene(&mut self, resource_cache: &mut ResourceCache) {
         // this code is why we have `Option`, which is never `None`
@@ -155,7 +158,7 @@ impl Document {
         document_id: DocumentId,
         resource_cache: &ResourceCache,
         scene_tx: &Sender<SceneBuilderMsg>,
-        render: bool,
+        ops: &DocumentOps,
     ) {
         scene_tx.send(SceneBuilderMsg::BuildScene(
             SceneRequest {
@@ -165,7 +168,8 @@ impl Document {
                 tiled_image_map: resource_cache.get_tiled_image_map(),
                 output_pipelines: self.output_pipelines.clone(),
                 document_id,
-                render,
+                render: ops.render,
+                composite: ops.composite,
             }
         )).unwrap();
     }
@@ -544,9 +548,12 @@ impl RenderBackend {
             profile_scope!("handle_msg");
 
             while let Ok(msg) = self.scene_rx.try_recv() {
-                {
-                    let mut doc = self.documents.get_mut(&msg.document_id).expect("No document?");
+                if let Some(doc) = self.documents.get_mut(&msg.document_id) {
                     doc.frame_builder = Some(msg.frame_builder);
+                    doc.frame_ctx.set_clip_scroll_tree(msg.clip_scroll_tree);
+                } else {
+                    // The document was removed while we were building it, skip it.
+                    continue;
                 }
                 if msg.render {
                     self.process_api_msg(
@@ -768,10 +775,19 @@ impl RenderBackend {
                 document_id,
                 &self.resource_cache,
                 &self.scene_tx,
-                op.render,
+                &op,
             );
             op.render = false;
+            op.composite = false;
             doc.render_on_hittest = true;
+        }
+
+        if !doc.can_render() {
+            // WIP: this happens if we are building the first scene asynchronously and
+            // scroll at the same time. we should keep track of the fact that we skipped
+            // composition here and do it as soon as we receive the scene.
+            op.render = false;
+            op.composite = false;
         }
 
         if op.render {
@@ -1108,10 +1124,12 @@ pub struct SceneRequest {
     pub tiled_image_map: TiledImageMap,
     pub output_pipelines: FastHashSet<PipelineId>,
     pub render: bool,
+    pub composite: bool,
 }
 
 pub struct BuiltScene {
     pub frame_builder: FrameBuilder,
+    pub clip_scroll_tree: ClipScrollTree,
     pub document_id: DocumentId,
     pub render: bool,
 }
@@ -1158,10 +1176,11 @@ impl SceneBuilder {
                 let document_id = request.document_id;
                 let render = request.render;
 
-                let frame_builder = self.build_scene(request);
+                let (frame_builder, clip_scroll_tree) = self.build_scene(request);
 
                 self.tx.send(BuiltScene {
                     frame_builder,
+                    clip_scroll_tree,
                     document_id,
                     render,
                 }).unwrap();
@@ -1171,15 +1190,17 @@ impl SceneBuilder {
         return true;
     }
 
-    pub fn build_scene(&mut self, request: SceneRequest) -> FrameBuilder {
+    pub fn build_scene(&mut self, request: SceneRequest) -> (FrameBuilder, ClipScrollTree) {
+        let mut clip_scroll_tree = ClipScrollTree::new();
         let frame_builder = FrameContext::create_async(
             &self.config,
             request,
-        );
+            &mut clip_scroll_tree,
+        ).unwrap();
 
         // Here will go other things that could be offloaded from the render backend
         // like some of the rasterization that we know we'd have to do in the next frame.
 
-        frame_builder.unwrap()
+        (frame_builder, clip_scroll_tree) 
     }
 }
