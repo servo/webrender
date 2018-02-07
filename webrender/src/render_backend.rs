@@ -10,6 +10,7 @@ use api::{DocumentId, DocumentLayer, DocumentMsg, HitTestResult, IdNamespace, Pi
 use api::RenderNotifier;
 use api::channel::{MsgReceiver, PayloadReceiver, PayloadReceiverHelperMethods};
 use api::channel::{PayloadSender, PayloadSenderHelperMethods};
+use api::channel::MsgSender;
 #[cfg(feature = "capture")]
 use api::CaptureBits;
 #[cfg(feature = "replay")]
@@ -595,6 +596,7 @@ impl RenderBackend {
 
 
             match msg {
+                ApiMsg::WakeUp => {}
                 ApiMsg::UpdateResources(updates) => {
                     self.resource_cache
                         .update_resources(updates, &mut profile_counters.resources);
@@ -1137,17 +1139,19 @@ pub struct BuiltScene {
 pub struct SceneBuilder {
     rx: Receiver<SceneBuilderMsg>,
     tx: Sender<BuiltScene>,
+    api_tx: MsgSender<ApiMsg>,
     config: FrameBuilderConfig,
 }
 
 impl SceneBuilder {
-    pub fn new(config: FrameBuilderConfig) -> (Self, Sender<SceneBuilderMsg>, Receiver<BuiltScene>) {
+    pub fn new(config: FrameBuilderConfig, api_tx: MsgSender<ApiMsg>) -> (Self, Sender<SceneBuilderMsg>, Receiver<BuiltScene>) {
         let (in_tx, in_rx) = channel();
         let (out_tx, out_rx) = channel();
         (
             SceneBuilder {
                 rx: in_rx,
                 tx: out_tx,
+                api_tx,
                 config,
             },
             in_tx,
@@ -1184,6 +1188,7 @@ impl SceneBuilder {
                     document_id,
                     render,
                 }).unwrap();
+                let _ = self.api_tx.send(ApiMsg::WakeUp);
             }
             SceneBuilderMsg::Stop => { return false; }
         }
@@ -1201,6 +1206,6 @@ impl SceneBuilder {
         // Here will go other things that could be offloaded from the render backend
         // like some of the rasterization that we know we'd have to do in the next frame.
 
-        (frame_builder, clip_scroll_tree) 
+        (frame_builder, clip_scroll_tree)
     }
 }
