@@ -2,9 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AlphaType, DeviceIntRect, DeviceIntSize, ImageKey, LayerToWorldScale};
+use api::{AlphaType, DeviceIntRect, DeviceIntSize, LayerToWorldScale};
 use api::{DeviceUintRect, DeviceUintPoint, DeviceUintSize, ExternalImageType, FilterOp, ImageRendering, LayerRect};
-use api::{SubpixelDirection, TileOffset, YuvColorSpace, YuvFormat};
+use api::{SubpixelDirection, YuvColorSpace, YuvFormat};
 use api::{LayerToWorldTransform, WorldPixel};
 use border::{BorderCornerInstance, BorderCornerSide, BorderEdgeKind};
 use clip::{ClipSource, ClipStore};
@@ -25,7 +25,7 @@ use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKind};
 use render_task::{RenderTaskTree};
 use renderer::{BlendMode, ImageBufferKind};
 use renderer::BLOCKS_PER_UV_RECT;
-use resource_cache::{CacheItem, GlyphFetchResult, ResourceCache};
+use resource_cache::{CacheItem, GlyphFetchResult, ImageRequest, ResourceCache};
 use std::{usize, f32, i32};
 use tiling::{RenderTargetContext, RenderTargetKind};
 use util::{MatrixHelpers, TransformedRectKind};
@@ -710,9 +710,7 @@ impl AlphaBatcher {
                 let cache_item = match image_cpu.source {
                     ImageSource::Default => {
                         resolve_image(
-                            image_cpu.key.image_key,
-                            image_cpu.key.image_rendering,
-                            image_cpu.key.tile_offset,
+                            image_cpu.key.request,
                             ctx.resource_cache,
                             gpu_cache,
                             deferred_resolves,
@@ -1176,9 +1174,11 @@ impl AlphaBatcher {
                     let image_key = image_yuv_cpu.yuv_key[channel];
 
                     let cache_item = resolve_image(
-                        image_key,
-                        image_yuv_cpu.image_rendering,
-                        None,
+                        ImageRequest {
+                            key: image_key,
+                            rendering: image_yuv_cpu.image_rendering,
+                            tile: None,
+                        },
                         ctx.resource_cache,
                         gpu_cache,
                         deferred_resolves,
@@ -1385,14 +1385,12 @@ impl AlphaBatchHelpers for PrimitiveStore {
 }
 
 pub fn resolve_image(
-    image_key: ImageKey,
-    image_rendering: ImageRendering,
-    tile_offset: Option<TileOffset>,
+    request: ImageRequest,
     resource_cache: &ResourceCache,
     gpu_cache: &mut GpuCache,
     deferred_resolves: &mut Vec<DeferredResolve>,
 ) -> CacheItem {
-    match resource_cache.get_image_properties(image_key) {
+    match resource_cache.get_image_properties(request.key) {
         Some(image_properties) => {
             // Check if an external image that needs to be resolved
             // by the render thread.
@@ -1423,7 +1421,7 @@ pub fn resolve_image(
                     cache_item
                 }
                 None => {
-                    if let Ok(cache_item) = resource_cache.get_cached_image(image_key, image_rendering, tile_offset) {
+                    if let Ok(cache_item) = resource_cache.get_cached_image(request) {
                         cache_item
                     } else {
                         // There is no usable texture entry for the image key. Just return an invalid texture here.
@@ -1516,7 +1514,13 @@ impl ClipBatcher {
 
                 match *source {
                     ClipSource::Image(ref mask) => {
-                        if let Ok(cache_item) = resource_cache.get_cached_image(mask.image, ImageRendering::Auto, None) {
+                        if let Ok(cache_item) = resource_cache.get_cached_image(
+                            ImageRequest {
+                                key: mask.image,
+                                rendering: ImageRendering::Auto,
+                                tile: None,
+                            }
+                        ) {
                             self.images
                                 .entry(cache_item.texture_id)
                                 .or_insert(Vec::new())

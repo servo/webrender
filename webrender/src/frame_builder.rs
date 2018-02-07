@@ -31,7 +31,7 @@ use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
 use prim_store::{BrushSegmentDescriptor, PrimitiveRun, TextRunPrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_task::{ClearMode, ClipChain, RenderTask, RenderTaskId, RenderTaskTree};
-use resource_cache::ResourceCache;
+use resource_cache::{ImageRequest, ResourceCache};
 use scene::{ScenePipeline, SceneProperties};
 use std::{mem, usize, f32};
 use tiling::{CompositeOps, Frame, RenderPass, RenderTargetKind};
@@ -1518,9 +1518,11 @@ impl FrameBuilder {
             current_epoch: Epoch::invalid(),
             source: ImageSource::Default,
             key: ImageCacheKey {
-                image_key,
-                image_rendering,
-                tile_offset,
+                request: ImageRequest {
+                    key: image_key,
+                    rendering: image_rendering,
+                    tile: tile_offset,
+                },
                 texel_rect: sub_rect.map(|texel_rect| {
                     DeviceIntRect::new(
                         DeviceIntPoint::new(

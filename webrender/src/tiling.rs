@@ -21,7 +21,7 @@ use prim_store::{BrushMaskKind, BrushKind, DeferredResolve, EdgeAaSegmentMask};
 use profiler::FrameProfileCounters;
 use render_task::{BlitSource, RenderTaskAddress, RenderTaskId, RenderTaskKind};
 use render_task::{BlurTask, ClearMode, RenderTaskLocation, RenderTaskTree};
-use resource_cache::{ResourceCache};
+use resource_cache::ResourceCache;
 use std::{cmp, usize, f32, i32};
 use texture_allocator::GuillotineAllocator;
 
@@ -395,9 +395,7 @@ impl RenderTarget for ColorRenderTarget {
                     BlitSource::Image { key } => {
                         // Get the cache item for the source texture.
                         let cache_item = resolve_image(
-                            key.image_key,
-                            key.image_rendering,
-                            key.tile_offset,
+                            key.request,
                             ctx.resource_cache,
                             gpu_cache,
                             deferred_resolves,
