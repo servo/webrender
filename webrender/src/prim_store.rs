@@ -25,7 +25,7 @@ use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
 use resource_cache::{CacheItem, ImageProperties, ImageRequest, ResourceCache};
 use segment::SegmentBuilder;
 use std::{mem, usize};
-use std::rc::Rc;
+use std::sync::Arc;
 use util::{MatrixHelpers, calculate_screen_bounding_rect, pack_as_float};
 use util::recycle_vec;
 
@@ -1622,7 +1622,7 @@ impl PrimitiveStore {
                     combined_outer_rect = combined_outer_rect.and_then(|r| r.intersection(&outer));
                 }
 
-                Some(Rc::new(ClipChainNode {
+                Some(Arc::new(ClipChainNode {
                     work_item: ClipWorkItem {
                         scroll_node_data_index: prim_run_context.scroll_node.node_data_index,
                         clip_sources: metadata.clip_sources.weak(),
