@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipAndScrollInfo, ClipMode};
-use api::{ColorF, ColorU, DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch};
+use api::{ColorF, DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch};
 use api::{ComplexClipRegion, ExtendMode, FontRenderMode};
 use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
@@ -644,7 +644,7 @@ pub struct TextRunPrimitiveCpu {
     pub glyph_count: usize,
     pub glyph_keys: Vec<GlyphKey>,
     pub glyph_gpu_blocks: Vec<GpuBlockData>,
-    pub shadow_color: ColorU,
+    pub shadow: bool,
 }
 
 impl TextRunPrimitiveCpu {
@@ -663,18 +663,6 @@ impl TextRunPrimitiveCpu {
             }
         }
         font
-    }
-
-    pub fn is_shadow(&self) -> bool {
-        self.shadow_color.a != 0
-    }
-
-    pub fn get_color(&self) -> ColorF {
-        ColorF::from(if self.is_shadow() {
-            self.shadow_color
-        } else {
-            self.font.color
-        })
     }
 
     fn prepare_for_render(
@@ -726,7 +714,7 @@ impl TextRunPrimitiveCpu {
     }
 
     fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
-        request.push(self.get_color().premultiplied());
+        request.push(ColorF::from(self.font.color).premultiplied());
         // this is the only case where we need to provide plain color to GPU
         let bg_color = ColorF::from(self.font.bg_color);
         request.push([bg_color.r, bg_color.g, bg_color.b, 1.0]);
