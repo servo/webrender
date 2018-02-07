@@ -17,7 +17,7 @@ use prim_store::{PrimitiveIndex, ImageCacheKey};
 use print_tree::{PrintTreePrinter};
 use resource_cache::CacheItem;
 use std::{cmp, ops, usize, f32, i32};
-use std::rc::Rc;
+use std::sync::Arc;
 use texture_cache::{TextureCache, TextureCacheHandle};
 use tiling::{RenderPass, RenderTargetIndex};
 use tiling::{RenderTargetKind};
@@ -45,7 +45,7 @@ pub struct RenderTaskTree {
     pub task_data: Vec<RenderTaskData>,
 }
 
-pub type ClipChainNodeRef = Option<Rc<ClipChainNode>>;
+pub type ClipChainNodeRef = Option<Arc<ClipChainNode>>;
 
 #[derive(Debug, Clone)]
 pub struct ClipChainNode {
@@ -109,7 +109,7 @@ impl ClipChain {
             self.combined_inner_screen_rect.intersection(&new_node.screen_inner_rect)
             .unwrap_or_else(DeviceIntRect::zero);
 
-        self.nodes = Some(Rc::new(new_node));
+        self.nodes = Some(Arc::new(new_node));
     }
 }
 
@@ -118,7 +118,7 @@ pub struct ClipChainNodeIter {
 }
 
 impl Iterator for ClipChainNodeIter {
-    type Item = Rc<ClipChainNode>;
+    type Item = Arc<ClipChainNode>;
 
     fn next(&mut self) -> ClipChainNodeRef {
         let previous = self.current.clone();
