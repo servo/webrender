@@ -1216,58 +1216,72 @@ impl PrimitiveStore {
                         };
                     }
 
-                    // TODO(gw): Don't actually need this in cached source mode if
-                    //           the cache item is still valid...
-                    frame_state.resource_cache.request_image(
-                        image_cpu.key.request,
-                        frame_state.gpu_cache,
-                    );
+                    // Set if we need to request the source image from the cache this frame.
+                    let mut request_source_image = false;
 
                     // Every frame, for cached items, we need to request the render
                     // task cache item. The closure will be invoked on the first
                     // time through, and any time the render task output has been
                     // evicted from the texture cache.
-                    if let ImageSource::Cache { size, ref mut item } = image_cpu.source {
-                        let key = image_cpu.key;
+                    match image_cpu.source {
+                        ImageSource::Cache { size, ref mut item } => {
+                            let key = image_cpu.key;
 
-                        // Request a pre-rendered image task.
-                        *item = frame_state.resource_cache.request_render_task(
-                            RenderTaskCacheKey {
-                                size,
-                                kind: RenderTaskCacheKeyKind::Image(key),
-                            },
+                            // Request a pre-rendered image task.
+                            *item = frame_state.resource_cache.request_render_task(
+                                RenderTaskCacheKey {
+                                    size,
+                                    kind: RenderTaskCacheKeyKind::Image(key),
+                                },
+                                frame_state.gpu_cache,
+                                frame_state.render_tasks,
+                                |render_tasks| {
+                                    // We need to render the image cache this frame,
+                                    // so will need access to the source texture.
+                                    request_source_image = true;
+
+                                    // Create a task to blit from the texture cache to
+                                    // a normal transient render task surface. This will
+                                    // copy only the sub-rect, if specified.
+                                    let cache_to_target_task = RenderTask::new_blit(
+                                        size,
+                                        BlitSource::Image {
+                                            key,
+                                        },
+                                    );
+                                    let cache_to_target_task_id = render_tasks.add(cache_to_target_task);
+
+                                    // Create a task to blit the rect from the child render
+                                    // task above back into the right spot in the persistent
+                                    // render target cache.
+                                    let target_to_cache_task = RenderTask::new_blit(
+                                        size,
+                                        BlitSource::RenderTask {
+                                            task_id: cache_to_target_task_id,
+                                        },
+                                    );
+                                    let target_to_cache_task_id = render_tasks.add(target_to_cache_task);
+
+                                    // Hook this into the render task tree at the right spot.
+                                    pic_state.tasks.push(target_to_cache_task_id);
+
+                                    // Pass the image opacity, so that the cached render task
+                                    // item inherits the same opacity properties.
+                                    (target_to_cache_task_id, [0.0; 3], image_properties.descriptor.is_opaque)
+                                }
+                            );
+                        }
+                        ImageSource::Default => {
+                            // Normal images just reference the source texture each frame.
+                            request_source_image = true;
+                        }
+                    }
+
+                    // Request source image from the texture cache, if required.
+                    if request_source_image {
+                        frame_state.resource_cache.request_image(
+                            image_cpu.key.request,
                             frame_state.gpu_cache,
-                            frame_state.render_tasks,
-                            |render_tasks| {
-                                // Create a task to blit from the texture cache to
-                                // a normal transient render task surface. This will
-                                // copy only the sub-rect, if specified.
-                                let cache_to_target_task = RenderTask::new_blit(
-                                    size,
-                                    BlitSource::Image {
-                                        key,
-                                    },
-                                );
-                                let cache_to_target_task_id = render_tasks.add(cache_to_target_task);
-
-                                // Create a task to blit the rect from the child render
-                                // task above back into the right spot in the persistent
-                                // render target cache.
-                                let target_to_cache_task = RenderTask::new_blit(
-                                    size,
-                                    BlitSource::RenderTask {
-                                        task_id: cache_to_target_task_id,
-                                    },
-                                );
-                                let target_to_cache_task_id = render_tasks.add(target_to_cache_task);
-
-                                // Hook this into the render task tree at the right spot.
-                                pic_state.tasks.push(target_to_cache_task_id);
-
-                                // Pass the image opacity, so that the cached render task
-                                // item inherits the same opacity properties.
-                                (target_to_cache_task_id, [0.0; 3], image_properties.descriptor.is_opaque)
-                            }
                         );
                     }
                 }
