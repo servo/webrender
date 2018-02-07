@@ -535,6 +535,9 @@ pub enum ApiMsg {
     MemoryPressure,
     /// Change debugging options.
     DebugCommand(DebugCommand),
+    /// Wakes the render backend's event loop up. Needed when an event is communicated
+    /// through another channel.
+    WakeUp,
     ShutDown,
 }
 
@@ -553,6 +556,7 @@ impl fmt::Debug for ApiMsg {
             ApiMsg::MemoryPressure => "ApiMsg::MemoryPressure",
             ApiMsg::DebugCommand(..) => "ApiMsg::DebugCommand",
             ApiMsg::ShutDown => "ApiMsg::ShutDown",
+            ApiMsg::WakeUp => "ApiMsg::WakeUp",
         })
     }
 }
