@@ -20,9 +20,9 @@ fuzzy(1,100) == decorations-suite.yaml decorations-suite.png
 fuzzy(1,735) == shadow-grey.yaml shadow-grey-ref.yaml
 fuzzy(1,614) == shadow-grey-transparent.yaml shadow-grey-ref.yaml
 == subtle-shadow.yaml subtle-shadow-ref.yaml
-options(disable-aa) == shadow-atomic.yaml shadow-atomic-ref.yaml
-options(disable-aa) == shadow-clip-rect.yaml shadow-atomic-ref.yaml
-options(disable-aa) platform(linux) == shadow-ordering.yaml shadow-ordering-ref.yaml
+== shadow-atomic.yaml shadow-atomic-ref.yaml
+== shadow-clip-rect.yaml shadow-atomic-ref.yaml
+== shadow-ordering.yaml shadow-ordering-ref.yaml
 != synthetic-bold.yaml synthetic-bold-not-ref.yaml
 fuzzy(1,229) options(disable-subpixel) == synthetic-bold-transparent.yaml synthetic-bold-transparent-ref.yaml
 != synthetic-bold-transparent.yaml synthetic-bold.yaml
