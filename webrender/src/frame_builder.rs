@@ -30,7 +30,7 @@ use prim_store::{PrimitiveContainer, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
 use prim_store::{BrushSegmentDescriptor, PrimitiveRun, TextRunPrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
-use render_task::{ClearMode, ClipChain, RenderTask, RenderTaskId, RenderTaskTree};
+use render_task::{ClearMode, ClipChain, RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree};
 use resource_cache::{ImageRequest, ResourceCache};
 use scene::{ScenePipeline, SceneProperties};
 use std::{mem, usize, f32};
@@ -1648,7 +1648,7 @@ impl FrameBuilder {
         pic.runs = pic_context.prim_runs;
 
         let root_render_task = RenderTask::new_picture(
-            None,
+            RenderTaskLocation::Fixed(frame_context.screen_rect),
             PrimitiveIndex(0),
             RenderTargetKind::Color,
             ContentOrigin::Screen(DeviceIntPoint::zero()),

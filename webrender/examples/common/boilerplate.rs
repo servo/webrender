@@ -226,13 +226,6 @@ pub fn main_wrapper<E: Example>(
                 glutin::Event::KeyboardInput(
                     glutin::ElementState::Pressed,
                     _,
-                    Some(glutin::VirtualKeyCode::B),
-                ) => {
-                    renderer.toggle_debug_flags(webrender::DebugFlags::ALPHA_PRIM_DBG);
-                }
-                glutin::Event::KeyboardInput(
-                    glutin::ElementState::Pressed,
-                    _,
                     Some(glutin::VirtualKeyCode::S),
                 ) => {
                     renderer.toggle_debug_flags(webrender::DebugFlags::COMPACT_PROFILER);
