@@ -1207,6 +1207,7 @@ impl FrameContext {
                 pipeline_epochs: Vec::new(),
                 replacements: Vec::new(),
                 output_pipelines: &request.output_pipelines,
+                id_to_index_mapper: ClipIdToIndexMapper::new(),
             };
 
             roller.builder.push_root(
@@ -1214,6 +1215,7 @@ impl FrameContext {
                 &root_pipeline.viewport_size,
                 &root_pipeline.content_size,
                 roller.clip_scroll_tree,
+                &mut roller.id_to_index_mapper,
             );
 
             roller.builder.setup_viewport_offset(
