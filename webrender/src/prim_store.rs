@@ -7,7 +7,7 @@ use api::{ColorF, ColorU, DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch}
 use api::{ComplexClipRegion, ExtendMode, FontRenderMode};
 use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
-use api::{LineStyle, PremultipliedColorF, TileOffset};
+use api::{LineStyle, PremultipliedColorF};
 use api::{WorldToLayerTransform, YuvColorSpace, YuvFormat};
 use border::{BorderCornerInstance, BorderEdgeKind};
 use clip_scroll_tree::{CoordinateSystemId};
@@ -22,7 +22,7 @@ use picture::{PictureKind, PicturePrimitive};
 use render_task::{BlitSource, ClipChain, ClipChainNode, ClipChainNodeIter, ClipChainNodeRef, ClipWorkItem};
 use render_task::{RenderTask, RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId};
 use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
-use resource_cache::{CacheItem, ImageProperties, ResourceCache};
+use resource_cache::{CacheItem, ImageProperties, ImageRequest, ResourceCache};
 use segment::SegmentBuilder;
 use std::{mem, usize};
 use std::rc::Rc;
@@ -325,12 +325,7 @@ impl BrushPrimitive {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ImageCacheKey {
-    // TODO(gw): Consider introducing a struct that collectively
-    //           identifies an image in the resource cache
-    //           uniquely. We pass this around to a few places.
-    pub image_key: ImageKey,
-    pub image_rendering: ImageRendering,
-    pub tile_offset: Option<TileOffset>,
+    pub request: ImageRequest,
     pub texel_rect: Option<DeviceIntRect>,
 }
 
@@ -1186,7 +1181,7 @@ impl PrimitiveStore {
                 let image_cpu = &mut self.cpu_images[metadata.cpu_prim_index.0];
                 let image_properties = frame_state
                     .resource_cache
-                    .get_image_properties(image_cpu.key.image_key);
+                    .get_image_properties(image_cpu.key.request.key);
 
                 // TODO(gw): Add image.rs and move this code out to a separate
                 //           source file as it gets more complicated, and we
@@ -1224,9 +1219,7 @@ impl PrimitiveStore {
                     // TODO(gw): Don't actually need this in cached source mode if
                     //           the cache item is still valid...
                     frame_state.resource_cache.request_image(
-                        image_cpu.key.image_key,
-                        image_cpu.key.image_rendering,
-                        image_cpu.key.tile_offset,
+                        image_cpu.key.request,
                         frame_state.gpu_cache,
                     );
 
@@ -1286,9 +1279,11 @@ impl PrimitiveStore {
                 debug_assert!(channel_num <= 3);
                 for channel in 0 .. channel_num {
                     frame_state.resource_cache.request_image(
-                        image_cpu.yuv_key[channel],
-                        image_cpu.image_rendering,
-                        None,
+                        ImageRequest {
+                            key: image_cpu.yuv_key[channel],
+                            rendering: image_cpu.image_rendering,
+                            tile: None,
+                        },
                         frame_state.gpu_cache,
                     );
                 }
