@@ -37,9 +37,9 @@ use serde_json;
 use std::path::PathBuf;
 use std::sync::atomic::{ATOMIC_USIZE_INIT, AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
+use std::mem::replace;
 use std::u32;
 use time::precise_time_ns;
-
 
 #[cfg_attr(feature = "capture", derive(Clone, Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -72,6 +72,12 @@ struct Document {
     // A set of pipelines that the caller has requested be
     // made available as output textures.
     output_pipelines: FastHashSet<PipelineId>,
+    // The pipeline removal notifications that will be sent in the next frame.
+    // Because of async scene building, removed pipelines should not land here
+    // as soon as the render backend receives a DocumentMsg::RemovePipeline.
+    // Instead, the notification should be added to this list when the first
+    // scene that does not contain the pipeline becomes current.
+    removed_pipelines: Vec<PipelineId>,
     // A helper switch to prevent any frames rendering triggered by scrolling
     // messages between `SetDisplayList` and `GenerateFrame`.
     // If we allow them, then a reftest that scrolls a few layers before generating
@@ -104,6 +110,7 @@ impl Document {
         };
         Document {
             scene: Scene::new(),
+            removed_pipelines: Vec::new(),
             view: DocumentView {
                 window_size,
                 inner_rect: DeviceUintRect::new(DeviceUintPoint::zero(), window_size),
@@ -133,6 +140,7 @@ impl Document {
             self.view.accumulated_scale_factor(),
             &self.output_pipelines,
         );
+        self.removed_pipelines.extend(self.scene.removed_pipelines.drain(..));
         self.frame_builder = Some(frame_builder);
     }
 
@@ -155,6 +163,7 @@ impl Document {
             &mut resource_profile.texture_cache,
             &mut resource_profile.gpu_cache,
             &self.scene.properties,
+            replace(&mut self.removed_pipelines, Vec::new()),
         );
 
         self.hit_tester = Some(hit_tester);
@@ -976,6 +985,7 @@ impl RenderBackend {
                 output_pipelines: FastHashSet::default(),
                 render_on_scroll: None,
                 render_on_hittest: false,
+                removed_pipelines: Vec::new(),
                 hit_tester: None,
             };
 
@@ -983,7 +993,7 @@ impl RenderBackend {
             let render_doc = match CaptureConfig::deserialize::<Frame, _>(root, frame_name) {
                 Some(frame) => {
                     info!("\tloaded a built frame with {} passes", frame.passes.len());
-                    doc.frame_ctx.make_rendered_document(frame)
+                    doc.frame_ctx.make_rendered_document(frame, Vec::new())
                 }
                 None => {
                     doc.build_scene(&mut self.resource_cache);
