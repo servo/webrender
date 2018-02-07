@@ -2236,7 +2236,7 @@ impl Renderer {
             blob_image_renderer,
         )?;
 
-        let (scene_builder, scene_tx, scene_rx) = SceneBuilder::new(config);
+        let (scene_builder, scene_tx, scene_rx) = SceneBuilder::new(config, api_tx.clone());
         try! {
             thread::Builder::new().name(scene_thread_name.clone()).spawn(move || {
                 register_thread_with_profiler(scene_thread_name.clone());
