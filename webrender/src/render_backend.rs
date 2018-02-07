@@ -19,7 +19,7 @@ use debug_server;
 use frame::FrameContext;
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use gpu_cache::GpuCache;
-use hit_test::HitTester;
+use hit_test::{HitTest, HitTester};
 use internal_types::{DebugOutput, FastHashMap, FastHashSet, RenderedDocument, ResultMsg};
 use profiler::{BackendProfileCounters, IpcProfileCounters, ResourceProfileCounters};
 use record::ApiRecordingReceiver;
@@ -428,7 +428,9 @@ impl RenderBackend {
             DocumentMsg::HitTest(pipeline_id, point, flags, tx) => {
 
                 let result = match doc.hit_tester {
-                    Some(ref hit_tester) => hit_tester.hit_test(pipeline_id, point, flags),
+                    Some(ref hit_tester) => {
+                        hit_tester.hit_test(HitTest::new(pipeline_id, point, flags))
+                    }
                     None => HitTestResult { items: Vec::new() },
                 };
 
