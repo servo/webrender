@@ -46,7 +46,7 @@ pub enum SaveType {
 }
 
 struct NotifierData {
-    events_loop_proxy: EventsLoopProxy,
+    events_loop_proxy: Option<EventsLoopProxy>,
     frames_notified: u32,
     timing_receiver: chase_lev::Stealer<time::SteadyTime>,
     verbose: bool,
@@ -54,7 +54,7 @@ struct NotifierData {
 
 impl NotifierData {
     fn new(
-        events_loop_proxy: EventsLoopProxy,
+        events_loop_proxy: Option<EventsLoopProxy>,
         timing_receiver: chase_lev::Stealer<time::SteadyTime>,
         verbose: bool,
     ) -> Self {
@@ -91,8 +91,11 @@ impl Notifier {
                 }
             }
         }
-        #[cfg(not(target_os = "android"))]
-        let _ = data.events_loop_proxy.wakeup();
+
+        if let Some(ref elp) = data.events_loop_proxy {
+            #[cfg(not(target_os = "android"))]
+            let _ = elp.wakeup();
+        }
     }
 }
 
@@ -162,8 +165,8 @@ pub struct Wrench {
 
 impl Wrench {
     pub fn new(
-        proxy: EventsLoopProxy,
         window: &mut WindowWrapper,
+        proxy: Option<EventsLoopProxy>,
         shader_override_path: Option<PathBuf>,
         dp_ratio: f32,
         save_type: Option<SaveType>,
@@ -214,8 +217,10 @@ impl Wrench {
         };
 
         // put an Awakened event into the queue to kick off the first frame
-        #[cfg(not(target_os = "android"))]
-        let _ = proxy.wakeup();
+        if let Some(ref elp) = proxy {
+            #[cfg(not(target_os = "android"))]
+            let _ = elp.wakeup();
+        }
 
         let (timing_sender, timing_receiver) = chase_lev::deque();
         let notifier = notifier.unwrap_or_else(|| {
