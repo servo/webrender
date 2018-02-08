@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayList, ClipAndScrollInfo};
-use api::{ClipId, ColorF, ColorU, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixelScale};
+use api::{ClipId, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixelScale};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentLayer, Epoch, ExtendMode};
 use api::{ExternalScrollId, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop, ImageKey};
 use api::{ImageRendering, ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect, LayerSize};
@@ -1407,7 +1407,7 @@ impl FrameBuilder {
             glyph_gpu_blocks: Vec::new(),
             glyph_keys: Vec::new(),
             offset: run_offset,
-            shadow_color: ColorU::new(0, 0, 0, 0),
+            shadow: false,
         };
 
         // Text shadows that have a blur radius of 0 need to be rendered as normal
@@ -1425,7 +1425,8 @@ impl FrameBuilder {
             match picture_prim.kind {
                 PictureKind::TextShadow { offset, color, blur_radius, .. } if blur_radius == 0.0 => {
                     let mut text_prim = prim.clone();
-                    text_prim.shadow_color = color.into();
+                    text_prim.font.color = color.into();
+                    text_prim.shadow = true;
                     text_prim.offset += offset;
                     fast_shadow_prims.push((idx, text_prim));
                 }

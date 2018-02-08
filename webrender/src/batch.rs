@@ -843,7 +843,7 @@ impl AlphaBatchBuilder {
                         debug_assert_ne!(texture_id, SourceTexture::Invalid);
 
                         // Ignore color and only sample alpha when shadowing.
-                        if text_cpu.is_shadow() {
+                        if text_cpu.shadow {
                             glyph_format = glyph_format.ignore_color();
                         }
 
@@ -879,7 +879,7 @@ impl AlphaBatchBuilder {
                                     } else if ctx.use_dual_source_blending {
                                         BlendMode::SubpixelDualSource
                                     } else {
-                                        BlendMode::SubpixelConstantTextColor(text_cpu.get_color())
+                                        BlendMode::SubpixelConstantTextColor(text_cpu.font.color.into())
                                     }
                                 }
                                 GlyphFormat::Alpha |
