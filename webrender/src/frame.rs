@@ -27,6 +27,7 @@ use renderer::PipelineInfo;
 use render_backend::{SceneRequest, BuiltScene};
 
 use std::sync::Arc;
+use std::mem::replace;
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Eq, Ord)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -1175,9 +1176,9 @@ impl FrameContext {
     // This will soon replace the method above and move somewhere else.
     pub fn create_frame_builder_async(
         config: &FrameBuilderConfig,
-        request: SceneRequest,
+        mut request: SceneRequest,
     ) -> BuiltScene {
-        let scene = &request.scene;
+        let scene = &mut request.scene;
         let inner_rect = request.view.inner_rect;
         let window_size = request.view.window_size;
         let device_pixel_scale = request.view.accumulated_scale_factor();
@@ -1246,6 +1247,7 @@ impl FrameContext {
             frame_builder,
             clip_scroll_tree,
             pipeline_epoch_map,
+            removed_pipelines: replace(&mut scene.removed_pipelines, Vec::new()),
             document_id: request.document_id,
             render: request.render,
         }
