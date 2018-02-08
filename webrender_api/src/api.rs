@@ -156,9 +156,20 @@ impl Transaction {
             postfix_ops: Vec::new(),
             resource_updates: ResourceUpdates::new(),
             payloads: Vec::new(),
-            use_scene_builder_thread: true,
+            use_scene_builder_thread: false, // TODO: make this true by default.
             generate_frame: false,
         }
+    }
+
+    // TODO: better name?
+    pub fn skip_scene_builder(&mut self) {
+        self.use_scene_builder_thread = false;
+    }
+
+    // TODO: this is temporary, using the scene builder thread is the default for
+    // most transactions, and opt-in for specific cases like scrolling and async video.
+    pub fn use_scene_builder_thread(&mut self) {
+        self.use_scene_builder_thread = true;
     }
 
     pub fn is_empty(&self) -> bool {
