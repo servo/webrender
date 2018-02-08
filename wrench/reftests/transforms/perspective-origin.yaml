@@ -4,7 +4,7 @@ root:
     -
       bounds: [0, 0, 1000, 1000]
       type: "stacking-context"
-      perspective: 300
+      perspective: 200
       items:
         -
           bounds: [0, 0, 1000, 1000]
@@ -12,5 +12,5 @@ root:
           transform: rotate-x(45)
           items:
             -
-              bounds: [300, 200, 400, 400]
-              image: checkerboard(2, 16, 12)
+              bounds: [350, 400, 260, 260]
+              image: checkerboard(2, 16, 16)
