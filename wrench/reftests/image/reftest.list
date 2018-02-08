@@ -4,3 +4,5 @@
 == tile-with-spacing.yaml tile-with-spacing-ref.yaml
 fuzzy(1,250000) == tile-repeat-prim-or-decompose.yaml tile-repeat-prim-or-decompose-ref.yaml
 == downscale.yaml downscale.png
+segments.yaml segments.png
+

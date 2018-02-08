@@ -598,7 +598,8 @@ impl RenderTarget for AlphaRenderTarget {
                                             BrushKind::Solid { .. } |
                                             BrushKind::Clear |
                                             BrushKind::Picture |
-                                            BrushKind::Line { .. } => {
+                                            BrushKind::Line { .. } |
+                                            BrushKind::Image { .. } => {
                                                 unreachable!("bug: unexpected brush here");
                                             }
                                             BrushKind::Mask { ref kind, .. } => {
