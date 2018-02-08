@@ -131,24 +131,45 @@ impl ResourceUpdates {
 ///  - no redundant work is performed if two commands in the same transaction cause the scene or
 ///    the frame to be rebuilt.
 pub struct Transaction {
-    ops: Vec<DocumentMsg>,
+    // Operations to apply before scene building.
+    prefix_ops: Vec<DocumentMsg>,
+    // Operations to apply after scene building.
+    postfix_ops: Vec<DocumentMsg>,
+
+    // Additional display list data.
     payloads: Vec<Payload>,
+
+    // Resource updates are applied after scene building.
+    resource_updates: ResourceUpdates,
+
+    // If true the transaction is piped through the scene building thread, if false
+    // it will be applied directly on the render backend.
+    use_scene_builder_thread: bool,
+
+    generate_frame: bool,
 }
 
 impl Transaction {
     pub fn new() -> Self {
         Transaction {
-            ops: Vec::new(),
+            prefix_ops: Vec::new(),
+            postfix_ops: Vec::new(),
+            resource_updates: ResourceUpdates::new(),
             payloads: Vec::new(),
+            use_scene_builder_thread: true,
+            generate_frame: false,
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.ops.is_empty()
+        !self.generate_frame &&
+            self.prefix_ops.is_empty() &&
+            self.postfix_ops.is_empty() &&
+            self.resource_updates.updates.is_empty()
     }
 
     pub fn update_epoch(&mut self, pipeline_id: PipelineId, epoch: Epoch) {
-        self.ops.push(DocumentMsg::UpdateEpoch(pipeline_id, epoch));
+        self.postfix_ops.push(DocumentMsg::UpdateEpoch(pipeline_id, epoch));
     }
 
     /// Sets the root pipeline.
@@ -164,14 +185,14 @@ impl Transaction {
     /// # }
     /// ```
     pub fn set_root_pipeline(&mut self, pipeline_id: PipelineId) {
-        self.ops.push(DocumentMsg::SetRootPipeline(pipeline_id));
+        self.prefix_ops.push(DocumentMsg::SetRootPipeline(pipeline_id));
     }
 
     /// Removes data associated with a pipeline from the internal data structures.
     /// If the specified `pipeline_id` is for the root pipeline, the root pipeline
     /// is reset back to `None`.
     pub fn remove_pipeline(&mut self, pipeline_id: PipelineId) {
-        self.ops.push(DocumentMsg::RemovePipeline(pipeline_id));
+        self.prefix_ops.push(DocumentMsg::RemovePipeline(pipeline_id));
     }
 
     /// Supplies a new frame to WebRender.
@@ -205,7 +226,7 @@ impl Transaction {
         preserve_frame_state: bool,
     ) {
         let (display_list_data, list_descriptor) = display_list.into_data();
-        self.ops.push(
+        self.prefix_ops.push(
             DocumentMsg::SetDisplayList {
                 epoch,
                 pipeline_id,
@@ -220,7 +241,7 @@ impl Transaction {
     }
 
     pub fn update_resources(&mut self, resources: ResourceUpdates) {
-        self.ops.push(DocumentMsg::UpdateResources(resources));
+        self.resource_updates.merge(resources);
     }
 
     pub fn set_window_parameters(
@@ -229,7 +250,7 @@ impl Transaction {
         inner_rect: DeviceUintRect,
         device_pixel_ratio: f32,
     ) {
-        self.ops.push(
+        self.prefix_ops.push(
             DocumentMsg::SetWindowParameters {
                 window_size,
                 inner_rect,
@@ -248,7 +269,7 @@ impl Transaction {
         cursor: WorldPoint,
         phase: ScrollEventPhase,
     ) {
-        self.ops.push(DocumentMsg::Scroll(scroll_location, cursor, phase));
+        self.postfix_ops.push(DocumentMsg::Scroll(scroll_location, cursor, phase));
     }
 
     pub fn scroll_node_with_id(
@@ -257,43 +278,85 @@ impl Transaction {
         id: ExternalScrollId,
         clamp: ScrollClamping,
     ) {
-        self.ops.push(DocumentMsg::ScrollNodeWithId(origin, id, clamp));
+        self.postfix_ops.push(DocumentMsg::ScrollNodeWithId(origin, id, clamp));
     }
 
     pub fn set_page_zoom(&mut self, page_zoom: ZoomFactor) {
-        self.ops.push(DocumentMsg::SetPageZoom(page_zoom));
+        self.prefix_ops.push(DocumentMsg::SetPageZoom(page_zoom));
     }
 
     pub fn set_pinch_zoom(&mut self, pinch_zoom: ZoomFactor) {
-        self.ops.push(DocumentMsg::SetPinchZoom(pinch_zoom));
+        self.prefix_ops.push(DocumentMsg::SetPinchZoom(pinch_zoom));
     }
 
     pub fn set_pan(&mut self, pan: DeviceIntPoint) {
-        self.ops.push(DocumentMsg::SetPan(pan));
+        self.postfix_ops.push(DocumentMsg::SetPan(pan));
     }
 
     pub fn tick_scrolling_bounce_animations(&mut self) {
-        self.ops.push(DocumentMsg::TickScrollingBounce);
+        self.postfix_ops.push(DocumentMsg::TickScrollingBounce);
     }
 
     /// Generate a new frame.
     pub fn generate_frame(&mut self) {
-        self.ops.push(DocumentMsg::GenerateFrame);
+        self.generate_frame = true;
     }
 
     /// Supply a list of animated property bindings that should be used to resolve
     /// bindings in the current display list.
     pub fn update_dynamic_properties(&mut self, properties: DynamicProperties) {
-        self.ops.push(DocumentMsg::UpdateDynamicProperties(properties));
+        self.postfix_ops.push(DocumentMsg::UpdateDynamicProperties(properties));
     }
 
     /// Enable copying of the output of this pipeline id to
     /// an external texture for callers to consume.
     pub fn enable_frame_output(&mut self, pipeline_id: PipelineId, enable: bool) {
-        self.ops.push(DocumentMsg::EnableFrameOutput(pipeline_id, enable));
+        self.postfix_ops.push(DocumentMsg::EnableFrameOutput(pipeline_id, enable));
+    }
+
+    fn finalize(self) -> (TransactionMsg, Vec<Payload>) {
+        (
+            TransactionMsg {
+                prefix_ops: self.prefix_ops,
+                postfix_ops: self.postfix_ops,
+                resource_updates: self.resource_updates,
+                use_scene_builder_thread: self.use_scene_builder_thread,
+                generate_frame: self.generate_frame,
+            },
+            self.payloads,
+        )
     }
 }
 
+/// Represents a transaction in the format sent through the channel.
+#[derive(Clone, Deserialize, Serialize)]
+pub struct TransactionMsg {
+    pub prefix_ops: Vec<DocumentMsg>,
+    pub postfix_ops: Vec<DocumentMsg>,
+    pub resource_updates: ResourceUpdates,
+    pub generate_frame: bool,
+    pub use_scene_builder_thread: bool,
+}
+
+impl TransactionMsg {
+    pub fn is_empty(&self) -> bool {
+        !self.generate_frame &&
+            self.prefix_ops.is_empty() &&
+            self.postfix_ops.is_empty() &&
+            self.resource_updates.updates.is_empty()
+    }
+
+    // TODO: We only need this for a few RenderApi methods which we should remove.
+    fn single_message(msg: DocumentMsg) -> Self {
+        TransactionMsg {
+            prefix_ops: Vec::new(),
+            postfix_ops: vec![msg],
+            resource_updates: ResourceUpdates::new(),
+            generate_frame: false,
+            use_scene_builder_thread: false,
+        }
+    }
+}
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct AddImage {
@@ -370,7 +433,6 @@ pub enum DocumentMsg {
         content_size: LayoutSize,
         preserve_frame_state: bool,
     },
-    UpdateResources(ResourceUpdates),
     UpdateEpoch(PipelineId, Epoch),
     SetPageZoom(ZoomFactor),
     SetPinchZoom(ZoomFactor),
@@ -387,7 +449,6 @@ pub enum DocumentMsg {
     ScrollNodeWithId(LayoutPoint, ExternalScrollId, ScrollClamping),
     TickScrollingBounce,
     GetScrollNodeState(MsgSender<Vec<ScrollNodeState>>),
-    GenerateFrame,
     UpdateDynamicProperties(DynamicProperties),
 }
 
@@ -406,9 +467,7 @@ impl fmt::Debug for DocumentMsg {
             DocumentMsg::ScrollNodeWithId(..) => "DocumentMsg::ScrollNodeWithId",
             DocumentMsg::TickScrollingBounce => "DocumentMsg::TickScrollingBounce",
             DocumentMsg::GetScrollNodeState(..) => "DocumentMsg::GetScrollNodeState",
-            DocumentMsg::GenerateFrame => "DocumentMsg::GenerateFrame",
             DocumentMsg::EnableFrameOutput(..) => "DocumentMsg::EnableFrameOutput",
-            DocumentMsg::UpdateResources(..) => "DocumentMsg::UpdateResources",
             DocumentMsg::UpdateEpoch(..) => "DocumentMsg::UpdateEpoch",
             DocumentMsg::UpdateDynamicProperties(..) => "DocumentMsg::UpdateDynamicProperties",
         })
@@ -496,7 +555,7 @@ pub enum ApiMsg {
     /// Adds a new document with given initial size.
     AddDocument(DocumentId, DeviceUintSize, DocumentLayer),
     /// A message targeted at a particular document.
-    UpdateDocument(DocumentId, Vec<DocumentMsg>),
+    UpdateDocument(DocumentId, TransactionMsg),
     /// Deletes an existing document.
     DeleteDocument(DocumentId),
     /// An opaque handle that must be passed to the render notifier. It is used by Gecko
@@ -765,20 +824,16 @@ impl RenderApi {
         // `RenderApi` instances for layout and compositor.
         //assert_eq!(document_id.0, self.namespace_id);
         self.api_sender
-            .send(ApiMsg::UpdateDocument(document_id, vec![msg]))
+            .send(ApiMsg::UpdateDocument(document_id, TransactionMsg::single_message(msg)))
             .unwrap()
     }
 
-    // TODO(nical) - decide what to do with the methods that are duplicated in Transaction.
-    // I think that we should remove them from RenderApi but we could also leave them here if
-    // it makes things easier for servo.
-    // They are all equivalent to creating a transaction with a single command.
-
     pub fn send_transaction(&self, document_id: DocumentId, transaction: Transaction) {
-        for payload in transaction.payloads {
+        let (msg, payloads) = transaction.finalize();
+        for payload in payloads {
             self.payload_sender.send_payload(payload).unwrap();
         }
-        self.api_sender.send(ApiMsg::UpdateDocument(document_id, transaction.ops)).unwrap();
+        self.api_sender.send(ApiMsg::UpdateDocument(document_id, msg)).unwrap();
     }
 
     /// Does a hit test on display items in the specified document, at the given
@@ -794,7 +849,10 @@ impl RenderApi {
                     flags: HitTestFlags)
                     -> HitTestResult {
         let (tx, rx) = channel::msg_channel().unwrap();
-        self.send(document_id, DocumentMsg::HitTest(pipeline_id, point, flags, tx));
+        self.send(
+            document_id,
+            DocumentMsg::HitTest(pipeline_id, point, flags, tx)
+        );
         rx.recv().unwrap()
     }
 

@@ -67,13 +67,21 @@ pub fn should_record_msg(msg: &ApiMsg) -> bool {
         ApiMsg::AddDocument { .. } |
         ApiMsg::DeleteDocument(..) => true,
         ApiMsg::UpdateDocument(_, ref msgs) => {
-            for msg in msgs {
+            for msg in &msgs.prefix_ops {
                 match *msg {
                     DocumentMsg::GetScrollNodeState(..) |
                     DocumentMsg::HitTest(..) => {}
                     _ => { return true; }
                 }
             }
+            for msg in &msgs.postfix_ops {
+                match *msg {
+                    DocumentMsg::GetScrollNodeState(..) |
+                    DocumentMsg::HitTest(..) => {}
+                    _ => { return true; }
+                }
+            }
+
             false
         }
         _ => false,
