@@ -1179,8 +1179,6 @@ impl FrameContext {
             clip_scroll_tree,
             pipeline_epoch_map,
             removed_pipelines: replace(&mut scene.removed_pipelines, Vec::new()),
-            document_id: request.document_id,
-            render: request.render,
         }
     }
 
