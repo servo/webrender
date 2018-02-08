@@ -83,6 +83,10 @@ const GPU_CACHE_RESIZE_TEST: bool = false;
 /// Number of GPU blocks per UV rectangle provided for an image.
 pub const BLOCKS_PER_UV_RECT: usize = 2;
 
+const GPU_TAG_BRUSH_IMAGE: GpuProfileTag = GpuProfileTag {
+    label: "B_Image",
+    color: debug_colors::SPRINGGREEN,
+};
 const GPU_TAG_BRUSH_SOLID: GpuProfileTag = GpuProfileTag {
     label: "B_Solid",
     color: debug_colors::RED,
@@ -232,6 +236,7 @@ impl BatchKind {
                     BrushBatchKind::Picture(..) => "Brush (Picture)",
                     BrushBatchKind::Solid => "Brush (Solid)",
                     BrushBatchKind::Line => "Brush (Line)",
+                    BrushBatchKind::Image => "Brush (Image)",
                 }
             }
             BatchKind::Transformable(_, batch_kind) => batch_kind.debug_name(),
@@ -249,6 +254,7 @@ impl BatchKind {
                     BrushBatchKind::Picture(..) => GPU_TAG_BRUSH_PICTURE,
                     BrushBatchKind::Solid => GPU_TAG_BRUSH_SOLID,
                     BrushBatchKind::Line => GPU_TAG_BRUSH_LINE,
+                    BrushBatchKind::Image => GPU_TAG_BRUSH_IMAGE,
                 }
             }
             BatchKind::Transformable(_, batch_kind) => batch_kind.gpu_sampler_tag(),
@@ -1596,6 +1602,7 @@ pub struct Renderer {
     brush_picture_a8: BrushShader,
     brush_solid: BrushShader,
     brush_line: BrushShader,
+    brush_image: BrushShader,
 
     /// These are "cache clip shaders". These shaders are used to
     /// draw clip instances into the cached clip mask. The results
@@ -1807,6 +1814,13 @@ impl Renderer {
 
         let brush_solid = try!{
             BrushShader::new("brush_solid",
+                             &mut device,
+                             &[],
+                             options.precache_shaders)
+        };
+
+        let brush_image = try!{
+            BrushShader::new("brush_image",
                              &mut device,
                              &[],
                              options.precache_shaders)
@@ -2272,6 +2286,7 @@ impl Renderer {
             brush_picture_a8,
             brush_solid,
             brush_line,
+            brush_image,
             cs_clip_rectangle,
             cs_clip_border,
             cs_clip_image,
@@ -3187,6 +3202,15 @@ impl Renderer {
                 match brush_kind {
                     BrushBatchKind::Solid => {
                         self.brush_solid.bind(
+                            &mut self.device,
+                            key.blend_mode,
+                            projection,
+                            0,
+                            &mut self.renderer_errors,
+                        );
+                    }
+                    BrushBatchKind::Image => {
+                        self.brush_image.bind(
                             &mut self.device,
                             key.blend_mode,
                             projection,
@@ -4708,6 +4732,7 @@ impl Renderer {
         self.brush_picture_a8.deinit(&mut self.device);
         self.brush_solid.deinit(&mut self.device);
         self.brush_line.deinit(&mut self.device);
+        self.brush_image.deinit(&mut self.device);
         self.cs_clip_rectangle.deinit(&mut self.device);
         self.cs_clip_image.deinit(&mut self.device);
         self.cs_clip_border.deinit(&mut self.device);
