@@ -23,7 +23,7 @@ use resource_cache::{FontInstanceMap,ResourceCache, TiledImageMap};
 use scene::{Scene, StackingContextHelpers, ScenePipeline, SceneProperties};
 use tiling::{CompositeOps, Frame};
 use renderer::PipelineInfo;
-use render_backend::SceneRequest;
+use render_backend::{SceneRequest, BuiltScene};
 
 use std::sync::Arc;
 
@@ -985,10 +985,15 @@ impl FrameContext {
         self.clip_scroll_tree.drain()
     }
 
-    pub fn set_clip_scroll_tree(&mut self, tree: ClipScrollTree) {
+    pub fn new_async_scene_ready(
+        &mut self,
+        clip_scroll_tree: ClipScrollTree,
+        pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
+    ) {
         let old_scrolling_states = self.reset();
-        self.clip_scroll_tree = tree;
+        self.clip_scroll_tree = clip_scroll_tree;
         self.clip_scroll_tree.finalize_and_apply_pending_scroll_offsets(old_scrolling_states);
+        self.pipeline_epoch_map = pipeline_epoch_map;
     }
 
     #[cfg(feature = "debugger")]
@@ -1115,35 +1120,31 @@ impl FrameContext {
         frame_builder
     }
 
-    // WIP: this will likely not end up in FrameContext but for now I am mostly mimicking
-    // the current code.
-    pub fn create_async(
+    // WIP: There is no reason for this to be in FrameContext other than making it easier
+    // to keep in sync with changes with the create_frame_builder method above.
+    // This will soon replace the method above and move somewhere else.
+    pub fn create_frame_builder_async(
         config: &FrameBuilderConfig,
         request: SceneRequest,
-        clip_scroll_tree: &mut ClipScrollTree,
-    ) -> Option<FrameBuilder> {
+    ) -> BuiltScene {
         let scene = &request.scene;
         let inner_rect = request.view.inner_rect;
         let window_size = request.view.window_size;
         let device_pixel_scale = request.view.accumulated_scale_factor();
 
-        let root_pipeline_id = match scene.root_pipeline_id {
-            Some(root_pipeline_id) => root_pipeline_id,
-            None => return None,
-        };
-
-        let root_pipeline = match scene.pipelines.get(&root_pipeline_id) {
-            Some(root_pipeline) => root_pipeline,
-            None => return None,
-        };
-
-        if window_size.width == 0 || window_size.height == 0 {
-            error!("ERROR: Invalid window dimensions! Please call api.set_window_size()");
-        }
+        // We checked that the root pipeline is available on therender backend.
+        let root_pipeline_id = scene.root_pipeline_id.unwrap();
+        let root_pipeline = scene.pipelines.get(&root_pipeline_id).unwrap();
 
         let background_color = root_pipeline
             .background_color
             .and_then(|color| if color.a > 0.0 { Some(color) } else { None });
+
+        let mut pipeline_epoch_map = FastHashMap::default();
+        let mut clip_scroll_tree = ClipScrollTree::new();
+
+        let root_epoch = *scene.pipeline_epochs.get(&root_pipeline_id).unwrap();
+        pipeline_epoch_map.insert(root_pipeline_id, root_epoch);
 
         let frame_builder = {
             let mut roller = FlattenContext {
@@ -1155,7 +1156,7 @@ impl FrameContext {
                     window_size,
                     *config,
                 ),
-                clip_scroll_tree,
+                clip_scroll_tree: &mut clip_scroll_tree,
                 font_instances: request.font_instances,
                 tiled_image_map: request.tiled_image_map,
                 pipeline_epochs: Vec::new(),
@@ -1188,15 +1189,18 @@ impl FrameContext {
 
             debug_assert!(roller.builder.picture_stack.is_empty());
 
-            // WIP: move this to the render backend thread I think
-            //self.pipeline_epoch_map.extend(roller.pipeline_epochs.drain(..));
+            pipeline_epoch_map.extend(roller.pipeline_epochs.drain(..));
+
             roller.builder
         };
 
-        // WIP
-        //clip_scroll_tree.finalize_and_apply_pending_scroll_offsets(old_scrolling_states);
-
-        Some(frame_builder)
+        BuiltScene {
+            frame_builder,
+            clip_scroll_tree,
+            pipeline_epoch_map,
+            document_id: request.document_id,
+            render: request.render,
+        }
     }
 
     pub fn update_epoch(&mut self, pipeline_id: PipelineId, epoch: Epoch) {
