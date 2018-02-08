@@ -16,7 +16,6 @@ replay = ["webrender_api/deserialize", "ron", "serde"]
 
 [dependencies]
 app_units = "0.6"
-bincode = "0.9"
 byteorder = "1.0"
 euclid = "0.16"
 fxhash = "0.2.1"
@@ -38,6 +37,9 @@ serde = { optional = true, version = "1.0", features = ["serde_derive"] }
 image = { optional = true, version = "0.17" }
 base64 = { optional = true, version = "0.3.0" }
 ron = { optional = true, version = "0.1.7" }
+
+[dependencies.bincode]
+git = "https://github.com/TyOverby/bincode.git"
 
 [dev-dependencies]
 angle = {git = "https://github.com/servo/angle", branch = "servo"}

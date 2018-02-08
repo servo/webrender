@@ -155,14 +155,14 @@ impl BuiltDisplayList {
 /// in the slice.
 fn skip_slice<T: for<'de> Deserialize<'de>>(
     list: &BuiltDisplayList,
-    data: &mut &[u8],
+    mut data: &mut &[u8],
 ) -> (ItemRange<T>, usize) {
     let base = list.data.as_ptr() as usize;
 
-    let byte_size: usize = bincode::deserialize_from(data, bincode::Infinite)
+    let byte_size: usize = bincode::deserialize_from(&mut data)
                                     .expect("MEH: malicious input?");
     let start = data.as_ptr() as usize;
-    let item_count: usize = bincode::deserialize_from(data, bincode::Infinite)
+    let item_count: usize = bincode::deserialize_from(&mut data)
                                     .expect("MEH: malicious input?");
 
     // Remember how many bytes item_count occupied
@@ -234,9 +234,8 @@ impl<'a> BuiltDisplayListIter<'a> {
             }
 
             {
-                let reader = bincode::read_types::IoReader::new(UnsafeReader::new(&mut self.data));
-                let mut deserializer = bincode::Deserializer::new(reader, bincode::Infinite);
-                Deserialize::deserialize_in_place(&mut deserializer, &mut self.cur_item)
+                let reader = bincode::IoReader::new(UnsafeReader::new(&mut self.data));
+                bincode::deserialize_in_place(reader, &mut self.cur_item)
                     .expect("MEH: malicious process?");
             }
 
@@ -386,7 +385,7 @@ impl<'de, 'a, T: Deserialize<'de>> AuxIter<'a, T> {
         let size: usize = if data.len() == 0 {
             0 // Accept empty ItemRanges pointing anywhere
         } else {
-            bincode::deserialize_from(&mut UnsafeReader::new(&mut data), bincode::Infinite).expect("MEH: malicious input?")
+            bincode::deserialize_from(&mut UnsafeReader::new(&mut data)).expect("MEH: malicious input?")
         };
 
         AuxIter {
@@ -406,7 +405,7 @@ impl<'a, T: for<'de> Deserialize<'de>> Iterator for AuxIter<'a, T> {
         } else {
             self.size -= 1;
             Some(
-                bincode::deserialize_from(&mut UnsafeReader::new(&mut self.data), bincode::Infinite)
+                bincode::deserialize_from(&mut UnsafeReader::new(&mut self.data))
                     .expect("MEH: malicious input?"),
             )
         }
@@ -644,13 +643,13 @@ impl<'a> Write for SizeCounter {
 fn serialize_fast<T: Serialize>(vec: &mut Vec<u8>, e: &T) {
     // manually counting the size is faster than vec.reserve(bincode::serialized_size(&e) as usize) for some reason
     let mut size = SizeCounter(0);
-    bincode::serialize_into(&mut size,e , bincode::Infinite).unwrap();
+    bincode::serialize_into(&mut size, e).unwrap();
     vec.reserve(size.0);
 
     let old_len = vec.len();
     let ptr = unsafe { vec.as_mut_ptr().offset(old_len as isize) };
     let mut w = UnsafeVecWriter(ptr);
-    bincode::serialize_into(&mut w, e, bincode::Infinite).unwrap();
+    bincode::serialize_into(&mut w, e).unwrap();
 
     // fix up the length
     unsafe { vec.set_len(old_len + size.0); }
@@ -681,7 +680,7 @@ where I: ExactSizeIterator + Clone,
     let mut count1 = 0;
 
     for e in iter.clone() {
-        bincode::serialize_into(&mut size, &e, bincode::Infinite).unwrap();
+        bincode::serialize_into(&mut size, &e).unwrap();
         count1 += 1;
     }
 
@@ -693,7 +692,7 @@ where I: ExactSizeIterator + Clone,
     let mut count2 = 0;
 
     for e in iter {
-        bincode::serialize_into(&mut w, &e, bincode::Infinite).unwrap();
+        bincode::serialize_into(&mut w, &e).unwrap();
         count2 += 1;
     }
 
@@ -944,7 +943,6 @@ impl DisplayListBuilder {
         bincode::serialize_into(
             &mut &mut data[byte_size_offset..],
             &byte_size,
-            bincode::Infinite,
         ).unwrap();
 
         debug_assert_eq!(len, count);
