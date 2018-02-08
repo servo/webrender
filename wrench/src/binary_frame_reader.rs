@@ -140,12 +140,12 @@ impl WrenchThing for BinaryFrameReader {
                     // (b) SetDisplayList
                     // (c) GenerateFrame that occurs *after* (a) and (b)
                     match msg {
-                        ApiMsg::UpdateDocument(_, ref doc_msgs) => {
-                            for doc_msg in doc_msgs {
+                        ApiMsg::UpdateDocument(_, ref txn) => {
+                            if txn.generate_frame {
+                                found_frame_marker = true;
+                            }
+                            for doc_msg in &txn.prefix_ops {
                                 match *doc_msg {
-                                    DocumentMsg::GenerateFrame => {
-                                        found_frame_marker = true;
-                                    }
                                     DocumentMsg::SetDisplayList { .. } => {
                                         found_frame_marker = false;
                                         found_display_list = true;
