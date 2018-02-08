@@ -4,7 +4,7 @@
 
 use api::{ApiMsg, BuiltDisplayList, ClearCache, DebugCommand};
 #[cfg(feature = "debugger")]
-use api::{BuiltDisplayListIter, SpecificDisplayItem};
+use api::{BuiltDisplayListIter, SpecificDisplayItem, Epoch};
 use api::{DeviceIntPoint, DevicePixelScale, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{DocumentId, DocumentLayer, DocumentMsg, HitTestResult, IdNamespace, PipelineId};
 use api::RenderNotifier;
@@ -161,6 +161,24 @@ impl Document {
         scene_tx: &Sender<SceneBuilderMsg>,
         ops: &DocumentOps,
     ) {
+        // Do as much of the error handling as possible here before dispatching to
+        // the scene builder thread.
+        match self.scene.root_pipeline_id {
+            Some(id) => {
+                if !self.scene.pipelines.contains_key(&id) {
+                    return;
+                }
+            }
+            None => {
+                return;
+            }
+        }
+
+        if self.view.window_size.width == 0 || self.view.window_size.height == 0 {
+            error!("ERROR: Invalid window dimensions! Please call api.set_window_size()");
+            return;
+        }
+
         scene_tx.send(SceneBuilderMsg::BuildScene(
             SceneRequest {
                 scene: self.scene.clone(),
@@ -551,7 +569,10 @@ impl RenderBackend {
             while let Ok(msg) = self.scene_rx.try_recv() {
                 if let Some(doc) = self.documents.get_mut(&msg.document_id) {
                     doc.frame_builder = Some(msg.frame_builder);
-                    doc.frame_ctx.set_clip_scroll_tree(msg.clip_scroll_tree);
+                    doc.frame_ctx.new_async_scene_ready(
+                        msg.clip_scroll_tree,
+                        msg.pipeline_epoch_map,
+                    );
                 } else {
                     // The document was removed while we were building it, skip it.
                     continue;
@@ -1132,6 +1153,7 @@ pub struct SceneRequest {
 pub struct BuiltScene {
     pub frame_builder: FrameBuilder,
     pub clip_scroll_tree: ClipScrollTree,
+    pub pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
     pub document_id: DocumentId,
     pub render: bool,
 }
@@ -1177,17 +1199,10 @@ impl SceneBuilder {
     pub fn process_message(&mut self, msg: SceneBuilderMsg) -> bool {
         match msg {
             SceneBuilderMsg::BuildScene(request) => {
-                let document_id = request.document_id;
-                let render = request.render;
+                let result = self.build_scene(request);
 
-                let (frame_builder, clip_scroll_tree) = self.build_scene(request);
+                self.tx.send(result).unwrap();
 
-                self.tx.send(BuiltScene {
-                    frame_builder,
-                    clip_scroll_tree,
-                    document_id,
-                    render,
-                }).unwrap();
                 let _ = self.api_tx.send(ApiMsg::WakeUp);
             }
             SceneBuilderMsg::Stop => { return false; }
@@ -1195,17 +1210,12 @@ impl SceneBuilder {
         return true;
     }
 
-    pub fn build_scene(&mut self, request: SceneRequest) -> (FrameBuilder, ClipScrollTree) {
-        let mut clip_scroll_tree = ClipScrollTree::new();
-        let frame_builder = FrameContext::create_async(
-            &self.config,
-            request,
-            &mut clip_scroll_tree,
-        ).unwrap();
+    pub fn build_scene(&mut self, request: SceneRequest) -> BuiltScene {
+        let built_scene = FrameContext::create_frame_builder_async(&self.config, request);
 
         // Here will go other things that could be offloaded from the render backend
         // like some of the rasterization that we know we'd have to do in the next frame.
 
-        (frame_builder, clip_scroll_tree)
+        built_scene
     }
 }
