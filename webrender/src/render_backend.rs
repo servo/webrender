@@ -564,9 +564,10 @@ impl RenderBackend {
         loop {
             profile_scope!("handle_msg");
 
-            while let Ok(msg) = self.scene_rx.try_recv() {
+            while let Ok(mut msg) = self.scene_rx.try_recv() {
                 if let Some(doc) = self.documents.get_mut(&msg.document_id) {
                     doc.frame_builder = Some(msg.frame_builder);
+                    doc.removed_pipelines.extend(msg.removed_pipelines.drain(..));
                     doc.frame_ctx.new_async_scene_ready(
                         msg.clip_scroll_tree,
                         msg.pipeline_epoch_map,
@@ -1152,6 +1153,7 @@ pub struct BuiltScene {
     pub frame_builder: FrameBuilder,
     pub clip_scroll_tree: ClipScrollTree,
     pub pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
+    pub removed_pipelines: Vec<PipelineId>,
     pub document_id: DocumentId,
     pub render: bool,
 }
