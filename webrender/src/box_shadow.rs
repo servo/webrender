@@ -88,7 +88,8 @@ impl FrameBuilder {
             if box_offset.x == 0.0 && box_offset.y == 0.0 && spread_amount == 0.0 {
                 return;
             }
-            let mut clips = Vec::new();
+            let mut clips = Vec::with_capacity(2);
+            clips.push(ClipSource::Rectangle(*prim_info.local_clip.clip_rect()));
 
             let fast_info = match clip_mode {
                 BoxShadowClipMode::Outset => {
@@ -264,8 +265,10 @@ impl FrameBuilder {
                         border_radius,
                         ClipMode::ClipOut,
                     ));
-
-                    let pic_info = LayerPrimitiveInfo::new(pic_rect);
+                    let pic_info = LayerPrimitiveInfo::with_clip_rect(
+                        pic_rect,
+                        *prim_info.local_clip.clip_rect()
+                    );
                     self.add_primitive(
                         clip_and_scroll,
                         &pic_info,
@@ -332,6 +335,11 @@ impl FrameBuilder {
                         clip_and_scroll
                     );
 
+                    let clip_rect = prim_info.rect.intersection(prim_info.local_clip.clip_rect());
+                    if clip_rect.is_none() {
+                        return;
+                    }
+
                     // Draw the picture one pixel outside the original
                     // rect to account for the inflate above. This
                     // extra edge will be clipped by the local clip
@@ -339,7 +347,7 @@ impl FrameBuilder {
                     let pic_rect = prim_info.rect.inflate(inflate_size + box_offset.x.abs(), inflate_size + box_offset.y.abs());
                     let pic_info = LayerPrimitiveInfo::with_clip_rect(
                         pic_rect,
-                        prim_info.rect
+                        clip_rect.unwrap()
                     );
 
                     // Add a normal clip to ensure nothing gets drawn
