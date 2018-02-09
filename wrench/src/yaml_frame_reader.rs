@@ -1216,7 +1216,12 @@ impl YamlFrameReader {
         wrench: &mut Wrench,
         yaml: &Yaml,
     ) {
-        let full_clip = LayoutRect::new(LayoutPoint::zero(), wrench.window_size_f32());
+        // A very large number (but safely far away from finite limits of f32)
+        let big_number = 1.0e30;
+        // A rect that should in practical terms serve as a no-op for clipping
+        let full_clip = LayoutRect::new(
+            LayoutPoint::new(-big_number / 2.0, -big_number / 2.0),
+            LayoutSize::new(big_number, big_number));
 
         for item in yaml.as_vec().unwrap() {
             // an explicit type can be skipped with some shorthand
