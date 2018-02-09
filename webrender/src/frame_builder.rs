@@ -1512,39 +1512,64 @@ impl FrameBuilder {
             tile_spacing = LayerSize::zero();
         }
 
-        let prim_cpu = ImagePrimitiveCpu {
-            tile_spacing,
-            alpha_type,
-            stretch_size,
-            current_epoch: Epoch::invalid(),
-            source: ImageSource::Default,
-            key: ImageCacheKey {
-                request: ImageRequest {
-                    key: image_key,
-                    rendering: image_rendering,
-                    tile: tile_offset,
-                },
-                texel_rect: sub_rect.map(|texel_rect| {
-                    DeviceIntRect::new(
-                        DeviceIntPoint::new(
-                            texel_rect.uv0.x as i32,
-                            texel_rect.uv0.y as i32,
-                        ),
-                        DeviceIntSize::new(
-                            (texel_rect.uv1.x - texel_rect.uv0.x) as i32,
-                            (texel_rect.uv1.y - texel_rect.uv0.y) as i32,
-                        ),
-                    )
-                }),
-            },
+        let request = ImageRequest {
+            key: image_key,
+            rendering: image_rendering,
+            tile: tile_offset,
         };
 
-        self.add_primitive(
-            clip_and_scroll,
-            info,
-            Vec::new(),
-            PrimitiveContainer::Image(prim_cpu),
-        );
+        // See if conditions are met to run through the new
+        // image brush shader, which supports segments.
+        if tile_spacing == LayerSize::zero() &&
+           stretch_size == info.rect.size &&
+           sub_rect.is_none() &&
+           tile_offset.is_none() {
+            let prim = BrushPrimitive::new(
+                BrushKind::Image {
+                    request,
+                    current_epoch: Epoch::invalid(),
+                    alpha_type,
+                },
+                None,
+            );
+
+            self.add_primitive(
+                clip_and_scroll,
+                info,
+                Vec::new(),
+                PrimitiveContainer::Brush(prim),
+            );
+        } else {
+            let prim_cpu = ImagePrimitiveCpu {
+                tile_spacing,
+                alpha_type,
+                stretch_size,
+                current_epoch: Epoch::invalid(),
+                source: ImageSource::Default,
+                key: ImageCacheKey {
+                    request,
+                    texel_rect: sub_rect.map(|texel_rect| {
+                        DeviceIntRect::new(
+                            DeviceIntPoint::new(
+                                texel_rect.uv0.x as i32,
+                                texel_rect.uv0.y as i32,
+                            ),
+                            DeviceIntSize::new(
+                                (texel_rect.uv1.x - texel_rect.uv0.x) as i32,
+                                (texel_rect.uv1.y - texel_rect.uv0.y) as i32,
+                            ),
+                        )
+                    }),
+                },
+            };
+
+            self.add_primitive(
+                clip_and_scroll,
+                info,
+                Vec::new(),
+                PrimitiveContainer::Image(prim_cpu),
+            );
+        }
     }
 
     pub fn add_yuv_image(
