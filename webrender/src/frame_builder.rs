@@ -632,26 +632,25 @@ impl FrameBuilder {
 
     pub fn push_reference_frame(
         &mut self,
+        reference_frame_id: ClipId,
         parent_id: Option<ClipId>,
         pipeline_id: PipelineId,
         rect: &LayerRect,
         source_transform: Option<PropertyBinding<LayoutTransform>>,
         source_perspective: Option<LayoutTransform>,
         origin_in_parent_reference_frame: LayerVector2D,
-        root_for_pipeline: bool,
         clip_scroll_tree: &mut ClipScrollTree,
-    ) -> ClipId {
-        let new_id = clip_scroll_tree.add_reference_frame(
+    ) {
+        let node = ClipScrollNode::new_reference_frame(
+            parent_id,
             rect,
             source_transform,
             source_perspective,
             origin_in_parent_reference_frame,
             pipeline_id,
-            parent_id,
-            root_for_pipeline,
         );
-        self.reference_frame_stack.push(new_id);
-        new_id
+        clip_scroll_tree.add_node(node, reference_frame_id);
+        self.reference_frame_stack.push(reference_frame_id);
     }
 
     pub fn current_reference_frame_id(&self) -> ClipId {
@@ -686,13 +685,13 @@ impl FrameBuilder {
     ) -> ClipId {
         let viewport_rect = LayerRect::new(LayerPoint::zero(), *viewport_size);
         self.push_reference_frame(
+            ClipId::root_reference_frame(pipeline_id),
             None,
             pipeline_id,
             &viewport_rect,
             None,
             None,
             LayerVector2D::zero(),
-            true,
             clip_scroll_tree,
         );
 
