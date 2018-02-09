@@ -1216,7 +1216,9 @@ impl YamlFrameReader {
         wrench: &mut Wrench,
         yaml: &Yaml,
     ) {
-        let full_clip = LayoutRect::new(LayoutPoint::zero(), wrench.window_size_f32());
+        // The window plus some fudging for nesting in stacking contexts
+        // FIXME: compute this properly?
+        let full_clip = LayoutRect::new(LayoutPoint::zero(), wrench.window_size_f32()).inflate(100.0, 100.0);
 
         for item in yaml.as_vec().unwrap() {
             // an explicit type can be skipped with some shorthand
