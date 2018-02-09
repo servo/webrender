@@ -555,6 +555,7 @@ vec2 compute_snap_offset(vec2 local_pos,
 struct VertexInfo {
     vec2 local_pos;
     vec2 screen_pos;
+    vec4 world_pos;
 };
 
 VertexInfo write_vertex(RectWithSize instance_rect,
@@ -586,7 +587,7 @@ VertexInfo write_vertex(RectWithSize instance_rect,
 
     gl_Position = uTransform * vec4(final_pos, z, 1.0);
 
-    VertexInfo vi = VertexInfo(clamped_local_pos, device_pos);
+    VertexInfo vi = VertexInfo(clamped_local_pos, device_pos, world_pos);
     return vi;
 }
 
@@ -667,7 +668,7 @@ VertexInfo write_transform_vertex(RectWithSize local_segment_rect,
         clip_edge_mask
     );
 
-    VertexInfo vi = VertexInfo(local_pos, device_pos);
+    VertexInfo vi = VertexInfo(local_pos, device_pos, world_pos);
     return vi;
 }
 

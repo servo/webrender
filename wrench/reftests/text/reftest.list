@@ -24,7 +24,7 @@ fuzzy(1,614) == shadow-grey-transparent.yaml shadow-grey-ref.yaml
 == shadow-clip-rect.yaml shadow-atomic-ref.yaml
 platform(linux) == shadow-ordering.yaml shadow-ordering-ref.yaml
 != synthetic-bold.yaml synthetic-bold-not-ref.yaml
-fuzzy(1,229) options(disable-subpixel) == synthetic-bold-transparent.yaml synthetic-bold-transparent-ref.yaml
+fuzzy(17,2771) options(disable-subpixel) == synthetic-bold-transparent.yaml synthetic-bold-transparent-ref.yaml
 != synthetic-bold-transparent.yaml synthetic-bold.yaml
 != synthetic-italics.yaml synthetic-italics-ref.yaml
 options(disable-aa) == ahem.yaml ahem-ref.yaml
