@@ -809,8 +809,9 @@ impl DisplayListBuilder {
     ) -> Self {
         let start_time = precise_time_ns();
 
-        // We start at 1 here, because the root scroll id is always 0.
-        const FIRST_CLIP_ID: u64 = 1;
+        // We start at w here, because the root reference is always 0 and the root scroll
+        // node is always 1.
+        const FIRST_CLIP_ID: u64 = 2;
 
         DisplayListBuilder {
             data: Vec::with_capacity(capacity),
@@ -1312,6 +1313,12 @@ impl DisplayListBuilder {
         mix_blend_mode: MixBlendMode,
         filters: Vec<FilterOp>,
     ) {
+        let reference_frame_id = if transform.is_some() || perspective.is_some() {
+            Some(self.generate_clip_id())
+        } else {
+            None
+        };
+
         let item = SpecificDisplayItem::PushStackingContext(PushStackingContextDisplayItem {
             stacking_context: StackingContext {
                 scroll_policy,
@@ -1319,6 +1326,7 @@ impl DisplayListBuilder {
                 transform_style,
                 perspective,
                 mix_blend_mode,
+                reference_frame_id,
             },
         });
 
@@ -1386,19 +1394,24 @@ impl DisplayListBuilder {
         I: IntoIterator<Item = ComplexClipRegion>,
         I::IntoIter: ExactSizeIterator + Clone,
     {
-        let id = self.generate_clip_id();
+        let clip_id = self.generate_clip_id();
+        let scroll_frame_id = self.generate_clip_id();
         let item = SpecificDisplayItem::ScrollFrame(ScrollFrameDisplayItem {
-            id,
+            clip_id,
+            scroll_frame_id,
             external_id,
             image_mask,
             scroll_sensitivity,
         });
-        let info = LayoutPrimitiveInfo::with_clip_rect(content_rect, clip_rect);
 
-        let scrollinfo = ClipAndScrollInfo::simple(parent);
-        self.push_item_with_clip_scroll_info(item, &info, scrollinfo);
+        self.push_item_with_clip_scroll_info(
+            item,
+            &LayoutPrimitiveInfo::with_clip_rect(content_rect, clip_rect),
+            ClipAndScrollInfo::simple(parent),
+        );
         self.push_iter(complex_clips);
-        id
+
+        scroll_frame_id
     }
 
     pub fn define_clip_chain<I>(
@@ -1502,7 +1515,8 @@ impl DisplayListBuilder {
 
     pub fn push_iframe(&mut self, info: &LayoutPrimitiveInfo, pipeline_id: PipelineId) {
         let item = SpecificDisplayItem::Iframe(IframeDisplayItem {
-            pipeline_id: pipeline_id,
+            clip_id: self.generate_clip_id(),
+            pipeline_id,
         });
         self.push_item(item, info);
     }
