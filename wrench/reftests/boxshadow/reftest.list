@@ -4,6 +4,7 @@
 == inset-spread-large.yaml inset-spread-large-ref.yaml
 == inset-alpha.yaml inset-alpha.png
 == boxshadow-spread-only.yaml boxshadow-spread-only-ref.png
+== box-shadow-clip.yaml box-shadow-clip-ref.yaml
 fuzzy(1,396) == inset-large-offset.yaml inset-large-offset-ref.png
 == inset-border-radius.yaml inset-border-radius.png
 == inset-offset.yaml inset-offset.png
