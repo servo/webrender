@@ -1,4 +1,5 @@
 [workspace]
+license = "MPL-2.0"
 members = [
     "webrender",
     "webrender_api",

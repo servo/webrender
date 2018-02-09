@@ -2,14 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use {ColorF, FontInstanceKey, ImageKey, LayerPixel, LayoutPixel, LayoutPoint, LayoutRect,
-     LayoutSize, LayoutTransform};
-use {GlyphOptions, LayoutVector2D, PipelineId, PropertyBinding};
-use euclid::{SideOffsets2D, TypedRect};
-use std::ops::Not;
-
 #[cfg(any(feature = "serialize", feature = "deserialize"))]
 use GlyphInstance;
+use euclid::{SideOffsets2D, TypedRect};
+use std::ops::Not;
+use {ColorF, FontInstanceKey, GlyphOptions, ImageKey, LayerPixel, LayoutPixel, LayoutPoint};
+use {LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D, PipelineId, PropertyBinding};
+
 
 // NOTE: some of these structs have an "IMPLICIT" comment.
 // This indicates that the BuiltDisplayList will have serialized

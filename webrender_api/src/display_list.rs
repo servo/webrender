@@ -2,6 +2,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use bincode;
+use euclid::SideOffsets2D;
+#[cfg(feature = "deserialize")]
+use serde::de::Deserializer;
+#[cfg(feature = "serialize")]
+use serde::ser::{Serializer, SerializeSeq};
+use serde::{Deserialize, Serialize};
+use std::io::{Read, Write};
+use std::marker::PhantomData;
+use std::{io, mem, ptr, slice};
+use time::precise_time_ns;
 use {AlphaType, BorderDetails, BorderDisplayItem, BorderRadius, BorderWidths, BoxShadowClipMode};
 use {BoxShadowDisplayItem, ClipAndScrollInfo, ClipChainId, ClipChainItem, ClipDisplayItem, ClipId};
 use {ColorF, ComplexClipRegion, DisplayItem, ExtendMode, ExternalScrollId, FilterOp};
@@ -13,19 +24,6 @@ use {PropertyBinding, PushStackingContextDisplayItem, RadialGradient, RadialGrad
 use {RectangleDisplayItem, ScrollFrameDisplayItem, ScrollPolicy, ScrollSensitivity, Shadow};
 use {SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, StickyOffsetBounds};
 use {TextDisplayItem, TransformStyle, YuvColorSpace, YuvData, YuvImageDisplayItem};
-use bincode;
-use euclid::SideOffsets2D;
-use serde::{Deserialize, Serialize};
-use std::io::{Read, Write};
-use std::{io, mem, ptr};
-use std::marker::PhantomData;
-use std::slice;
-use time::precise_time_ns;
-
-#[cfg(feature = "deserialize")]
-use serde::de::Deserializer;
-#[cfg(feature = "serialize")]
-use serde::ser::{Serializer, SerializeSeq};
 
 // We don't want to push a long text-run. If a text-run is too long, split it into several parts.
 // This needs to be set to (renderer::MAX_VERTEX_TEXTURE_WIDTH - VECS_PER_PRIM_HEADER - VECS_PER_TEXT_RUN) * 2
@@ -386,7 +384,8 @@ impl<'de, 'a, T: Deserialize<'de>> AuxIter<'a, T> {
         let size: usize = if data.len() == 0 {
             0 // Accept empty ItemRanges pointing anywhere
         } else {
-            bincode::deserialize_from(&mut UnsafeReader::new(&mut data), bincode::Infinite).expect("MEH: malicious input?")
+            bincode::deserialize_from(&mut UnsafeReader::new(&mut data), bincode::Infinite)
+                .expect("MEH: malicious input?")
         };
 
         AuxIter {
@@ -644,7 +643,7 @@ impl<'a> Write for SizeCounter {
 fn serialize_fast<T: Serialize>(vec: &mut Vec<u8>, e: &T) {
     // manually counting the size is faster than vec.reserve(bincode::serialized_size(&e) as usize) for some reason
     let mut size = SizeCounter(0);
-    bincode::serialize_into(&mut size,e , bincode::Infinite).unwrap();
+    bincode::serialize_into(&mut size, e, bincode::Infinite).unwrap();
     vec.reserve(size.0);
 
     let old_len = vec.len();
@@ -1411,7 +1410,7 @@ impl DisplayListBuilder {
         I::IntoIter: ExactSizeIterator + Clone,
     {
         let id = self.generate_clip_chain_id();
-        self.push_new_empty_item(SpecificDisplayItem::ClipChain(ClipChainItem { id, parent}));
+        self.push_new_empty_item(SpecificDisplayItem::ClipChain(ClipChainItem { id, parent }));
         self.push_iter(clips);
         id
     }
