@@ -28,7 +28,8 @@ void brush_vs(
     vec2 local_pos,
     RectWithSize local_rect,
     ivec2 user_data,
-    PictureTask pic_task
+    PictureTask pic_task,
+    vec4 world_pos
 ) {
     SolidBrush prim = fetch_solid_primitive(prim_address);
     vColor = prim.color;

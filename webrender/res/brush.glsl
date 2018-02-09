@@ -9,7 +9,8 @@ void brush_vs(
     vec2 local_pos,
     RectWithSize local_rect,
     ivec2 user_data,
-    PictureTask pic_task
+    PictureTask pic_task,
+    vec4 world_pos
 );
 
 #define VECS_PER_BRUSH_PRIM                 2
@@ -85,6 +86,12 @@ void main(void) {
     PictureTask pic_task = fetch_picture_task(brush.picture_address);
     ClipArea clip_area = fetch_clip_area(brush.clip_address);
 
+    // world-pos is only used right now when rasterizing in screen-space.
+    // in the future we'll want to support this for local-space raster
+    // mode below.
+
+    vec4 world_pos = vec4(0.0);
+
     if (pic_task.pic_kind_and_raster_mode > 0.0) {
         local_pos = local_segment_rect.p0 + aPosition.xy * local_segment_rect.size;
 
@@ -140,6 +147,7 @@ void main(void) {
         }
 
         local_pos = vi.local_pos;
+        world_pos = vi.world_pos;
 
         // For brush instances in the alpha pass, always write
         // out clip information.
@@ -161,7 +169,8 @@ void main(void) {
         local_pos,
         brush_prim.local_rect,
         brush.user_data,
-        pic_task
+        pic_task,
+        world_pos
     );
 }
 #endif
