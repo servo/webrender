@@ -760,7 +760,7 @@ impl RenderBackend {
                 }
             }
 
-        return true;
+        true
     }
 
     fn update_document(
@@ -1275,7 +1275,8 @@ impl SceneBuilder {
             }
             SceneBuilderRequest::Stop => { return false; }
         }
-        return true;
+
+        true
     }
 
     pub fn build_scene(&mut self, request: SceneRequest) -> BuiltScene {
