@@ -427,7 +427,7 @@ impl<'a> FlattenContext<'a> {
             &mut self.id_to_index_mapper,
         );
 
-        let epoch = *self.scene.pipeline_epochs.get(&iframe_pipeline_id).unwrap();
+        let epoch = self.scene.pipeline_epochs[&iframe_pipeline_id];
         self.pipeline_epochs.push((iframe_pipeline_id, epoch));
 
         let bounds = item.rect();
@@ -1113,7 +1113,7 @@ impl FrameContext {
 
         let old_scrolling_states = self.reset();
 
-        let root_epoch = *scene.pipeline_epochs.get(&root_pipeline_id).unwrap();
+        let root_epoch = scene.pipeline_epochs[&root_pipeline_id];
         self.pipeline_epoch_map.insert(root_pipeline_id, root_epoch);
 
 
@@ -1183,7 +1183,7 @@ impl FrameContext {
         let window_size = request.view.window_size;
         let device_pixel_scale = request.view.accumulated_scale_factor();
 
-        // We checked that the root pipeline is available on therender backend.
+        // We checked that the root pipeline is available on the render backend.
         let root_pipeline_id = scene.root_pipeline_id.unwrap();
         let root_pipeline = scene.pipelines.get(&root_pipeline_id).unwrap();
 
@@ -1194,7 +1194,7 @@ impl FrameContext {
         let mut pipeline_epoch_map = FastHashMap::default();
         let mut clip_scroll_tree = ClipScrollTree::new();
 
-        let root_epoch = *scene.pipeline_epochs.get(&root_pipeline_id).unwrap();
+        let root_epoch = scene.pipeline_epochs[&root_pipeline_id];
         pipeline_epoch_map.insert(root_pipeline_id, root_epoch);
 
         let frame_builder = {
