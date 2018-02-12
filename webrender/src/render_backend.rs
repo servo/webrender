@@ -30,7 +30,7 @@ use resource_cache::ResourceCache;
 use resource_cache::PlainCacheOwn;
 #[cfg(any(feature = "capture", feature = "replay"))]
 use resource_cache::PlainResources;
-use scene::Scene;
+use scene::{Scene, SceneProperties};
 #[cfg(feature = "serialize")]
 use serde::{Serialize, Deserialize};
 #[cfg(feature = "debugger")]
@@ -101,6 +101,10 @@ struct Document {
     /// A data structure to allow hit testing against rendered frames. This is updated
     /// every time we produce a fully rendered frame.
     hit_tester: Option<HitTester>,
+
+    /// Properties that are resolved during frame building and can be changed at any time
+    /// without requiring the scene to be re-built.
+    dynamic_properties: SceneProperties,
 }
 
 impl Document {
@@ -134,6 +138,7 @@ impl Document {
             render_on_scroll,
             render_on_hittest: false,
             hit_tester: None,
+            dynamic_properties: SceneProperties::new(),
         }
     }
 
@@ -212,7 +217,7 @@ impl Document {
             pan,
             &mut resource_profile.texture_cache,
             &mut resource_profile.gpu_cache,
-            &self.scene.properties,
+            &self.dynamic_properties,
             replace(&mut self.removed_pipelines, Vec::new()),
         );
 
@@ -516,17 +521,7 @@ impl RenderBackend {
                 DocumentOps::nop()
             }
             DocumentMsg::UpdateDynamicProperties(property_bindings) => {
-                // Ideally, when there are property bindings present,
-                // we won't need to rebuild the entire frame here.
-                // However, to avoid conflicts with the ongoing work to
-                // refactor how scroll roots + transforms work, this
-                // just rebuilds the frame if there are animated property
-                // bindings present for now.
-                // TODO(gw): Once the scrolling / reference frame changes
-                //           are completed, optimize the internals of
-                //           animated properties to not require a full
-                //           rebuild of the frame!
-                doc.scene.properties.set_properties(property_bindings);
+                doc.dynamic_properties.set_properties(property_bindings);
                 DocumentOps::build()
             }
         }
@@ -1134,6 +1129,7 @@ impl RenderBackend {
                 render_on_scroll: None,
                 render_on_hittest: false,
                 removed_pipelines: Vec::new(),
+                dynamic_properties: SceneProperties::new(),
                 hit_tester: None,
             };
 

@@ -108,7 +108,6 @@ pub struct Scene {
     pub pipelines: FastHashMap<PipelineId, Arc<ScenePipeline>>,
     pub pipeline_epochs: FastHashMap<PipelineId, Epoch>,
     pub removed_pipelines: Vec<PipelineId>,
-    pub properties: SceneProperties,
 }
 
 impl Scene {
@@ -118,7 +117,6 @@ impl Scene {
             pipelines: FastHashMap::default(),
             removed_pipelines: Vec::new(),
             pipeline_epochs: FastHashMap::default(),
-            properties: SceneProperties::new(),
         }
     }
 
