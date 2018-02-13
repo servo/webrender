@@ -145,6 +145,11 @@ fn validate_shaders() {
 }
 
 fn validate(validator: &ShaderValidator, name: &str, source: String) {
+    // Check for each `switch` to have a `default`, see
+    // https://github.com/servo/webrender/wiki/Driver-issues#lack-of-default-case-in-a-switch
+    assert_eq!(source.matches("switch").count(), source.matches("default:").count(),
+        "Shader '{}' doesn't have all `switch` covered with `default` cases", name);
+    // Run Angle validator
     match validator.compile_and_translate(&[&source]) {
         Ok(_) => {
             println!("Shader translated succesfully: {}", name);

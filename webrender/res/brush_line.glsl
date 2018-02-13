@@ -65,6 +65,9 @@ void brush_vs(
             pos = local_rect.p0.yx;
             size = local_rect.size.yx;
             break;
+        default:
+            vAxisSelect = 0.0;
+            pos = size = vec2(0.0);
     }
 
     vLocalOrigin = pos;
@@ -108,6 +111,8 @@ void brush_vs(
                            size.y);
             break;
         }
+        default:
+            vParams = vec4(0.0);
     }
 }
 #endif
@@ -223,6 +228,7 @@ vec4 brush_fs() {
 
             break;
         }
+        default: break;
     }
 
     return vColor * alpha;

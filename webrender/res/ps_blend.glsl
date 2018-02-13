@@ -93,6 +93,7 @@ void main(void) {
           vColorOffset = data[dataOffset + 4];
           break;
         }
+        default: break;
     }
 
 
