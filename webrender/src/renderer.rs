@@ -50,7 +50,8 @@ use profiler::{GpuProfileTag, RendererProfileCounters, RendererProfileTimers};
 use query::{GpuProfiler, GpuTimer};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use record::ApiRecordingReceiver;
-use render_backend::{RenderBackend, SceneBuilder};
+use render_backend::RenderBackend;
+use scene_builder::SceneBuilder;
 use render_task::{RenderTaskKind, RenderTaskTree};
 use resource_cache::ResourceCache;
 #[cfg(feature = "debugger")]

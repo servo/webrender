@@ -22,9 +22,9 @@ use prim_store::ScrollNodeAndClipChain;
 use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
 use resource_cache::{FontInstanceMap,ResourceCache, TiledImageMap};
 use scene::{Scene, StackingContextHelpers, ScenePipeline, SceneProperties};
+use scene_builder::{SceneRequest, BuiltScene};
 use tiling::{CompositeOps, Frame};
 use renderer::PipelineInfo;
-use render_backend::{SceneRequest, BuiltScene};
 
 use std::sync::Arc;
 
@@ -1086,6 +1086,8 @@ impl FrameContext {
             .discard_frame_state_for_pipeline(pipeline_id);
     }
 
+    // When changing this, please make the same modification to build_scene,
+    // which will soon replace this method completely.
     pub fn create_frame_builder(
         &mut self,
         old_builder: FrameBuilder,
@@ -1170,88 +1172,6 @@ impl FrameContext {
         frame_builder
     }
 
-    // WIP: There is no reason for this to be in FrameContext other than making it easier
-    // to keep in sync with changes with the create_frame_builder method above.
-    // This will soon replace the method above and move somewhere else.
-    pub fn create_frame_builder_async(
-        config: &FrameBuilderConfig,
-        mut request: SceneRequest,
-    ) -> BuiltScene {
-        let inner_rect = request.view.inner_rect;
-        let window_size = request.view.window_size;
-        let device_pixel_scale = request.view.accumulated_scale_factor();
-
-        let mut pipeline_epoch_map = FastHashMap::default();
-        let mut clip_scroll_tree = ClipScrollTree::new();
-
-        let frame_builder = {
-            // Creating the borrow here brings happiness to the borrow checker.
-            let scene = &mut request.scene;
-            // We checked that the root pipeline is available on the render backend.
-            let root_pipeline_id = scene.root_pipeline_id.unwrap();
-            let root_pipeline = scene.pipelines.get(&root_pipeline_id).unwrap();
-
-            let background_color = root_pipeline
-                .background_color
-                .and_then(|color| if color.a > 0.0 { Some(color) } else { None });
-
-            let root_epoch = scene.pipeline_epochs[&root_pipeline_id];
-            pipeline_epoch_map.insert(root_pipeline_id, root_epoch);
-
-            let mut roller = FlattenContext {
-                scene,
-                // WIP, we're not really recycling anything here, clean this up.
-                builder: FrameBuilder::empty().recycle(
-                    inner_rect,
-                    background_color,
-                    window_size,
-                    *config,
-                ),
-                clip_scroll_tree: &mut clip_scroll_tree,
-                font_instances: request.font_instances,
-                tiled_image_map: request.tiled_image_map,
-                pipeline_epochs: Vec::new(),
-                replacements: Vec::new(),
-                output_pipelines: &request.output_pipelines,
-                id_to_index_mapper: ClipIdToIndexMapper::new(),
-            };
-
-            roller.builder.push_root(
-                root_pipeline_id,
-                &root_pipeline.viewport_size,
-                &root_pipeline.content_size,
-                roller.clip_scroll_tree,
-                &mut roller.id_to_index_mapper,
-            );
-
-            roller.builder.setup_viewport_offset(
-                inner_rect,
-                device_pixel_scale,
-                roller.clip_scroll_tree,
-            );
-
-            roller.flatten_root(
-                &mut root_pipeline.display_list.iter(),
-                root_pipeline_id,
-                &root_pipeline.viewport_size,
-            );
-
-            debug_assert!(roller.builder.picture_stack.is_empty());
-
-            pipeline_epoch_map.extend(roller.pipeline_epochs.drain(..));
-
-            roller.builder
-        };
-
-        BuiltScene {
-            scene: request.scene,
-            frame_builder,
-            clip_scroll_tree,
-            pipeline_epoch_map,
-            removed_pipelines: request.removed_pipelines,
-        }
-    }
-
     pub fn update_epoch(&mut self, pipeline_id: PipelineId, epoch: Epoch) {
         self.pipeline_epoch_map.insert(pipeline_id, epoch);
     }
@@ -1301,5 +1221,85 @@ impl FrameContext {
         let hit_tester = frame_builder.create_hit_tester(&self.clip_scroll_tree);
 
         (hit_tester, self.make_rendered_document(frame, removed_pipelines))
+    }
+}
+
+
+pub fn build_scene(
+    config: &FrameBuilderConfig,
+    mut request: SceneRequest,
+) -> BuiltScene {
+    let inner_rect = request.view.inner_rect;
+    let window_size = request.view.window_size;
+    let device_pixel_scale = request.view.accumulated_scale_factor();
+
+    let mut pipeline_epoch_map = FastHashMap::default();
+    let mut clip_scroll_tree = ClipScrollTree::new();
+
+    let frame_builder = {
+        // Creating the borrow here brings happiness to the borrow checker.
+        let scene = &mut request.scene;
+        // We checked that the root pipeline is available on the render backend.
+        let root_pipeline_id = scene.root_pipeline_id.unwrap();
+        let root_pipeline = scene.pipelines.get(&root_pipeline_id).unwrap();
+
+        let background_color = root_pipeline
+            .background_color
+            .and_then(|color| if color.a > 0.0 { Some(color) } else { None });
+
+        let root_epoch = scene.pipeline_epochs[&root_pipeline_id];
+        pipeline_epoch_map.insert(root_pipeline_id, root_epoch);
+
+        let mut roller = FlattenContext {
+            scene,
+            // WIP, we're not really recycling anything here, clean this up.
+            builder: FrameBuilder::empty().recycle(
+                inner_rect,
+                background_color,
+                window_size,
+                *config,
+            ),
+            clip_scroll_tree: &mut clip_scroll_tree,
+            font_instances: request.font_instances,
+            tiled_image_map: request.tiled_image_map,
+            pipeline_epochs: Vec::new(),
+            replacements: Vec::new(),
+            output_pipelines: &request.output_pipelines,
+            id_to_index_mapper: ClipIdToIndexMapper::new(),
+        };
+
+        roller.builder.push_root(
+            root_pipeline_id,
+            &root_pipeline.viewport_size,
+            &root_pipeline.content_size,
+            roller.clip_scroll_tree,
+            &mut roller.id_to_index_mapper,
+        );
+
+        roller.builder.setup_viewport_offset(
+            inner_rect,
+            device_pixel_scale,
+            roller.clip_scroll_tree,
+        );
+
+        roller.flatten_root(
+            &mut root_pipeline.display_list.iter(),
+            root_pipeline_id,
+            &root_pipeline.viewport_size,
+        );
+
+        debug_assert!(roller.builder.picture_stack.is_empty());
+
+        pipeline_epoch_map.extend(roller.pipeline_epochs.drain(..));
+
+        roller.builder
+    };
+
+    BuiltScene {
+        scene: request.scene,
+        frame_builder,
+        clip_scroll_tree,
+        pipeline_epoch_map,
+        removed_pipelines: request.removed_pipelines,
     }
 }

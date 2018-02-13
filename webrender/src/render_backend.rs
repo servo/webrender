@@ -7,11 +7,10 @@ use api::{ApiMsg, BuiltDisplayList, ClearCache, DebugCommand};
 use api::{BuiltDisplayListIter, SpecificDisplayItem};
 use api::{DeviceIntPoint, DevicePixelScale, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{DocumentId, DocumentLayer, DocumentMsg, HitTestResult, IdNamespace, PipelineId};
-use api::{Epoch, TransactionMsg, ResourceUpdates};
+use api::TransactionMsg;
 use api::RenderNotifier;
 use api::channel::{MsgReceiver, PayloadReceiver, PayloadReceiverHelperMethods};
 use api::channel::{PayloadSender, PayloadSenderHelperMethods};
-use api::channel::MsgSender;
 #[cfg(feature = "capture")]
 use api::CaptureBits;
 #[cfg(feature = "replay")]
@@ -31,6 +30,7 @@ use resource_cache::PlainCacheOwn;
 #[cfg(any(feature = "capture", feature = "replay"))]
 use resource_cache::PlainResources;
 use scene::{Scene, SceneProperties};
+use scene_builder::*;
 #[cfg(feature = "serialize")]
 use serde::{Serialize, Deserialize};
 #[cfg(feature = "debugger")]
@@ -39,11 +39,9 @@ use serde_json;
 use std::path::PathBuf;
 use std::sync::atomic::{ATOMIC_USIZE_INIT, AtomicUsize, Ordering};
 use std::mem::replace;
-use std::sync::mpsc::{Sender, Receiver, channel};
+use std::sync::mpsc::{Sender, Receiver};
 use std::u32;
 use time::precise_time_ns;
-use resource_cache::{FontInstanceMap, TiledImageMap};
-use clip_scroll_tree::ClipScrollTree;
 
 // WIP: I realize we don't really want to send the entire struct to the scene
 // building thread, this will be most likely a private struct again by the time
@@ -1182,120 +1180,3 @@ impl RenderBackend {
     }
 }
 
-// Message from render backend to scene builder.
-pub enum SceneBuilderRequest {
-    Transaction {
-        document_id: DocumentId,
-        scene: Option<SceneRequest>,
-        resource_updates: ResourceUpdates,
-        frame_ops: Vec<DocumentMsg>,
-        render: bool,
-    },
-    Stop
-}
-
-// Message from scene builder to render backend.
-pub enum SceneBuilderMsg {
-    Transaction {
-        document_id: DocumentId,
-        built_scene: Option<BuiltScene>,
-        resource_updates: ResourceUpdates,
-        frame_ops: Vec<DocumentMsg>,
-        render: bool,
-    },
-}
-
-/// Contains the the render backend data needed to build a scene.
-pub struct SceneRequest {
-    pub scene: Scene,
-    pub view: DocumentView,
-    pub font_instances: FontInstanceMap,
-    pub tiled_image_map: TiledImageMap,
-    pub output_pipelines: FastHashSet<PipelineId>,
-    pub removed_pipelines: Vec<PipelineId>,
-}
-
-pub struct BuiltScene {
-    pub scene: Scene,
-    pub frame_builder: FrameBuilder,
-    pub clip_scroll_tree: ClipScrollTree,
-    pub pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
-    pub removed_pipelines: Vec<PipelineId>,
-}
-
-pub struct SceneBuilder {
-    rx: Receiver<SceneBuilderRequest>,
-    tx: Sender<SceneBuilderMsg>,
-    api_tx: MsgSender<ApiMsg>,
-    config: FrameBuilderConfig,
-}
-
-impl SceneBuilder {
-    pub fn new(
-        config: FrameBuilderConfig,
-        api_tx: MsgSender<ApiMsg>
-    ) -> (Self, Sender<SceneBuilderRequest>, Receiver<SceneBuilderMsg>) {
-        let (in_tx, in_rx) = channel();
-        let (out_tx, out_rx) = channel();
-        (
-            SceneBuilder {
-                rx: in_rx,
-                tx: out_tx,
-                api_tx,
-                config,
-            },
-            in_tx,
-            out_rx,
-        )
-    }
-
-    pub fn run(&mut self) {
-        loop {
-            match self.rx.recv() {
-                Ok(msg) => {
-                    if !self.process_message(msg) {
-                        return;
-                    }
-                }
-                Err(_) => {
-                    return;
-                }
-            }
-        }
-    }
-
-    pub fn process_message(&mut self, msg: SceneBuilderRequest) -> bool {
-        match msg {
-            SceneBuilderRequest::Transaction {
-                document_id,
-                scene,
-                resource_updates,
-                frame_ops,
-                render,
-            } => {
-                let built_scene = scene.map(|request|{
-                    self.build_scene(request)
-                });
-
-                // TODO: pre-rasterization.
-
-                self.tx.send(SceneBuilderMsg::Transaction {
-                    document_id,
-                    built_scene,
-                    resource_updates,
-                    frame_ops,
-                    render,
-                }).unwrap();
-
-                let _ = self.api_tx.send(ApiMsg::WakeUp);
-            }
-            SceneBuilderRequest::Stop => { return false; }
-        }
-
-        true
-    }
-
-    pub fn build_scene(&mut self, request: SceneRequest) -> BuiltScene {
-        FrameContext::create_frame_builder_async(&self.config, request)
-    }
-}
