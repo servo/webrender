@@ -1,12 +1,11 @@
 //! Similar to https://github.com/retep998/wio-rs/blob/44093f7db8/src/com.rs , but can be null
 
 use std::ops::Deref;
-use std::ptr::null_mut;
+use std::ptr;
 use winapi;
 use winapi::Interface;
 use winapi::ctypes::c_void;
 use winapi::shared::winerror::HRESULT;
-use winapi::shared::winerror::SUCCEEDED;
 use winapi::um::unknwnbase::IUnknown;
 
 pub trait ToResult: Sized {
@@ -15,7 +14,7 @@ pub trait ToResult: Sized {
 
 impl ToResult for HRESULT {
     fn to_result(self) -> Result<(), Self> {
-        if SUCCEEDED(self) {
+        if winapi::shared::winerror::SUCCEEDED(self) {
             Ok(())
         } else {
             Err(self)
@@ -30,7 +29,7 @@ pub struct Com<T> where T: AsIUnknown {
 
 impl<T> Com<T> where T: AsIUnknown {
     pub fn null() -> Self {
-        Com { ptr: null_mut() }
+        Com { ptr: ptr::null_mut() }
     }
 
     pub fn as_ref(&self) -> Option<&T> {
