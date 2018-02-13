@@ -276,6 +276,7 @@ void main(void) {
         case MixBlendMode_Luminosity:
             result.rgb = Luminosity(Cb.rgb, Cs.rgb);
             break;
+        default: break;
     }
 
     result.rgb = (1.0 - Cb.a) * Cs.rgb + Cb.a * result.rgb;

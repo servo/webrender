@@ -147,6 +147,9 @@ void main(void) {
             vMaskSwizzle = vec2(-1.0, 1.0);
             vColor = vec4(text.color.a) * text.bg_color;
             break;
+        default:
+            vMaskSwizzle = vec2(0.0);
+            vColor = vec4(1.0);
     }
 
     vec2 texture_size = vec2(textureSize(sColor0, 0));

@@ -368,6 +368,7 @@ Glyph fetch_glyph(int specific_prim_address,
         case SUBPX_DIR_VERTICAL:
             glyph.y = floor(glyph.y + 0.125);
             break;
+        default: break;
     }
 
     return Glyph(glyph);

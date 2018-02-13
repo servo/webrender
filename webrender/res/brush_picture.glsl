@@ -98,6 +98,9 @@ void brush_vs(
             vParams.xy = 0.5 * local_rect.size / local_src_size;
             break;
         }
+        default:
+            vUv.xy = vec2(0.0);
+            vParams = vec4(0.0);
     }
 
     vUvBounds = vec4(uv0 + vec2(0.5), uv1 - vec2(0.5)) / texture_size.xyxy;
@@ -138,6 +141,8 @@ vec4 brush_fs() {
             uv = clamp(uv, vUvBounds.xy, vUvBounds.zw);
             break;
         }
+        default:
+            uv = vec2(0.0);
     }
 
 #if defined WR_FEATURE_COLOR_TARGET
