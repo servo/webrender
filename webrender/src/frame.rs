@@ -27,7 +27,6 @@ use renderer::PipelineInfo;
 use render_backend::{SceneRequest, BuiltScene};
 
 use std::sync::Arc;
-use std::mem::replace;
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Eq, Ord)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -1178,26 +1177,27 @@ impl FrameContext {
         config: &FrameBuilderConfig,
         mut request: SceneRequest,
     ) -> BuiltScene {
-        let scene = &mut request.scene;
         let inner_rect = request.view.inner_rect;
         let window_size = request.view.window_size;
         let device_pixel_scale = request.view.accumulated_scale_factor();
 
-        // We checked that the root pipeline is available on the render backend.
-        let root_pipeline_id = scene.root_pipeline_id.unwrap();
-        let root_pipeline = scene.pipelines.get(&root_pipeline_id).unwrap();
-
-        let background_color = root_pipeline
-            .background_color
-            .and_then(|color| if color.a > 0.0 { Some(color) } else { None });
-
         let mut pipeline_epoch_map = FastHashMap::default();
         let mut clip_scroll_tree = ClipScrollTree::new();
 
-        let root_epoch = scene.pipeline_epochs[&root_pipeline_id];
-        pipeline_epoch_map.insert(root_pipeline_id, root_epoch);
-
         let frame_builder = {
+            // Creating the borrow here brings happiness to the borrow checker.
+            let scene = &mut request.scene;
+            // We checked that the root pipeline is available on the render backend.
+            let root_pipeline_id = scene.root_pipeline_id.unwrap();
+            let root_pipeline = scene.pipelines.get(&root_pipeline_id).unwrap();
+
+            let background_color = root_pipeline
+                .background_color
+                .and_then(|color| if color.a > 0.0 { Some(color) } else { None });
+
+            let root_epoch = scene.pipeline_epochs[&root_pipeline_id];
+            pipeline_epoch_map.insert(root_pipeline_id, root_epoch);
+
             let mut roller = FlattenContext {
                 scene,
                 // WIP, we're not really recycling anything here, clean this up.
@@ -1244,10 +1244,11 @@ impl FrameContext {
         };
 
         BuiltScene {
+            scene: request.scene,
             frame_builder,
             clip_scroll_tree,
             pipeline_epoch_map,
-            removed_pipelines: replace(&mut scene.removed_pipelines, Vec::new()),
+            removed_pipelines: request.removed_pipelines,
         }
     }
 

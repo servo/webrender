@@ -107,7 +107,6 @@ pub struct Scene {
     pub root_pipeline_id: Option<PipelineId>,
     pub pipelines: FastHashMap<PipelineId, Arc<ScenePipeline>>,
     pub pipeline_epochs: FastHashMap<PipelineId, Epoch>,
-    pub removed_pipelines: Vec<PipelineId>,
 }
 
 impl Scene {
@@ -115,7 +114,6 @@ impl Scene {
         Scene {
             root_pipeline_id: None,
             pipelines: FastHashMap::default(),
-            removed_pipelines: Vec::new(),
             pipeline_epochs: FastHashMap::default(),
         }
     }
@@ -150,7 +148,6 @@ impl Scene {
             self.root_pipeline_id = None;
         }
         self.pipelines.remove(&pipeline_id);
-        self.removed_pipelines.push(pipeline_id);
     }
 
     pub fn update_epoch(&mut self, pipeline_id: PipelineId, epoch: Epoch) {
