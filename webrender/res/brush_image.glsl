@@ -22,7 +22,13 @@ void brush_vs(
     ivec2 user_data,
     PictureTask pic_task
 ) {
-    vec2 texture_size = vec2(textureSize(sColor0, 0).xy);
+    // If this is in WR_FEATURE_TEXTURE_RECT mode, the rect and size use
+    // non-normalized texture coordinates.
+#ifdef WR_FEATURE_TEXTURE_RECT
+    vec2 texture_size = vec2(1, 1);
+#else
+    vec2 texture_size = vec2(textureSize(sColor0, 0));
+#endif
 
     ImageResource res = fetch_image_resource(user_data.x);
     vec2 uv0 = res.uv_rect.p0;
@@ -46,7 +52,7 @@ void brush_vs(
 vec4 brush_fs() {
     vec2 uv = clamp(vUv.xy, vUvBounds.xy, vUvBounds.zw);
 
-    vec4 color = texture(sColor0, vec3(uv, vUv.z));
+    vec4 color = TEX_SAMPLE(sColor0, vec3(uv, vUv.z));
 
 #ifdef WR_FEATURE_ALPHA_PASS
     color *= init_transform_fs(vLocalPos);

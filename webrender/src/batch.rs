@@ -73,7 +73,7 @@ pub enum BrushBatchKind {
     Picture(BrushImageSourceKind),
     Solid,
     Line,
-    Image,
+    Image(ImageBufferKind),
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -607,24 +607,6 @@ impl AlphaBatchBuilder {
         }
     }
 
-    fn get_buffer_kind(texture: SourceTexture) -> ImageBufferKind {
-        match texture {
-            SourceTexture::External(ext_image) => {
-                match ext_image.image_type {
-                    ExternalImageType::TextureHandle(target) => {
-                        target.into()
-                    }
-                    ExternalImageType::Buffer => {
-                        // The ExternalImageType::Buffer should be handled by resource_cache.
-                        // It should go through the non-external case.
-                        panic!("Unexpected non-texture handle type");
-                    }
-                }
-            }
-            _ => ImageBufferKind::Texture2DArray,
-        }
-    }
-
     // Adds a primitive to a batch.
     // It can recursively call itself in some situations, for
     // example if it encounters a picture where the items
@@ -809,7 +791,7 @@ impl AlphaBatchBuilder {
                     return;
                 }
 
-                let batch_kind = TransformBatchKind::Image(Self::get_buffer_kind(cache_item.texture_id));
+                let batch_kind = TransformBatchKind::Image(get_buffer_kind(cache_item.texture_id));
                 let key = BatchKey::new(
                     BatchKind::Transformable(transform_kind, batch_kind),
                     non_segmented_blend_mode,
@@ -1278,11 +1260,11 @@ impl AlphaBatchBuilder {
                 }
 
                 // All yuv textures should be the same type.
-                let buffer_kind = Self::get_buffer_kind(textures.colors[0]);
+                let buffer_kind = get_buffer_kind(textures.colors[0]);
                 assert!(
                     textures.colors[1 .. image_yuv_cpu.format.get_plane_num()]
                         .iter()
-                        .all(|&tid| buffer_kind == Self::get_buffer_kind(tid))
+                        .all(|&tid| buffer_kind == get_buffer_kind(tid))
                 );
 
                 let kind = BatchKind::Transformable(
@@ -1427,7 +1409,7 @@ impl BrushPrimitive {
                     let textures = BatchTextures::color(cache_item.texture_id);
 
                     Some((
-                        BrushBatchKind::Image,
+                        BrushBatchKind::Image(get_buffer_kind(cache_item.texture_id)),
                         textures,
                         [cache_item.uv_rect_handle.as_int(gpu_cache), 0],
                     ))
@@ -1695,5 +1677,23 @@ impl ClipBatcher {
                 }
             }
         }
+    }
+}
+
+fn get_buffer_kind(texture: SourceTexture) -> ImageBufferKind {
+    match texture {
+        SourceTexture::External(ext_image) => {
+            match ext_image.image_type {
+                ExternalImageType::TextureHandle(target) => {
+                    target.into()
+                }
+                ExternalImageType::Buffer => {
+                    // The ExternalImageType::Buffer should be handled by resource_cache.
+                    // It should go through the non-external case.
+                    panic!("Unexpected non-texture handle type");
+                }
+            }
+        }
+        _ => ImageBufferKind::Texture2DArray,
     }
 }
