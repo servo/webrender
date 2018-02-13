@@ -71,8 +71,19 @@ impl DocumentView {
     }
 }
 
-struct Document {
+struct SceneData {
     scene: Scene,
+    removed_pipelines: Vec<PipelineId>,
+}
+
+struct Document {
+    // The latest built scene, usable to build frames.
+    // received from the scene builder thread.
+    current: SceneData,
+    // The scene with the latest transactions applied, not necessarily built yet.
+    // what we will send to the scene builder.
+    pending: SceneData,
+
     view: DocumentView,
     frame_ctx: FrameContext,
     // the `Option` here is only to deal with borrow checker
@@ -80,12 +91,6 @@ struct Document {
     // A set of pipelines that the caller has requested be
     // made available as output textures.
     output_pipelines: FastHashSet<PipelineId>,
-    // The pipeline removal notifications that will be sent in the next frame.
-    // Because of async scene building, removed pipelines should not land here
-    // as soon as the render backend receives a DocumentMsg::RemovePipeline.
-    // Instead, the notification should be added to this list when the first
-    // scene that does not contain the pipeline becomes current.
-    removed_pipelines: Vec<PipelineId>,
     // A helper switch to prevent any frames rendering triggered by scrolling
     // messages between `SetDisplayList` and `GenerateFrame`.
     // If we allow them, then a reftest that scrolls a few layers before generating
@@ -121,8 +126,14 @@ impl Document {
             None
         };
         Document {
-            scene: Scene::new(),
-            removed_pipelines: Vec::new(),
+            current: SceneData {
+                scene: Scene::new(),
+                removed_pipelines: Vec::new(),
+            },
+            pending: SceneData {
+                scene: Scene::new(),
+                removed_pipelines: Vec::new(),
+            },
             view: DocumentView {
                 window_size,
                 inner_rect: DeviceUintRect::new(DeviceUintPoint::zero(), window_size),
@@ -148,15 +159,16 @@ impl Document {
     fn build_scene(&mut self, resource_cache: &mut ResourceCache) {
         let frame_builder = self.frame_ctx.create_frame_builder(
             self.frame_builder.take().unwrap_or_else(FrameBuilder::empty),
-            &self.scene,
+            &self.pending.scene,
             resource_cache,
             self.view.window_size,
             self.view.inner_rect,
             self.view.accumulated_scale_factor(),
             &self.output_pipelines,
         );
-        self.removed_pipelines.extend(self.scene.removed_pipelines.drain(..));
+        self.current.removed_pipelines.extend(self.pending.removed_pipelines.drain(..));
         self.frame_builder = Some(frame_builder);
+        self.current.scene = self.pending.scene.clone();
     }
 
     fn forward_transaction_to_scene_builder(
@@ -170,8 +182,8 @@ impl Document {
         // Do as much of the error handling as possible here before dispatching to
         // the scene builder thread.
         let build_scene: bool = document_ops.build
-            && self.scene.root_pipeline_id.map(
-                |id| { self.scene.pipelines.contains_key(&id) }
+            && self.pending.scene.root_pipeline_id.map(
+                |id| { self.pending.scene.pipelines.contains_key(&id) }
             ).unwrap_or(false);
 
         let scene_request = if build_scene {
@@ -180,7 +192,8 @@ impl Document {
             }
 
             Some(SceneRequest {
-                scene: self.scene.clone(),
+                scene: self.pending.scene.clone(),
+                removed_pipelines: replace(&mut self.pending.removed_pipelines, Vec::new()),
                 view: self.view.clone(),
                 font_instances: resource_cache.get_font_instances(),
                 tiled_image_map: resource_cache.get_tiled_image_map(),
@@ -211,14 +224,14 @@ impl Document {
             self.frame_builder.as_mut().unwrap(),
             resource_cache,
             gpu_cache,
-            &self.scene.pipelines,
+            &self.current.scene.pipelines,
             accumulated_scale_factor,
             self.view.layer,
             pan,
             &mut resource_profile.texture_cache,
             &mut resource_profile.gpu_cache,
             &self.dynamic_properties,
-            replace(&mut self.removed_pipelines, Vec::new()),
+            replace(&mut self.current.removed_pipelines, Vec::new()),
         );
 
         self.hit_tester = Some(hit_tester);
@@ -412,7 +425,7 @@ impl RenderBackend {
                 let display_list_received_time = precise_time_ns();
 
                 {
-                    doc.scene.set_display_list(
+                    doc.pending.scene.set_display_list(
                         pipeline_id,
                         epoch,
                         built_display_list,
@@ -443,15 +456,17 @@ impl RenderBackend {
                 DocumentOps::build()
             }
             DocumentMsg::UpdateEpoch(pipeline_id, epoch) => {
-                doc.scene.update_epoch(pipeline_id, epoch);
+                doc.pending.scene.update_epoch(pipeline_id, epoch);
+                // TODO: we need to not do this here with async scene building, but when
+                // we receive the built scene instead.
                 doc.frame_ctx.update_epoch(pipeline_id, epoch);
                 DocumentOps::nop()
             }
             DocumentMsg::SetRootPipeline(pipeline_id) => {
                 profile_scope!("SetRootPipeline");
 
-                doc.scene.set_root_pipeline_id(pipeline_id);
-                if doc.scene.pipelines.get(&pipeline_id).is_some() {
+                doc.pending.scene.set_root_pipeline_id(pipeline_id);
+                if doc.pending.scene.pipelines.get(&pipeline_id).is_some() {
                     DocumentOps::build()
                 } else {
                     DocumentOps::nop()
@@ -460,7 +475,8 @@ impl RenderBackend {
             DocumentMsg::RemovePipeline(pipeline_id) => {
                 profile_scope!("RemovePipeline");
 
-                doc.scene.remove_pipeline(pipeline_id);
+                doc.pending.scene.remove_pipeline(pipeline_id);
+                doc.pending.removed_pipelines.push(pipeline_id);
                 DocumentOps::nop()
             }
             DocumentMsg::Scroll(delta, cursor, move_phase) => {
@@ -548,8 +564,9 @@ impl RenderBackend {
                     } => {
                         if let Some(doc) = self.documents.get_mut(&document_id) {
                             if let Some(mut built_scene) = built_scene.take() {
+                                doc.current.scene = built_scene.scene;
                                 doc.frame_builder = Some(built_scene.frame_builder);
-                                doc.removed_pipelines.extend(built_scene.removed_pipelines.drain(..));
+                                doc.current.removed_pipelines.extend(built_scene.removed_pipelines.drain(..));
                                 doc.frame_ctx.new_async_scene_ready(
                                     built_scene.clip_scroll_tree,
                                     built_scene.pipeline_epoch_map,
@@ -724,7 +741,7 @@ impl RenderBackend {
                             for (id, doc) in &self.documents {
                                 let captured = CapturedDocument {
                                     document_id: *id,
-                                    root_pipeline_id: doc.scene.root_pipeline_id,
+                                    root_pipeline_id: doc.current.scene.root_pipeline_id,
                                     window_size: doc.view.window_size,
                                 };
                                 tx.send(captured).unwrap();
@@ -819,7 +836,7 @@ impl RenderBackend {
                 *ros = true;
             }
 
-            if doc.scene.root_pipeline_id.is_some() {
+            if doc.current.scene.root_pipeline_id.is_some() {
                 op.render = true;
                 op.composite = true;
             }
@@ -937,7 +954,7 @@ impl RenderBackend {
         for (_, doc) in &self.documents {
             let mut debug_doc = debug_server::TreeNode::new("document");
 
-            for (_, pipeline) in &doc.scene.pipelines {
+            for (_, pipeline) in &doc.current.scene.pipelines {
                 let mut debug_dl = debug_server::TreeNode::new("display-list");
                 self.traverse_items(&mut pipeline.display_list.iter(), &mut debug_dl);
                 debug_doc.add_child(debug_dl);
@@ -1028,7 +1045,7 @@ impl RenderBackend {
             debug!("\tdocument {:?}", id);
             if config.bits.contains(CaptureBits::SCENE) {
                 let file_name = format!("scene-{}-{}", (id.0).0, id.1);
-                config.serialize(&doc.scene, file_name);
+                config.serialize(&doc.current.scene, file_name);
             }
             if config.bits.contains(CaptureBits::FRAME) {
                 let rendered_document = doc.render(
@@ -1121,14 +1138,20 @@ impl RenderBackend {
                 .expect(&format!("Unable to open {}.ron", scene_name));
 
             let mut doc = Document {
-                scene,
+                current: SceneData {
+                    scene: scene.clone(),
+                    removed_pipelines: Vec::new(),
+                },
+                pending: SceneData {
+                    scene,
+                    removed_pipelines: Vec::new(),
+                },
                 view,
                 frame_ctx: FrameContext::new(self.frame_config.clone()),
                 frame_builder: Some(FrameBuilder::empty()),
                 output_pipelines: FastHashSet::default(),
                 render_on_scroll: None,
                 render_on_hittest: false,
-                removed_pipelines: Vec::new(),
                 dynamic_properties: SceneProperties::new(),
                 hit_tester: None,
             };
@@ -1194,9 +1217,11 @@ pub struct SceneRequest {
     pub font_instances: FontInstanceMap,
     pub tiled_image_map: TiledImageMap,
     pub output_pipelines: FastHashSet<PipelineId>,
+    pub removed_pipelines: Vec<PipelineId>,
 }
 
 pub struct BuiltScene {
+    pub scene: Scene,
     pub frame_builder: FrameBuilder,
     pub clip_scroll_tree: ClipScrollTree,
     pub pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
