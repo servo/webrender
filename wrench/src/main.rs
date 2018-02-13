@@ -349,8 +349,8 @@ impl RenderNotifier for Notifier {
         self.tx.send(NotifierEvent::ShutDown).unwrap();
     }
 
-    fn new_document_ready(&self, _: DocumentId, scrolled: bool, _composite_needed: bool) {
-        if !scrolled {
+    fn new_document_ready(&self, _: DocumentId, _scrolled: bool, composite_needed: bool) {
+        if composite_needed {
             self.wake_up();
         }
     }
