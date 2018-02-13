@@ -904,7 +904,9 @@ impl ResourceCache {
                     // that is > 512 in either dimension, so it should cover
                     // the most important use cases. We may want to support
                     // mip-maps on shared cache items in the future.
-                    if !self.texture_cache.is_allowed_in_shared_cache(
+                    if descriptor.width > 512 &&
+                       descriptor.height > 512 &&
+                       !self.texture_cache.is_allowed_in_shared_cache(
                         TextureFilter::Linear,
                         &descriptor,
                     ) {
