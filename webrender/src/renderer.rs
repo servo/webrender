@@ -236,7 +236,7 @@ impl BatchKind {
                     BrushBatchKind::Picture(..) => "Brush (Picture)",
                     BrushBatchKind::Solid => "Brush (Solid)",
                     BrushBatchKind::Line => "Brush (Line)",
-                    BrushBatchKind::Image => "Brush (Image)",
+                    BrushBatchKind::Image(..) => "Brush (Image)",
                 }
             }
             BatchKind::Transformable(_, batch_kind) => batch_kind.debug_name(),
@@ -254,7 +254,7 @@ impl BatchKind {
                     BrushBatchKind::Picture(..) => GPU_TAG_BRUSH_PICTURE,
                     BrushBatchKind::Solid => GPU_TAG_BRUSH_SOLID,
                     BrushBatchKind::Line => GPU_TAG_BRUSH_LINE,
-                    BrushBatchKind::Image => GPU_TAG_BRUSH_IMAGE,
+                    BrushBatchKind::Image(..) => GPU_TAG_BRUSH_IMAGE,
                 }
             }
             BatchKind::Transformable(_, batch_kind) => batch_kind.gpu_sampler_tag(),
@@ -1602,7 +1602,7 @@ pub struct Renderer {
     brush_picture_a8: BrushShader,
     brush_solid: BrushShader,
     brush_line: BrushShader,
-    brush_image: BrushShader,
+    brush_image: Vec<Option<BrushShader>>,
 
     /// These are "cache clip shaders". These shaders are used to
     /// draw clip instances into the cached clip mask. The results
@@ -1819,13 +1819,6 @@ impl Renderer {
                              options.precache_shaders)
         };
 
-        let brush_image = try!{
-            BrushShader::new("brush_image",
-                             &mut device,
-                             &[],
-                             options.precache_shaders)
-        };
-
         let brush_line = try!{
             BrushShader::new("brush_line",
                              &mut device,
@@ -1910,10 +1903,12 @@ impl Renderer {
 
         // All image configuration.
         let mut image_features = Vec::new();
-        let mut ps_image: Vec<Option<PrimitiveShader>> = Vec::new();
+        let mut ps_image = Vec::new();
+        let mut brush_image = Vec::new();
         // PrimitiveShader is not clonable. Use push() to initialize the vec.
         for _ in 0 .. IMAGE_BUFFER_KINDS.len() {
             ps_image.push(None);
+            brush_image.push(None);
         }
         for buffer_kind in 0 .. IMAGE_BUFFER_KINDS.len() {
             if IMAGE_BUFFER_KINDS[buffer_kind].has_platform_support(&gl_type) {
@@ -1928,6 +1923,14 @@ impl Renderer {
                                          options.precache_shaders)
                 };
                 ps_image[buffer_kind] = Some(shader);
+
+                let shader = try!{
+                    BrushShader::new("brush_image",
+                                     &mut device,
+                                     &image_features,
+                                     options.precache_shaders)
+                };
+                brush_image[buffer_kind] = Some(shader);
             }
             image_features.clear();
         }
@@ -3209,14 +3212,17 @@ impl Renderer {
                             &mut self.renderer_errors,
                         );
                     }
-                    BrushBatchKind::Image => {
-                        self.brush_image.bind(
-                            &mut self.device,
-                            key.blend_mode,
-                            projection,
-                            0,
-                            &mut self.renderer_errors,
-                        );
+                    BrushBatchKind::Image(image_buffer_kind) => {
+                        self.brush_image[image_buffer_kind as usize]
+                            .as_mut()
+                            .expect("Unsupported image shader kind")
+                            .bind(
+                                &mut self.device,
+                                key.blend_mode,
+                                projection,
+                                0,
+                                &mut self.renderer_errors,
+                            );
                     }
                     BrushBatchKind::Picture(target_kind) => {
                         let shader = match target_kind {
@@ -4732,12 +4738,16 @@ impl Renderer {
         self.brush_picture_a8.deinit(&mut self.device);
         self.brush_solid.deinit(&mut self.device);
         self.brush_line.deinit(&mut self.device);
-        self.brush_image.deinit(&mut self.device);
         self.cs_clip_rectangle.deinit(&mut self.device);
         self.cs_clip_image.deinit(&mut self.device);
         self.cs_clip_border.deinit(&mut self.device);
         self.ps_text_run.deinit(&mut self.device);
         self.ps_text_run_dual_source.deinit(&mut self.device);
+        for shader in self.brush_image {
+            if let Some(shader) = shader {
+                shader.deinit(&mut self.device);
+            }
+        }
         for shader in self.ps_image {
             if let Some(shader) = shader {
                 shader.deinit(&mut self.device);
