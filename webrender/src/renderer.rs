@@ -2874,12 +2874,6 @@ impl Renderer {
                 }
             }
 
-            // Re-use whatever targets possible from the pool, before
-            // they get changed/re-allocated by the rendered frames.
-            for doc_with_id in &mut active_documents {
-                self.prepare_tile_frame(&mut doc_with_id.1.frame);
-            }
-
             #[cfg(feature = "replay")]
             self.texture_resolver.external_images.extend(
                 self.owned_external_images.iter().map(|(key, value)| (*key, value.clone()))
@@ -4248,44 +4242,44 @@ impl Renderer {
     fn prepare_target_list<T: RenderTarget>(
         &mut self,
         list: &mut RenderTargetList<T>,
-        perfect_only: bool,
     ) {
         debug_assert_ne!(list.max_size, DeviceUintSize::zero());
+        debug_assert!(list.texture.is_none());
         if list.targets.is_empty() {
             return;
         }
-        let mut texture = if perfect_only {
-            debug_assert!(list.texture.is_none());
 
-            let selector = TargetSelector {
-                size: list.max_size,
-                num_layers: list.targets.len() as _,
-                format: list.format,
-            };
-            let index = self.texture_resolver.render_target_pool
-                .iter()
-                .position(|texture| {
-                    selector == TargetSelector {
-                        size: texture.get_dimensions(),
-                        num_layers: texture.get_render_target_layer_count(),
-                        format: texture.get_format(),
-                    }
-                });
-            match index {
-                Some(pos) => self.texture_resolver.render_target_pool.swap_remove(pos),
-                None => return,
+        // First, try finding a perfect match
+        let selector = TargetSelector {
+            size: list.max_size,
+            num_layers: list.targets.len() as _,
+            format: list.format,
+        };
+        let perfect_pos = self.texture_resolver.render_target_pool
+            .iter()
+            .position(|texture| {
+                //TODO: re-use a part of a larger target, if available
+                selector == TargetSelector {
+                    size: texture.get_dimensions(),
+                    num_layers: texture.get_render_target_layer_count(),
+                    format: texture.get_format(),
+                }
+            });
+
+        let mut texture = match perfect_pos {
+            Some(pos) => {
+                self.texture_resolver.render_target_pool.swap_remove(pos)
             }
-        } else {
-            if list.texture.is_some() {
-                list.check_ready();
-                return
-            }
-            let index = self.texture_resolver.render_target_pool
-                .iter()
-                .position(|texture| texture.get_format() == list.format);
-            match index {
-                Some(pos) => self.texture_resolver.render_target_pool.swap_remove(pos),
-                None => self.device.create_texture(TextureTarget::Array, list.format),
+            None => {
+                // secondly, try at least finding a matching format
+                let index = self.texture_resolver.render_target_pool
+                    .iter()
+                    .position(|texture| texture.get_format() == list.format);
+                match index {
+                    Some(pos) => self.texture_resolver.render_target_pool.swap_remove(pos),
+                    // finally, give up and create a new one
+                    None => self.device.create_texture(TextureTarget::Array, list.format),
+                }
             }
         };
 
@@ -4304,29 +4298,9 @@ impl Renderer {
         list.check_ready();
     }
 
-    fn prepare_tile_frame(&mut self, frame: &mut Frame) {
-        // Init textures and render targets to match this scene.
-        // First pass grabs all the perfectly matching targets from the pool.
-        for pass in &mut frame.passes {
-            if let RenderPassKind::OffScreen { ref mut alpha, ref mut color, .. } = pass.kind {
-                self.prepare_target_list(alpha, true);
-                self.prepare_target_list(color, true);
-            }
-        }
-    }
-
     fn bind_frame_data(&mut self, frame: &mut Frame) {
         let _timer = self.gpu_profile.start_timer(GPU_TAG_SETUP_DATA);
         self.device.set_device_pixel_ratio(frame.device_pixel_ratio);
-
-        // Some of the textures are already assigned by `prepare_frame`.
-        // Now re-allocate the space for the rest of the target textures.
-        for pass in &mut frame.passes {
-            if let RenderPassKind::OffScreen { ref mut alpha, ref mut color, .. } = pass.kind {
-                self.prepare_target_list(alpha, false);
-                self.prepare_target_list(color, false);
-            }
-        }
 
         self.node_data_texture.update(&mut self.device, &mut frame.node_data);
         self.device.bind_texture(TextureSampler::ClipScrollNodes, &self.node_data_texture.texture);
@@ -4419,8 +4393,8 @@ impl Renderer {
                     (None, None)
                 }
                 RenderPassKind::OffScreen { ref mut alpha, ref mut color, ref mut texture_cache } => {
-                    alpha.check_ready();
-                    color.check_ready();
+                    self.prepare_target_list(alpha);
+                    self.prepare_target_list(color);
 
                     // If this frame has already been drawn, then any texture
                     // cache targets have already been updated and can be
