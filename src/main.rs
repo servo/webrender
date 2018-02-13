@@ -35,7 +35,7 @@ fn main() {
         gl::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _);
         gl::ClearColor(0.0, 1.0, 0.0, 1.0);
 
-        initialize_direct_composition_device(gl_window.window().get_hwnd() as _).unwrap();
+        DirectComposition::initialize(gl_window.window().get_hwnd() as _).unwrap();
     }
 
 //    let mut running = true;
@@ -63,46 +63,53 @@ fn main() {
 
 /// https://msdn.microsoft.com/en-us/library/windows/desktop/hh449180(v=vs.85).aspx
 
-unsafe fn initialize_direct_composition_device(hwnd: HWND)
-    -> Result<(Com<ID3D11Device>, Com<IDCompositionDevice>, Com<IDCompositionTarget>), HRESULT>
-{
-    let mut d3d_device = Com::<ID3D11Device>::null();
-    let mut featureLevelSupported = 0;
+#[allow(unused)]
+struct DirectComposition {
+    d3d_device: Com<ID3D11Device>,
+    composition_device: Com<IDCompositionDevice>,
+    composition_target: Com<IDCompositionTarget>,
+}
 
-    // Create the D3D device object.
-    // The D3D11_CREATE_DEVICE_BGRA_SUPPORT flag enables rendering on surfaces using Direct2D.
-    winapi::um::d3d11::D3D11CreateDevice(
-        ptr::null_mut(),
-        winapi::um::d3dcommon::D3D_DRIVER_TYPE_HARDWARE,
-        ptr::null_mut(),
-        winapi::um::d3d11::D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-        ptr::null_mut(),
-        0,
-        winapi::um::d3d11::D3D11_SDK_VERSION,
-        d3d_device.as_ptr_ptr(),
-        &mut featureLevelSupported,
-        ptr::null_mut(),
-    ).to_result()?;
+impl DirectComposition {
+    unsafe fn initialize(hwnd: HWND) -> Result<Self, HRESULT> {
+        let mut d3d_device = Com::<ID3D11Device>::null();
+        let mut featureLevelSupported = 0;
 
-    // Create the DXGI device used to create bitmap surfaces.
-    let pDXGIDevice = d3d_device.query_interface::<winapi::shared::dxgi::IDXGIDevice>()?;
+        // Create the D3D device object.
+        // The D3D11_CREATE_DEVICE_BGRA_SUPPORT flag enables rendering on surfaces using Direct2D.
+        winapi::um::d3d11::D3D11CreateDevice(
+            ptr::null_mut(),
+            winapi::um::d3dcommon::D3D_DRIVER_TYPE_HARDWARE,
+            ptr::null_mut(),
+            winapi::um::d3d11::D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+            ptr::null_mut(),
+            0,
+            winapi::um::d3d11::D3D11_SDK_VERSION,
+            d3d_device.as_ptr_ptr(),
+            &mut featureLevelSupported,
+            ptr::null_mut(),
+        ).to_result()?;
 
-    // Create the DirectComposition device object.
-    let mut composition_device = Com::<IDCompositionDevice>::null();
-    winapi::um::dcomp::DCompositionCreateDevice(
-        &*pDXGIDevice,
-        &IDCompositionDevice::uuidof(),
-        composition_device.as_void_ptr_ptr(),
-    ).to_result()?;
+        // Create the DXGI device used to create bitmap surfaces.
+        let pDXGIDevice = d3d_device.query_interface::<winapi::shared::dxgi::IDXGIDevice>()?;
 
-    // Create the composition target object based on the
-    // specified application window.
-    let mut composition_target = Com::<IDCompositionTarget>::null();
-    composition_device.CreateTargetForHwnd(
-        hwnd,
-        TRUE,
-        composition_target.as_ptr_ptr(),
-    ).to_result()?;
+        // Create the DirectComposition device object.
+        let mut composition_device = Com::<IDCompositionDevice>::null();
+        winapi::um::dcomp::DCompositionCreateDevice(
+            &*pDXGIDevice,
+            &IDCompositionDevice::uuidof(),
+            composition_device.as_void_ptr_ptr(),
+        ).to_result()?;
 
-    Ok((d3d_device, composition_device, composition_target))
+        // Create the composition target object based on the
+        // specified application window.
+        let mut composition_target = Com::<IDCompositionTarget>::null();
+        composition_device.CreateTargetForHwnd(
+            hwnd,
+            TRUE,
+            composition_target.as_ptr_ptr(),
+        ).to_result()?;
+
+        Ok(DirectComposition { d3d_device, composition_device, composition_target })
+    }
 }
