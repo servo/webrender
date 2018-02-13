@@ -206,7 +206,7 @@ impl Document {
         scene_tx.send(SceneBuilderRequest::Transaction {
             scene: scene_request,
             resource_updates: txn.resource_updates,
-            document_ops: txn.postfix_ops,
+            frame_ops: txn.frame_ops,
             render: txn.generate_frame,
             document_id,
         }).unwrap();
@@ -457,8 +457,6 @@ impl RenderBackend {
             }
             DocumentMsg::UpdateEpoch(pipeline_id, epoch) => {
                 doc.pending.scene.update_epoch(pipeline_id, epoch);
-                // TODO: we need to not do this here with async scene building, but when
-                // we receive the built scene instead.
                 doc.frame_ctx.update_epoch(pipeline_id, epoch);
                 DocumentOps::nop()
             }
@@ -558,9 +556,9 @@ impl RenderBackend {
                     SceneBuilderMsg::Transaction {
                         document_id,
                         mut built_scene,
-                        document_ops,
-                        render,
                         resource_updates,
+                        frame_ops,
+                        render,
                     } => {
                         if let Some(doc) = self.documents.get_mut(&document_id) {
                             if let Some(mut built_scene) = built_scene.take() {
@@ -581,8 +579,8 @@ impl RenderBackend {
                         }
 
                         let txn = TransactionMsg {
-                            prefix_ops: Vec::new(),
-                            postfix_ops: document_ops,
+                            scene_ops: Vec::new(),
+                            frame_ops,
                             resource_updates,
                             generate_frame: render,
                             use_scene_builder_thread: false,
@@ -784,10 +782,7 @@ impl RenderBackend {
     ) {
         let mut op = DocumentOps::nop();
 
-        // TODO: This is a little awkward that we are applying prefix ops here, this
-        // will most likely change soon.
-        let prefix_ops = replace(&mut txn.prefix_ops, Vec::new());
-        for doc_msg in prefix_ops {
+        for doc_msg in replace(&mut txn.scene_ops, Vec::new()) {
             let _timer = profile_counters.total_time.timer();
             op.combine(
                 self.process_document(
@@ -817,7 +812,7 @@ impl RenderBackend {
             &mut profile_counters.resources,
         );
 
-        for doc_msg in txn.postfix_ops {
+        for doc_msg in txn.frame_ops {
             let _timer = profile_counters.total_time.timer();
             op.combine(
                 self.process_document(
@@ -1193,7 +1188,7 @@ pub enum SceneBuilderRequest {
         document_id: DocumentId,
         scene: Option<SceneRequest>,
         resource_updates: ResourceUpdates,
-        document_ops: Vec<DocumentMsg>,
+        frame_ops: Vec<DocumentMsg>,
         render: bool,
     },
     Stop
@@ -1205,7 +1200,7 @@ pub enum SceneBuilderMsg {
         document_id: DocumentId,
         built_scene: Option<BuiltScene>,
         resource_updates: ResourceUpdates,
-        document_ops: Vec<DocumentMsg>,
+        frame_ops: Vec<DocumentMsg>,
         render: bool,
     },
 }
@@ -1275,7 +1270,7 @@ impl SceneBuilder {
                 document_id,
                 scene,
                 resource_updates,
-                document_ops,
+                frame_ops,
                 render,
             } => {
                 let built_scene = scene.map(|request|{
@@ -1288,7 +1283,7 @@ impl SceneBuilder {
                     document_id,
                     built_scene,
                     resource_updates,
-                    document_ops,
+                    frame_ops,
                     render,
                 }).unwrap();
 

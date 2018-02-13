@@ -1126,7 +1126,7 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
             }
             ApiMsg::UpdateDocument(_, ref txn) => {
                 self.frame_writer.update_resources(&txn.resource_updates);
-                for doc_msg in &txn.prefix_ops {
+                for doc_msg in &txn.scene_ops {
                     match *doc_msg {
                         DocumentMsg::SetDisplayList {
                             ref epoch,
@@ -1154,7 +1154,7 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                         _ => {}
                     }
                 }
-                for doc_msg in &txn.postfix_ops {
+                for doc_msg in &txn.frame_ops {
                     match *doc_msg {
                         DocumentMsg::UpdateDynamicProperties(ref properties) => {
                             self.scene.properties.set_properties(properties);
