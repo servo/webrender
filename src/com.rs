@@ -38,11 +38,11 @@ impl<T> Com<T> where T: AsIUnknown {
         }
     }
 
-    pub unsafe fn as_ptr_ptr(&mut self) -> *mut *mut T {
+    pub fn as_ptr_ptr(&mut self) -> *mut *mut T {
         &mut self.ptr
     }
 
-    pub unsafe fn as_void_ptr_ptr(&mut self) -> *mut *mut c_void {
+    pub fn as_void_ptr_ptr(&mut self) -> *mut *mut c_void {
         self.as_ptr_ptr() as _
     }
 
@@ -73,6 +73,7 @@ impl<T> Drop for Com<T> where T: AsIUnknown {
     }
 }
 
+/// FIXME: https://github.com/retep998/winapi-rs/issues/571 or some other way to express this generically.
 pub trait AsIUnknown: Interface {
     fn as_iunknown(&self) -> &IUnknown;
 }
