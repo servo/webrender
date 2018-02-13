@@ -144,7 +144,7 @@ impl WrenchThing for BinaryFrameReader {
                             if txn.generate_frame {
                                 found_frame_marker = true;
                             }
-                            for doc_msg in &txn.prefix_ops {
+                            for doc_msg in &txn.scene_ops {
                                 match *doc_msg {
                                     DocumentMsg::SetDisplayList { .. } => {
                                         found_frame_marker = false;
