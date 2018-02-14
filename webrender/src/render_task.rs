@@ -2,14 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use api::{ImageDescriptor, ImageFormat, LayerRect, PremultipliedColorF};
+use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, ImageDescriptor, ImageFormat};
+use api::PremultipliedColorF;
 use box_shadow::BoxShadowCacheKey;
-use clip::{ClipSourcesWeakHandle};
+use clip::ClipWorkItem;
 use clip_scroll_tree::CoordinateSystemId;
 use device::TextureFilter;
 use gpu_cache::GpuCache;
-use gpu_types::{ClipScrollNodeIndex, PictureType};
+use gpu_types::PictureType;
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::ContentOrigin;
 use prim_store::{PrimitiveIndex, ImageCacheKey};
@@ -17,7 +17,6 @@ use prim_store::{PrimitiveIndex, ImageCacheKey};
 use print_tree::{PrintTreePrinter};
 use resource_cache::CacheItem;
 use std::{cmp, ops, usize, f32, i32};
-use std::rc::Rc;
 use texture_cache::{TextureCache, TextureCacheHandle};
 use tiling::{RenderPass, RenderTargetIndex};
 use tiling::{RenderTargetKind};
@@ -44,91 +43,6 @@ pub struct RenderTaskTree {
     pub tasks: Vec<RenderTask>,
     pub task_data: Vec<RenderTaskData>,
     next_saved: SavedTargetIndex,
-}
-
-pub type ClipChainNodeRef = Option<Rc<ClipChainNode>>;
-
-#[derive(Debug, Clone)]
-pub struct ClipChainNode {
-    pub work_item: ClipWorkItem,
-    pub local_clip_rect: LayerRect,
-    pub screen_outer_rect: DeviceIntRect,
-    pub screen_inner_rect: DeviceIntRect,
-    pub prev: ClipChainNodeRef,
-}
-
-#[derive(Debug, Clone)]
-pub struct ClipChain {
-    pub combined_outer_screen_rect: DeviceIntRect,
-    pub combined_inner_screen_rect: DeviceIntRect,
-    pub nodes: ClipChainNodeRef,
-}
-
-impl ClipChain {
-    pub fn empty(screen_rect: &DeviceIntRect) -> ClipChain {
-        ClipChain {
-            combined_inner_screen_rect: *screen_rect,
-            combined_outer_screen_rect: *screen_rect,
-            nodes: None,
-        }
-    }
-
-    pub fn new_with_added_node(
-        &self,
-        work_item: ClipWorkItem,
-        local_clip_rect: LayerRect,
-        screen_outer_rect: DeviceIntRect,
-        screen_inner_rect: DeviceIntRect,
-    ) -> ClipChain {
-        let new_node = ClipChainNode {
-            work_item,
-            local_clip_rect,
-            screen_outer_rect,
-            screen_inner_rect,
-            prev: None,
-        };
-
-        let mut new_chain = self.clone();
-        new_chain.add_node(new_node);
-        new_chain
-    }
-
-    pub fn add_node(&mut self, mut new_node: ClipChainNode) {
-        new_node.prev = self.nodes.clone();
-
-        // If this clip's outer rectangle is completely enclosed by the clip
-        // chain's inner rectangle, then the only clip that matters from this point
-        // on is this clip. We can disconnect this clip from the parent clip chain.
-        if self.combined_inner_screen_rect.contains_rect(&new_node.screen_outer_rect) {
-            new_node.prev = None;
-        }
-
-        self.combined_outer_screen_rect =
-            self.combined_outer_screen_rect.intersection(&new_node.screen_outer_rect)
-            .unwrap_or_else(DeviceIntRect::zero);
-        self.combined_inner_screen_rect =
-            self.combined_inner_screen_rect.intersection(&new_node.screen_inner_rect)
-            .unwrap_or_else(DeviceIntRect::zero);
-
-        self.nodes = Some(Rc::new(new_node));
-    }
-}
-
-pub struct ClipChainNodeIter {
-    pub current: ClipChainNodeRef,
-}
-
-impl Iterator for ClipChainNodeIter {
-    type Item = Rc<ClipChainNode>;
-
-    fn next(&mut self) -> ClipChainNodeRef {
-        let previous = self.current.clone();
-        self.current = match self.current {
-            Some(ref item) => item.prev.clone(),
-            None => return None,
-        };
-        previous
-    }
 }
 
 impl RenderTaskTree {
@@ -229,15 +143,6 @@ pub enum RenderTaskLocation {
     Fixed(DeviceIntRect),
     Dynamic(Option<(DeviceIntPoint, RenderTargetIndex)>, DeviceIntSize),
     TextureCache(SourceTexture, i32, DeviceIntRect),
-}
-
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct ClipWorkItem {
-    pub scroll_node_data_index: ClipScrollNodeIndex,
-    pub clip_sources: ClipSourcesWeakHandle,
-    pub coordinate_system_id: CoordinateSystemId,
 }
 
 #[derive(Debug)]

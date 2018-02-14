@@ -2,25 +2,24 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipAndScrollInfo, ClipMode};
-use api::{ColorF, DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch};
-use api::{ComplexClipRegion, ExtendMode, FontRenderMode};
+use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipId, ClipMode, ColorF, ComplexClipRegion};
+use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, FontRenderMode};
 use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
-use api::{LineStyle, PremultipliedColorF};
-use api::{WorldToLayerTransform, YuvColorSpace, YuvFormat};
+use api::{LineStyle, PremultipliedColorF, WorldToLayerTransform, YuvColorSpace, YuvFormat};
 use border::{BorderCornerInstance, BorderEdgeKind};
-use clip_scroll_tree::{CoordinateSystemId};
+use clip_scroll_tree::{ClipChainIndex, CoordinateSystemId};
 use clip_scroll_node::ClipScrollNode;
-use clip::{ClipSource, ClipSourcesHandle};
+use clip::{ClipChain, ClipChainNode, ClipChainNodeIter, ClipChainNodeRef, ClipSource};
+use clip::{ClipSourcesHandle, ClipWorkItem};
 use frame_builder::{FrameContext, FrameState, PictureContext, PictureState, PrimitiveRunContext};
 use glyph_rasterizer::{FontInstance, FontTransform};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
 use gpu_types::{ClipChainRectIndex};
 use picture::{PictureKind, PicturePrimitive};
-use render_task::{BlitSource, ClipChain, ClipChainNode, ClipChainNodeIter, ClipChainNodeRef, ClipWorkItem};
-use render_task::{RenderTask, RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId};
+use render_task::{BlitSource, RenderTask, RenderTaskCacheKey, RenderTaskCacheKeyKind};
+use render_task::RenderTaskId;
 use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
 use resource_cache::{CacheItem, ImageProperties, ImageRequest, ResourceCache};
 use segment::SegmentBuilder;
@@ -32,11 +31,23 @@ use util::recycle_vec;
 
 const MIN_BRUSH_SPLIT_AREA: f32 = 128.0 * 128.0;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ScrollNodeAndClipChain {
+    pub scroll_node_id: ClipId,
+    pub clip_chain_index: ClipChainIndex,
+}
+
+impl ScrollNodeAndClipChain {
+    pub fn new(scroll_node_id: ClipId, clip_chain_index: ClipChainIndex) -> ScrollNodeAndClipChain {
+        ScrollNodeAndClipChain { scroll_node_id, clip_chain_index }
+    }
+}
+
 #[derive(Debug)]
 pub struct PrimitiveRun {
     pub base_prim_index: PrimitiveIndex,
     pub count: usize,
-    pub clip_and_scroll: ClipAndScrollInfo,
+    pub clip_and_scroll: ScrollNodeAndClipChain,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -1602,12 +1613,9 @@ impl PrimitiveStore {
             }
         };
 
-        let mut combined_outer_rect = match prim_run_context.clip_chain {
-            Some(ref chain) => prim_screen_rect.intersection(&chain.combined_outer_screen_rect),
-            None => Some(prim_screen_rect),
-        };
-
-        let clip_chain = prim_run_context.clip_chain.map_or(None, |x| x.nodes.clone());
+        let mut combined_outer_rect =
+            prim_screen_rect.intersection(&prim_run_context.clip_chain.combined_outer_screen_rect);
+        let clip_chain = prim_run_context.clip_chain.nodes.clone();
 
         let prim_coordinate_system_id = prim_run_context.scroll_node.coordinate_system_id;
         let transform = &prim_run_context.scroll_node.world_content_transform;
@@ -1828,12 +1836,8 @@ impl PrimitiveStore {
                 frame_context.device_pixel_scale,
             );
 
-            let clip_bounds = match prim_run_context.clip_chain {
-                Some(ref node) => node.combined_outer_screen_rect,
-                None => frame_context.screen_rect,
-            };
             metadata.screen_rect = screen_bounding_rect
-                .intersection(&clip_bounds)
+                .intersection(&prim_run_context.clip_chain.combined_outer_screen_rect)
                 .map(|clipped| {
                     ScreenRect {
                         clipped,
@@ -1903,7 +1907,7 @@ impl PrimitiveStore {
                 .nodes[&run.clip_and_scroll.scroll_node_id];
             let clip_chain = frame_context
                 .clip_scroll_tree
-                .get_clip_chain(&run.clip_and_scroll.clip_node_id());
+                .get_clip_chain(run.clip_and_scroll.clip_chain_index);
 
             if pic_context.perform_culling {
                 if !scroll_node.invertible {
@@ -1911,15 +1915,11 @@ impl PrimitiveStore {
                     continue;
                 }
 
-                match clip_chain {
-                     Some(ref chain) if chain.combined_outer_screen_rect.is_empty() => {
-                        debug!("{:?} {:?}: clipped out", run.base_prim_index, pic_context.pipeline_id);
-                        continue;
-                    }
-                    _ => {},
+                if clip_chain.combined_outer_screen_rect.is_empty() {
+                    debug!("{:?} {:?}: clipped out", run.base_prim_index, pic_context.pipeline_id);
+                    continue;
                 }
             }
-
 
             let parent_relative_transform = pic_context
                 .inv_world_transform
@@ -2050,14 +2050,9 @@ fn convert_clip_chain_to_clip_vector(
 
 fn get_local_clip_rect_for_nodes(
     scroll_node: &ClipScrollNode,
-    clip_chain: Option<&ClipChain>,
+    clip_chain: &ClipChain,
 ) -> Option<LayerRect> {
-    let clip_chain_nodes = match clip_chain {
-        Some(ref clip_chain) => clip_chain.nodes.clone(),
-        None => return None,
-    };
-
-    let local_rect = ClipChainNodeIter { current: clip_chain_nodes }.fold(
+    let local_rect = ClipChainNodeIter { current: clip_chain.nodes.clone() }.fold(
         None,
         |combined_local_clip_rect: Option<LayerRect>, node| {
             if node.work_item.coordinate_system_id != scroll_node.coordinate_system_id {

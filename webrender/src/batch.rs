@@ -7,7 +7,7 @@ use api::{DeviceUintRect, DeviceUintPoint, DeviceUintSize, ExternalImageType, Fi
 use api::{DeviceIntPoint, LayerPoint, SubpixelDirection, YuvColorSpace, YuvFormat};
 use api::{LayerToWorldTransform, WorldPixel};
 use border::{BorderCornerInstance, BorderCornerSide, BorderEdgeKind};
-use clip::{ClipSource, ClipStore};
+use clip::{ClipSource, ClipStore, ClipWorkItem};
 use clip_scroll_tree::{CoordinateSystemId};
 use euclid::{TypedTransform3D, vec3};
 use glyph_rasterizer::GlyphFormat;
@@ -20,9 +20,7 @@ use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive
 use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{ImageSource, PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
 use prim_store::{BrushPrimitive, BrushKind, DeferredResolve, EdgeAaSegmentMask, PrimitiveRun};
-use render_task::{ClipWorkItem};
-use render_task::{RenderTaskAddress, RenderTaskId};
-use render_task::{RenderTaskKind, RenderTaskTree};
+use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKind, RenderTaskTree};
 use renderer::{BlendMode, ImageBufferKind};
 use renderer::BLOCKS_PER_UV_RECT;
 use resource_cache::{CacheItem, GlyphFetchResult, ImageRequest, ResourceCache};
