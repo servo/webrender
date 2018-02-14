@@ -5,3 +5,4 @@
 fuzzy(1,250000) == tile-repeat-prim-or-decompose.yaml tile-repeat-prim-or-decompose-ref.yaml
 == downscale.yaml downscale.png
 == segments.yaml segments.png
+== yuv.yaml yuv.png
