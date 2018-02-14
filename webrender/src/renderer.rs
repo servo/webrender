@@ -4254,6 +4254,7 @@ impl Renderer {
     fn allocate_target_texture<T: RenderTarget>(
         &mut self,
         list: &mut RenderTargetList<T>,
+        frame_id: FrameId,
     ) -> Option<ActiveTexture> {
         debug_assert_ne!(list.max_size, DeviceUintSize::zero());
         if list.targets.is_empty() {
@@ -4281,7 +4282,7 @@ impl Renderer {
         if index.is_none() {
             index = self.texture_resolver.render_target_pool
                 .iter()
-                .position(|texture| texture.get_format() == list.format);
+                .position(|texture| texture.get_format() == list.format && !texture.used_in_frame(frame_id));
         }
 
         let mut texture = match index {
@@ -4409,8 +4410,8 @@ impl Renderer {
                     (None, None)
                 }
                 RenderPassKind::OffScreen { ref mut alpha, ref mut color, ref mut texture_cache } => {
-                    let alpha_tex = self.allocate_target_texture(alpha);
-                    let color_tex = self.allocate_target_texture(color);
+                    let alpha_tex = self.allocate_target_texture(alpha, frame_id);
+                    let color_tex = self.allocate_target_texture(color, frame_id);
 
                     // If this frame has already been drawn, then any texture
                     // cache targets have already been updated and can be
