@@ -3,11 +3,11 @@
 extern crate gl;
 extern crate glutin;
 extern crate winapi;
+extern crate winit;
 extern crate wio;
 
 use com::{OutParam, ToResult};
 use glutin::GlContext;
-use glutin::os::windows::WindowExt;
 use std::ptr;
 use winapi::Interface;
 use winapi::shared::minwindef::{TRUE, FALSE};
@@ -16,13 +16,14 @@ use winapi::shared::windef::HWND;
 use winapi::um::d3d11::ID3D11Device;
 use winapi::um::dcomp::IDCompositionDevice;
 use winapi::um::dcomp::IDCompositionTarget;
+use winit::os::windows::WindowExt;
 use wio::com::ComPtr;
 
 mod com;
 
 fn main() {
-    let mut events_loop = glutin::EventsLoop::new();
-    let window = glutin::WindowBuilder::new()
+    let mut events_loop = winit::EventsLoop::new();
+    let window = winit::WindowBuilder::new()
         .with_title("Hello, world!")
         .with_dimensions(1024, 768);
     let context = glutin::ContextBuilder::new()
@@ -45,10 +46,10 @@ fn main() {
     while running {
         events_loop.poll_events(|event| {
             match event {
-                glutin::Event::WindowEvent{ event, .. } => match event {
-                    glutin::WindowEvent::Closed => running = false,
-                    glutin::WindowEvent::Resized(w, h) => gl_window.resize(w, h),
-                    glutin::WindowEvent::MouseInput { button: glutin::MouseButton::Left, .. } => {
+                winit::Event::WindowEvent{ event, .. } => match event {
+                    winit::WindowEvent::Closed => running = false,
+                    winit::WindowEvent::Resized(w, h) => gl_window.resize(w, h),
+                    winit::WindowEvent::MouseInput { button: winit::MouseButton::Left, .. } => {
                         unsafe {
                             composition.click().unwrap()
                         }
