@@ -2,33 +2,33 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayList, ClipAndScrollInfo};
-use api::{ClipId, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixelScale};
-use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentLayer, Epoch, ExtendMode};
-use api::{ExternalScrollId, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop, ImageKey};
-use api::{ImageRendering, ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect, LayerSize};
-use api::{LayerTransform, LayerVector2D, LayoutTransform, LayoutVector2D, LineOrientation};
-use api::{LineStyle, LocalClip, PipelineId, PremultipliedColorF, PropertyBinding, RepeatMode};
-use api::{ScrollSensitivity, Shadow, TexelRect, TileOffset, TransformStyle, WorldPoint};
-use api::{WorldToLayerTransform, YuvColorSpace, YuvData};
+use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayList, ClipId, ColorF};
+use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixelScale, DeviceUintPoint};
+use api::{DeviceUintRect, DeviceUintSize, DocumentLayer, Epoch, ExtendMode, ExternalScrollId};
+use api::{FontRenderMode, GlyphInstance, GlyphOptions, GradientStop, ImageKey, ImageRendering};
+use api::{ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect, LayerSize, LayerTransform};
+use api::{LayerVector2D, LayoutTransform, LayoutVector2D, LineOrientation, LineStyle, LocalClip};
+use api::{PipelineId, PremultipliedColorF, PropertyBinding, RepeatMode, ScrollSensitivity, Shadow};
+use api::{TexelRect, TileOffset, TransformStyle, WorldPoint, WorldToLayerTransform, YuvColorSpace};
+use api::YuvData;
 use app_units::Au;
 use border::ImageBorderSegment;
 use clip::{ClipRegion, ClipSource, ClipSources, ClipStore};
 use clip_scroll_node::{ClipScrollNode, NodeType};
-use clip_scroll_tree::ClipScrollTree;
+use clip_scroll_tree::{ClipScrollTree, ClipChainIndex};
 use euclid::{SideOffsets2D, vec2};
-use frame::FrameId;
+use frame::{FrameId, ClipIdToIndexMapper};
 use glyph_rasterizer::FontInstance;
 use gpu_cache::GpuCache;
 use gpu_types::{ClipChainRectIndex, ClipScrollNodeData, PictureType};
 use hit_test::{HitTester, HitTestingItem, HitTestingRun};
 use internal_types::{FastHashMap, FastHashSet, RenderPassIndex};
 use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
-use prim_store::{BrushKind, BrushPrimitive, ImageCacheKey, YuvImagePrimitiveCpu};
-use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, ImageSource, PrimitiveKind};
-use prim_store::{PrimitiveContainer, PrimitiveIndex};
-use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
-use prim_store::{BrushSegmentDescriptor, PrimitiveRun, TextRunPrimitiveCpu};
+use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor, GradientPrimitiveCpu};
+use prim_store::{ImageCacheKey, ImagePrimitiveCpu, ImageSource, PrimitiveContainer};
+use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveRun, PrimitiveStore};
+use prim_store::{RadialGradientPrimitiveCpu, ScrollNodeAndClipChain, TextRunPrimitiveCpu};
+use prim_store::YuvImagePrimitiveCpu;
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_task::{ClearMode, ClipChain, RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree};
 use resource_cache::{ImageRequest, ResourceCache};
@@ -90,10 +90,10 @@ pub struct FrameBuilder {
 
     // A stack of the current shadow primitives.
     // The sub-Vec stores a buffer of fast-path primitives to be appended on pop.
-    shadow_prim_stack: Vec<(PrimitiveIndex, Vec<(PrimitiveIndex, ClipAndScrollInfo)>)>,
+    shadow_prim_stack: Vec<(PrimitiveIndex, Vec<(PrimitiveIndex, ScrollNodeAndClipChain)>)>,
     // If we're doing any fast-path shadows, we buffer the "real"
     // content here, to be appended when the shadow stack is empty.
-    pending_shadow_contents: Vec<(PrimitiveIndex, ClipAndScrollInfo, LayerPrimitiveInfo)>,
+    pending_shadow_contents: Vec<(PrimitiveIndex, ScrollNodeAndClipChain, LayerPrimitiveInfo)>,
 
     scrollbar_prims: Vec<ScrollbarPrimitive>,
 
@@ -150,14 +150,14 @@ impl PictureState {
 }
 
 pub struct PrimitiveRunContext<'a> {
-    pub clip_chain: Option<&'a ClipChain>,
+    pub clip_chain: &'a ClipChain,
     pub scroll_node: &'a ClipScrollNode,
     pub clip_chain_rect_index: ClipChainRectIndex,
 }
 
 impl<'a> PrimitiveRunContext<'a> {
     pub fn new(
-        clip_chain: Option<&'a ClipChain>,
+        clip_chain: &'a ClipChain,
         scroll_node: &'a ClipScrollNode,
         clip_chain_rect_index: ClipChainRectIndex,
     ) -> Self {
@@ -252,7 +252,7 @@ impl FrameBuilder {
     pub fn add_primitive_to_hit_testing_list(
         &mut self,
         info: &LayerPrimitiveInfo,
-        clip_and_scroll: ClipAndScrollInfo
+        clip_and_scroll: ScrollNodeAndClipChain
     ) {
         let tag = match info.tag {
             Some(tag) => tag,
@@ -276,7 +276,7 @@ impl FrameBuilder {
     pub fn add_primitive_to_draw_list(
         &mut self,
         prim_index: PrimitiveIndex,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_and_scroll: ScrollNodeAndClipChain,
     ) {
         // Add primitive to the top-most Picture on the stack.
         // TODO(gw): Let's consider removing the extra indirection
@@ -294,7 +294,7 @@ impl FrameBuilder {
     /// to the draw list.
     pub fn add_primitive(
         &mut self,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayerPrimitiveInfo,
         clip_sources: Vec<ClipSource>,
         container: PrimitiveContainer,
@@ -313,7 +313,7 @@ impl FrameBuilder {
         transform_style: TransformStyle,
         is_backface_visible: bool,
         is_pipeline_root: bool,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_and_scroll: ScrollNodeAndClipChain,
         output_pipelines: &FastHashSet<PipelineId>,
     ) {
         // Construct the necessary set of Picture primitives
@@ -640,6 +640,7 @@ impl FrameBuilder {
         source_perspective: Option<LayoutTransform>,
         origin_in_parent_reference_frame: LayerVector2D,
         clip_scroll_tree: &mut ClipScrollTree,
+        id_to_index_mapper: &mut ClipIdToIndexMapper,
     ) {
         let node = ClipScrollNode::new_reference_frame(
             parent_id,
@@ -651,6 +652,12 @@ impl FrameBuilder {
         );
         clip_scroll_tree.add_node(node, reference_frame_id);
         self.reference_frame_stack.push(reference_frame_id);
+
+        if let Some(ref parent_id) = parent_id {
+            id_to_index_mapper.map_to_parent_clip_chain(reference_frame_id, parent_id);
+        } else {
+            id_to_index_mapper.add(reference_frame_id, ClipChainIndex(0));
+        }
     }
 
     pub fn current_reference_frame_id(&self) -> ClipId {
@@ -682,6 +689,7 @@ impl FrameBuilder {
         viewport_size: &LayerSize,
         content_size: &LayerSize,
         clip_scroll_tree: &mut ClipScrollTree,
+        id_to_index_mapper: &mut ClipIdToIndexMapper,
     ) -> ClipId {
         let viewport_rect = LayerRect::new(LayerPoint::zero(), *viewport_size);
         self.push_reference_frame(
@@ -693,6 +701,7 @@ impl FrameBuilder {
             None,
             LayerVector2D::zero(),
             clip_scroll_tree,
+            id_to_index_mapper,
         );
 
         let topmost_scrolling_node_id = ClipId::root_scroll_node(pipeline_id);
@@ -707,6 +716,7 @@ impl FrameBuilder {
             content_size,
             ScrollSensitivity::ScriptAndInputEvents,
             clip_scroll_tree,
+            id_to_index_mapper,
         );
 
         topmost_scrolling_node_id
@@ -716,18 +726,23 @@ impl FrameBuilder {
         &mut self,
         new_node_id: ClipId,
         parent_id: ClipId,
-        pipeline_id: PipelineId,
         clip_region: ClipRegion,
         clip_scroll_tree: &mut ClipScrollTree,
+        id_to_index_mapper: &mut ClipIdToIndexMapper,
     ) {
         let clip_rect = clip_region.main;
         let clip_sources = ClipSources::from(clip_region);
-        debug_assert!(clip_sources.has_clips());
 
+        debug_assert!(clip_sources.has_clips());
         let handle = self.clip_store.insert(clip_sources);
 
-        let node = ClipScrollNode::new_clip_node(pipeline_id, parent_id, handle, clip_rect);
-        clip_scroll_tree.add_node(node, new_node_id);
+        let clip_chain_index = clip_scroll_tree.add_clip_node(
+            new_node_id,
+            parent_id,
+            handle,
+            clip_rect
+        );
+        id_to_index_mapper.add(new_node_id, clip_chain_index);
     }
 
     pub fn add_scroll_frame(
@@ -740,6 +755,7 @@ impl FrameBuilder {
         content_size: &LayerSize,
         scroll_sensitivity: ScrollSensitivity,
         clip_scroll_tree: &mut ClipScrollTree,
+        id_to_index_mapper: &mut ClipIdToIndexMapper,
     ) {
         let node = ClipScrollNode::new_scroll_frame(
             pipeline_id,
@@ -751,6 +767,7 @@ impl FrameBuilder {
         );
 
         clip_scroll_tree.add_node(node, new_node_id);
+        id_to_index_mapper.map_to_parent_clip_chain(new_node_id, &parent_id);
     }
 
     pub fn pop_reference_frame(&mut self) {
@@ -760,7 +777,7 @@ impl FrameBuilder {
     pub fn push_shadow(
         &mut self,
         shadow: Shadow,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayerPrimitiveInfo,
     ) {
         let pipeline_id = self.sc_stack.last().unwrap().pipeline_id;
@@ -804,7 +821,7 @@ impl FrameBuilder {
 
     pub fn add_solid_rectangle(
         &mut self,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayerPrimitiveInfo,
         color: ColorF,
         segments: Option<BrushSegmentDescriptor>,
@@ -833,7 +850,7 @@ impl FrameBuilder {
 
     pub fn add_clear_rectangle(
         &mut self,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayerPrimitiveInfo,
     ) {
         let prim = BrushPrimitive::new(
@@ -851,7 +868,7 @@ impl FrameBuilder {
 
     pub fn add_scroll_bar(
         &mut self,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayerPrimitiveInfo,
         color: ColorF,
         scrollbar_info: ScrollbarInfo,
@@ -883,7 +900,7 @@ impl FrameBuilder {
 
     pub fn add_line(
         &mut self,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayerPrimitiveInfo,
         wavy_line_thickness: f32,
         orientation: LineOrientation,
@@ -970,7 +987,7 @@ impl FrameBuilder {
 
     pub fn add_border(
         &mut self,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayerPrimitiveInfo,
         border_item: &BorderDisplayItem,
         gradient_stops: ItemRange<GradientStop>,
@@ -1222,7 +1239,7 @@ impl FrameBuilder {
 
     pub fn add_gradient(
         &mut self,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayerPrimitiveInfo,
         start_point: LayerPoint,
         end_point: LayerPoint,
@@ -1292,7 +1309,7 @@ impl FrameBuilder {
 
     pub fn add_radial_gradient(
         &mut self,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayerPrimitiveInfo,
         start_center: LayerPoint,
         start_radius: f32,
@@ -1337,7 +1354,7 @@ impl FrameBuilder {
 
     pub fn add_text(
         &mut self,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_and_scroll: ScrollNodeAndClipChain,
         run_offset: LayoutVector2D,
         info: &LayerPrimitiveInfo,
         font: &FontInstance,
@@ -1493,7 +1510,7 @@ impl FrameBuilder {
 
     pub fn add_image(
         &mut self,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayerPrimitiveInfo,
         stretch_size: LayerSize,
         mut tile_spacing: LayerSize,
@@ -1573,7 +1590,7 @@ impl FrameBuilder {
 
     pub fn add_yuv_image(
         &mut self,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayerPrimitiveInfo,
         yuv_data: YuvData,
         color_space: YuvColorSpace,

@@ -6,7 +6,7 @@ use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::{ImageDescriptor, ImageFormat, LayerRect, PremultipliedColorF};
 use box_shadow::BoxShadowCacheKey;
 use clip::{ClipSourcesWeakHandle};
-use clip_scroll_tree::CoordinateSystemId;
+use clip_scroll_tree::{ClipChainIndex, CoordinateSystemId};
 use device::TextureFilter;
 use gpu_cache::GpuCache;
 use gpu_types::{ClipScrollNodeIndex, PictureType};
@@ -58,6 +58,7 @@ pub struct ClipChainNode {
 
 #[derive(Debug, Clone)]
 pub struct ClipChain {
+    pub parent_index: Option<ClipChainIndex>,
     pub combined_outer_screen_rect: DeviceIntRect,
     pub combined_inner_screen_rect: DeviceIntRect,
     pub nodes: ClipChainNodeRef,
@@ -66,6 +67,7 @@ pub struct ClipChain {
 impl ClipChain {
     pub fn empty(screen_rect: &DeviceIntRect) -> ClipChain {
         ClipChain {
+            parent_index: None,
             combined_inner_screen_rect: *screen_rect,
             combined_outer_screen_rect: *screen_rect,
             nodes: None,
@@ -79,6 +81,12 @@ impl ClipChain {
         screen_outer_rect: DeviceIntRect,
         screen_inner_rect: DeviceIntRect,
     ) -> ClipChain {
+        // If the new node's inner rectangle completely surrounds our outer rectangle,
+        // we can discard the new node entirely since it isn't going to affect anything.
+        if screen_inner_rect.contains_rect(&self.combined_outer_screen_rect) {
+            return self.clone();
+        }
+
         let new_node = ClipChainNode {
             work_item,
             local_clip_rect,

@@ -2,16 +2,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorF, LayerPoint, LayerRect, LayerSize, LayerVector2D};
-use api::{BorderRadius, BoxShadowClipMode, LayoutSize, LayerPrimitiveInfo};
-use api::{ClipMode, ClipAndScrollInfo, ComplexClipRegion, LocalClip};
-use api::{PipelineId};
+use api::{BorderRadius, BoxShadowClipMode, ClipMode, ColorF, ComplexClipRegion, LayerPoint};
+use api::{LayerPrimitiveInfo, LayerRect, LayerSize, LayerVector2D, LayoutSize, LocalClip};
+use api::PipelineId;
 use app_units::Au;
 use clip::ClipSource;
 use frame_builder::FrameBuilder;
 use gpu_types::BrushImageKind;
-use prim_store::{PrimitiveContainer};
-use prim_store::{BrushMaskKind, BrushKind, BrushPrimitive};
+use prim_store::{BrushKind, BrushMaskKind, BrushPrimitive, PrimitiveContainer};
+use prim_store::ScrollNodeAndClipChain;
 use picture::PicturePrimitive;
 use util::RectHelpers;
 use render_task::MAX_BLUR_STD_DEVIATION;
@@ -53,7 +52,7 @@ impl FrameBuilder {
     pub fn add_box_shadow(
         &mut self,
         pipeline_id: PipelineId,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_and_scroll: ScrollNodeAndClipChain,
         prim_info: &LayerPrimitiveInfo,
         box_offset: &LayerVector2D,
         color: &ColorF,
