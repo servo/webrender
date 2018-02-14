@@ -14,7 +14,7 @@ use gpu_cache::{GpuCache};
 use gpu_types::{BlurDirection, BlurInstance, BrushInstance, ClipChainRectIndex};
 use gpu_types::{ClipScrollNodeData, ClipScrollNodeIndex};
 use gpu_types::{PrimitiveInstance};
-use internal_types::{FastHashMap, SourceTexture};
+use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::{PictureKind};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveStore};
 use prim_store::{BrushMaskKind, BrushKind, DeferredResolve, EdgeAaSegmentMask};
@@ -137,6 +137,7 @@ pub struct RenderTargetList<T> {
     pub format: ImageFormat,
     pub max_size: DeviceUintSize,
     pub targets: Vec<T>,
+    pub saved_index: Option<SavedTargetIndex>,
 }
 
 impl<T: RenderTarget> RenderTargetList<T> {
@@ -149,6 +150,7 @@ impl<T: RenderTarget> RenderTargetList<T> {
             format,
             max_size: DeviceUintSize::new(MIN_TARGET_SIZE, MIN_TARGET_SIZE),
             targets: Vec::new(),
+            saved_index: None,
         }
     }
 
@@ -158,7 +160,11 @@ impl<T: RenderTarget> RenderTargetList<T> {
         gpu_cache: &mut GpuCache,
         render_tasks: &mut RenderTaskTree,
         deferred_resolves: &mut Vec<DeferredResolve>,
+        saved_index: Option<SavedTargetIndex>,
     ) {
+        debug_assert_eq!(None, self.saved_index);
+        self.saved_index = saved_index;
+
         for target in &mut self.targets {
             target.build(ctx, gpu_cache, render_tasks, deferred_resolves);
         }
@@ -794,6 +800,23 @@ impl RenderPass {
                 target.build(ctx, gpu_cache, render_tasks, deferred_resolves);
             }
             RenderPassKind::OffScreen { ref mut color, ref mut alpha, ref mut texture_cache } => {
+                let saved_color = if self.tasks.iter().any(|&task_id| {
+                    let t = &render_tasks[task_id];
+                    t.target_kind() == RenderTargetKind::Color && t.saved_index.is_some()
+                }) {
+                    Some(render_tasks.save_target())
+                } else {
+                    None
+                };
+                let saved_alpha = if self.tasks.iter().any(|&task_id| {
+                    let t = &render_tasks[task_id];
+                    t.target_kind() == RenderTargetKind::Alpha && t.saved_index.is_some()
+                }) {
+                    Some(render_tasks.save_target())
+                } else {
+                    None
+                };
+
                 // Step through each task, adding to batches as appropriate.
                 for &task_id in &self.tasks {
                     let (target_kind, texture_target) = {
@@ -802,7 +825,7 @@ impl RenderPass {
 
                         // Find a target to assign this task to, or create a new
                         // one if required.
-                        match task.location {
+                        let (target_kind, texture_target) = match task.location {
                             RenderTaskLocation::TextureCache(texture_id, layer, _) => {
                                 // TODO(gw): When we support caching color items, we will
                                 //           need to calculate that here to get the
@@ -822,7 +845,18 @@ impl RenderPass {
 
                                 (target_kind, None)
                             }
+                        };
+
+                        // Replace the pending saved index with a real one
+                        if let Some(index) = task.saved_index {
+                            assert_eq!(index, SavedTargetIndex::PENDING);
+                            task.saved_index = match target_kind {
+                                RenderTargetKind::Color => saved_color,
+                                RenderTargetKind::Alpha => saved_alpha,
+                            };
                         }
+
+                        (target_kind, texture_target)
                     };
 
                     match texture_target {
@@ -857,8 +891,8 @@ impl RenderPass {
                     }
                 }
 
-                color.build(ctx, gpu_cache, render_tasks, deferred_resolves);
-                alpha.build(ctx, gpu_cache, render_tasks, deferred_resolves);
+                color.build(ctx, gpu_cache, render_tasks, deferred_resolves, saved_color);
+                alpha.build(ctx, gpu_cache, render_tasks, deferred_resolves, saved_alpha);
             }
         }
     }

@@ -44,7 +44,11 @@ pub struct CacheTextureId(pub usize);
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct CachedRenderTargetIndex(pub usize);
+pub struct SavedTargetIndex(pub usize);
+
+impl SavedTargetIndex {
+    pub const PENDING: Self = SavedTargetIndex(!0);
+}
 
 // Represents the source for a texture.
 // These are passed from throughout the
@@ -61,10 +65,7 @@ pub enum SourceTexture {
     External(ExternalImageData),
     CacheA8,
     CacheRGBA8,
-    //TODO: Remove this once `RenderTaskCacheA8` is used.
-    #[allow(dead_code)]
-    RenderTaskCacheA8(CachedRenderTargetIndex),
-    RenderTaskCacheRGBA8(CachedRenderTargetIndex),
+    RenderTaskCache(SavedTargetIndex),
 }
 
 pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;

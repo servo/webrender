@@ -42,7 +42,7 @@ use gpu_types::PrimitiveInstance;
 use internal_types::{SourceTexture, ORTHO_FAR_PLANE, ORTHO_NEAR_PLANE, ResourceCacheError};
 use internal_types::{CacheTextureId, DebugOutput, FastHashMap, RenderedDocument, ResultMsg};
 use internal_types::{TextureUpdateList, TextureUpdateOp, TextureUpdateSource};
-use internal_types::{CachedRenderTargetIndex, RenderTargetInfo};
+use internal_types::{RenderTargetInfo, SavedTargetIndex};
 use picture::ContentOrigin;
 use prim_store::DeferredResolve;
 use profiler::{BackendProfileCounters, Profiler};
@@ -599,7 +599,6 @@ impl CpuProfile {
     }
 }
 
-struct RenderTargetPoolId(usize);
 
 struct SourceTextureResolver {
     /// A vector for fast resolves of texture cache IDs to
@@ -621,12 +620,13 @@ struct SourceTextureResolver {
     dummy_cache_texture: Texture,
 
     /// The current cache textures.
-    cache_rgba8_texture: Option<Texture>,
-    cache_a8_texture: Option<Texture>,
+    cache_rgba8_texture: Option<(Texture, Option<SavedTargetIndex>)>,
+    cache_a8_texture: Option<(Texture, Option<SavedTargetIndex>)>,
 
-    pass_rgba8_textures: FastHashMap<RenderPassIndex, RenderTargetPoolId>,
-    pass_a8_textures: FastHashMap<RenderPassIndex, RenderTargetPoolId>,
+    /// Saved cache textures that are to be re-used.
+    saved_textures: Vec<Texture>,
 
+    /// General pool of render targets.
     render_target_pool: Vec<Texture>,
 }
 
@@ -650,8 +650,7 @@ impl SourceTextureResolver {
             dummy_cache_texture,
             cache_a8_texture: None,
             cache_rgba8_texture: None,
-            pass_rgba8_textures: FastHashMap::default(),
-            pass_a8_textures: FastHashMap::default(),
+            saved_textures: Vec::default(),
             render_target_pool: Vec::new(),
         }
     }
@@ -671,34 +670,40 @@ impl SourceTextureResolver {
     fn begin_frame(&mut self) {
         assert!(self.cache_rgba8_texture.is_none());
         assert!(self.cache_a8_texture.is_none());
-
-        self.pass_rgba8_textures.clear();
-        self.pass_a8_textures.clear();
+        assert!(self.saved_textures.is_empty());
     }
 
-    fn end_frame(&mut self, pass_index: RenderPassIndex) {
+    fn end_frame(&mut self) {
         // return the cached targets to the pool
-        self.end_pass(None, None, pass_index)
+        self.end_pass(None, None);
+        // return the saved targets as well
+        self.render_target_pool.extend(self.saved_textures.drain(..));
     }
 
     fn end_pass(
         &mut self,
-        a8_texture: Option<Texture>,
-        rgba8_texture: Option<Texture>,
-        pass_index: RenderPassIndex,
+        a8_texture: Option<(Texture, Option<SavedTargetIndex>)>,
+        rgba8_texture: Option<(Texture, Option<SavedTargetIndex>)>,
     ) {
         // If we have cache textures from previous pass, return them to the pool.
         // Also assign the pool index of those cache textures to last pass's index because this is
         // the result of last pass.
-        if let Some(texture) = self.cache_rgba8_texture.take() {
-            self.pass_rgba8_textures.insert(
-                RenderPassIndex(pass_index.0 - 1), RenderTargetPoolId(self.render_target_pool.len()));
-            self.render_target_pool.push(texture);
+        // Note: the order here is important, needs to match the logic in `RenderPass::build()`.
+        if let Some((texture, saved_index)) = self.cache_rgba8_texture.take() {
+            if let Some(index) = saved_index {
+                assert_eq!(self.saved_textures.len(), index.0);
+                self.saved_textures.push(texture);
+            } else {
+                self.render_target_pool.push(texture);
+            }
         }
-        if let Some(texture) = self.cache_a8_texture.take() {
-            self.pass_a8_textures.insert(
-                RenderPassIndex(pass_index.0 - 1), RenderTargetPoolId(self.render_target_pool.len()));
-            self.render_target_pool.push(texture);
+        if let Some((texture, saved_index)) = self.cache_a8_texture.take() {
+            if let Some(index) = saved_index {
+                assert_eq!(self.saved_textures.len(), index.0);
+                self.saved_textures.push(texture);
+            } else {
+                self.render_target_pool.push(texture);
+            }
         }
 
         // We have another pass to process, make these textures available
@@ -712,15 +717,17 @@ impl SourceTextureResolver {
         match *texture_id {
             SourceTexture::Invalid => {}
             SourceTexture::CacheA8 => {
-                let texture = self.cache_a8_texture
-                    .as_ref()
-                    .unwrap_or(&self.dummy_cache_texture);
+                let texture = match self.cache_a8_texture {
+                    Some((ref texture, _)) => texture,
+                    None => &self.dummy_cache_texture,
+                };
                 device.bind_texture(sampler, texture);
             }
             SourceTexture::CacheRGBA8 => {
-                let texture = self.cache_rgba8_texture
-                    .as_ref()
-                    .unwrap_or(&self.dummy_cache_texture);
+                let texture = match self.cache_rgba8_texture {
+                    Some((ref texture, _)) => texture,
+                    None => &self.dummy_cache_texture,
+                };
                 device.bind_texture(sampler, texture);
             }
             SourceTexture::External(external_image) => {
@@ -733,17 +740,9 @@ impl SourceTextureResolver {
                 let texture = &self.cache_texture_map[index.0];
                 device.bind_texture(sampler, texture);
             }
-            SourceTexture::RenderTaskCacheRGBA8(pass_index) => {
-                let pool_index = self.pass_rgba8_textures
-                    .get(&pass_index)
-                    .expect("BUG: pass_index doesn't map to pool_index");
-                device.bind_texture(sampler, &self.render_target_pool[pool_index.0])
-            }
-            SourceTexture::RenderTaskCacheA8(pass_index) => {
-                let pool_index = self.pass_a8_textures
-                    .get(&pass_index)
-                    .expect("BUG: pass_index doesn't map to pool_index");
-                device.bind_texture(sampler, &self.render_target_pool[pool_index.0])
+            SourceTexture::RenderTaskCache(saved_index) => {
+                let texture = &self.saved_textures[saved_index.0];
+                device.bind_texture(sampler, texture)
             }
         }
     }
@@ -755,31 +754,26 @@ impl SourceTextureResolver {
         match *texture_id {
             SourceTexture::Invalid => None,
             SourceTexture::CacheA8 => Some(
-                self.cache_a8_texture
-                    .as_ref()
-                    .unwrap_or(&self.dummy_cache_texture),
+                match self.cache_a8_texture {
+                    Some((ref texture, _)) => texture,
+                    None => &self.dummy_cache_texture,
+                }
             ),
             SourceTexture::CacheRGBA8 => Some(
-                self.cache_rgba8_texture
-                    .as_ref()
-                    .unwrap_or(&self.dummy_cache_texture),
+                match self.cache_rgba8_texture {
+                    Some((ref texture, _)) => texture,
+                    None => &self.dummy_cache_texture,
+                }
             ),
             SourceTexture::External(..) => {
                 panic!("BUG: External textures cannot be resolved, they can only be bound.");
             }
-            SourceTexture::TextureCache(index) => Some(&self.cache_texture_map[index.0]),
-            SourceTexture::RenderTaskCacheRGBA8(pass_index) => {
-                let pool_index = self.pass_rgba8_textures
-                    .get(&pass_index)
-                    .expect("BUG: pass_index doesn't map to pool_index");
-                Some(&self.render_target_pool[pool_index.0])
-            },
-            SourceTexture::RenderTaskCacheA8(pass_index) => {
-                let pool_index = self.pass_a8_textures
-                    .get(&pass_index)
-                    .expect("BUG: pass_index doesn't map to pool_index");
-                Some(&self.render_target_pool[pool_index.0])
-            },
+            SourceTexture::TextureCache(index) => {
+                Some(&self.cache_texture_map[index.0])
+            }
+            SourceTexture::RenderTaskCache(saved_index) => {
+                Some(&self.saved_textures[saved_index.0])
+            }
         }
     }
 }
@@ -4243,7 +4237,7 @@ impl Renderer {
     fn allocate_target_texture<T: RenderTarget>(
         &mut self,
         list: &mut RenderTargetList<T>,
-    ) -> Option<Texture> {
+    ) -> Option<(Texture, Option<SavedTargetIndex>)> {
         debug_assert_ne!(list.max_size, DeviceUintSize::zero());
         if list.targets.is_empty() {
             return None
@@ -4296,7 +4290,7 @@ impl Renderer {
         );
 
         list.check_ready(&texture);
-        Some(texture)
+        Some((texture, list.saved_index.clone()))
     }
 
     fn bind_frame_data(&mut self, frame: &mut Frame) {
@@ -4425,7 +4419,7 @@ impl Renderer {
                         );
 
                         self.draw_alpha_target(
-                            (alpha_tex.as_ref().unwrap(), target_index as i32),
+                            (&alpha_tex.as_ref().unwrap().0, target_index as i32),
                             target,
                             alpha.max_size,
                             &projection,
@@ -4447,7 +4441,7 @@ impl Renderer {
                         );
 
                         self.draw_color_target(
-                            Some((color_tex.as_ref().unwrap(), target_index as i32)),
+                            Some((&color_tex.as_ref().unwrap().0, target_index as i32)),
                             target,
                             frame.inner_rect,
                             color.max_size,
@@ -4467,7 +4461,6 @@ impl Renderer {
             self.texture_resolver.end_pass(
                 cur_alpha,
                 cur_color,
-                RenderPassIndex(pass_index),
             );
 
             // After completing the first pass, make the A8 target available as an
@@ -4482,7 +4475,7 @@ impl Renderer {
             }
         }
 
-        self.texture_resolver.end_frame(RenderPassIndex(frame.passes.len()));
+        self.texture_resolver.end_frame();
         if let Some(framebuffer_size) = framebuffer_size {
             self.draw_render_target_debug(framebuffer_size);
             self.draw_texture_cache_debug(framebuffer_size);
