@@ -5,12 +5,12 @@ extern crate glutin;
 extern crate winapi;
 extern crate wio;
 
-use com::OutParam;
+use com::{OutParam, ToResult};
 use glutin::GlContext;
 use glutin::os::windows::WindowExt;
 use std::ptr;
 use winapi::Interface;
-use winapi::shared::minwindef::TRUE;
+use winapi::shared::minwindef::{TRUE, FALSE};
 use winapi::shared::winerror::HRESULT;
 use winapi::shared::windef::HWND;
 use winapi::um::d3d11::ID3D11Device;
@@ -33,21 +33,26 @@ fn main() {
         gl_window.make_current().unwrap();
     }
 
-    unsafe {
+    let composition = unsafe {
         gl::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _);
-        gl::ClearColor(0.0, 1.0, 0.0, 1.0);
+        gl::ClearColor(0., 0.5, 0., 1.0);
 
-        DirectComposition::initialize(gl_window.window().get_hwnd() as _).unwrap();
-    }
+        DirectComposition::initialize(gl_window.window().get_hwnd() as _).unwrap()
+    };
 
-//    let mut running = true;
-    let mut running = false;
+    let mut running = true;
+//    let mut running = false;
     while running {
         events_loop.poll_events(|event| {
             match event {
                 glutin::Event::WindowEvent{ event, .. } => match event {
                     glutin::WindowEvent::Closed => running = false,
                     glutin::WindowEvent::Resized(w, h) => gl_window.resize(w, h),
+                    glutin::WindowEvent::MouseInput { button: glutin::MouseButton::Left, .. } => {
+                        unsafe {
+                            composition.click().unwrap()
+                        }
+                    }
                     _ => ()
                 },
                 _ => ()
@@ -92,12 +97,12 @@ impl DirectComposition {
         ))?;
 
         // Create the DXGI device used to create bitmap surfaces.
-        let pDXGIDevice = d3d_device.cast::<winapi::shared::dxgi::IDXGIDevice>()?;
+        let dxgi_device = d3d_device.cast::<winapi::shared::dxgi::IDXGIDevice>()?;
 
         // Create the DirectComposition device object.
         let composition_device = ComPtr::<IDCompositionDevice>::from_void_out_param(|ptr_ptr| {
             winapi::um::dcomp::DCompositionCreateDevice(
-                &*pDXGIDevice,
+                &*dxgi_device,
                 &IDCompositionDevice::uuidof(),
                 ptr_ptr,
             )
@@ -110,5 +115,28 @@ impl DirectComposition {
         })?;
 
         Ok(DirectComposition { d3d_device, composition_device, composition_target })
+    }
+
+    unsafe fn click(&self) -> Result<(), HRESULT> {
+        let visual = || ComPtr::from_out_param(|ptr_ptr| {
+            self.composition_device.CreateVisual(ptr_ptr)
+        });
+        let root_visual = visual()?;
+        let visual1 = visual()?;
+        let visual2 = visual()?;
+
+        self.composition_target.SetRoot(&*root_visual).to_result()?;
+        root_visual.AddVisual(&*visual1, FALSE, ptr::null_mut()).to_result()?;
+        root_visual.AddVisual(&*visual2, FALSE, ptr::null_mut()).to_result()?;
+
+        let _surface = ComPtr::from_out_param(|ptr_ptr| self.composition_device.CreateSurface(
+            100,
+            100,
+            winapi::shared::dxgiformat::DXGI_FORMAT_B8G8R8A8_UNORM,
+            winapi::shared::dxgi1_2::DXGI_ALPHA_MODE_IGNORE,
+            ptr_ptr,
+        ))?;
+
+        Ok(())
     }
 }

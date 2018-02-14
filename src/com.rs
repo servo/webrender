@@ -8,6 +8,20 @@ use winapi::shared::winerror::SUCCEEDED;
 use winapi::um::unknwnbase::IUnknown;
 use wio::com::ComPtr;
 
+pub trait ToResult: Sized {
+    fn to_result(self) -> Result<(), Self>;
+}
+
+impl ToResult for HRESULT {
+    fn to_result(self) -> Result<(), Self> {
+        if SUCCEEDED(self) {
+            Ok(())
+        } else {
+            Err(self)
+        }
+    }
+}
+
 pub trait OutParam<T>: Sized {
     /// For use with APIs that "return" a new COM object through a `*mut *mut c_void` out-parameter.
     ///
