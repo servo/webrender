@@ -288,7 +288,7 @@ struct ClipArea {
 ClipArea fetch_clip_area(int index) {
     ClipArea area;
 
-    if (index == 0x7FFFFFFF) { //special sentinel task index
+    if (index == 0x7FFF) { //special sentinel task index
         area.common_data = RenderTaskCommonData(
             RectWithSize(vec2(0.0), vec2(0.0)),
             0.0

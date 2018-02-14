@@ -35,7 +35,7 @@ void brush_vs(
     VertexInfo vi,
     int prim_address,
     RectWithSize local_rect,
-    ivec2 user_data,
+    ivec3 user_data,
     PictureTask pic_task
 ) {
     vLocalPos = vi.local_pos;

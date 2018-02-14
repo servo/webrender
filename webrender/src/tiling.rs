@@ -590,8 +590,7 @@ impl RenderTarget for AlphaRenderTarget {
                                             z: 0,
                                             segment_index: 0,
                                             edge_flags: EdgeAaSegmentMask::empty(),
-                                            user_data0: 0,
-                                            user_data1: 0,
+                                            user_data: [0; 3],
                                         };
                                         let brush = &ctx.prim_store.cpu_brushes[sub_metadata.cpu_prim_index.0];
                                         let batch = match brush.kind {

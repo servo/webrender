@@ -19,7 +19,7 @@ void brush_vs(
     VertexInfo vi,
     int prim_address,
     RectWithSize local_rect,
-    ivec2 user_data,
+    ivec3 user_data,
     PictureTask pic_task
 ) {
     // If this is in WR_FEATURE_TEXTURE_RECT mode, the rect and size use
