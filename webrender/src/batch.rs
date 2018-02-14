@@ -74,6 +74,7 @@ pub enum BrushBatchKind {
     Solid,
     Line,
     Image(ImageBufferKind),
+    Blend,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -87,7 +88,6 @@ pub enum BatchKind {
     },
     HardwareComposite,
     SplitComposite,
-    Blend,
     Transformable(TransformedRectKind, TransformBatchKind),
     Brush(BrushBatchKind),
 }
@@ -1088,40 +1088,39 @@ impl AlphaBatchBuilder {
                                             }
                                             _ => {
                                                 let key = BatchKey::new(
-                                                    BatchKind::Blend,
+                                                    BatchKind::Brush(BrushBatchKind::Blend),
                                                     BlendMode::PremultipliedAlpha,
-                                                    BatchTextures::no_texture(),
+                                                    BatchTextures::render_target_cache(),
                                                 );
-                                                let src_task_address = render_tasks.get_task_address(source_id);
 
-                                                let (filter_mode, amount) = match filter {
-                                                    FilterOp::Blur(..) => (0, 0.0),
-                                                    FilterOp::Contrast(amount) => (1, amount),
-                                                    FilterOp::Grayscale(amount) => (2, amount),
-                                                    FilterOp::HueRotate(angle) => (3, angle),
-                                                    FilterOp::Invert(amount) => (4, amount),
-                                                    FilterOp::Saturate(amount) => (5, amount),
-                                                    FilterOp::Sepia(amount) => (6, amount),
-                                                    FilterOp::Brightness(amount) => (7, amount),
-                                                    FilterOp::Opacity(_, amount) => (8, amount),
-                                                    FilterOp::DropShadow(..) => unreachable!(),
-                                                    FilterOp::ColorMatrix(_) => (10, 0.0),
+                                                let filter_mode = match filter {
+                                                    FilterOp::Blur(..) => 0,
+                                                    FilterOp::Contrast(..) => 1,
+                                                    FilterOp::Grayscale(..) => 2,
+                                                    FilterOp::HueRotate(..) => 3,
+                                                    FilterOp::Invert(..) => 4,
+                                                    FilterOp::Saturate(..) => 5,
+                                                    FilterOp::Sepia(..) => 6,
+                                                    FilterOp::Brightness(..) => 7,
+                                                    FilterOp::Opacity(..) => 8,
+                                                    FilterOp::DropShadow(..) => 9,
+                                                    FilterOp::ColorMatrix(..) => 10,
                                                 };
 
-                                                let amount = (amount * 65535.0).round() as i32;
-                                                let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
-
-                                                let instance = CompositePrimitiveInstance::new(
-                                                    task_address,
-                                                    src_task_address,
-                                                    RenderTaskAddress(0),
-                                                    filter_mode,
-                                                    amount,
+                                                let instance = BrushInstance {
+                                                    picture_address: task_address,
+                                                    prim_address: prim_cache_address,
+                                                    clip_chain_rect_index,
+                                                    scroll_id,
+                                                    clip_task_address,
                                                     z,
-                                                    prim_cache_address.as_int(),
-                                                    0,
-                                                );
+                                                    segment_index: 0,
+                                                    edge_flags: EdgeAaSegmentMask::empty(),
+                                                    user_data0: cache_task_address.0 as i32,
+                                                    user_data1: filter_mode,
+                                                };
 
+                                                let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
                                                 batch.push(PrimitiveInstance::from(instance));
                                             }
                                         }

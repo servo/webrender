@@ -16,8 +16,8 @@ flat varying vec4 vUvBounds;
 #ifdef WR_VERTEX_SHADER
 
 void brush_vs(
+    VertexInfo vi,
     int prim_address,
-    vec2 local_pos,
     RectWithSize local_rect,
     ivec2 user_data,
     PictureTask pic_task
@@ -36,14 +36,14 @@ void brush_vs(
 
     vUv.z = res.layer;
 
-    vec2 f = (local_pos - local_rect.p0) / local_rect.size;
+    vec2 f = (vi.local_pos - local_rect.p0) / local_rect.size;
     vUv.xy = mix(uv0, uv1, f);
     vUv.xy /= texture_size;
 
     vUvBounds = vec4(uv0 + vec2(0.5), uv1 - vec2(0.5)) / texture_size.xyxy;
 
 #ifdef WR_FEATURE_ALPHA_PASS
-    vLocalPos = local_pos;
+    vLocalPos = vi.local_pos;
 #endif
 }
 #endif

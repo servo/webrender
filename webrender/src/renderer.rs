@@ -83,6 +83,10 @@ const GPU_CACHE_RESIZE_TEST: bool = false;
 /// Number of GPU blocks per UV rectangle provided for an image.
 pub const BLOCKS_PER_UV_RECT: usize = 2;
 
+const GPU_TAG_BRUSH_BLEND: GpuProfileTag = GpuProfileTag {
+    label: "B_Blend",
+    color: debug_colors::LIGHTBLUE,
+};
 const GPU_TAG_BRUSH_IMAGE: GpuProfileTag = GpuProfileTag {
     label: "B_Image",
     color: debug_colors::SPRINGGREEN,
@@ -126,10 +130,6 @@ const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag {
 const GPU_TAG_PRIM_YUV_IMAGE: GpuProfileTag = GpuProfileTag {
     label: "YuvImage",
     color: debug_colors::DARKGREEN,
-};
-const GPU_TAG_PRIM_BLEND: GpuProfileTag = GpuProfileTag {
-    label: "Blend",
-    color: debug_colors::LIGHTBLUE,
 };
 const GPU_TAG_PRIM_HW_COMPOSITE: GpuProfileTag = GpuProfileTag {
     label: "HwComposite",
@@ -230,13 +230,13 @@ impl BatchKind {
             BatchKind::Composite { .. } => "Composite",
             BatchKind::HardwareComposite => "HardwareComposite",
             BatchKind::SplitComposite => "SplitComposite",
-            BatchKind::Blend => "Blend",
             BatchKind::Brush(kind) => {
                 match kind {
                     BrushBatchKind::Picture(..) => "Brush (Picture)",
                     BrushBatchKind::Solid => "Brush (Solid)",
                     BrushBatchKind::Line => "Brush (Line)",
                     BrushBatchKind::Image(..) => "Brush (Image)",
+                    BrushBatchKind::Blend => "Blend",
                 }
             }
             BatchKind::Transformable(_, batch_kind) => batch_kind.debug_name(),
@@ -248,13 +248,13 @@ impl BatchKind {
             BatchKind::Composite { .. } => GPU_TAG_PRIM_COMPOSITE,
             BatchKind::HardwareComposite => GPU_TAG_PRIM_HW_COMPOSITE,
             BatchKind::SplitComposite => GPU_TAG_PRIM_SPLIT_COMPOSITE,
-            BatchKind::Blend => GPU_TAG_PRIM_BLEND,
             BatchKind::Brush(kind) => {
                 match kind {
                     BrushBatchKind::Picture(..) => GPU_TAG_BRUSH_PICTURE,
                     BrushBatchKind::Solid => GPU_TAG_BRUSH_SOLID,
                     BrushBatchKind::Line => GPU_TAG_BRUSH_LINE,
                     BrushBatchKind::Image(..) => GPU_TAG_BRUSH_IMAGE,
+                    BrushBatchKind::Blend => GPU_TAG_BRUSH_BLEND,
                 }
             }
             BatchKind::Transformable(_, batch_kind) => batch_kind.gpu_sampler_tag(),
@@ -1603,6 +1603,7 @@ pub struct Renderer {
     brush_solid: BrushShader,
     brush_line: BrushShader,
     brush_image: Vec<Option<BrushShader>>,
+    brush_blend: BrushShader,
 
     /// These are "cache clip shaders". These shaders are used to
     /// draw clip instances into the cached clip mask. The results
@@ -1628,7 +1629,6 @@ pub struct Renderer {
     ps_angle_gradient: PrimitiveShader,
     ps_radial_gradient: PrimitiveShader,
 
-    ps_blend: LazilyCompiledShader,
     ps_hw_composite: LazilyCompiledShader,
     ps_split_composite: LazilyCompiledShader,
     ps_composite: LazilyCompiledShader,
@@ -1821,6 +1821,13 @@ impl Renderer {
 
         let brush_line = try!{
             BrushShader::new("brush_line",
+                             &mut device,
+                             &[],
+                             options.precache_shaders)
+        };
+
+        let brush_blend = try!{
+            BrushShader::new("brush_blend",
                              &mut device,
                              &[],
                              options.precache_shaders)
@@ -2026,14 +2033,6 @@ impl Renderer {
                                     &[]
                                  },
                                  options.precache_shaders)
-        };
-
-        let ps_blend = try!{
-            LazilyCompiledShader::new(ShaderKind::Primitive,
-                                     "ps_blend",
-                                     &[],
-                                     &mut device,
-                                     options.precache_shaders)
         };
 
         let ps_composite = try!{
@@ -2290,6 +2289,7 @@ impl Renderer {
             brush_solid,
             brush_line,
             brush_image,
+            brush_blend,
             cs_clip_rectangle,
             cs_clip_border,
             cs_clip_image,
@@ -2302,7 +2302,6 @@ impl Renderer {
             ps_gradient,
             ps_angle_gradient,
             ps_radial_gradient,
-            ps_blend,
             ps_hw_composite,
             ps_split_composite,
             ps_composite,
@@ -3198,9 +3197,6 @@ impl Renderer {
                     &mut self.renderer_errors,
                 );
             }
-            BatchKind::Blend => {
-                self.ps_blend.bind(&mut self.device, projection, 0, &mut self.renderer_errors);
-            }
             BatchKind::Brush(brush_kind) => {
                 match brush_kind {
                     BrushBatchKind::Solid => {
@@ -3240,6 +3236,15 @@ impl Renderer {
                     }
                     BrushBatchKind::Line => {
                         self.brush_line.bind(
+                            &mut self.device,
+                            key.blend_mode,
+                            projection,
+                            0,
+                            &mut self.renderer_errors,
+                        );
+                    }
+                    BrushBatchKind::Blend => {
+                        self.brush_blend.bind(
                             &mut self.device,
                             key.blend_mode,
                             projection,
@@ -4738,6 +4743,7 @@ impl Renderer {
         self.brush_picture_a8.deinit(&mut self.device);
         self.brush_solid.deinit(&mut self.device);
         self.brush_line.deinit(&mut self.device);
+        self.brush_blend.deinit(&mut self.device);
         self.cs_clip_rectangle.deinit(&mut self.device);
         self.cs_clip_image.deinit(&mut self.device);
         self.cs_clip_border.deinit(&mut self.device);
@@ -4766,7 +4772,6 @@ impl Renderer {
         self.ps_gradient.deinit(&mut self.device);
         self.ps_angle_gradient.deinit(&mut self.device);
         self.ps_radial_gradient.deinit(&mut self.device);
-        self.ps_blend.deinit(&mut self.device);
         self.ps_hw_composite.deinit(&mut self.device);
         self.ps_split_composite.deinit(&mut self.device);
         self.ps_composite.deinit(&mut self.device);

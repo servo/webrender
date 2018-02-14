@@ -5,8 +5,8 @@
 #ifdef WR_VERTEX_SHADER
 
 void brush_vs(
+    VertexInfo vi,
     int prim_address,
-    vec2 local_pos,
     RectWithSize local_rect,
     ivec2 user_data,
     PictureTask pic_task
@@ -79,19 +79,20 @@ void main(void) {
     vec4[2] segment_data = fetch_from_resource_cache_2(segment_address);
     RectWithSize local_segment_rect = RectWithSize(segment_data[0].xy, segment_data[0].zw);
 
-    vec2 device_pos, local_pos;
+    VertexInfo vi;
 
     // Fetch the dynamic picture that we are drawing on.
     PictureTask pic_task = fetch_picture_task(brush.picture_address);
     ClipArea clip_area = fetch_clip_area(brush.clip_address);
 
     if (pic_task.pic_kind_and_raster_mode > 0.0) {
-        local_pos = local_segment_rect.p0 + aPosition.xy * local_segment_rect.size;
+        vec2 local_pos = local_segment_rect.p0 + aPosition.xy * local_segment_rect.size;
 
-        // Right now - pictures only support local positions. In the future, this
-        // will be expanded to support transform picture types (the common kind).
-        device_pos = pic_task.common_data.task_rect.p0 +
-                     uDevicePixelRatio * (local_pos - pic_task.content_origin);
+        vec2 device_pos = uDevicePixelRatio * local_pos;
+
+        vec2 final_pos = device_pos +
+                         pic_task.common_data.task_rect.p0 -
+                         uDevicePixelRatio * pic_task.content_origin;
 
 #ifdef WR_FEATURE_ALPHA_PASS
         write_clip(
@@ -100,10 +101,16 @@ void main(void) {
         );
 #endif
 
+        vi = VertexInfo(
+            local_pos,
+            device_pos,
+            1.0,
+            device_pos
+        );
+
         // Write the final position transformed by the orthographic device-pixel projection.
-        gl_Position = uTransform * vec4(device_pos, 0.0, 1.0);
+        gl_Position = uTransform * vec4(final_pos, 0.0, 1.0);
     } else {
-        VertexInfo vi;
         ClipScrollNode scroll_node = fetch_clip_scroll_node(brush.scroll_node_id);
 
         // Write the normal vertex information out.
@@ -139,8 +146,6 @@ void main(void) {
             );
         }
 
-        local_pos = vi.local_pos;
-
         // For brush instances in the alpha pass, always write
         // out clip information.
         // TODO(gw): It's possible that we might want alpha
@@ -157,8 +162,8 @@ void main(void) {
 
     // Run the specific brush VS code to write interpolators.
     brush_vs(
+        vi,
         brush.prim_address + VECS_PER_BRUSH_PRIM,
-        local_pos,
         brush_prim.local_rect,
         brush.user_data,
         pic_task
