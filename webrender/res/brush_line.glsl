@@ -32,14 +32,13 @@ Line fetch_line(int address) {
 }
 
 void brush_vs(
+    VertexInfo vi,
     int prim_address,
-    vec2 local_pos,
     RectWithSize local_rect,
     ivec2 user_data,
-    PictureTask pic_task,
-    vec4 world_pos
+    PictureTask pic_task
 ) {
-    vLocalPos = local_pos;
+    vLocalPos = vi.local_pos;
 
     // Note: `line` name is reserved in HLSL
     Line line_prim = fetch_line(prim_address);

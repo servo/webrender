@@ -36,12 +36,11 @@ Picture fetch_picture(int address) {
 }
 
 void brush_vs(
+    VertexInfo vi,
     int prim_address,
-    vec2 local_pos,
     RectWithSize local_rect,
     ivec2 user_data,
-    PictureTask pic_task,
-    vec4 world_pos
+    PictureTask pic_task
 ) {
     vImageKind = user_data.y;
 
@@ -81,21 +80,21 @@ void brush_vs(
 
     switch (vImageKind) {
         case BRUSH_PICTURE_SIMPLE: {
-            vec2 f = (local_pos - local_rect.p0) / local_rect.size;
+            vec2 f = (vi.local_pos - local_rect.p0) / local_rect.size;
             vUv.xy = mix(uv0, uv1, f);
             vUv.xy /= texture_size;
             break;
         }
         case BRUSH_PICTURE_NINEPATCH: {
             vec2 local_src_size = src_size / uDevicePixelRatio;
-            vUv.xy = (local_pos - local_rect.p0) / local_src_size;
+            vUv.xy = (vi.local_pos - local_rect.p0) / local_src_size;
             vParams.xy = vec2(0.5);
             vParams.zw = (local_rect.size / local_src_size - 0.5);
             break;
         }
         case BRUSH_PICTURE_MIRROR: {
             vec2 local_src_size = src_size / uDevicePixelRatio;
-            vUv.xy = (local_pos - local_rect.p0) / local_src_size;
+            vUv.xy = (vi.local_pos - local_rect.p0) / local_src_size;
             vParams.xy = 0.5 * local_rect.size / local_src_size;
             break;
         }
@@ -108,7 +107,7 @@ void brush_vs(
     vUvBounds_NoClamp = vec4(uv0, uv1) / texture_size.xyxy;
 
 #ifdef WR_FEATURE_ALPHA_PASS
-    vLocalPos = local_pos;
+    vLocalPos = vi.local_pos;
 #endif
 }
 #endif

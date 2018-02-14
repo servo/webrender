@@ -17,19 +17,18 @@ flat varying vec4 vColorOffset;
 #ifdef WR_VERTEX_SHADER
 
 void brush_vs(
+    VertexInfo vi,
     int prim_address,
-    vec2 local_pos,
     RectWithSize local_rect,
     ivec2 user_data,
-    PictureTask pic_task,
-    vec4 world_pos
+    PictureTask pic_task
 ) {
     PictureTask src_task = fetch_picture_task(user_data.x);
     vec2 texture_size = vec2(textureSize(sColor0, 0).xy);
-    vec2 uv = world_pos.xy +
-               (src_task.common_data.task_rect.p0 -
-                src_task.content_origin) * world_pos.w;
-    vW = world_pos.w;
+    vec2 uv = (vi.snapped_device_pos +
+               src_task.common_data.task_rect.p0 -
+               src_task.content_origin) * vi.w;
+    vW = vi.w;
     vUv = vec3(uv / texture_size, src_task.common_data.texture_layer_index);
 
     vOp = user_data.y;
@@ -90,6 +89,7 @@ void brush_vs(
             vColorOffset = data[3];
             break;
         }
+        default: break;
     }
 }
 #endif

@@ -38,12 +38,11 @@ RoundedRectPrimitive fetch_rounded_rect_primitive(int address) {
 }
 
 void brush_vs(
+    VertexInfo vi,
     int prim_address,
-    vec2 local_pos,
     RectWithSize local_rect,
     ivec2 user_data,
-    PictureTask pic_task,
-    vec4 world_pos
+    PictureTask pic_task
 ) {
     // Load the specific primitive.
     RoundedRectPrimitive prim = fetch_rounded_rect_primitive(prim_address);
@@ -63,7 +62,7 @@ void brush_vs(
     vClipCenter_Radius_BL = vec4(clip_rect.xw + vec2(prim.radius_bl.x, -prim.radius_bl.y), prim.radius_bl);
 
     vLocalRect = clip_rect;
-    vLocalPos = local_pos;
+    vLocalPos = vi.local_pos;
 }
 #endif
 
