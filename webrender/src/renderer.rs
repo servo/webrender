@@ -40,8 +40,9 @@ use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
 use gpu_types::PrimitiveInstance;
 use internal_types::{SourceTexture, ORTHO_FAR_PLANE, ORTHO_NEAR_PLANE, ResourceCacheError};
-use internal_types::{CacheTextureId, FastHashMap, RenderedDocument, ResultMsg, TextureUpdateOp};
-use internal_types::{DebugOutput, RenderPassIndex, RenderTargetInfo, TextureUpdateList, TextureUpdateSource};
+use internal_types::{CacheTextureId, DebugOutput, FastHashMap, RenderedDocument, ResultMsg};
+use internal_types::{TextureUpdateList, TextureUpdateOp, TextureUpdateSource};
+use internal_types::{CachedRenderTargetIndex, RenderTargetInfo};
 use picture::ContentOrigin;
 use prim_store::DeferredResolve;
 use profiler::{BackendProfileCounters, Profiler};
@@ -4239,14 +4240,13 @@ impl Renderer {
         }
     }
 
-    fn prepare_target_list<T: RenderTarget>(
+    fn allocate_target_texture<T: RenderTarget>(
         &mut self,
         list: &mut RenderTargetList<T>,
-    ) {
+    ) -> Option<Texture> {
         debug_assert_ne!(list.max_size, DeviceUintSize::zero());
-        debug_assert!(list.texture.is_none());
         if list.targets.is_empty() {
-            return;
+            return None
         }
 
         // First, try finding a perfect match
@@ -4255,7 +4255,7 @@ impl Renderer {
             num_layers: list.targets.len() as _,
             format: list.format,
         };
-        let perfect_pos = self.texture_resolver.render_target_pool
+        let mut index = self.texture_resolver.render_target_pool
             .iter()
             .position(|texture| {
                 //TODO: re-use a part of a larger target, if available
@@ -4266,20 +4266,20 @@ impl Renderer {
                 }
             });
 
-        let mut texture = match perfect_pos {
+        // Next, try at least finding a matching format
+        if index.is_none() {
+            index = self.texture_resolver.render_target_pool
+                .iter()
+                .position(|texture| texture.get_format() == list.format);
+        }
+
+        let mut texture = match index {
             Some(pos) => {
                 self.texture_resolver.render_target_pool.swap_remove(pos)
             }
             None => {
-                // secondly, try at least finding a matching format
-                let index = self.texture_resolver.render_target_pool
-                    .iter()
-                    .position(|texture| texture.get_format() == list.format);
-                match index {
-                    Some(pos) => self.texture_resolver.render_target_pool.swap_remove(pos),
-                    // finally, give up and create a new one
-                    None => self.device.create_texture(TextureTarget::Array, list.format),
-                }
+                // finally, give up and create a new one
+                self.device.create_texture(TextureTarget::Array, list.format)
             }
         };
 
@@ -4294,8 +4294,9 @@ impl Renderer {
             list.targets.len() as _,
             None,
         );
-        list.texture = Some(texture);
-        list.check_ready();
+
+        list.check_ready(&texture);
+        Some(texture)
     }
 
     fn bind_frame_data(&mut self, frame: &mut Frame) {
@@ -4393,8 +4394,8 @@ impl Renderer {
                     (None, None)
                 }
                 RenderPassKind::OffScreen { ref mut alpha, ref mut color, ref mut texture_cache } => {
-                    self.prepare_target_list(alpha);
-                    self.prepare_target_list(color);
+                    let alpha_tex = self.allocate_target_texture(alpha);
+                    let color_tex = self.allocate_target_texture(color);
 
                     // If this frame has already been drawn, then any texture
                     // cache targets have already been updated and can be
@@ -4424,7 +4425,7 @@ impl Renderer {
                         );
 
                         self.draw_alpha_target(
-                            (alpha.texture.as_ref().unwrap(), target_index as i32),
+                            (alpha_tex.as_ref().unwrap(), target_index as i32),
                             target,
                             alpha.max_size,
                             &projection,
@@ -4446,7 +4447,7 @@ impl Renderer {
                         );
 
                         self.draw_color_target(
-                            Some((color.texture.as_ref().unwrap(), target_index as i32)),
+                            Some((color_tex.as_ref().unwrap(), target_index as i32)),
                             target,
                             frame.inner_rect,
                             color.max_size,
@@ -4459,7 +4460,7 @@ impl Renderer {
                         );
                     }
 
-                    (alpha.texture.take(), color.texture.take())
+                    (alpha_tex, color_tex)
                 }
             };
 

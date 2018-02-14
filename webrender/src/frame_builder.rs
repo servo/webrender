@@ -22,7 +22,7 @@ use glyph_rasterizer::FontInstance;
 use gpu_cache::GpuCache;
 use gpu_types::{ClipChainRectIndex, ClipScrollNodeData, PictureType};
 use hit_test::{HitTester, HitTestingItem, HitTestingRun};
-use internal_types::{FastHashMap, FastHashSet, RenderPassIndex};
+use internal_types::{FastHashMap, FastHashSet};
 use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
 use prim_store::{BrushKind, BrushPrimitive, ImageCacheKey, YuvImagePrimitiveCpu};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, ImageSource, PrimitiveKind};
@@ -1807,7 +1807,7 @@ impl FrameBuilder {
         let use_dual_source_blending = self.config.dual_source_blending_is_enabled &&
                                        self.config.dual_source_blending_is_supported;
 
-        for (pass_index, pass) in passes.iter_mut().enumerate() {
+        for pass in &mut passes {
             let ctx = RenderTargetContext {
                 device_pixel_scale,
                 prim_store: &self.prim_store,
@@ -1823,7 +1823,6 @@ impl FrameBuilder {
                 &mut render_tasks,
                 &mut deferred_resolves,
                 &self.clip_store,
-                RenderPassIndex(pass_index),
             );
 
             if let RenderPassKind::OffScreen { ref texture_cache, .. } = pass.kind {

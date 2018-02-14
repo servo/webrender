@@ -14,7 +14,7 @@ use gpu_cache::{GpuCache};
 use gpu_types::{BlurDirection, BlurInstance, BrushInstance, ClipChainRectIndex};
 use gpu_types::{ClipScrollNodeData, ClipScrollNodeIndex};
 use gpu_types::{PrimitiveInstance};
-use internal_types::{FastHashMap, RenderPassIndex, SourceTexture};
+use internal_types::{FastHashMap, SourceTexture};
 use picture::{PictureKind};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveStore};
 use prim_store::{BrushMaskKind, BrushKind, DeferredResolve, EdgeAaSegmentMask};
@@ -137,8 +137,6 @@ pub struct RenderTargetList<T> {
     pub format: ImageFormat,
     pub max_size: DeviceUintSize,
     pub targets: Vec<T>,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    pub texture: Option<Texture>,
 }
 
 impl<T: RenderTarget> RenderTargetList<T> {
@@ -151,7 +149,6 @@ impl<T: RenderTarget> RenderTargetList<T> {
             format,
             max_size: DeviceUintSize::new(MIN_TARGET_SIZE, MIN_TARGET_SIZE),
             targets: Vec::new(),
-            texture: None,
         }
     }
 
@@ -214,20 +211,13 @@ impl<T: RenderTarget> RenderTargetList<T> {
         self.targets.iter().any(|target| target.needs_depth())
     }
 
-    pub fn check_ready(&self) {
-        match self.texture {
-            Some(ref t) => {
-                assert_eq!(t.get_dimensions(), self.max_size);
-                assert_eq!(t.get_format(), self.format);
-                assert_eq!(t.get_render_target_layer_count(), self.targets.len());
-                assert_eq!(t.get_layer_count() as usize, self.targets.len());
-                assert_eq!(t.has_depth(), t.get_rt_info().unwrap().has_depth);
-                assert_eq!(t.has_depth(), self.needs_depth());
-            }
-            None => {
-                assert!(self.targets.is_empty())
-            }
-        }
+    pub fn check_ready(&self, t: &Texture) {
+        assert_eq!(t.get_dimensions(), self.max_size);
+        assert_eq!(t.get_format(), self.format);
+        assert_eq!(t.get_render_target_layer_count(), self.targets.len());
+        assert_eq!(t.get_layer_count() as usize, self.targets.len());
+        assert_eq!(t.has_depth(), t.get_rt_info().unwrap().has_depth);
+        assert_eq!(t.has_depth(), self.needs_depth());
     }
 }
 
@@ -785,7 +775,6 @@ impl RenderPass {
         render_tasks: &mut RenderTaskTree,
         deferred_resolves: &mut Vec<DeferredResolve>,
         clip_store: &ClipStore,
-        pass_index: RenderPassIndex,
     ) {
         profile_scope!("RenderPass::build");
 
@@ -793,7 +782,6 @@ impl RenderPass {
             RenderPassKind::MainFramebuffer(ref mut target) => {
                 for &task_id in &self.tasks {
                     assert_eq!(render_tasks[task_id].target_kind(), RenderTargetKind::Color);
-                    render_tasks[task_id].pass_index = Some(pass_index);
                     target.add_task(
                         task_id,
                         ctx,
@@ -810,7 +798,6 @@ impl RenderPass {
                 for &task_id in &self.tasks {
                     let (target_kind, texture_target) = {
                         let task = &mut render_tasks[task_id];
-                        task.pass_index = Some(pass_index);
                         let target_kind = task.target_kind();
 
                         // Find a target to assign this task to, or create a new

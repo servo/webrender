@@ -10,7 +10,7 @@ use clip_scroll_tree::CoordinateSystemId;
 use device::TextureFilter;
 use gpu_cache::GpuCache;
 use gpu_types::{ClipScrollNodeIndex, PictureType};
-use internal_types::{FastHashMap, RenderPassIndex, SourceTexture};
+use internal_types::{CachedRenderTargetIndex, FastHashMap, SourceTexture};
 use picture::ContentOrigin;
 use prim_store::{PrimitiveIndex, ImageCacheKey};
 #[cfg(feature = "debugger")]
@@ -331,7 +331,7 @@ pub struct RenderTask {
     pub children: Vec<RenderTaskId>,
     pub kind: RenderTaskKind,
     pub clear_mode: ClearMode,
-    pub pass_index: Option<RenderPassIndex>,
+    pub cached_index: Option<CachedRenderTargetIndex>,
 }
 
 impl RenderTask {
@@ -356,7 +356,7 @@ impl RenderTask {
                 pic_type,
             }),
             clear_mode,
-            pass_index: None,
+            cached_index: None,
         }
     }
 
@@ -366,7 +366,7 @@ impl RenderTask {
             location: RenderTaskLocation::Dynamic(None, screen_rect.size),
             kind: RenderTaskKind::Readback(screen_rect),
             clear_mode: ClearMode::Transparent,
-            pass_index: None,
+            cached_index: None,
         }
     }
 
@@ -392,7 +392,7 @@ impl RenderTask {
                 source,
             }),
             clear_mode: ClearMode::Transparent,
-            pass_index: None,
+            cached_index: None,
         }
     }
 
@@ -410,7 +410,7 @@ impl RenderTask {
                 coordinate_system_id: prim_coordinate_system_id,
             }),
             clear_mode: ClearMode::One,
-            pass_index: None,
+            cached_index: None,
         }
     }
 
@@ -473,7 +473,7 @@ impl RenderTask {
                 scale_factor,
             }),
             clear_mode,
-            pass_index: None,
+            cached_index: None,
         };
 
         let blur_task_v_id = render_tasks.add(blur_task_v);
@@ -488,7 +488,7 @@ impl RenderTask {
                 scale_factor,
             }),
             clear_mode,
-            pass_index: None,
+            cached_index: None,
         };
 
         (blur_task_h, scale_factor)
@@ -507,7 +507,7 @@ impl RenderTask {
                 RenderTargetKind::Color => ClearMode::Transparent,
                 RenderTargetKind::Alpha => ClearMode::One,
             },
-            pass_index: None,
+            cached_index: None,
         }
     }
 
