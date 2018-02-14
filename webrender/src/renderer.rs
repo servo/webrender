@@ -599,6 +599,11 @@ impl CpuProfile {
     }
 }
 
+struct ActiveTexture {
+    texture: Texture,
+    saved_index: Option<SavedTargetIndex>,
+    is_shared: bool,
+}
 
 struct SourceTextureResolver {
     /// A vector for fast resolves of texture cache IDs to
@@ -620,8 +625,12 @@ struct SourceTextureResolver {
     dummy_cache_texture: Texture,
 
     /// The current cache textures.
-    cache_rgba8_texture: Option<(Texture, Option<SavedTargetIndex>)>,
-    cache_a8_texture: Option<(Texture, Option<SavedTargetIndex>)>,
+    cache_rgba8_texture: Option<ActiveTexture>,
+    cache_a8_texture: Option<ActiveTexture>,
+
+    /// An alpha texture shared between all passes.
+    //TODO: just use the standard texture saving logic instead.
+    shared_alpha_texture: Option<Texture>,
 
     /// Saved cache textures that are to be re-used.
     saved_textures: Vec<Texture>,
@@ -650,6 +659,7 @@ impl SourceTextureResolver {
             dummy_cache_texture,
             cache_a8_texture: None,
             cache_rgba8_texture: None,
+            shared_alpha_texture: None,
             saved_textures: Vec::default(),
             render_target_pool: Vec::new(),
         }
@@ -676,33 +686,40 @@ impl SourceTextureResolver {
     fn end_frame(&mut self) {
         // return the cached targets to the pool
         self.end_pass(None, None);
+        // return the global alpha texture
+        self.render_target_pool.extend(self.shared_alpha_texture.take());
         // return the saved targets as well
         self.render_target_pool.extend(self.saved_textures.drain(..));
     }
 
     fn end_pass(
         &mut self,
-        a8_texture: Option<(Texture, Option<SavedTargetIndex>)>,
-        rgba8_texture: Option<(Texture, Option<SavedTargetIndex>)>,
+        a8_texture: Option<ActiveTexture>,
+        rgba8_texture: Option<ActiveTexture>,
     ) {
         // If we have cache textures from previous pass, return them to the pool.
         // Also assign the pool index of those cache textures to last pass's index because this is
         // the result of last pass.
         // Note: the order here is important, needs to match the logic in `RenderPass::build()`.
-        if let Some((texture, saved_index)) = self.cache_rgba8_texture.take() {
-            if let Some(index) = saved_index {
+        if let Some(at) = self.cache_rgba8_texture.take() {
+            assert!(!at.is_shared);
+            if let Some(index) = at.saved_index {
                 assert_eq!(self.saved_textures.len(), index.0);
-                self.saved_textures.push(texture);
+                self.saved_textures.push(at.texture);
             } else {
-                self.render_target_pool.push(texture);
+                self.render_target_pool.push(at.texture);
             }
         }
-        if let Some((texture, saved_index)) = self.cache_a8_texture.take() {
-            if let Some(index) = saved_index {
+        if let Some(at) = self.cache_a8_texture.take() {
+            if let Some(index) = at.saved_index {
+                assert!(!at.is_shared);
                 assert_eq!(self.saved_textures.len(), index.0);
-                self.saved_textures.push(texture);
+                self.saved_textures.push(at.texture);
+            } else if at.is_shared {
+                assert!(self.shared_alpha_texture.is_none());
+                self.shared_alpha_texture = Some(at.texture);
             } else {
-                self.render_target_pool.push(texture);
+                self.render_target_pool.push(at.texture);
             }
         }
 
@@ -718,14 +735,14 @@ impl SourceTextureResolver {
             SourceTexture::Invalid => {}
             SourceTexture::CacheA8 => {
                 let texture = match self.cache_a8_texture {
-                    Some((ref texture, _)) => texture,
+                    Some(ref at) => &at.texture,
                     None => &self.dummy_cache_texture,
                 };
                 device.bind_texture(sampler, texture);
             }
             SourceTexture::CacheRGBA8 => {
                 let texture = match self.cache_rgba8_texture {
-                    Some((ref texture, _)) => texture,
+                    Some(ref at) => &at.texture,
                     None => &self.dummy_cache_texture,
                 };
                 device.bind_texture(sampler, texture);
@@ -755,13 +772,13 @@ impl SourceTextureResolver {
             SourceTexture::Invalid => None,
             SourceTexture::CacheA8 => Some(
                 match self.cache_a8_texture {
-                    Some((ref texture, _)) => texture,
+                    Some(ref at) => &at.texture,
                     None => &self.dummy_cache_texture,
                 }
             ),
             SourceTexture::CacheRGBA8 => Some(
                 match self.cache_rgba8_texture {
-                    Some((ref texture, _)) => texture,
+                    Some(ref at) => &at.texture,
                     None => &self.dummy_cache_texture,
                 }
             ),
@@ -4237,7 +4254,7 @@ impl Renderer {
     fn allocate_target_texture<T: RenderTarget>(
         &mut self,
         list: &mut RenderTargetList<T>,
-    ) -> Option<(Texture, Option<SavedTargetIndex>)> {
+    ) -> Option<ActiveTexture> {
         debug_assert_ne!(list.max_size, DeviceUintSize::zero());
         if list.targets.is_empty() {
             return None
@@ -4290,7 +4307,11 @@ impl Renderer {
         );
 
         list.check_ready(&texture);
-        Some((texture, list.saved_index.clone()))
+        Some(ActiveTexture {
+            texture,
+            saved_index: list.saved_index.clone(),
+            is_shared: list.is_shared,
+        })
     }
 
     fn bind_frame_data(&mut self, frame: &mut Frame) {
@@ -4419,7 +4440,7 @@ impl Renderer {
                         );
 
                         self.draw_alpha_target(
-                            (&alpha_tex.as_ref().unwrap().0, target_index as i32),
+                            (&alpha_tex.as_ref().unwrap().texture, target_index as i32),
                             target,
                             alpha.max_size,
                             &projection,
@@ -4441,7 +4462,7 @@ impl Renderer {
                         );
 
                         self.draw_color_target(
-                            Some((&color_tex.as_ref().unwrap().0, target_index as i32)),
+                            Some((&color_tex.as_ref().unwrap().texture, target_index as i32)),
                             target,
                             frame.inner_rect,
                             color.max_size,
@@ -4458,21 +4479,16 @@ impl Renderer {
                 }
             };
 
+            //Note: the `end_pass` will make sure this texture is not recycled this frame
+            if let Some(ActiveTexture { ref texture, is_shared: true, .. }) = cur_alpha {
+                self.device
+                    .bind_texture(TextureSampler::SharedCacheA8, texture);
+            }
+
             self.texture_resolver.end_pass(
                 cur_alpha,
                 cur_color,
             );
-
-            // After completing the first pass, make the A8 target available as an
-            // input to any subsequent passes.
-            if pass_index == 0 {
-                if let Some(shared_alpha_texture) =
-                    self.texture_resolver.resolve(&SourceTexture::CacheA8)
-                {
-                    self.device
-                        .bind_texture(TextureSampler::SharedCacheA8, shared_alpha_texture);
-                }
-            }
         }
 
         self.texture_resolver.end_frame();
