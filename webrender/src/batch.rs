@@ -75,17 +75,17 @@ pub enum BrushBatchKind {
     Line,
     Image(ImageBufferKind),
     Blend,
+    MixBlend {
+        task_id: RenderTaskId,
+        source_id: RenderTaskId,
+        backdrop_id: RenderTaskId,
+    },
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BatchKind {
-    Composite {
-        task_id: RenderTaskId,
-        source_id: RenderTaskId,
-        backdrop_id: RenderTaskId,
-    },
     HardwareComposite,
     SplitComposite,
     Transformable(TransformedRectKind, TransformBatchKind),
@@ -177,12 +177,6 @@ impl AlphaBatchList {
         let mut selected_batch_index = None;
 
         match (key.kind, key.blend_mode) {
-            (BatchKind::Composite { .. }, _) => {
-                // Composites always get added to their own batch.
-                // This is because the result of a composite can affect
-                // the input to the next composite. Perhaps we can
-                // optimize this in the future.
-            }
             (BatchKind::Transformable(_, TransformBatchKind::TextRun(_)), BlendMode::SubpixelWithBgColor) |
             (BatchKind::Transformable(_, TransformBatchKind::TextRun(_)), BlendMode::SubpixelVariableTextColor) => {
                 'outer_text: for (batch_index, batch) in self.batches.iter().enumerate().rev().take(10) {
@@ -1138,11 +1132,13 @@ impl AlphaBatchBuilder {
                                         let backdrop_id = secondary_render_task_id.expect("no backdrop!?");
 
                                         let key = BatchKey::new(
-                                            BatchKind::Composite {
-                                                task_id,
-                                                source_id,
-                                                backdrop_id,
-                                            },
+                                            BatchKind::Brush(
+                                                BrushBatchKind::MixBlend {
+                                                    task_id,
+                                                    source_id,
+                                                    backdrop_id,
+                                                },
+                                            ),
                                             BlendMode::PremultipliedAlpha,
                                             BatchTextures::no_texture(),
                                         );
@@ -1150,16 +1146,21 @@ impl AlphaBatchBuilder {
                                         let backdrop_task_address = render_tasks.get_task_address(backdrop_id);
                                         let source_task_address = render_tasks.get_task_address(source_id);
 
-                                        let instance = CompositePrimitiveInstance::new(
-                                            task_address,
-                                            source_task_address,
-                                            backdrop_task_address,
-                                            mode as u32 as i32,
-                                            0,
+                                        let instance = BrushInstance {
+                                            picture_address: task_address,
+                                            prim_address: prim_cache_address,
+                                            clip_chain_rect_index,
+                                            scroll_id,
+                                            clip_task_address,
                                             z,
-                                            0,
-                                            0,
-                                        );
+                                            segment_index: 0,
+                                            edge_flags: EdgeAaSegmentMask::empty(),
+                                            user_data: [
+                                                mode as u32 as i32,
+                                                backdrop_task_address.0 as i32,
+                                                source_task_address.0 as i32,
+                                            ],
+                                        };
 
                                         batch.push(PrimitiveInstance::from(instance));
                                     }
