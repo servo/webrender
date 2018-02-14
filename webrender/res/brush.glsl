@@ -8,7 +8,7 @@ void brush_vs(
     VertexInfo vi,
     int prim_address,
     RectWithSize local_rect,
-    ivec2 user_data,
+    ivec3 user_data,
     PictureTask pic_task
 );
 
@@ -24,21 +24,21 @@ struct BrushInstance {
     int z;
     int segment_index;
     int edge_mask;
-    ivec2 user_data;
+    ivec3 user_data;
 };
 
 BrushInstance load_brush() {
     BrushInstance bi;
 
-    bi.picture_address = aData0.x;
+    bi.picture_address = aData0.x & 0xffff;
+    bi.clip_address = aData0.x >> 16;
     bi.prim_address = aData0.y;
-    bi.clip_chain_rect_index = aData0.z / 65536;
-    bi.scroll_node_id = aData0.z % 65536;
-    bi.clip_address = aData0.w;
-    bi.z = aData1.x;
-    bi.segment_index = aData1.y & 0xffff;
-    bi.edge_mask = aData1.y >> 16;
-    bi.user_data = aData1.zw;
+    bi.clip_chain_rect_index = aData0.z >> 16;
+    bi.scroll_node_id = aData0.z & 0xffff;
+    bi.z = aData0.w;
+    bi.segment_index = aData1.x & 0xffff;
+    bi.edge_mask = aData1.x >> 16;
+    bi.user_data = aData1.yzw;
 
     return bi;
 }

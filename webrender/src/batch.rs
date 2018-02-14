@@ -32,7 +32,7 @@ use util::{MatrixHelpers, TransformedRectKind};
 
 // Special sentinel value recognized by the shader. It is considered to be
 // a dummy task that doesn't mask out anything.
-const OPAQUE_TASK_ADDRESS: RenderTaskAddress = RenderTaskAddress(i32::MAX as u32);
+const OPAQUE_TASK_ADDRESS: RenderTaskAddress = RenderTaskAddress(0x7fff);
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -932,7 +932,7 @@ impl AlphaBatchBuilder {
                                     transform_kind,
                                     z,
                                     render_tasks,
-                                    [cache_item.uv_rect_handle.as_int(gpu_cache), image_kind as i32],
+                                    [cache_item.uv_rect_handle.as_int(gpu_cache), image_kind as i32, 0],
                                 );
                             }
                         }
@@ -959,8 +959,11 @@ impl AlphaBatchBuilder {
                                     z,
                                     segment_index: 0,
                                     edge_flags: EdgeAaSegmentMask::empty(),
-                                    user_data0: cache_task_address.0 as i32,
-                                    user_data1: BrushImageKind::Simple as i32,
+                                    user_data: [
+                                        cache_task_address.0 as i32,
+                                        BrushImageKind::Simple as i32,
+                                        0,
+                                    ],
                                 };
                                 batch.push(PrimitiveInstance::from(instance));
                             }
@@ -1042,8 +1045,11 @@ impl AlphaBatchBuilder {
                                                     z,
                                                     segment_index: 0,
                                                     edge_flags: EdgeAaSegmentMask::empty(),
-                                                    user_data0: cache_task_address.0 as i32,
-                                                    user_data1: BrushImageKind::Simple as i32,
+                                                    user_data: [
+                                                        cache_task_address.0 as i32,
+                                                        BrushImageKind::Simple as i32,
+                                                        0,
+                                                    ],
                                                 };
 
                                                 {
@@ -1116,8 +1122,11 @@ impl AlphaBatchBuilder {
                                                     z,
                                                     segment_index: 0,
                                                     edge_flags: EdgeAaSegmentMask::empty(),
-                                                    user_data0: cache_task_address.0 as i32,
-                                                    user_data1: filter_mode,
+                                                    user_data: [
+                                                        cache_task_address.0 as i32,
+                                                        filter_mode,
+                                                        0,
+                                                    ],
                                                 };
 
                                                 let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
@@ -1303,7 +1312,7 @@ impl AlphaBatchBuilder {
         transform_kind: TransformedRectKind,
         z: i32,
         render_tasks: &RenderTaskTree,
-        user_data: [i32; 2],
+        user_data: [i32; 3],
     ) {
         let base_instance = BrushInstance {
             picture_address: task_address,
@@ -1314,8 +1323,7 @@ impl AlphaBatchBuilder {
             z,
             segment_index: 0,
             edge_flags: EdgeAaSegmentMask::all(),
-            user_data0: user_data[0],
-            user_data1: user_data[1],
+            user_data,
         };
 
         match brush.segment_desc {
@@ -1385,13 +1393,13 @@ impl BrushPrimitive {
         resource_cache: &ResourceCache,
         gpu_cache: &mut GpuCache,
         deferred_resolves: &mut Vec<DeferredResolve>,
-    ) -> Option<(BrushBatchKind, BatchTextures, [i32; 2])> {
+    ) -> Option<(BrushBatchKind, BatchTextures, [i32; 3])> {
         match self.kind {
             BrushKind::Line { .. } => {
                 Some((
                     BrushBatchKind::Line,
                     BatchTextures::no_texture(),
-                    [0; 2],
+                    [0; 3],
                 ))
             }
             BrushKind::Image { request, .. } => {
@@ -1410,7 +1418,7 @@ impl BrushPrimitive {
                     Some((
                         BrushBatchKind::Image(get_buffer_kind(cache_item.texture_id)),
                         textures,
-                        [cache_item.uv_rect_handle.as_int(gpu_cache), 0],
+                        [cache_item.uv_rect_handle.as_int(gpu_cache), 0, 0],
                     ))
                 }
             }
@@ -1421,14 +1429,14 @@ impl BrushPrimitive {
                 Some((
                     BrushBatchKind::Solid,
                     BatchTextures::no_texture(),
-                    [0; 2],
+                    [0; 3],
                 ))
             }
             BrushKind::Clear => {
                 Some((
                     BrushBatchKind::Solid,
                     BatchTextures::no_texture(),
-                    [0; 2],
+                    [0; 3],
                 ))
             }
             BrushKind::Mask { .. } => {
