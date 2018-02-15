@@ -45,7 +45,7 @@ use internal_types::{TextureUpdateList, TextureUpdateOp, TextureUpdateSource};
 use internal_types::{RenderTargetInfo, SavedTargetIndex};
 use picture::ContentOrigin;
 use prim_store::DeferredResolve;
-use profiler::{BackendProfileCounters, Profiler};
+use profiler::{BackendProfileCounters, FrameProfileCounters, Profiler};
 use profiler::{GpuProfileTag, RendererProfileCounters, RendererProfileTimers};
 use query::{GpuProfiler, GpuTimer};
 use rayon::Configuration as ThreadPoolConfig;
@@ -2892,6 +2892,7 @@ impl Renderer {
             );
 
             for &mut (_, RenderedDocument { ref mut frame, .. }) in &mut active_documents {
+                frame.profile_counters.reset_targets();
                 self.prepare_gpu_cache(frame);
                 assert!(frame.gpu_cache_frame_id <= self.gpu_cache_frame_id);
 
@@ -4254,12 +4255,15 @@ impl Renderer {
     fn allocate_target_texture<T: RenderTarget>(
         &mut self,
         list: &mut RenderTargetList<T>,
+        counters: &mut FrameProfileCounters,
         frame_id: FrameId,
     ) -> Option<ActiveTexture> {
         debug_assert_ne!(list.max_size, DeviceUintSize::zero());
         if list.targets.is_empty() {
             return None
         }
+
+        counters.targets_used.inc();
 
         // First, try finding a perfect match
         let selector = TargetSelector {
@@ -4280,6 +4284,7 @@ impl Renderer {
 
         // Next, try at least finding a matching format
         if index.is_none() {
+            counters.targets_changed.inc();
             index = self.texture_resolver.render_target_pool
                 .iter()
                 .position(|texture| texture.get_format() == list.format && !texture.used_in_frame(frame_id));
@@ -4290,6 +4295,7 @@ impl Renderer {
                 self.texture_resolver.render_target_pool.swap_remove(pos)
             }
             None => {
+                counters.targets_created.inc();
                 // finally, give up and create a new one
                 self.device.create_texture(TextureTarget::Array, list.format)
             }
@@ -4410,8 +4416,8 @@ impl Renderer {
                     (None, None)
                 }
                 RenderPassKind::OffScreen { ref mut alpha, ref mut color, ref mut texture_cache } => {
-                    let alpha_tex = self.allocate_target_texture(alpha, frame_id);
-                    let color_tex = self.allocate_target_texture(color, frame_id);
+                    let alpha_tex = self.allocate_target_texture(alpha, &mut frame.profile_counters, frame_id);
+                    let color_tex = self.allocate_target_texture(color, &mut frame.profile_counters, frame_id);
 
                     // If this frame has already been drawn, then any texture
                     // cache targets have already been updated and can be
