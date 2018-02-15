@@ -661,13 +661,15 @@ VertexInfo write_transform_vertex(RectWithSize local_segment_rect,
     vec2 device_pos = world_pos.xy / world_pos.w * uDevicePixelRatio;
     vec2 task_offset = task.common_data.task_rect.p0 - task.content_origin;
 
+#ifdef FORCE_NO_PERSPECTIVE
+    world_pos.w = 1.0;
+#endif
+
     // We want the world space coords to be perspective divided by W.
     // We also want that to apply to any interpolators. However, we
     // want a constant Z across the primitive, since we're using it
     // for draw ordering - so scale by the W coord to ensure this.
-    vec4 final_pos = vec4((device_pos + task_offset) * world_pos.w,
-                          z * world_pos.w,
-                          world_pos.w);
+    vec4 final_pos = vec4(device_pos + task_offset, z, 1.0) * world_pos.w;
     gl_Position = uTransform * final_pos;
 
     vLocalBounds = mix(
