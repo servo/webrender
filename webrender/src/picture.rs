@@ -601,7 +601,7 @@ impl PicturePrimitive {
                 match composite_mode {
                     Some(PictureCompositeMode::Filter(FilterOp::ColorMatrix(m))) => {
                         for i in 0..5 {
-                            request.push([m[i], m[i+5], m[i+10], m[i+15]]);
+                            request.push([m[i*4], m[i*4+1], m[i*4+2], m[i*4+3]]);
                         }
                     }
                     Some(PictureCompositeMode::Filter(filter)) => {
