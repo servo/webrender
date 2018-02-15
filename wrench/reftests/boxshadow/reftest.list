@@ -4,6 +4,7 @@
 == inset-spread-large.yaml inset-spread-large-ref.yaml
 == inset-alpha.yaml inset-alpha.png
 == boxshadow-spread-only.yaml boxshadow-spread-only-ref.png
+== box-shadow-clip.yaml box-shadow-clip-ref.yaml
 fuzzy(1,396) == inset-large-offset.yaml inset-large-offset-ref.png
 == inset-border-radius.yaml inset-border-radius.png
 == inset-offset.yaml inset-offset.png
@@ -19,7 +20,7 @@ fuzzy(1,6388) == rounding.yaml rounding-ref.yaml
 == invalid.yaml invalid-ref.yaml
 == inset-empty.yaml blank.yaml
 == inset-subpx.yaml inset-subpx.png
-== inset-downscale.yaml inset-downscale.png
+fuzzy(1,4) == inset-downscale.yaml inset-downscale.png
 == box-shadow-cache.yaml box-shadow-cache.png
-== overlap1.yaml overlap1.png
+fuzzy(1,685) == overlap1.yaml overlap1.png
 == overlap2.yaml overlap2.png
