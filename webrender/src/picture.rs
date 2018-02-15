@@ -368,7 +368,7 @@ impl PicturePrimitive {
                     }
                     Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, blur_radius, color))) => {
                         let rect = (prim_local_rect.translate(&-offset) * content_scale).round().to_i32();
-                        let picture_task = RenderTask::new_picture(
+                        let mut picture_task = RenderTask::new_picture(
                             RenderTaskLocation::Dynamic(None, rect.size),
                             prim_index,
                             RenderTargetKind::Color,
@@ -378,6 +378,7 @@ impl PicturePrimitive {
                             pic_state_for_children.tasks,
                             PictureType::Image,
                         );
+                        picture_task.mark_for_saving();
 
                         let blur_std_deviation = blur_radius * frame_context.device_pixel_scale.0;
                         let picture_task_id = frame_state.render_tasks.add(picture_task);

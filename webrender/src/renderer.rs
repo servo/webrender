@@ -40,11 +40,12 @@ use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
 use gpu_types::PrimitiveInstance;
 use internal_types::{SourceTexture, ORTHO_FAR_PLANE, ORTHO_NEAR_PLANE, ResourceCacheError};
-use internal_types::{CacheTextureId, FastHashMap, RenderedDocument, ResultMsg, TextureUpdateOp};
-use internal_types::{DebugOutput, RenderPassIndex, RenderTargetInfo, TextureUpdateList, TextureUpdateSource};
+use internal_types::{CacheTextureId, DebugOutput, FastHashMap, RenderedDocument, ResultMsg};
+use internal_types::{TextureUpdateList, TextureUpdateOp, TextureUpdateSource};
+use internal_types::{RenderTargetInfo, SavedTargetIndex};
 use picture::ContentOrigin;
 use prim_store::DeferredResolve;
-use profiler::{BackendProfileCounters, Profiler};
+use profiler::{BackendProfileCounters, FrameProfileCounters, Profiler};
 use profiler::{GpuProfileTag, RendererProfileCounters, RendererProfileTimers};
 use query::{GpuProfiler, GpuTimer};
 use rayon::Configuration as ThreadPoolConfig;
@@ -598,7 +599,11 @@ impl CpuProfile {
     }
 }
 
-struct RenderTargetPoolId(usize);
+struct ActiveTexture {
+    texture: Texture,
+    saved_index: Option<SavedTargetIndex>,
+    is_shared: bool,
+}
 
 struct SourceTextureResolver {
     /// A vector for fast resolves of texture cache IDs to
@@ -620,12 +625,17 @@ struct SourceTextureResolver {
     dummy_cache_texture: Texture,
 
     /// The current cache textures.
-    cache_rgba8_texture: Option<Texture>,
-    cache_a8_texture: Option<Texture>,
+    cache_rgba8_texture: Option<ActiveTexture>,
+    cache_a8_texture: Option<ActiveTexture>,
 
-    pass_rgba8_textures: FastHashMap<RenderPassIndex, RenderTargetPoolId>,
-    pass_a8_textures: FastHashMap<RenderPassIndex, RenderTargetPoolId>,
+    /// An alpha texture shared between all passes.
+    //TODO: just use the standard texture saving logic instead.
+    shared_alpha_texture: Option<Texture>,
 
+    /// Saved cache textures that are to be re-used.
+    saved_textures: Vec<Texture>,
+
+    /// General pool of render targets.
     render_target_pool: Vec<Texture>,
 }
 
@@ -649,8 +659,8 @@ impl SourceTextureResolver {
             dummy_cache_texture,
             cache_a8_texture: None,
             cache_rgba8_texture: None,
-            pass_rgba8_textures: FastHashMap::default(),
-            pass_a8_textures: FastHashMap::default(),
+            shared_alpha_texture: None,
+            saved_textures: Vec::default(),
             render_target_pool: Vec::new(),
         }
     }
@@ -670,34 +680,47 @@ impl SourceTextureResolver {
     fn begin_frame(&mut self) {
         assert!(self.cache_rgba8_texture.is_none());
         assert!(self.cache_a8_texture.is_none());
-
-        self.pass_rgba8_textures.clear();
-        self.pass_a8_textures.clear();
+        assert!(self.saved_textures.is_empty());
     }
 
-    fn end_frame(&mut self, pass_index: RenderPassIndex) {
+    fn end_frame(&mut self) {
         // return the cached targets to the pool
-        self.end_pass(None, None, pass_index)
+        self.end_pass(None, None);
+        // return the global alpha texture
+        self.render_target_pool.extend(self.shared_alpha_texture.take());
+        // return the saved targets as well
+        self.render_target_pool.extend(self.saved_textures.drain(..));
     }
 
     fn end_pass(
         &mut self,
-        a8_texture: Option<Texture>,
-        rgba8_texture: Option<Texture>,
-        pass_index: RenderPassIndex,
+        a8_texture: Option<ActiveTexture>,
+        rgba8_texture: Option<ActiveTexture>,
     ) {
         // If we have cache textures from previous pass, return them to the pool.
         // Also assign the pool index of those cache textures to last pass's index because this is
         // the result of last pass.
-        if let Some(texture) = self.cache_rgba8_texture.take() {
-            self.pass_rgba8_textures.insert(
-                RenderPassIndex(pass_index.0 - 1), RenderTargetPoolId(self.render_target_pool.len()));
-            self.render_target_pool.push(texture);
+        // Note: the order here is important, needs to match the logic in `RenderPass::build()`.
+        if let Some(at) = self.cache_rgba8_texture.take() {
+            assert!(!at.is_shared);
+            if let Some(index) = at.saved_index {
+                assert_eq!(self.saved_textures.len(), index.0);
+                self.saved_textures.push(at.texture);
+            } else {
+                self.render_target_pool.push(at.texture);
+            }
         }
-        if let Some(texture) = self.cache_a8_texture.take() {
-            self.pass_a8_textures.insert(
-                RenderPassIndex(pass_index.0 - 1), RenderTargetPoolId(self.render_target_pool.len()));
-            self.render_target_pool.push(texture);
+        if let Some(at) = self.cache_a8_texture.take() {
+            if let Some(index) = at.saved_index {
+                assert!(!at.is_shared);
+                assert_eq!(self.saved_textures.len(), index.0);
+                self.saved_textures.push(at.texture);
+            } else if at.is_shared {
+                assert!(self.shared_alpha_texture.is_none());
+                self.shared_alpha_texture = Some(at.texture);
+            } else {
+                self.render_target_pool.push(at.texture);
+            }
         }
 
         // We have another pass to process, make these textures available
@@ -711,15 +734,17 @@ impl SourceTextureResolver {
         match *texture_id {
             SourceTexture::Invalid => {}
             SourceTexture::CacheA8 => {
-                let texture = self.cache_a8_texture
-                    .as_ref()
-                    .unwrap_or(&self.dummy_cache_texture);
+                let texture = match self.cache_a8_texture {
+                    Some(ref at) => &at.texture,
+                    None => &self.dummy_cache_texture,
+                };
                 device.bind_texture(sampler, texture);
             }
             SourceTexture::CacheRGBA8 => {
-                let texture = self.cache_rgba8_texture
-                    .as_ref()
-                    .unwrap_or(&self.dummy_cache_texture);
+                let texture = match self.cache_rgba8_texture {
+                    Some(ref at) => &at.texture,
+                    None => &self.dummy_cache_texture,
+                };
                 device.bind_texture(sampler, texture);
             }
             SourceTexture::External(external_image) => {
@@ -732,17 +757,9 @@ impl SourceTextureResolver {
                 let texture = &self.cache_texture_map[index.0];
                 device.bind_texture(sampler, texture);
             }
-            SourceTexture::RenderTaskCacheRGBA8(pass_index) => {
-                let pool_index = self.pass_rgba8_textures
-                    .get(&pass_index)
-                    .expect("BUG: pass_index doesn't map to pool_index");
-                device.bind_texture(sampler, &self.render_target_pool[pool_index.0])
-            }
-            SourceTexture::RenderTaskCacheA8(pass_index) => {
-                let pool_index = self.pass_a8_textures
-                    .get(&pass_index)
-                    .expect("BUG: pass_index doesn't map to pool_index");
-                device.bind_texture(sampler, &self.render_target_pool[pool_index.0])
+            SourceTexture::RenderTaskCache(saved_index) => {
+                let texture = &self.saved_textures[saved_index.0];
+                device.bind_texture(sampler, texture)
             }
         }
     }
@@ -754,31 +771,26 @@ impl SourceTextureResolver {
         match *texture_id {
             SourceTexture::Invalid => None,
             SourceTexture::CacheA8 => Some(
-                self.cache_a8_texture
-                    .as_ref()
-                    .unwrap_or(&self.dummy_cache_texture),
+                match self.cache_a8_texture {
+                    Some(ref at) => &at.texture,
+                    None => &self.dummy_cache_texture,
+                }
             ),
             SourceTexture::CacheRGBA8 => Some(
-                self.cache_rgba8_texture
-                    .as_ref()
-                    .unwrap_or(&self.dummy_cache_texture),
+                match self.cache_rgba8_texture {
+                    Some(ref at) => &at.texture,
+                    None => &self.dummy_cache_texture,
+                }
             ),
             SourceTexture::External(..) => {
                 panic!("BUG: External textures cannot be resolved, they can only be bound.");
             }
-            SourceTexture::TextureCache(index) => Some(&self.cache_texture_map[index.0]),
-            SourceTexture::RenderTaskCacheRGBA8(pass_index) => {
-                let pool_index = self.pass_rgba8_textures
-                    .get(&pass_index)
-                    .expect("BUG: pass_index doesn't map to pool_index");
-                Some(&self.render_target_pool[pool_index.0])
-            },
-            SourceTexture::RenderTaskCacheA8(pass_index) => {
-                let pool_index = self.pass_a8_textures
-                    .get(&pass_index)
-                    .expect("BUG: pass_index doesn't map to pool_index");
-                Some(&self.render_target_pool[pool_index.0])
-            },
+            SourceTexture::TextureCache(index) => {
+                Some(&self.cache_texture_map[index.0])
+            }
+            SourceTexture::RenderTaskCache(saved_index) => {
+                Some(&self.saved_textures[saved_index.0])
+            }
         }
     }
 }
@@ -2873,18 +2885,13 @@ impl Renderer {
                 }
             }
 
-            // Re-use whatever targets possible from the pool, before
-            // they get changed/re-allocated by the rendered frames.
-            for doc_with_id in &mut active_documents {
-                self.prepare_tile_frame(&mut doc_with_id.1.frame);
-            }
-
             #[cfg(feature = "replay")]
             self.texture_resolver.external_images.extend(
                 self.owned_external_images.iter().map(|(key, value)| (*key, value.clone()))
             );
 
             for &mut (_, RenderedDocument { ref mut frame, .. }) in &mut active_documents {
+                frame.profile_counters.reset_targets();
                 self.prepare_gpu_cache(frame);
                 assert!(frame.gpu_cache_frame_id <= self.gpu_cache_frame_id);
 
@@ -4250,47 +4257,52 @@ impl Renderer {
         }
     }
 
-    fn prepare_target_list<T: RenderTarget>(
+    fn allocate_target_texture<T: RenderTarget>(
         &mut self,
         list: &mut RenderTargetList<T>,
-        perfect_only: bool,
-    ) {
+        counters: &mut FrameProfileCounters,
+        frame_id: FrameId,
+    ) -> Option<ActiveTexture> {
         debug_assert_ne!(list.max_size, DeviceUintSize::zero());
         if list.targets.is_empty() {
-            return;
+            return None
         }
-        let mut texture = if perfect_only {
-            debug_assert!(list.texture.is_none());
 
-            let selector = TargetSelector {
-                size: list.max_size,
-                num_layers: list.targets.len() as _,
-                format: list.format,
-            };
-            let index = self.texture_resolver.render_target_pool
+        counters.targets_used.inc();
+
+        // First, try finding a perfect match
+        let selector = TargetSelector {
+            size: list.max_size,
+            num_layers: list.targets.len() as _,
+            format: list.format,
+        };
+        let mut index = self.texture_resolver.render_target_pool
+            .iter()
+            .position(|texture| {
+                //TODO: re-use a part of a larger target, if available
+                selector == TargetSelector {
+                    size: texture.get_dimensions(),
+                    num_layers: texture.get_render_target_layer_count(),
+                    format: texture.get_format(),
+                }
+            });
+
+        // Next, try at least finding a matching format
+        if index.is_none() {
+            counters.targets_changed.inc();
+            index = self.texture_resolver.render_target_pool
                 .iter()
-                .position(|texture| {
-                    selector == TargetSelector {
-                        size: texture.get_dimensions(),
-                        num_layers: texture.get_render_target_layer_count(),
-                        format: texture.get_format(),
-                    }
-                });
-            match index {
-                Some(pos) => self.texture_resolver.render_target_pool.swap_remove(pos),
-                None => return,
+                .position(|texture| texture.get_format() == list.format && !texture.used_in_frame(frame_id));
+        }
+
+        let mut texture = match index {
+            Some(pos) => {
+                self.texture_resolver.render_target_pool.swap_remove(pos)
             }
-        } else {
-            if list.texture.is_some() {
-                list.check_ready();
-                return
-            }
-            let index = self.texture_resolver.render_target_pool
-                .iter()
-                .position(|texture| texture.get_format() == list.format);
-            match index {
-                Some(pos) => self.texture_resolver.render_target_pool.swap_remove(pos),
-                None => self.device.create_texture(TextureTarget::Array, list.format),
+            None => {
+                counters.targets_created.inc();
+                // finally, give up and create a new one
+                self.device.create_texture(TextureTarget::Array, list.format)
             }
         };
 
@@ -4305,33 +4317,18 @@ impl Renderer {
             list.targets.len() as _,
             None,
         );
-        list.texture = Some(texture);
-        list.check_ready();
-    }
 
-    fn prepare_tile_frame(&mut self, frame: &mut Frame) {
-        // Init textures and render targets to match this scene.
-        // First pass grabs all the perfectly matching targets from the pool.
-        for pass in &mut frame.passes {
-            if let RenderPassKind::OffScreen { ref mut alpha, ref mut color, .. } = pass.kind {
-                self.prepare_target_list(alpha, true);
-                self.prepare_target_list(color, true);
-            }
-        }
+        list.check_ready(&texture);
+        Some(ActiveTexture {
+            texture,
+            saved_index: list.saved_index.clone(),
+            is_shared: list.is_shared,
+        })
     }
 
     fn bind_frame_data(&mut self, frame: &mut Frame) {
         let _timer = self.gpu_profile.start_timer(GPU_TAG_SETUP_DATA);
         self.device.set_device_pixel_ratio(frame.device_pixel_ratio);
-
-        // Some of the textures are already assigned by `prepare_frame`.
-        // Now re-allocate the space for the rest of the target textures.
-        for pass in &mut frame.passes {
-            if let RenderPassKind::OffScreen { ref mut alpha, ref mut color, .. } = pass.kind {
-                self.prepare_target_list(alpha, false);
-                self.prepare_target_list(color, false);
-            }
-        }
 
         self.node_data_texture.update(&mut self.device, &mut frame.node_data);
         self.device.bind_texture(TextureSampler::ClipScrollNodes, &self.node_data_texture.texture);
@@ -4424,8 +4421,8 @@ impl Renderer {
                     (None, None)
                 }
                 RenderPassKind::OffScreen { ref mut alpha, ref mut color, ref mut texture_cache } => {
-                    alpha.check_ready();
-                    color.check_ready();
+                    let alpha_tex = self.allocate_target_texture(alpha, &mut frame.profile_counters, frame_id);
+                    let color_tex = self.allocate_target_texture(color, &mut frame.profile_counters, frame_id);
 
                     // If this frame has already been drawn, then any texture
                     // cache targets have already been updated and can be
@@ -4455,7 +4452,7 @@ impl Renderer {
                         );
 
                         self.draw_alpha_target(
-                            (alpha.texture.as_ref().unwrap(), target_index as i32),
+                            (&alpha_tex.as_ref().unwrap().texture, target_index as i32),
                             target,
                             alpha.max_size,
                             &projection,
@@ -4477,7 +4474,7 @@ impl Renderer {
                         );
 
                         self.draw_color_target(
-                            Some((color.texture.as_ref().unwrap(), target_index as i32)),
+                            Some((&color_tex.as_ref().unwrap().texture, target_index as i32)),
                             target,
                             frame.inner_rect,
                             color.max_size,
@@ -4490,29 +4487,23 @@ impl Renderer {
                         );
                     }
 
-                    (alpha.texture.take(), color.texture.take())
+                    (alpha_tex, color_tex)
                 }
             };
+
+            //Note: the `end_pass` will make sure this texture is not recycled this frame
+            if let Some(ActiveTexture { ref texture, is_shared: true, .. }) = cur_alpha {
+                self.device
+                    .bind_texture(TextureSampler::SharedCacheA8, texture);
+            }
 
             self.texture_resolver.end_pass(
                 cur_alpha,
                 cur_color,
-                RenderPassIndex(pass_index),
             );
-
-            // After completing the first pass, make the A8 target available as an
-            // input to any subsequent passes.
-            if pass_index == 0 {
-                if let Some(shared_alpha_texture) =
-                    self.texture_resolver.resolve(&SourceTexture::CacheA8)
-                {
-                    self.device
-                        .bind_texture(TextureSampler::SharedCacheA8, shared_alpha_texture);
-                }
-            }
         }
 
-        self.texture_resolver.end_frame(RenderPassIndex(frame.passes.len()));
+        self.texture_resolver.end_frame();
         if let Some(framebuffer_size) = framebuffer_size {
             self.draw_render_target_debug(framebuffer_size);
             self.draw_texture_cache_debug(framebuffer_size);

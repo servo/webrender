@@ -15,7 +15,7 @@ use gpu_cache::{GpuCache, GpuCacheAddress};
 use gpu_types::{BrushImageKind, BrushInstance, ClipChainRectIndex};
 use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex};
 use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
-use internal_types::{FastHashMap, SourceTexture};
+use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
 use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{ImageSource, PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
@@ -1052,12 +1052,12 @@ impl AlphaBatchBuilder {
                                                 }
 
                                                 let secondary_id = secondary_render_task_id.expect("no secondary!?");
-                                                let render_task = &render_tasks[secondary_id];
+                                                let saved_index = render_tasks[secondary_id].saved_index.expect("no saved index!?");
+                                                debug_assert_ne!(saved_index, SavedTargetIndex::PENDING);
                                                 let secondary_task_address = render_tasks.get_task_address(secondary_id);
-                                                let render_pass_index = render_task.pass_index.expect("no render_pass_index!?");
                                                 let secondary_textures = BatchTextures {
                                                     colors: [
-                                                        SourceTexture::RenderTaskCacheRGBA8(render_pass_index),
+                                                        SourceTexture::RenderTaskCache(saved_index),
                                                         SourceTexture::Invalid,
                                                         SourceTexture::Invalid,
                                                     ],
