@@ -1,13 +1,10 @@
 #![allow(non_snake_case)]
 
-extern crate gl;
-extern crate glutin;
 extern crate winapi;
 extern crate winit;
 extern crate wio;
 
 use com::{OutParam, ToResult};
-use glutin::GlContext;
 use std::ptr;
 use winapi::Interface;
 use winapi::shared::minwindef::{TRUE, FALSE};
@@ -25,30 +22,20 @@ fn main() {
     let mut events_loop = winit::EventsLoop::new();
     let window = winit::WindowBuilder::new()
         .with_title("Hello, world!")
-        .with_dimensions(1024, 768);
-    let context = glutin::ContextBuilder::new()
-        .with_vsync(true);
-    let gl_window = glutin::GlWindow::new(window, context, &events_loop).unwrap();
-
-    unsafe {
-        gl_window.make_current().unwrap();
-    }
+        .with_dimensions(1024, 768)
+        .build(&events_loop)
+        .unwrap();
 
     let composition = unsafe {
-        gl::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _);
-        gl::ClearColor(0., 0.5, 0., 1.0);
-
-        DirectComposition::initialize(gl_window.window().get_hwnd() as _).unwrap()
+        DirectComposition::initialize(window.get_hwnd() as _).unwrap()
     };
 
     let mut running = true;
-//    let mut running = false;
     while running {
         events_loop.poll_events(|event| {
             match event {
                 winit::Event::WindowEvent{ event, .. } => match event {
                     winit::WindowEvent::Closed => running = false,
-                    winit::WindowEvent::Resized(w, h) => gl_window.resize(w, h),
                     winit::WindowEvent::MouseInput { button: winit::MouseButton::Left, .. } => {
                         unsafe {
                             composition.click().unwrap()
@@ -59,14 +46,7 @@ fn main() {
                 _ => ()
             }
         });
-
-        unsafe {
-            gl::Clear(gl::COLOR_BUFFER_BIT);
-        }
-
-        gl_window.swap_buffers().unwrap();
     }
-    println!("Ok")
 }
 
 /// https://msdn.microsoft.com/en-us/library/windows/desktop/hh449180(v=vs.85).aspx
