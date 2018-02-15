@@ -810,6 +810,15 @@ impl RenderBackend {
             &mut profile_counters.resources,
         );
 
+        if op.build {
+            let doc = self.documents.get_mut(&document_id).unwrap();
+            let _timer = profile_counters.total_time.timer();
+            profile_scope!("build scene");
+
+            doc.build_scene(&mut self.resource_cache);
+            doc.render_on_hittest = true;
+        }
+
         for doc_msg in txn.frame_ops {
             let _timer = profile_counters.total_time.timer();
             op.combine(
@@ -824,6 +833,14 @@ impl RenderBackend {
 
         let doc = self.documents.get_mut(&document_id).unwrap();
 
+        if !doc.can_render() {
+            // WIP: this happens if we are building the first scene asynchronously and
+            // scroll at the same time. we should keep track of the fact that we skipped
+            // composition here and do it as soon as we receive the scene.
+            op.render = false;
+            op.composite = false;
+        }
+
         if txn.generate_frame {
             if let Some(ref mut ros) = doc.render_on_scroll {
                 *ros = true;
@@ -836,22 +853,6 @@ impl RenderBackend {
         }
 
         debug_assert!(op.render || !op.composite);
-
-        if op.build {
-            let _timer = profile_counters.total_time.timer();
-            profile_scope!("build scene");
-
-            doc.build_scene(&mut self.resource_cache);
-            doc.render_on_hittest = true;
-        }
-
-        if !doc.can_render() {
-            // WIP: this happens if we are building the first scene asynchronously and
-            // scroll at the same time. we should keep track of the fact that we skipped
-            // composition here and do it as soon as we receive the scene.
-            op.render = false;
-            op.composite = false;
-        }
 
         if op.render {
             profile_scope!("generate frame");
