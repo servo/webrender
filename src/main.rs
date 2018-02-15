@@ -26,27 +26,16 @@ fn main() {
         .build(&events_loop)
         .unwrap();
 
-    let composition = unsafe {
+    let _composition = unsafe {
         DirectComposition::initialize(window.get_hwnd() as _).unwrap()
     };
 
-    let mut running = true;
-    while running {
-        events_loop.poll_events(|event| {
-            match event {
-                winit::Event::WindowEvent{ event, .. } => match event {
-                    winit::WindowEvent::Closed => running = false,
-                    winit::WindowEvent::MouseInput { button: winit::MouseButton::Left, .. } => {
-                        unsafe {
-                            composition.click().unwrap()
-                        }
-                    }
-                    _ => ()
-                },
-                _ => ()
-            }
-        });
-    }
+    events_loop.run_forever(|event| match event {
+        winit::Event::WindowEvent { event: winit::WindowEvent::Closed, .. } => {
+            winit::ControlFlow::Break
+        }
+        _ => winit::ControlFlow::Continue,
+    });
 }
 
 /// https://msdn.microsoft.com/en-us/library/windows/desktop/hh449180(v=vs.85).aspx
@@ -95,22 +84,18 @@ impl DirectComposition {
             composition_device.CreateTargetForHwnd(hwnd, TRUE, ptr_ptr)
         })?;
 
-        Ok(DirectComposition { d3d_device, composition_device, composition_target })
-    }
+        macro_rules! visual { () => {
+            ComPtr::from_out_param(|ptr_ptr| composition_device.CreateVisual(ptr_ptr))
+        }};
+        let root_visual = visual!()?;
+        let visual1 = visual!()?;
+        let visual2 = visual!()?;
 
-    unsafe fn click(&self) -> Result<(), HRESULT> {
-        let visual = || ComPtr::from_out_param(|ptr_ptr| {
-            self.composition_device.CreateVisual(ptr_ptr)
-        });
-        let root_visual = visual()?;
-        let visual1 = visual()?;
-        let visual2 = visual()?;
-
-        self.composition_target.SetRoot(&*root_visual).to_result()?;
+        composition_target.SetRoot(&*root_visual).to_result()?;
         root_visual.AddVisual(&*visual1, FALSE, ptr::null_mut()).to_result()?;
         root_visual.AddVisual(&*visual2, FALSE, ptr::null_mut()).to_result()?;
 
-        let _surface = ComPtr::from_out_param(|ptr_ptr| self.composition_device.CreateSurface(
+        let _surface = ComPtr::from_out_param(|ptr_ptr| composition_device.CreateSurface(
             100,
             100,
             winapi::shared::dxgiformat::DXGI_FORMAT_B8G8R8A8_UNORM,
@@ -118,6 +103,6 @@ impl DirectComposition {
             ptr_ptr,
         ))?;
 
-        Ok(())
+        Ok(DirectComposition { d3d_device, composition_device, composition_target })
     }
 }
