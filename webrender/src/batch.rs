@@ -40,7 +40,6 @@ const OPAQUE_TASK_ADDRESS: RenderTaskAddress = RenderTaskAddress(0x7fff);
 pub enum TransformBatchKind {
     TextRun(GlyphFormat),
     Image(ImageBufferKind),
-    YuvImage(ImageBufferKind, YuvFormat, YuvColorSpace),
     AlignedGradient,
     AngleGradient,
     RadialGradient,
@@ -80,6 +79,7 @@ pub enum BrushBatchKind {
         source_id: RenderTaskId,
         backdrop_id: RenderTaskId,
     },
+    YuvImage(ImageBufferKind, YuvFormat, YuvColorSpace),
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -1235,64 +1235,6 @@ impl AlphaBatchBuilder {
                 let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
                 batch.push(base_instance.build(0, 0, 0));
             }
-            PrimitiveKind::YuvImage => {
-                let mut textures = BatchTextures::no_texture();
-                let mut uv_rect_addresses = [0; 3];
-                let image_yuv_cpu =
-                    &ctx.prim_store.cpu_yuv_images[prim_metadata.cpu_prim_index.0];
-
-                //yuv channel
-                let channel_count = image_yuv_cpu.format.get_plane_num();
-                debug_assert!(channel_count <= 3);
-                for channel in 0 .. channel_count {
-                    let image_key = image_yuv_cpu.yuv_key[channel];
-
-                    let cache_item = resolve_image(
-                        ImageRequest {
-                            key: image_key,
-                            rendering: image_yuv_cpu.image_rendering,
-                            tile: None,
-                        },
-                        ctx.resource_cache,
-                        gpu_cache,
-                        deferred_resolves,
-                    );
-
-                    if cache_item.texture_id == SourceTexture::Invalid {
-                        warn!("Warnings: skip a PrimitiveKind::YuvImage");
-                        debug!("at {:?}.", task_relative_bounding_rect);
-                        return;
-                    }
-
-                    textures.colors[channel] = cache_item.texture_id;
-                    uv_rect_addresses[channel] = cache_item.uv_rect_handle.as_int(gpu_cache);
-                }
-
-                // All yuv textures should be the same type.
-                let buffer_kind = get_buffer_kind(textures.colors[0]);
-                assert!(
-                    textures.colors[1 .. image_yuv_cpu.format.get_plane_num()]
-                        .iter()
-                        .all(|&tid| buffer_kind == get_buffer_kind(tid))
-                );
-
-                let kind = BatchKind::Transformable(
-                    transform_kind,
-                    TransformBatchKind::YuvImage(
-                        buffer_kind,
-                        image_yuv_cpu.format,
-                        image_yuv_cpu.color_space,
-                    ),
-                );
-                let key = BatchKey::new(kind, non_segmented_blend_mode, textures);
-                let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
-
-                batch.push(base_instance.build(
-                    uv_rect_addresses[0],
-                    uv_rect_addresses[1],
-                    uv_rect_addresses[2],
-                ));
-            }
         }
     }
 
@@ -1440,6 +1382,60 @@ impl BrushPrimitive {
                     [0; 3],
                 ))
             }
+            BrushKind::YuvImage { format, yuv_key, image_rendering, color_space } => {
+                let mut textures = BatchTextures::no_texture();
+                let mut uv_rect_addresses = [0; 3];
+
+                //yuv channel
+                let channel_count = format.get_plane_num();
+                debug_assert!(channel_count <= 3);
+                for channel in 0 .. channel_count {
+                    let image_key = yuv_key[channel];
+
+                    let cache_item = resolve_image(
+                        ImageRequest {
+                            key: image_key,
+                            rendering: image_rendering,
+                            tile: None,
+                        },
+                        resource_cache,
+                        gpu_cache,
+                        deferred_resolves,
+                    );
+
+                    if cache_item.texture_id == SourceTexture::Invalid {
+                        warn!("Warnings: skip a PrimitiveKind::YuvImage");
+                        return None;
+                    }
+
+                    textures.colors[channel] = cache_item.texture_id;
+                    uv_rect_addresses[channel] = cache_item.uv_rect_handle.as_int(gpu_cache);
+                }
+
+                // All yuv textures should be the same type.
+                let buffer_kind = get_buffer_kind(textures.colors[0]);
+                assert!(
+                    textures.colors[1 .. format.get_plane_num()]
+                        .iter()
+                        .all(|&tid| buffer_kind == get_buffer_kind(tid))
+                );
+
+                let kind = BrushBatchKind::YuvImage(
+                    buffer_kind,
+                    format,
+                    color_space,
+                );
+
+                Some((
+                    kind,
+                    textures,
+                    [
+                        uv_rect_addresses[0],
+                        uv_rect_addresses[1],
+                        uv_rect_addresses[2],
+                    ],
+                ))
+            }
             BrushKind::Mask { .. } => {
                 unreachable!("bug: mask brushes not expected in normal alpha pass");
             }
@@ -1463,7 +1459,6 @@ impl AlphaBatchHelpers for PrimitiveStore {
             }
 
             PrimitiveKind::Border |
-            PrimitiveKind::YuvImage |
             PrimitiveKind::AlignedGradient |
             PrimitiveKind::AngleGradient |
             PrimitiveKind::RadialGradient |
@@ -1486,6 +1481,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     BrushKind::Solid { .. } |
                     BrushKind::Mask { .. } |
                     BrushKind::Line { .. } |
+                    BrushKind::YuvImage { .. } |
                     BrushKind::Picture => {
                         BlendMode::PremultipliedAlpha
                     }

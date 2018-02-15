@@ -112,7 +112,6 @@ pub struct PrimitiveIndex(pub usize);
 pub enum PrimitiveKind {
     TextRun,
     Image,
-    YuvImage,
     Border,
     AlignedGradient,
     AngleGradient,
@@ -195,6 +194,12 @@ pub enum BrushKind {
         current_epoch: Epoch,
         alpha_type: AlphaType,
     },
+    YuvImage {
+        yuv_key: [ImageKey; 3],
+        format: YuvFormat,
+        color_space: YuvColorSpace,
+        image_rendering: ImageRendering,
+    }
 }
 
 impl BrushKind {
@@ -202,7 +207,8 @@ impl BrushKind {
         match *self {
             BrushKind::Solid { .. } |
             BrushKind::Picture |
-            BrushKind::Image { .. } => true,
+            BrushKind::Image { .. } |
+            BrushKind::YuvImage { .. } => true,
 
             BrushKind::Mask { .. } |
             BrushKind::Clear |
@@ -284,7 +290,8 @@ impl BrushPrimitive {
         // has to match VECS_PER_SPECIFIC_BRUSH
         match self.kind {
             BrushKind::Picture |
-            BrushKind::Image { .. } => {
+            BrushKind::Image { .. } |
+            BrushKind::YuvImage { .. } => {
             }
             BrushKind::Solid { color } => {
                 request.push(color.premultiplied());
@@ -374,24 +381,6 @@ impl ToGpuBlocks for ImagePrimitiveCpu {
             self.stretch_size.width, self.stretch_size.height,
             self.tile_spacing.width, self.tile_spacing.height,
         ]);
-    }
-}
-
-#[derive(Debug)]
-pub struct YuvImagePrimitiveCpu {
-    pub yuv_key: [ImageKey; 3],
-    pub format: YuvFormat,
-    pub color_space: YuvColorSpace,
-
-    pub image_rendering: ImageRendering,
-
-    // TODO(gw): Generate on demand
-    pub gpu_block: GpuBlockData,
-}
-
-impl ToGpuBlocks for YuvImagePrimitiveCpu {
-    fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        request.push(self.gpu_block);
     }
 }
 
@@ -933,7 +922,6 @@ impl ClipData {
 pub enum PrimitiveContainer {
     TextRun(TextRunPrimitiveCpu),
     Image(ImagePrimitiveCpu),
-    YuvImage(YuvImagePrimitiveCpu),
     Border(BorderPrimitiveCpu),
     AlignedGradient(GradientPrimitiveCpu),
     AngleGradient(GradientPrimitiveCpu),
@@ -948,7 +936,6 @@ pub struct PrimitiveStore {
     pub cpu_text_runs: Vec<TextRunPrimitiveCpu>,
     pub cpu_pictures: Vec<PicturePrimitive>,
     pub cpu_images: Vec<ImagePrimitiveCpu>,
-    pub cpu_yuv_images: Vec<YuvImagePrimitiveCpu>,
     pub cpu_gradients: Vec<GradientPrimitiveCpu>,
     pub cpu_radial_gradients: Vec<RadialGradientPrimitiveCpu>,
     pub cpu_metadata: Vec<PrimitiveMetadata>,
@@ -963,7 +950,6 @@ impl PrimitiveStore {
             cpu_text_runs: Vec::new(),
             cpu_pictures: Vec::new(),
             cpu_images: Vec::new(),
-            cpu_yuv_images: Vec::new(),
             cpu_gradients: Vec::new(),
             cpu_radial_gradients: Vec::new(),
             cpu_borders: Vec::new(),
@@ -977,7 +963,6 @@ impl PrimitiveStore {
             cpu_text_runs: recycle_vec(self.cpu_text_runs),
             cpu_pictures: recycle_vec(self.cpu_pictures),
             cpu_images: recycle_vec(self.cpu_images),
-            cpu_yuv_images: recycle_vec(self.cpu_yuv_images),
             cpu_gradients: recycle_vec(self.cpu_gradients),
             cpu_radial_gradients: recycle_vec(self.cpu_radial_gradients),
             cpu_borders: recycle_vec(self.cpu_borders),
@@ -1018,6 +1003,7 @@ impl PrimitiveStore {
                     BrushKind::Mask { .. } => PrimitiveOpacity::translucent(),
                     BrushKind::Line { .. } => PrimitiveOpacity::translucent(),
                     BrushKind::Image { .. } => PrimitiveOpacity::translucent(),
+                    BrushKind::YuvImage { .. } => PrimitiveOpacity::opaque(),
                     BrushKind::Picture => {
                         // TODO(gw): This is not currently used. In the future
                         //           we should detect opaque pictures.
@@ -1067,17 +1053,6 @@ impl PrimitiveStore {
                 };
 
                 self.cpu_images.push(image_cpu);
-                metadata
-            }
-            PrimitiveContainer::YuvImage(image_cpu) => {
-                let metadata = PrimitiveMetadata {
-                    opacity: PrimitiveOpacity::opaque(),
-                    prim_kind: PrimitiveKind::YuvImage,
-                    cpu_prim_index: SpecificPrimitiveIndex(self.cpu_yuv_images.len()),
-                    ..base_metadata
-                };
-
-                self.cpu_yuv_images.push(image_cpu);
                 metadata
             }
             PrimitiveContainer::Border(border_cpu) => {
@@ -1293,22 +1268,6 @@ impl PrimitiveStore {
                     }
                 }
             }
-            PrimitiveKind::YuvImage => {
-                let image_cpu = &mut self.cpu_yuv_images[metadata.cpu_prim_index.0];
-
-                let channel_num = image_cpu.format.get_plane_num();
-                debug_assert!(channel_num <= 3);
-                for channel in 0 .. channel_num {
-                    frame_state.resource_cache.request_image(
-                        ImageRequest {
-                            key: image_cpu.yuv_key[channel],
-                            rendering: image_cpu.image_rendering,
-                            tile: None,
-                        },
-                        frame_state.gpu_cache,
-                    );
-                }
-            }
             PrimitiveKind::Brush => {
                 let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
 
@@ -1331,6 +1290,20 @@ impl PrimitiveStore {
                             request,
                             frame_state.gpu_cache,
                         );
+                    }
+                    BrushKind::YuvImage { format, yuv_key, image_rendering, .. } => {
+                        let channel_num = format.get_plane_num();
+                        debug_assert!(channel_num <= 3);
+                        for channel in 0 .. channel_num {
+                            frame_state.resource_cache.request_image(
+                                ImageRequest {
+                                    key: yuv_key[channel],
+                                    rendering: image_rendering,
+                                    tile: None,
+                                },
+                                frame_state.gpu_cache,
+                            );
+                        }
                     }
                     BrushKind::Mask { .. } |
                     BrushKind::Solid { .. } |
@@ -1358,10 +1331,6 @@ impl PrimitiveStore {
                 PrimitiveKind::Image => {
                     let image = &self.cpu_images[metadata.cpu_prim_index.0];
                     image.write_gpu_blocks(request);
-                }
-                PrimitiveKind::YuvImage => {
-                    let yuv_image = &self.cpu_yuv_images[metadata.cpu_prim_index.0];
-                    yuv_image.write_gpu_blocks(request);
                 }
                 PrimitiveKind::AlignedGradient => {
                     let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];

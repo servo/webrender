@@ -83,6 +83,10 @@ const GPU_CACHE_RESIZE_TEST: bool = false;
 /// Number of GPU blocks per UV rectangle provided for an image.
 pub const BLOCKS_PER_UV_RECT: usize = 2;
 
+const GPU_TAG_BRUSH_YUV_IMAGE: GpuProfileTag = GpuProfileTag {
+    label: "YuvImage",
+    color: debug_colors::DARKGREEN,
+};
 const GPU_TAG_BRUSH_MIXBLEND: GpuProfileTag = GpuProfileTag {
     label: "B_MixBlend",
     color: debug_colors::MAGENTA,
@@ -130,10 +134,6 @@ const GPU_TAG_SETUP_DATA: GpuProfileTag = GpuProfileTag {
 const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag {
     label: "Image",
     color: debug_colors::GREEN,
-};
-const GPU_TAG_PRIM_YUV_IMAGE: GpuProfileTag = GpuProfileTag {
-    label: "YuvImage",
-    color: debug_colors::DARKGREEN,
 };
 const GPU_TAG_PRIM_HW_COMPOSITE: GpuProfileTag = GpuProfileTag {
     label: "HwComposite",
@@ -200,7 +200,6 @@ impl TransformBatchKind {
                 ImageBufferKind::TextureExternal => "Image (External)",
                 ImageBufferKind::Texture2DArray => "Image (Array)",
             },
-            TransformBatchKind::YuvImage(..) => "YuvImage",
             TransformBatchKind::AlignedGradient => "AlignedGradient",
             TransformBatchKind::AngleGradient => "AngleGradient",
             TransformBatchKind::RadialGradient => "RadialGradient",
@@ -213,7 +212,6 @@ impl TransformBatchKind {
         match *self {
             TransformBatchKind::TextRun(..) => GPU_TAG_PRIM_TEXT_RUN,
             TransformBatchKind::Image(..) => GPU_TAG_PRIM_IMAGE,
-            TransformBatchKind::YuvImage(..) => GPU_TAG_PRIM_YUV_IMAGE,
             TransformBatchKind::BorderCorner => GPU_TAG_PRIM_BORDER_CORNER,
             TransformBatchKind::BorderEdge => GPU_TAG_PRIM_BORDER_EDGE,
             TransformBatchKind::AlignedGradient => GPU_TAG_PRIM_GRADIENT,
@@ -237,6 +235,7 @@ impl BatchKind {
                     BrushBatchKind::Image(..) => "Brush (Image)",
                     BrushBatchKind::Blend => "Brush (Blend)",
                     BrushBatchKind::MixBlend { .. } => "Brush (Composite)",
+                    BrushBatchKind::YuvImage(..) => "Brush (YuvImage)",
                 }
             }
             BatchKind::Transformable(_, batch_kind) => batch_kind.debug_name(),
@@ -255,6 +254,7 @@ impl BatchKind {
                     BrushBatchKind::Image(..) => GPU_TAG_BRUSH_IMAGE,
                     BrushBatchKind::Blend => GPU_TAG_BRUSH_BLEND,
                     BrushBatchKind::MixBlend { .. } => GPU_TAG_BRUSH_MIXBLEND,
+                    BrushBatchKind::YuvImage(..) => GPU_TAG_BRUSH_YUV_IMAGE,
                 }
             }
             BatchKind::Transformable(_, batch_kind) => batch_kind.gpu_sampler_tag(),
@@ -1605,6 +1605,7 @@ pub struct Renderer {
     brush_image: Vec<Option<BrushShader>>,
     brush_blend: BrushShader,
     brush_mix_blend: BrushShader,
+    brush_yuv_image: Vec<Option<BrushShader>>,
 
     /// These are "cache clip shaders". These shaders are used to
     /// draw clip instances into the cached clip mask. The results
@@ -1623,7 +1624,6 @@ pub struct Renderer {
     ps_text_run: TextShader,
     ps_text_run_dual_source: TextShader,
     ps_image: Vec<Option<PrimitiveShader>>,
-    ps_yuv_image: Vec<Option<PrimitiveShader>>,
     ps_border_corner: PrimitiveShader,
     ps_border_edge: PrimitiveShader,
     ps_gradient: PrimitiveShader,
@@ -1952,10 +1952,10 @@ impl Renderer {
         // All yuv_image configuration.
         let mut yuv_features = Vec::new();
         let yuv_shader_num = IMAGE_BUFFER_KINDS.len() * YUV_FORMATS.len() * YUV_COLOR_SPACES.len();
-        let mut ps_yuv_image: Vec<Option<PrimitiveShader>> = Vec::new();
+        let mut brush_yuv_image = Vec::new();
         // PrimitiveShader is not clonable. Use push() to initialize the vec.
         for _ in 0 .. yuv_shader_num {
-            ps_yuv_image.push(None);
+            brush_yuv_image.push(None);
         }
         for buffer_kind in 0 .. IMAGE_BUFFER_KINDS.len() {
             if IMAGE_BUFFER_KINDS[buffer_kind].has_platform_support(&gl_type) {
@@ -1976,17 +1976,17 @@ impl Renderer {
                         }
 
                         let shader = try!{
-                            PrimitiveShader::new("ps_yuv_image",
-                                                 &mut device,
-                                                 &yuv_features,
-                                                 options.precache_shaders)
+                            BrushShader::new("brush_yuv_image",
+                                             &mut device,
+                                             &yuv_features,
+                                             options.precache_shaders)
                         };
                         let index = Renderer::get_yuv_shader_index(
                             IMAGE_BUFFER_KINDS[buffer_kind],
                             YUV_FORMATS[format_kind],
                             YUV_COLOR_SPACES[color_space_kind],
                         );
-                        ps_yuv_image[index] = Some(shader);
+                        brush_yuv_image[index] = Some(shader);
                         yuv_features.clear();
                     }
                 }
@@ -2290,13 +2290,13 @@ impl Renderer {
             brush_image,
             brush_blend,
             brush_mix_blend,
+            brush_yuv_image,
             cs_clip_rectangle,
             cs_clip_border,
             cs_clip_image,
             ps_text_run,
             ps_text_run_dual_source,
             ps_image,
-            ps_yuv_image,
             ps_border_corner,
             ps_border_edge,
             ps_gradient,
@@ -3257,6 +3257,20 @@ impl Renderer {
                             &mut self.renderer_errors,
                         );
                     }
+                    BrushBatchKind::YuvImage(image_buffer_kind, format, color_space) => {
+                        let shader_index =
+                            Renderer::get_yuv_shader_index(image_buffer_kind, format, color_space);
+                        self.brush_yuv_image[shader_index]
+                            .as_mut()
+                            .expect("Unsupported YUV shader kind")
+                            .bind(
+                                &mut self.device,
+                                key.blend_mode,
+                                projection,
+                                0,
+                                &mut self.renderer_errors,
+                            );
+                    }
                 }
             }
             BatchKind::Transformable(transform_kind, batch_kind) => match batch_kind {
@@ -3267,20 +3281,6 @@ impl Renderer {
                     self.ps_image[image_buffer_kind as usize]
                         .as_mut()
                         .expect("Unsupported image shader kind")
-                        .bind(
-                            &mut self.device,
-                            transform_kind,
-                            projection,
-                            0,
-                            &mut self.renderer_errors,
-                        );
-                }
-                TransformBatchKind::YuvImage(image_buffer_kind, format, color_space) => {
-                    let shader_index =
-                        Renderer::get_yuv_shader_index(image_buffer_kind, format, color_space);
-                    self.ps_yuv_image[shader_index]
-                        .as_mut()
-                        .expect("Unsupported YUV shader kind")
                         .bind(
                             &mut self.device,
                             transform_kind,
@@ -4765,7 +4765,7 @@ impl Renderer {
                 shader.deinit(&mut self.device);
             }
         }
-        for shader in self.ps_yuv_image {
+        for shader in self.brush_yuv_image {
             if let Some(shader) = shader {
                 shader.deinit(&mut self.device);
             }
