@@ -635,8 +635,7 @@ impl<'a> GradientGpuBlockBuilder<'a> {
 pub struct RadialGradientPrimitiveCpu {
     pub stops_range: ItemRange<GradientStop>,
     pub extend_mode: ExtendMode,
-    pub gpu_data_count: i32,
-    pub gpu_blocks: [GpuBlockData; 3],
+    pub gpu_blocks: [GpuBlockData; 2],
 }
 
 impl RadialGradientPrimitiveCpu {

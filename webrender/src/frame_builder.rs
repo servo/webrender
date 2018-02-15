@@ -1290,6 +1290,45 @@ impl FrameBuilder {
         self.add_primitive(clip_and_scroll, info, Vec::new(), prim);
     }
 
+    fn add_radial_gradient_impl(
+        &mut self,
+        clip_and_scroll: ClipAndScrollInfo,
+        info: &LayerPrimitiveInfo,
+        start_center: LayerPoint,
+        start_radius: f32,
+        end_center: LayerPoint,
+        end_radius: f32,
+        ratio_xy: f32,
+        stops: ItemRange<GradientStop>,
+        extend_mode: ExtendMode,
+    ) {
+        let radial_gradient_cpu = RadialGradientPrimitiveCpu {
+            stops_range: stops,
+            extend_mode,
+            gpu_blocks: [
+                [
+                    start_center.x,
+                    start_center.y,
+                    end_center.x,
+                    end_center.y,
+                ].into(),
+                [
+                    start_radius,
+                    end_radius,
+                    ratio_xy,
+                    pack_as_float(extend_mode as u32),
+                ].into(),
+            ],
+        };
+
+        self.add_primitive(
+            clip_and_scroll,
+            info,
+            Vec::new(),
+            PrimitiveContainer::RadialGradient(radial_gradient_cpu),
+        );
+    }
+
     pub fn add_radial_gradient(
         &mut self,
         clip_and_scroll: ClipAndScrollInfo,
@@ -1304,35 +1343,39 @@ impl FrameBuilder {
         tile_size: LayerSize,
         tile_spacing: LayerSize,
     ) {
-        let tile_repeat = tile_size + tile_spacing;
+        let prim_infos = info.decompose(
+            tile_size,
+            tile_spacing,
+            64 * 64,
+        );
 
-        let radial_gradient_cpu = RadialGradientPrimitiveCpu {
-            stops_range: stops,
-            extend_mode,
-            gpu_data_count: 0,
-            gpu_blocks: [
-                [start_center.x, start_center.y, end_center.x, end_center.y].into(),
-                [
+        if prim_infos.is_empty() {
+            self.add_radial_gradient_impl(
+                clip_and_scroll,
+                info,
+                start_center,
+                start_radius,
+                end_center,
+                end_radius,
+                ratio_xy,
+                stops,
+                extend_mode,
+            );
+        } else {
+            for prim_info in prim_infos {
+                self.add_radial_gradient_impl(
+                    clip_and_scroll,
+                    &prim_info,
+                    start_center,
                     start_radius,
+                    end_center,
                     end_radius,
                     ratio_xy,
-                    pack_as_float(extend_mode as u32),
-                ].into(),
-                [
-                    tile_size.width,
-                    tile_size.height,
-                    tile_repeat.width,
-                    tile_repeat.height,
-                ].into(),
-            ],
-        };
-
-        self.add_primitive(
-            clip_and_scroll,
-            info,
-            Vec::new(),
-            PrimitiveContainer::RadialGradient(radial_gradient_cpu),
-        );
+                    stops,
+                    extend_mode,
+                );
+            }
+        }
     }
 
     pub fn add_text(

@@ -6,8 +6,8 @@
 use GlyphInstance;
 use euclid::{SideOffsets2D, TypedRect};
 use std::ops::Not;
-use {ColorF, FontInstanceKey, GlyphOptions, ImageKey, LayerPixel, LayoutPixel, LayoutPoint};
-use {LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D, PipelineId, PropertyBinding};
+use {ColorF, FontInstanceKey, GlyphOptions, ImageKey, LayerPixel, LayerSize, LayoutPixel, LayoutPoint};
+use {LayerRect, LayerPoint, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D, PipelineId, PropertyBinding};
 
 
 // NOTE: some of these structs have an "IMPLICIT" comment.
@@ -88,6 +88,58 @@ impl LayerPrimitiveInfo {
             is_backface_visible: true,
             tag: None,
         }
+    }
+
+    pub fn decompose(
+        &self,
+        tile_size: LayerSize,
+        tile_spacing: LayerSize,
+        max_prims: usize,
+    ) -> Vec<LayerPrimitiveInfo> {
+        let mut prims = Vec::new();
+        let tile_repeat = tile_size + tile_spacing;
+
+        if tile_repeat.width <= 0.0 ||
+           tile_repeat.height <= 0.0 {
+            return prims;
+        }
+
+        if tile_repeat.width < self.rect.size.width ||
+           tile_repeat.height < self.rect.size.height {
+            let local_clip = self.local_clip.clip_by(&self.rect);
+            let rect_p0 = self.rect.origin;
+            let rect_p1 = self.rect.origin + self.rect.size;
+
+            let mut y0 = rect_p0.y;
+            while y0 < rect_p1.y {
+                let mut x0 = rect_p0.x;
+
+                while x0 < rect_p1.x {
+                    prims.push(PrimitiveInfo {
+                        rect: LayerRect::new(
+                            LayerPoint::new(x0, y0),
+                            tile_size,
+                        ),
+                        local_clip,
+                        is_backface_visible: self.is_backface_visible,
+                        tag: self.tag,
+                    });
+
+                    // Mostly a safety against a crazy number of primitives
+                    // being generated. If we exceed that amount, just bail
+                    // out and only draw the maximum amount.
+                    if prims.len() > max_prims {
+                        return prims;
+                    }
+
+                    x0 += tile_repeat.width;
+                }
+
+                y0 += tile_repeat.height;
+            }
+        }
+
+        prims
     }
 }
 
@@ -647,6 +699,22 @@ impl LocalClip {
                     mode: complex.mode,
                 },
             ),
+        }
+    }
+
+    pub fn clip_by(&self, rect: &LayoutRect) -> LocalClip {
+        match *self {
+            LocalClip::Rect(clip_rect) => {
+                LocalClip::Rect(
+                    clip_rect.intersection(rect).unwrap_or(LayoutRect::zero())
+                )
+            }
+            LocalClip::RoundedRect(clip_rect, complex) => {
+                LocalClip::RoundedRect(
+                    clip_rect.intersection(rect).unwrap_or(LayoutRect::zero()),
+                    complex,
+                )
+            }
         }
     }
 }

@@ -12,12 +12,19 @@ flat varying vec2 vEndCenter;
 flat varying float vStartRadius;
 flat varying float vEndRadius;
 
-flat varying vec2 vTileSize;
-flat varying vec2 vTileRepeat;
-
 varying vec2 vPos;
 
 #ifdef WR_VERTEX_SHADER
+struct RadialGradient {
+    vec4 start_end_center;
+    vec4 start_end_radius_ratio_xy_extend_mode;
+};
+
+RadialGradient fetch_radial_gradient(int address) {
+    vec4 data[2] = fetch_from_resource_cache_2(address);
+    return RadialGradient(data[0], data[1]);
+}
+
 void main(void) {
     Primitive prim = load_primitive();
     RadialGradient gradient = fetch_radial_gradient(prim.specific_prim_address);
@@ -37,19 +44,14 @@ void main(void) {
     vStartRadius = gradient.start_end_radius_ratio_xy_extend_mode.x;
     vEndRadius = gradient.start_end_radius_ratio_xy_extend_mode.y;
 
-    vTileSize = gradient.tile_size_repeat.xy;
-    vTileRepeat = gradient.tile_size_repeat.zw;
-
     // Transform all coordinates by the y scale so the
     // fragment shader can work with circles
     float ratio_xy = gradient.start_end_radius_ratio_xy_extend_mode.z;
     vPos.y *= ratio_xy;
     vStartCenter.y *= ratio_xy;
     vEndCenter.y *= ratio_xy;
-    vTileSize.y *= ratio_xy;
-    vTileRepeat.y *= ratio_xy;
 
-    vGradientAddress = prim.specific_prim_address + VECS_PER_GRADIENT;
+    vGradientAddress = prim.specific_prim_address + VECS_PER_RADIAL_GRADIENT;
 
     // Whether to repeat the gradient instead of clamping.
     vGradientRepeat = float(int(gradient.start_end_radius_ratio_xy_extend_mode.w) != EXTEND_MODE_CLAMP);
@@ -60,15 +62,8 @@ void main(void) {
 
 #ifdef WR_FRAGMENT_SHADER
 void main(void) {
-    vec2 pos = mod(vPos, vTileRepeat);
-
-    if (pos.x >= vTileSize.x ||
-        pos.y >= vTileSize.y) {
-        discard;
-    }
-
     vec2 cd = vEndCenter - vStartCenter;
-    vec2 pd = pos - vStartCenter;
+    vec2 pd = vPos - vStartCenter;
     float rd = vEndRadius - vStartRadius;
 
     // Solve for t in length(t * cd - pd) = vStartRadius + t * rd

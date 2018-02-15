@@ -9,6 +9,16 @@ varying vec4 vColor;
 varying vec2 vLocalPos;
 
 #ifdef WR_VERTEX_SHADER
+struct GradientStop {
+    vec4 color;
+    vec4 offset;
+};
+
+GradientStop fetch_gradient_stop(int address) {
+    vec4 data[2] = fetch_from_resource_cache_2(address);
+    return GradientStop(data[0], data[1]);
+}
+
 void main(void) {
     Primitive prim = load_primitive();
     Gradient gradient = fetch_gradient(prim.specific_prim_address);
