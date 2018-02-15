@@ -75,6 +75,7 @@ vec4[2] fetch_from_resource_cache_2(int address) {
 #define VECS_PER_PRIM_HEADER        2
 #define VECS_PER_TEXT_RUN           3
 #define VECS_PER_GRADIENT           3
+#define VECS_PER_RADIAL_GRADIENT    2
 #define VECS_PER_GRADIENT_STOP      2
 
 uniform HIGHP_SAMPLER_FLOAT sampler2D sClipScrollNodes;
@@ -313,27 +314,6 @@ struct Gradient {
 Gradient fetch_gradient(int address) {
     vec4 data[3] = fetch_from_resource_cache_3(address);
     return Gradient(data[0], data[1], data[2]);
-}
-
-struct GradientStop {
-    vec4 color;
-    vec4 offset;
-};
-
-GradientStop fetch_gradient_stop(int address) {
-    vec4 data[2] = fetch_from_resource_cache_2(address);
-    return GradientStop(data[0], data[1]);
-}
-
-struct RadialGradient {
-    vec4 start_end_center;
-    vec4 start_end_radius_ratio_xy_extend_mode;
-    vec4 tile_size_repeat;
-};
-
-RadialGradient fetch_radial_gradient(int address) {
-    vec4 data[3] = fetch_from_resource_cache_3(address);
-    return RadialGradient(data[0], data[1], data[2]);
 }
 
 struct Glyph {
