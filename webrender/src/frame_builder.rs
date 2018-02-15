@@ -16,7 +16,7 @@ use clip::{ClipChain, ClipRegion, ClipSource, ClipSources, ClipStore};
 use clip_scroll_node::{ClipScrollNode, NodeType};
 use clip_scroll_tree::{ClipScrollTree, ClipChainIndex};
 use euclid::{SideOffsets2D, vec2};
-use frame::{FrameId, ClipIdToIndexMapper};
+use frame::ClipIdToIndexMapper;
 use glyph_rasterizer::FontInstance;
 use gpu_cache::GpuCache;
 use gpu_types::{ClipChainRectIndex, ClipScrollNodeData, PictureType};
@@ -28,6 +28,7 @@ use prim_store::{ImageCacheKey, ImagePrimitiveCpu, ImageSource, PrimitiveContain
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveRun, PrimitiveStore};
 use prim_store::{ScrollNodeAndClipChain, TextRunPrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
+use render_backend::FrameId;
 use render_task::{ClearMode, RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree};
 use resource_cache::{ImageRequest, ResourceCache};
 use scene::{ScenePipeline, SceneProperties};

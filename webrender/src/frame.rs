@@ -3,35 +3,23 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BuiltDisplayListIter, ClipId, ColorF, ComplexClipRegion, DevicePixelScale};
-use api::{DeviceUintRect, DeviceUintSize, DisplayItemRef, DocumentLayer, Epoch, ExternalScrollId};
-use api::{FilterOp, IframeDisplayItem, ImageDisplayItem, ItemRange, LayerPoint};
-use api::{LayerPrimitiveInfo, LayerRect, LayerSize, LayerVector2D, LayoutSize, PipelineId};
-use api::{ScrollClamping, ScrollEventPhase, ScrollFrameDisplayItem, ScrollLocation};
-use api::{ScrollNodeState, ScrollPolicy, ScrollSensitivity, SpecificDisplayItem, StackingContext};
-use api::{TileOffset, TransformStyle, WorldPoint};
+use api::{BuiltDisplayListIter, ClipId, ColorF, ComplexClipRegion, DeviceUintSize, DisplayItemRef};
+use api::{Epoch, ExternalScrollId, FilterOp, IframeDisplayItem, ImageDisplayItem, ItemRange};
+use api::{LayerPoint, LayerPrimitiveInfo, LayerRect, LayerSize, LayerVector2D, LayoutSize};
+use api::{PipelineId, ScrollFrameDisplayItem, ScrollPolicy, ScrollSensitivity};
+use api::{SpecificDisplayItem, StackingContext, TileOffset, TransformStyle};
 use clip::ClipRegion;
 use clip_scroll_node::StickyFrameInfo;
-use clip_scroll_tree::{ClipChainIndex, ClipScrollTree, ScrollStates};
+use clip_scroll_tree::{ClipChainIndex, ClipScrollTree};
 use euclid::rect;
 use frame_builder::{FrameBuilder, FrameBuilderConfig, ScrollbarInfo};
-use gpu_cache::GpuCache;
-use hit_test::HitTester;
-use internal_types::{FastHashMap, FastHashSet, RenderedDocument};
+use internal_types::{FastHashMap, FastHashSet};
 use prim_store::ScrollNodeAndClipChain;
-use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
-use resource_cache::{FontInstanceMap,ResourceCache, TiledImageMap};
-use scene::{Scene, StackingContextHelpers, ScenePipeline, SceneProperties};
+use resource_cache::{FontInstanceMap, TiledImageMap};
+use scene::{Scene, StackingContextHelpers};
 use scene_builder::{SceneRequest, BuiltScene};
-use std::sync::Arc;
-use tiling::{CompositeOps, Frame};
-use renderer::PipelineInfo;
-
-
-#[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Eq, Ord)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct FrameId(pub u32);
+use tiling::{CompositeOps};
+use render_backend::DocumentView;
 
 static DEFAULT_SCROLLBAR_COLOR: ColorF = ColorF {
     r: 0.3,
@@ -87,7 +75,7 @@ impl ClipIdToIndexMapper {
     }
 }
 
-struct FlattenContext<'a> {
+pub struct FlattenContext<'a> {
     scene: &'a Scene,
     builder: FrameBuilder,
     clip_scroll_tree: &'a mut ClipScrollTree,
@@ -100,6 +88,78 @@ struct FlattenContext<'a> {
 }
 
 impl<'a> FlattenContext<'a> {
+    // When changing this, please make the same modification to build_scene,
+    // which will soon replace this method completely.
+    pub fn create_frame_builder(
+        old_builder: FrameBuilder,
+        scene: &Scene,
+        clip_scroll_tree: &mut ClipScrollTree,
+        font_instances: FontInstanceMap,
+        tiled_image_map: TiledImageMap,
+        view: &DocumentView,
+        output_pipelines: &FastHashSet<PipelineId>,
+        frame_builder_config: &FrameBuilderConfig,
+        pipeline_epochs: &mut FastHashMap<PipelineId, Epoch>,
+    ) -> FrameBuilder {
+        // We checked that the root pipeline is available on the render backend.
+        let root_pipeline_id = scene.root_pipeline_id.unwrap();
+        let root_pipeline = scene.pipelines.get(&root_pipeline_id).unwrap();
+
+        let root_epoch = scene.pipeline_epochs[&root_pipeline_id];
+        pipeline_epochs.insert(root_pipeline_id, root_epoch);
+
+        let background_color = root_pipeline
+            .background_color
+            .and_then(|color| if color.a > 0.0 { Some(color) } else { None });
+
+        let frame_builder = {
+            let mut roller = FlattenContext {
+                scene,
+                builder: old_builder.recycle(
+                    view.inner_rect,
+                    background_color,
+                    view.window_size,
+                    *frame_builder_config,
+                ),
+                clip_scroll_tree,
+                font_instances,
+                tiled_image_map,
+                pipeline_epochs: Vec::new(),
+                replacements: Vec::new(),
+                output_pipelines,
+                id_to_index_mapper: ClipIdToIndexMapper::new(),
+            };
+
+            roller.builder.push_root(
+                root_pipeline_id,
+                &root_pipeline.viewport_size,
+                &root_pipeline.content_size,
+                roller.clip_scroll_tree,
+                &mut roller.id_to_index_mapper,
+            );
+
+            roller.builder.setup_viewport_offset(
+                view.inner_rect,
+                view.accumulated_scale_factor(),
+                roller.clip_scroll_tree,
+            );
+
+            roller.flatten_root(
+                &mut root_pipeline.display_list.iter(),
+                root_pipeline.pipeline_id,
+                &root_pipeline.viewport_size,
+            );
+
+            debug_assert!(roller.builder.picture_stack.is_empty());
+
+            pipeline_epochs.extend(roller.pipeline_epochs.drain(..));
+
+            roller.builder
+        };
+
+        frame_builder
+    }
+
     /// Since WebRender still handles fixed position and reference frame content internally
     /// we need to apply this table of id replacements only to the id that affects the
     /// position of a node. We can eventually remove this when clients start handling
@@ -1009,291 +1069,21 @@ impl<'a> FlattenContext<'a> {
     }
 }
 
-/// Frame context contains the information required to update
-/// (e.g. scroll) a renderer frame builder (`FrameBuilder`).
-pub struct FrameContext {
-    clip_scroll_tree: ClipScrollTree,
-    pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
-    id: FrameId,
-    pub frame_builder_config: FrameBuilderConfig,
-}
-
-impl FrameContext {
-    pub fn new(config: FrameBuilderConfig) -> Self {
-        FrameContext {
-            pipeline_epoch_map: FastHashMap::default(),
-            clip_scroll_tree: ClipScrollTree::new(),
-            id: FrameId(0),
-            frame_builder_config: config,
-        }
-    }
-
-    pub fn reset(&mut self) -> ScrollStates {
-        self.pipeline_epoch_map.clear();
-
-        // Advance to the next frame.
-        self.id.0 += 1;
-
-        self.clip_scroll_tree.drain()
-    }
-
-    pub fn new_async_scene_ready(
-        &mut self,
-        clip_scroll_tree: ClipScrollTree,
-        pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
-    ) {
-        let old_scrolling_states = self.reset();
-        self.clip_scroll_tree = clip_scroll_tree;
-        self.clip_scroll_tree.finalize_and_apply_pending_scroll_offsets(old_scrolling_states);
-        self.pipeline_epoch_map = pipeline_epoch_map;
-    }
-
-    #[cfg(feature = "debugger")]
-    pub fn get_clip_scroll_tree(&self) -> &ClipScrollTree {
-        &self.clip_scroll_tree
-    }
-
-    pub fn get_scroll_node_state(&self) -> Vec<ScrollNodeState> {
-        self.clip_scroll_tree.get_scroll_node_state()
-    }
-
-    /// Returns true if the node actually changed position or false otherwise.
-    pub fn scroll_node(
-        &mut self,
-        origin: LayerPoint,
-        id: ExternalScrollId,
-        clamp: ScrollClamping
-    ) -> bool {
-        self.clip_scroll_tree.scroll_node(origin, id, clamp)
-    }
-
-    /// Returns true if any nodes actually changed position or false otherwise.
-    pub fn scroll(
-        &mut self,
-        scroll_location: ScrollLocation,
-        cursor: WorldPoint,
-        phase: ScrollEventPhase,
-    ) -> bool {
-        self.clip_scroll_tree.scroll(scroll_location, cursor, phase)
-    }
-
-    pub fn tick_scrolling_bounce_animations(&mut self) {
-        self.clip_scroll_tree.tick_scrolling_bounce_animations();
-    }
-
-    pub fn discard_frame_state_for_pipeline(&mut self, pipeline_id: PipelineId) {
-        self.clip_scroll_tree
-            .discard_frame_state_for_pipeline(pipeline_id);
-    }
-
-    // When changing this, please make the same modification to build_scene,
-    // which will soon replace this method completely.
-    pub fn create_frame_builder(
-        &mut self,
-        old_builder: FrameBuilder,
-        scene: &Scene,
-        resource_cache: &mut ResourceCache,
-        window_size: DeviceUintSize,
-        inner_rect: DeviceUintRect,
-        device_pixel_scale: DevicePixelScale,
-        output_pipelines: &FastHashSet<PipelineId>,
-    ) -> FrameBuilder {
-        let root_pipeline_id = match scene.root_pipeline_id {
-            Some(root_pipeline_id) => root_pipeline_id,
-            None => return old_builder,
-        };
-
-        let root_pipeline = match scene.pipelines.get(&root_pipeline_id) {
-            Some(root_pipeline) => root_pipeline,
-            None => return old_builder,
-        };
-
-        if window_size.width == 0 || window_size.height == 0 {
-            error!("ERROR: Invalid window dimensions! Please call api.set_window_size()");
-        }
-
-        let old_scrolling_states = self.reset();
-
-        let root_epoch = scene.pipeline_epochs[&root_pipeline_id];
-        self.pipeline_epoch_map.insert(root_pipeline_id, root_epoch);
-
-
-        let background_color = root_pipeline
-            .background_color
-            .and_then(|color| if color.a > 0.0 { Some(color) } else { None });
-
-        let frame_builder = {
-            let mut roller = FlattenContext {
-                scene,
-                builder: old_builder.recycle(
-                    inner_rect,
-                    background_color,
-                    window_size,
-                    self.frame_builder_config,
-                ),
-                clip_scroll_tree: &mut self.clip_scroll_tree,
-                font_instances: resource_cache.get_font_instances(),
-                tiled_image_map: resource_cache.get_tiled_image_map(),
-                pipeline_epochs: Vec::new(),
-                replacements: Vec::new(),
-                output_pipelines,
-                id_to_index_mapper: ClipIdToIndexMapper::new(),
-            };
-
-            roller.builder.push_root(
-                root_pipeline_id,
-                &root_pipeline.viewport_size,
-                &root_pipeline.content_size,
-                roller.clip_scroll_tree,
-                &mut roller.id_to_index_mapper,
-            );
-
-            roller.builder.setup_viewport_offset(
-                inner_rect,
-                device_pixel_scale,
-                roller.clip_scroll_tree,
-            );
-
-            roller.flatten_root(
-                &mut root_pipeline.display_list.iter(),
-                root_pipeline_id,
-                &root_pipeline.viewport_size,
-            );
-
-            debug_assert!(roller.builder.picture_stack.is_empty());
-
-            self.pipeline_epoch_map.extend(roller.pipeline_epochs.drain(..));
-            roller.builder
-        };
-
-        self.clip_scroll_tree
-            .finalize_and_apply_pending_scroll_offsets(old_scrolling_states);
-
-        frame_builder
-    }
-
-    pub fn update_epoch(&mut self, pipeline_id: PipelineId, epoch: Epoch) {
-        self.pipeline_epoch_map.insert(pipeline_id, epoch);
-    }
-
-    pub fn make_rendered_document(&mut self, frame: Frame, removed_pipelines: Vec<PipelineId>) -> RenderedDocument {
-        let nodes_bouncing_back = self.clip_scroll_tree.collect_nodes_bouncing_back();
-        RenderedDocument::new(
-            PipelineInfo {
-                epochs: self.pipeline_epoch_map.clone(),
-                removed_pipelines,
-            },
-            nodes_bouncing_back,
-            frame
-        )
-    }
-
-    //TODO: this can probably be simplified if `build()` is called directly by RB.
-    // The only things it needs from the frame context is the CST and frame ID.
-    pub fn build_rendered_document(
-        &mut self,
-        frame_builder: &mut FrameBuilder,
-        resource_cache: &mut ResourceCache,
-        gpu_cache: &mut GpuCache,
-        pipelines: &FastHashMap<PipelineId, Arc<ScenePipeline>>,
-        device_pixel_scale: DevicePixelScale,
-        layer: DocumentLayer,
-        pan: WorldPoint,
-        texture_cache_profile: &mut TextureCacheProfileCounters,
-        gpu_cache_profile: &mut GpuCacheProfileCounters,
-        scene_properties: &SceneProperties,
-        removed_pipelines: Vec<PipelineId>,
-    ) -> (HitTester, RenderedDocument) {
-        let frame = frame_builder.build(
-            resource_cache,
-            gpu_cache,
-            self.id,
-            &mut self.clip_scroll_tree,
-            pipelines,
-            device_pixel_scale,
-            layer,
-            pan,
-            texture_cache_profile,
-            gpu_cache_profile,
-            scene_properties,
-        );
-
-        let hit_tester = frame_builder.create_hit_tester(&self.clip_scroll_tree);
-
-        (hit_tester, self.make_rendered_document(frame, removed_pipelines))
-    }
-}
-
-
-pub fn build_scene(
-    config: &FrameBuilderConfig,
-    mut request: SceneRequest,
-) -> BuiltScene {
-    let inner_rect = request.view.inner_rect;
-    let window_size = request.view.window_size;
-    let device_pixel_scale = request.view.accumulated_scale_factor();
-
+pub fn build_scene(config: &FrameBuilderConfig, request: SceneRequest) -> BuiltScene {
     let mut pipeline_epoch_map = FastHashMap::default();
     let mut clip_scroll_tree = ClipScrollTree::new();
 
-    let frame_builder = {
-        // Creating the borrow here brings happiness to the borrow checker.
-        let scene = &mut request.scene;
-        // We checked that the root pipeline is available on the render backend.
-        let root_pipeline_id = scene.root_pipeline_id.unwrap();
-        let root_pipeline = scene.pipelines.get(&root_pipeline_id).unwrap();
-
-        let background_color = root_pipeline
-            .background_color
-            .and_then(|color| if color.a > 0.0 { Some(color) } else { None });
-
-        let root_epoch = scene.pipeline_epochs[&root_pipeline_id];
-        pipeline_epoch_map.insert(root_pipeline_id, root_epoch);
-
-        let mut roller = FlattenContext {
-            scene,
-            // TODO, we're not really recycling anything here, clean this up.
-            builder: FrameBuilder::empty().recycle(
-                inner_rect,
-                background_color,
-                window_size,
-                *config,
-            ),
-            clip_scroll_tree: &mut clip_scroll_tree,
-            font_instances: request.font_instances,
-            tiled_image_map: request.tiled_image_map,
-            pipeline_epochs: Vec::new(),
-            replacements: Vec::new(),
-            output_pipelines: &request.output_pipelines,
-            id_to_index_mapper: ClipIdToIndexMapper::new(),
-        };
-
-        roller.builder.push_root(
-            root_pipeline_id,
-            &root_pipeline.viewport_size,
-            &root_pipeline.content_size,
-            roller.clip_scroll_tree,
-            &mut roller.id_to_index_mapper,
-        );
-
-        roller.builder.setup_viewport_offset(
-            inner_rect,
-            device_pixel_scale,
-            roller.clip_scroll_tree,
-        );
-
-        roller.flatten_root(
-            &mut root_pipeline.display_list.iter(),
-            root_pipeline_id,
-            &root_pipeline.viewport_size,
-        );
-
-        debug_assert!(roller.builder.picture_stack.is_empty());
-
-        pipeline_epoch_map.extend(roller.pipeline_epochs.drain(..));
-
-        roller.builder
-    };
+    let frame_builder = FlattenContext::create_frame_builder(
+        FrameBuilder::empty(), // WIP, we're not really recycling anything here, clean this up.
+        &request.scene,
+        &mut clip_scroll_tree,
+        request.font_instances,
+        request.tiled_image_map,
+        &request.view,
+        &request.output_pipelines,
+        config,
+        &mut pipeline_epoch_map
+    );
 
     BuiltScene {
         scene: request.scene,
