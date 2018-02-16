@@ -8,8 +8,8 @@ use api::{DeviceUintRect, DeviceUintSize, DisplayItemRef, DocumentLayer, Epoch, 
 use api::{FilterOp, IframeDisplayItem, ImageDisplayItem, ItemRange, LayerPoint};
 use api::{LayerPrimitiveInfo, LayerRect, LayerSize, LayerVector2D, LayoutSize, PipelineId};
 use api::{ScrollClamping, ScrollEventPhase, ScrollFrameDisplayItem, ScrollLocation};
-use api::{ScrollNodeIdType, ScrollNodeState, ScrollPolicy, ScrollSensitivity, SpecificDisplayItem};
-use api::{StackingContext, TileOffset, TransformStyle, WorldPoint};
+use api::{ScrollNodeState, ScrollPolicy, ScrollSensitivity, SpecificDisplayItem, StackingContext};
+use api::{TileOffset, TransformStyle, WorldPoint};
 use clip::ClipRegion;
 use clip_scroll_node::StickyFrameInfo;
 use clip_scroll_tree::{ClipChainIndex, ClipScrollTree, ScrollStates};
@@ -1048,7 +1048,7 @@ impl FrameContext {
     pub fn scroll_node(
         &mut self,
         origin: LayerPoint,
-        id: ScrollNodeIdType,
+        id: ExternalScrollId,
         clamp: ScrollClamping
     ) -> bool {
         self.clip_scroll_tree.scroll_node(origin, id, clamp)
