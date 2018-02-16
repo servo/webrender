@@ -601,9 +601,9 @@ impl YuvFormat {
 
     pub fn get_feature_string(&self) -> &'static str {
         match *self {
-            YuvFormat::NV12 => "NV12",
-            YuvFormat::PlanarYCbCr => "",
-            YuvFormat::InterleavedYCbCr => "INTERLEAVED_Y_CB_CR",
+            YuvFormat::NV12 => "YUV_NV12",
+            YuvFormat::PlanarYCbCr => "YUV_PLANAR",
+            YuvFormat::InterleavedYCbCr => "YUV_INTERLEAVED",
         }
     }
 }

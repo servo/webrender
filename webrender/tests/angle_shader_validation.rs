@@ -79,14 +79,14 @@ const SHADERS: &[Shader] = &[
         features: PRIM_FEATURES,
     },
     Shader {
-        name: "ps_yuv_image",
-        features: PRIM_FEATURES,
-    },
-    Shader {
         name: "ps_text_run",
         features: PRIM_FEATURES,
     },
     // Brush shaders
+    Shader {
+        name: "brush_yuv_image",
+        features: &[],
+    },
     Shader {
         name: "brush_mask",
         features: &[],

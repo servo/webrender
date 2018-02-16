@@ -596,6 +596,7 @@ impl RenderTarget for AlphaRenderTarget {
                                             BrushKind::Clear |
                                             BrushKind::Picture |
                                             BrushKind::Line { .. } |
+                                            BrushKind::YuvImage { .. } |
                                             BrushKind::Image { .. } => {
                                                 unreachable!("bug: unexpected brush here");
                                             }

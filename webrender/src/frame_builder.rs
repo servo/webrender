@@ -24,7 +24,7 @@ use gpu_types::{ClipChainRectIndex, ClipScrollNodeData, PictureType};
 use hit_test::{HitTester, HitTestingItem, HitTestingRun};
 use internal_types::{FastHashMap, FastHashSet};
 use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
-use prim_store::{BrushKind, BrushPrimitive, ImageCacheKey, YuvImagePrimitiveCpu};
+use prim_store::{BrushKind, BrushPrimitive, ImageCacheKey};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, ImageSource, PrimitiveKind};
 use prim_store::{PrimitiveContainer, PrimitiveIndex};
 use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
@@ -1586,19 +1586,21 @@ impl FrameBuilder {
             YuvData::InterleavedYCbCr(plane_0) => [plane_0, ImageKey::DUMMY, ImageKey::DUMMY],
         };
 
-        let prim_cpu = YuvImagePrimitiveCpu {
-            yuv_key,
-            format,
-            color_space,
-            image_rendering,
-            gpu_block: [info.rect.size.width, info.rect.size.height, 0.0, 0.0].into(),
-        };
+        let prim = BrushPrimitive::new(
+            BrushKind::YuvImage {
+                yuv_key,
+                format,
+                color_space,
+                image_rendering,
+            },
+            None,
+        );
 
         self.add_primitive(
             clip_and_scroll,
             info,
             Vec::new(),
-            PrimitiveContainer::YuvImage(prim_cpu),
+            PrimitiveContainer::Brush(prim),
         );
     }
 
