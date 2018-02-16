@@ -12,7 +12,7 @@ use clip_scroll_tree::{CoordinateSystemId};
 use euclid::{TypedTransform3D, vec3};
 use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheAddress};
-use gpu_types::{BrushImageKind, BrushInstance, ClipChainRectIndex};
+use gpu_types::{BrushFlags, BrushImageKind, BrushInstance, ClipChainRectIndex};
 use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex};
 use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
@@ -953,6 +953,7 @@ impl AlphaBatchBuilder {
                                     z,
                                     segment_index: 0,
                                     edge_flags: EdgeAaSegmentMask::empty(),
+                                    brush_flags: BrushFlags::PERSPECTIVE_INTERPOLATION,
                                     user_data: [
                                         cache_task_address.0 as i32,
                                         BrushImageKind::Simple as i32,
@@ -1039,6 +1040,7 @@ impl AlphaBatchBuilder {
                                                     z,
                                                     segment_index: 0,
                                                     edge_flags: EdgeAaSegmentMask::empty(),
+                                                    brush_flags: BrushFlags::PERSPECTIVE_INTERPOLATION,
                                                     user_data: [
                                                         cache_task_address.0 as i32,
                                                         BrushImageKind::Simple as i32,
@@ -1116,6 +1118,7 @@ impl AlphaBatchBuilder {
                                                     z,
                                                     segment_index: 0,
                                                     edge_flags: EdgeAaSegmentMask::empty(),
+                                                    brush_flags: BrushFlags::empty(),
                                                     user_data: [
                                                         cache_task_address.0 as i32,
                                                         filter_mode,
@@ -1155,6 +1158,7 @@ impl AlphaBatchBuilder {
                                             z,
                                             segment_index: 0,
                                             edge_flags: EdgeAaSegmentMask::empty(),
+                                            brush_flags: BrushFlags::empty(),
                                             user_data: [
                                                 mode as u32 as i32,
                                                 backdrop_task_address.0 as i32,
@@ -1324,6 +1328,7 @@ impl AlphaBatchBuilder {
             z,
             segment_index: 0,
             edge_flags: EdgeAaSegmentMask::all(),
+            brush_flags: BrushFlags::PERSPECTIVE_INTERPOLATION,
             user_data,
         };
 
