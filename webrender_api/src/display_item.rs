@@ -649,6 +649,22 @@ impl LocalClip {
             ),
         }
     }
+
+    pub fn clip_by(&self, rect: &LayoutRect) -> LocalClip {
+        match *self {
+            LocalClip::Rect(clip_rect) => {
+                LocalClip::Rect(
+                    clip_rect.intersection(rect).unwrap_or(LayoutRect::zero())
+                )
+            }
+            LocalClip::RoundedRect(clip_rect, complex) => {
+                LocalClip::RoundedRect(
+                    clip_rect.intersection(rect).unwrap_or(LayoutRect::zero()),
+                    complex,
+                )
+            }
+        }
+    }
 }
 
 #[repr(C)]
