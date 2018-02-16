@@ -48,8 +48,7 @@ use prim_store::DeferredResolve;
 use profiler::{BackendProfileCounters, FrameProfileCounters, Profiler};
 use profiler::{GpuProfileTag, RendererProfileCounters, RendererProfileTimers};
 use query::{GpuProfiler, GpuTimer};
-use rayon::Configuration as ThreadPoolConfig;
-use rayon::ThreadPool;
+use rayon::{ThreadPool, ThreadPoolBuilder};
 use record::ApiRecordingReceiver;
 use render_backend::RenderBackend;
 use render_task::{RenderTaskKind, RenderTaskTree};
@@ -2227,7 +2226,7 @@ impl Renderer {
             .workers
             .take()
             .unwrap_or_else(|| {
-                let worker_config = ThreadPoolConfig::new()
+                let worker = ThreadPoolBuilder::new()
                     .thread_name(|idx|{ format!("WRWorker#{}", idx) })
                     .start_handler(move |idx| {
                         register_thread_with_profiler(format!("WRWorker#{}", idx));
@@ -2239,8 +2238,9 @@ impl Renderer {
                         if let Some(ref thread_listener) = *thread_listener_for_rayon_end {
                             thread_listener.thread_stopped(&format!("WRWorker#{}", idx));
                         }
-                    });
-                Arc::new(ThreadPool::new(worker_config).unwrap())
+                    })
+                    .build();
+                Arc::new(worker.unwrap())
             });
         let enable_render_on_scroll = options.enable_render_on_scroll;
 
