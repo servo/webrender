@@ -19,15 +19,14 @@ use clip_scroll_tree::ClipScrollTree;
 use euclid::{SideOffsets2D, vec2};
 use frame::FrameId;
 use glyph_rasterizer::FontInstance;
-use gpu_cache::GpuCache;
+use gpu_cache::{GpuCache, GpuCacheHandle};
 use gpu_types::{ClipChainRectIndex, ClipScrollNodeData, PictureType};
 use hit_test::{HitTester, HitTestingItem, HitTestingRun};
 use internal_types::{FastHashMap, FastHashSet};
 use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
 use prim_store::{BrushKind, BrushPrimitive, ImageCacheKey};
 use prim_store::{GradientPrimitiveCpu, ImagePrimitiveCpu, ImageSource, PrimitiveKind};
-use prim_store::{PrimitiveContainer, PrimitiveIndex};
-use prim_store::{PrimitiveStore, RadialGradientPrimitiveCpu};
+use prim_store::{PrimitiveContainer, PrimitiveIndex, PrimitiveStore};
 use prim_store::{BrushSegmentDescriptor, PrimitiveRun, TextRunPrimitiveCpu};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_task::{ClearMode, ClipChain, RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree};
@@ -1302,30 +1301,25 @@ impl FrameBuilder {
         stops: ItemRange<GradientStop>,
         extend_mode: ExtendMode,
     ) {
-        let radial_gradient_cpu = RadialGradientPrimitiveCpu {
-            stops_range: stops,
-            extend_mode,
-            gpu_blocks: [
-                [
-                    start_center.x,
-                    start_center.y,
-                    end_center.x,
-                    end_center.y,
-                ].into(),
-                [
-                    start_radius,
-                    end_radius,
-                    ratio_xy,
-                    pack_as_float(extend_mode as u32),
-                ].into(),
-            ],
-        };
+        let prim = BrushPrimitive::new(
+            BrushKind::RadialGradient {
+                stops_range: stops,
+                extend_mode,
+                stops_handle: GpuCacheHandle::new(),
+                start_center,
+                end_center,
+                start_radius,
+                end_radius,
+                ratio_xy,
+            },
+            None,
+        );
 
         self.add_primitive(
             clip_and_scroll,
             info,
             Vec::new(),
-            PrimitiveContainer::RadialGradient(radial_gradient_cpu),
+            PrimitiveContainer::Brush(prim),
         );
     }
 

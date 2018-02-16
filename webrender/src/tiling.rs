@@ -597,6 +597,7 @@ impl RenderTarget for AlphaRenderTarget {
                                             BrushKind::Picture |
                                             BrushKind::Line { .. } |
                                             BrushKind::YuvImage { .. } |
+                                            BrushKind::RadialGradient { .. } |
                                             BrushKind::Image { .. } => {
                                                 unreachable!("bug: unexpected brush here");
                                             }

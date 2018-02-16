@@ -42,7 +42,6 @@ pub enum TransformBatchKind {
     Image(ImageBufferKind),
     AlignedGradient,
     AngleGradient,
-    RadialGradient,
     BorderCorner,
     BorderEdge,
 }
@@ -80,6 +79,7 @@ pub enum BrushBatchKind {
         backdrop_id: RenderTaskId,
     },
     YuvImage(ImageBufferKind, YuvFormat, YuvColorSpace),
+    RadialGradient,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -1226,15 +1226,6 @@ impl AlphaBatchBuilder {
                 let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
                 batch.push(base_instance.build(0, 0, 0));
             }
-            PrimitiveKind::RadialGradient => {
-                let kind = BatchKind::Transformable(
-                    transform_kind,
-                    TransformBatchKind::RadialGradient,
-                );
-                let key = BatchKey::new(kind, non_segmented_blend_mode, no_textures);
-                let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
-                batch.push(base_instance.build(0, 0, 0));
-            }
         }
     }
 
@@ -1382,6 +1373,17 @@ impl BrushPrimitive {
                     [0; 3],
                 ))
             }
+            BrushKind::RadialGradient { ref stops_handle, .. } => {
+                Some((
+                    BrushBatchKind::RadialGradient,
+                    BatchTextures::no_texture(),
+                    [
+                        stops_handle.as_int(gpu_cache),
+                        0,
+                        0,
+                    ],
+                ))
+            }
             BrushKind::YuvImage { format, yuv_key, image_rendering, color_space } => {
                 let mut textures = BatchTextures::no_texture();
                 let mut uv_rect_addresses = [0; 3];
@@ -1461,7 +1463,6 @@ impl AlphaBatchHelpers for PrimitiveStore {
             PrimitiveKind::Border |
             PrimitiveKind::AlignedGradient |
             PrimitiveKind::AngleGradient |
-            PrimitiveKind::RadialGradient |
             PrimitiveKind::Picture => {
                 BlendMode::PremultipliedAlpha
             }
@@ -1482,6 +1483,7 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     BrushKind::Mask { .. } |
                     BrushKind::Line { .. } |
                     BrushKind::YuvImage { .. } |
+                    BrushKind::RadialGradient { .. } |
                     BrushKind::Picture => {
                         BlendMode::PremultipliedAlpha
                     }
