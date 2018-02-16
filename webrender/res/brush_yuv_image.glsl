@@ -14,7 +14,7 @@
 //           compilations for the different color space matrix below. That
 //           can be provided by a branch in the VS and pushed through the
 //           interpolators, or even as a uniform that breaks batches, rather
-//           that needing to compile / switch to a different shader when
+//           that needing to compile to / select a different shader when
 //           there is a different color space.
 
 #ifdef WR_FEATURE_ALPHA_PASS
@@ -43,12 +43,13 @@ varying vec2 vLocalPos;
 
 #ifdef WR_VERTEX_SHADER
 void write_uv_rect(
-    ImageResource res,
+    int resource_id,
     vec2 f,
     vec2 texture_size,
     out vec3 uv,
     out vec4 uv_bounds
 ) {
+    ImageResource res = fetch_image_resource(resource_id);
     vec2 uv0 = res.uv_rect.p0;
     vec2 uv1 = res.uv_rect.p1;
 
@@ -77,24 +78,15 @@ void brush_vs(
 #endif
 
 #if defined (WR_FEATURE_YUV_PLANAR)
-    ImageResource y_rect = fetch_image_resource(user_data.x);
-    write_uv_rect(y_rect, f, textureSize(sColor0, 0).xy, vUv_Y, vUvBounds_Y);
-
-    ImageResource u_rect = fetch_image_resource(user_data.y);
-    write_uv_rect(u_rect, f, textureSize(sColor1, 0).xy, vUv_U, vUvBounds_U);
-
-    ImageResource v_rect = fetch_image_resource(user_data.z);
-    write_uv_rect(v_rect, f, textureSize(sColor2, 0).xy, vUv_V, vUvBounds_V);
+    write_uv_rect(user_data.x, f, vec2(textureSize(sColor0, 0).xy), vUv_Y, vUvBounds_Y);
+    write_uv_rect(user_data.y, f, vec2(textureSize(sColor1, 0).xy), vUv_U, vUvBounds_U);
+    write_uv_rect(user_data.z, f, vec2(textureSize(sColor2, 0).xy), vUv_V, vUvBounds_V);
 #elif defined (WR_FEATURE_YUV_NV12)
-    ImageResource y_rect = fetch_image_resource(user_data.x);
-    write_uv_rect(y_rect, f, textureSize(sColor0, 0).xy, vUv_Y, vUvBounds_Y);
-
-    ImageResource uv_rect = fetch_image_resource(user_data.y);
-    write_uv_rect(uv_rect, f, textureSize(sColor1, 0).xy, vUv_UV, vUvBounds_UV);
+    write_uv_rect(user_data.x, f, vec2(textureSize(sColor0, 0).xy), vUv_Y, vUvBounds_Y);
+    write_uv_rect(user_data.y, f, vec2(textureSize(sColor1, 0).xy), vUv_UV, vUvBounds_UV);
 #elif defined (WR_FEATURE_YUV_INTERLEAVED)
-    ImageResource yuv_rect = fetch_image_resource(user_data.x);
-    write_uv_rect(yuv_rect, f, textureSize(sColor0, 0).xy, vUv_YUV, vUvBounds_YUV);
-#endif
+    write_uv_rect(user_data.x, f, vec2(textureSize(sColor0, 0).xy), vUv_YUV, vUvBounds_YUV);
+#endif //WR_FEATURE_YUV_*
 }
 #endif
 
