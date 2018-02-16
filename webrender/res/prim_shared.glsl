@@ -75,7 +75,6 @@ vec4[2] fetch_from_resource_cache_2(int address) {
 #define VECS_PER_PRIM_HEADER        2
 #define VECS_PER_TEXT_RUN           3
 #define VECS_PER_GRADIENT           3
-#define VECS_PER_RADIAL_GRADIENT    2
 #define VECS_PER_GRADIENT_STOP      2
 
 uniform HIGHP_SAMPLER_FLOAT sampler2D sClipScrollNodes;
