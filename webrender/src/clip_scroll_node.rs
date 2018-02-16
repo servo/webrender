@@ -2,16 +2,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ClipId, DevicePixelScale, ExternalScrollId, LayerPixel, LayerPoint, LayerRect};
-use api::{LayerSize, LayerVector2D, LayoutTransform, LayoutVector2D, PipelineId, PropertyBinding};
+use api::{DevicePixelScale, ExternalScrollId, LayerPixel, LayerPoint, LayerRect, LayerSize};
+use api::{LayerVector2D, LayoutTransform, LayoutVector2D, PipelineId, PropertyBinding};
 use api::{ScrollClamping, ScrollEventPhase, ScrollLocation, ScrollSensitivity, StickyOffsetBounds};
 use api::WorldPoint;
 use clip::{ClipChain, ClipSourcesHandle, ClipStore, ClipWorkItem};
-use clip_scroll_tree::{ClipChainIndex, CoordinateSystemId, TransformUpdateState};
+use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, CoordinateSystemId};
+use clip_scroll_tree::TransformUpdateState;
 use euclid::SideOffsets2D;
 use geometry::ray_intersects_rect;
 use gpu_cache::GpuCache;
-use gpu_types::{ClipScrollNodeIndex, ClipScrollNodeData};
+use gpu_types::{ClipScrollNodeIndex as GPUClipScrollNodeIndex, ClipScrollNodeData};
 use resource_cache::ResourceCache;
 use scene::SceneProperties;
 use spring::{DAMPING, STIFFNESS, Spring};
@@ -70,6 +71,11 @@ pub enum NodeType {
     /// Sticky positioned is described in the CSS Positioned Layout Module Level 3 here:
     /// https://www.w3.org/TR/css-position-3/#sticky-pos
     StickyFrame(StickyFrameInfo),
+
+    /// An empty node, used to pad the ClipScrollTree's array of nodes so that
+    /// we can immediately use each assigned ClipScrollNodeIndex. After display
+    /// list flattening this node type should never be used.
+    Empty,
 }
 
 impl NodeType {
@@ -101,10 +107,10 @@ pub struct ClipScrollNode {
     pub pipeline_id: PipelineId,
 
     /// Parent layer. If this is None, we are the root node.
-    pub parent: Option<ClipId>,
+    pub parent: Option<ClipScrollNodeIndex>,
 
     /// Child layers
-    pub children: Vec<ClipId>,
+    pub children: Vec<ClipScrollNodeIndex>,
 
     /// The type of this node and any data associated with that node type.
     pub node_type: NodeType,
@@ -124,13 +130,13 @@ pub struct ClipScrollNode {
 
     /// A linear ID / index of this clip-scroll node. Used as a reference to
     /// pass to shaders, to allow them to fetch a given clip-scroll node.
-    pub node_data_index: ClipScrollNodeIndex,
+    pub node_data_index: GPUClipScrollNodeIndex,
 }
 
 impl ClipScrollNode {
     pub fn new(
         pipeline_id: PipelineId,
-        parent_id: Option<ClipId>,
+        parent_index: Option<ClipScrollNodeIndex>,
         rect: &LayerRect,
         node_type: NodeType
     ) -> Self {
@@ -138,20 +144,24 @@ impl ClipScrollNode {
             local_viewport_rect: *rect,
             world_viewport_transform: LayerToWorldFastTransform::identity(),
             world_content_transform: LayerToWorldFastTransform::identity(),
-            parent: parent_id,
+            parent: parent_index,
             children: Vec::new(),
             pipeline_id,
             node_type: node_type,
             invertible: true,
             coordinate_system_id: CoordinateSystemId(0),
             coordinate_system_relative_transform: LayerFastTransform::identity(),
-            node_data_index: ClipScrollNodeIndex(0),
+            node_data_index: GPUClipScrollNodeIndex(0),
         }
+    }
+
+    pub fn empty() -> ClipScrollNode {
+        ClipScrollNode::new(PipelineId::dummy(), None, &LayerRect::zero(), NodeType::Empty)
     }
 
     pub fn new_scroll_frame(
         pipeline_id: PipelineId,
-        parent_id: ClipId,
+        parent_index: ClipScrollNodeIndex,
         external_id: Option<ExternalScrollId>,
         frame_rect: &LayerRect,
         content_size: &LayerSize,
@@ -166,11 +176,11 @@ impl ClipScrollNode {
             external_id,
         ));
 
-        Self::new(pipeline_id, Some(parent_id), frame_rect, node_type)
+        Self::new(pipeline_id, Some(parent_index), frame_rect, node_type)
     }
 
     pub fn new_reference_frame(
-        parent_id: Option<ClipId>,
+        parent_index: Option<ClipScrollNodeIndex>,
         frame_rect: &LayerRect,
         source_transform: Option<PropertyBinding<LayoutTransform>>,
         source_perspective: Option<LayoutTransform>,
@@ -187,21 +197,21 @@ impl ClipScrollNode {
             origin_in_parent_reference_frame,
             invertible: true,
         };
-        Self::new(pipeline_id, parent_id, frame_rect, NodeType::ReferenceFrame(info))
+        Self::new(pipeline_id, parent_index, frame_rect, NodeType::ReferenceFrame(info))
     }
 
     pub fn new_sticky_frame(
-        parent_id: ClipId,
+        parent_index: ClipScrollNodeIndex,
         frame_rect: LayerRect,
         sticky_frame_info: StickyFrameInfo,
         pipeline_id: PipelineId,
     ) -> Self {
         let node_type = NodeType::StickyFrame(sticky_frame_info);
-        Self::new(pipeline_id, Some(parent_id), &frame_rect, node_type)
+        Self::new(pipeline_id, Some(parent_index), &frame_rect, node_type)
     }
 
 
-    pub fn add_child(&mut self, child: ClipId) {
+    pub fn add_child(&mut self, child: ClipScrollNodeIndex) {
         self.children.push(child);
     }
 
@@ -621,6 +631,7 @@ impl ClipScrollNode {
                 state.parent_accumulated_scroll_offset =
                     info.current_offset + state.parent_accumulated_scroll_offset;
             }
+            NodeType::Empty => unreachable!("Empty node remaining in ClipScrollTree."),
         }
     }
 

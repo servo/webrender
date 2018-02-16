@@ -2,10 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BoxShadowClipMode, ClipId, ColorF, DeviceIntPoint, DeviceIntRect, FilterOp, LayerPoint};
+use api::{BoxShadowClipMode, ColorF, DeviceIntPoint, DeviceIntRect, FilterOp, LayerPoint};
 use api::{LayerRect, LayerToWorldScale, LayerVector2D, MixBlendMode, PipelineId};
 use api::{PremultipliedColorF, Shadow};
 use box_shadow::{BLUR_SAMPLE_SCALE, BoxShadowCacheKey};
+use clip_scroll_tree::ClipScrollNodeIndex;
 use frame_builder::{FrameContext, FrameState, PictureState};
 use gpu_cache::{GpuCacheHandle, GpuDataRequest};
 use gpu_types::{BrushImageKind, PictureType};
@@ -86,7 +87,7 @@ pub enum PictureKind {
         // The original reference frame ID for this picture.
         // It is only different if this is part of a 3D
         // rendering context.
-        reference_frame_id: ClipId,
+        reference_frame_index: ClipScrollNodeIndex,
         real_local_rect: LayerRect,
         // An optional cache handle for storing extra data
         // in the GPU cache, depending on the type of
@@ -208,7 +209,7 @@ impl PicturePrimitive {
         composite_mode: Option<PictureCompositeMode>,
         is_in_3d_context: bool,
         pipeline_id: PipelineId,
-        reference_frame_id: ClipId,
+        reference_frame_index: ClipScrollNodeIndex,
         frame_output_pipeline_id: Option<PipelineId>,
     ) -> Self {
         PicturePrimitive {
@@ -219,7 +220,7 @@ impl PicturePrimitive {
                 composite_mode,
                 is_in_3d_context,
                 frame_output_pipeline_id,
-                reference_frame_id,
+                reference_frame_index,
                 real_local_rect: LayerRect::zero(),
                 extra_gpu_data_handle: GpuCacheHandle::new(),
             },
