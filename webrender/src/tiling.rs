@@ -2,17 +2,16 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ClipId, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use api::{DevicePixelScale, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
-use api::{DocumentLayer, FilterOp, ImageFormat};
-use api::{LayerRect, MixBlendMode, PipelineId};
+use api::{ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixelScale, DeviceUintPoint};
+use api::{DeviceUintRect, DeviceUintSize, DocumentLayer, FilterOp, ImageFormat, LayerRect};
+use api::{MixBlendMode, PipelineId};
 use batch::{AlphaBatchBuilder, AlphaBatchContainer, ClipBatcher, resolve_image};
 use clip::{ClipStore};
-use clip_scroll_tree::{ClipScrollTree};
+use clip_scroll_tree::{ClipScrollTree, ClipScrollNodeIndex};
 use device::{FrameId, Texture};
 use gpu_cache::{GpuCache};
 use gpu_types::{BlurDirection, BlurInstance, BrushFlags, BrushInstance, ClipChainRectIndex};
-use gpu_types::{ClipScrollNodeData, ClipScrollNodeIndex};
+use gpu_types::{ClipScrollNodeData, ClipScrollNodeIndex as GPUClipScrollNodeIndex};
 use gpu_types::{PrimitiveInstance};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::{PictureKind};
@@ -29,7 +28,7 @@ const MIN_TARGET_SIZE: u32 = 2048;
 
 #[derive(Debug)]
 pub struct ScrollbarPrimitive {
-    pub clip_id: ClipId,
+    pub scroll_frame_index: ClipScrollNodeIndex,
     pub prim_index: PrimitiveIndex,
     pub frame_rect: LayerRect,
 }
@@ -583,7 +582,7 @@ impl RenderTarget for AlphaRenderTarget {
                                             //           transform primitives, these
                                             //           will need to be filled out!
                                             clip_chain_rect_index: ClipChainRectIndex(0),
-                                            scroll_id: ClipScrollNodeIndex(0),
+                                            scroll_id: GPUClipScrollNodeIndex(0),
                                             clip_task_address: RenderTaskAddress(0),
                                             z: 0,
                                             segment_index: 0,
