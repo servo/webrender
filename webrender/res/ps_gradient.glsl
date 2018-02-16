@@ -83,7 +83,8 @@ void main(void) {
                                            vec4(1.0),
                                            prim.z,
                                            prim.scroll_node,
-                                           prim.task);
+                                           prim.task,
+                                           true);
     vLocalPos = vi.local_pos;
     vec2 f = (vi.local_pos.xy - prim.local_rect.p0) / prim.local_rect.size;
 #else

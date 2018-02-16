@@ -11,7 +11,7 @@ use clip::{ClipStore};
 use clip_scroll_tree::{ClipScrollTree};
 use device::{FrameId, Texture};
 use gpu_cache::{GpuCache};
-use gpu_types::{BlurDirection, BlurInstance, BrushInstance, ClipChainRectIndex};
+use gpu_types::{BlurDirection, BlurInstance, BrushFlags, BrushInstance, ClipChainRectIndex};
 use gpu_types::{ClipScrollNodeData, ClipScrollNodeIndex};
 use gpu_types::{PrimitiveInstance};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
@@ -587,6 +587,7 @@ impl RenderTarget for AlphaRenderTarget {
                                             clip_task_address: RenderTaskAddress(0),
                                             z: 0,
                                             segment_index: 0,
+                                            brush_flags: BrushFlags::PERSPECTIVE_INTERPOLATION,
                                             edge_flags: EdgeAaSegmentMask::empty(),
                                             user_data: [0; 3],
                                         };
