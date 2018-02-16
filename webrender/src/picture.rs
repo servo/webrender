@@ -2,15 +2,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorF, ClipAndScrollInfo, FilterOp, MixBlendMode};
-use api::{DeviceIntPoint, DeviceIntRect, LayerToWorldScale, PipelineId};
-use api::{BoxShadowClipMode, LayerPoint, LayerRect, LayerVector2D, Shadow};
-use api::{ClipId, PremultipliedColorF};
+use api::{BoxShadowClipMode, ClipId, ColorF, DeviceIntPoint, DeviceIntRect, FilterOp, LayerPoint};
+use api::{LayerRect, LayerToWorldScale, LayerVector2D, MixBlendMode, PipelineId};
+use api::{PremultipliedColorF, Shadow};
 use box_shadow::{BLUR_SAMPLE_SCALE, BoxShadowCacheKey};
 use frame_builder::{FrameContext, FrameState, PictureState};
 use gpu_cache::GpuDataRequest;
 use gpu_types::{BrushImageKind, PictureType};
 use prim_store::{BrushKind, BrushPrimitive, PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
+use prim_store::ScrollNodeAndClipChain;
 use render_task::{ClearMode, RenderTask, RenderTaskCacheKey};
 use render_task::{RenderTaskCacheKeyKind, RenderTaskId, RenderTaskLocation};
 use resource_cache::CacheItem;
@@ -230,7 +230,7 @@ impl PicturePrimitive {
     pub fn add_primitive(
         &mut self,
         prim_index: PrimitiveIndex,
-        clip_and_scroll: ClipAndScrollInfo
+        clip_and_scroll: ScrollNodeAndClipChain
     ) {
         if let Some(ref mut run) = self.runs.last_mut() {
             if run.clip_and_scroll == clip_and_scroll &&
