@@ -486,7 +486,7 @@ impl AlphaBatchBuilder {
 
         // Add each run in this picture to the batch.
         for run in &pic.runs {
-            let scroll_node = &ctx.clip_scroll_tree.nodes[&run.clip_and_scroll.scroll_node_id];
+            let scroll_node = &ctx.clip_scroll_tree.nodes[run.clip_and_scroll.scroll_node_id.0];
             let scroll_id = scroll_node.node_data_index;
             self.add_run_to_batch(
                 run,
@@ -967,7 +967,7 @@ impl AlphaBatchBuilder {
                                 composite_mode,
                                 secondary_render_task_id,
                                 is_in_3d_context,
-                                reference_frame_id,
+                                reference_frame_index,
                                 real_local_rect,
                                 ref extra_gpu_data_handle,
                                 ..
@@ -979,7 +979,7 @@ impl AlphaBatchBuilder {
                                     // Push into parent plane splitter.
 
                                     let real_xf = &ctx.clip_scroll_tree
-                                        .nodes[&reference_frame_id]
+                                        .nodes[reference_frame_index.0]
                                         .world_content_transform
                                         .into();
                                     let polygon = make_polygon(
