@@ -37,3 +37,9 @@ root:
             - bounds: [150, 150, 128, 128]
               image: checkerboard(4, 15, 8)
               stretch-size: 128 128
+
+            - type: radial-gradient
+              bounds: 300 150 100 100
+              center: 50 50
+              radius: 50 50
+              stops: [0, red, 1, blue]
