@@ -1246,17 +1246,6 @@ impl FrameBuilder {
         tile_spacing: LayerSize,
     ) {
         let tile_repeat = tile_size + tile_spacing;
-        let is_not_tiled = tile_repeat.width >= info.rect.size.width &&
-            tile_repeat.height >= info.rect.size.height;
-
-        let aligned_and_fills_rect = (start_point.x == end_point.x &&
-            start_point.y.min(end_point.y) <= 0.0 &&
-            start_point.y.max(end_point.y) >= info.rect.size.height) ||
-            (start_point.y == end_point.y && start_point.x.min(end_point.x) <= 0.0 &&
-                start_point.x.max(end_point.x) >= info.rect.size.width);
-
-        // Fast path for clamped, axis-aligned gradients, with gradient lines intersecting all of rect:
-        let aligned = extend_mode == ExtendMode::Clamp && is_not_tiled && aligned_and_fills_rect;
 
         // Try to ensure that if the gradient is specified in reverse, then so long as the stops
         // are also supplied in reverse that the rendered result will be equivalent. To do this,
@@ -1264,9 +1253,8 @@ impl FrameBuilder {
         // just designate the reference orientation as start < end. Aligned gradient rendering
         // manages to produce the same result regardless of orientation, so don't worry about
         // reversing in that case.
-        let reverse_stops = !aligned &&
-            (start_point.x > end_point.x ||
-                (start_point.x == end_point.x && start_point.y > end_point.y));
+        let reverse_stops = start_point.x > end_point.x ||
+            (start_point.x == end_point.x && start_point.y > end_point.y);
 
         // To get reftests exactly matching with reverse start/end
         // points, it's necessary to reverse the gradient
@@ -1294,11 +1282,7 @@ impl FrameBuilder {
             ],
         };
 
-        let prim = if aligned {
-            PrimitiveContainer::AlignedGradient(gradient_cpu)
-        } else {
-            PrimitiveContainer::AngleGradient(gradient_cpu)
-        };
+        let prim = PrimitiveContainer::AngleGradient(gradient_cpu);
 
         self.add_primitive(clip_and_scroll, info, Vec::new(), prim);
     }

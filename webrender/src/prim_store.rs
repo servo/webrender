@@ -69,10 +69,6 @@ impl PrimitiveOpacity {
             is_opaque: alpha == 1.0,
         }
     }
-
-    pub fn accumulate(&mut self, alpha: f32) {
-        self.is_opaque = self.is_opaque && alpha == 1.0;
-    }
 }
 
 // Represents the local space rect of a list of
@@ -124,7 +120,6 @@ pub enum PrimitiveKind {
     TextRun,
     Image,
     Border,
-    AlignedGradient,
     AngleGradient,
     Picture,
     Brush,
@@ -442,24 +437,6 @@ pub struct GradientPrimitiveCpu {
 }
 
 impl GradientPrimitiveCpu {
-    fn build_gpu_blocks_for_aligned(
-        &self,
-        display_list: &BuiltDisplayList,
-        mut request: GpuDataRequest,
-    ) -> PrimitiveOpacity {
-        let mut opacity = PrimitiveOpacity::opaque();
-        request.extend_from_slice(&self.gpu_blocks);
-        let src_stops = display_list.get(self.stops_range);
-
-        for src in src_stops {
-            request.push(src.color.premultiplied());
-            request.push([src.offset, 0.0, 0.0, 0.0]);
-            opacity.accumulate(src.color.a);
-        }
-
-        opacity
-    }
-
     fn build_gpu_blocks_for_angle_radial(
         &self,
         display_list: &BuiltDisplayList,
@@ -937,7 +914,6 @@ pub enum PrimitiveContainer {
     TextRun(TextRunPrimitiveCpu),
     Image(ImagePrimitiveCpu),
     Border(BorderPrimitiveCpu),
-    AlignedGradient(GradientPrimitiveCpu),
     AngleGradient(GradientPrimitiveCpu),
     Picture(PicturePrimitive),
     Brush(BrushPrimitive),
@@ -1075,17 +1051,6 @@ impl PrimitiveStore {
                 };
 
                 self.cpu_borders.push(border_cpu);
-                metadata
-            }
-            PrimitiveContainer::AlignedGradient(gradient_cpu) => {
-                let metadata = PrimitiveMetadata {
-                    opacity: PrimitiveOpacity::translucent(),
-                    prim_kind: PrimitiveKind::AlignedGradient,
-                    cpu_prim_index: SpecificPrimitiveIndex(self.cpu_gradients.len()),
-                    ..base_metadata
-                };
-
-                self.cpu_gradients.push(gradient_cpu);
                 metadata
             }
             PrimitiveContainer::AngleGradient(gradient_cpu) => {
@@ -1323,7 +1288,6 @@ impl PrimitiveStore {
                     BrushKind::Picture { .. } => {}
                 }
             }
-            PrimitiveKind::AlignedGradient |
             PrimitiveKind::AngleGradient => {}
         }
 
@@ -1341,13 +1305,6 @@ impl PrimitiveStore {
                 PrimitiveKind::Image => {
                     let image = &self.cpu_images[metadata.cpu_prim_index.0];
                     image.write_gpu_blocks(request);
-                }
-                PrimitiveKind::AlignedGradient => {
-                    let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];
-                    metadata.opacity = gradient.build_gpu_blocks_for_aligned(
-                        pic_context.display_list,
-                        request,
-                    );
                 }
                 PrimitiveKind::AngleGradient => {
                     let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];

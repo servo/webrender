@@ -151,10 +151,6 @@ const GPU_TAG_PRIM_TEXT_RUN: GpuProfileTag = GpuProfileTag {
     label: "TextRun",
     color: debug_colors::BLUE,
 };
-const GPU_TAG_PRIM_GRADIENT: GpuProfileTag = GpuProfileTag {
-    label: "Gradient",
-    color: debug_colors::YELLOW,
-};
 const GPU_TAG_PRIM_ANGLE_GRADIENT: GpuProfileTag = GpuProfileTag {
     label: "AngleGradient",
     color: debug_colors::POWDERBLUE,
@@ -200,7 +196,6 @@ impl TransformBatchKind {
                 ImageBufferKind::TextureExternal => "Image (External)",
                 ImageBufferKind::Texture2DArray => "Image (Array)",
             },
-            TransformBatchKind::AlignedGradient => "AlignedGradient",
             TransformBatchKind::AngleGradient => "AngleGradient",
             TransformBatchKind::BorderCorner => "BorderCorner",
             TransformBatchKind::BorderEdge => "BorderEdge",
@@ -213,7 +208,6 @@ impl TransformBatchKind {
             TransformBatchKind::Image(..) => GPU_TAG_PRIM_IMAGE,
             TransformBatchKind::BorderCorner => GPU_TAG_PRIM_BORDER_CORNER,
             TransformBatchKind::BorderEdge => GPU_TAG_PRIM_BORDER_EDGE,
-            TransformBatchKind::AlignedGradient => GPU_TAG_PRIM_GRADIENT,
             TransformBatchKind::AngleGradient => GPU_TAG_PRIM_ANGLE_GRADIENT,
         }
     }
@@ -1638,7 +1632,6 @@ pub struct Renderer {
     ps_image: Vec<Option<PrimitiveShader>>,
     ps_border_corner: PrimitiveShader,
     ps_border_edge: PrimitiveShader,
-    ps_gradient: PrimitiveShader,
     ps_angle_gradient: PrimitiveShader,
 
     ps_hw_composite: LazilyCompiledShader,
@@ -2030,17 +2023,6 @@ impl Renderer {
                                  options.precache_shaders)
         };
 
-        let ps_gradient = try!{
-            PrimitiveShader::new("ps_gradient",
-                                 &mut device,
-                                 if options.enable_dithering {
-                                    &dithering_feature
-                                 } else {
-                                    &[]
-                                 },
-                                 options.precache_shaders)
-        };
-
         let ps_angle_gradient = try!{
             PrimitiveShader::new("ps_angle_gradient",
                                  &mut device,
@@ -2311,7 +2293,6 @@ impl Renderer {
             ps_image,
             ps_border_corner,
             ps_border_edge,
-            ps_gradient,
             ps_angle_gradient,
             ps_hw_composite,
             ps_split_composite,
@@ -3315,15 +3296,6 @@ impl Renderer {
                 }
                 TransformBatchKind::BorderEdge => {
                     self.ps_border_edge.bind(
-                        &mut self.device,
-                        transform_kind,
-                        projection,
-                        0,
-                        &mut self.renderer_errors,
-                    );
-                }
-                TransformBatchKind::AlignedGradient => {
-                    self.ps_gradient.bind(
                         &mut self.device,
                         transform_kind,
                         projection,
@@ -4766,7 +4738,6 @@ impl Renderer {
         }
         self.ps_border_corner.deinit(&mut self.device);
         self.ps_border_edge.deinit(&mut self.device);
-        self.ps_gradient.deinit(&mut self.device);
         self.ps_angle_gradient.deinit(&mut self.device);
         self.ps_hw_composite.deinit(&mut self.device);
         self.ps_split_composite.deinit(&mut self.device);

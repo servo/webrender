@@ -38,7 +38,6 @@ const OPAQUE_TASK_ADDRESS: RenderTaskAddress = RenderTaskAddress(0x7fff);
 pub enum TransformBatchKind {
     TextRun(GlyphFormat),
     Image(ImageBufferKind),
-    AlignedGradient,
     AngleGradient,
     BorderCorner,
     BorderEdge,
@@ -1211,19 +1210,6 @@ impl AlphaBatchBuilder {
                     }
                 }
             }
-            PrimitiveKind::AlignedGradient => {
-                let gradient_cpu =
-                    &ctx.prim_store.cpu_gradients[prim_metadata.cpu_prim_index.0];
-                let kind = BatchKind::Transformable(
-                    transform_kind,
-                    TransformBatchKind::AlignedGradient,
-                );
-                let key = BatchKey::new(kind, non_segmented_blend_mode, no_textures);
-                let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
-                for part_index in 0 .. (gradient_cpu.stops_count - 1) {
-                    batch.push(base_instance.build(part_index as i32, 0, 0));
-                }
-            }
             PrimitiveKind::AngleGradient => {
                 let kind = BatchKind::Transformable(
                     transform_kind,
@@ -1469,7 +1455,6 @@ impl AlphaBatchHelpers for PrimitiveStore {
             }
 
             PrimitiveKind::Border |
-            PrimitiveKind::AlignedGradient |
             PrimitiveKind::AngleGradient |
             PrimitiveKind::Picture => {
                 BlendMode::PremultipliedAlpha

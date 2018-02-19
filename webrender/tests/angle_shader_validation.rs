@@ -55,10 +55,6 @@ const SHADERS: &[Shader] = &[
         features: PRIM_FEATURES,
     },
     Shader {
-        name: "ps_gradient",
-        features: PRIM_FEATURES,
-    },
-    Shader {
         name: "ps_angle_gradient",
         features: PRIM_FEATURES,
     },
