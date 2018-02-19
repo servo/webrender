@@ -24,7 +24,7 @@ use gpu_types::{ClipChainRectIndex, ClipScrollNodeData, PictureType};
 use hit_test::{HitTester, HitTestingItem, HitTestingRun};
 use internal_types::{FastHashMap, FastHashSet};
 use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
-use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor, GradientPrimitiveCpu};
+use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor};
 use prim_store::{ImageCacheKey, ImagePrimitiveCpu, ImageSource, PrimitiveContainer};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveRun, PrimitiveStore};
 use prim_store::{ScrollNodeAndClipChain, TextRunPrimitiveCpu};
@@ -1264,16 +1264,20 @@ impl FrameBuilder {
             (start_point, end_point)
         };
 
-        let gradient_cpu = GradientPrimitiveCpu {
-            stops_range: stops,
-            stops_count,
-            extend_mode,
-            reverse_stops,
-            start_point: sp,
-            end_point: ep,
-        };
+        let prim = BrushPrimitive::new(
+            BrushKind::LinearGradient {
+                stops_handle: GpuCacheHandle::new(),
+                stops_range: stops,
+                stops_count,
+                extend_mode,
+                reverse_stops,
+                start_point: sp,
+                end_point: ep,
+            },
+            None,
+        );
 
-        let prim = PrimitiveContainer::AngleGradient(gradient_cpu);
+        let prim = PrimitiveContainer::Brush(prim);
 
         self.add_primitive(clip_and_scroll, info, Vec::new(), prim);
     }

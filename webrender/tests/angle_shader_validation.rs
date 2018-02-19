@@ -55,10 +55,6 @@ const SHADERS: &[Shader] = &[
         features: PRIM_FEATURES,
     },
     Shader {
-        name: "ps_angle_gradient",
-        features: PRIM_FEATURES,
-    },
-    Shader {
         name: "ps_hardware_composite",
         features: PRIM_FEATURES,
     },
@@ -105,6 +101,10 @@ const SHADERS: &[Shader] = &[
     },
     Shader {
         name: "brush_radial_gradient",
+        features: &[],
+    },
+    Shader {
+        name: "brush_linear_gradient",
         features: &[],
     },
 ];
