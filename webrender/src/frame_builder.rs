@@ -36,7 +36,6 @@ use tiling::{CompositeOps, Frame, RenderPass, RenderTargetKind};
 use tiling::{RenderPassKind, RenderTargetContext, ScrollbarPrimitive};
 use util::{self, MaxRect, RectHelpers, WorldToLayerFastTransform, pack_as_float, recycle_vec};
 
-
 #[derive(Debug)]
 pub struct ScrollbarInfo(pub ClipId, pub LayerRect);
 
@@ -1233,7 +1232,7 @@ impl FrameBuilder {
         }
     }
 
-    pub fn add_gradient(
+    pub fn add_gradient_impl(
         &mut self,
         clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayerPrimitiveInfo,
@@ -1242,11 +1241,7 @@ impl FrameBuilder {
         stops: ItemRange<GradientStop>,
         stops_count: usize,
         extend_mode: ExtendMode,
-        tile_size: LayerSize,
-        tile_spacing: LayerSize,
     ) {
-        let tile_repeat = tile_size + tile_spacing;
-
         // Try to ensure that if the gradient is specified in reverse, then so long as the stops
         // are also supplied in reverse that the rendered result will be equivalent. To do this,
         // a reference orientation for the gradient line must be chosen, somewhat arbitrarily, so
@@ -1270,21 +1265,56 @@ impl FrameBuilder {
             stops_count,
             extend_mode,
             reverse_stops,
-            gpu_blocks: [
-                [sp.x, sp.y, ep.x, ep.y].into(),
-                [
-                    tile_size.width,
-                    tile_size.height,
-                    tile_repeat.width,
-                    tile_repeat.height,
-                ].into(),
-                [pack_as_float(extend_mode as u32), 0.0, 0.0, 0.0].into(),
-            ],
+            start_point: sp,
+            end_point: ep,
         };
 
         let prim = PrimitiveContainer::AngleGradient(gradient_cpu);
 
         self.add_primitive(clip_and_scroll, info, Vec::new(), prim);
+    }
+
+    pub fn add_gradient(
+        &mut self,
+        clip_and_scroll: ScrollNodeAndClipChain,
+        info: &LayerPrimitiveInfo,
+        start_point: LayerPoint,
+        end_point: LayerPoint,
+        stops: ItemRange<GradientStop>,
+        stops_count: usize,
+        extend_mode: ExtendMode,
+        tile_size: LayerSize,
+        tile_spacing: LayerSize,
+    ) {
+        let prim_infos = info.decompose(
+            tile_size,
+            tile_spacing,
+            64 * 64,
+        );
+
+        if prim_infos.is_empty() {
+            self.add_gradient_impl(
+                clip_and_scroll,
+                info,
+                start_point,
+                end_point,
+                stops,
+                stops_count,
+                extend_mode,
+            );
+        } else {
+            for prim_info in prim_infos {
+                self.add_gradient_impl(
+                    clip_and_scroll,
+                    &prim_info,
+                    start_point,
+                    end_point,
+                    stops,
+                    stops_count,
+                    extend_mode,
+                );
+            }
+        }
     }
 
     fn add_radial_gradient_impl(

@@ -10,12 +10,22 @@ flat varying float vGradientRepeat;
 flat varying vec2 vScaledDir;
 flat varying vec2 vStartPoint;
 
-flat varying vec2 vTileSize;
-flat varying vec2 vTileRepeat;
-
 varying vec2 vPos;
 
 #ifdef WR_VERTEX_SHADER
+
+#define VECS_PER_GRADIENT           2
+
+struct Gradient {
+    vec4 start_end_point;
+    vec4 extend_mode;
+};
+
+Gradient fetch_gradient(int address) {
+    vec4 data[2] = fetch_from_resource_cache_2(address);
+    return Gradient(data[0], data[1]);
+}
+
 void main(void) {
     Primitive prim = load_primitive();
     Gradient gradient = fetch_gradient(prim.specific_prim_address);
@@ -36,9 +46,6 @@ void main(void) {
     vStartPoint = start_point;
     vScaledDir = dir / dot(dir, dir);
 
-    vTileSize = gradient.tile_size_repeat.xy;
-    vTileRepeat = gradient.tile_size_repeat.zw;
-
     vGradientAddress = prim.specific_prim_address + VECS_PER_GRADIENT;
 
     // Whether to repeat the gradient instead of clamping.
@@ -50,14 +57,7 @@ void main(void) {
 
 #ifdef WR_FRAGMENT_SHADER
 void main(void) {
-    vec2 pos = mod(vPos, vTileRepeat);
-
-    if (pos.x >= vTileSize.x ||
-        pos.y >= vTileSize.y) {
-        discard;
-    }
-
-    float offset = dot(pos - vStartPoint, vScaledDir);
+    float offset = dot(vPos - vStartPoint, vScaledDir);
 
     vec4 color = sample_gradient(vGradientAddress,
                                  offset,
