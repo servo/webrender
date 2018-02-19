@@ -74,7 +74,6 @@ vec4[2] fetch_from_resource_cache_2(int address) {
 #define VECS_PER_RENDER_TASK        3
 #define VECS_PER_PRIM_HEADER        2
 #define VECS_PER_TEXT_RUN           3
-#define VECS_PER_GRADIENT           3
 #define VECS_PER_GRADIENT_STOP      2
 
 uniform HIGHP_SAMPLER_FLOAT sampler2D sClipScrollNodes;
@@ -302,17 +301,6 @@ ClipArea fetch_clip_area(int index) {
     }
 
     return area;
-}
-
-struct Gradient {
-    vec4 start_end_point;
-    vec4 tile_size_repeat;
-    vec4 extend_mode;
-};
-
-Gradient fetch_gradient(int address) {
-    vec4 data[3] = fetch_from_resource_cache_3(address);
-    return Gradient(data[0], data[1], data[2]);
 }
 
 struct Glyph {

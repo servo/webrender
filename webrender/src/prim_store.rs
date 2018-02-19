@@ -433,7 +433,8 @@ pub struct GradientPrimitiveCpu {
     pub stops_count: usize,
     pub extend_mode: ExtendMode,
     pub reverse_stops: bool,
-    pub gpu_blocks: [GpuBlockData; 3],
+    pub start_point: LayerPoint,
+    pub end_point: LayerPoint,
 }
 
 impl GradientPrimitiveCpu {
@@ -442,7 +443,18 @@ impl GradientPrimitiveCpu {
         display_list: &BuiltDisplayList,
         mut request: GpuDataRequest,
     ) {
-        request.extend_from_slice(&self.gpu_blocks);
+        request.push([
+            self.start_point.x,
+            self.start_point.y,
+            self.end_point.x,
+            self.end_point.y,
+        ]);
+        request.push([
+            pack_as_float(self.extend_mode as u32),
+            0.0,
+            0.0,
+            0.0,
+        ]);
 
         let gradient_builder = GradientGpuBlockBuilder::new(self.stops_range, display_list);
         gradient_builder.build(self.reverse_stops, &mut request);
