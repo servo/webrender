@@ -969,6 +969,7 @@ impl AlphaBatchBuilder {
                                 is_in_3d_context,
                                 reference_frame_id,
                                 real_local_rect,
+                                ref extra_gpu_data_handle,
                                 ..
                             } => {
                                 // If this picture is participating in a 3D rendering context,
@@ -1093,18 +1094,20 @@ impl AlphaBatchBuilder {
                                                     BatchTextures::render_target_cache(),
                                                 );
 
-                                                let filter_mode = match filter {
-                                                    FilterOp::Blur(..) => 0,
-                                                    FilterOp::Contrast(..) => 1,
-                                                    FilterOp::Grayscale(..) => 2,
-                                                    FilterOp::HueRotate(..) => 3,
-                                                    FilterOp::Invert(..) => 4,
-                                                    FilterOp::Saturate(..) => 5,
-                                                    FilterOp::Sepia(..) => 6,
-                                                    FilterOp::Brightness(..) => 7,
-                                                    FilterOp::Opacity(..) => 8,
-                                                    FilterOp::DropShadow(..) => 9,
-                                                    FilterOp::ColorMatrix(..) => 10,
+                                                let (filter_mode, extra_cache_address) = match filter {
+                                                    FilterOp::Blur(..) => (0, 0),
+                                                    FilterOp::Contrast(..) => (1, 0),
+                                                    FilterOp::Grayscale(..) => (2, 0),
+                                                    FilterOp::HueRotate(..) => (3, 0),
+                                                    FilterOp::Invert(..) => (4, 0),
+                                                    FilterOp::Saturate(..) => (5, 0),
+                                                    FilterOp::Sepia(..) => (6, 0),
+                                                    FilterOp::Brightness(..) => (7, 0),
+                                                    FilterOp::Opacity(..) => (8, 0),
+                                                    FilterOp::DropShadow(..) => (9, 0),
+                                                    FilterOp::ColorMatrix(..) => {
+                                                        (10, extra_gpu_data_handle.as_int(gpu_cache))
+                                                    }
                                                 };
 
                                                 let instance = BrushInstance {
@@ -1120,7 +1123,7 @@ impl AlphaBatchBuilder {
                                                     user_data: [
                                                         cache_task_address.0 as i32,
                                                         filter_mode,
-                                                        0,
+                                                        extra_cache_address,
                                                     ],
                                                 };
 
