@@ -6,7 +6,7 @@ use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipId, ClipMode, ColorF, C
 use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, FontRenderMode};
 use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
-use api::{LineStyle, PremultipliedColorF, WorldToLayerTransform, YuvColorSpace, YuvFormat};
+use api::{LineStyle, PremultipliedColorF, YuvColorSpace, YuvFormat};
 use border::{BorderCornerInstance, BorderEdgeKind};
 use clip_scroll_tree::{ClipChainIndex, CoordinateSystemId};
 use clip_scroll_node::ClipScrollNode;
@@ -25,7 +25,8 @@ use resource_cache::{CacheItem, ImageProperties, ImageRequest, ResourceCache};
 use segment::SegmentBuilder;
 use std::{mem, usize};
 use std::rc::Rc;
-use util::{MatrixHelpers, calculate_screen_bounding_rect, pack_as_float};
+use util::{LayerToWorldTransformOrOffset, MatrixHelpers};
+use util::{WorldToLayerTransformOrOffset, calculate_screen_bounding_rect, pack_as_float};
 use util::recycle_vec;
 
 
@@ -670,7 +671,7 @@ impl TextRunPrimitiveCpu {
     pub fn get_font(
         &self,
         device_pixel_scale: DevicePixelScale,
-        transform: Option<&LayerToWorldTransform>,
+        transform: Option<LayerToWorldTransform>,
     ) -> FontInstance {
         let mut font = self.font.clone();
         font.size = font.size.scale_by(device_pixel_scale.0);
@@ -678,7 +679,7 @@ impl TextRunPrimitiveCpu {
             if transform.has_perspective_component() || !transform.has_2d_inverse() {
                 font.render_mode = font.render_mode.limit_by(FontRenderMode::Alpha);
             } else {
-                font.transform = FontTransform::from(transform).quantize();
+                font.transform = FontTransform::from(&transform).quantize();
             }
         }
         font
@@ -688,7 +689,7 @@ impl TextRunPrimitiveCpu {
         &mut self,
         resource_cache: &mut ResourceCache,
         device_pixel_scale: DevicePixelScale,
-        transform: Option<&LayerToWorldTransform>,
+        transform: Option<LayerToWorldTransform>,
         display_list: &BuiltDisplayList,
         gpu_cache: &mut GpuCache,
     ) {
@@ -1146,7 +1147,7 @@ impl PrimitiveStore {
                 let text = &mut self.cpu_text_runs[metadata.cpu_prim_index.0];
                 // The transform only makes sense for screen space rasterization
                 let transform = if pic_context.draw_text_transformed {
-                    Some(&prim_run_context.scroll_node.world_content_transform)
+                    Some(prim_run_context.scroll_node.world_content_transform.to_transform())
                 } else {
                     None
                 };
@@ -1471,14 +1472,16 @@ impl PrimitiveStore {
                 let local_clip_rect = if clip_item.scroll_node_data_index == prim_run_context.scroll_node.node_data_index {
                     local_clip_rect
                 } else {
-                    let clip_transform_data = &frame_context
-                        .node_data[clip_item.scroll_node_data_index.0 as usize];
+                    let clip_transform = LayerToWorldTransformOrOffset::new_transform(
+                        frame_context
+                        .node_data[clip_item.scroll_node_data_index.0 as usize]
+                        .transform
+                    );
                     let prim_transform = &prim_run_context.scroll_node.world_content_transform;
-
                     let relative_transform = prim_transform
                         .inverse()
-                        .unwrap_or(WorldToLayerTransform::identity())
-                        .pre_mul(&clip_transform_data.transform);
+                        .unwrap_or(WorldToLayerTransformOrOffset::identity())
+                        .pre_mul(&clip_transform);
 
                     relative_transform.transform_rect(&local_clip_rect)
                 };
@@ -2061,8 +2064,7 @@ fn get_local_clip_rect_for_nodes(
     );
 
     match local_rect {
-        Some(local_rect) =>
-            Some(scroll_node.coordinate_system_relative_transform.unapply(&local_rect)),
+        Some(local_rect) => scroll_node.coordinate_system_relative_transform.unapply(&local_rect),
         None => None,
     }
 }

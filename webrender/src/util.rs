@@ -3,10 +3,10 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderRadius, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixelScale};
-use api::{DevicePoint, DeviceRect, DeviceSize, LayerPoint, LayerRect, LayerSize};
-use api::{LayerToWorldTransform, LayerTransform, LayerVector2D, WorldRect};
-use euclid::{Point2D, Rect, Size2D, TypedPoint2D, TypedRect, TypedSize2D, TypedTransform2D};
-use euclid::TypedTransform3D;
+use api::{DevicePoint, DeviceRect, DeviceSize, LayerPixel, LayerPoint, LayerRect, LayerSize};
+use api::{LayoutPixel, WorldPixel, WorldRect};
+use euclid::{Point2D, Rect, Size2D, TypedPoint2D, TypedPoint3D, TypedRect, TypedSize2D};
+use euclid::{TypedTransform2D, TypedTransform3D, TypedVector2D};
 use num_traits::Zero;
 use std::{i32, f32};
 
@@ -22,6 +22,7 @@ pub trait MatrixHelpers<Src, Dst> {
     fn inverse_rect_footprint(&self, rect: &TypedRect<f32, Dst>) -> TypedRect<f32, Src>;
     fn transform_kind(&self) -> TransformedRectKind;
     fn is_simple_translation(&self) -> bool;
+    fn is_simple_2d_translation(&self) -> bool;
 }
 
 impl<Src, Dst> MatrixHelpers<Src, Dst> for TypedTransform3D<f32, Src, Dst> {
@@ -105,6 +106,14 @@ impl<Src, Dst> MatrixHelpers<Src, Dst> for TypedTransform3D<f32, Src, Dst> {
             self.m31.abs() < NEARLY_ZERO && self.m32.abs() < NEARLY_ZERO &&
             self.m34.abs() < NEARLY_ZERO
     }
+
+    fn is_simple_2d_translation(&self) -> bool {
+        if !self.is_simple_translation() {
+            return false;
+        }
+
+        self.m43 < NEARLY_ZERO && self.m44 < NEARLY_ZERO
+    }
 }
 
 pub trait RectHelpers<U>
@@ -145,7 +154,7 @@ pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
 }
 
 pub fn calculate_screen_bounding_rect(
-    transform: &LayerToWorldTransform,
+    transform: &TransformOrOffset<LayerPixel, WorldPixel>,
     rect: &LayerRect,
     device_pixel_scale: DevicePixelScale,
 ) -> DeviceIntRect {
@@ -334,54 +343,150 @@ impl MaxRect for DeviceRect {
 
 /// An enum that tries to avoid expensive transformation matrix calculations
 /// when possible when dealing with non-perspective axis-aligned transformations.
-#[derive(Debug, Clone)]
-pub enum TransformOrOffset {
+#[derive(Debug, Clone, Copy)]
+pub enum TransformOrOffset<Src, D> {
     /// A simple offset, which can be used without doing any matrix math.
-    Offset(LayerVector2D),
+    Offset(TypedVector2D<f32, Src>),
 
-    /// A transformation with an inverse. If the inverse isn't present, this isn't a 2D
-    /// transformation, which means we need to fall back to using inverse_rect_footprint.
-    /// Since this operation is so expensive, we avoid it for the 2D case.
+    /// A 2D transformation with an inverse.
     Transform {
-        transform: LayerTransform,
-        inverse: Option<LayerTransform>,
-    }
+        transform: TypedTransform3D<f32, Src, D>,
+        inverse: Option<TypedTransform3D<f32, D, Src>>,
+        is_2d: bool,
+    },
+
+    //Uninvertible,
 }
 
-impl TransformOrOffset {
-    pub fn zero() -> TransformOrOffset {
-        TransformOrOffset::Offset(LayerVector2D::zero())
+impl<Src, D> TransformOrOffset<Src, D> {
+    pub fn identity() -> Self {
+        TransformOrOffset::Offset(TypedVector2D::zero())
     }
 
-    fn new_transform(transform: LayerTransform) -> TransformOrOffset {
-        if transform.is_2d() {
-            TransformOrOffset::Transform {
-                transform,
-                inverse: Some(transform.inverse().expect("Expected invertible matrix."))
+    pub fn with_offset(offset: TypedVector2D<f32, Src>) -> Self {
+        TransformOrOffset::Offset(offset)
+    }
+
+    #[inline(always)]
+    pub fn new_transform(transform: TypedTransform3D<f32, Src, D>) -> Self {
+        if transform.is_simple_2d_translation() {
+            return TransformOrOffset::Offset(TypedVector2D::new(transform.m41, transform.m42));
+        }
+        let inverse = transform.inverse();
+        let is_2d = transform.is_2d();
+        TransformOrOffset::Transform { transform, inverse, is_2d}
+    }
+
+    pub fn to_transform(&self) -> TypedTransform3D<f32, Src, D> {
+        match *self {
+            TransformOrOffset::Offset(offset) =>
+                TypedTransform3D::create_translation(offset.x, offset.y, 0.0),
+            TransformOrOffset::Transform { transform, .. } => transform
+        }
+    }
+
+    pub fn is_invertible(&self) -> bool {
+        match *self {
+            TransformOrOffset::Offset(..) => true,
+            TransformOrOffset::Transform { inverse, .. } => inverse.is_some(),
+        }
+    }
+
+    #[inline(always)]
+    pub fn pre_mul<NewSrc>(
+        &self,
+        other: &TransformOrOffset<NewSrc, Src>
+    ) -> TransformOrOffset<NewSrc, D> {
+        match (self, other) {
+            (&TransformOrOffset::Offset(ref offset), &TransformOrOffset::Offset(ref other_offset)) => {
+                let offset = TypedVector2D::from_untyped(&offset.to_untyped());
+                TransformOrOffset::Offset((offset + *other_offset))
             }
-        } else {
-            TransformOrOffset::Transform { transform, inverse: None }
+            _ => {
+                let new_transform = self.to_transform().pre_mul(&other.to_transform());
+                TransformOrOffset::new_transform(new_transform)
+            }
         }
     }
 
-    pub fn apply(&self, rect: &LayerRect) -> LayerRect {
+    #[inline(always)]
+    pub fn pre_translate(&self, other_offset: &TypedVector2D<f32, Src>) -> Self {
+        match self {
+            &TransformOrOffset::Offset(ref offset) =>
+                return TransformOrOffset::Offset(*offset + *other_offset),
+            &TransformOrOffset::Transform { transform, .. } =>
+                TransformOrOffset::new_transform(transform.pre_translate(other_offset.to_3d()))
+        }
+    }
+
+    #[inline(always)]
+    pub fn preserves_2d_axis_alignment(&self) -> bool {
         match *self {
-            TransformOrOffset::Offset(offset) => rect.translate(&offset),
-            TransformOrOffset::Transform {transform, .. } => transform.transform_rect(&rect),
+            TransformOrOffset::Offset(..) => true,
+            TransformOrOffset::Transform { transform, .. } =>
+                transform.preserves_2d_axis_alignment(),
         }
     }
 
-    pub fn unapply(&self, rect: &LayerRect) -> LayerRect {
+    #[inline(always)]
+    pub fn has_perspective_component(&self) -> bool {
         match *self {
-            TransformOrOffset::Offset(offset) => rect.translate(&-offset),
-            TransformOrOffset::Transform { inverse: Some(inverse), .. }  =>
-                inverse.transform_rect(&rect),
-            TransformOrOffset::Transform { transform, inverse: None } =>
-                transform.inverse_rect_footprint(rect),
+            TransformOrOffset::Offset(..) => false,
+            TransformOrOffset::Transform { transform, .. } => transform.has_perspective_component(),
         }
     }
 
-    pub fn offset(&self, new_offset: LayerVector2D) -> TransformOrOffset {
+    #[inline(always)]
+    pub fn is_backface_visible(&self) -> bool {
+        match *self {
+            TransformOrOffset::Offset(..) => true,
+            TransformOrOffset::Transform { transform, .. } => transform.is_backface_visible(),
+        }
+    }
+
+    #[inline(always)]
+    pub fn transform_point2d(&self, point: &TypedPoint2D<f32, Src>) -> TypedPoint2D<f32, D> {
+        match *self {
+            TransformOrOffset::Offset(offset) => {
+                let new_point = *point + offset;
+                TypedPoint2D::from_untyped(&new_point.to_untyped())
+            }
+            TransformOrOffset::Transform { transform, .. } => transform.transform_point2d(point),
+        }
+    }
+
+    #[inline(always)]
+    pub fn transform_point3d(&self, point: &TypedPoint3D<f32, Src>) -> TypedPoint3D<f32, D> {
+        match *self {
+            TransformOrOffset::Offset(offset) =>
+                TypedPoint3D::new(point.x + offset.x, point.y + offset.y, point.z),
+            TransformOrOffset::Transform { transform, .. } => transform.transform_point3d(point),
+        }
+    }
+
+    #[inline(always)]
+    pub fn transform_rect(&self, rect: &TypedRect<f32, Src>) -> TypedRect<f32, D> {
+        match *self {
+            TransformOrOffset::Offset(offset) =>
+                TypedRect::from_untyped(&rect.to_untyped().translate(&offset.to_untyped())),
+            TransformOrOffset::Transform { transform, .. } => transform.transform_rect(rect),
+        }
+    }
+
+    pub fn unapply(&self, rect: &TypedRect<f32, D>) -> Option<TypedRect<f32, Src>> {
+        match *self {
+            TransformOrOffset::Offset(offset) =>
+                Some(TypedRect::from_untyped(&rect.to_untyped().translate(&-offset.to_untyped()))),
+            TransformOrOffset::Transform { inverse: Some(inverse), is_2d: true, .. }  =>
+                Some(inverse.transform_rect(&rect)),
+            TransformOrOffset::Transform { transform, is_2d: false, .. } =>
+                Some(transform.inverse_rect_footprint(rect)),
+            TransformOrOffset::Transform { inverse: None, .. }  => None,
+        }
+    }
+
+    #[inline(always)]
+    pub fn offset(&self, new_offset: TypedVector2D<f32, Src>) -> Self {
         match *self {
             TransformOrOffset::Offset(offset) => TransformOrOffset::Offset(offset + new_offset),
             TransformOrOffset::Transform { transform, .. } => {
@@ -391,10 +496,38 @@ impl TransformOrOffset {
         }
     }
 
-    pub fn update(&self, transform: LayerTransform) -> Option<TransformOrOffset> {
-        if transform.is_simple_translation() {
-            let offset = LayerVector2D::new(transform.m41, transform.m42);
-            Some(self.offset(offset))
+    pub fn post_translate(&self, new_offset: TypedVector2D<f32, D>) -> Self {
+        match *self {
+            TransformOrOffset::Offset(offset) => {
+                let offset = offset.to_untyped() + new_offset.to_untyped();
+                TransformOrOffset::Offset(TypedVector2D::from_untyped(&offset))
+            }
+            TransformOrOffset::Transform { transform, .. } => {
+                let transform = transform.post_translate(new_offset.to_3d());
+                TransformOrOffset::new_transform(transform)
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn inverse(&self) -> Option<TransformOrOffset<D, Src>> {
+        match *self {
+            TransformOrOffset::Offset(offset) =>
+                Some(TransformOrOffset::Offset(TypedVector2D::new(-offset.x, -offset.y))),
+            TransformOrOffset::Transform { transform, inverse: Some(inverse), is_2d, } =>
+                Some(TransformOrOffset::Transform {
+                    transform: inverse,
+                    inverse: Some(transform),
+                    is_2d
+                }),
+            TransformOrOffset::Transform { inverse: None, .. } => None,
+
+        }
+    }
+
+    pub fn update(&self, transform: TypedTransform3D<f32, Src, D>) -> Option<Self> {
+        if transform.is_simple_2d_translation() {
+            Some(self.offset(TypedVector2D::new(transform.m41, transform.m42)))
         } else {
             // If we break 2D axis alignment or have a perspective component, we need to start a
             // new incompatible coordinate system with which we cannot share clips without masking.
@@ -402,3 +535,8 @@ impl TransformOrOffset {
         }
     }
 }
+
+pub type LayoutTransformOrOffset = TransformOrOffset<LayoutPixel, LayoutPixel>;
+pub type LayerTransformOrOffset = TransformOrOffset<LayerPixel, LayerPixel>;
+pub type LayerToWorldTransformOrOffset = TransformOrOffset<LayerPixel, WorldPixel>;
+pub type WorldToLayerTransformOrOffset = TransformOrOffset<WorldPixel, LayerPixel>;

@@ -811,7 +811,7 @@ impl AlphaBatchBuilder {
                 let font_transform = if is_shadow {
                     None
                 } else {
-                    Some(&scroll_node.transform)
+                    Some(scroll_node.transform)
                 };
 
                 let font = text_cpu.get_font(
@@ -977,8 +977,10 @@ impl AlphaBatchBuilder {
                                 if is_in_3d_context {
                                     // Push into parent plane splitter.
 
-                                    let real_xf = &ctx.clip_scroll_tree.nodes[&reference_frame_id].world_content_transform;
-
+                                    let real_xf = &ctx.clip_scroll_tree
+                                        .nodes[&reference_frame_id]
+                                        .world_content_transform
+                                        .to_transform();
                                     let polygon = make_polygon(
                                         real_local_rect,
                                         &real_xf,
