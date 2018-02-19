@@ -4,7 +4,7 @@
 
 use api::{ClipId, DeviceIntRect, DevicePixelScale, ExternalScrollId, LayerPoint, LayerRect};
 use api::{LayerToWorldTransform, LayerVector2D, PipelineId, ScrollClamping, ScrollEventPhase};
-use api::{ScrollLocation, ScrollNodeIdType, ScrollNodeState, WorldPoint};
+use api::{ScrollLocation, ScrollNodeState, WorldPoint};
 use clip::{ClipChain, ClipSourcesHandle, ClipStore};
 use clip_scroll_node::{ClipScrollNode, NodeType, ScrollFrameInfo, StickyFrameInfo};
 use gpu_cache::GpuCache;
@@ -62,7 +62,7 @@ pub struct ClipScrollTree {
     /// ClipChainDescriptors and also those defined by the clipping node hierarchy.
     pub clip_chains: Vec<ClipChain>,
 
-    pub pending_scroll_offsets: FastHashMap<ScrollNodeIdType, (LayerPoint, ScrollClamping)>,
+    pub pending_scroll_offsets: FastHashMap<ExternalScrollId, (LayerPoint, ScrollClamping)>,
 
     /// The ClipId of the currently scrolling node. Used to allow the same
     /// node to scroll even if a touch operation leaves the boundaries of that node.
@@ -223,11 +223,11 @@ impl ClipScrollTree {
     pub fn scroll_node(
         &mut self,
         origin: LayerPoint,
-        id: ScrollNodeIdType,
+        id: ExternalScrollId,
         clamp: ScrollClamping
     ) -> bool {
-        for (clip_id, node) in &mut self.nodes {
-            if node.matches_id(*clip_id, id) {
+        for node in &mut self.nodes.values_mut() {
+            if node.matches_external_id(id) {
                 return node.set_scroll_origin(&origin, clamp);
             }
         }
@@ -456,25 +456,18 @@ impl ClipScrollTree {
     }
 
     pub fn finalize_and_apply_pending_scroll_offsets(&mut self, old_states: ScrollStates) {
-        for (clip_id, node) in &mut self.nodes {
+        for node in self.nodes.values_mut() {
             let external_id = match node.node_type {
-                NodeType::ScrollFrame(info) => info.external_id,
-                _ => None,
+                NodeType::ScrollFrame(ScrollFrameInfo { external_id: Some(id), ..} ) => id,
+                _ => continue,
             };
 
-            if let Some(external_id) = external_id {
-                if let Some(scrolling_state) = old_states.get(&external_id) {
-                    node.apply_old_scrolling_state(scrolling_state);
-                }
-
-
-                let id = external_id.into();
-                if let Some((offset, clamping)) = self.pending_scroll_offsets.remove(&id) {
-                    node.set_scroll_origin(&offset, clamping);
-                }
+            if let Some(scrolling_state) = old_states.get(&external_id) {
+                node.apply_old_scrolling_state(scrolling_state);
             }
 
-            if let Some((offset, clamping)) = self.pending_scroll_offsets.remove(&clip_id.into()) {
+
+            if let Some((offset, clamping)) = self.pending_scroll_offsets.remove(&external_id) {
                 node.set_scroll_origin(&offset, clamping);
             }
         }

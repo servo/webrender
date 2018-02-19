@@ -5,7 +5,7 @@
 use api::{ClipId, DevicePixelScale, ExternalScrollId, LayerPixel, LayerPoint, LayerRect};
 use api::{LayerSize, LayerToWorldTransform, LayerTransform, LayerVector2D, LayoutTransform};
 use api::{LayoutVector2D, PipelineId, PropertyBinding, ScrollClamping, ScrollEventPhase};
-use api::{ScrollLocation, ScrollNodeIdType, ScrollSensitivity, StickyOffsetBounds, WorldPoint};
+use api::{ScrollLocation, ScrollSensitivity, StickyOffsetBounds, WorldPoint};
 use clip::{ClipChain, ClipSourcesHandle, ClipStore, ClipWorkItem};
 use clip_scroll_tree::{ClipChainIndex, CoordinateSystemId, TransformUpdateState};
 use euclid::SideOffsets2D;
@@ -751,12 +751,7 @@ impl ClipScrollNode {
         }
     }
 
-    pub fn matches_id(&self, node_id: ClipId, id_to_match: ScrollNodeIdType) -> bool {
-        let external_id = match id_to_match {
-            ScrollNodeIdType::ExternalScrollId(id) => id,
-            ScrollNodeIdType::ClipId(clip_id) => return node_id == clip_id,
-        };
-
+    pub fn matches_external_id(&self, external_id: ExternalScrollId) -> bool {
         match self.node_type {
             NodeType::ScrollFrame(info) if info.external_id == Some(external_id) => true,
             _ => false,
