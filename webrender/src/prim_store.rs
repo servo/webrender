@@ -120,7 +120,6 @@ pub enum PrimitiveKind {
     TextRun,
     Image,
     Border,
-    AngleGradient,
     Picture,
     Brush,
 }
@@ -214,6 +213,15 @@ pub enum BrushKind {
         start_radius: f32,
         end_radius: f32,
         ratio_xy: f32,
+    },
+    LinearGradient {
+        stops_range: ItemRange<GradientStop>,
+        stops_count: usize,
+        stops_handle: GpuCacheHandle,
+        extend_mode: ExtendMode,
+        reverse_stops: bool,
+        start_point: LayerPoint,
+        end_point: LayerPoint,
     }
 }
 
@@ -224,7 +232,8 @@ impl BrushKind {
             BrushKind::Picture |
             BrushKind::Image { .. } |
             BrushKind::YuvImage { .. } |
-            BrushKind::RadialGradient { .. } => true,
+            BrushKind::RadialGradient { .. } |
+            BrushKind::LinearGradient { .. } => true,
 
             BrushKind::Mask { .. } |
             BrushKind::Clear |
@@ -354,6 +363,20 @@ impl BrushPrimitive {
                     0.0,
                 ]);
             }
+            BrushKind::LinearGradient { start_point, end_point, extend_mode, .. } => {
+                request.push([
+                    start_point.x,
+                    start_point.y,
+                    end_point.x,
+                    end_point.y,
+                ]);
+                request.push([
+                    pack_as_float(extend_mode as u32),
+                    0.0,
+                    0.0,
+                    0.0,
+                ]);
+            }
             BrushKind::RadialGradient { start_center, end_center, start_radius, end_radius, ratio_xy, extend_mode, .. } => {
                 request.push([
                     start_center.x,
@@ -424,40 +447,6 @@ pub struct BorderPrimitiveCpu {
 impl ToGpuBlocks for BorderPrimitiveCpu {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
         request.extend_from_slice(&self.gpu_blocks);
-    }
-}
-
-#[derive(Debug)]
-pub struct GradientPrimitiveCpu {
-    pub stops_range: ItemRange<GradientStop>,
-    pub stops_count: usize,
-    pub extend_mode: ExtendMode,
-    pub reverse_stops: bool,
-    pub start_point: LayerPoint,
-    pub end_point: LayerPoint,
-}
-
-impl GradientPrimitiveCpu {
-    fn build_gpu_blocks_for_angle_radial(
-        &self,
-        display_list: &BuiltDisplayList,
-        mut request: GpuDataRequest,
-    ) {
-        request.push([
-            self.start_point.x,
-            self.start_point.y,
-            self.end_point.x,
-            self.end_point.y,
-        ]);
-        request.push([
-            pack_as_float(self.extend_mode as u32),
-            0.0,
-            0.0,
-            0.0,
-        ]);
-
-        let gradient_builder = GradientGpuBlockBuilder::new(self.stops_range, display_list);
-        gradient_builder.build(self.reverse_stops, &mut request);
     }
 }
 
@@ -926,7 +915,6 @@ pub enum PrimitiveContainer {
     TextRun(TextRunPrimitiveCpu),
     Image(ImagePrimitiveCpu),
     Border(BorderPrimitiveCpu),
-    AngleGradient(GradientPrimitiveCpu),
     Picture(PicturePrimitive),
     Brush(BrushPrimitive),
 }
@@ -937,7 +925,6 @@ pub struct PrimitiveStore {
     pub cpu_text_runs: Vec<TextRunPrimitiveCpu>,
     pub cpu_pictures: Vec<PicturePrimitive>,
     pub cpu_images: Vec<ImagePrimitiveCpu>,
-    pub cpu_gradients: Vec<GradientPrimitiveCpu>,
     pub cpu_metadata: Vec<PrimitiveMetadata>,
     pub cpu_borders: Vec<BorderPrimitiveCpu>,
 }
@@ -950,7 +937,6 @@ impl PrimitiveStore {
             cpu_text_runs: Vec::new(),
             cpu_pictures: Vec::new(),
             cpu_images: Vec::new(),
-            cpu_gradients: Vec::new(),
             cpu_borders: Vec::new(),
         }
     }
@@ -962,7 +948,6 @@ impl PrimitiveStore {
             cpu_text_runs: recycle_vec(self.cpu_text_runs),
             cpu_pictures: recycle_vec(self.cpu_pictures),
             cpu_images: recycle_vec(self.cpu_images),
-            cpu_gradients: recycle_vec(self.cpu_gradients),
             cpu_borders: recycle_vec(self.cpu_borders),
         }
     }
@@ -1003,6 +988,7 @@ impl PrimitiveStore {
                     BrushKind::Image { .. } => PrimitiveOpacity::translucent(),
                     BrushKind::YuvImage { .. } => PrimitiveOpacity::opaque(),
                     BrushKind::RadialGradient { .. } => PrimitiveOpacity::translucent(),
+                    BrushKind::LinearGradient { .. } => PrimitiveOpacity::translucent(),
                     BrushKind::Picture => {
                         // TODO(gw): This is not currently used. In the future
                         //           we should detect opaque pictures.
@@ -1063,18 +1049,6 @@ impl PrimitiveStore {
                 };
 
                 self.cpu_borders.push(border_cpu);
-                metadata
-            }
-            PrimitiveContainer::AngleGradient(gradient_cpu) => {
-                let metadata = PrimitiveMetadata {
-                    // TODO: calculate if the gradient is actually opaque
-                    opacity: PrimitiveOpacity::translucent(),
-                    prim_kind: PrimitiveKind::AngleGradient,
-                    cpu_prim_index: SpecificPrimitiveIndex(self.cpu_gradients.len()),
-                    ..base_metadata
-                };
-
-                self.cpu_gradients.push(gradient_cpu);
                 metadata
             }
         };
@@ -1293,6 +1267,18 @@ impl PrimitiveStore {
                             );
                         }
                     }
+                    BrushKind::LinearGradient { ref mut stops_handle, stops_range, reverse_stops, .. } => {
+                        if let Some(mut request) = frame_state.gpu_cache.request(stops_handle) {
+                            let gradient_builder = GradientGpuBlockBuilder::new(
+                                stops_range,
+                                pic_context.display_list,
+                            );
+                            gradient_builder.build(
+                                reverse_stops,
+                                &mut request,
+                            );
+                        }
+                    }
                     BrushKind::Mask { .. } |
                     BrushKind::Solid { .. } |
                     BrushKind::Clear |
@@ -1300,7 +1286,6 @@ impl PrimitiveStore {
                     BrushKind::Picture { .. } => {}
                 }
             }
-            PrimitiveKind::AngleGradient => {}
         }
 
         // Mark this GPU resource as required for this frame.
@@ -1317,13 +1302,6 @@ impl PrimitiveStore {
                 PrimitiveKind::Image => {
                     let image = &self.cpu_images[metadata.cpu_prim_index.0];
                     image.write_gpu_blocks(request);
-                }
-                PrimitiveKind::AngleGradient => {
-                    let gradient = &self.cpu_gradients[metadata.cpu_prim_index.0];
-                    gradient.build_gpu_blocks_for_angle_radial(
-                        pic_context.display_list,
-                        request,
-                    );
                 }
                 PrimitiveKind::TextRun => {
                     let text = &self.cpu_text_runs[metadata.cpu_prim_index.0];
