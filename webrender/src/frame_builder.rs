@@ -23,7 +23,7 @@ use gpu_types::{ClipChainRectIndex, ClipScrollNodeData, PictureType};
 use hit_test::{HitTester, HitTestingItem, HitTestingRun};
 use internal_types::{FastHashMap, FastHashSet};
 use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
-use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor, GradientPrimitiveCpu};
+use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor};
 use prim_store::{ImageCacheKey, ImagePrimitiveCpu, ImageSource, PrimitiveContainer};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveRun, PrimitiveStore};
 use prim_store::{ScrollNodeAndClipChain, TextRunPrimitiveCpu};
@@ -34,8 +34,7 @@ use scene::{ScenePipeline, SceneProperties};
 use std::{mem, usize, f32};
 use tiling::{CompositeOps, Frame, RenderPass, RenderTargetKind};
 use tiling::{RenderPassKind, RenderTargetContext, ScrollbarPrimitive};
-use util::{self, MaxRect, RectHelpers, WorldToLayerFastTransform, pack_as_float, recycle_vec};
-
+use util::{self, MaxRect, RectHelpers, WorldToLayerFastTransform, recycle_vec};
 
 #[derive(Debug)]
 pub struct ScrollbarInfo(pub ClipId, pub LayerRect);
@@ -1233,6 +1232,52 @@ impl FrameBuilder {
         }
     }
 
+    pub fn add_gradient_impl(
+        &mut self,
+        clip_and_scroll: ScrollNodeAndClipChain,
+        info: &LayerPrimitiveInfo,
+        start_point: LayerPoint,
+        end_point: LayerPoint,
+        stops: ItemRange<GradientStop>,
+        stops_count: usize,
+        extend_mode: ExtendMode,
+    ) {
+        // Try to ensure that if the gradient is specified in reverse, then so long as the stops
+        // are also supplied in reverse that the rendered result will be equivalent. To do this,
+        // a reference orientation for the gradient line must be chosen, somewhat arbitrarily, so
+        // just designate the reference orientation as start < end. Aligned gradient rendering
+        // manages to produce the same result regardless of orientation, so don't worry about
+        // reversing in that case.
+        let reverse_stops = start_point.x > end_point.x ||
+            (start_point.x == end_point.x && start_point.y > end_point.y);
+
+        // To get reftests exactly matching with reverse start/end
+        // points, it's necessary to reverse the gradient
+        // line in some cases.
+        let (sp, ep) = if reverse_stops {
+            (end_point, start_point)
+        } else {
+            (start_point, end_point)
+        };
+
+        let prim = BrushPrimitive::new(
+            BrushKind::LinearGradient {
+                stops_handle: GpuCacheHandle::new(),
+                stops_range: stops,
+                stops_count,
+                extend_mode,
+                reverse_stops,
+                start_point: sp,
+                end_point: ep,
+            },
+            None,
+        );
+
+        let prim = PrimitiveContainer::Brush(prim);
+
+        self.add_primitive(clip_and_scroll, info, Vec::new(), prim);
+    }
+
     pub fn add_gradient(
         &mut self,
         clip_and_scroll: ScrollNodeAndClipChain,
@@ -1245,62 +1290,35 @@ impl FrameBuilder {
         tile_size: LayerSize,
         tile_spacing: LayerSize,
     ) {
-        let tile_repeat = tile_size + tile_spacing;
-        let is_not_tiled = tile_repeat.width >= info.rect.size.width &&
-            tile_repeat.height >= info.rect.size.height;
+        let prim_infos = info.decompose(
+            tile_size,
+            tile_spacing,
+            64 * 64,
+        );
 
-        let aligned_and_fills_rect = (start_point.x == end_point.x &&
-            start_point.y.min(end_point.y) <= 0.0 &&
-            start_point.y.max(end_point.y) >= info.rect.size.height) ||
-            (start_point.y == end_point.y && start_point.x.min(end_point.x) <= 0.0 &&
-                start_point.x.max(end_point.x) >= info.rect.size.width);
-
-        // Fast path for clamped, axis-aligned gradients, with gradient lines intersecting all of rect:
-        let aligned = extend_mode == ExtendMode::Clamp && is_not_tiled && aligned_and_fills_rect;
-
-        // Try to ensure that if the gradient is specified in reverse, then so long as the stops
-        // are also supplied in reverse that the rendered result will be equivalent. To do this,
-        // a reference orientation for the gradient line must be chosen, somewhat arbitrarily, so
-        // just designate the reference orientation as start < end. Aligned gradient rendering
-        // manages to produce the same result regardless of orientation, so don't worry about
-        // reversing in that case.
-        let reverse_stops = !aligned &&
-            (start_point.x > end_point.x ||
-                (start_point.x == end_point.x && start_point.y > end_point.y));
-
-        // To get reftests exactly matching with reverse start/end
-        // points, it's necessary to reverse the gradient
-        // line in some cases.
-        let (sp, ep) = if reverse_stops {
-            (end_point, start_point)
+        if prim_infos.is_empty() {
+            self.add_gradient_impl(
+                clip_and_scroll,
+                info,
+                start_point,
+                end_point,
+                stops,
+                stops_count,
+                extend_mode,
+            );
         } else {
-            (start_point, end_point)
-        };
-
-        let gradient_cpu = GradientPrimitiveCpu {
-            stops_range: stops,
-            stops_count,
-            extend_mode,
-            reverse_stops,
-            gpu_blocks: [
-                [sp.x, sp.y, ep.x, ep.y].into(),
-                [
-                    tile_size.width,
-                    tile_size.height,
-                    tile_repeat.width,
-                    tile_repeat.height,
-                ].into(),
-                [pack_as_float(extend_mode as u32), 0.0, 0.0, 0.0].into(),
-            ],
-        };
-
-        let prim = if aligned {
-            PrimitiveContainer::AlignedGradient(gradient_cpu)
-        } else {
-            PrimitiveContainer::AngleGradient(gradient_cpu)
-        };
-
-        self.add_primitive(clip_and_scroll, info, Vec::new(), prim);
+            for prim_info in prim_infos {
+                self.add_gradient_impl(
+                    clip_and_scroll,
+                    &prim_info,
+                    start_point,
+                    end_point,
+                    stops,
+                    stops_count,
+                    extend_mode,
+                );
+            }
+        }
     }
 
     fn add_radial_gradient_impl(
