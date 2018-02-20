@@ -29,7 +29,7 @@ use util::{MatrixHelpers, calculate_screen_bounding_rect, pack_as_float};
 use util::recycle_vec;
 
 
-const MIN_BRUSH_SPLIT_AREA: f32 = 128.0 * 128.0;
+const MIN_BRUSH_SPLIT_AREA: f32 = 256.0 * 256.0;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ScrollNodeAndClipChain {
