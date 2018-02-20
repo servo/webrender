@@ -40,6 +40,10 @@ impl ToResult for HRESULT {
     }
 }
 
+pub fn as_ptr<T>(x: &T) -> *mut T {
+    x as *const T as _
+}
+
 /// Forked from https://github.com/retep998/wio-rs/blob/44093f7db8/src/com.rs
 #[derive(PartialEq, Debug)]
 pub struct ComPtr<T>(*mut T) where T: Interface;
@@ -78,15 +82,21 @@ impl<T> ComPtr<T> where T: Interface {
         }
     }
 
-    pub fn as_unknown(&self) -> *mut IUnknown {
-        self.0 as *mut IUnknown
+    pub fn as_raw(&self) -> *mut T {
+        self.0
+    }
+
+    fn as_unknown(&self) -> &IUnknown {
+        unsafe {
+            &*(self.0 as *mut IUnknown)
+        }
     }
 
     /// Performs QueryInterface fun.
     pub fn cast<U>(&self) -> HResult<ComPtr<U>> where U: Interface {
         unsafe {
             let mut obj = ptr::null_mut();
-            (*self.as_unknown()).QueryInterface(&U::uuidof(), &mut obj).to_result()?;
+            self.as_unknown().QueryInterface(&U::uuidof(), &mut obj).to_result()?;
             Ok(ComPtr::from_raw(obj as *mut U))
         }
     }
@@ -108,7 +118,7 @@ impl<T> ops::DerefMut for ComPtr<T> where T: Interface {
 impl<T> Clone for ComPtr<T> where T: Interface {
     fn clone(&self) -> Self {
         unsafe {
-            (*self.as_unknown()).AddRef();
+            self.as_unknown().AddRef();
             ComPtr(self.0)
         }
     }
@@ -117,7 +127,7 @@ impl<T> Clone for ComPtr<T> where T: Interface {
 impl<T> Drop for ComPtr<T> where T: Interface {
     fn drop(&mut self) {
         unsafe {
-            (*self.as_unknown()).Release();
+            self.as_unknown().Release();
         }
     }
 }
