@@ -119,7 +119,7 @@ void brush_vs(
 
 #ifdef WR_FRAGMENT_SHADER
 
-#define MAGIC_WAVY_LINE_AA_SNAP         0.7
+#define MAGIC_WAVY_LINE_AA_SNAP         0.5
 
 float det(vec2 a, vec2 b) {
     return a.x * b.y - b.x * a.y;
