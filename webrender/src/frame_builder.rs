@@ -6,11 +6,10 @@ use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayList, ClipId,
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixelScale, DeviceUintPoint};
 use api::{DeviceUintRect, DeviceUintSize, DocumentLayer, Epoch, ExtendMode, ExternalScrollId};
 use api::{FontRenderMode, GlyphInstance, GlyphOptions, GradientStop, ImageKey, ImageRendering};
-use api::{ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect, LayerSize, LayerTransform};
-use api::{LayerVector2D, LayoutTransform, LayoutVector2D, LineOrientation, LineStyle, LocalClip};
-use api::{PipelineId, PremultipliedColorF, PropertyBinding, RepeatMode, ScrollSensitivity, Shadow};
-use api::{TexelRect, TileOffset, TransformStyle, WorldPoint, WorldToLayerTransform, YuvColorSpace};
-use api::YuvData;
+use api::{ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect, LayerSize, LayerVector2D};
+use api::{LayoutTransform, LayoutVector2D, LineOrientation, LineStyle, LocalClip, PipelineId};
+use api::{PremultipliedColorF, PropertyBinding, RepeatMode, ScrollSensitivity, Shadow, TexelRect};
+use api::{TileOffset, TransformStyle, WorldPoint, YuvColorSpace, YuvData};
 use app_units::Au;
 use border::ImageBorderSegment;
 use clip::{ClipChain, ClipRegion, ClipSource, ClipSources, ClipStore};
@@ -35,7 +34,8 @@ use scene::{ScenePipeline, SceneProperties};
 use std::{mem, usize, f32};
 use tiling::{CompositeOps, Frame, RenderPass, RenderTargetKind};
 use tiling::{RenderPassKind, RenderTargetContext, ScrollbarPrimitive};
-use util::{self, MaxRect, pack_as_float, RectHelpers, recycle_vec};
+use util::{self, MaxRect, RectHelpers, WorldToLayerFastTransform, pack_as_float, recycle_vec};
+
 
 #[derive(Debug)]
 pub struct ScrollbarInfo(pub ClipId, pub LayerRect);
@@ -133,7 +133,7 @@ pub struct PictureContext<'a> {
     pub original_reference_frame_id: Option<ClipId>,
     pub display_list: &'a BuiltDisplayList,
     pub draw_text_transformed: bool,
-    pub inv_world_transform: Option<WorldToLayerTransform>,
+    pub inv_world_transform: Option<WorldToLayerFastTransform>,
 }
 
 pub struct PictureState {
@@ -673,11 +673,8 @@ impl FrameBuilder {
         let root_id = clip_scroll_tree.root_reference_frame_id();
         if let Some(root_node) = clip_scroll_tree.nodes.get_mut(&root_id) {
             if let NodeType::ReferenceFrame(ref mut info) = root_node.node_type {
-                info.resolved_transform = LayerTransform::create_translation(
-                    viewport_offset.x,
-                    viewport_offset.y,
-                    0.0,
-                );
+                info.resolved_transform =
+                    LayerVector2D::new(viewport_offset.x, viewport_offset.y).into();
             }
         }
     }
