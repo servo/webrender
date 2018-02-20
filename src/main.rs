@@ -1,8 +1,7 @@
 extern crate winapi;
 extern crate winit;
-extern crate wio;
 
-use com::{OutParam, ToResult, HResult};
+use com::{ComPtr, ToResult, HResult};
 use std::ptr;
 use winapi::shared::dxgi1_2::DXGI_SWAP_CHAIN_DESC1;
 use winapi::shared::dxgi1_2::IDXGIFactory2;
@@ -12,9 +11,7 @@ use winapi::um::d3d11::ID3D11Device;
 use winapi::um::dcomp::IDCompositionDevice;
 use winapi::um::dcomp::IDCompositionTarget;
 use winapi::um::dcomp::IDCompositionVisual;
-use winapi::um::unknwnbase::IUnknown;
 use winit::os::windows::WindowExt;
-use wio::com::ComPtr;
 
 mod com;
 
@@ -27,8 +24,7 @@ fn main() {
         .unwrap();
 
     let _composition = unsafe {
-        let dc = DirectComposition::initialize(window.get_hwnd() as _).unwrap();
-        dc.create_swap_chain(300, 200).unwrap();
+        initialize(window.get_hwnd() as _).unwrap()
     };
 
     if std::env::var_os("INIT_ONLY").is_some() {
@@ -45,6 +41,15 @@ fn main() {
 
 /// https://msdn.microsoft.com/en-us/library/windows/desktop/hh449180(v=vs.85).aspx
 
+unsafe fn initialize(hwnd: HWND) -> HResult<DirectComposition> {
+    let mut composition = DirectComposition::new(hwnd)?;
+
+    let swap_chain = composition.create_swap_chain(300, 200)?;
+    composition.root_visual.SetContent(&*****swap_chain).to_result()?;
+
+    Ok(composition)
+}
+
 #[allow(unused)]
 struct DirectComposition {
     d3d_device: ComPtr<ID3D11Device>,
@@ -55,7 +60,7 @@ struct DirectComposition {
 }
 
 impl DirectComposition {
-    unsafe fn initialize(hwnd: HWND) -> HResult<Self> {
+    unsafe fn new(hwnd: HWND) -> HResult<Self> {
         let mut feature_level_supported = 0;
 
         let d3d_device = ComPtr::new_with(|ptr_ptr| winapi::um::d3d11::D3D11CreateDevice(
@@ -106,7 +111,7 @@ impl DirectComposition {
         })
     }
 
-    unsafe fn create_swap_chain(&self, width: u32, height: u32)
+    unsafe fn create_swap_chain(&mut self, width: u32, height: u32)
         -> HResult<ComPtr<winapi::shared::dxgi1_2::IDXGISwapChain1>>
     {
         let desc = DXGI_SWAP_CHAIN_DESC1 {
@@ -127,7 +132,7 @@ impl DirectComposition {
         };
         ComPtr::<winapi::shared::dxgi1_2::IDXGISwapChain1>::new_with(|ptr_ptr| {
             self.dxgi_factory.CreateSwapChainForComposition(
-                self.d3d_device.as_raw() as *mut IUnknown,
+                self.d3d_device.as_unknown(),
                 &desc,
                 ptr::null_mut(),
                 ptr_ptr,

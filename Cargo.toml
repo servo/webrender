@@ -6,4 +6,3 @@ authors = ["Simon Sapin <simon.sapin@exyr.org>"]
 [dependencies]
 winapi = {version = "0.3", features = ["winerror", "d3d11", "dcomp"]}
 winit = "0.10"
-wio = "0.2"
