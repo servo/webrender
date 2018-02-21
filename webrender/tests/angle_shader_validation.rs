@@ -73,7 +73,7 @@ const SHADERS: &[Shader] = &[
     // Brush shaders
     Shader {
         name: "brush_yuv_image",
-        features: &["", "YUV_NV12", "YUV_PLANAR", "YUV_INTERLEAVED"],
+        features: &["", "YUV_NV12", "YUV_PLANAR", "YUV_INTERLEAVED", "YUV_NV12,TEXTURE_RECT"],
     },
     Shader {
         name: "brush_mask",
