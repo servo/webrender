@@ -2873,7 +2873,9 @@ impl Renderer {
             for &mut (_, RenderedDocument { ref mut frame, .. }) in &mut active_documents {
                 frame.profile_counters.reset_targets();
                 self.prepare_gpu_cache(frame);
-                assert!(frame.gpu_cache_frame_id <= self.gpu_cache_frame_id);
+                assert!(frame.gpu_cache_frame_id <= self.gpu_cache_frame_id,
+                    "Received frame depends on a later GPU cache epoch ({:?}) than one we received last via `UpdateGpuCache` ({:?})",
+                    frame.gpu_cache_frame_id, self.gpu_cache_frame_id);
 
                 self.draw_tile_frame(
                     frame,
