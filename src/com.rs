@@ -12,6 +12,7 @@ use winapi::um::unknwnbase::IUnknown;
 
 pub type HResult<T> = Result<T, HResultError>;
 
+/// An error code returned by a Windows API.
 pub struct HResultError(HRESULT);
 
 impl fmt::Debug for HResultError {

@@ -3,6 +3,9 @@ name = "directcomposition"
 version = "0.1.0"
 authors = ["Simon Sapin <simon.sapin@exyr.org>"]
 
-[dependencies]
+[target.'cfg(windows)'.dependencies]
 winapi = {version = "0.3", features = ["winerror", "d3d11", "dcomp"]}
+
+# For the `main.rs` demo
+[dependencies]
 winit = "0.10"
