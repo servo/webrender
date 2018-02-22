@@ -382,29 +382,15 @@ impl ClipChain {
         }
     }
 
-    pub fn new_with_added_node(
-        &self,
-        work_item: ClipWorkItem,
-        local_clip_rect: LayerRect,
-        screen_outer_rect: DeviceIntRect,
-        screen_inner_rect: DeviceIntRect,
-    ) -> ClipChain {
+    pub fn new_with_added_node(&self, new_node: &ClipChainNode) -> ClipChain {
         // If the new node's inner rectangle completely surrounds our outer rectangle,
         // we can discard the new node entirely since it isn't going to affect anything.
-        if screen_inner_rect.contains_rect(&self.combined_outer_screen_rect) {
+        if new_node.screen_inner_rect.contains_rect(&self.combined_outer_screen_rect) {
             return self.clone();
         }
 
-        let new_node = ClipChainNode {
-            work_item,
-            local_clip_rect,
-            screen_outer_rect,
-            screen_inner_rect,
-            prev: None,
-        };
-
         let mut new_chain = self.clone();
-        new_chain.add_node(new_node);
+        new_chain.add_node(new_node.clone());
         new_chain
     }
 
