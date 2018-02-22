@@ -18,12 +18,12 @@ use clip_scroll_tree::{ClipScrollTree, ClipChainIndex};
 use euclid::{SideOffsets2D, vec2};
 use frame::{FrameId, ClipIdToIndexMapper};
 use glyph_rasterizer::FontInstance;
-use gpu_cache::{GpuCache, GpuCacheHandle};
+use gpu_cache::GpuCache;
 use gpu_types::{ClipChainRectIndex, ClipScrollNodeData, PictureType};
 use hit_test::{HitTester, HitTestingItem, HitTestingRun};
 use internal_types::{FastHashMap, FastHashSet};
 use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
-use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor};
+use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor, CachedGradient, CachedGradientIndex};
 use prim_store::{ImageCacheKey, ImagePrimitiveCpu, ImageSource, PrimitiveContainer};
 use prim_store::{PrimitiveIndex, PrimitiveKind, PrimitiveRun, PrimitiveStore};
 use prim_store::{ScrollNodeAndClipChain, TextRunPrimitiveCpu};
@@ -85,6 +85,7 @@ pub struct FrameBuilder {
     pub clip_store: ClipStore,
     hit_testing_runs: Vec<HitTestingRun>,
     pub config: FrameBuilderConfig,
+    pub cached_gradients: Vec<CachedGradient>,
 
     // A stack of the current shadow primitives.
     // The sub-Vec stores a buffer of fast-path primitives to be appended on pop.
@@ -123,6 +124,7 @@ pub struct FrameState<'a> {
     pub local_clip_rects: &'a mut Vec<LayerRect>,
     pub resource_cache: &'a mut ResourceCache,
     pub gpu_cache: &'a mut GpuCache,
+    pub cached_gradients: &'a mut [CachedGradient],
 }
 
 pub struct PictureContext<'a> {
@@ -172,6 +174,7 @@ impl FrameBuilder {
         FrameBuilder {
             hit_testing_runs: Vec::new(),
             shadow_prim_stack: Vec::new(),
+            cached_gradients: Vec::new(),
             pending_shadow_contents: Vec::new(),
             scrollbar_prims: Vec::new(),
             reference_frame_stack: Vec::new(),
@@ -200,6 +203,7 @@ impl FrameBuilder {
         FrameBuilder {
             hit_testing_runs: recycle_vec(self.hit_testing_runs),
             shadow_prim_stack: recycle_vec(self.shadow_prim_stack),
+            cached_gradients: recycle_vec(self.cached_gradients),
             pending_shadow_contents: recycle_vec(self.pending_shadow_contents),
             scrollbar_prims: recycle_vec(self.scrollbar_prims),
             reference_frame_stack: recycle_vec(self.reference_frame_stack),
@@ -1232,7 +1236,7 @@ impl FrameBuilder {
         }
     }
 
-    pub fn add_gradient_impl(
+    fn add_gradient_impl(
         &mut self,
         clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayerPrimitiveInfo,
@@ -1241,6 +1245,7 @@ impl FrameBuilder {
         stops: ItemRange<GradientStop>,
         stops_count: usize,
         extend_mode: ExtendMode,
+        gradient_index: CachedGradientIndex,
     ) {
         // Try to ensure that if the gradient is specified in reverse, then so long as the stops
         // are also supplied in reverse that the rendered result will be equivalent. To do this,
@@ -1262,13 +1267,13 @@ impl FrameBuilder {
 
         let prim = BrushPrimitive::new(
             BrushKind::LinearGradient {
-                stops_handle: GpuCacheHandle::new(),
                 stops_range: stops,
                 stops_count,
                 extend_mode,
                 reverse_stops,
                 start_point: sp,
                 end_point: ep,
+                gradient_index,
             },
             None,
         );
@@ -1290,6 +1295,9 @@ impl FrameBuilder {
         tile_size: LayerSize,
         tile_spacing: LayerSize,
     ) {
+        let gradient_index = CachedGradientIndex(self.cached_gradients.len());
+        self.cached_gradients.push(CachedGradient::new());
+
         let prim_infos = info.decompose(
             tile_size,
             tile_spacing,
@@ -1305,6 +1313,7 @@ impl FrameBuilder {
                 stops,
                 stops_count,
                 extend_mode,
+                gradient_index,
             );
         } else {
             for prim_info in prim_infos {
@@ -1316,6 +1325,7 @@ impl FrameBuilder {
                     stops,
                     stops_count,
                     extend_mode,
+                    gradient_index,
                 );
             }
         }
@@ -1332,17 +1342,18 @@ impl FrameBuilder {
         ratio_xy: f32,
         stops: ItemRange<GradientStop>,
         extend_mode: ExtendMode,
+        gradient_index: CachedGradientIndex,
     ) {
         let prim = BrushPrimitive::new(
             BrushKind::RadialGradient {
                 stops_range: stops,
                 extend_mode,
-                stops_handle: GpuCacheHandle::new(),
                 start_center,
                 end_center,
                 start_radius,
                 end_radius,
                 ratio_xy,
+                gradient_index,
             },
             None,
         );
@@ -1369,6 +1380,9 @@ impl FrameBuilder {
         tile_size: LayerSize,
         tile_spacing: LayerSize,
     ) {
+        let gradient_index = CachedGradientIndex(self.cached_gradients.len());
+        self.cached_gradients.push(CachedGradient::new());
+
         let prim_infos = info.decompose(
             tile_size,
             tile_spacing,
@@ -1386,6 +1400,7 @@ impl FrameBuilder {
                 ratio_xy,
                 stops,
                 extend_mode,
+                gradient_index,
             );
         } else {
             for prim_info in prim_infos {
@@ -1399,6 +1414,7 @@ impl FrameBuilder {
                     ratio_xy,
                     stops,
                     extend_mode,
+                    gradient_index,
                 );
             }
         }
@@ -1718,6 +1734,7 @@ impl FrameBuilder {
             local_clip_rects,
             resource_cache,
             gpu_cache,
+            cached_gradients: &mut self.cached_gradients,
         };
 
         let pic_context = PictureContext {
@@ -1886,6 +1903,7 @@ impl FrameBuilder {
                 clip_scroll_tree,
                 use_dual_source_blending,
                 node_data: &node_data,
+                cached_gradients: &self.cached_gradients,
             };
 
             pass.build(

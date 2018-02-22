@@ -18,7 +18,7 @@ use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveIn
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::{ContentOrigin, PictureCompositeMode, PictureKind, PicturePrimitive, PictureSurface};
 use plane_split::{BspSplitter, Polygon, Splitter};
-use prim_store::{ImageSource, PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
+use prim_store::{CachedGradient, ImageSource, PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
 use prim_store::{BrushPrimitive, BrushKind, DeferredResolve, EdgeAaSegmentMask, PrimitiveRun};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKind, RenderTaskTree};
 use renderer::{BlendMode, ImageBufferKind};
@@ -681,6 +681,7 @@ impl AlphaBatchBuilder {
                     ctx.resource_cache,
                     gpu_cache,
                     deferred_resolves,
+                    &ctx.cached_gradients,
                 ) {
                     self.add_brush_to_batch(
                         brush,
@@ -1312,6 +1313,7 @@ impl BrushPrimitive {
         resource_cache: &ResourceCache,
         gpu_cache: &mut GpuCache,
         deferred_resolves: &mut Vec<DeferredResolve>,
+        cached_gradients: &[CachedGradient],
     ) -> Option<(BrushBatchKind, BatchTextures, [i32; 3])> {
         match self.kind {
             BrushKind::Line { .. } => {
@@ -1358,7 +1360,8 @@ impl BrushPrimitive {
                     [0; 3],
                 ))
             }
-            BrushKind::RadialGradient { ref stops_handle, .. } => {
+            BrushKind::RadialGradient { gradient_index, .. } => {
+                let stops_handle = &cached_gradients[gradient_index.0].handle;
                 Some((
                     BrushBatchKind::RadialGradient,
                     BatchTextures::no_texture(),
@@ -1369,7 +1372,8 @@ impl BrushPrimitive {
                     ],
                 ))
             }
-            BrushKind::LinearGradient { ref stops_handle, .. } => {
+            BrushKind::LinearGradient { gradient_index, .. } => {
+                let stops_handle = &cached_gradients[gradient_index.0].handle;
                 Some((
                     BrushBatchKind::LinearGradient,
                     BatchTextures::no_texture(),
