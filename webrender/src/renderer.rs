@@ -1661,6 +1661,7 @@ pub struct Renderer {
     gpu_cache_texture: CacheTexture,
 
     gpu_cache_frame_id: FrameId,
+    gpu_cache_overflow: bool,
 
     pipeline_info: PipelineInfo,
 
@@ -2345,6 +2346,7 @@ impl Renderer {
             gpu_profiles: VecDeque::new(),
             gpu_cache_texture,
             gpu_cache_frame_id: FrameId::new(0),
+            gpu_cache_overflow: false,
             texture_cache_upload_pbo,
             texture_resolver,
             renderer_errors: Vec::new(),
@@ -2997,6 +2999,11 @@ impl Renderer {
             .fold((0, gpu_cache_height), |(count, height), list| {
                 (count + list.blocks.len(), cmp::max(height, list.height))
             });
+
+        if max_requested_height > self.max_texture_size && !self.gpu_cache_overflow {
+            self.gpu_cache_overflow = true;
+            self.renderer_errors.push(RendererError::MaxTextureSize);
+        }
 
         //Note: if we decide to switch to scatter-style GPU cache update
         // permanently, we can have this code nicer with `BufferUploader` kind
