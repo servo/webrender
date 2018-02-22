@@ -67,13 +67,6 @@ pub fn should_record_msg(msg: &ApiMsg) -> bool {
         ApiMsg::AddDocument { .. } |
         ApiMsg::DeleteDocument(..) => true,
         ApiMsg::UpdateDocument(_, ref msgs) => {
-            for msg in &msgs.scene_ops {
-                match *msg {
-                    DocumentMsg::GetScrollNodeState(..) |
-                    DocumentMsg::HitTest(..) => {}
-                    _ => { return true; }
-                }
-            }
             for msg in &msgs.frame_ops {
                 match *msg {
                     DocumentMsg::GetScrollNodeState(..) |

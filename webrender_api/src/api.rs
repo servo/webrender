@@ -131,7 +131,9 @@ impl ResourceUpdates {
 ///  - no redundant work is performed if two commands in the same transaction cause the scene or
 ///    the frame to be rebuilt.
 pub struct Transaction {
+    // Operations affecting the scene (applied before scene building).
     scene_ops: Vec<DocumentMsg>,
+    // Operations affecting the generation of frames (applied after scene building).
     frame_ops: Vec<DocumentMsg>,
 
     // Additional display list data.
@@ -431,7 +433,7 @@ pub struct AddFontInstance {
 }
 
 // TODO: Split this in two emums.
-// I am postponing this because while it is a trivial change, it is a hard one to rebase.
+// Review note: this will be done just before landing.
 #[derive(Clone, Deserialize, Serialize)]
 pub enum DocumentMsg {
     // Scene messages (apply before building the scene).
@@ -879,11 +881,7 @@ impl RenderApi {
     ) {
         self.send(
             document_id,
-            DocumentMsg::SetWindowParameters {
-                window_size,
-                inner_rect,
-                device_pixel_ratio,
-            },
+            DocumentMsg::SetWindowParameters { window_size, inner_rect, device_pixel_ratio, },
         );
     }
 

@@ -43,9 +43,6 @@ use std::sync::mpsc::{Sender, Receiver};
 use std::u32;
 use time::precise_time_ns;
 
-// WIP: I realize we don't really want to send the entire struct to the scene
-// building thread, this will be most likely a private struct again by the time
-// I figure the bigger picture out.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Clone)]
@@ -164,6 +161,9 @@ impl Document {
             self.view.accumulated_scale_factor(),
             &self.output_pipelines,
         );
+        if !self.current.removed_pipelines.is_empty() {
+            warn!("Built the scene several times without rendering it.");
+        }
         self.current.removed_pipelines.extend(self.pending.removed_pipelines.drain(..));
         self.frame_builder = Some(frame_builder);
         self.current.scene = self.pending.scene.clone();
@@ -171,7 +171,7 @@ impl Document {
 
     fn forward_transaction_to_scene_builder(
         &mut self,
-        txn: TransactionMsg,
+        transaction_msg: TransactionMsg,
         document_ops: &DocumentOps,
         document_id: DocumentId,
         resource_cache: &ResourceCache,
@@ -203,9 +203,9 @@ impl Document {
 
         scene_tx.send(SceneBuilderRequest::Transaction {
             scene: scene_request,
-            resource_updates: txn.resource_updates,
-            frame_ops: txn.frame_ops,
-            render: txn.generate_frame,
+            resource_updates: transaction_msg.resource_updates,
+            frame_ops: transaction_msg.frame_ops,
+            render: transaction_msg.generate_frame,
             document_id,
         }).unwrap();
     }
@@ -294,7 +294,7 @@ pub struct RenderBackend {
     payload_tx: PayloadSender,
     result_tx: Sender<ResultMsg>,
     scene_tx: Sender<SceneBuilderRequest>,
-    scene_rx: Receiver<SceneBuilderMsg>,
+    scene_rx: Receiver<SceneBuilderResult>,
 
     default_device_pixel_ratio: f32,
 
@@ -317,7 +317,7 @@ impl RenderBackend {
         payload_tx: PayloadSender,
         result_tx: Sender<ResultMsg>,
         scene_tx: Sender<SceneBuilderRequest>,
-        scene_rx: Receiver<SceneBuilderMsg>,
+        scene_rx: Receiver<SceneBuilderResult>,
         default_device_pixel_ratio: f32,
         resource_cache: ResourceCache,
         notifier: Box<RenderNotifier>,
@@ -551,7 +551,7 @@ impl RenderBackend {
 
             while let Ok(msg) = self.scene_rx.try_recv() {
                 match msg {
-                    SceneBuilderMsg::Transaction {
+                    SceneBuilderResult::Transaction {
                         document_id,
                         mut built_scene,
                         resource_updates,
@@ -576,7 +576,7 @@ impl RenderBackend {
                             continue;
                         }
 
-                        let txn = TransactionMsg {
+                        let transaction_msg = TransactionMsg {
                             scene_ops: Vec::new(),
                             frame_ops,
                             resource_updates,
@@ -584,10 +584,10 @@ impl RenderBackend {
                             use_scene_builder_thread: false,
                         };
 
-                        if !txn.is_empty() {
+                        if !transaction_msg.is_empty() {
                             self.update_document(
                                 document_id,
-                                txn,
+                                transaction_msg,
                                 &mut frame_counter,
                                 &mut profile_counters
                             );
@@ -774,13 +774,13 @@ impl RenderBackend {
     fn update_document(
         &mut self,
         document_id: DocumentId,
-        mut txn: TransactionMsg,
+        mut transaction_msg: TransactionMsg,
         frame_counter: &mut u32,
         profile_counters: &mut BackendProfileCounters,
     ) {
         let mut op = DocumentOps::nop();
 
-        for doc_msg in replace(&mut txn.scene_ops, Vec::new()) {
+        for doc_msg in transaction_msg.scene_ops.drain(..) {
             let _timer = profile_counters.total_time.timer();
             op.combine(
                 self.process_document(
@@ -792,10 +792,10 @@ impl RenderBackend {
             );
         }
 
-        if txn.use_scene_builder_thread && !txn.is_empty() {
+        if transaction_msg.use_scene_builder_thread && !transaction_msg.is_empty() {
             let doc = self.documents.get_mut(&document_id).unwrap();
             doc.forward_transaction_to_scene_builder(
-                txn,
+                transaction_msg,
                 &op,
                 document_id,
                 &self.resource_cache,
@@ -806,7 +806,7 @@ impl RenderBackend {
         }
 
         self.resource_cache.update_resources(
-            txn.resource_updates,
+            transaction_msg.resource_updates,
             &mut profile_counters.resources,
         );
 
@@ -819,7 +819,7 @@ impl RenderBackend {
             doc.render_on_hittest = true;
         }
 
-        for doc_msg in txn.frame_ops {
+        for doc_msg in transaction_msg.frame_ops {
             let _timer = profile_counters.total_time.timer();
             op.combine(
                 self.process_document(
@@ -834,14 +834,14 @@ impl RenderBackend {
         let doc = self.documents.get_mut(&document_id).unwrap();
 
         if !doc.can_render() {
-            // WIP: this happens if we are building the first scene asynchronously and
+            // TODO: this happens if we are building the first scene asynchronously and
             // scroll at the same time. we should keep track of the fact that we skipped
             // composition here and do it as soon as we receive the scene.
             op.render = false;
             op.composite = false;
         }
 
-        if txn.generate_frame {
+        if transaction_msg.generate_frame {
             if let Some(ref mut ros) = doc.render_on_scroll {
                 *ros = true;
             }

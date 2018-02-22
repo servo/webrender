@@ -23,10 +23,10 @@ use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
 use resource_cache::{FontInstanceMap,ResourceCache, TiledImageMap};
 use scene::{Scene, StackingContextHelpers, ScenePipeline, SceneProperties};
 use scene_builder::{SceneRequest, BuiltScene};
+use std::sync::Arc;
 use tiling::{CompositeOps, Frame};
 use renderer::PipelineInfo;
 
-use std::sync::Arc;
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Eq, Ord)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -1201,7 +1201,7 @@ impl FrameContext {
         pan: WorldPoint,
         texture_cache_profile: &mut TextureCacheProfileCounters,
         gpu_cache_profile: &mut GpuCacheProfileCounters,
-		scene_properties: &SceneProperties,
+        scene_properties: &SceneProperties,
         removed_pipelines: Vec<PipelineId>,
     ) -> (HitTester, RenderedDocument) {
         let frame = frame_builder.build(
@@ -1252,7 +1252,7 @@ pub fn build_scene(
 
         let mut roller = FlattenContext {
             scene,
-            // WIP, we're not really recycling anything here, clean this up.
+            // TODO, we're not really recycling anything here, clean this up.
             builder: FrameBuilder::empty().recycle(
                 inner_rect,
                 background_color,

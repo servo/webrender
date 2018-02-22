@@ -26,7 +26,7 @@ pub enum SceneBuilderRequest {
 }
 
 // Message from scene builder to render backend.
-pub enum SceneBuilderMsg {
+pub enum SceneBuilderResult {
     Transaction {
         document_id: DocumentId,
         built_scene: Option<BuiltScene>,
@@ -56,7 +56,7 @@ pub struct BuiltScene {
 
 pub struct SceneBuilder {
     rx: Receiver<SceneBuilderRequest>,
-    tx: Sender<SceneBuilderMsg>,
+    tx: Sender<SceneBuilderResult>,
     api_tx: MsgSender<ApiMsg>,
     config: FrameBuilderConfig,
 }
@@ -65,7 +65,7 @@ impl SceneBuilder {
     pub fn new(
         config: FrameBuilderConfig,
         api_tx: MsgSender<ApiMsg>
-    ) -> (Self, Sender<SceneBuilderRequest>, Receiver<SceneBuilderMsg>) {
+    ) -> (Self, Sender<SceneBuilderRequest>, Receiver<SceneBuilderResult>) {
         let (in_tx, in_rx) = channel();
         let (out_tx, out_rx) = channel();
         (
@@ -110,7 +110,7 @@ impl SceneBuilder {
 
                 // TODO: pre-rasterization.
 
-                self.tx.send(SceneBuilderMsg::Transaction {
+                self.tx.send(SceneBuilderResult::Transaction {
                     document_id,
                     built_scene,
                     resource_updates,

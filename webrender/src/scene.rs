@@ -97,8 +97,6 @@ pub struct ScenePipeline {
     pub display_list: BuiltDisplayList,
 }
 
-// WIP: cloning the whole scene struct is probably more than wat we structly need to
-// do the async stuff, will look into this in more details later.
 /// A complete representation of the layout bundling visible pipelines together.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]

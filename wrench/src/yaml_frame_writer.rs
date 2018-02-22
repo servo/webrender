@@ -1162,7 +1162,6 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                         _ => {}
                     }
                 }
-
             }
             _ => {}
         }
