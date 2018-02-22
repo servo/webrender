@@ -2,7 +2,7 @@
 
 extern crate winapi;
 
-use com::{ComPtr, ToResult, as_ptr};
+use com::{ComPtr, ToResult, HResult, as_ptr};
 use std::ptr;
 use winapi::shared::dxgi1_2::DXGI_SWAP_CHAIN_DESC1;
 use winapi::shared::dxgi1_2::IDXGIFactory2;
@@ -14,41 +14,7 @@ use winapi::um::dcomp::IDCompositionDevice;
 use winapi::um::dcomp::IDCompositionTarget;
 use winapi::um::dcomp::IDCompositionVisual;
 
-mod com;
-
-pub use com::{HResult, HResultError};
-
-/// Initialize DirectComposition in the given window
-///
-/// # Safety
-///
-/// `hwnd` must be a valid handle to a window.
-pub unsafe fn initialize(hwnd: *mut ()) -> HResult<DirectComposition> {
-    let composition = DirectComposition::new(hwnd as HWND)?;
-
-    let swap_chain = composition.create_swap_chain(300, 200)?;
-    composition.root_visual.SetContent(&*****swap_chain).to_result()?;
-    composition.composition_device.Commit().to_result()?;
-
-    let back_buffer = ComPtr::<winapi::um::d3d11::ID3D11Texture2D>::new_with_uuid(|uuid, ptr_ptr| {
-        swap_chain.GetBuffer(0, uuid, ptr_ptr)
-    })?;
-    let render_target = ComPtr::new_with(|ptr_ptr| {
-        composition.d3d_device.CreateRenderTargetView(
-            as_ptr(&back_buffer), ptr::null_mut(), ptr_ptr,
-        )
-    })?;
-    let context = ComPtr::new_with(|ptr_ptr| {
-        composition.d3d_device.GetImmediateContext(ptr_ptr);
-        S_OK
-    })?;
-    context.OMSetRenderTargets(1, &render_target.as_raw(), ptr::null_mut());
-    let green_rgba = [0., 0.5, 0., 1.];
-    context.ClearRenderTargetView(render_target.as_raw(), &green_rgba);
-    swap_chain.Present(0, 0).to_result()?;
-
-    Ok(composition)
-}
+pub mod com;
 
 pub struct DirectComposition {
     d3d_device: ComPtr<ID3D11Device>,
@@ -61,7 +27,12 @@ pub struct DirectComposition {
 }
 
 impl DirectComposition {
-    unsafe fn new(hwnd: HWND) -> HResult<Self> {
+    /// Initialize DirectComposition in the given window
+    ///
+    /// # Safety
+    ///
+    /// `hwnd` must be a valid handle to a window.
+    pub unsafe fn new(hwnd: HWND) -> HResult<Self> {
         let mut feature_level_supported = 0;
 
         let d3d_device = ComPtr::new_with(|ptr_ptr| winapi::um::d3d11::D3D11CreateDevice(
@@ -112,9 +83,14 @@ impl DirectComposition {
         })
     }
 
-    fn create_swap_chain(&self, width: u32, height: u32)
-        -> HResult<ComPtr<winapi::shared::dxgi1_2::IDXGISwapChain1>>
-    {
+    /// Execute changes to the DirectComposition scene.
+    pub fn commit(&self) -> HResult<()> {
+        unsafe {
+            self.composition_device.Commit().to_result()
+        }
+    }
+
+    pub fn create_d3d_visual(&self, width: u32, height: u32) -> HResult<D3DVisual> {
         unsafe {
             let desc = DXGI_SWAP_CHAIN_DESC1 {
                 Width: width,
@@ -132,14 +108,63 @@ impl DirectComposition {
                 AlphaMode:  winapi::shared::dxgi1_2::DXGI_ALPHA_MODE_IGNORE,
                 Flags: 0,
             };
-            ComPtr::<winapi::shared::dxgi1_2::IDXGISwapChain1>::new_with(|ptr_ptr| {
+            let swap_chain = ComPtr::<winapi::shared::dxgi1_2::IDXGISwapChain1>::new_with(|ptr_ptr| {
                 self.dxgi_factory.CreateSwapChainForComposition(
                     as_ptr(&self.d3d_device),
                     &desc,
                     ptr::null_mut(),
                     ptr_ptr,
                 )
-            })
+            })?;
+            let visual = ComPtr::new_with(|ptr_ptr| self.composition_device.CreateVisual(ptr_ptr))?;
+            visual.SetContent(&*****swap_chain).to_result()?;
+            self.root_visual.AddVisual(&*visual, FALSE, ptr::null_mut()).to_result()?;
+
+            Ok(D3DVisual { visual, swap_chain })
+        }
+    }
+}
+
+/// A DirectComposition "visual" configured for rendering with Direct3D.
+pub struct D3DVisual {
+    visual: ComPtr<IDCompositionVisual>,
+    swap_chain: ComPtr<winapi::shared::dxgi1_2::IDXGISwapChain1>,
+}
+
+impl D3DVisual {
+    pub fn set_offset_x(&self, offset_x: f32) -> HResult<()> {
+        unsafe {
+            self.visual.SetOffsetX_1(offset_x).to_result()
+        }
+    }
+
+    pub fn set_offset_y(&self, offset_y: f32) -> HResult<()> {
+        unsafe {
+            self.visual.SetOffsetY_1(offset_y).to_result()
+        }
+    }
+
+    pub fn render_and_present_solid_frame(&self, composition: &DirectComposition, rgba: &[f32; 4])
+                                          -> HResult<()> {
+        unsafe {
+            let back_buffer = ComPtr::<winapi::um::d3d11::ID3D11Texture2D>::new_with_uuid(|uuid, ptr_ptr| {
+                self.swap_chain.GetBuffer(0, uuid, ptr_ptr)
+            })?;
+            let render_target = ComPtr::new_with(|ptr_ptr| {
+                composition.d3d_device.CreateRenderTargetView(
+                    as_ptr(&back_buffer), ptr::null_mut(), ptr_ptr,
+                )
+            })?;
+            let context = ComPtr::new_with(|ptr_ptr| {
+                composition.d3d_device.GetImmediateContext(ptr_ptr);
+                S_OK
+            })?;
+
+            // FIXME: arbitrary D3D rendering here?
+            context.OMSetRenderTargets(1, &render_target.as_raw(), ptr::null_mut());
+            context.ClearRenderTargetView(render_target.as_raw(), &rgba);
+
+            self.swap_chain.Present(0, 0).to_result()
         }
     }
 }

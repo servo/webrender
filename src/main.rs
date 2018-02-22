@@ -14,9 +14,17 @@ fn main() {
         .build(&events_loop)
         .unwrap();
 
-    let _composition = unsafe {
-        directcomposition::initialize(window.get_hwnd() as _).unwrap()
+    let composition = unsafe {
+        directcomposition::DirectComposition::new(window.get_hwnd() as _).unwrap()
     };
+
+    let visual = composition.create_d3d_visual(300, 200).unwrap();
+    visual.set_offset_x(100.).unwrap();
+    visual.set_offset_y(50.).unwrap();
+    composition.commit().unwrap();
+
+    let green_rgba = [0., 0.5, 0., 1.];
+    visual.render_and_present_solid_frame(&composition, &green_rgba).unwrap();
 
     if std::env::var_os("INIT_ONLY").is_some() {
         return
