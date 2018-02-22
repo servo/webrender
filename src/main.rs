@@ -28,28 +28,41 @@ fn main() {
 
     composition.commit().unwrap();
 
+    let mut green = 0.5;
     visual1.render_and_present_solid_frame(&composition, &[0., 0.2, 0.4, 1.]).unwrap();
-    visual2.render_and_present_solid_frame(&composition, &[0., 0.5, 0., 0.5]).unwrap();
+    visual2.render_and_present_solid_frame(&composition, &[0., green, 0., 0.5]).unwrap();
 
-    events_loop.run_forever(|event| match event {
-        winit::Event::WindowEvent { event: winit::WindowEvent::Closed, .. } => {
-            winit::ControlFlow::Break
-        }
-        winit::Event::DeviceEvent { event: winit::DeviceEvent::MouseWheel { delta }, .. } => {
-            let dy = match delta {
-                winit::MouseScrollDelta::LineDelta(_, dy) => dy,
-                winit::MouseScrollDelta::PixelDelta(_, dy) => dy,
-            };
-            offset_y = (offset_y - 10. * dy).max(0.).min(468.);
+    events_loop.run_forever(|event| {
+        if let winit::Event::WindowEvent { event, .. } = event {
+            match event {
+                winit::WindowEvent::Closed => {
+                    return winit::ControlFlow::Break
+                }
+                winit::WindowEvent::MouseWheel { delta, .. } => {
+                    let dy = match delta {
+                        winit::MouseScrollDelta::LineDelta(_, dy) => dy,
+                        winit::MouseScrollDelta::PixelDelta(_, dy) => dy,
+                    };
+                    offset_y = (offset_y - 10. * dy).max(0.).min(468.);
 
-            visual2.set_offset_y(offset_y).unwrap();
-            composition.commit().unwrap();
-
-            winit::ControlFlow::Continue
+                    visual2.set_offset_y(offset_y).unwrap();
+                    composition.commit().unwrap();
+                }
+                winit::WindowEvent::MouseInput {
+                    button: winit::MouseButton::Left,
+                    state: winit::ElementState::Pressed,
+                    ..
+                } => {
+                    green += 0.1;
+                    green %= 1.;
+                    visual2.render_and_present_solid_frame(
+                        &composition, &[0., green, 0., 0.5]
+                    ).unwrap();
+                }
+                _ => {}
+            }
         }
-        _ => {
-            winit::ControlFlow::Continue
-        }
+        winit::ControlFlow::Continue
     });
 }
 
