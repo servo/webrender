@@ -17,17 +17,18 @@ fn main() {
 
     let composition = direct_composition_from_window(&window);
 
-    let visual = composition.create_d3d_visual(300, 200).unwrap();
-    visual.set_offset_x(100.).unwrap();
-    visual.set_offset_y(50.).unwrap();
+    let visual1 = composition.create_d3d_visual(300, 200).unwrap();
+    visual1.set_offset_x(100.).unwrap();
+    visual1.set_offset_y(50.).unwrap();
+
+    let visual2 = composition.create_d3d_visual(400, 300).unwrap();
+    visual2.set_offset_x(200.).unwrap();
+    visual2.set_offset_y(100.).unwrap();
+
     composition.commit().unwrap();
 
-    let green_rgba = [0., 0.5, 0., 1.];
-    visual.render_and_present_solid_frame(&composition, &green_rgba).unwrap();
-
-    if std::env::var_os("INIT_ONLY").is_some() {
-        return
-    }
+    visual1.render_and_present_solid_frame(&composition, &[0., 0.2, 0.4, 1.]).unwrap();
+    visual2.render_and_present_solid_frame(&composition, &[0., 0.5, 0., 0.5]).unwrap();
 
     events_loop.run_forever(|event| match event {
         winit::Event::WindowEvent { event: winit::WindowEvent::Closed, .. } => {
