@@ -105,7 +105,7 @@ impl DirectComposition {
                 BufferCount: 2,
                 Scaling: winapi::shared::dxgi1_2::DXGI_SCALING_STRETCH,
                 SwapEffect: winapi::shared::dxgi::DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
-                AlphaMode:  winapi::shared::dxgi1_2::DXGI_ALPHA_MODE_IGNORE,
+                AlphaMode:  winapi::shared::dxgi1_2::DXGI_ALPHA_MODE_PREMULTIPLIED,
                 Flags: 0,
             };
             let swap_chain = ComPtr::<winapi::shared::dxgi1_2::IDXGISwapChain1>::new_with(|ptr_ptr| {
