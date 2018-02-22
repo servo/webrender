@@ -110,12 +110,6 @@ impl<T> ops::Deref for ComPtr<T> where T: Interface {
     }
 }
 
-impl<T> ops::DerefMut for ComPtr<T> where T: Interface {
-    fn deref_mut(&mut self) -> &mut T {
-        unsafe { &mut *self.0 }
-    }
-}
-
 impl<T> Clone for ComPtr<T> where T: Interface {
     fn clone(&self) -> Self {
         unsafe {
