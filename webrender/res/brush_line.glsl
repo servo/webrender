@@ -119,7 +119,7 @@ void brush_vs(
 
 #ifdef WR_FRAGMENT_SHADER
 
-#define MAGIC_WAVY_LINE_AA_SNAP         0.7
+#define MAGIC_WAVY_LINE_AA_SNAP         0.5
 
 vec4 brush_fs() {
     // Find the appropriate distance to apply the step over.
