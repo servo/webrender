@@ -1128,7 +1128,7 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                 self.frame_writer.update_resources(&txn.resource_updates);
                 for doc_msg in &txn.scene_ops {
                     match *doc_msg {
-                        DocumentMsg::SetDisplayList {
+                        SceneMsg::SetDisplayList {
                             ref epoch,
                             ref pipeline_id,
                             ref background,
@@ -1145,10 +1145,10 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                                 list_descriptor,
                             );
                         }
-                        DocumentMsg::SetRootPipeline(ref pipeline_id) => {
+                        SceneMsg::SetRootPipeline(ref pipeline_id) => {
                             self.scene.set_root_pipeline_id(pipeline_id.clone());
                         }
-                        DocumentMsg::RemovePipeline(ref pipeline_id) => {
+                        SceneMsg::RemovePipeline(ref pipeline_id) => {
                             self.scene.remove_pipeline(pipeline_id);
                         }
                         _ => {}
@@ -1156,7 +1156,7 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                 }
                 for doc_msg in &txn.frame_ops {
                     match *doc_msg {
-                        DocumentMsg::UpdateDynamicProperties(ref properties) => {
+                        FrameMsg::UpdateDynamicProperties(ref properties) => {
                             self.scene.properties.set_properties(properties);
                         }
                         _ => {}

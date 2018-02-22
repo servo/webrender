@@ -6,7 +6,7 @@ use api::{ApiMsg, BuiltDisplayList, ClearCache, DebugCommand};
 #[cfg(feature = "debugger")]
 use api::{BuiltDisplayListIter, SpecificDisplayItem};
 use api::{DeviceIntPoint, DevicePixelScale, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
-use api::{DocumentId, DocumentLayer, DocumentMsg, HitTestResult, IdNamespace, PipelineId};
+use api::{DocumentId, DocumentLayer, SceneMsg, FrameMsg, HitTestResult, IdNamespace, PipelineId};
 use api::TransactionMsg;
 use api::RenderNotifier;
 use api::channel::{MsgReceiver, PayloadReceiver, PayloadReceiverHelperMethods};
@@ -346,38 +346,25 @@ impl RenderBackend {
         }
     }
 
-    fn process_document(
+    fn process_scene_msg(
         &mut self,
         document_id: DocumentId,
-        message: DocumentMsg,
+        message: SceneMsg,
         frame_counter: u32,
         ipc_profile_counters: &mut IpcProfileCounters,
     ) -> DocumentOps {
         let doc = self.documents.get_mut(&document_id).expect("No document?");
 
         match message {
-            //TODO: move view-related messages in a separate enum?
-            DocumentMsg::SetPageZoom(factor) => {
+            SceneMsg::SetPageZoom(factor) => {
                 doc.view.page_zoom_factor = factor.get();
                 DocumentOps::nop()
             }
-            DocumentMsg::EnableFrameOutput(pipeline_id, enable) => {
-                if enable {
-                    doc.output_pipelines.insert(pipeline_id);
-                } else {
-                    doc.output_pipelines.remove(&pipeline_id);
-                }
-                DocumentOps::nop()
-            }
-            DocumentMsg::SetPinchZoom(factor) => {
+            SceneMsg::SetPinchZoom(factor) => {
                 doc.view.pinch_zoom_factor = factor.get();
                 DocumentOps::nop()
             }
-            DocumentMsg::SetPan(pan) => {
-                doc.view.pan = pan;
-                DocumentOps::nop()
-            }
-            DocumentMsg::SetWindowParameters {
+            SceneMsg::SetWindowParameters {
                 window_size,
                 inner_rect,
                 device_pixel_ratio,
@@ -387,7 +374,7 @@ impl RenderBackend {
                 doc.view.device_pixel_ratio = device_pixel_ratio;
                 DocumentOps::nop()
             }
-            DocumentMsg::SetDisplayList {
+            SceneMsg::SetDisplayList {
                 epoch,
                 pipeline_id,
                 background,
@@ -453,12 +440,7 @@ impl RenderBackend {
 
                 DocumentOps::build()
             }
-            DocumentMsg::UpdateEpoch(pipeline_id, epoch) => {
-                doc.pending.scene.update_epoch(pipeline_id, epoch);
-                doc.frame_ctx.update_epoch(pipeline_id, epoch);
-                DocumentOps::nop()
-            }
-            DocumentMsg::SetRootPipeline(pipeline_id) => {
+            SceneMsg::SetRootPipeline(pipeline_id) => {
                 profile_scope!("SetRootPipeline");
 
                 doc.pending.scene.set_root_pipeline_id(pipeline_id);
@@ -468,14 +450,38 @@ impl RenderBackend {
                     DocumentOps::nop()
                 }
             }
-            DocumentMsg::RemovePipeline(pipeline_id) => {
+            SceneMsg::RemovePipeline(pipeline_id) => {
                 profile_scope!("RemovePipeline");
 
                 doc.pending.scene.remove_pipeline(pipeline_id);
                 doc.pending.removed_pipelines.push(pipeline_id);
                 DocumentOps::nop()
             }
-            DocumentMsg::Scroll(delta, cursor, move_phase) => {
+        }
+    }
+
+    fn process_frame_msg(
+        &mut self,
+        document_id: DocumentId,
+        message: FrameMsg,
+    ) -> DocumentOps {
+        let doc = self.documents.get_mut(&document_id).expect("No document?");
+
+        match message {
+            FrameMsg::EnableFrameOutput(pipeline_id, enable) => {
+                if enable {
+                    doc.output_pipelines.insert(pipeline_id);
+                } else {
+                    doc.output_pipelines.remove(&pipeline_id);
+                }
+                DocumentOps::nop()
+            }
+            FrameMsg::UpdateEpoch(pipeline_id, epoch) => {
+                doc.pending.scene.update_epoch(pipeline_id, epoch);
+                doc.frame_ctx.update_epoch(pipeline_id, epoch);
+                DocumentOps::nop()
+            }
+            FrameMsg::Scroll(delta, cursor, move_phase) => {
                 profile_scope!("Scroll");
 
                 let should_render = doc.frame_ctx.scroll(delta, cursor, move_phase)
@@ -488,7 +494,7 @@ impl RenderBackend {
                     ..DocumentOps::nop()
                 }
             }
-            DocumentMsg::HitTest(pipeline_id, point, flags, tx) => {
+            FrameMsg::HitTest(pipeline_id, point, flags, tx) => {
 
                 let result = match doc.hit_tester {
                     Some(ref hit_tester) => {
@@ -500,7 +506,11 @@ impl RenderBackend {
                 tx.send(result).unwrap();
                 DocumentOps::nop()
             }
-            DocumentMsg::ScrollNodeWithId(origin, id, clamp) => {
+            FrameMsg::SetPan(pan) => {
+                doc.view.pan = pan;
+                DocumentOps::nop()
+            }
+            FrameMsg::ScrollNodeWithId(origin, id, clamp) => {
                 profile_scope!("ScrollNodeWithScrollId");
 
                 let should_render = doc.frame_ctx.scroll_node(origin, id, clamp)
@@ -513,7 +523,7 @@ impl RenderBackend {
                     ..DocumentOps::nop()
                 }
             }
-            DocumentMsg::TickScrollingBounce => {
+            FrameMsg::TickScrollingBounce => {
                 profile_scope!("TickScrollingBounce");
 
                 doc.frame_ctx.tick_scrolling_bounce_animations();
@@ -527,12 +537,12 @@ impl RenderBackend {
                     ..DocumentOps::nop()
                 }
             }
-            DocumentMsg::GetScrollNodeState(tx) => {
+            FrameMsg::GetScrollNodeState(tx) => {
                 profile_scope!("GetScrollNodeState");
                 tx.send(doc.frame_ctx.get_scroll_node_state()).unwrap();
                 DocumentOps::nop()
             }
-            DocumentMsg::UpdateDynamicProperties(property_bindings) => {
+            FrameMsg::UpdateDynamicProperties(property_bindings) => {
                 doc.dynamic_properties.set_properties(property_bindings);
                 DocumentOps::build()
             }
@@ -619,154 +629,150 @@ impl RenderBackend {
         profile_counters: &mut BackendProfileCounters,
         frame_counter: &mut u32,
     ) -> bool {
-        // WIP: reeindent that when the work is closer to land (otherwise rebasing is
-        // is a pain).
-
-
-            match msg {
-                ApiMsg::WakeUp => {}
-                ApiMsg::UpdateResources(updates) => {
-                    self.resource_cache
-                        .update_resources(updates, &mut profile_counters.resources);
-                }
-                ApiMsg::GetGlyphDimensions(instance_key, glyph_keys, tx) => {
-                    let mut glyph_dimensions = Vec::with_capacity(glyph_keys.len());
-                    if let Some(font) = self.resource_cache.get_font_instance(instance_key) {
-                        for glyph_key in &glyph_keys {
-                            let glyph_dim = self.resource_cache.get_glyph_dimensions(&font, glyph_key);
-                            glyph_dimensions.push(glyph_dim);
-                        }
-                    }
-                    tx.send(glyph_dimensions).unwrap();
-                }
-                ApiMsg::GetGlyphIndices(font_key, text, tx) => {
-                    let mut glyph_indices = Vec::new();
-                    for ch in text.chars() {
-                        let index = self.resource_cache.get_glyph_index(font_key, ch);
-                        glyph_indices.push(index);
-                    }
-                    tx.send(glyph_indices).unwrap();
-                }
-                ApiMsg::CloneApi(sender) => {
-                    sender.send(self.next_namespace_id()).unwrap();
-                }
-                ApiMsg::AddDocument(document_id, initial_size, layer) => {
-                    let document = Document::new(
-                        self.frame_config.clone(),
-                        initial_size,
-                        layer,
-                        self.enable_render_on_scroll,
-                        self.default_device_pixel_ratio,
-                    );
-                    self.documents.insert(document_id, document);
-                }
-                ApiMsg::DeleteDocument(document_id) => {
-                    self.documents.remove(&document_id);
-                }
-                ApiMsg::ExternalEvent(evt) => {
-                    self.notifier.external_event(evt);
-                }
-                ApiMsg::ClearNamespace(namespace_id) => {
-                    self.resource_cache.clear_namespace(namespace_id);
-                    let document_ids = self.documents
-                        .keys()
-                        .filter(|did| did.0 == namespace_id)
-                        .cloned()
-                        .collect::<Vec<_>>();
-                    for document in document_ids {
-                        self.documents.remove(&document);
+        match msg {
+            ApiMsg::WakeUp => {}
+            ApiMsg::UpdateResources(updates) => {
+                self.resource_cache
+                    .update_resources(updates, &mut profile_counters.resources);
+            }
+            ApiMsg::GetGlyphDimensions(instance_key, glyph_keys, tx) => {
+                let mut glyph_dimensions = Vec::with_capacity(glyph_keys.len());
+                if let Some(font) = self.resource_cache.get_font_instance(instance_key) {
+                    for glyph_key in &glyph_keys {
+                        let glyph_dim = self.resource_cache.get_glyph_dimensions(&font, glyph_key);
+                        glyph_dimensions.push(glyph_dim);
                     }
                 }
-                ApiMsg::MemoryPressure => {
-                    // This is drastic. It will basically flush everything out of the cache,
-                    // and the next frame will have to rebuild all of its resources.
-                    // We may want to look into something less extreme, but on the other hand this
-                    // should only be used in situations where are running low enough on memory
-                    // that we risk crashing if we don't do something about it.
-                    // The advantage of clearing the cache completely is that it gets rid of any
-                    // remaining fragmentation that could have persisted if we kept around the most
-                    // recently used resources.
-                    self.resource_cache.clear(ClearCache::all());
-
-                    let pending_update = self.resource_cache.pending_updates();
-                    let msg = ResultMsg::UpdateResources {
-                        updates: pending_update,
-                        cancel_rendering: true,
-                    };
-                    self.result_tx.send(msg).unwrap();
-                    self.notifier.wake_up();
+                tx.send(glyph_dimensions).unwrap();
+            }
+            ApiMsg::GetGlyphIndices(font_key, text, tx) => {
+                let mut glyph_indices = Vec::new();
+                for ch in text.chars() {
+                    let index = self.resource_cache.get_glyph_index(font_key, ch);
+                    glyph_indices.push(index);
                 }
-                ApiMsg::DebugCommand(option) => {
-                    let msg = match option {
-                        DebugCommand::EnableDualSourceBlending(enable) => {
-                            // Set in the config used for any future documents
-                            // that are created.
-                            self.frame_config
-                                .dual_source_blending_is_enabled = enable;
-
-                            // Set for any existing documents.
-                            for (_, doc) in &mut self.documents {
-                                doc.frame_ctx
-                                   .frame_builder_config
-                                   .dual_source_blending_is_enabled = enable;
-                            }
-
-                            // We don't want to forward this message to the renderer.
-                            return true;
-                        }
-                        DebugCommand::FetchDocuments => {
-                            let json = self.get_docs_for_debugger();
-                            ResultMsg::DebugOutput(DebugOutput::FetchDocuments(json))
-                        }
-                        DebugCommand::FetchClipScrollTree => {
-                            let json = self.get_clip_scroll_tree_for_debugger();
-                            ResultMsg::DebugOutput(DebugOutput::FetchClipScrollTree(json))
-                        }
-                        #[cfg(feature = "capture")]
-                        DebugCommand::SaveCapture(root, bits) => {
-                            let output = self.save_capture(root, bits, profile_counters);
-                            ResultMsg::DebugOutput(output)
-                        },
-                        #[cfg(feature = "replay")]
-                        DebugCommand::LoadCapture(root, tx) => {
-                            NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed);
-                            *frame_counter += 1;
-
-                            self.load_capture(&root, profile_counters);
-
-                            for (id, doc) in &self.documents {
-                                let captured = CapturedDocument {
-                                    document_id: *id,
-                                    root_pipeline_id: doc.current.scene.root_pipeline_id,
-                                    window_size: doc.view.window_size,
-                                };
-                                tx.send(captured).unwrap();
-                            }
-                            // Note: we can't pass `LoadCapture` here since it needs to arrive
-                            // before the `PublishDocument` messages sent by `load_capture`.
-                            return true;
-                        }
-                        DebugCommand::ClearCaches(mask) => {
-                            self.resource_cache.clear(mask);
-                            return true;
-                        }
-                        _ => ResultMsg::DebugCommand(option),
-                    };
-                    self.result_tx.send(msg).unwrap();
-                    self.notifier.wake_up();
-                }
-                ApiMsg::ShutDown => {
-                    return false;
-                }
-                ApiMsg::UpdateDocument(document_id, doc_msgs) => {
-                    self.update_document(
-                        document_id,
-                        doc_msgs,
-                        frame_counter,
-                        profile_counters
-                    )
+                tx.send(glyph_indices).unwrap();
+            }
+            ApiMsg::CloneApi(sender) => {
+                sender.send(self.next_namespace_id()).unwrap();
+            }
+            ApiMsg::AddDocument(document_id, initial_size, layer) => {
+                let document = Document::new(
+                    self.frame_config.clone(),
+                    initial_size,
+                    layer,
+                    self.enable_render_on_scroll,
+                    self.default_device_pixel_ratio,
+                );
+                self.documents.insert(document_id, document);
+            }
+            ApiMsg::DeleteDocument(document_id) => {
+                self.documents.remove(&document_id);
+            }
+            ApiMsg::ExternalEvent(evt) => {
+                self.notifier.external_event(evt);
+            }
+            ApiMsg::ClearNamespace(namespace_id) => {
+                self.resource_cache.clear_namespace(namespace_id);
+                let document_ids = self.documents
+                    .keys()
+                    .filter(|did| did.0 == namespace_id)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                for document in document_ids {
+                    self.documents.remove(&document);
                 }
             }
+            ApiMsg::MemoryPressure => {
+                // This is drastic. It will basically flush everything out of the cache,
+                // and the next frame will have to rebuild all of its resources.
+                // We may want to look into something less extreme, but on the other hand this
+                // should only be used in situations where are running low enough on memory
+                // that we risk crashing if we don't do something about it.
+                // The advantage of clearing the cache completely is that it gets rid of any
+                // remaining fragmentation that could have persisted if we kept around the most
+                // recently used resources.
+                self.resource_cache.clear(ClearCache::all());
+
+                let pending_update = self.resource_cache.pending_updates();
+                let msg = ResultMsg::UpdateResources {
+                    updates: pending_update,
+                    cancel_rendering: true,
+                };
+                self.result_tx.send(msg).unwrap();
+                self.notifier.wake_up();
+            }
+            ApiMsg::DebugCommand(option) => {
+                let msg = match option {
+                    DebugCommand::EnableDualSourceBlending(enable) => {
+                        // Set in the config used for any future documents
+                        // that are created.
+                        self.frame_config
+                            .dual_source_blending_is_enabled = enable;
+
+                        // Set for any existing documents.
+                        for (_, doc) in &mut self.documents {
+                            doc.frame_ctx
+                               .frame_builder_config
+                               .dual_source_blending_is_enabled = enable;
+                        }
+
+                        // We don't want to forward this message to the renderer.
+                        return true;
+                    }
+                    DebugCommand::FetchDocuments => {
+                        let json = self.get_docs_for_debugger();
+                        ResultMsg::DebugOutput(DebugOutput::FetchDocuments(json))
+                    }
+                    DebugCommand::FetchClipScrollTree => {
+                        let json = self.get_clip_scroll_tree_for_debugger();
+                        ResultMsg::DebugOutput(DebugOutput::FetchClipScrollTree(json))
+                    }
+                    #[cfg(feature = "capture")]
+                    DebugCommand::SaveCapture(root, bits) => {
+                        let output = self.save_capture(root, bits, profile_counters);
+                        ResultMsg::DebugOutput(output)
+                    },
+                    #[cfg(feature = "replay")]
+                    DebugCommand::LoadCapture(root, tx) => {
+                        NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed);
+                        *frame_counter += 1;
+
+                        self.load_capture(&root, profile_counters);
+
+                        for (id, doc) in &self.documents {
+                            let captured = CapturedDocument {
+                                document_id: *id,
+                                root_pipeline_id: doc.current.scene.root_pipeline_id,
+                                window_size: doc.view.window_size,
+                            };
+                            tx.send(captured).unwrap();
+                        }
+                        // Note: we can't pass `LoadCapture` here since it needs to arrive
+                        // before the `PublishDocument` messages sent by `load_capture`.
+                        return true;
+                    }
+                    DebugCommand::ClearCaches(mask) => {
+                        self.resource_cache.clear(mask);
+                        return true;
+                    }
+                    _ => ResultMsg::DebugCommand(option),
+                };
+                self.result_tx.send(msg).unwrap();
+                self.notifier.wake_up();
+            }
+            ApiMsg::ShutDown => {
+                return false;
+            }
+            ApiMsg::UpdateDocument(document_id, doc_msgs) => {
+                self.update_document(
+                    document_id,
+                    doc_msgs,
+                    frame_counter,
+                    profile_counters
+                )
+            }
+        }
 
         true
     }
@@ -780,12 +786,12 @@ impl RenderBackend {
     ) {
         let mut op = DocumentOps::nop();
 
-        for doc_msg in transaction_msg.scene_ops.drain(..) {
+        for scene_msg in transaction_msg.scene_ops.drain(..) {
             let _timer = profile_counters.total_time.timer();
             op.combine(
-                self.process_document(
+                self.process_scene_msg(
                     document_id,
-                    doc_msg,
+                    scene_msg,
                     *frame_counter,
                     &mut profile_counters.ipc,
                 )
@@ -819,16 +825,9 @@ impl RenderBackend {
             doc.render_on_hittest = true;
         }
 
-        for doc_msg in transaction_msg.frame_ops {
+        for frame_msg in transaction_msg.frame_ops {
             let _timer = profile_counters.total_time.timer();
-            op.combine(
-                self.process_document(
-                    document_id,
-                    doc_msg,
-                    *frame_counter,
-                    &mut profile_counters.ipc,
-                )
-            );
+            op.combine(self.process_frame_msg(document_id, frame_msg));
         }
 
         let doc = self.documents.get_mut(&document_id).unwrap();

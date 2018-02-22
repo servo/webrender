@@ -11,7 +11,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::{mem, process};
 use webrender::WEBRENDER_RECORDING_HEADER;
-use webrender::api::{ApiMsg, DocumentMsg};
+use webrender::api::{ApiMsg, SceneMsg};
 use wrench::{Wrench, WrenchThing};
 
 #[derive(Clone)]
@@ -146,11 +146,11 @@ impl WrenchThing for BinaryFrameReader {
                             }
                             for doc_msg in &txn.scene_ops {
                                 match *doc_msg {
-                                    DocumentMsg::SetDisplayList { .. } => {
+                                    SceneMsg::SetDisplayList { .. } => {
                                         found_frame_marker = false;
                                         found_display_list = true;
                                     }
-                                    DocumentMsg::SetRootPipeline(..) => {
+                                    SceneMsg::SetRootPipeline(..) => {
                                         found_frame_marker = false;
                                         found_pipeline = true;
                                     }

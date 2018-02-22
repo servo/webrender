@@ -160,7 +160,7 @@ impl webrender::ApiRecordingReceiver for RonFrameWriter {
                 self.update_resources(&txn.resource_updates);
                 for doc_msg in &txn.scene_ops {
                     match *doc_msg {
-                        DocumentMsg::SetDisplayList {
+                        SceneMsg::SetDisplayList {
                             ref epoch,
                             ref pipeline_id,
                             ref background,
