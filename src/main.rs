@@ -22,8 +22,9 @@ fn main() {
     visual1.set_offset_y(50.).unwrap();
 
     let visual2 = composition.create_d3d_visual(400, 300).unwrap();
+    let mut offset_y = 100.;
     visual2.set_offset_x(200.).unwrap();
-    visual2.set_offset_y(100.).unwrap();
+    visual2.set_offset_y(offset_y).unwrap();
 
     composition.commit().unwrap();
 
@@ -34,7 +35,21 @@ fn main() {
         winit::Event::WindowEvent { event: winit::WindowEvent::Closed, .. } => {
             winit::ControlFlow::Break
         }
-        _ => winit::ControlFlow::Continue,
+        winit::Event::DeviceEvent { event: winit::DeviceEvent::MouseWheel { delta }, .. } => {
+            let dy = match delta {
+                winit::MouseScrollDelta::LineDelta(_, dy) => dy,
+                winit::MouseScrollDelta::PixelDelta(_, dy) => dy,
+            };
+            offset_y = (offset_y - 10. * dy).max(0.).min(468.);
+
+            visual2.set_offset_y(offset_y).unwrap();
+            composition.commit().unwrap();
+
+            winit::ControlFlow::Continue
+        }
+        _ => {
+            winit::ControlFlow::Continue
+        }
     });
 }
 
