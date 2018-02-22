@@ -71,6 +71,21 @@ impl PrimitiveOpacity {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct CachedGradientIndex(pub usize);
+
+pub struct CachedGradient {
+    pub handle: GpuCacheHandle,
+}
+
+impl CachedGradient {
+    pub fn new() -> CachedGradient {
+        CachedGradient {
+            handle: GpuCacheHandle::new(),
+        }
+    }
+}
+
 // Represents the local space rect of a list of
 // primitive runs. For most primitive runs, the
 // primitive runs are attached to the parent they
@@ -205,9 +220,9 @@ pub enum BrushKind {
         image_rendering: ImageRendering,
     },
     RadialGradient {
+        gradient_index: CachedGradientIndex,
         stops_range: ItemRange<GradientStop>,
         extend_mode: ExtendMode,
-        stops_handle: GpuCacheHandle,
         start_center: LayerPoint,
         end_center: LayerPoint,
         start_radius: f32,
@@ -215,9 +230,9 @@ pub enum BrushKind {
         ratio_xy: f32,
     },
     LinearGradient {
+        gradient_index: CachedGradientIndex,
         stops_range: ItemRange<GradientStop>,
         stops_count: usize,
-        stops_handle: GpuCacheHandle,
         extend_mode: ExtendMode,
         reverse_stops: bool,
         start_point: LayerPoint,
@@ -1255,7 +1270,8 @@ impl PrimitiveStore {
                             );
                         }
                     }
-                    BrushKind::RadialGradient { ref mut stops_handle, stops_range, .. } => {
+                    BrushKind::RadialGradient { gradient_index, stops_range, .. } => {
+                        let stops_handle = &mut frame_state.cached_gradients[gradient_index.0].handle;
                         if let Some(mut request) = frame_state.gpu_cache.request(stops_handle) {
                             let gradient_builder = GradientGpuBlockBuilder::new(
                                 stops_range,
@@ -1267,7 +1283,8 @@ impl PrimitiveStore {
                             );
                         }
                     }
-                    BrushKind::LinearGradient { ref mut stops_handle, stops_range, reverse_stops, .. } => {
+                    BrushKind::LinearGradient { gradient_index, stops_range, reverse_stops, .. } => {
+                        let stops_handle = &mut frame_state.cached_gradients[gradient_index.0].handle;
                         if let Some(mut request) = frame_state.gpu_cache.request(stops_handle) {
                             let gradient_builder = GradientGpuBlockBuilder::new(
                                 stops_range,
