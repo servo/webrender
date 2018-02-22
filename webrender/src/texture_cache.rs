@@ -269,7 +269,7 @@ impl TextureCache {
     // Returns true if the image needs to be uploaded to the
     // texture cache (either never uploaded, or has been
     // evicted on a previous frame).
-    pub fn request(&mut self, handle: &mut TextureCacheHandle, gpu_cache: &mut GpuCache) -> bool {
+    pub fn request(&mut self, handle: &TextureCacheHandle, gpu_cache: &mut GpuCache) -> bool {
         match handle.entry {
             Some(ref handle) => {
                 match self.entries.get_opt_mut(handle) {

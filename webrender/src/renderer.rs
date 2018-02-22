@@ -2460,7 +2460,7 @@ impl Renderer {
                     self.update_texture_cache();
                     self.device.end_frame();
                     // If we receive a `PublishDocument` message followed by this one
-                    // within the same update we need ot cancel the frame because we
+                    // within the same update we need to cancel the frame because we
                     // might have deleted the resources in use in the frame due to a
                     // memory pressure event.
                     if cancel_rendering {
