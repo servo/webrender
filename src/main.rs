@@ -4,6 +4,7 @@ compile_error!("This demo only runs on Windows.");
 extern crate directcomposition;
 extern crate winit;
 
+use directcomposition::DirectComposition;
 use winit::os::windows::WindowExt;
 
 fn main() {
@@ -14,9 +15,7 @@ fn main() {
         .build(&events_loop)
         .unwrap();
 
-    let composition = unsafe {
-        directcomposition::DirectComposition::new(window.get_hwnd() as _).unwrap()
-    };
+    let composition = direct_composition_from_window(&window);
 
     let visual = composition.create_d3d_visual(300, 200).unwrap();
     visual.set_offset_x(100.).unwrap();
@@ -36,4 +35,10 @@ fn main() {
         }
         _ => winit::ControlFlow::Continue,
     });
+}
+
+fn direct_composition_from_window(window: &winit::Window) -> DirectComposition {
+    unsafe {
+        DirectComposition::new(window.get_hwnd() as _).unwrap()
+    }
 }
