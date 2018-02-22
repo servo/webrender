@@ -90,6 +90,7 @@ mod render_task;
 mod renderer;
 mod resource_cache;
 mod scene;
+mod scene_builder;
 mod segment;
 mod spring;
 mod texture_allocator;

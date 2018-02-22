@@ -32,6 +32,7 @@ use render_task::{ClearMode, RenderTask, RenderTaskId, RenderTaskLocation, Rende
 use resource_cache::{ImageRequest, ResourceCache};
 use scene::{ScenePipeline, SceneProperties};
 use std::{mem, usize, f32};
+use std::sync::Arc;
 use tiling::{CompositeOps, Frame, RenderPass, RenderTargetKind};
 use tiling::{RenderPassKind, RenderTargetContext, ScrollbarPrimitive};
 use util::{self, MaxRect, RectHelpers, WorldToLayerFastTransform, recycle_vec};
@@ -81,6 +82,7 @@ pub struct FrameBuilderConfig {
 pub struct FrameBuilder {
     screen_rect: DeviceUintRect,
     background_color: Option<ColorF>,
+    window_size: DeviceUintSize,
     prim_store: PrimitiveStore,
     pub clip_store: ClipStore,
     hit_testing_runs: Vec<HitTestingRun>,
@@ -111,7 +113,7 @@ pub struct FrameBuilder {
 pub struct FrameContext<'a> {
     pub device_pixel_scale: DevicePixelScale,
     pub scene_properties: &'a SceneProperties,
-    pub pipelines: &'a FastHashMap<PipelineId, ScenePipeline>,
+    pub pipelines: &'a FastHashMap<PipelineId, Arc<ScenePipeline>>,
     pub screen_rect: DeviceIntRect,
     pub clip_scroll_tree: &'a ClipScrollTree,
     pub node_data: &'a [ClipScrollNodeData],
@@ -183,6 +185,7 @@ impl FrameBuilder {
             prim_store: PrimitiveStore::new(),
             clip_store: ClipStore::new(),
             screen_rect: DeviceUintRect::zero(),
+            window_size: DeviceUintSize::zero(),
             background_color: None,
             config: FrameBuilderConfig {
                 enable_scrollbars: false,
@@ -198,6 +201,7 @@ impl FrameBuilder {
         self,
         screen_rect: DeviceUintRect,
         background_color: Option<ColorF>,
+        window_size: DeviceUintSize,
         config: FrameBuilderConfig,
     ) -> Self {
         FrameBuilder {
@@ -213,6 +217,7 @@ impl FrameBuilder {
             clip_store: self.clip_store.recycle(),
             screen_rect,
             background_color,
+            window_size,
             config,
         }
     }
@@ -1694,7 +1699,7 @@ impl FrameBuilder {
     fn build_layer_screen_rects_and_cull_layers(
         &mut self,
         clip_scroll_tree: &ClipScrollTree,
-        pipelines: &FastHashMap<PipelineId, ScenePipeline>,
+        pipelines: &FastHashMap<PipelineId, Arc<ScenePipeline>>,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
         render_tasks: &mut RenderTaskTree,
@@ -1811,8 +1816,7 @@ impl FrameBuilder {
         gpu_cache: &mut GpuCache,
         frame_id: FrameId,
         clip_scroll_tree: &mut ClipScrollTree,
-        pipelines: &FastHashMap<PipelineId, ScenePipeline>,
-        window_size: DeviceUintSize,
+        pipelines: &FastHashMap<PipelineId, Arc<ScenePipeline>>,
         device_pixel_scale: DevicePixelScale,
         layer: DocumentLayer,
         pan: WorldPoint,
@@ -1822,7 +1826,7 @@ impl FrameBuilder {
     ) -> Frame {
         profile_scope!("build");
         debug_assert!(
-            DeviceUintRect::new(DeviceUintPoint::zero(), window_size)
+            DeviceUintRect::new(DeviceUintPoint::zero(), self.window_size)
                 .contains_rect(&self.screen_rect)
         );
 
@@ -1926,7 +1930,7 @@ impl FrameBuilder {
         resource_cache.end_frame();
 
         Frame {
-            window_size,
+            window_size: self.window_size,
             inner_rect: self.screen_rect,
             device_pixel_ratio: device_pixel_scale.0,
             background_color: self.background_color,

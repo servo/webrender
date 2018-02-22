@@ -14,7 +14,7 @@ use prim_store::{ClipData, ImageMaskData};
 use resource_cache::{ImageRequest, ResourceCache};
 use util::{LayerToWorldFastTransform, MaxRect, calculate_screen_bounding_rect};
 use util::extract_inner_rect_safe;
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub type ClipStore = FreeList<ClipSources>;
 pub type ClipSourcesHandle = FreeListHandle<ClipSources>;
@@ -353,7 +353,7 @@ pub fn rounded_rectangle_contains_point(point: &LayoutPoint,
     true
 }
 
-pub type ClipChainNodeRef = Option<Rc<ClipChainNode>>;
+pub type ClipChainNodeRef = Option<Arc<ClipChainNode>>;
 
 #[derive(Debug, Clone)]
 pub struct ClipChainNode {
@@ -425,7 +425,7 @@ impl ClipChain {
             self.combined_inner_screen_rect.intersection(&new_node.screen_inner_rect)
             .unwrap_or_else(DeviceIntRect::zero);
 
-        self.nodes = Some(Rc::new(new_node));
+        self.nodes = Some(Arc::new(new_node));
     }
 }
 
@@ -434,7 +434,7 @@ pub struct ClipChainNodeIter {
 }
 
 impl Iterator for ClipChainNodeIter {
-    type Item = Rc<ClipChainNode>;
+    type Item = Arc<ClipChainNode>;
 
     fn next(&mut self) -> ClipChainNodeRef {
         let previous = self.current.clone();
