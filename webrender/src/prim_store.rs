@@ -1722,8 +1722,8 @@ impl PrimitiveStore {
                 }
 
                 let (draw_text_transformed, original_reference_frame_id) = match pic.kind {
-                    PictureKind::Image { reference_frame_id, .. } => {
-                        may_need_clip_mask = false;
+                    PictureKind::Image { reference_frame_id, composite_mode, .. } => {
+                        may_need_clip_mask = composite_mode.is_some();
                         (true, Some(reference_frame_id))
                     }
                     PictureKind::BoxShadow { .. } |

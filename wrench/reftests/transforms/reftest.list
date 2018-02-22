@@ -14,3 +14,5 @@ fuzzy(1,11) == prim-suite.yaml prim-suite.png
 zoom(4) == border-zoom.yaml border-zoom.png
 fuzzy(1,520) == perspective-origin.yaml perspective-origin.png
 fuzzy(1,120) == screen-space-blit.yaml screen-space-blit.png
+== nested-rotate-x.yaml nested-rotate-x.png
+== nested-preserve-3d.yaml nested-preserve-3d.png
