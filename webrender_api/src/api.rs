@@ -714,10 +714,21 @@ impl RenderApiSender {
             channel::msg_channel().expect("Failed to create channel");
         let msg = ApiMsg::CloneApi(sync_tx);
         self.api_sender.send(msg).expect("Failed to send CloneApi message");
+        let namespace_id = match sync_rx.recv() {
+            Ok(id) => id,
+            Err(e) => {
+                let webrender_is_alive = self.api_sender.send(ApiMsg::WakeUp);
+                if webrender_is_alive.is_err() {
+                    panic!("Webrender was shut down before processing CloneApi: {}", e);
+                } else {
+                    panic!("CloneApi message response was dropped while Webrender was still alive: {}", e);
+                }
+            }
+        };
         RenderApi {
             api_sender: self.api_sender.clone(),
             payload_sender: self.payload_sender.clone(),
-            namespace_id: sync_rx.recv().expect("Failed to receive API response"),
+            namespace_id: namespace_id,
             next_id: Cell::new(ResourceId(0)),
         }
     }
