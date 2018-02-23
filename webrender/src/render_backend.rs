@@ -6,7 +6,7 @@ use api::{ApiMsg, BuiltDisplayList, ClearCache, DebugCommand};
 #[cfg(feature = "debugger")]
 use api::{BuiltDisplayListIter, SpecificDisplayItem};
 use api::{DeviceIntPoint, DevicePixelScale, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
-use api::{DocumentId, DocumentLayer, Epoch, ExternalScrollId, FrameMsg, HitTestResult};
+use api::{DocumentId, DocumentLayer, ExternalScrollId, FrameMsg, HitTestResult};
 use api::{IdNamespace, LayerPoint, PipelineId, RenderNotifier, SceneMsg, ScrollClamping};
 use api::{ScrollEventPhase, ScrollLocation, ScrollNodeState, TransactionMsg, WorldPoint};
 use api::channel::{MsgReceiver, PayloadReceiver, PayloadReceiverHelperMethods};
@@ -15,7 +15,7 @@ use api::channel::{PayloadSender, PayloadSenderHelperMethods};
 use api::CaptureBits;
 #[cfg(feature = "replay")]
 use api::CapturedDocument;
-use clip_scroll_tree::{ClipScrollTree, ScrollStates};
+use clip_scroll_tree::ClipScrollTree;
 #[cfg(feature = "debugger")]
 use debug_server;
 use frame::FlattenContext;
@@ -94,9 +94,6 @@ struct Document {
     /// rendered frames.
     clip_scroll_tree: ClipScrollTree,
 
-    /// A map which stores the current epoch for each pipeline.
-    pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
-
     /// The id of the current frame.
     frame_id: FrameId,
 
@@ -161,7 +158,6 @@ impl Document {
                 device_pixel_ratio: default_device_pixel_ratio,
             },
             clip_scroll_tree: ClipScrollTree::new(),
-            pipeline_epoch_map: FastHashMap::default(),
             frame_id: FrameId(0),
             frame_builder_config,
             frame_builder: None,
@@ -263,7 +259,7 @@ impl Document {
         let nodes_bouncing_back = self.clip_scroll_tree.collect_nodes_bouncing_back();
         RenderedDocument::new(
             PipelineInfo {
-                epochs: self.pipeline_epoch_map.clone(),
+                epochs: self.current.scene.pipeline_epochs.clone(),
                 removed_pipelines,
             },
             nodes_bouncing_back,
@@ -274,11 +270,6 @@ impl Document {
     pub fn discard_frame_state_for_pipeline(&mut self, pipeline_id: PipelineId) {
         self.clip_scroll_tree
             .discard_frame_state_for_pipeline(pipeline_id);
-    }
-
-    pub fn update_epoch(&mut self, pipeline_id: PipelineId, epoch: Epoch) {
-        self.pending.scene.update_epoch(pipeline_id, epoch);
-        self.pipeline_epoch_map.insert(pipeline_id, epoch);
     }
 
     /// Returns true if any nodes actually changed position or false otherwise.
@@ -309,21 +300,18 @@ impl Document {
         self.clip_scroll_tree.get_scroll_node_state()
     }
 
-    pub fn new_async_scene_ready(
-        &mut self,
-        clip_scroll_tree: ClipScrollTree,
-        pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
-    ) {
-        let old_scrolling_states = self.reset();
-        self.clip_scroll_tree = clip_scroll_tree;
-        self.clip_scroll_tree.finalize_and_apply_pending_scroll_offsets(old_scrolling_states);
-        self.pipeline_epoch_map = pipeline_epoch_map;
-    }
+    pub fn new_async_scene_ready(&mut self, mut built_scene: BuiltScene) {
+        self.current.scene = built_scene.scene;
 
-    pub fn reset(&mut self) -> ScrollStates {
-        self.pipeline_epoch_map.clear();
-        self.frame_id.0 += 1; // Advance to the next frame.
-        self.clip_scroll_tree.drain()
+        self.frame_builder = Some(built_scene.frame_builder);
+        self.current.removed_pipelines.extend(built_scene.removed_pipelines.drain(..));
+
+        let old_scrolling_states = self.clip_scroll_tree.drain();
+        self.clip_scroll_tree = built_scene.clip_scroll_tree;
+        self.clip_scroll_tree.finalize_and_apply_pending_scroll_offsets(old_scrolling_states);
+
+        // Advance to the next frame.
+        self.frame_id.0 += 1;
     }
 
     // When changing this, please make the same modification to build_scene,
@@ -343,7 +331,10 @@ impl Document {
             return old_builder;
         }
 
-        let old_scrolling_states = self.reset();
+        // The FlattenContext will re-create the up-to-date current scene's pipeline epoch map and
+        // clip scroll tree from the information in the pending scene.
+        self.current.scene.pipeline_epochs.clear();
+        let old_scrolling_states = self.clip_scroll_tree.drain();
 
         let frame_builder = FlattenContext::create_frame_builder(
             old_builder,
@@ -354,10 +345,13 @@ impl Document {
             &self.view,
             &self.output_pipelines,
             &self.frame_builder_config,
-            &mut self.pipeline_epoch_map,
+            &mut self.current.scene.pipeline_epochs,
         );
 
         self.clip_scroll_tree.finalize_and_apply_pending_scroll_offsets(old_scrolling_states);
+
+        // Advance to the next frame.
+        self.frame_id.0 += 1;
 
         frame_builder
     }
@@ -481,6 +475,11 @@ impl RenderBackend {
         let doc = self.documents.get_mut(&document_id).expect("No document?");
 
         match message {
+            SceneMsg::UpdateEpoch(pipeline_id, epoch) => {
+                doc.pending.scene.update_epoch(pipeline_id, epoch);
+
+                DocumentOps::nop()
+            }
             SceneMsg::SetPageZoom(factor) => {
                 doc.view.page_zoom_factor = factor.get();
                 DocumentOps::nop()
@@ -593,17 +592,17 @@ impl RenderBackend {
         let doc = self.documents.get_mut(&document_id).expect("No document?");
 
         match message {
+            FrameMsg::UpdateEpoch(pipeline_id, epoch) => {
+                doc.current.scene.update_epoch(pipeline_id, epoch);
+
+                DocumentOps::nop()
+            }
             FrameMsg::EnableFrameOutput(pipeline_id, enable) => {
                 if enable {
                     doc.output_pipelines.insert(pipeline_id);
                 } else {
                     doc.output_pipelines.remove(&pipeline_id);
                 }
-                DocumentOps::nop()
-            }
-            FrameMsg::UpdateEpoch(pipeline_id, epoch) => {
-                doc.pending.scene.update_epoch(pipeline_id, epoch);
-                doc.update_epoch(pipeline_id, epoch);
                 DocumentOps::nop()
             }
             FrameMsg::Scroll(delta, cursor, move_phase) => {
@@ -695,13 +694,7 @@ impl RenderBackend {
                     } => {
                         if let Some(doc) = self.documents.get_mut(&document_id) {
                             if let Some(mut built_scene) = built_scene.take() {
-                                doc.current.scene = built_scene.scene;
-                                doc.frame_builder = Some(built_scene.frame_builder);
-                                doc.current.removed_pipelines.extend(built_scene.removed_pipelines.drain(..));
-                                doc.new_async_scene_ready(
-                                    built_scene.clip_scroll_tree,
-                                    built_scene.pipeline_epoch_map,
-                                );
+                                doc.new_async_scene_ready(built_scene);
                                 doc.render_on_hittest = true;
                             }
                         } else {
@@ -1261,7 +1254,6 @@ impl RenderBackend {
                 },
                 view,
                 clip_scroll_tree: ClipScrollTree::new(),
-                pipeline_epoch_map: FastHashMap::default(),
                 frame_id: FrameId(0),
                 frame_builder_config: self.frame_config.clone(),
                 frame_builder: Some(FrameBuilder::empty()),

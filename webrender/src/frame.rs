@@ -1116,6 +1116,8 @@ impl<'a> FlattenContext<'a> {
 }
 
 pub fn build_scene(config: &FrameBuilderConfig, request: SceneRequest) -> BuiltScene {
+    // TODO: mutably pass the scene and update its own pipeline epoch map instead of
+    // creating a new one here.
     let mut pipeline_epoch_map = FastHashMap::default();
     let mut clip_scroll_tree = ClipScrollTree::new();
 
@@ -1131,11 +1133,13 @@ pub fn build_scene(config: &FrameBuilderConfig, request: SceneRequest) -> BuiltS
         &mut pipeline_epoch_map
     );
 
+    let mut scene = request.scene;
+    scene.pipeline_epochs = pipeline_epoch_map;
+
     BuiltScene {
-        scene: request.scene,
+        scene,
         frame_builder,
         clip_scroll_tree,
-        pipeline_epoch_map,
         removed_pipelines: request.removed_pipelines,
     }
 }
