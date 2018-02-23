@@ -161,7 +161,6 @@ impl D3DVisual {
             })?;
 
             // FIXME: arbitrary D3D rendering here?
-            context.OMSetRenderTargets(1, &render_target.as_raw(), ptr::null_mut());
             context.ClearRenderTargetView(render_target.as_raw(), &rgba);
 
             self.swap_chain.Present(0, 0).to_result()
