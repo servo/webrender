@@ -1,5 +1,3 @@
-//! Similar to https://github.com/retep998/wio-rs/blob/44093f7db8/src/com.rs , but can be null
-
 use std::fmt;
 use std::ops;
 use std::ptr;
