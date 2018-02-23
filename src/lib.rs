@@ -19,6 +19,7 @@ pub mod com;
 pub struct DirectComposition {
     d3d_device: ComPtr<ID3D11Device>,
     dxgi_factory: ComPtr<IDXGIFactory2>,
+    d3d_device_context: ComPtr<winapi::um::d3d11::ID3D11DeviceContext>,
     composition_device: ComPtr<IDCompositionDevice>,
     root_visual: ComPtr<IDCompositionVisual>,
 
@@ -64,6 +65,11 @@ impl DirectComposition {
             adapter.GetParent(uuid, ptr_ptr)
         })?;
 
+        let d3d_device_context = ComPtr::new_with(|ptr_ptr| {
+            d3d_device.GetImmediateContext(ptr_ptr);
+            S_OK
+        })?;
+
         // Create the DirectComposition device object.
         let composition_device = ComPtr::<IDCompositionDevice>::new_with_uuid(|uuid, ptr_ptr| {
             winapi::um::dcomp::DCompositionCreateDevice(&*dxgi_device, uuid,ptr_ptr)
@@ -79,7 +85,8 @@ impl DirectComposition {
         composition_target.SetRoot(&*root_visual).to_result()?;
 
         Ok(DirectComposition {
-            d3d_device, dxgi_factory, composition_device, composition_target, root_visual,
+            d3d_device, dxgi_factory, d3d_device_context,
+            composition_device, composition_target, root_visual,
         })
     }
 
@@ -155,13 +162,9 @@ impl D3DVisual {
                     as_ptr(&back_buffer), ptr::null_mut(), ptr_ptr,
                 )
             })?;
-            let context = ComPtr::new_with(|ptr_ptr| {
-                composition.d3d_device.GetImmediateContext(ptr_ptr);
-                S_OK
-            })?;
 
             // FIXME: arbitrary D3D rendering here?
-            context.ClearRenderTargetView(render_target.as_raw(), &rgba);
+            composition.d3d_device_context.ClearRenderTargetView(render_target.as_raw(), &rgba);
 
             self.swap_chain.Present(0, 0).to_result()
         }
