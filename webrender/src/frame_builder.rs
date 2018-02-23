@@ -14,7 +14,7 @@ use app_units::Au;
 use border::ImageBorderSegment;
 use clip::{ClipChain, ClipRegion, ClipSource, ClipSources, ClipStore};
 use clip_scroll_node::{ClipScrollNode, NodeType};
-use clip_scroll_tree::{ClipScrollTree, ClipChainIndex};
+use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, ClipScrollTree};
 use euclid::{SideOffsets2D, vec2};
 use frame::ClipIdToIndexMapper;
 use glyph_rasterizer::FontInstance;
@@ -39,7 +39,7 @@ use tiling::{RenderPassKind, RenderTargetContext, ScrollbarPrimitive};
 use util::{self, MaxRect, RectHelpers, WorldToLayerFastTransform, recycle_vec};
 
 #[derive(Debug)]
-pub struct ScrollbarInfo(pub ClipId, pub LayerRect);
+pub struct ScrollbarInfo(pub ClipScrollNodeIndex, pub LayerRect);
 
 /// Properties of a stacking context that are maintained
 /// during creation of the scene. These structures are
@@ -101,7 +101,7 @@ pub struct FrameBuilder {
 
     /// A stack of scroll nodes used during display list processing to properly
     /// parent new scroll nodes.
-    reference_frame_stack: Vec<ClipId>,
+    reference_frame_stack: Vec<(ClipId, ClipScrollNodeIndex)>,
 
     /// A stack of the current pictures, used during scene building.
     pub picture_stack: Vec<PrimitiveIndex>,
@@ -134,7 +134,7 @@ pub struct PictureContext<'a> {
     pub pipeline_id: PipelineId,
     pub perform_culling: bool,
     pub prim_runs: Vec<PrimitiveRun>,
-    pub original_reference_frame_id: Option<ClipId>,
+    pub original_reference_frame_index: Option<ClipScrollNodeIndex>,
     pub display_list: &'a BuiltDisplayList,
     pub draw_text_transformed: bool,
     pub inv_world_transform: Option<WorldToLayerFastTransform>,
@@ -326,7 +326,7 @@ impl FrameBuilder {
     ) {
         // Construct the necessary set of Picture primitives
         // to draw this stacking context.
-        let current_reference_frame_id = self.current_reference_frame_id();
+        let current_reference_frame_index = self.current_reference_frame_index();
 
         // An arbitrary large clip rect. For now, we don't
         // specify a clip specific to the stacking context.
@@ -348,7 +348,7 @@ impl FrameBuilder {
                 None,
                 false,
                 pipeline_id,
-                current_reference_frame_id,
+                current_reference_frame_index,
                 None,
             );
 
@@ -428,7 +428,7 @@ impl FrameBuilder {
                 None,
                 false,
                 pipeline_id,
-                current_reference_frame_id,
+                current_reference_frame_index,
                 None,
             );
 
@@ -480,7 +480,7 @@ impl FrameBuilder {
                 Some(PictureCompositeMode::Filter(*filter)),
                 false,
                 pipeline_id,
-                current_reference_frame_id,
+                current_reference_frame_index,
                 None,
             );
             let src_clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
@@ -511,7 +511,7 @@ impl FrameBuilder {
                 Some(PictureCompositeMode::MixBlend(mix_blend_mode)),
                 false,
                 pipeline_id,
-                current_reference_frame_id,
+                current_reference_frame_index,
                 None,
             );
             let src_clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
@@ -564,7 +564,7 @@ impl FrameBuilder {
             composite_mode,
             participating_in_3d_context,
             pipeline_id,
-            current_reference_frame_id,
+            current_reference_frame_index,
             frame_output_pipeline_id,
         );
 
@@ -649,27 +649,33 @@ impl FrameBuilder {
         origin_in_parent_reference_frame: LayerVector2D,
         clip_scroll_tree: &mut ClipScrollTree,
         id_to_index_mapper: &mut ClipIdToIndexMapper,
-    ) {
+    ) -> ClipScrollNodeIndex {
+        let index = id_to_index_mapper.get_node_index(reference_frame_id);
         let node = ClipScrollNode::new_reference_frame(
-            parent_id,
+            parent_id.map(|id| id_to_index_mapper.get_node_index(id)),
             rect,
             source_transform,
             source_perspective,
             origin_in_parent_reference_frame,
             pipeline_id,
         );
-        clip_scroll_tree.add_node(node, reference_frame_id);
-        self.reference_frame_stack.push(reference_frame_id);
+        clip_scroll_tree.add_node(node, index);
+        self.reference_frame_stack.push((reference_frame_id, index));
 
         match parent_id {
             Some(ref parent_id) =>
                 id_to_index_mapper.map_to_parent_clip_chain(reference_frame_id, parent_id),
-            _ => id_to_index_mapper.add(reference_frame_id, ClipChainIndex(0)),
+            _ => id_to_index_mapper.add_clip_chain(reference_frame_id, ClipChainIndex(0)),
         }
+        index
     }
 
-    pub fn current_reference_frame_id(&self) -> ClipId {
-        *self.reference_frame_stack.last().unwrap()
+    pub fn current_reference_frame_index(&self) -> ClipScrollNodeIndex {
+        self.reference_frame_stack.last().unwrap().1
+    }
+
+    pub fn current_reference_frame_id(&self) -> ClipId{
+        self.reference_frame_stack.last().unwrap().0
     }
 
     pub fn setup_viewport_offset(
@@ -679,12 +685,11 @@ impl FrameBuilder {
         clip_scroll_tree: &mut ClipScrollTree,
     ) {
         let viewport_offset = (inner_rect.origin.to_vector().to_f32() / device_pixel_scale).round();
-        let root_id = clip_scroll_tree.root_reference_frame_id();
-        if let Some(root_node) = clip_scroll_tree.nodes.get_mut(&root_id) {
-            if let NodeType::ReferenceFrame(ref mut info) = root_node.node_type {
-                info.resolved_transform =
-                    LayerVector2D::new(viewport_offset.x, viewport_offset.y).into();
-            }
+        let root_id = clip_scroll_tree.root_reference_frame_index();
+        let root_node = &mut clip_scroll_tree.nodes[root_id.0];
+        if let NodeType::ReferenceFrame(ref mut info) = root_node.node_type {
+            info.resolved_transform =
+                LayerVector2D::new(viewport_offset.x, viewport_offset.y).into();
         }
     }
 
@@ -695,8 +700,9 @@ impl FrameBuilder {
         content_size: &LayerSize,
         clip_scroll_tree: &mut ClipScrollTree,
         id_to_index_mapper: &mut ClipIdToIndexMapper,
-    ) -> ClipId {
+    ) {
         let viewport_rect = LayerRect::new(LayerPoint::zero(), *viewport_size);
+
         self.push_reference_frame(
             ClipId::root_reference_frame(pipeline_id),
             None,
@@ -709,12 +715,9 @@ impl FrameBuilder {
             id_to_index_mapper,
         );
 
-        let topmost_scrolling_node_id = ClipId::root_scroll_node(pipeline_id);
-        clip_scroll_tree.topmost_scrolling_node_id = topmost_scrolling_node_id;
-
         self.add_scroll_frame(
-            topmost_scrolling_node_id,
-            clip_scroll_tree.root_reference_frame_id,
+            ClipId::root_scroll_node(pipeline_id),
+            ClipId::root_reference_frame(pipeline_id),
             Some(ExternalScrollId(0, pipeline_id)),
             pipeline_id,
             &viewport_rect,
@@ -723,8 +726,6 @@ impl FrameBuilder {
             clip_scroll_tree,
             id_to_index_mapper,
         );
-
-        topmost_scrolling_node_id
     }
 
     pub fn add_clip_node(
@@ -734,20 +735,23 @@ impl FrameBuilder {
         clip_region: ClipRegion,
         clip_scroll_tree: &mut ClipScrollTree,
         id_to_index_mapper: &mut ClipIdToIndexMapper,
-    ) {
+    ) -> ClipScrollNodeIndex {
         let clip_rect = clip_region.main;
         let clip_sources = ClipSources::from(clip_region);
 
         debug_assert!(clip_sources.has_clips());
         let handle = self.clip_store.insert(clip_sources);
 
+        let node_index = id_to_index_mapper.get_node_index(new_node_id);
         let clip_chain_index = clip_scroll_tree.add_clip_node(
-            new_node_id,
-            parent_id,
+            node_index,
+            id_to_index_mapper.get_node_index(parent_id),
             handle,
-            clip_rect
+            clip_rect,
+            new_node_id.pipeline_id(),
         );
-        id_to_index_mapper.add(new_node_id, clip_chain_index);
+        id_to_index_mapper.add_clip_chain(new_node_id, clip_chain_index);
+        node_index
     }
 
     pub fn add_scroll_frame(
@@ -761,18 +765,20 @@ impl FrameBuilder {
         scroll_sensitivity: ScrollSensitivity,
         clip_scroll_tree: &mut ClipScrollTree,
         id_to_index_mapper: &mut ClipIdToIndexMapper,
-    ) {
+    ) -> ClipScrollNodeIndex {
+        let node_index = id_to_index_mapper.get_node_index(new_node_id);
         let node = ClipScrollNode::new_scroll_frame(
             pipeline_id,
-            parent_id,
+            id_to_index_mapper.get_node_index(parent_id),
             external_id,
             frame_rect,
             content_size,
             scroll_sensitivity,
         );
 
-        clip_scroll_tree.add_node(node, new_node_id);
+        clip_scroll_tree.add_node(node, node_index);
         id_to_index_mapper.map_to_parent_clip_chain(new_node_id, &parent_id);
+        node_index
     }
 
     pub fn pop_reference_frame(&mut self) {
@@ -898,7 +904,7 @@ impl FrameBuilder {
 
         self.scrollbar_prims.push(ScrollbarPrimitive {
             prim_index,
-            clip_id: scrollbar_info.0,
+            scroll_frame_index: scrollbar_info.0,
             frame_rect: scrollbar_info.1,
         });
     }
@@ -1717,7 +1723,8 @@ impl FrameBuilder {
         }
 
         // The root picture is always the first one added.
-        let root_clip_scroll_node = &clip_scroll_tree.nodes[&clip_scroll_tree.root_reference_frame_id()];
+        let root_clip_scroll_node =
+            &clip_scroll_tree.nodes[clip_scroll_tree.root_reference_frame_index().0];
 
         let display_list = &pipelines
             .get(&root_clip_scroll_node.pipeline_id)
@@ -1747,7 +1754,7 @@ impl FrameBuilder {
             pipeline_id: root_clip_scroll_node.pipeline_id,
             perform_culling: true,
             prim_runs: mem::replace(&mut self.prim_store.cpu_pictures[0].runs, Vec::new()),
-            original_reference_frame_id: None,
+            original_reference_frame_index: None,
             display_list,
             draw_text_transformed: true,
             inv_world_transform: None,
@@ -1787,7 +1794,7 @@ impl FrameBuilder {
 
         for scrollbar_prim in &self.scrollbar_prims {
             let metadata = &mut self.prim_store.cpu_metadata[scrollbar_prim.prim_index.0];
-            let scroll_frame = &clip_scroll_tree.nodes[&scrollbar_prim.clip_id];
+            let scroll_frame = &clip_scroll_tree.nodes[scrollbar_prim.scroll_frame_index.0];
 
             // Invalidate what's in the cache so it will get rebuilt.
             gpu_cache.invalidate(&metadata.gpu_location);

@@ -2,13 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipId, ClipMode, ColorF, ComplexClipRegion};
+use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipMode, ColorF, ComplexClipRegion};
 use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, FontRenderMode};
 use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
 use api::{LineStyle, PremultipliedColorF, YuvColorSpace, YuvFormat};
 use border::{BorderCornerInstance, BorderEdgeKind};
-use clip_scroll_tree::{ClipChainIndex, CoordinateSystemId};
+use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, CoordinateSystemId};
 use clip_scroll_node::ClipScrollNode;
 use clip::{ClipChain, ClipChainNode, ClipChainNodeIter, ClipChainNodeRef, ClipSource};
 use clip::{ClipSourcesHandle, ClipWorkItem};
@@ -33,12 +33,15 @@ const MIN_BRUSH_SPLIT_AREA: f32 = 256.0 * 256.0;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ScrollNodeAndClipChain {
-    pub scroll_node_id: ClipId,
+    pub scroll_node_id: ClipScrollNodeIndex,
     pub clip_chain_index: ClipChainIndex,
 }
 
 impl ScrollNodeAndClipChain {
-    pub fn new(scroll_node_id: ClipId, clip_chain_index: ClipChainIndex) -> ScrollNodeAndClipChain {
+    pub fn new(
+        scroll_node_id: ClipScrollNodeIndex,
+        clip_chain_index: ClipChainIndex
+    ) -> ScrollNodeAndClipChain {
         ScrollNodeAndClipChain { scroll_node_id, clip_chain_index }
     }
 }
@@ -1721,10 +1724,10 @@ impl PrimitiveStore {
                     return None;
                 }
 
-                let (draw_text_transformed, original_reference_frame_id) = match pic.kind {
-                    PictureKind::Image { reference_frame_id, composite_mode, .. } => {
+                let (draw_text_transformed, original_reference_frame_index) = match pic.kind {
+                    PictureKind::Image { reference_frame_index, composite_mode, .. } => {
                         may_need_clip_mask = composite_mode.is_some();
-                        (true, Some(reference_frame_id))
+                        (true, Some(reference_frame_index))
                     }
                     PictureKind::BoxShadow { .. } |
                     PictureKind::TextShadow { .. } => {
@@ -1747,7 +1750,7 @@ impl PrimitiveStore {
                     pipeline_id: pic.pipeline_id,
                     perform_culling: pic.cull_children,
                     prim_runs: mem::replace(&mut pic.runs, Vec::new()),
-                    original_reference_frame_id,
+                    original_reference_frame_index,
                     display_list,
                     draw_text_transformed,
                     inv_world_transform,
@@ -1861,7 +1864,7 @@ impl PrimitiveStore {
             //           lookups ever show up in a profile).
             let scroll_node = &frame_context
                 .clip_scroll_tree
-                .nodes[&run.clip_and_scroll.scroll_node_id];
+                .nodes[run.clip_and_scroll.scroll_node_id.0];
             let clip_chain = frame_context
                 .clip_scroll_tree
                 .get_clip_chain(run.clip_and_scroll.clip_chain_index);
@@ -1884,11 +1887,11 @@ impl PrimitiveStore {
                     inv_parent.pre_mul(&scroll_node.world_content_transform)
                 });
 
-            let original_relative_transform = pic_context.original_reference_frame_id
-                .and_then(|original_reference_frame_id| {
+            let original_relative_transform = pic_context.original_reference_frame_index
+                .and_then(|original_reference_frame_index| {
                     let parent = frame_context
                         .clip_scroll_tree
-                        .nodes[&original_reference_frame_id]
+                        .nodes[original_reference_frame_index.0]
                         .world_content_transform;
                     parent.inverse()
                         .map(|inv_parent| {
