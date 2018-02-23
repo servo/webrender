@@ -123,11 +123,20 @@ impl DirectComposition {
                     ptr_ptr,
                 )
             })?;
+            let back_buffer = ComPtr::<winapi::um::d3d11::ID3D11Texture2D>::new_with_uuid(|uuid, ptr_ptr| {
+                swap_chain.GetBuffer(0, uuid, ptr_ptr)
+            })?;
+            let render_target_view = ComPtr::new_with(|ptr_ptr| {
+                self.d3d_device.CreateRenderTargetView(
+                    as_ptr(&back_buffer), ptr::null_mut(), ptr_ptr,
+                )
+            })?;
+
             let visual = ComPtr::new_with(|ptr_ptr| self.composition_device.CreateVisual(ptr_ptr))?;
             visual.SetContent(&*****swap_chain).to_result()?;
             self.root_visual.AddVisual(&*visual, FALSE, ptr::null_mut()).to_result()?;
 
-            Ok(D3DVisual { visual, swap_chain })
+            Ok(D3DVisual { visual, swap_chain, render_target_view })
         }
     }
 }
@@ -136,6 +145,7 @@ impl DirectComposition {
 pub struct D3DVisual {
     visual: ComPtr<IDCompositionVisual>,
     swap_chain: ComPtr<winapi::shared::dxgi1_2::IDXGISwapChain1>,
+    render_target_view: ComPtr<winapi::um::d3d11::ID3D11RenderTargetView>,
 }
 
 impl D3DVisual {
@@ -154,17 +164,8 @@ impl D3DVisual {
     pub fn render_and_present_solid_frame(&self, composition: &DirectComposition, rgba: &[f32; 4])
                                           -> HResult<()> {
         unsafe {
-            let back_buffer = ComPtr::<winapi::um::d3d11::ID3D11Texture2D>::new_with_uuid(|uuid, ptr_ptr| {
-                self.swap_chain.GetBuffer(0, uuid, ptr_ptr)
-            })?;
-            let render_target = ComPtr::new_with(|ptr_ptr| {
-                composition.d3d_device.CreateRenderTargetView(
-                    as_ptr(&back_buffer), ptr::null_mut(), ptr_ptr,
-                )
-            })?;
-
             // FIXME: arbitrary D3D rendering here?
-            composition.d3d_device_context.ClearRenderTargetView(render_target.as_raw(), &rgba);
+            composition.d3d_device_context.ClearRenderTargetView(self.render_target_view.as_raw(), &rgba);
 
             self.swap_chain.Present(0, 0).to_result()
         }
