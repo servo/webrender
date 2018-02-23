@@ -717,6 +717,7 @@ impl RenderApiSender {
         let namespace_id = match sync_rx.recv() {
             Ok(id) => id,
             Err(e) => {
+                // This is used to discover the underlying cause of https://github.com/servo/servo/issues/13480.
                 let webrender_is_alive = self.api_sender.send(ApiMsg::WakeUp);
                 if webrender_is_alive.is_err() {
                     panic!("Webrender was shut down before processing CloneApi: {}", e);
