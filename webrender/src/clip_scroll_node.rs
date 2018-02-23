@@ -6,7 +6,7 @@ use api::{DevicePixelScale, ExternalScrollId, LayerPixel, LayerPoint, LayerRect,
 use api::{LayerVector2D, LayoutTransform, LayoutVector2D, PipelineId, PropertyBinding};
 use api::{ScrollClamping, ScrollEventPhase, ScrollLocation, ScrollSensitivity, StickyOffsetBounds};
 use api::WorldPoint;
-use clip::{ClipChain, ClipSourcesHandle, ClipStore, ClipWorkItem};
+use clip::{ClipChain, ClipChainNode, ClipSourcesHandle, ClipStore, ClipWorkItem};
 use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, CoordinateSystemId};
 use clip_scroll_tree::TransformUpdateState;
 use euclid::SideOffsets2D;
@@ -59,7 +59,12 @@ pub enum NodeType {
     /// Other nodes just do clipping, but no transformation.
     Clip {
         handle: ClipSourcesHandle,
-        clip_chain_index: ClipChainIndex
+        clip_chain_index: ClipChainIndex,
+
+        /// A copy of the ClipChainNode this node would produce. We need to keep a copy,
+        /// because the ClipChain may not contain our node if is optimized out, but API
+        /// defined ClipChains will still need to access it.
+        clip_chain_node: Option<ClipChainNode>,
     },
 
     /// Transforms it's content, but doesn't clip it. Can also be adjusted
@@ -346,8 +351,9 @@ impl ClipScrollNode {
         gpu_cache: &mut GpuCache,
         clip_chains: &mut Vec<ClipChain>,
     ) {
-        let (clip_sources_handle, clip_chain_index) = match self.node_type {
-            NodeType::Clip { ref handle, clip_chain_index } => (handle, clip_chain_index),
+        let (clip_sources_handle, clip_chain_index, stored_clip_chain_node) = match self.node_type {
+            NodeType::Clip { ref handle, clip_chain_index, ref mut clip_chain_node } =>
+                (handle, clip_chain_index, clip_chain_node),
             _ => {
                 self.invertible = true;
                 return;
@@ -367,19 +373,23 @@ impl ClipScrollNode {
             "Clipping node didn't have outer rect."
         );
 
-        let work_item = ClipWorkItem {
-            scroll_node_data_index: self.node_data_index,
-            clip_sources: clip_sources_handle.weak(),
-            coordinate_system_id: state.current_coordinate_system_id,
-        };
-
-        let mut clip_chain = clip_chains[state.parent_clip_chain_index.0].new_with_added_node(
-            work_item,
-            self.coordinate_system_relative_transform.transform_rect(&local_outer_rect),
+        let new_node = ClipChainNode {
+            work_item: ClipWorkItem {
+                scroll_node_data_index: self.node_data_index,
+                clip_sources: clip_sources_handle.weak(),
+                coordinate_system_id: state.current_coordinate_system_id,
+            },
+            local_clip_rect:
+                self.coordinate_system_relative_transform.transform_rect(&local_outer_rect),
             screen_outer_rect,
             screen_inner_rect,
-        );
+            prev: None,
+        };
 
+        let mut clip_chain =
+            clip_chains[state.parent_clip_chain_index.0].new_with_added_node(&new_node);
+
+        *stored_clip_chain_node = Some(new_node);
         clip_chain.parent_index = Some(state.parent_clip_chain_index);
         clip_chains[clip_chain_index.0] = clip_chain;
         state.parent_clip_chain_index = clip_chain_index;

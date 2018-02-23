@@ -420,17 +420,13 @@ impl ClipScrollTree {
             // Now we walk through each ClipScrollNode in the vector of clip nodes and
             // extract their ClipChain nodes to construct the final list.
             for clip_index in &descriptor.clips {
-                let node_clip_chain_index = match self.nodes[clip_index.0].node_type {
-                    NodeType::Clip { clip_chain_index, .. } => clip_chain_index,
-                    _ => {
-                        warn!("Tried to create a clip chain with non-clipping node.");
-                        continue;
+                match self.nodes[clip_index.0].node_type {
+                    NodeType::Clip { clip_chain_node: Some(ref node), .. } => {
+                        chain.add_node(node.clone());
                     }
+                    NodeType::Clip { .. } => warn!("Found uninitialized clipping ClipScrollNode."),
+                    _ => warn!("Tried to create a clip chain with non-clipping node."),
                 };
-
-                if let Some(ref nodes) = self.clip_chains[node_clip_chain_index.0].nodes {
-                    chain.add_node((**nodes).clone());
-                }
             }
 
             chain.parent_index = descriptor.parent;
@@ -470,7 +466,7 @@ impl ClipScrollTree {
         pipeline_id: PipelineId,
     )  -> ClipChainIndex {
         let clip_chain_index = self.allocate_clip_chain();
-        let node_type = NodeType::Clip { handle, clip_chain_index };
+        let node_type = NodeType::Clip { handle, clip_chain_index, clip_chain_node: None };
         let node = ClipScrollNode::new(pipeline_id, Some(parent_index), &clip_rect, node_type);
         self.add_node(node, index);
         clip_chain_index
