@@ -96,9 +96,7 @@ impl<T> ComPtr<T> where T: Interface {
     /// Performs QueryInterface fun.
     pub fn cast<U>(&self) -> HResult<ComPtr<U>> where U: Interface {
         unsafe {
-            let mut obj = ptr::null_mut();
-            self.as_unknown().QueryInterface(&U::uuidof(), &mut obj).to_result()?;
-            Ok(ComPtr::from_raw(obj as *mut U))
+            ComPtr::<U>::new_with_uuid(|uuid, ptr| self.as_unknown().QueryInterface(uuid, ptr))
         }
     }
 }
