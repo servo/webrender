@@ -15,6 +15,7 @@ use winapi::um::dcomp::IDCompositionTarget;
 use winapi::um::dcomp::IDCompositionVisual;
 
 pub mod com;
+pub mod egl;
 
 pub struct DirectComposition {
     d3d_device: ComPtr<ID3D11Device>,

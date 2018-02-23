@@ -9,3 +9,6 @@ winapi = {version = "0.3", features = ["winerror", "d3d11", "dcomp"]}
 # For the `main.rs` demo
 [dependencies]
 winit = "0.10"
+
+[build-dependencies]
+gl_generator = "0.9.0"
