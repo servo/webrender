@@ -19,7 +19,8 @@ pub mod com;
 pub struct DirectComposition {
     d3d_device: ComPtr<ID3D11Device>,
     dxgi_factory: ComPtr<IDXGIFactory2>,
-    d3d_device_context: ComPtr<winapi::um::d3d11::ID3D11DeviceContext>,
+    pub d3d_device_context: ComPtr<winapi::um::d3d11::ID3D11DeviceContext>,
+
     composition_device: ComPtr<IDCompositionDevice>,
     root_visual: ComPtr<IDCompositionVisual>,
 
@@ -144,8 +145,8 @@ impl DirectComposition {
 /// A DirectComposition "visual" configured for rendering with Direct3D.
 pub struct D3DVisual {
     visual: ComPtr<IDCompositionVisual>,
-    swap_chain: ComPtr<winapi::shared::dxgi1_2::IDXGISwapChain1>,
-    render_target_view: ComPtr<winapi::um::d3d11::ID3D11RenderTargetView>,
+    pub swap_chain: ComPtr<winapi::shared::dxgi1_2::IDXGISwapChain1>,
+    pub render_target_view: ComPtr<winapi::um::d3d11::ID3D11RenderTargetView>,
 }
 
 impl D3DVisual {
@@ -158,16 +159,6 @@ impl D3DVisual {
     pub fn set_offset_y(&self, offset_y: f32) -> HResult<()> {
         unsafe {
             self.visual.SetOffsetY_1(offset_y).to_result()
-        }
-    }
-
-    pub fn render_and_present_solid_frame(&self, composition: &DirectComposition, rgba: &[f32; 4])
-                                          -> HResult<()> {
-        unsafe {
-            // FIXME: arbitrary D3D rendering here?
-            composition.d3d_device_context.ClearRenderTargetView(self.render_target_view.as_raw(), &rgba);
-
-            self.swap_chain.Present(0, 0).to_result()
         }
     }
 }

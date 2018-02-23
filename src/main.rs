@@ -4,7 +4,8 @@ compile_error!("This demo only runs on Windows.");
 extern crate directcomposition;
 extern crate winit;
 
-use directcomposition::DirectComposition;
+use directcomposition::{DirectComposition, D3DVisual};
+use directcomposition::com::ToResult;
 use winit::os::windows::WindowExt;
 
 fn main() {
@@ -30,8 +31,8 @@ fn main() {
 
     let mut rgba1 = [0., 0.2, 0.4, 1.];
     let mut rgba2 = [0., 0.5, 0., 0.5];
-    visual1.render_and_present_solid_frame(&composition, &rgba1).unwrap();
-    visual2.render_and_present_solid_frame(&composition, &rgba2).unwrap();
+    render_plain_rgba_frame(&composition, &visual1, &rgba1);
+    render_plain_rgba_frame(&composition, &visual2, &rgba2);
 
     let mut clicks: u32 = 0;
 
@@ -64,7 +65,7 @@ fn main() {
                     };
                     rgba[1] += 0.1;
                     rgba[1] %= 1.;
-                    visual.render_and_present_solid_frame(&composition, &rgba).unwrap();
+                    render_plain_rgba_frame(&composition, visual, rgba)
                 }
                 _ => {}
             }
@@ -76,5 +77,15 @@ fn main() {
 fn direct_composition_from_window(window: &winit::Window) -> DirectComposition {
     unsafe {
         DirectComposition::new(window.get_hwnd() as _).unwrap()
+    }
+}
+
+fn render_plain_rgba_frame(composition: &DirectComposition, visual: &D3DVisual, rgba: &[f32; 4]) {
+    unsafe {
+        composition.d3d_device_context.ClearRenderTargetView(
+            visual.render_target_view.as_raw(), &rgba,
+        );
+
+        visual.swap_chain.Present(0, 0).to_result().unwrap()
     }
 }
