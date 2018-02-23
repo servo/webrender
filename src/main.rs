@@ -28,9 +28,12 @@ fn main() {
 
     composition.commit().unwrap();
 
-    let mut green = 0.5;
-    visual1.render_and_present_solid_frame(&composition, &[0., 0.2, 0.4, 1.]).unwrap();
-    visual2.render_and_present_solid_frame(&composition, &[0., green, 0., 0.5]).unwrap();
+    let mut rgba1 = [0., 0.2, 0.4, 1.];
+    let mut rgba2 = [0., 0.5, 0., 0.5];
+    visual1.render_and_present_solid_frame(&composition, &rgba1).unwrap();
+    visual2.render_and_present_solid_frame(&composition, &rgba2).unwrap();
+
+    let mut clicks: u32 = 0;
 
     events_loop.run_forever(|event| {
         if let winit::Event::WindowEvent { event, .. } = event {
@@ -53,11 +56,15 @@ fn main() {
                     state: winit::ElementState::Pressed,
                     ..
                 } => {
-                    green += 0.1;
-                    green %= 1.;
-                    visual2.render_and_present_solid_frame(
-                        &composition, &[0., green, 0., 0.5]
-                    ).unwrap();
+                    clicks += 1;
+                    let (rgba, visual) = if clicks % 2 == 0 {
+                        (&mut rgba1, &visual1)
+                    } else {
+                        (&mut rgba2, &visual2)
+                    };
+                    rgba[1] += 0.1;
+                    rgba[1] %= 1.;
+                    visual.render_and_present_solid_frame(&composition, &rgba).unwrap();
                 }
                 _ => {}
             }
