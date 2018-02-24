@@ -468,7 +468,9 @@ fn main() {
 
     let mut body = |wrench: &mut Wrench, global_event: glutin::Event| {
         if let Some(window_title) = wrench.take_title() {
-            window.set_title(&window_title);
+            if !cfg!(windows) { //TODO: calling `set_title` from inside the `run_forever` loop is illegal...
+                window.set_title(&window_title);
+            }
         }
 
         let mut do_frame = false;
