@@ -415,7 +415,7 @@ impl<'a> FlattenContext<'a> {
         traversal: &mut BuiltDisplayListIter<'a>,
         pipeline_id: PipelineId,
         unreplaced_scroll_id: ClipId,
-        scroll_node_id: ClipId,
+        mut scroll_node_id: ClipId,
         mut reference_frame_relative_offset: LayerVector2D,
         bounds: &LayerRect,
         stacking_context: &StackingContext,
@@ -443,10 +443,8 @@ impl<'a> FlattenContext<'a> {
         };
 
         if stacking_context.scroll_policy == ScrollPolicy::Fixed {
-            self.replacements.push((
-                unreplaced_scroll_id,
-                self.builder.current_reference_frame_id(),
-            ));
+            scroll_node_id = self.builder.current_reference_frame_id();
+            self.replacements.push((unreplaced_scroll_id, scroll_node_id));
         }
 
         reference_frame_relative_offset += bounds.origin.to_vector();
