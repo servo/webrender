@@ -12,7 +12,7 @@ use clip_scroll_tree::{CoordinateSystemId};
 use euclid::{TypedTransform3D, vec3};
 use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheAddress};
-use gpu_types::{BrushFlags, BrushImageKind, BrushInstance, ClipChainRectIndex};
+use gpu_types::{BrushFlags, BrushInstance, ClipChainRectIndex};
 use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex};
 use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
@@ -46,9 +46,9 @@ pub enum TransformBatchKind {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BrushImageSourceKind {
-    Alpha,
-    Color,
-    ColorAlphaMask,
+    Color = 0,
+    Alpha = 1,
+    ColorAlphaMask = 2,
 }
 
 impl BrushImageSourceKind {
@@ -936,11 +936,14 @@ impl AlphaBatchBuilder {
                         match picture.kind {
                             PictureKind::TextShadow { .. } => {
                                 let kind = BatchKind::Brush(
-                                    BrushBatchKind::Picture(
-                                        BrushImageSourceKind::from_render_target_kind(picture.target_kind())),
+                                    BrushBatchKind::Image(ImageBufferKind::Texture2DArray)
                                 );
                                 let key = BatchKey::new(kind, non_segmented_blend_mode, textures);
                                 let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
+
+                                let uv_rect_address = render_tasks[cache_task_id]
+                                    .get_texture_handle()
+                                    .as_int(gpu_cache);
 
                                 let instance = BrushInstance {
                                     picture_address: task_address,
@@ -953,8 +956,8 @@ impl AlphaBatchBuilder {
                                     edge_flags: EdgeAaSegmentMask::empty(),
                                     brush_flags: BrushFlags::PERSPECTIVE_INTERPOLATION,
                                     user_data: [
-                                        cache_task_address.0 as i32,
-                                        BrushImageKind::Simple as i32,
+                                        uv_rect_address,
+                                        BrushImageSourceKind::Color as i32,
                                         0,
                                     ],
                                 };
@@ -1028,9 +1031,13 @@ impl AlphaBatchBuilder {
                                             }
                                             FilterOp::DropShadow(offset, _, _) => {
                                                 let kind = BatchKind::Brush(
-                                                    BrushBatchKind::Picture(BrushImageSourceKind::ColorAlphaMask),
+                                                    BrushBatchKind::Image(ImageBufferKind::Texture2DArray),
                                                 );
                                                 let key = BatchKey::new(kind, non_segmented_blend_mode, textures);
+
+                                                let uv_rect_address = render_tasks[cache_task_id]
+                                                    .get_texture_handle()
+                                                    .as_int(gpu_cache);
 
                                                 let instance = BrushInstance {
                                                     picture_address: task_address,
@@ -1043,8 +1050,8 @@ impl AlphaBatchBuilder {
                                                     edge_flags: EdgeAaSegmentMask::empty(),
                                                     brush_flags: BrushFlags::PERSPECTIVE_INTERPOLATION,
                                                     user_data: [
-                                                        cache_task_address.0 as i32,
-                                                        BrushImageKind::Simple as i32,
+                                                        uv_rect_address,
+                                                        BrushImageSourceKind::ColorAlphaMask as i32,
                                                         0,
                                                     ],
                                                 };
@@ -1339,7 +1346,11 @@ impl BrushPrimitive {
                     Some((
                         BrushBatchKind::Image(get_buffer_kind(cache_item.texture_id)),
                         textures,
-                        [cache_item.uv_rect_handle.as_int(gpu_cache), 0, 0],
+                        [
+                            cache_item.uv_rect_handle.as_int(gpu_cache),
+                            BrushImageSourceKind::Color as i32,
+                            0,
+                        ],
                     ))
                 }
             }

@@ -333,8 +333,10 @@ impl BrushPrimitive {
         // has to match VECS_PER_SPECIFIC_BRUSH
         match self.kind {
             BrushKind::Picture |
-            BrushKind::Image { .. } |
             BrushKind::YuvImage { .. } => {
+            }
+            BrushKind::Image { .. } => {
+                request.push([0.0; 4]);
             }
             BrushKind::Solid { color } => {
                 request.push(color.premultiplied());

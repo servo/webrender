@@ -116,6 +116,14 @@ vec4[3] fetch_from_resource_cache_3(int address) {
     );
 }
 
+vec4[3] fetch_from_resource_cache_3_direct(ivec2 address) {
+    return vec4[3](
+        TEXEL_FETCH(sResourceCache, address, 0, ivec2(0, 0)),
+        TEXEL_FETCH(sResourceCache, address, 0, ivec2(1, 0)),
+        TEXEL_FETCH(sResourceCache, address, 0, ivec2(2, 0))
+    );
+}
+
 vec4[4] fetch_from_resource_cache_4_direct(ivec2 address) {
     return vec4[4](
         TEXEL_FETCH(sResourceCache, address, 0, ivec2(0, 0)),
@@ -688,19 +696,20 @@ struct ImageResource {
     RectWithEndpoint uv_rect;
     float layer;
     vec3 user_data;
+    vec4 color;
 };
 
 ImageResource fetch_image_resource(int address) {
     //Note: number of blocks has to match `renderer::BLOCKS_PER_UV_RECT`
-    vec4 data[2] = fetch_from_resource_cache_2(address);
+    vec4 data[3] = fetch_from_resource_cache_3(address);
     RectWithEndpoint uv_rect = RectWithEndpoint(data[0].xy, data[0].zw);
-    return ImageResource(uv_rect, data[1].x, data[1].yzw);
+    return ImageResource(uv_rect, data[1].x, data[1].yzw, data[2]);
 }
 
 ImageResource fetch_image_resource_direct(ivec2 address) {
-    vec4 data[2] = fetch_from_resource_cache_2_direct(address);
+    vec4 data[3] = fetch_from_resource_cache_3_direct(address);
     RectWithEndpoint uv_rect = RectWithEndpoint(data[0].xy, data[0].zw);
-    return ImageResource(uv_rect, data[1].x, data[1].yzw);
+    return ImageResource(uv_rect, data[1].x, data[1].yzw, data[2]);
 }
 
 struct TextRun {
