@@ -31,11 +31,14 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=libEGL.dll");
 
     let bindings = "egl_bindings.rs";
-    Registry::new(Api::Egl, (1, 5), Profile::Core, Fallbacks::All, [])
-        .write_bindings(
-            gl_generator::StaticStructGenerator,
-            &mut File::create(&out_dir.join(bindings)).unwrap()
-        )
-        .unwrap();
+    Registry::new(Api::Egl, (1, 5), Profile::Core, Fallbacks::All, [
+        "EGL_ANGLE_device_d3d",
+        "EGL_EXT_platform_base",
+        "EGL_EXT_platform_device",
+    ]).write_bindings(
+        gl_generator::StaticStructGenerator,
+        &mut File::create(&out_dir.join(bindings)).unwrap()
+    )
+    .unwrap();
 
 }

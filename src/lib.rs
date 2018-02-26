@@ -21,7 +21,9 @@ pub struct DirectComposition {
     d3d_device: ComPtr<ID3D11Device>,
     dxgi_factory: ComPtr<IDXGIFactory2>,
     pub d3d_device_context: ComPtr<winapi::um::d3d11::ID3D11DeviceContext>,
+
     egl: egl::Egl,
+    egl_display: egl::types::EGLDisplay,
 
     composition_device: ComPtr<IDCompositionDevice>,
     root_visual: ComPtr<IDCompositionVisual>,
@@ -55,6 +57,9 @@ impl DirectComposition {
             ptr::null_mut(),
         ))?;
 
+        let egl = egl::Egl;
+        let egl_display = egl.initialize(d3d_device.as_raw());
+
         let dxgi_device = d3d_device.cast::<winapi::shared::dxgi::IDXGIDevice>()?;
 
         // https://msdn.microsoft.com/en-us/library/windows/desktop/hh404556(v=vs.85).aspx#code-snippet-1
@@ -85,17 +90,15 @@ impl DirectComposition {
         let root_visual = ComPtr::new_with(|ptr_ptr| composition_device.CreateVisual(ptr_ptr))?;
         composition_target.SetRoot(&*root_visual).to_result()?;
 
-        let egl = egl::Egl;
         Ok(DirectComposition {
-            d3d_device, dxgi_factory, d3d_device_context, egl,
+            d3d_device, dxgi_factory, d3d_device_context,
+            egl, egl_display,
             composition_device, composition_target, root_visual,
         })
     }
 
     /// Execute changes to the DirectComposition scene.
     pub fn commit(&self) -> HResult<()> {
-        self.egl.GetError();  // Dummy call to check that linking works.
-
         unsafe {
             self.composition_device.Commit().to_result()
         }
