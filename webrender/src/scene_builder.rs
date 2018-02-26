@@ -2,12 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{DocumentId, PipelineId, Epoch, ApiMsg, FrameMsg, ResourceUpdates};
+use api::{DocumentId, PipelineId, ApiMsg, FrameMsg, ResourceUpdates};
 use api::channel::MsgSender;
 use frame::build_scene;
 use frame_builder::{FrameBuilderConfig, FrameBuilder};
 use clip_scroll_tree::ClipScrollTree;
-use internal_types::{FastHashMap, FastHashSet};
+use internal_types::FastHashSet;
 use resource_cache::{FontInstanceMap, TiledImageMap};
 use render_backend::DocumentView;
 use scene::Scene;
@@ -50,7 +50,6 @@ pub struct BuiltScene {
     pub scene: Scene,
     pub frame_builder: FrameBuilder,
     pub clip_scroll_tree: ClipScrollTree,
-    pub pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
     pub removed_pipelines: Vec<PipelineId>,
 }
 

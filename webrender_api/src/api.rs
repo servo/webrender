@@ -180,7 +180,15 @@ impl Transaction {
     }
 
     pub fn update_epoch(&mut self, pipeline_id: PipelineId, epoch: Epoch) {
+        // We track epochs before and after scene building.
+        // This one will be applied to the pending scene right away:
+        self.scene_ops.push(SceneMsg::UpdateEpoch(pipeline_id, epoch));
+        // And this one will be applied to the currently built scene at the end
+        // of the transaction (potentially long after the scene_ops one).
         self.frame_ops.push(FrameMsg::UpdateEpoch(pipeline_id, epoch));
+        // We could avoid the duplication here by storing the epoch updates in a
+        // separate array and let the render backend schedule the updates at the
+        // proper times, but it wouldn't make things simpler.
     }
 
     /// Sets the root pipeline.
@@ -445,6 +453,7 @@ pub struct AddFontInstance {
 // Frame messages affect building the scene.
 #[derive(Clone, Deserialize, Serialize)]
 pub enum SceneMsg {
+    UpdateEpoch(PipelineId, Epoch),
     SetPageZoom(ZoomFactor),
     SetPinchZoom(ZoomFactor),
     SetRootPipeline(PipelineId),
@@ -468,8 +477,8 @@ pub enum SceneMsg {
 // Frame messages affect frame generation (applied after building the scene).
 #[derive(Clone, Deserialize, Serialize)]
 pub enum FrameMsg {
-    HitTest(Option<PipelineId>, WorldPoint, HitTestFlags, MsgSender<HitTestResult>),
     UpdateEpoch(PipelineId, Epoch),
+    HitTest(Option<PipelineId>, WorldPoint, HitTestFlags, MsgSender<HitTestResult>),
     SetPan(DeviceIntPoint),
     EnableFrameOutput(PipelineId, bool),
     Scroll(ScrollLocation, WorldPoint, ScrollEventPhase),
@@ -482,6 +491,7 @@ pub enum FrameMsg {
 impl fmt::Debug for SceneMsg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(match *self {
+            SceneMsg::UpdateEpoch(..) => "SceneMsg::UpdateEpoch",
             SceneMsg::SetDisplayList { .. } => "SceneMsg::SetDisplayList",
             SceneMsg::SetPageZoom(..) => "SceneMsg::SetPageZoom",
             SceneMsg::SetPinchZoom(..) => "SceneMsg::SetPinchZoom",
@@ -495,6 +505,7 @@ impl fmt::Debug for SceneMsg {
 impl fmt::Debug for FrameMsg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(match *self {
+            FrameMsg::UpdateEpoch(..) => "FrameMsg::UpdateEpoch",
             FrameMsg::HitTest(..) => "FrameMsg::HitTest",
             FrameMsg::SetPan(..) => "FrameMsg::SetPan",
             FrameMsg::Scroll(..) => "FrameMsg::Scroll",
@@ -503,7 +514,6 @@ impl fmt::Debug for FrameMsg {
             FrameMsg::GetScrollNodeState(..) => "FrameMsg::GetScrollNodeState",
             FrameMsg::EnableFrameOutput(..) => "FrameMsg::EnableFrameOutput",
             FrameMsg::UpdateDynamicProperties(..) => "FrameMsg::UpdateDynamicProperties",
-            FrameMsg::UpdateEpoch(..) => "FrameMsg::UpdateEpoch",
         })
     }
 }
