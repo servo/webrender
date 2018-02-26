@@ -288,31 +288,17 @@ impl PicturePrimitive {
 
                 content_rect.translate(&offset)
             }
-            PictureKind::BoxShadow { blur_radius, clip_mode, image_kind, ref mut content_rect, .. } => {
+            PictureKind::BoxShadow { blur_radius, clip_mode, ref mut content_rect, .. } => {
                 // We need to inflate the content rect if outset.
                 *content_rect = match clip_mode {
                     BoxShadowClipMode::Outset => {
-                        match image_kind {
-                            BrushImageKind::Mirror => {
-                                let half_offset = 0.5 * blur_radius * BLUR_SAMPLE_SCALE;
-                                // If the radii are uniform, we can render just the top
-                                // left corner and mirror it across the primitive. In
-                                // this case, shift the content rect to leave room
-                                // for the blur to take effect.
-                                local_content_rect
-                                    .translate(&-LayerVector2D::new(half_offset, half_offset))
-                                    .inflate(half_offset, half_offset)
-                            }
-                            BrushImageKind::NinePatch | BrushImageKind::Simple => {
-                                let full_offset = blur_radius * BLUR_SAMPLE_SCALE;
-                                // For a non-uniform radii, we need to expand
-                                // the content rect on all sides for the blur.
-                                local_content_rect.inflate(
-                                    full_offset,
-                                    full_offset,
-                                )
-                            }
-                        }
+                        let full_offset = blur_radius * BLUR_SAMPLE_SCALE;
+                        // For a non-uniform radii, we need to expand
+                        // the content rect on all sides for the blur.
+                        local_content_rect.inflate(
+                            full_offset,
+                            full_offset,
+                        )
                     }
                     BoxShadowClipMode::Inset => {
                         local_content_rect

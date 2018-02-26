@@ -1601,7 +1601,6 @@ pub struct Renderer {
     cs_blur_rgba8: LazilyCompiledShader,
 
     // Brush shaders
-    brush_mask_corner: LazilyCompiledShader,
     brush_mask_rounded_rect: LazilyCompiledShader,
     brush_picture_rgba8: BrushShader,
     brush_picture_rgba8_alpha_mask: BrushShader,
@@ -1798,14 +1797,6 @@ impl Renderer {
         let cs_text_run = try!{
             LazilyCompiledShader::new(ShaderKind::Cache(VertexArrayKind::Primitive),
                                       "cs_text_run",
-                                      &[],
-                                      &mut device,
-                                      options.precache_shaders)
-        };
-
-        let brush_mask_corner = try!{
-            LazilyCompiledShader::new(ShaderKind::Brush,
-                                      "brush_mask_corner",
                                       &[],
                                       &mut device,
                                       options.precache_shaders)
@@ -2297,7 +2288,6 @@ impl Renderer {
             cs_text_run,
             cs_blur_a8,
             cs_blur_rgba8,
-            brush_mask_corner,
             brush_mask_rounded_rect,
             brush_picture_rgba8,
             brush_picture_rgba8_alpha_mask,
@@ -2556,11 +2546,6 @@ impl Renderer {
             debug_server::BatchKind::Clip,
             "Rectangles",
             target.clip_batcher.rectangles.len(),
-        );
-        debug_target.add(
-            debug_server::BatchKind::Cache,
-            "Rectangle Brush (Corner)",
-            target.brush_mask_corners.len(),
         );
         debug_target.add(
             debug_server::BatchKind::Cache,
@@ -4015,20 +4000,6 @@ impl Renderer {
 
         self.handle_scaling(render_tasks, &target.scalings, SourceTexture::CacheA8);
 
-        if !target.brush_mask_corners.is_empty() {
-            self.device.set_blend(false);
-
-            let _timer = self.gpu_profile.start_timer(GPU_TAG_BRUSH_MASK);
-            self.brush_mask_corner
-                .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
-            self.draw_instanced_batch(
-                &target.brush_mask_corners,
-                VertexArrayKind::Primitive,
-                &BatchTextures::no_texture(),
-                stats,
-            );
-        }
-
         if !target.brush_mask_rounded_rects.is_empty() {
             self.device.set_blend(false);
 
@@ -4736,7 +4707,6 @@ impl Renderer {
         self.cs_blur_a8.deinit(&mut self.device);
         self.cs_blur_rgba8.deinit(&mut self.device);
         self.brush_mask_rounded_rect.deinit(&mut self.device);
-        self.brush_mask_corner.deinit(&mut self.device);
         self.brush_picture_rgba8.deinit(&mut self.device);
         self.brush_picture_rgba8_alpha_mask.deinit(&mut self.device);
         self.brush_picture_a8.deinit(&mut self.device);

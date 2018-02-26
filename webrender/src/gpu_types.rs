@@ -203,7 +203,6 @@ impl From<BrushInstance> for PrimitiveInstance {
 pub enum BrushImageKind {
     Simple = 0,     // A normal rect
     NinePatch = 1,  // A nine-patch image (stretch inside segments)
-    Mirror = 2,     // A top left corner only (mirror across x/y axes)
 }
 
 #[derive(Copy, Debug, Clone, PartialEq)]

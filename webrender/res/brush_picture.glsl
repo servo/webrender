@@ -22,7 +22,6 @@ flat varying vec4 vColor;
 
 #define BRUSH_PICTURE_SIMPLE      0
 #define BRUSH_PICTURE_NINEPATCH   1
-#define BRUSH_PICTURE_MIRROR      2
 
 #ifdef WR_VERTEX_SHADER
 
@@ -92,12 +91,6 @@ void brush_vs(
             vParams.zw = (local_rect.size / local_src_size - 0.5);
             break;
         }
-        case BRUSH_PICTURE_MIRROR: {
-            vec2 local_src_size = src_size / uDevicePixelRatio;
-            vUv.xy = (vi.local_pos - local_rect.p0) / local_src_size;
-            vParams.xy = 0.5 * local_rect.size / local_src_size;
-            break;
-        }
         default:
             vUv.xy = vec2(0.0);
             vParams = vec4(0.0);
@@ -124,19 +117,6 @@ vec4 brush_fs() {
         case BRUSH_PICTURE_NINEPATCH: {
             uv = clamp(vUv.xy, vec2(0.0), vParams.xy);
             uv += max(vec2(0.0), vUv.xy - vParams.zw);
-            uv = mix(vUvBounds_NoClamp.xy, vUvBounds_NoClamp.zw, uv);
-            uv = clamp(uv, vUvBounds.xy, vUvBounds.zw);
-            break;
-        }
-        case BRUSH_PICTURE_MIRROR: {
-            // Mirror and stretch the box shadow corner over the entire
-            // primitives.
-            uv = vParams.xy - abs(vUv.xy - vParams.xy);
-
-            // Ensure that we don't fetch texels outside the box
-            // shadow corner. This can happen, for example, when
-            // drawing the outer parts of an inset box shadow.
-            uv = clamp(uv, vec2(0.0), vec2(1.0));
             uv = mix(vUvBounds_NoClamp.xy, vUvBounds_NoClamp.zw, uv);
             uv = clamp(uv, vUvBounds.xy, vUvBounds.zw);
             break;
