@@ -7,6 +7,7 @@ license = "MPL-2.0"
 
 [dependencies]
 base64 = "0.3"
+bincode = "1.0"
 byteorder = "1.0"
 env_logger = { version = "0.4", optional = true }
 euclid = "0.16"
@@ -27,9 +28,6 @@ osmesa-src = { git = "https://github.com/servo/osmesa-src", optional = true }
 webrender = {path = "../webrender", features=["capture","replay","debugger","png","profiler"]}
 webrender_api = {path = "../webrender_api", features=["serialize","deserialize"]}
 serde = {version = "1.0", features = ["derive"] }
-
-[dependencies.bincode]
-git = "https://github.com/TyOverby/bincode.git"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.13"
