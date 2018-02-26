@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ApiMsg, DocumentMsg};
-use bincode::{serialize};
+use api::{ApiMsg, FrameMsg};
+use bincode::serialize;
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::any::TypeId;
 use std::fmt::Debug;
@@ -67,13 +67,14 @@ pub fn should_record_msg(msg: &ApiMsg) -> bool {
         ApiMsg::AddDocument { .. } |
         ApiMsg::DeleteDocument(..) => true,
         ApiMsg::UpdateDocument(_, ref msgs) => {
-            for msg in msgs {
+            for msg in &msgs.frame_ops {
                 match *msg {
-                    DocumentMsg::GetScrollNodeState(..) |
-                    DocumentMsg::HitTest(..) => {}
+                    FrameMsg::GetScrollNodeState(..) |
+                    FrameMsg::HitTest(..) => {}
                     _ => { return true; }
                 }
             }
+
             false
         }
         _ => false,

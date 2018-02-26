@@ -4,30 +4,23 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BuiltDisplayListIter, ClipAndScrollInfo, ClipId, ColorF, ComplexClipRegion};
-use api::{DevicePixelScale, DeviceUintRect, DeviceUintSize, DisplayItemRef, DocumentLayer, Epoch};
-use api::{ExternalScrollId, FilterOp, ImageDisplayItem, ItemRange, LayerPoint, LayerPrimitiveInfo};
-use api::{LayerRect, LayerSize, LayerVector2D, LayoutSize, LocalClip, PipelineId, ScrollClamping};
-use api::{ScrollEventPhase, ScrollLocation, ScrollNodeIdType, ScrollNodeState, ScrollPolicy};
-use api::{ScrollSensitivity, SpecificDisplayItem, StackingContext, TileOffset, TransformStyle};
-use api::WorldPoint;
+use api::{DeviceUintSize, DisplayItemRef, Epoch, ExternalScrollId, FilterOp, IframeDisplayItem};
+use api::{ImageDisplayItem, ItemRange, LayerPoint, LayerPrimitiveInfo, LayerRect, LayerSize};
+use api::{LayerVector2D, LayoutSize, PipelineId, ScrollFrameDisplayItem, ScrollPolicy};
+use api::{ScrollSensitivity, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem};
+use api::{TileOffset, TransformStyle};
 use clip::ClipRegion;
 use clip_scroll_node::StickyFrameInfo;
-use clip_scroll_tree::{ClipScrollTree, ScrollStates};
+use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, ClipScrollTree};
 use euclid::rect;
 use frame_builder::{FrameBuilder, FrameBuilderConfig, ScrollbarInfo};
-use gpu_cache::GpuCache;
-use hit_test::HitTester;
-use internal_types::{FastHashMap, FastHashSet, RenderedDocument};
-use profiler::{GpuCacheProfileCounters, TextureCacheProfileCounters};
-use resource_cache::{FontInstanceMap,ResourceCache, TiledImageMap};
-use scene::{Scene, StackingContextHelpers, ScenePipeline, SceneProperties};
-use tiling::{CompositeOps, Frame};
-use renderer::PipelineInfo;
-
-#[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Eq, Ord)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct FrameId(pub u32);
+use internal_types::{FastHashMap, FastHashSet};
+use prim_store::ScrollNodeAndClipChain;
+use resource_cache::{FontInstanceMap, TiledImageMap};
+use scene::{Scene, ScenePipeline, StackingContextHelpers};
+use scene_builder::{SceneRequest, BuiltScene};
+use tiling::{CompositeOps};
+use render_backend::DocumentView;
 
 static DEFAULT_SCROLLBAR_COLOR: ColorF = ColorF {
     r: 0.3,
@@ -36,7 +29,100 @@ static DEFAULT_SCROLLBAR_COLOR: ColorF = ColorF {
     a: 0.6,
 };
 
-struct FlattenContext<'a> {
+/// A data structure that keeps track of mapping between API ClipIds and the indices used
+/// internally in the ClipScrollTree to avoid having to do HashMap lookups. ClipIdToIndexMapper is
+/// responsible for mapping both ClipId to ClipChainIndex and ClipId to ClipScrollNodeIndex.  We
+/// also include two small LRU caches. Currently the caches are small (1 entry), but in the future
+/// we could use uluru here to do something more involved.
+#[derive(Default)]
+pub struct ClipIdToIndexMapper {
+    /// A map which converts a ClipId for a clipping node or an API-defined ClipChain into
+    /// a ClipChainIndex, which is the index used internally in the ClipScrollTree to
+    /// identify ClipChains.
+    clip_chain_map: FastHashMap<ClipId, ClipChainIndex>,
+
+    /// The last mapped ClipChainIndex, used to avoid having to do lots of consecutive
+    /// HashMap lookups.
+    cached_clip_chain_index: Option<(ClipId, ClipChainIndex)>,
+
+    /// The offset in the ClipScrollTree's array of ClipScrollNodes for a particular pipeline.
+    /// This is used to convert a ClipId into a ClipScrollNodeIndex.
+    pipeline_offsets: FastHashMap<PipelineId, usize>,
+
+    /// The last mapped pipeline offset for this mapper. This is used to avoid having to
+    /// consult `pipeline_offsets` repeatedly when flattening the display list.
+    cached_pipeline_offset: Option<(PipelineId, usize)>,
+
+    /// The next available pipeline offset for ClipScrollNodeIndex. When we encounter a pipeline
+    /// we will use this value and increment it by the total number of ClipScrollNodes in the
+    /// pipeline's display list.
+    next_available_offset: usize,
+}
+
+impl ClipIdToIndexMapper {
+    pub fn add_clip_chain(&mut self, id: ClipId, index: ClipChainIndex) {
+        debug_assert!(!self.clip_chain_map.contains_key(&id));
+        self.clip_chain_map.insert(id, index);
+    }
+
+    pub fn map_to_parent_clip_chain(&mut self, id: ClipId, parent_id: &ClipId) {
+        let parent_chain_index = self.get_clip_chain_index(parent_id);
+        self.add_clip_chain(id, parent_chain_index);
+    }
+
+    pub fn get_clip_chain_index(&mut self, id: &ClipId) -> ClipChainIndex {
+        match self.cached_clip_chain_index {
+            Some((cached_id, cached_clip_chain_index)) if cached_id == *id =>
+                return cached_clip_chain_index,
+            _ => {}
+        }
+
+        self.clip_chain_map[id]
+    }
+
+    pub fn get_clip_chain_index_and_cache_result(&mut self, id: &ClipId) -> ClipChainIndex {
+        let index = self.get_clip_chain_index(id);
+        self.cached_clip_chain_index = Some((*id, index));
+        index
+    }
+
+    pub fn map_clip_and_scroll(&mut self, info: &ClipAndScrollInfo) -> ScrollNodeAndClipChain {
+        ScrollNodeAndClipChain::new(
+            self.get_node_index(info.scroll_node_id),
+            self.get_clip_chain_index_and_cache_result(&info.clip_node_id())
+        )
+    }
+
+    pub fn simple_scroll_and_clip_chain(&mut self, id: &ClipId) -> ScrollNodeAndClipChain {
+        self.map_clip_and_scroll(&ClipAndScrollInfo::simple(*id))
+    }
+
+    pub fn initialize_for_pipeline(&mut self, pipeline: &ScenePipeline) {
+        debug_assert!(!self.pipeline_offsets.contains_key(&pipeline.pipeline_id));
+        self.pipeline_offsets.insert(pipeline.pipeline_id, self.next_available_offset);
+        self.next_available_offset += pipeline.display_list.total_clip_ids();
+    }
+
+    pub fn get_node_index(&mut self, id: ClipId) -> ClipScrollNodeIndex {
+        let (index, pipeline_id) = match id {
+            ClipId::Clip(index, pipeline_id) => (index, pipeline_id),
+            ClipId::ClipChain(_) => panic!("Tried to use ClipChain as scroll node."),
+        };
+
+        let pipeline_offset = match self.cached_pipeline_offset {
+            Some((last_used_id, offset)) if last_used_id == pipeline_id => offset,
+            _ => {
+                let offset = self.pipeline_offsets[&pipeline_id];
+                self.cached_pipeline_offset = Some((pipeline_id, offset));
+                offset
+            }
+        };
+
+        ClipScrollNodeIndex(pipeline_offset + index)
+    }
+}
+
+pub struct FlattenContext<'a> {
     scene: &'a Scene,
     builder: FrameBuilder,
     clip_scroll_tree: &'a mut ClipScrollTree,
@@ -45,17 +131,88 @@ struct FlattenContext<'a> {
     pipeline_epochs: Vec<(PipelineId, Epoch)>,
     replacements: Vec<(ClipId, ClipId)>,
     output_pipelines: &'a FastHashSet<PipelineId>,
+    id_to_index_mapper: ClipIdToIndexMapper,
 }
 
 impl<'a> FlattenContext<'a> {
+    // When changing this, please make the same modification to build_scene,
+    // which will soon replace this method completely.
+    pub fn create_frame_builder(
+        old_builder: FrameBuilder,
+        scene: &Scene,
+        clip_scroll_tree: &mut ClipScrollTree,
+        font_instances: FontInstanceMap,
+        tiled_image_map: TiledImageMap,
+        view: &DocumentView,
+        output_pipelines: &FastHashSet<PipelineId>,
+        frame_builder_config: &FrameBuilderConfig,
+        pipeline_epochs: &mut FastHashMap<PipelineId, Epoch>,
+    ) -> FrameBuilder {
+        // We checked that the root pipeline is available on the render backend.
+        let root_pipeline_id = scene.root_pipeline_id.unwrap();
+        let root_pipeline = scene.pipelines.get(&root_pipeline_id).unwrap();
+
+        let root_epoch = scene.pipeline_epochs[&root_pipeline_id];
+        pipeline_epochs.insert(root_pipeline_id, root_epoch);
+
+        let background_color = root_pipeline
+            .background_color
+            .and_then(|color| if color.a > 0.0 { Some(color) } else { None });
+
+        let frame_builder = {
+            let mut roller = FlattenContext {
+                scene,
+                builder: old_builder.recycle(
+                    view.inner_rect,
+                    background_color,
+                    view.window_size,
+                    *frame_builder_config,
+                ),
+                clip_scroll_tree,
+                font_instances,
+                tiled_image_map,
+                pipeline_epochs: Vec::new(),
+                replacements: Vec::new(),
+                output_pipelines,
+                id_to_index_mapper: ClipIdToIndexMapper::default(),
+            };
+
+            roller.id_to_index_mapper.initialize_for_pipeline(root_pipeline);
+
+            roller.builder.push_root(
+                root_pipeline_id,
+                &root_pipeline.viewport_size,
+                &root_pipeline.content_size,
+                roller.clip_scroll_tree,
+                &mut roller.id_to_index_mapper,
+            );
+
+            roller.builder.setup_viewport_offset(
+                view.inner_rect,
+                view.accumulated_scale_factor(),
+                roller.clip_scroll_tree,
+            );
+
+            roller.flatten_root(root_pipeline, &root_pipeline.viewport_size);
+
+            debug_assert!(roller.builder.picture_stack.is_empty());
+
+            pipeline_epochs.extend(roller.pipeline_epochs.drain(..));
+
+            roller.builder
+        };
+
+        frame_builder
+    }
+
     /// Since WebRender still handles fixed position and reference frame content internally
     /// we need to apply this table of id replacements only to the id that affects the
     /// position of a node. We can eventually remove this when clients start handling
     /// reference frames themselves. This method applies these replacements.
-    fn apply_scroll_frame_id_replacement(&self, id: ClipId) -> ClipId {
+    fn apply_scroll_frame_id_replacement(&self, index: ClipId) -> ClipId {
         match self.replacements.last() {
-            Some(&(to_replace, replacement)) if to_replace == id => replacement,
-            _ => id,
+            Some(&(to_replace, replacement)) if to_replace == index => replacement,
+            _ => index,
         }
     }
 
@@ -95,15 +252,14 @@ impl<'a> FlattenContext<'a> {
             .collect()
     }
 
-    fn flatten_root(
-        &mut self,
-        traversal: &mut BuiltDisplayListIter<'a>,
-        pipeline_id: PipelineId,
-        frame_size: &LayoutSize,
-        root_reference_frame_id: ClipId,
-        root_scroll_frame_id: ClipId,
-    ) {
-        let clip_id = ClipId::root_scroll_node(pipeline_id);
+    fn flatten_root(&mut self, pipeline: &'a ScenePipeline, frame_size: &LayoutSize) {
+        let pipeline_id = pipeline.pipeline_id;
+        let reference_frame_info = self.id_to_index_mapper.simple_scroll_and_clip_chain(
+            &ClipId::root_reference_frame(pipeline_id)
+        );
+        let scroll_frame_info = self.id_to_index_mapper.simple_scroll_and_clip_chain(
+            &ClipId::root_scroll_node(pipeline_id)
+        );
 
         self.builder.push_stacking_context(
             pipeline_id,
@@ -111,7 +267,7 @@ impl<'a> FlattenContext<'a> {
             TransformStyle::Flat,
             true,
             true,
-            ClipAndScrollInfo::simple(clip_id),
+            scroll_frame_info,
             self.output_pipelines,
         );
 
@@ -123,7 +279,7 @@ impl<'a> FlattenContext<'a> {
                     let root_bounds = LayerRect::new(LayerPoint::zero(), *frame_size);
                     let info = LayerPrimitiveInfo::new(root_bounds);
                     self.builder.add_solid_rectangle(
-                        ClipAndScrollInfo::simple(root_reference_frame_id),
+                        reference_frame_info,
                         &info,
                         bg_color,
                         None,
@@ -132,21 +288,16 @@ impl<'a> FlattenContext<'a> {
             }
         }
 
-
-        self.flatten_items(
-            traversal,
-            pipeline_id,
-            LayerVector2D::zero(),
-        );
+        self.flatten_items(&mut pipeline.display_list.iter(), pipeline_id, LayerVector2D::zero());
 
         if self.builder.config.enable_scrollbars {
             let scrollbar_rect = LayerRect::new(LayerPoint::zero(), LayerSize::new(10.0, 70.0));
             let container_rect = LayerRect::new(LayerPoint::zero(), *frame_size);
             self.builder.add_scroll_bar(
-                ClipAndScrollInfo::simple(root_reference_frame_id),
+                reference_frame_info,
                 &LayerPrimitiveInfo::new(scrollbar_rect),
                 DEFAULT_SCROLLBAR_COLOR,
-                ScrollbarInfo(root_scroll_frame_id, container_rect),
+                ScrollbarInfo(scroll_frame_info.scroll_node_id, container_rect),
             );
         }
 
@@ -185,51 +336,77 @@ impl<'a> FlattenContext<'a> {
         }
     }
 
-    fn flatten_clip(
+    fn flatten_sticky_frame(
         &mut self,
-        pipeline_id: PipelineId,
+        item: &DisplayItemRef,
+        info: &StickyFrameDisplayItem,
+        clip_and_scroll: &ScrollNodeAndClipChain,
         parent_id: &ClipId,
-        new_clip_id: &ClipId,
-        clip_region: ClipRegion,
+        reference_frame_relative_offset: &LayerVector2D,
     ) {
-        self.builder.add_clip_node(
-            *new_clip_id,
-            *parent_id,
-            pipeline_id,
-            clip_region,
-            self.clip_scroll_tree,
+        let frame_rect = item.rect().translate(&reference_frame_relative_offset);
+        let sticky_frame_info = StickyFrameInfo::new(
+            info.margins,
+            info.vertical_offset_bounds,
+            info.horizontal_offset_bounds,
+            info.previously_applied_offset,
         );
+
+        let index = self.id_to_index_mapper.get_node_index(info.id);
+        self.clip_scroll_tree.add_sticky_frame(
+            index,
+            clip_and_scroll.scroll_node_id, /* parent id */
+            frame_rect,
+            sticky_frame_info,
+            info.id.pipeline_id(),
+        );
+        self.id_to_index_mapper.map_to_parent_clip_chain(info.id, &parent_id);
     }
 
     fn flatten_scroll_frame(
         &mut self,
+        item: &DisplayItemRef,
+        info: &ScrollFrameDisplayItem,
         pipeline_id: PipelineId,
-        parent_id: &ClipId,
-        new_scroll_frame_id: &ClipId,
-        external_id: Option<ExternalScrollId>,
-        frame_rect: &LayerRect,
-        content_rect: &LayerRect,
-        clip_region: ClipRegion,
-        scroll_sensitivity: ScrollSensitivity,
+        clip_and_scroll_ids: &ClipAndScrollInfo,
+        reference_frame_relative_offset: &LayerVector2D,
     ) {
-        let clip_id = self.clip_scroll_tree.generate_new_clip_id(pipeline_id);
+        let complex_clips = self.get_complex_clips(pipeline_id, item.complex_clip().0);
+        let clip_region = ClipRegion::create_for_clip_node(
+            *item.local_clip().clip_rect(),
+            complex_clips,
+            info.image_mask,
+            &reference_frame_relative_offset,
+        );
+        // Just use clip rectangle as the frame rect for this scroll frame.
+        // This is useful when calculating scroll extents for the
+        // ClipScrollNode::scroll(..) API as well as for properly setting sticky
+        // positioning offsets.
+        let frame_rect = item.local_clip()
+            .clip_rect()
+            .translate(&reference_frame_relative_offset);
+        let content_rect = item.rect().translate(&reference_frame_relative_offset);
+
+        debug_assert!(info.clip_id != info.scroll_frame_id);
+
         self.builder.add_clip_node(
-            clip_id,
-            *parent_id,
-            pipeline_id,
+            info.clip_id,
+            clip_and_scroll_ids.scroll_node_id,
             clip_region,
             self.clip_scroll_tree,
+            &mut self.id_to_index_mapper,
         );
 
         self.builder.add_scroll_frame(
-            *new_scroll_frame_id,
-            clip_id,
-            external_id,
+            info.scroll_frame_id,
+            info.clip_id,
+            info.external_id,
             pipeline_id,
             &frame_rect,
             &content_rect.size,
-            scroll_sensitivity,
+            info.scroll_sensitivity,
             self.clip_scroll_tree,
+            &mut self.id_to_index_mapper,
         );
     }
 
@@ -237,7 +414,8 @@ impl<'a> FlattenContext<'a> {
         &mut self,
         traversal: &mut BuiltDisplayListIter<'a>,
         pipeline_id: PipelineId,
-        context_scroll_node_id: ClipId,
+        unreplaced_scroll_id: ClipId,
+        mut scroll_node_id: ClipId,
         mut reference_frame_relative_offset: LayerVector2D,
         bounds: &LayerRect,
         stacking_context: &StackingContext,
@@ -259,54 +437,55 @@ impl<'a> FlattenContext<'a> {
                 .expect("No display list?!")
                 .display_list;
             CompositeOps::new(
-                stacking_context.filter_ops_for_compositing(
-                    display_list,
-                    filters,
-                ),
+                stacking_context.filter_ops_for_compositing(display_list, filters),
                 stacking_context.mix_blend_mode_for_compositing(),
             )
         };
 
         if stacking_context.scroll_policy == ScrollPolicy::Fixed {
-            self.replacements.push((
-                context_scroll_node_id,
-                self.builder.current_reference_frame_id(),
-            ));
+            scroll_node_id = self.builder.current_reference_frame_id();
+            self.replacements.push((unreplaced_scroll_id, scroll_node_id));
         }
 
-        // If we have a transformation, we establish a new reference frame. This means
-        // that fixed position stacking contexts are positioned relative to us.
-        let is_reference_frame =
-            stacking_context.transform.is_some() || stacking_context.perspective.is_some();
-        let origin = reference_frame_relative_offset + bounds.origin.to_vector();
-        reference_frame_relative_offset = if is_reference_frame {
+        reference_frame_relative_offset += bounds.origin.to_vector();
+
+        // If we have a transformation or a perspective, we should have been assigned a new
+        // reference frame id. This means this stacking context establishes a new reference frame.
+        // Descendant fixed position content will be positioned relative to us.
+        if let Some(reference_frame_id) = stacking_context.reference_frame_id {
+            debug_assert!(
+                stacking_context.transform.is_some() ||
+                stacking_context.perspective.is_some()
+            );
+
             let reference_frame_bounds = LayerRect::new(LayerPoint::zero(), bounds.size);
-            let mut clip_id = self.apply_scroll_frame_id_replacement(context_scroll_node_id);
-            clip_id = self.builder.push_reference_frame(
-                Some(clip_id),
+            self.builder.push_reference_frame(
+                reference_frame_id,
+                Some(scroll_node_id),
                 pipeline_id,
                 &reference_frame_bounds,
                 stacking_context.transform,
                 stacking_context.perspective,
-                origin,
-                false,
+                reference_frame_relative_offset,
                 self.clip_scroll_tree,
+                &mut self.id_to_index_mapper,
             );
-            self.replacements.push((context_scroll_node_id, clip_id));
-            LayerVector2D::zero()
-        } else {
-            origin
-        };
+            self.replacements.push((unreplaced_scroll_id, reference_frame_id));
+            reference_frame_relative_offset = LayerVector2D::zero();
+        }
 
-        let sc_scroll_node_id = self.apply_scroll_frame_id_replacement(context_scroll_node_id);
-
+        // We apply the replacements one more time in case we need to set it to a replacement
+        // that we just pushed above.
+        let sc_scroll_node = self.apply_scroll_frame_id_replacement(unreplaced_scroll_id);
+        let stacking_context_clip_and_scroll =
+            self.id_to_index_mapper.simple_scroll_and_clip_chain(&sc_scroll_node);
         self.builder.push_stacking_context(
             pipeline_id,
             composition_operations,
             stacking_context.transform_style,
             is_backface_visible,
             false,
-            ClipAndScrollInfo::simple(sc_scroll_node_id),
+            stacking_context_clip_and_scroll,
             self.output_pipelines,
         );
 
@@ -320,7 +499,7 @@ impl<'a> FlattenContext<'a> {
             self.replacements.pop();
         }
 
-        if is_reference_frame {
+        if stacking_context.reference_frame_id.is_some() {
             self.replacements.pop();
             self.builder.pop_reference_frame();
         }
@@ -330,65 +509,61 @@ impl<'a> FlattenContext<'a> {
 
     fn flatten_iframe(
         &mut self,
-        pipeline_id: PipelineId,
-        parent_id: ClipId,
-        bounds: &LayerRect,
-        local_clip: &LocalClip,
-        reference_frame_relative_offset: LayerVector2D,
+        item: &DisplayItemRef,
+        info: &IframeDisplayItem,
+        clip_and_scroll_ids: &ClipAndScrollInfo,
+        reference_frame_relative_offset: &LayerVector2D,
     ) {
-        let pipeline = match self.scene.pipelines.get(&pipeline_id) {
+        let iframe_pipeline_id = info.pipeline_id;
+        let pipeline = match self.scene.pipelines.get(&iframe_pipeline_id) {
             Some(pipeline) => pipeline,
             None => return,
         };
 
-        let clip_region = ClipRegion::create_for_clip_node_with_local_clip(
-            local_clip,
-            &reference_frame_relative_offset
-        );
-        let parent_pipeline_id = parent_id.pipeline_id();
-        let clip_id = self.clip_scroll_tree
-            .generate_new_clip_id(parent_pipeline_id);
+        self.id_to_index_mapper.initialize_for_pipeline(pipeline);
+
         self.builder.add_clip_node(
-            clip_id,
-            parent_id,
-            parent_pipeline_id,
-            clip_region,
+            info.clip_id,
+            clip_and_scroll_ids.scroll_node_id,
+            ClipRegion::create_for_clip_node_with_local_clip(
+                &item.local_clip(),
+                &reference_frame_relative_offset
+            ),
             self.clip_scroll_tree,
+            &mut self.id_to_index_mapper,
         );
 
-        self.pipeline_epochs.push((pipeline_id, pipeline.epoch));
+        let epoch = self.scene.pipeline_epochs[&iframe_pipeline_id];
+        self.pipeline_epochs.push((iframe_pipeline_id, epoch));
 
+        let bounds = item.rect();
         let iframe_rect = LayerRect::new(LayerPoint::zero(), bounds.size);
-        let origin = reference_frame_relative_offset + bounds.origin.to_vector();
-        let iframe_reference_frame_id = self.builder.push_reference_frame(
-            Some(clip_id),
-            pipeline_id,
+        let origin = *reference_frame_relative_offset + bounds.origin.to_vector();
+        self.builder.push_reference_frame(
+            ClipId::root_reference_frame(iframe_pipeline_id),
+            Some(info.clip_id),
+            iframe_pipeline_id,
             &iframe_rect,
             None,
             None,
             origin,
-            true,
             self.clip_scroll_tree,
+            &mut self.id_to_index_mapper,
         );
 
         self.builder.add_scroll_frame(
-            ClipId::root_scroll_node(pipeline_id),
-            iframe_reference_frame_id,
-            Some(ExternalScrollId(0, pipeline_id)),
-            pipeline_id,
+            ClipId::root_scroll_node(iframe_pipeline_id),
+            ClipId::root_reference_frame(iframe_pipeline_id),
+            Some(ExternalScrollId(0, iframe_pipeline_id)),
+            iframe_pipeline_id,
             &iframe_rect,
             &pipeline.content_size,
             ScrollSensitivity::ScriptAndInputEvents,
             self.clip_scroll_tree,
+            &mut self.id_to_index_mapper,
         );
 
-        self.flatten_root(
-            &mut pipeline.display_list.iter(),
-            pipeline_id,
-            &iframe_rect.size,
-            iframe_reference_frame_id,
-            ClipId::root_scroll_node(pipeline_id),
-        );
+        self.flatten_root(pipeline, &iframe_rect.size);
 
         self.builder.pop_reference_frame();
     }
@@ -399,11 +574,11 @@ impl<'a> FlattenContext<'a> {
         pipeline_id: PipelineId,
         reference_frame_relative_offset: LayerVector2D,
     ) -> Option<BuiltDisplayListIter<'a>> {
-        let mut clip_and_scroll = item.clip_and_scroll();
-
-        let unreplaced_scroll_id = clip_and_scroll.scroll_node_id;
-        clip_and_scroll.scroll_node_id =
-            self.apply_scroll_frame_id_replacement(clip_and_scroll.scroll_node_id);
+        let mut clip_and_scroll_ids = item.clip_and_scroll();
+        let unreplaced_scroll_id = clip_and_scroll_ids.scroll_node_id;
+        clip_and_scroll_ids.scroll_node_id =
+            self.apply_scroll_frame_id_replacement(clip_and_scroll_ids.scroll_node_id);
+        let clip_and_scroll = self.id_to_index_mapper.map_clip_and_scroll(&clip_and_scroll_ids);
 
         let prim_info = item.get_layer_primitive_info(&reference_frame_relative_offset);
         match *item.item() {
@@ -552,6 +727,7 @@ impl<'a> FlattenContext<'a> {
                     &mut subtraversal,
                     pipeline_id,
                     unreplaced_scroll_id,
+                    clip_and_scroll_ids.scroll_node_id,
                     reference_frame_relative_offset,
                     &item.rect(),
                     &info.stacking_context,
@@ -562,11 +738,10 @@ impl<'a> FlattenContext<'a> {
             }
             SpecificDisplayItem::Iframe(ref info) => {
                 self.flatten_iframe(
-                    info.pipeline_id,
-                    clip_and_scroll.scroll_node_id,
-                    &item.rect(),
-                    &item.local_clip(),
-                    reference_frame_relative_offset,
+                    &item,
+                    info,
+                    &clip_and_scroll_ids,
+                    &reference_frame_relative_offset
                 );
             }
             SpecificDisplayItem::Clip(ref info) => {
@@ -577,57 +752,42 @@ impl<'a> FlattenContext<'a> {
                     info.image_mask,
                     &reference_frame_relative_offset,
                 );
-                self.flatten_clip(
-                    pipeline_id,
-                    &clip_and_scroll.scroll_node_id,
-                    &info.id,
+                self.builder.add_clip_node(
+                    info.id,
+                    clip_and_scroll_ids.scroll_node_id,
                     clip_region,
+                    &mut self.clip_scroll_tree,
+                    &mut self.id_to_index_mapper,
                 );
             }
             SpecificDisplayItem::ClipChain(ref info) => {
-                let items = self.get_clip_chain_items(pipeline_id, item.clip_chain_items());
-                self.clip_scroll_tree.add_clip_chain_descriptor(info.id, info.parent, items);
+                let items = self.get_clip_chain_items(pipeline_id, item.clip_chain_items())
+                                .iter()
+                                .map(|id| self.id_to_index_mapper.get_node_index(*id))
+                                .collect();
+                let parent = info.parent.map(|id|
+                     self.id_to_index_mapper.get_clip_chain_index(&ClipId::ClipChain(id))
+                );
+                let clip_chain_index =
+                    self.clip_scroll_tree.add_clip_chain_descriptor(parent, items);
+                self.id_to_index_mapper.add_clip_chain(ClipId::ClipChain(info.id), clip_chain_index);
             },
             SpecificDisplayItem::ScrollFrame(ref info) => {
-                let complex_clips = self.get_complex_clips(pipeline_id, item.complex_clip().0);
-                let clip_region = ClipRegion::create_for_clip_node(
-                    *item.local_clip().clip_rect(),
-                    complex_clips,
-                    info.image_mask,
-                    &reference_frame_relative_offset,
-                );
-                // Just use clip rectangle as the frame rect for this scroll frame.
-                // This is useful when calculating scroll extents for the
-                // ClipScrollNode::scroll(..) API as well as for properly setting sticky
-                // positioning offsets.
-                let frame_rect = item.local_clip()
-                    .clip_rect()
-                    .translate(&reference_frame_relative_offset);
-                let content_rect = item.rect().translate(&reference_frame_relative_offset);
                 self.flatten_scroll_frame(
+                    &item,
+                    info,
                     pipeline_id,
-                    &clip_and_scroll.scroll_node_id,
-                    &info.id,
-                    info.external_id,
-                    &frame_rect,
-                    &content_rect,
-                    clip_region,
-                    info.scroll_sensitivity,
+                    &clip_and_scroll_ids,
+                    &reference_frame_relative_offset
                 );
             }
             SpecificDisplayItem::StickyFrame(ref info) => {
-                let frame_rect = item.rect().translate(&reference_frame_relative_offset);
-                let sticky_frame_info = StickyFrameInfo::new(
-                    info.margins,
-                    info.vertical_offset_bounds,
-                    info.horizontal_offset_bounds,
-                    info.previously_applied_offset,
-                );
-                self.clip_scroll_tree.add_sticky_frame(
-                    info.id,
-                    clip_and_scroll.scroll_node_id, /* parent id */
-                    frame_rect,
-                    sticky_frame_info
+                self.flatten_sticky_frame(
+                    &item,
+                    info,
+                    &clip_and_scroll,
+                    &clip_and_scroll_ids.scroll_node_id,
+                    &reference_frame_relative_offset
                 );
             }
 
@@ -663,7 +823,7 @@ impl<'a> FlattenContext<'a> {
     /// takes care of the decomposition required by the internal tiling of the image.
     fn decompose_image(
         &mut self,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_and_scroll: ScrollNodeAndClipChain,
         prim_info: &LayerPrimitiveInfo,
         info: &ImageDisplayItem,
         image_size: DeviceUintSize,
@@ -709,7 +869,7 @@ impl<'a> FlattenContext<'a> {
 
     fn decompose_image_row(
         &mut self,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_and_scroll: ScrollNodeAndClipChain,
         prim_info: &LayerPrimitiveInfo,
         info: &ImageDisplayItem,
         image_size: DeviceUintSize,
@@ -755,7 +915,7 @@ impl<'a> FlattenContext<'a> {
 
     fn decompose_tiled_image(
         &mut self,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_and_scroll: ScrollNodeAndClipChain,
         prim_info: &LayerPrimitiveInfo,
         info: &ImageDisplayItem,
         image_size: DeviceUintSize,
@@ -891,7 +1051,7 @@ impl<'a> FlattenContext<'a> {
 
     fn add_tile_primitive(
         &mut self,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_and_scroll: ScrollNodeAndClipChain,
         prim_info: &LayerPrimitiveInfo,
         info: &ImageDisplayItem,
         tile_offset: TileOffset,
@@ -953,208 +1113,31 @@ impl<'a> FlattenContext<'a> {
     }
 }
 
-/// Frame context contains the information required to update
-/// (e.g. scroll) a renderer frame builder (`FrameBuilder`).
-pub struct FrameContext {
-    window_size: DeviceUintSize,
-    clip_scroll_tree: ClipScrollTree,
-    pipeline_epoch_map: FastHashMap<PipelineId, Epoch>,
-    id: FrameId,
-    pub frame_builder_config: FrameBuilderConfig,
-}
+pub fn build_scene(config: &FrameBuilderConfig, request: SceneRequest) -> BuiltScene {
+    // TODO: mutably pass the scene and update its own pipeline epoch map instead of
+    // creating a new one here.
+    let mut pipeline_epoch_map = FastHashMap::default();
+    let mut clip_scroll_tree = ClipScrollTree::new();
 
-impl FrameContext {
-    pub fn new(config: FrameBuilderConfig) -> Self {
-        FrameContext {
-            window_size: DeviceUintSize::zero(),
-            pipeline_epoch_map: FastHashMap::default(),
-            clip_scroll_tree: ClipScrollTree::new(),
-            id: FrameId(0),
-            frame_builder_config: config,
-        }
-    }
+    let frame_builder = FlattenContext::create_frame_builder(
+        FrameBuilder::empty(), // WIP, we're not really recycling anything here, clean this up.
+        &request.scene,
+        &mut clip_scroll_tree,
+        request.font_instances,
+        request.tiled_image_map,
+        &request.view,
+        &request.output_pipelines,
+        config,
+        &mut pipeline_epoch_map
+    );
 
-    pub fn reset(&mut self) -> ScrollStates {
-        self.pipeline_epoch_map.clear();
+    let mut scene = request.scene;
+    scene.pipeline_epochs = pipeline_epoch_map;
 
-        // Advance to the next frame.
-        self.id.0 += 1;
-
-        self.clip_scroll_tree.drain()
-    }
-
-    #[cfg(feature = "debugger")]
-    pub fn get_clip_scroll_tree(&self) -> &ClipScrollTree {
-        &self.clip_scroll_tree
-    }
-
-    pub fn get_scroll_node_state(&self) -> Vec<ScrollNodeState> {
-        self.clip_scroll_tree.get_scroll_node_state()
-    }
-
-    /// Returns true if the node actually changed position or false otherwise.
-    pub fn scroll_node(
-        &mut self,
-        origin: LayerPoint,
-        id: ScrollNodeIdType,
-        clamp: ScrollClamping
-    ) -> bool {
-        self.clip_scroll_tree.scroll_node(origin, id, clamp)
-    }
-
-    /// Returns true if any nodes actually changed position or false otherwise.
-    pub fn scroll(
-        &mut self,
-        scroll_location: ScrollLocation,
-        cursor: WorldPoint,
-        phase: ScrollEventPhase,
-    ) -> bool {
-        self.clip_scroll_tree.scroll(scroll_location, cursor, phase)
-    }
-
-    pub fn tick_scrolling_bounce_animations(&mut self) {
-        self.clip_scroll_tree.tick_scrolling_bounce_animations();
-    }
-
-    pub fn discard_frame_state_for_pipeline(&mut self, pipeline_id: PipelineId) {
-        self.clip_scroll_tree
-            .discard_frame_state_for_pipeline(pipeline_id);
-    }
-
-    pub fn create_frame_builder(
-        &mut self,
-        old_builder: FrameBuilder,
-        scene: &Scene,
-        resource_cache: &mut ResourceCache,
-        window_size: DeviceUintSize,
-        inner_rect: DeviceUintRect,
-        device_pixel_scale: DevicePixelScale,
-        output_pipelines: &FastHashSet<PipelineId>,
-    ) -> FrameBuilder {
-        let root_pipeline_id = match scene.root_pipeline_id {
-            Some(root_pipeline_id) => root_pipeline_id,
-            None => return old_builder,
-        };
-
-        let root_pipeline = match scene.pipelines.get(&root_pipeline_id) {
-            Some(root_pipeline) => root_pipeline,
-            None => return old_builder,
-        };
-
-        if window_size.width == 0 || window_size.height == 0 {
-            error!("ERROR: Invalid window dimensions! Please call api.set_window_size()");
-        }
-        self.window_size = window_size;
-
-        let old_scrolling_states = self.reset();
-
-        self.pipeline_epoch_map
-            .insert(root_pipeline_id, root_pipeline.epoch);
-
-        let background_color = root_pipeline
-            .background_color
-            .and_then(|color| if color.a > 0.0 { Some(color) } else { None });
-
-        let frame_builder = {
-            let mut roller = FlattenContext {
-                scene,
-                builder: old_builder.recycle(
-                    inner_rect,
-                    background_color,
-                    self.frame_builder_config,
-                ),
-                clip_scroll_tree: &mut self.clip_scroll_tree,
-                font_instances: resource_cache.get_font_instances(),
-                tiled_image_map: resource_cache.get_tiled_image_map(),
-                pipeline_epochs: Vec::new(),
-                replacements: Vec::new(),
-                output_pipelines,
-            };
-
-            roller.builder.push_root(
-                root_pipeline_id,
-                &root_pipeline.viewport_size,
-                &root_pipeline.content_size,
-                roller.clip_scroll_tree,
-            );
-
-            roller.builder.setup_viewport_offset(
-                inner_rect,
-                device_pixel_scale,
-                roller.clip_scroll_tree,
-            );
-
-            let reference_frame_id = roller.clip_scroll_tree.root_reference_frame_id;
-            let scroll_frame_id = roller.clip_scroll_tree.topmost_scrolling_node_id;
-            roller.flatten_root(
-                &mut root_pipeline.display_list.iter(),
-                root_pipeline_id,
-                &root_pipeline.viewport_size,
-                reference_frame_id,
-                scroll_frame_id,
-            );
-
-            debug_assert!(roller.builder.picture_stack.is_empty());
-
-            self.pipeline_epoch_map.extend(roller.pipeline_epochs.drain(..));
-            roller.builder
-        };
-
-        self.clip_scroll_tree
-            .finalize_and_apply_pending_scroll_offsets(old_scrolling_states);
-
-        frame_builder
-    }
-
-    pub fn update_epoch(&mut self, pipeline_id: PipelineId, epoch: Epoch) {
-        self.pipeline_epoch_map.insert(pipeline_id, epoch);
-    }
-
-    pub fn make_rendered_document(&mut self, frame: Frame, removed_pipelines: Vec<PipelineId>) -> RenderedDocument {
-        let nodes_bouncing_back = self.clip_scroll_tree.collect_nodes_bouncing_back();
-        RenderedDocument::new(
-            PipelineInfo {
-                epochs: self.pipeline_epoch_map.clone(),
-                removed_pipelines,
-            },
-            nodes_bouncing_back,
-            frame
-        )
-    }
-
-    //TODO: this can probably be simplified if `build()` is called directly by RB.
-    // The only things it needs from the frame context is the CST and frame ID.
-    pub fn build_rendered_document(
-        &mut self,
-        frame_builder: &mut FrameBuilder,
-        resource_cache: &mut ResourceCache,
-        gpu_cache: &mut GpuCache,
-        pipelines: &FastHashMap<PipelineId, ScenePipeline>,
-        device_pixel_scale: DevicePixelScale,
-        layer: DocumentLayer,
-        pan: WorldPoint,
-        texture_cache_profile: &mut TextureCacheProfileCounters,
-        gpu_cache_profile: &mut GpuCacheProfileCounters,
-		scene_properties: &SceneProperties,
-        removed_pipelines: Vec<PipelineId>,
-    ) -> (HitTester, RenderedDocument) {
-        let frame = frame_builder.build(
-            resource_cache,
-            gpu_cache,
-            self.id,
-            &mut self.clip_scroll_tree,
-            pipelines,
-            self.window_size,
-            device_pixel_scale,
-            layer,
-            pan,
-            texture_cache_profile,
-            gpu_cache_profile,
-            scene_properties,
-        );
-
-        let hit_tester = frame_builder.create_hit_tester(&self.clip_scroll_tree);
-
-        (hit_tester, self.make_rendered_document(frame, removed_pipelines))
+    BuiltScene {
+        scene,
+        frame_builder,
+        clip_scroll_tree,
+        removed_pipelines: request.removed_pipelines,
     }
 }

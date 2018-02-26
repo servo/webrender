@@ -2,10 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ClipId, DeviceUintRect, DocumentId};
-use api::{ExternalImageData, ExternalImageId};
+use api::{DebugCommand, DeviceUintRect, DocumentId, ExternalImageData, ExternalImageId};
 use api::ImageFormat;
-use api::DebugCommand;
+use clip_scroll_tree::ClipScrollNodeIndex;
 use device::TextureFilter;
 use renderer::PipelineInfo;
 use gpu_cache::GpuCacheUpdateList;
@@ -44,7 +43,11 @@ pub struct CacheTextureId(pub usize);
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct RenderPassIndex(pub usize);
+pub struct SavedTargetIndex(pub usize);
+
+impl SavedTargetIndex {
+    pub const PENDING: Self = SavedTargetIndex(!0);
+}
 
 // Represents the source for a texture.
 // These are passed from throughout the
@@ -61,10 +64,7 @@ pub enum SourceTexture {
     External(ExternalImageData),
     CacheA8,
     CacheRGBA8,
-    // XXX Remove this once RenderTaskCacheA8 is used.
-    #[allow(dead_code)]
-    RenderTaskCacheA8(RenderPassIndex),
-    RenderTaskCacheRGBA8(RenderPassIndex),
+    RenderTaskCache(SavedTargetIndex),
 }
 
 pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;
@@ -139,7 +139,7 @@ pub struct RenderedDocument {
     /// - Pipelines that were removed from the scene.
     pub pipeline_info: PipelineInfo,
     /// The layers that are currently affected by the over-scrolling animation.
-    pub layers_bouncing_back: FastHashSet<ClipId>,
+    pub layers_bouncing_back: FastHashSet<ClipScrollNodeIndex>,
 
     pub frame: tiling::Frame,
 }
@@ -147,7 +147,7 @@ pub struct RenderedDocument {
 impl RenderedDocument {
     pub fn new(
         pipeline_info: PipelineInfo,
-        layers_bouncing_back: FastHashSet<ClipId>,
+        layers_bouncing_back: FastHashSet<ClipScrollNodeIndex>,
         frame: tiling::Frame,
     ) -> Self {
         RenderedDocument {

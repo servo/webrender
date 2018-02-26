@@ -32,28 +32,29 @@ Line fetch_line(int address) {
 }
 
 void brush_vs(
+    VertexInfo vi,
     int prim_address,
-    vec2 local_pos,
     RectWithSize local_rect,
-    ivec2 user_data,
+    ivec3 user_data,
     PictureTask pic_task
 ) {
-    vLocalPos = local_pos;
+    vLocalPos = vi.local_pos;
 
-    Line line = fetch_line(prim_address);
+    // Note: `line` name is reserved in HLSL
+    Line line_prim = fetch_line(prim_address);
 
     switch (int(abs(pic_task.pic_kind_and_raster_mode))) {
         case PIC_TYPE_TEXT_SHADOW:
             vColor = pic_task.color;
             break;
         default:
-            vColor = line.color;
+            vColor = line_prim.color;
             break;
     }
 
     vec2 pos, size;
 
-    switch (int(line.orientation)) {
+    switch (int(line_prim.orientation)) {
         case LINE_ORIENTATION_HORIZONTAL:
             vAxisSelect = 0.0;
             pos = local_rect.p0;
@@ -64,10 +65,13 @@ void brush_vs(
             pos = local_rect.p0.yx;
             size = local_rect.size.yx;
             break;
+        default:
+            vAxisSelect = 0.0;
+            pos = size = vec2(0.0);
     }
 
     vLocalOrigin = pos;
-    vStyle = int(line.style);
+    vStyle = int(line_prim.style);
 
     switch (vStyle) {
         case LINE_STYLE_SOLID: {
@@ -94,7 +98,7 @@ void brush_vs(
         }
         case LINE_STYLE_WAVY: {
             // This logic copied from gecko to get the same results
-            float line_thickness = max(line.wavyLineThickness, 1.0);
+            float line_thickness = max(line_prim.wavyLineThickness, 1.0);
             // Difference in height between peaks and troughs
             // (and since slopes are 45 degrees, the length of each slope)
             float slope_length = size.y - line_thickness;
@@ -107,44 +111,15 @@ void brush_vs(
                            size.y);
             break;
         }
+        default:
+            vParams = vec4(0.0);
     }
 }
 #endif
 
 #ifdef WR_FRAGMENT_SHADER
 
-#define MAGIC_WAVY_LINE_AA_SNAP         0.7
-
-float det(vec2 a, vec2 b) {
-    return a.x * b.y - b.x * a.y;
-}
-
-// From: http://research.microsoft.com/en-us/um/people/hoppe/ravg.pdf
-vec2 get_distance_vector(vec2 b0, vec2 b1, vec2 b2) {
-    float a = det(b0, b2);
-    float b = 2.0 * det(b1, b0);
-    float d = 2.0 * det(b2, b1);
-
-    float f = b * d - a * a;
-    vec2 d21 = b2 - b1;
-    vec2 d10 = b1 - b0;
-    vec2 d20 = b2 - b0;
-
-    vec2 gf = 2.0 * (b *d21 + d * d10 + a * d20);
-    gf = vec2(gf.y,-gf.x);
-    vec2 pp = -f * gf / dot(gf, gf);
-    vec2 d0p = b0 - pp;
-    float ap = det(d0p, d20);
-    float bp = 2.0 * det(d10, d0p);
-
-    float t = clamp((ap + bp) / (2.0 * a + b + d), 0.0, 1.0);
-    return mix(mix(b0, b1, t), mix(b1,b2,t), t);
-}
-
-// Approximate distance from point to quadratic bezier.
-float approx_distance(vec2 p, vec2 b0, vec2 b1, vec2 b2) {
-    return length(get_distance_vector(b0 - p, b1 - p, b2 - p));
-}
+#define MAGIC_WAVY_LINE_AA_SNAP         0.5
 
 vec4 brush_fs() {
     // Find the appropriate distance to apply the step over.
@@ -222,6 +197,7 @@ vec4 brush_fs() {
 
             break;
         }
+        default: break;
     }
 
     return vColor * alpha;

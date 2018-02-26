@@ -193,7 +193,7 @@ pub struct YamlFrameReader {
 
     /// A HashMap of offsets which specify what scroll offsets particular
     /// scroll layers should be initialized with.
-    scroll_offsets: HashMap<ClipId, LayerPoint>,
+    scroll_offsets: HashMap<ExternalScrollId, LayerPoint>,
 
     image_map: HashMap<(PathBuf, Option<i64>), (ImageKey, LayoutSize)>,
 
@@ -1025,6 +1025,63 @@ impl YamlFrameReader {
         );
     }
 
+    fn handle_yuv_image(
+        &mut self,
+        dl: &mut DisplayListBuilder,
+        wrench: &mut Wrench,
+        item: &Yaml,
+        info: &mut LayoutPrimitiveInfo,
+    ) {
+        // TODO(gw): Support other YUV color spaces.
+        let color_space = YuvColorSpace::Rec709;
+
+        let yuv_data = match item["format"].as_str().expect("no format supplied") {
+            "planar" => {
+                let y_path = rsrc_path(&item["src-y"], &self.aux_dir);
+                let (y_key, _) = self.add_or_get_image(&y_path, None, wrench);
+
+                let u_path = rsrc_path(&item["src-u"], &self.aux_dir);
+                let (u_key, _) = self.add_or_get_image(&u_path, None, wrench);
+
+                let v_path = rsrc_path(&item["src-v"], &self.aux_dir);
+                let (v_key, _) = self.add_or_get_image(&v_path, None, wrench);
+
+                YuvData::PlanarYCbCr(y_key, u_key, v_key)
+            }
+            "nv12" => {
+                let y_path = rsrc_path(&item["src-y"], &self.aux_dir);
+                let (y_key, _) = self.add_or_get_image(&y_path, None, wrench);
+
+                let uv_path = rsrc_path(&item["src-uv"], &self.aux_dir);
+                let (uv_key, _) = self.add_or_get_image(&uv_path, None, wrench);
+
+                YuvData::NV12(y_key, uv_key)
+            }
+            "interleaved" => {
+                let yuv_path = rsrc_path(&item["src"], &self.aux_dir);
+                let (yuv_key, _) = self.add_or_get_image(&yuv_path, None, wrench);
+
+                YuvData::InterleavedYCbCr(yuv_key)
+            }
+            _ => {
+                panic!("unexpected yuv format");
+            }
+        };
+
+        let bounds = item["bounds"].as_vec_f32().unwrap();
+        info.rect = LayoutRect::new(
+            LayoutPoint::new(bounds[0], bounds[1]),
+            LayoutSize::new(bounds[2], bounds[3]),
+        );
+
+        dl.push_yuv_image(
+            &info,
+            yuv_data,
+            color_space,
+            ImageRendering::Auto,
+        );
+    }
+
     fn handle_image(
         &mut self,
         dl: &mut DisplayListBuilder,
@@ -1216,7 +1273,12 @@ impl YamlFrameReader {
         wrench: &mut Wrench,
         yaml: &Yaml,
     ) {
-        let full_clip = LayoutRect::new(LayoutPoint::zero(), wrench.window_size_f32());
+        // A very large number (but safely far away from finite limits of f32)
+        let big_number = 1.0e30;
+        // A rect that should in practical terms serve as a no-op for clipping
+        let full_clip = LayoutRect::new(
+            LayoutPoint::new(-big_number / 2.0, -big_number / 2.0),
+            LayoutSize::new(big_number, big_number));
 
         for item in yaml.as_vec().unwrap() {
             // an explicit type can be skipped with some shorthand
@@ -1263,6 +1325,7 @@ impl YamlFrameReader {
                 "clear-rect" => self.handle_clear_rect(dl, item, &mut info),
                 "line" => self.handle_line(dl, item, &mut info),
                 "image" => self.handle_image(dl, wrench, item, &mut info),
+                "yuv-image" => self.handle_yuv_image(dl, wrench, item, &mut info),
                 "text" | "glyphs" => self.handle_text(dl, wrench, item, &mut info),
                 "scroll-frame" => self.handle_scroll_frame(dl, wrench, item),
                 "sticky-frame" => self.handle_sticky_frame(dl, wrench, item),
@@ -1304,7 +1367,12 @@ impl YamlFrameReader {
         let complex_clips = self.to_complex_clip_regions(&yaml["complex"]);
         let image_mask = self.to_image_mask(&yaml["image-mask"], wrench);
 
-        let external_id = numeric_id.map(|id| ExternalScrollId(id as u64, dl.pipeline_id));
+        let external_id =  yaml["scroll-offset"].as_point().map(|size| {
+            let id = ExternalScrollId((self.scroll_offsets.len() + 1) as u64, dl.pipeline_id);
+            self.scroll_offsets.insert(id, LayerPoint::new(size.x, size.y));
+            id
+        });
+
         let real_id = dl.define_scroll_frame(
             external_id,
             content_rect,
@@ -1315,10 +1383,6 @@ impl YamlFrameReader {
         );
         if let Some(numeric_id) = numeric_id {
             self.clip_id_map.insert(numeric_id, real_id);
-        }
-
-        if let Some(size) = yaml["scroll-offset"].as_point() {
-            self.scroll_offsets.insert(real_id, LayerPoint::new(size.x, size.y));
         }
 
         if !yaml["items"].is_badvalue() {
@@ -1484,9 +1548,8 @@ impl YamlFrameReader {
 
         if is_root {
             if let Some(size) = yaml["scroll-offset"].as_point() {
-                let id = ClipId::root_scroll_node(dl.pipeline_id);
-                self.scroll_offsets
-                    .insert(id, LayerPoint::new(size.x, size.y));
+                let external_id = ExternalScrollId(0, dl.pipeline_id);
+                self.scroll_offsets.insert(external_id, LayerPoint::new(size.x, size.y));
             }
         }
 

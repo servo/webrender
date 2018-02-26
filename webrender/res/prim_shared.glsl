@@ -16,6 +16,8 @@
 #define SUBPX_DIR_HORIZONTAL  1
 #define SUBPX_DIR_VERTICAL    2
 
+#define EPSILON     0.0001
+
 uniform sampler2DArray sCacheA8;
 uniform sampler2DArray sCacheRGBA8;
 
@@ -24,8 +26,8 @@ uniform sampler2DArray sSharedCacheA8;
 
 uniform sampler2D sGradients;
 
-vec2 clamp_rect(vec2 point, RectWithSize rect) {
-    return clamp(point, rect.p0, rect.p0 + rect.size);
+vec2 clamp_rect(vec2 pt, RectWithSize rect) {
+    return clamp(pt, rect.p0, rect.p0 + rect.size);
 }
 
 float distance_to_line(vec2 p0, vec2 perp_dir, vec2 p) {
@@ -74,7 +76,6 @@ vec4[2] fetch_from_resource_cache_2(int address) {
 #define VECS_PER_RENDER_TASK        3
 #define VECS_PER_PRIM_HEADER        2
 #define VECS_PER_TEXT_RUN           3
-#define VECS_PER_GRADIENT           3
 #define VECS_PER_GRADIENT_STOP      2
 
 uniform HIGHP_SAMPLER_FLOAT sampler2D sClipScrollNodes;
@@ -112,6 +113,14 @@ vec4[3] fetch_from_resource_cache_3(int address) {
         TEXEL_FETCH(sResourceCache, uv, 0, ivec2(0, 0)),
         TEXEL_FETCH(sResourceCache, uv, 0, ivec2(1, 0)),
         TEXEL_FETCH(sResourceCache, uv, 0, ivec2(2, 0))
+    );
+}
+
+vec4[3] fetch_from_resource_cache_3_direct(ivec2 address) {
+    return vec4[3](
+        TEXEL_FETCH(sResourceCache, address, 0, ivec2(0, 0)),
+        TEXEL_FETCH(sResourceCache, address, 0, ivec2(1, 0)),
+        TEXEL_FETCH(sResourceCache, address, 0, ivec2(2, 0))
     );
 }
 
@@ -288,7 +297,7 @@ struct ClipArea {
 ClipArea fetch_clip_area(int index) {
     ClipArea area;
 
-    if (index == 0x7FFFFFFF) { //special sentinel task index
+    if (index == 0x7FFF) { //special sentinel task index
         area.common_data = RenderTaskCommonData(
             RectWithSize(vec2(0.0), vec2(0.0)),
             0.0
@@ -302,38 +311,6 @@ ClipArea fetch_clip_area(int index) {
     }
 
     return area;
-}
-
-struct Gradient {
-    vec4 start_end_point;
-    vec4 tile_size_repeat;
-    vec4 extend_mode;
-};
-
-Gradient fetch_gradient(int address) {
-    vec4 data[3] = fetch_from_resource_cache_3(address);
-    return Gradient(data[0], data[1], data[2]);
-}
-
-struct GradientStop {
-    vec4 color;
-    vec4 offset;
-};
-
-GradientStop fetch_gradient_stop(int address) {
-    vec4 data[2] = fetch_from_resource_cache_2(address);
-    return GradientStop(data[0], data[1]);
-}
-
-struct RadialGradient {
-    vec4 start_end_center;
-    vec4 start_end_radius_ratio_xy_extend_mode;
-    vec4 tile_size_repeat;
-};
-
-RadialGradient fetch_radial_gradient(int address) {
-    vec4 data[3] = fetch_from_resource_cache_3(address);
-    return RadialGradient(data[0], data[1], data[2]);
 }
 
 struct Glyph {
@@ -368,6 +345,7 @@ Glyph fetch_glyph(int specific_prim_address,
         case SUBPX_DIR_VERTICAL:
             glyph.y = floor(glyph.y + 0.125);
             break;
+        default: break;
     }
 
     return Glyph(glyph);
@@ -481,11 +459,11 @@ Primitive load_primitive() {
 // Return the intersection of the plane (set up by "normal" and "point")
 // with the ray (set up by "ray_origin" and "ray_dir"),
 // writing the resulting scaler into "t".
-bool ray_plane(vec3 normal, vec3 point, vec3 ray_origin, vec3 ray_dir, out float t)
+bool ray_plane(vec3 normal, vec3 pt, vec3 ray_origin, vec3 ray_dir, out float t)
 {
     float denom = dot(normal, ray_dir);
     if (abs(denom) > 1e-6) {
-        vec3 d = point - ray_origin;
+        vec3 d = pt - ray_origin;
         t = dot(d, normal) / denom;
         return t >= 0.0;
     }
@@ -554,6 +532,8 @@ vec2 compute_snap_offset(vec2 local_pos,
 struct VertexInfo {
     vec2 local_pos;
     vec2 screen_pos;
+    float w;
+    vec2 snapped_device_pos;
 };
 
 VertexInfo write_vertex(RectWithSize instance_rect,
@@ -579,13 +559,20 @@ VertexInfo write_vertex(RectWithSize instance_rect,
     vec2 device_pos = world_pos.xy / world_pos.w * uDevicePixelRatio;
 
     // Apply offsets for the render task to get correct screen location.
-    vec2 final_pos = device_pos + snap_offset -
+    vec2 snapped_device_pos = device_pos + snap_offset;
+    vec2 final_pos = snapped_device_pos -
                      task.content_origin +
                      task.common_data.task_rect.p0;
 
     gl_Position = uTransform * vec4(final_pos, z, 1.0);
 
-    VertexInfo vi = VertexInfo(clamped_local_pos, device_pos);
+    VertexInfo vi = VertexInfo(
+        clamped_local_pos,
+        device_pos,
+        world_pos.w,
+        snapped_device_pos
+    );
+
     return vi;
 }
 
@@ -614,7 +601,8 @@ VertexInfo write_transform_vertex(RectWithSize local_segment_rect,
                                   vec4 clip_edge_mask,
                                   float z,
                                   ClipScrollNode scroll_node,
-                                  PictureTask task) {
+                                  PictureTask task,
+                                  bool do_perspective_interpolation) {
     // Calculate a clip rect from local_rect + local clip
     RectWithEndpoint clip_rect = to_rect_with_endpoint(local_clip_rect);
     RectWithEndpoint segment_rect = to_rect_with_endpoint(local_segment_rect);
@@ -651,13 +639,16 @@ VertexInfo write_transform_vertex(RectWithSize local_segment_rect,
     vec2 device_pos = world_pos.xy / world_pos.w * uDevicePixelRatio;
     vec2 task_offset = task.common_data.task_rect.p0 - task.content_origin;
 
+    // Force w = 1, if we don't want perspective interpolation (for
+    // example, drawing a screen-space quad on an element with a
+    // perspective transform).
+    world_pos.w = mix(1.0, world_pos.w, do_perspective_interpolation);
+
     // We want the world space coords to be perspective divided by W.
     // We also want that to apply to any interpolators. However, we
     // want a constant Z across the primitive, since we're using it
     // for draw ordering - so scale by the W coord to ensure this.
-    vec4 final_pos = vec4((device_pos + task_offset) * world_pos.w,
-                          z * world_pos.w,
-                          world_pos.w);
+    vec4 final_pos = vec4(device_pos + task_offset, z, 1.0) * world_pos.w;
     gl_Position = uTransform * final_pos;
 
     vLocalBounds = mix(
@@ -666,7 +657,13 @@ VertexInfo write_transform_vertex(RectWithSize local_segment_rect,
         clip_edge_mask
     );
 
-    VertexInfo vi = VertexInfo(local_pos, device_pos);
+    VertexInfo vi = VertexInfo(
+        local_pos,
+        device_pos,
+        world_pos.w,
+        device_pos
+    );
+
     return vi;
 }
 
@@ -678,7 +675,8 @@ VertexInfo write_transform_vertex_primitive(Primitive prim) {
         vec4(1.0),
         prim.z,
         prim.scroll_node,
-        prim.task
+        prim.task,
+        true
     );
 }
 
@@ -698,19 +696,20 @@ struct ImageResource {
     RectWithEndpoint uv_rect;
     float layer;
     vec3 user_data;
+    vec4 color;
 };
 
 ImageResource fetch_image_resource(int address) {
     //Note: number of blocks has to match `renderer::BLOCKS_PER_UV_RECT`
-    vec4 data[2] = fetch_from_resource_cache_2(address);
+    vec4 data[3] = fetch_from_resource_cache_3(address);
     RectWithEndpoint uv_rect = RectWithEndpoint(data[0].xy, data[0].zw);
-    return ImageResource(uv_rect, data[1].x, data[1].yzw);
+    return ImageResource(uv_rect, data[1].x, data[1].yzw, data[2]);
 }
 
 ImageResource fetch_image_resource_direct(ivec2 address) {
-    vec4 data[2] = fetch_from_resource_cache_2_direct(address);
+    vec4 data[3] = fetch_from_resource_cache_3_direct(address);
     RectWithEndpoint uv_rect = RectWithEndpoint(data[0].xy, data[0].zw);
-    return ImageResource(uv_rect, data[1].x, data[1].yzw);
+    return ImageResource(uv_rect, data[1].x, data[1].yzw, data[2]);
 }
 
 struct TextRun {
@@ -748,7 +747,7 @@ void write_clip(vec2 global_pos, ClipArea area) {
 
 #ifdef WR_FRAGMENT_SHADER
 
-/// Find the appropriate half range to apply the AA smoothstep over.
+/// Find the appropriate half range to apply the AA approximation over.
 /// This range represents a coefficient to go from one CSS pixel to half a device pixel.
 float compute_aa_range(vec2 position) {
     // The constant factor is chosen to compensate for the fact that length(fw) is equal
@@ -759,22 +758,41 @@ float compute_aa_range(vec2 position) {
     // such a pixel (axis aligned) is fully inside the border). We need this so that antialiased
     // curves properly connect with non-antialiased vertical or horizontal lines, among other things.
     //
-    // Using larger aa steps is quite common when rendering shapes with distance fields.
-    // It gives a smoother (although blurrier look) by extending the range that is smoothed
-    // to produce the anti aliasing. In our case, however, extending the range inside of
-    // the shape causes noticeable artifacts at the junction between an antialiased corner
-    // and a straight edge.
+    // Lines over a half-pixel away from the pixel center *can* intersect with the pixel square;
+    // indeed, unless they are horizontal or vertical, they are guaranteed to. However, choosing
+    // a nonzero area for such pixels causes noticeable artifacts at the junction between an anti-
+    // aliased corner and a straight edge.
+    //
     // We may want to adjust this constant in specific scenarios (for example keep the principled
     // value for straight edges where we want pixel-perfect equivalence with non antialiased lines
     // when axis aligned, while selecting a larger and smoother aa range on curves).
     return 0.35355 * length(fwidth(position));
 }
 
-/// Return the blending coefficient to for distance antialiasing.
+/// Return the blending coefficient for distance antialiasing.
 ///
 /// 0.0 means inside the shape, 1.0 means outside.
+///
+/// This cubic polynomial approximates the area of a 1x1 pixel square under a
+/// line, given the signed Euclidean distance from the center of the square to
+/// that line. Calculating the *exact* area would require taking into account
+/// not only this distance but also the angle of the line. However, in
+/// practice, this complexity is not required, as the area is roughly the same
+/// regardless of the angle.
+///
+/// The coefficients of this polynomial were determined through least-squares
+/// regression and are accurate to within 2.16% of the total area of the pixel
+/// square 95% of the time, with a maximum error of 3.53%.
+///
+/// See the comments in `compute_aa_range()` for more information on the
+/// cutoff values of -0.5 and 0.5.
 float distance_aa(float aa_range, float signed_distance) {
-    return 1.0 - smoothstep(-aa_range, aa_range, signed_distance);
+    float dist = 0.5 * signed_distance / aa_range;
+    if (dist <= -0.5 + EPSILON)
+        return 1.0;
+    if (dist >= 0.5 - EPSILON)
+        return 0.0;
+    return 0.5 + dist * (0.8431027 * dist * dist - 1.14453603);
 }
 
 float signed_distance_rect(vec2 pos, vec2 p0, vec2 p1) {

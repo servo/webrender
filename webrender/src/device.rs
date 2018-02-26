@@ -70,6 +70,7 @@ pub enum DepthFunction {
 pub enum TextureFilter {
     Nearest,
     Linear,
+    Trilinear,
 }
 
 #[derive(Debug)]
@@ -437,6 +438,7 @@ pub struct Texture {
     render_target: Option<RenderTargetInfo>,
     fbo_ids: Vec<FBOId>,
     depth_rb: Option<RBOId>,
+    last_frame_used: FrameId,
 }
 
 impl Texture {
@@ -470,6 +472,10 @@ impl Texture {
 
     pub fn get_rt_info(&self) -> Option<&RenderTargetInfo> {
         self.render_target.as_ref()
+    }
+
+    pub fn used_in_frame(&self, frame_id: FrameId) -> bool {
+        self.last_frame_used == frame_id
     }
 
     #[cfg(feature = "replay")]
@@ -924,7 +930,9 @@ impl Device {
     }
 
     pub fn create_texture(
-        &mut self, target: TextureTarget, format: ImageFormat,
+        &mut self,
+        target: TextureTarget,
+        format: ImageFormat,
     ) -> Texture {
         Texture {
             id: self.gl.gen_textures(1)[0],
@@ -937,19 +945,26 @@ impl Device {
             render_target: None,
             fbo_ids: vec![],
             depth_rb: None,
+            last_frame_used: self.frame_id,
         }
     }
 
     fn set_texture_parameters(&mut self, target: gl::GLuint, filter: TextureFilter) {
-        let filter = match filter {
+        let mag_filter = match filter {
+            TextureFilter::Nearest => gl::NEAREST,
+            TextureFilter::Linear | TextureFilter::Trilinear => gl::LINEAR,
+        };
+
+        let min_filter = match filter {
             TextureFilter::Nearest => gl::NEAREST,
             TextureFilter::Linear => gl::LINEAR,
+            TextureFilter::Trilinear => gl::LINEAR_MIPMAP_LINEAR,
         };
 
         self.gl
-            .tex_parameter_i(target, gl::TEXTURE_MAG_FILTER, filter as gl::GLint);
+            .tex_parameter_i(target, gl::TEXTURE_MAG_FILTER, mag_filter as gl::GLint);
         self.gl
-            .tex_parameter_i(target, gl::TEXTURE_MIN_FILTER, filter as gl::GLint);
+            .tex_parameter_i(target, gl::TEXTURE_MIN_FILTER, min_filter as gl::GLint);
 
         self.gl
             .tex_parameter_i(target, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as gl::GLint);
@@ -994,14 +1009,20 @@ impl Device {
     pub fn init_texture(
         &mut self,
         texture: &mut Texture,
-        width: u32,
-        height: u32,
+        mut width: u32,
+        mut height: u32,
         filter: TextureFilter,
         render_target: Option<RenderTargetInfo>,
         layer_count: i32,
         pixels: Option<&[u8]>,
     ) {
         debug_assert!(self.inside_frame);
+
+        if width > self.max_texture_size || height > self.max_texture_size {
+            error!("Attempting to allocate a texture of size {}x{} above the limit, trimming", width, height);
+            width = width.min(self.max_texture_size);
+            height = height.min(self.max_texture_size);
+        }
 
         let is_resized = texture.width != width || texture.height != height;
 
@@ -1010,6 +1031,7 @@ impl Device {
         texture.filter = filter;
         texture.layer_count = layer_count;
         texture.render_target = render_target;
+        texture.last_frame_used = self.frame_id;
 
         self.bind_texture(DEFAULT_TEXTURE, texture);
         self.set_texture_parameters(texture.target, filter);
@@ -2227,6 +2249,11 @@ impl<'a> UploadTarget<'a> {
                 );
             }
             _ => panic!("BUG: Unexpected texture target!"),
+        }
+
+        // If using tri-linear filtering, build the mip-map chain for this texture.
+        if self.texture.filter == TextureFilter::Trilinear {
+            self.gl.generate_mipmap(self.texture.target);
         }
 
         // Reset row length to 0, otherwise the stride would apply to all texture uploads.

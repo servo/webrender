@@ -1032,7 +1032,7 @@ impl YamlFrameWriter {
                 }
                 ScrollFrame(item) => {
                     str_node(&mut v, "type", "scroll-frame");
-                    usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
+                    usize_node(&mut v, "id", clip_id_mapper.add_id(item.scroll_frame_id));
                     size_node(&mut v, "content-size", &base.rect().size);
                     rect_node(&mut v, "bounds", &base.local_clip().clip_rect());
 
@@ -1124,13 +1124,11 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
             ApiMsg::UpdateResources(ref updates) => {
                 self.frame_writer.update_resources(updates);
             }
-            ApiMsg::UpdateDocument(_, ref doc_msgs) => {
-                for doc_msg in doc_msgs {
+            ApiMsg::UpdateDocument(_, ref txn) => {
+                self.frame_writer.update_resources(&txn.resource_updates);
+                for doc_msg in &txn.scene_ops {
                     match *doc_msg {
-                        DocumentMsg::UpdateResources(ref resources) => {
-                            self.frame_writer.update_resources(resources);
-                        }
-                        DocumentMsg::SetDisplayList {
+                        SceneMsg::SetDisplayList {
                             ref epoch,
                             ref pipeline_id,
                             ref background,
@@ -1147,13 +1145,18 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
                                 list_descriptor,
                             );
                         }
-                        DocumentMsg::SetRootPipeline(ref pipeline_id) => {
+                        SceneMsg::SetRootPipeline(ref pipeline_id) => {
                             self.scene.set_root_pipeline_id(pipeline_id.clone());
                         }
-                        DocumentMsg::RemovePipeline(ref pipeline_id) => {
+                        SceneMsg::RemovePipeline(ref pipeline_id) => {
                             self.scene.remove_pipeline(pipeline_id);
                         }
-                        DocumentMsg::UpdateDynamicProperties(ref properties) => {
+                        _ => {}
+                    }
+                }
+                for doc_msg in &txn.frame_ops {
+                    match *doc_msg {
+                        FrameMsg::UpdateDynamicProperties(ref properties) => {
                             self.scene.properties.set_properties(properties);
                         }
                         _ => {}

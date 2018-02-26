@@ -2,20 +2,18 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ClipChainId, ClipId, DeviceIntRect, DevicePixelScale, ExternalScrollId, LayerPoint};
-use api::{LayerRect, LayerToWorldTransform, LayerVector2D, LayoutTransform, PipelineId};
-use api::{PropertyBinding, ScrollClamping, ScrollEventPhase, ScrollLocation, ScrollNodeIdType};
-use api::{ScrollNodeState, WorldPoint};
-use clip::ClipStore;
+use api::{DeviceIntRect, DevicePixelScale, ExternalScrollId, LayerPoint, LayerRect, LayerVector2D};
+use api::{PipelineId, ScrollClamping, ScrollEventPhase, ScrollLocation, ScrollNodeState};
+use api::WorldPoint;
+use clip::{ClipChain, ClipSourcesHandle, ClipStore};
 use clip_scroll_node::{ClipScrollNode, NodeType, ScrollFrameInfo, StickyFrameInfo};
 use gpu_cache::GpuCache;
-use gpu_types::{ClipScrollNodeIndex, ClipScrollNodeData};
+use gpu_types::{ClipScrollNodeIndex as GPUClipScrollNodeIndex, ClipScrollNodeData};
 use internal_types::{FastHashMap, FastHashSet};
 use print_tree::{PrintTree, PrintTreePrinter};
-use render_task::ClipChain;
 use resource_cache::ResourceCache;
 use scene::SceneProperties;
-use util::TransformOrOffset;
+use util::{LayerFastTransform, LayerToWorldFastTransform};
 
 pub type ScrollStates = FastHashMap<ExternalScrollId, ScrollFrameInfo>;
 
@@ -27,6 +25,12 @@ pub type ScrollStates = FastHashMap<ExternalScrollId, ScrollFrameInfo>;
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct CoordinateSystemId(pub u32);
+
+#[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
+pub struct ClipScrollNodeIndex(pub usize);
+
+const ROOT_REFERENCE_FRAME_INDEX: ClipScrollNodeIndex = ClipScrollNodeIndex(0);
+const TOPMOST_SCROLL_NODE_INDEX: ClipScrollNodeIndex = ClipScrollNodeIndex(1);
 
 impl CoordinateSystemId {
     pub fn root() -> Self {
@@ -44,40 +48,36 @@ impl CoordinateSystemId {
 }
 
 pub struct ClipChainDescriptor {
-    pub id: ClipChainId,
-    pub parent: Option<ClipChainId>,
-    pub clips: Vec<ClipId>,
+    pub index: ClipChainIndex,
+    pub parent: Option<ClipChainIndex>,
+    pub clips: Vec<ClipScrollNodeIndex>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ClipChainIndex(pub usize);
+
 pub struct ClipScrollTree {
-    pub nodes: FastHashMap<ClipId, ClipScrollNode>,
+    pub nodes: Vec<ClipScrollNode>,
 
     /// A Vec of all descriptors that describe ClipChains in the order in which they are
     /// encountered during display list flattening. ClipChains are expected to never be
     /// the children of ClipChains later in the list.
     pub clip_chains_descriptors: Vec<ClipChainDescriptor>,
 
-    /// A HashMap of built ClipChains that are described by `clip_chains_descriptors`.
-    pub clip_chains: FastHashMap<ClipChainId, ClipChain>,
+    /// A vector of all ClipChains in this ClipScrollTree including those from
+    /// ClipChainDescriptors and also those defined by the clipping node hierarchy.
+    pub clip_chains: Vec<ClipChain>,
 
-    pub pending_scroll_offsets: FastHashMap<ScrollNodeIdType, (LayerPoint, ScrollClamping)>,
+    pub pending_scroll_offsets: FastHashMap<ExternalScrollId, (LayerPoint, ScrollClamping)>,
 
     /// The ClipId of the currently scrolling node. Used to allow the same
     /// node to scroll even if a touch operation leaves the boundaries of that node.
-    pub currently_scrolling_node_id: Option<ClipId>,
+    pub currently_scrolling_node_index: Option<ClipScrollNodeIndex>,
 
     /// The current frame id, used for giving a unique id to all new dynamically
     /// added frames and clips. The ClipScrollTree increments this by one every
     /// time a new dynamic frame is created.
     current_new_node_item: u64,
-
-    /// The root reference frame, which is the true root of the ClipScrollTree. Initially
-    /// this ID is not valid, which is indicated by ```node``` being empty.
-    pub root_reference_frame_id: ClipId,
-
-    /// The root scroll node which is the first child of the root reference frame.
-    /// Initially this ID is not valid, which is indicated by ```nodes``` being empty.
-    pub topmost_scrolling_node_id: ClipId,
 
     /// A set of pipelines which should be discarded the next time this
     /// tree is drained.
@@ -86,11 +86,13 @@ pub struct ClipScrollTree {
 
 #[derive(Clone)]
 pub struct TransformUpdateState {
-    pub parent_reference_frame_transform: LayerToWorldTransform,
+    pub parent_reference_frame_transform: LayerToWorldFastTransform,
     pub parent_accumulated_scroll_offset: LayerVector2D,
     pub nearest_scrolling_ancestor_offset: LayerVector2D,
     pub nearest_scrolling_ancestor_viewport: LayerRect,
-    pub parent_clip_chain: ClipChain,
+
+    /// The index of the current parent's clip chain.
+    pub parent_clip_chain_index: ClipChainIndex,
 
     /// An id for keeping track of the axis-aligned space of this node. This is used in
     /// order to to track what kinds of clip optimizations can be done for a particular
@@ -99,7 +101,7 @@ pub struct TransformUpdateState {
     pub current_coordinate_system_id: CoordinateSystemId,
 
     /// Transform from the coordinate system that started this compatible coordinate system.
-    pub coordinate_system_relative_transform: TransformOrOffset,
+    pub coordinate_system_relative_transform: LayerFastTransform,
 
     /// True if this node is transformed by an invertible transform.  If not, display items
     /// transformed by this node will not be displayed and display items not transformed by this
@@ -109,40 +111,39 @@ pub struct TransformUpdateState {
 
 impl ClipScrollTree {
     pub fn new() -> Self {
-        let dummy_pipeline = PipelineId::dummy();
         ClipScrollTree {
-            nodes: FastHashMap::default(),
+            nodes: Vec::new(),
             clip_chains_descriptors: Vec::new(),
-            clip_chains: FastHashMap::default(),
+            clip_chains: vec![ClipChain::empty(&DeviceIntRect::zero())],
             pending_scroll_offsets: FastHashMap::default(),
-            currently_scrolling_node_id: None,
-            root_reference_frame_id: ClipId::root_reference_frame(dummy_pipeline),
-            topmost_scrolling_node_id: ClipId::root_scroll_node(dummy_pipeline),
+            currently_scrolling_node_index: None,
             current_new_node_item: 1,
             pipelines_to_discard: FastHashSet::default(),
         }
     }
 
-    pub fn root_reference_frame_id(&self) -> ClipId {
+    /// The root reference frame, which is the true root of the ClipScrollTree. Initially
+    /// this ID is not valid, which is indicated by ```nodes``` being empty.
+    pub fn root_reference_frame_index(&self) -> ClipScrollNodeIndex {
         // TODO(mrobinson): We should eventually make this impossible to misuse.
         debug_assert!(!self.nodes.is_empty());
-        debug_assert!(self.nodes.contains_key(&self.root_reference_frame_id));
-        self.root_reference_frame_id
+        ROOT_REFERENCE_FRAME_INDEX
     }
 
-    pub fn topmost_scrolling_node_id(&self) -> ClipId {
+    /// The root scroll node which is the first child of the root reference frame.
+    /// Initially this ID is not valid, which is indicated by ```nodes``` being empty.
+    pub fn topmost_scroll_node_index(&self) -> ClipScrollNodeIndex {
         // TODO(mrobinson): We should eventually make this impossible to misuse.
-        debug_assert!(!self.nodes.is_empty());
-        debug_assert!(self.nodes.contains_key(&self.topmost_scrolling_node_id));
-        self.topmost_scrolling_node_id
+        debug_assert!(self.nodes.len() >= 1);
+        TOPMOST_SCROLL_NODE_INDEX
     }
 
-    pub fn collect_nodes_bouncing_back(&self) -> FastHashSet<ClipId> {
+    pub fn collect_nodes_bouncing_back(&self) -> FastHashSet<ClipScrollNodeIndex> {
         let mut nodes_bouncing_back = FastHashSet::default();
-        for (clip_id, node) in self.nodes.iter() {
+        for (index, node) in self.nodes.iter().enumerate() {
             if let NodeType::ScrollFrame(ref scrolling) = node.node_type {
                 if scrolling.bouncing_back {
-                    nodes_bouncing_back.insert(*clip_id);
+                    nodes_bouncing_back.insert(ClipScrollNodeIndex(index));
                 }
             }
         }
@@ -152,38 +153,36 @@ impl ClipScrollTree {
     fn find_scrolling_node_at_point_in_node(
         &self,
         cursor: &WorldPoint,
-        clip_id: ClipId,
-    ) -> Option<ClipId> {
-        self.nodes.get(&clip_id).and_then(|node| {
-            for child_layer_id in node.children.iter().rev() {
-                if let Some(layer_id) =
-                    self.find_scrolling_node_at_point_in_node(cursor, *child_layer_id)
-                {
-                    return Some(layer_id);
-                }
+        index: ClipScrollNodeIndex,
+    ) -> Option<ClipScrollNodeIndex> {
+        let node = &self.nodes[index.0];
+        for child_index in node.children.iter().rev() {
+            let found_index = self.find_scrolling_node_at_point_in_node(cursor, *child_index);
+            if found_index.is_some() {
+                return found_index;
             }
+        }
 
-            match node.node_type {
-                NodeType::ScrollFrame(state) if state.sensitive_to_input_events() => {}
-                _ => return None,
-            }
+        match node.node_type {
+            NodeType::ScrollFrame(state) if state.sensitive_to_input_events() => {}
+            _ => return None,
+        }
 
-            if node.ray_intersects_node(cursor) {
-                Some(clip_id)
-            } else {
-                None
-            }
-        })
+        if node.ray_intersects_node(cursor) {
+            Some(index)
+        } else {
+            None
+        }
     }
 
-    pub fn find_scrolling_node_at_point(&self, cursor: &WorldPoint) -> ClipId {
-        self.find_scrolling_node_at_point_in_node(cursor, self.root_reference_frame_id())
-            .unwrap_or(self.topmost_scrolling_node_id())
+    pub fn find_scrolling_node_at_point(&self, cursor: &WorldPoint) -> ClipScrollNodeIndex {
+        self.find_scrolling_node_at_point_in_node(cursor, self.root_reference_frame_index())
+            .unwrap_or(self.topmost_scroll_node_index())
     }
 
     pub fn get_scroll_node_state(&self) -> Vec<ScrollNodeState> {
         let mut result = vec![];
-        for node in self.nodes.values() {
+        for node in &self.nodes {
             if let NodeType::ScrollFrame(info) = node.node_type {
                 if let Some(id) = info.external_id {
                     result.push(ScrollNodeState { id, scroll_offset: info.offset })
@@ -197,8 +196,8 @@ impl ClipScrollTree {
         self.current_new_node_item = 1;
 
         let mut scroll_states = FastHashMap::default();
-        for (node_id, old_node) in &mut self.nodes.drain() {
-            if self.pipelines_to_discard.contains(&node_id.pipeline_id()) {
+        for old_node in &mut self.nodes.drain(..) {
+            if self.pipelines_to_discard.contains(&old_node.pipeline_id) {
                 continue;
             }
 
@@ -211,7 +210,7 @@ impl ClipScrollTree {
         }
 
         self.pipelines_to_discard.clear();
-        self.clip_chains.clear();
+        self.clip_chains = vec![ClipChain::empty(&DeviceIntRect::zero())];
         self.clip_chains_descriptors.clear();
         scroll_states
     }
@@ -219,11 +218,11 @@ impl ClipScrollTree {
     pub fn scroll_node(
         &mut self,
         origin: LayerPoint,
-        id: ScrollNodeIdType,
+        id: ExternalScrollId,
         clamp: ScrollClamping
     ) -> bool {
-        for (clip_id, node) in &mut self.nodes {
-            if node.matches_id(*clip_id, id) {
+        for node in &mut self.nodes {
+            if node.matches_external_id(id) {
                 return node.set_scroll_origin(&origin, clamp);
             }
         }
@@ -242,37 +241,38 @@ impl ClipScrollTree {
             return false;
         }
 
-        let clip_id = match (
+        let node_index = match (
             phase,
             self.find_scrolling_node_at_point(&cursor),
-            self.currently_scrolling_node_id,
+            self.currently_scrolling_node_index,
         ) {
-            (ScrollEventPhase::Start, scroll_node_at_point_id, _) => {
-                self.currently_scrolling_node_id = Some(scroll_node_at_point_id);
-                scroll_node_at_point_id
+            (ScrollEventPhase::Start, scroll_node_at_point_index, _) => {
+                self.currently_scrolling_node_index = Some(scroll_node_at_point_index);
+                scroll_node_at_point_index
             }
-            (_, scroll_node_at_point_id, Some(cached_clip_id)) => {
-                let clip_id = match self.nodes.get(&cached_clip_id) {
-                    Some(_) => cached_clip_id,
+            (_, scroll_node_at_point_index, Some(cached_node_index)) => {
+                let node_index = match self.nodes.get(cached_node_index.0) {
+                    Some(_) => cached_node_index,
                     None => {
-                        self.currently_scrolling_node_id = Some(scroll_node_at_point_id);
-                        scroll_node_at_point_id
+                        self.currently_scrolling_node_index = Some(scroll_node_at_point_index);
+                        scroll_node_at_point_index
                     }
                 };
-                clip_id
+                node_index
             }
             (_, _, None) => return false,
         };
 
-        let topmost_scrolling_node_id = self.topmost_scrolling_node_id();
-        let non_root_overscroll = if clip_id != topmost_scrolling_node_id {
-            self.nodes.get(&clip_id).unwrap().is_overscrolling()
+        let topmost_scroll_node_index = self.topmost_scroll_node_index();
+        let non_root_overscroll = if node_index != topmost_scroll_node_index {
+            self.nodes[node_index.0].is_overscrolling()
         } else {
             false
         };
 
         let mut switch_node = false;
-        if let Some(node) = self.nodes.get_mut(&clip_id) {
+        {
+            let node = &mut self.nodes[node_index.0];
             if let NodeType::ScrollFrame(ref mut scrolling) = node.node_type {
                 match phase {
                     ScrollEventPhase::Start => {
@@ -294,16 +294,13 @@ impl ClipScrollTree {
             }
         }
 
-        let clip_id = if switch_node {
-            topmost_scrolling_node_id
+        let node_index = if switch_node {
+            topmost_scroll_node_index
         } else {
-            clip_id
+            node_index
         };
 
-        self.nodes
-            .get_mut(&clip_id)
-            .unwrap()
-            .scroll(scroll_location, phase)
+        self.nodes[node_index.0].scroll(scroll_location, phase)
     }
 
     pub fn update_tree(
@@ -321,24 +318,22 @@ impl ClipScrollTree {
             return;
         }
 
-        let root_reference_frame_id = self.root_reference_frame_id();
+        self.clip_chains[0] = ClipChain::empty(screen_rect);
+
+        let root_reference_frame_index = self.root_reference_frame_index();
         let mut state = TransformUpdateState {
-            parent_reference_frame_transform: LayerToWorldTransform::create_translation(
-                pan.x,
-                pan.y,
-                0.0,
-            ),
+            parent_reference_frame_transform: LayerVector2D::new(pan.x, pan.y).into(),
             parent_accumulated_scroll_offset: LayerVector2D::zero(),
             nearest_scrolling_ancestor_offset: LayerVector2D::zero(),
             nearest_scrolling_ancestor_viewport: LayerRect::zero(),
-            parent_clip_chain: ClipChain::empty(screen_rect),
+            parent_clip_chain_index: ClipChainIndex(0),
             current_coordinate_system_id: CoordinateSystemId::root(),
-            coordinate_system_relative_transform: TransformOrOffset::zero(),
+            coordinate_system_relative_transform: LayerFastTransform::identity(),
             invertible: true,
         };
         let mut next_coordinate_system_id = state.current_coordinate_system_id.next();
         self.update_node(
-            root_reference_frame_id,
+            root_reference_frame_index,
             &mut state,
             &mut next_coordinate_system_id,
             device_pixel_scale,
@@ -354,7 +349,7 @@ impl ClipScrollTree {
 
     fn update_node(
         &mut self,
-        layer_id: ClipId,
+        node_index: ClipScrollNodeIndex,
         state: &mut TransformUpdateState,
         next_coordinate_system_id: &mut CoordinateSystemId,
         device_pixel_scale: DevicePixelScale,
@@ -368,13 +363,13 @@ impl ClipScrollTree {
         //           Restructure this to avoid the clones!
         let mut state = state.clone();
         let node_children = {
-            let node = match self.nodes.get_mut(&layer_id) {
+            let node = match self.nodes.get_mut(node_index.0) {
                 Some(node) => node,
                 None => return,
             };
 
             // We set this early so that we can use it to populate the ClipChain.
-            node.node_data_index = ClipScrollNodeIndex(gpu_node_data.len() as u32);
+            node.node_data_index = GPUClipScrollNodeIndex(gpu_node_data.len() as u32);
 
             node.update(
                 &mut state,
@@ -384,6 +379,7 @@ impl ClipScrollTree {
                 resource_cache,
                 gpu_cache,
                 scene_properties,
+                &mut self.clip_chains,
             );
 
             node.push_gpu_node_data(gpu_node_data);
@@ -396,9 +392,9 @@ impl ClipScrollTree {
             node.children.clone()
         };
 
-        for child_node_id in node_children {
+        for child_node_index in node_children {
             self.update_node(
-                child_node_id,
+                child_node_index,
                 &mut state,
                 next_coordinate_system_id,
                 device_pixel_scale,
@@ -417,143 +413,144 @@ impl ClipScrollTree {
             // ClipScrollNode clipping nodes. Here we start the ClipChain with a clone of the
             // parent's node, if necessary.
             let mut chain = match descriptor.parent {
-                Some(id) => self.clip_chains[&id].clone(),
+                Some(index) => self.clip_chains[index.0].clone(),
                 None => ClipChain::empty(screen_rect),
             };
 
             // Now we walk through each ClipScrollNode in the vector of clip nodes and
             // extract their ClipChain nodes to construct the final list.
-            for clip_id in &descriptor.clips {
-                if let Some(ref node_chain) = self.nodes[&clip_id].clip_chain {
-                    if let Some(ref nodes) = node_chain.nodes {
-                        chain.add_node((**nodes).clone());
+            for clip_index in &descriptor.clips {
+                match self.nodes[clip_index.0].node_type {
+                    NodeType::Clip { clip_chain_node: Some(ref node), .. } => {
+                        chain.add_node(node.clone());
                     }
-                }
+                    NodeType::Clip { .. } => warn!("Found uninitialized clipping ClipScrollNode."),
+                    _ => warn!("Tried to create a clip chain with non-clipping node."),
+                };
             }
 
-            self.clip_chains.insert(descriptor.id, chain);
+            chain.parent_index = descriptor.parent;
+            self.clip_chains[descriptor.index.0] = chain;
         }
     }
 
     pub fn tick_scrolling_bounce_animations(&mut self) {
-        for (_, node) in &mut self.nodes {
+        for node in &mut self.nodes {
             node.tick_scrolling_bounce_animation()
         }
     }
 
     pub fn finalize_and_apply_pending_scroll_offsets(&mut self, old_states: ScrollStates) {
-        for (clip_id, node) in &mut self.nodes {
+        for node in &mut self.nodes {
             let external_id = match node.node_type {
-                NodeType::ScrollFrame(info) => info.external_id,
-                _ => None,
+                NodeType::ScrollFrame(ScrollFrameInfo { external_id: Some(id), ..} ) => id,
+                _ => continue,
             };
 
-            if let Some(external_id) = external_id {
-                if let Some(scrolling_state) = old_states.get(&external_id) {
-                    node.apply_old_scrolling_state(scrolling_state);
-                }
-
-
-                let id = external_id.into();
-                if let Some((offset, clamping)) = self.pending_scroll_offsets.remove(&id) {
-                    node.set_scroll_origin(&offset, clamping);
-                }
+            if let Some(scrolling_state) = old_states.get(&external_id) {
+                node.apply_old_scrolling_state(scrolling_state);
             }
 
-            if let Some((offset, clamping)) = self.pending_scroll_offsets.remove(&clip_id.into()) {
+            if let Some((offset, clamping)) = self.pending_scroll_offsets.remove(&external_id) {
                 node.set_scroll_origin(&offset, clamping);
             }
         }
     }
 
-    pub fn generate_new_clip_id(&mut self, pipeline_id: PipelineId) -> ClipId {
-        let new_id = ClipId::DynamicallyAddedNode(self.current_new_node_item, pipeline_id);
-        self.current_new_node_item += 1;
-        new_id
-    }
-
-    pub fn add_reference_frame(
+    pub fn add_clip_node(
         &mut self,
-        rect: &LayerRect,
-        source_transform: Option<PropertyBinding<LayoutTransform>>,
-        source_perspective: Option<LayoutTransform>,
-        origin_in_parent_reference_frame: LayerVector2D,
+        index: ClipScrollNodeIndex,
+        parent_index: ClipScrollNodeIndex,
+        handle: ClipSourcesHandle,
+        clip_rect: LayerRect,
         pipeline_id: PipelineId,
-        parent_id: Option<ClipId>,
-        root_for_pipeline: bool,
-    ) -> ClipId {
-        let reference_frame_id = if root_for_pipeline {
-            ClipId::root_reference_frame(pipeline_id)
-        } else {
-            self.generate_new_clip_id(pipeline_id)
-        };
-
-        let node = ClipScrollNode::new_reference_frame(
-            parent_id,
-            rect,
-            source_transform,
-            source_perspective,
-            origin_in_parent_reference_frame,
-            pipeline_id,
-        );
-        self.add_node(node, reference_frame_id);
-        reference_frame_id
+    )  -> ClipChainIndex {
+        let clip_chain_index = self.allocate_clip_chain();
+        let node_type = NodeType::Clip { handle, clip_chain_index, clip_chain_node: None };
+        let node = ClipScrollNode::new(pipeline_id, Some(parent_index), &clip_rect, node_type);
+        self.add_node(node, index);
+        clip_chain_index
     }
 
     pub fn add_sticky_frame(
         &mut self,
-        id: ClipId,
-        parent_id: ClipId,
+        index: ClipScrollNodeIndex,
+        parent_index: ClipScrollNodeIndex,
         frame_rect: LayerRect,
         sticky_frame_info: StickyFrameInfo,
+        pipeline_id: PipelineId,
     ) {
         let node = ClipScrollNode::new_sticky_frame(
-            parent_id,
+            parent_index,
             frame_rect,
             sticky_frame_info,
-            id.pipeline_id(),
+            pipeline_id,
         );
-        self.add_node(node, id);
+        self.add_node(node, index);
     }
 
     pub fn add_clip_chain_descriptor(
         &mut self,
-        id: ClipChainId,
-        parent: Option<ClipChainId>,
-        clips: Vec<ClipId>
-    ) {
-        self.clip_chains_descriptors.push(ClipChainDescriptor { id, parent, clips });
+        parent: Option<ClipChainIndex>,
+        clips: Vec<ClipScrollNodeIndex>
+    ) -> ClipChainIndex {
+        let index = self.allocate_clip_chain();
+        self.clip_chains_descriptors.push(ClipChainDescriptor { index, parent, clips });
+        index
     }
 
-    pub fn add_node(&mut self, node: ClipScrollNode, id: ClipId) {
+    pub fn add_node(&mut self, node: ClipScrollNode, index: ClipScrollNodeIndex) {
         // When the parent node is None this means we are adding the root.
-        match node.parent {
-            Some(parent_id) => self.nodes.get_mut(&parent_id).unwrap().add_child(id),
-            None => self.root_reference_frame_id = id,
+        if let Some(parent_index) = node.parent {
+            self.nodes[parent_index.0].add_child(index);
         }
 
-        debug_assert!(!self.nodes.contains_key(&id));
-        self.nodes.insert(id, node);
+        if index.0 == self.nodes.len() {
+            self.nodes.push(node);
+            return;
+        }
+
+
+        if let Some(empty_node) = self.nodes.get_mut(index.0) {
+            *empty_node = node;
+            return
+        }
+
+        let length_to_reserve = index.0 + 1 - self.nodes.len();
+        self.nodes.reserve_exact(length_to_reserve);
+
+        // We would like to use `Vec::resize` here, but the Clone trait is not supported
+        // for ClipScrollNodes. We can fix this either by splitting the clip nodes out into
+        // their own tree or when support is added for something like `Vec::resize_default`.
+        let length_to_extend = self.nodes.len() .. index.0;
+        self.nodes.extend(length_to_extend.map(|_| ClipScrollNode::empty()));
+
+        self.nodes.push(node);
     }
 
     pub fn discard_frame_state_for_pipeline(&mut self, pipeline_id: PipelineId) {
         self.pipelines_to_discard.insert(pipeline_id);
 
-        match self.currently_scrolling_node_id {
-            Some(id) if id.pipeline_id() == pipeline_id => self.currently_scrolling_node_id = None,
-            _ => {}
+        if let Some(index) = self.currently_scrolling_node_index {
+            if self.nodes[index.0].pipeline_id == pipeline_id {
+                self.currently_scrolling_node_index = None;
+            }
         }
     }
 
-    fn print_node<T: PrintTreePrinter>(&self, id: &ClipId, pt: &mut T, clip_store: &ClipStore) {
-        let node = self.nodes.get(id).unwrap();
-
+    fn print_node<T: PrintTreePrinter>(
+        &self,
+        index: ClipScrollNodeIndex,
+        pt: &mut T,
+        clip_store: &ClipStore
+    ) {
+        let node = &self.nodes[index.0];
         match node.node_type {
-            NodeType::Clip(ref clip_sources_handle) => {
+            NodeType::Clip { ref handle, .. } => {
                 pt.new_level("Clip".to_owned());
 
-                pt.add_item(format!("id: {:?}", id));
-                let clips = clip_store.get(&clip_sources_handle).clips();
+                pt.add_item(format!("index: {:?}", index));
+                let clips = clip_store.get(&handle).clips();
                 pt.new_level(format!("Clip Sources [{}]", clips.len()));
                 for source in clips {
                     pt.add_item(format!("{:?}", source));
@@ -562,40 +559,29 @@ impl ClipScrollTree {
             }
             NodeType::ReferenceFrame(ref info) => {
                 pt.new_level(format!("ReferenceFrame {:?}", info.resolved_transform));
-                pt.add_item(format!("id: {:?}", id));
+                pt.add_item(format!("index: {:?}", index));
             }
             NodeType::ScrollFrame(scrolling_info) => {
                 pt.new_level(format!("ScrollFrame"));
-                pt.add_item(format!("id: {:?}", id));
+                pt.add_item(format!("index: {:?}", index));
                 pt.add_item(format!("scrollable_size: {:?}", scrolling_info.scrollable_size));
                 pt.add_item(format!("scroll.offset: {:?}", scrolling_info.offset));
             }
             NodeType::StickyFrame(ref sticky_frame_info) => {
                 pt.new_level(format!("StickyFrame"));
-                pt.add_item(format!("id: {:?}", id));
+                pt.add_item(format!("index: {:?}", index));
                 pt.add_item(format!("sticky info: {:?}", sticky_frame_info));
             }
+            NodeType::Empty => unreachable!("Empty node remaining in ClipScrollTree."),
         }
 
-        pt.add_item(format!(
-            "local_viewport_rect: {:?}",
-            node.local_viewport_rect
-        ));
-        pt.add_item(format!(
-            "world_viewport_transform: {:?}",
-            node.world_viewport_transform
-        ));
-        pt.add_item(format!(
-            "world_content_transform: {:?}",
-            node.world_content_transform
-        ));
-        pt.add_item(format!(
-            "coordinate_system_id: {:?}",
-            node.coordinate_system_id
-        ));
+        pt.add_item(format!("local_viewport_rect: {:?}", node.local_viewport_rect));
+        pt.add_item(format!("world_viewport_transform: {:?}", node.world_viewport_transform));
+        pt.add_item(format!("world_content_transform: {:?}", node.world_content_transform));
+        pt.add_item(format!("coordinate_system_id: {:?}", node.coordinate_system_id));
 
-        for child_id in &node.children {
-            self.print_node(child_id, pt, clip_store);
+        for child_index in &node.children {
+            self.print_node(*child_index, pt, clip_store);
         }
 
         pt.end_level();
@@ -611,15 +597,18 @@ impl ClipScrollTree {
 
     pub fn print_with<T: PrintTreePrinter>(&self, clip_store: &ClipStore, pt: &mut T) {
         if !self.nodes.is_empty() {
-            self.print_node(&self.root_reference_frame_id, pt, clip_store);
+            self.print_node(self.root_reference_frame_index(), pt, clip_store);
         }
     }
 
-    pub fn get_clip_chain(&self, id: &ClipId) -> Option<&ClipChain> {
-        match id {
-            &ClipId::ClipChain(clip_chain_id) => Some(&self.clip_chains[&clip_chain_id]),
-            _ => self.nodes[id].clip_chain.as_ref(),
-        }
+    pub fn allocate_clip_chain(&mut self) -> ClipChainIndex {
+        debug_assert!(!self.clip_chains.is_empty());
+        let new_clip_chain =self.clip_chains[0].clone();
+        self.clip_chains.push(new_clip_chain);
+        ClipChainIndex(self.clip_chains.len() - 1)
     }
 
+    pub fn get_clip_chain(&self, index: ClipChainIndex) -> &ClipChain {
+        &self.clip_chains[index.0]
+    }
 }

@@ -2,16 +2,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize};
-use api::{ExternalImageType, ImageData, ImageFormat};
+use api::{ColorF, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
+use api::{ExternalImageType, ImageData, ImageFormat, PremultipliedColorF};
 use api::ImageDescriptor;
 use device::TextureFilter;
-use frame::FrameId;
 use freelist::{FreeList, FreeListHandle, UpsertResult, WeakFreeListHandle};
 use gpu_cache::{GpuCache, GpuCacheHandle};
+use gpu_types::ImageSource;
 use internal_types::{CacheTextureId, FastHashMap, TextureUpdateList, TextureUpdateSource};
 use internal_types::{RenderTargetInfo, SourceTexture, TextureUpdate, TextureUpdateOp};
 use profiler::{ResourceProfileCounter, TextureCacheProfileCounters};
+use render_backend::FrameId;
 use resource_cache::CacheItem;
 use std::cmp;
 use std::mem;
@@ -102,6 +103,8 @@ struct CacheEntry {
     filter: TextureFilter,
     // The actual device texture ID this is part of.
     texture_id: CacheTextureId,
+    // Color to modulate this cache item by.
+    color: PremultipliedColorF,
 }
 
 impl CacheEntry {
@@ -123,6 +126,7 @@ impl CacheEntry {
             format,
             filter,
             uv_rect_handle: GpuCacheHandle::new(),
+            color: ColorF::new(1.0, 1.0, 1.0, 1.0).premultiplied(),
         }
     }
 
@@ -140,13 +144,14 @@ impl CacheEntry {
                     ..
                 } => (origin, layer_index as f32),
             };
-            request.push([
-                origin.x as f32,
-                origin.y as f32,
-                (origin.x + self.size.width) as f32,
-                (origin.y + self.size.height) as f32,
-            ]);
-            request.push([layer_index, self.user_data[0], self.user_data[1], self.user_data[2]]);
+            let image_source = ImageSource {
+                p0: origin.to_f32(),
+                p1: (origin + self.size).to_f32(),
+                color: self.color,
+                texture_layer: layer_index,
+                user_data: self.user_data,
+            };
+            image_source.write_gpu_blocks(&mut request);
         }
     }
 }
@@ -384,7 +389,9 @@ impl TextureCache {
             (ImageFormat::BGRA8, TextureFilter::Nearest) => &mut self.array_rgba8_nearest,
             (ImageFormat::RGBAF32, _) |
             (ImageFormat::RG8, _) |
-            (ImageFormat::R8, TextureFilter::Nearest) => unreachable!(),
+            (ImageFormat::R8, TextureFilter::Nearest) |
+            (ImageFormat::R8, TextureFilter::Trilinear) |
+            (ImageFormat::BGRA8, TextureFilter::Trilinear) => unreachable!(),
         };
 
         &mut texture_array.regions[region_index as usize]
@@ -605,6 +612,8 @@ impl TextureCache {
             (ImageFormat::BGRA8, TextureFilter::Nearest) => &mut self.array_rgba8_nearest,
             (ImageFormat::RGBAF32, _) |
             (ImageFormat::R8, TextureFilter::Nearest) |
+            (ImageFormat::R8, TextureFilter::Trilinear) |
+            (ImageFormat::BGRA8, TextureFilter::Trilinear) |
             (ImageFormat::RG8, _) => unreachable!(),
         };
 
@@ -645,6 +654,34 @@ impl TextureCache {
         )
     }
 
+    // Returns true if the given image descriptor *may* be
+    // placed in the shared texture cache.
+    pub fn is_allowed_in_shared_cache(
+        &self,
+        filter: TextureFilter,
+        descriptor: &ImageDescriptor,
+    ) -> bool {
+        let mut allowed_in_shared_cache = true;
+
+        // TODO(gw): For now, anything that requests nearest filtering and isn't BGRA8
+        //           just fails to allocate in a texture page, and gets a standalone
+        //           texture. This is probably rare enough that it can be fixed up later.
+        if filter == TextureFilter::Nearest &&
+           descriptor.format != ImageFormat::BGRA8 {
+            allowed_in_shared_cache = false;
+        }
+
+        // Anything larger than 512 goes in a standalone texture.
+        // TODO(gw): If we find pages that suffer from batch breaks in this
+        //           case, add support for storing these in a standalone
+        //           texture array.
+        if descriptor.width > 512 || descriptor.height > 512 {
+            allowed_in_shared_cache = false;
+        }
+
+        allowed_in_shared_cache
+    }
+
     // Allocate storage for a given image. This attempts to allocate
     // from the shared cache, but falls back to standalone texture
     // if the image is too large, or the cache is full.
@@ -658,26 +695,14 @@ impl TextureCache {
         assert!(descriptor.width > 0 && descriptor.height > 0);
 
         // Work out if this image qualifies to go in the shared (batching) cache.
-        let mut allowed_in_shared_cache = true;
+        let allowed_in_shared_cache = self.is_allowed_in_shared_cache(
+            filter,
+            &descriptor,
+        );
         let mut allocated_in_shared_cache = true;
         let mut new_cache_entry = None;
         let size = DeviceUintSize::new(descriptor.width, descriptor.height);
         let frame_id = self.frame_id;
-
-        // TODO(gw): For now, anything that requests nearest filtering and isn't BGRA8
-        //           just fails to allocate in a texture page, and gets a standalone
-        //           texture. This is probably rare enough that it can be fixed up later.
-        if filter == TextureFilter::Nearest && descriptor.format != ImageFormat::BGRA8 {
-            allowed_in_shared_cache = false;
-        }
-
-        // Anything larger than 512 goes in a standalone texture.
-        // TODO(gw): If we find pages that suffer from batch breaks in this
-        //           case, add support for storing these in a standalone
-        //           texture array.
-        if descriptor.width > 512 || descriptor.height > 512 {
-            allowed_in_shared_cache = false;
-        }
 
         // If it's allowed in the cache, see if there is a spot for it.
         if allowed_in_shared_cache {
@@ -1048,6 +1073,7 @@ impl TextureArray {
                 format: self.format,
                 filter: self.filter,
                 texture_id: self.texture_id.unwrap(),
+                color: ColorF::new(1.0, 1.0, 1.0, 1.0).premultiplied(),
             }
         })
     }

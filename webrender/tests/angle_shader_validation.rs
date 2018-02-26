@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 extern crate angle;
 extern crate webrender;
 
@@ -51,26 +55,6 @@ const SHADERS: &[Shader] = &[
         features: PRIM_FEATURES,
     },
     Shader {
-        name: "ps_gradient",
-        features: PRIM_FEATURES,
-    },
-    Shader {
-        name: "ps_angle_gradient",
-        features: PRIM_FEATURES,
-    },
-    Shader {
-        name: "ps_radial_gradient",
-        features: PRIM_FEATURES,
-    },
-    Shader {
-        name: "ps_blend",
-        features: PRIM_FEATURES,
-    },
-    Shader {
-        name: "ps_composite",
-        features: PRIM_FEATURES,
-    },
-    Shader {
         name: "ps_hardware_composite",
         features: PRIM_FEATURES,
     },
@@ -83,14 +67,14 @@ const SHADERS: &[Shader] = &[
         features: PRIM_FEATURES,
     },
     Shader {
-        name: "ps_yuv_image",
-        features: PRIM_FEATURES,
-    },
-    Shader {
         name: "ps_text_run",
         features: PRIM_FEATURES,
     },
     // Brush shaders
+    Shader {
+        name: "brush_yuv_image",
+        features: &["", "YUV_NV12", "YUV_PLANAR", "YUV_INTERLEAVED", "YUV_NV12,TEXTURE_RECT"],
+    },
     Shader {
         name: "brush_mask",
         features: &[],
@@ -104,7 +88,23 @@ const SHADERS: &[Shader] = &[
         features: &["COLOR_TARGET", "ALPHA_TARGET"],
     },
     Shader {
+        name: "brush_blend",
+        features: &[],
+    },
+    Shader {
+        name: "brush_composite",
+        features: &[],
+    },
+    Shader {
         name: "brush_line",
+        features: &[],
+    },
+    Shader {
+        name: "brush_radial_gradient",
+        features: &[ "DITHERING" ],
+    },
+    Shader {
+        name: "brush_linear_gradient",
         features: &[],
     },
 ];
@@ -141,6 +141,11 @@ fn validate_shaders() {
 }
 
 fn validate(validator: &ShaderValidator, name: &str, source: String) {
+    // Check for each `switch` to have a `default`, see
+    // https://github.com/servo/webrender/wiki/Driver-issues#lack-of-default-case-in-a-switch
+    assert_eq!(source.matches("switch").count(), source.matches("default:").count(),
+        "Shader '{}' doesn't have all `switch` covered with `default` cases", name);
+    // Run Angle validator
     match validator.compile_and_translate(&[&source]) {
         Ok(_) => {
             println!("Shader translated succesfully: {}", name);

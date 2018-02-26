@@ -4,19 +4,15 @@ skip-check-licenses = false
 
 [ignore]
 # Ignored packages with duplicated versions
-packages = ["yaml-rust", "lazy_static"]
+packages = []
+
 # Files that are ignored for all tidy and lint checks.
-files = [
-    # servo-tidy does not properly support workspaces yet.
-    "./Cargo.toml",
-    # We need to ensure that tidy's suggested options are okay for this script.
-    "./wrench/test.sh",
-]
+files = [ ]
 
 # Many directories are currently ignored while we tidy things up
 # gradually.
 directories = [
    # Generated and upstream code combined with our own. Could use cleanup
   "./target",
-  "./webrender",
+  "./webrender/src",
 ]

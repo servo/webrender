@@ -2,15 +2,16 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorF, ClipAndScrollInfo, FilterOp, MixBlendMode};
-use api::{DeviceIntPoint, DeviceIntRect, LayerToWorldScale, PipelineId};
-use api::{BoxShadowClipMode, LayerPoint, LayerRect, LayerVector2D, Shadow};
-use api::{ClipId, PremultipliedColorF};
+use api::{BoxShadowClipMode, ColorF, DeviceIntPoint, DeviceIntRect, FilterOp, LayerPoint};
+use api::{LayerRect, LayerToWorldScale, LayerVector2D, MixBlendMode, PipelineId};
+use api::{PremultipliedColorF, Shadow};
 use box_shadow::{BLUR_SAMPLE_SCALE, BoxShadowCacheKey};
+use clip_scroll_tree::ClipScrollNodeIndex;
 use frame_builder::{FrameContext, FrameState, PictureState};
-use gpu_cache::GpuDataRequest;
+use gpu_cache::{GpuCacheHandle, GpuDataRequest};
 use gpu_types::{BrushImageKind, PictureType};
 use prim_store::{BrushKind, BrushPrimitive, PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
+use prim_store::ScrollNodeAndClipChain;
 use render_task::{ClearMode, RenderTask, RenderTaskCacheKey};
 use render_task::{RenderTaskCacheKeyKind, RenderTaskId, RenderTaskLocation};
 use resource_cache::CacheItem;
@@ -86,8 +87,12 @@ pub enum PictureKind {
         // The original reference frame ID for this picture.
         // It is only different if this is part of a 3D
         // rendering context.
-        reference_frame_id: ClipId,
+        reference_frame_index: ClipScrollNodeIndex,
         real_local_rect: LayerRect,
+        // An optional cache handle for storing extra data
+        // in the GPU cache, depending on the type of
+        // picture.
+        extra_gpu_data_handle: GpuCacheHandle,
     },
 }
 
@@ -204,7 +209,7 @@ impl PicturePrimitive {
         composite_mode: Option<PictureCompositeMode>,
         is_in_3d_context: bool,
         pipeline_id: PipelineId,
-        reference_frame_id: ClipId,
+        reference_frame_index: ClipScrollNodeIndex,
         frame_output_pipeline_id: Option<PipelineId>,
     ) -> Self {
         PicturePrimitive {
@@ -215,8 +220,9 @@ impl PicturePrimitive {
                 composite_mode,
                 is_in_3d_context,
                 frame_output_pipeline_id,
-                reference_frame_id,
+                reference_frame_index,
                 real_local_rect: LayerRect::zero(),
+                extra_gpu_data_handle: GpuCacheHandle::new(),
             },
             pipeline_id,
             cull_children: true,
@@ -230,7 +236,7 @@ impl PicturePrimitive {
     pub fn add_primitive(
         &mut self,
         prim_index: PrimitiveIndex,
-        clip_and_scroll: ClipAndScrollInfo
+        clip_and_scroll: ScrollNodeAndClipChain
     ) {
         if let Some(ref mut run) = self.runs.last_mut() {
             if run.clip_and_scroll == clip_and_scroll &&
@@ -333,6 +339,7 @@ impl PicturePrimitive {
         match self.kind {
             PictureKind::Image {
                 ref mut secondary_render_task_id,
+                ref mut extra_gpu_data_handle,
                 composite_mode,
                 ..
             } => {
@@ -368,7 +375,7 @@ impl PicturePrimitive {
                     }
                     Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, blur_radius, color))) => {
                         let rect = (prim_local_rect.translate(&-offset) * content_scale).round().to_i32();
-                        let picture_task = RenderTask::new_picture(
+                        let mut picture_task = RenderTask::new_picture(
                             RenderTaskLocation::Dynamic(None, rect.size),
                             prim_index,
                             RenderTargetKind::Color,
@@ -378,6 +385,7 @@ impl PicturePrimitive {
                             pic_state_for_children.tasks,
                             PictureType::Image,
                         );
+                        picture_task.mark_for_saving();
 
                         let blur_std_deviation = blur_radius * frame_context.device_pixel_scale.0;
                         let picture_task_id = frame_state.render_tasks.add(picture_task);
@@ -428,6 +436,15 @@ impl PicturePrimitive {
                             pic_state.tasks.extend(pic_state_for_children.tasks);
                             self.surface = None;
                         } else {
+
+                            if let FilterOp::ColorMatrix(m) = filter {
+                                if let Some(mut request) = frame_state.gpu_cache.request(extra_gpu_data_handle) {
+                                    for i in 0..5 {
+                                        request.push([m[i*4], m[i*4+1], m[i*4+2], m[i*4+3]]);
+                                    }
+                                }
+                            }
+
                             let picture_task = RenderTask::new_picture(
                                 RenderTaskLocation::Dynamic(None, prim_screen_rect.size),
                                 prim_index,
@@ -586,21 +603,39 @@ impl PicturePrimitive {
     }
 
     pub fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
+        // TODO(gw): It's unfortunate that we pay a fixed cost
+        //           of 5 GPU blocks / picture, just due to the size
+        //           of the color matrix. There aren't typically very
+        //           many pictures in a scene, but we should consider
+        //           making this more efficient for the common case.
         match self.kind {
             PictureKind::TextShadow { .. } => {
-                request.push([0.0; 4])
+                request.push([0.0; 4]);
             }
             PictureKind::Image { composite_mode, .. } => {
                 match composite_mode {
-                    Some(PictureCompositeMode::Filter(FilterOp::ColorMatrix(m))) => {
-                        // When we start pushing Image pictures through the brush path
-                        // this may need to change as the number of GPU blocks written will
-                        // need to be determinate.
-                        for i in 0..5 {
-                            request.push([m[i], m[i+5], m[i+10], m[i+15]]);
-                        }
-                    },
-                    _ => request.push([0.0; 4]),
+                    Some(PictureCompositeMode::Filter(filter)) => {
+                        let amount = match filter {
+                            FilterOp::Contrast(amount) => amount,
+                            FilterOp::Grayscale(amount) => amount,
+                            FilterOp::HueRotate(angle) => 0.01745329251 * angle,
+                            FilterOp::Invert(amount) => amount,
+                            FilterOp::Saturate(amount) => amount,
+                            FilterOp::Sepia(amount) => amount,
+                            FilterOp::Brightness(amount) => amount,
+                            FilterOp::Opacity(_, amount) => amount,
+
+                            // Go through different paths
+                            FilterOp::Blur(..) |
+                            FilterOp::DropShadow(..) |
+                            FilterOp::ColorMatrix(_) => 0.0,
+                        };
+
+                        request.push([amount, 1.0 - amount, 0.0, 0.0]);
+                    }
+                    _ => {
+                        request.push([0.0; 4]);
+                    }
                 }
             }
             PictureKind::BoxShadow { color, .. } => {

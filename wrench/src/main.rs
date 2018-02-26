@@ -57,7 +57,7 @@ mod cgfont_to_data;
 
 use binary_frame_reader::BinaryFrameReader;
 use gleam::gl;
-use glutin::{ElementState, VirtualKeyCode, WindowProxy};
+use glutin::{GlContext, VirtualKeyCode};
 use perf::PerfHarness;
 use png::save_flipped;
 use rawtest::RawtestHarness;
@@ -68,6 +68,7 @@ use std::ffi::CString;
 use std::mem;
 use std::os::raw::c_void;
 use std::path::{Path, PathBuf};
+use std::process;
 use std::ptr;
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Sender, Receiver};
@@ -100,7 +101,7 @@ pub struct HeadlessContext {
 
 impl HeadlessContext {
     #[cfg(feature = "headless")]
-    fn new(width: u32, height: u32) -> HeadlessContext {
+    fn new(width: u32, height: u32) -> Self {
         let mut attribs = Vec::new();
 
         attribs.push(osmesa_sys::OSMESA_PROFILE);
@@ -140,7 +141,7 @@ impl HeadlessContext {
     }
 
     #[cfg(not(feature = "headless"))]
-    fn new(width: u32, height: u32) -> HeadlessContext {
+    fn new(width: u32, height: u32) -> Self {
         HeadlessContext { width, height }
     }
 
@@ -157,7 +158,7 @@ impl HeadlessContext {
 }
 
 pub enum WindowWrapper {
-    Window(glutin::Window, Rc<gl::Gl>),
+    Window(glutin::GlWindow, Rc<gl::Gl>),
     Headless(HeadlessContext, Rc<gl::Gl>),
 }
 
@@ -167,13 +168,21 @@ impl WindowWrapper {
     fn swap_buffers(&self) {
         match *self {
             WindowWrapper::Window(ref window, _) => window.swap_buffers().unwrap(),
-            WindowWrapper::Headless(..) => {}
+            WindowWrapper::Headless(_, _) => {}
         }
     }
 
     fn get_inner_size(&self) -> DeviceUintSize {
         let (w, h) = match *self {
-            WindowWrapper::Window(ref window, _) => window.get_inner_size_pixels().unwrap(),
+            //HACK: `winit` needs to figure out its hidpi story...
+            #[cfg(target_os = "macos")]
+            WindowWrapper::Window(ref window, _) => {
+                let (w, h) = window.get_inner_size().unwrap();
+                let factor = window.hidpi_factor();
+                ((w as f32 * factor) as _, (h as f32 * factor) as _)
+            },
+            #[cfg(not(target_os = "macos"))]
+            WindowWrapper::Window(ref window, _) => window.get_inner_size().unwrap(),
             WindowWrapper::Headless(ref context, _) => (context.width, context.height),
         };
         DeviceUintSize::new(w, h)
@@ -182,7 +191,7 @@ impl WindowWrapper {
     fn hidpi_factor(&self) -> f32 {
         match *self {
             WindowWrapper::Window(ref window, _) => window.hidpi_factor(),
-            WindowWrapper::Headless(..) => 1.0,
+            WindowWrapper::Headless(_, _) => 1.0,
         }
     }
 
@@ -193,17 +202,10 @@ impl WindowWrapper {
         }
     }
 
-    fn create_window_proxy(&mut self) -> Option<WindowProxy> {
-        match *self {
-            WindowWrapper::Window(ref window, _) => Some(window.create_window_proxy()),
-            WindowWrapper::Headless(..) => None,
-        }
-    }
-
     fn set_title(&mut self, title: &str) {
         match *self {
             WindowWrapper::Window(ref window, _) => window.set_title(title),
-            WindowWrapper::Headless(..) => (),
+            WindowWrapper::Headless(_, _) => (),
         }
     }
 
@@ -224,47 +226,55 @@ fn make_window(
     size: DeviceUintSize,
     dp_ratio: Option<f32>,
     vsync: bool,
-    headless: bool,
+    events_loop: &Option<glutin::EventsLoop>,
 ) -> WindowWrapper {
-    let wrapper = if headless {
-        let gl = match gl::GlType::default() {
-            gl::GlType::Gl => unsafe {
-                gl::GlFns::load_with(|symbol| {
-                    HeadlessContext::get_proc_address(symbol) as *const _
+    let wrapper = match *events_loop {
+        Some(ref events_loop) => {
+            let context_builder = glutin::ContextBuilder::new()
+                .with_gl(glutin::GlRequest::GlThenGles {
+                    opengl_version: (3, 2),
+                    opengles_version: (3, 0),
                 })
-            },
-            gl::GlType::Gles => unsafe {
-                gl::GlesFns::load_with(|symbol| {
-                    HeadlessContext::get_proc_address(symbol) as *const _
-                })
-            },
-        };
-        WindowWrapper::Headless(HeadlessContext::new(size.width, size.height), gl)
-    } else {
-        let mut builder = glutin::WindowBuilder::new()
-            .with_gl(glutin::GlRequest::GlThenGles {
-                opengl_version: (3, 2),
-                opengles_version: (3, 0),
-            })
-            .with_dimensions(size.width, size.height);
-        builder.opengl.vsync = vsync;
-        let window = builder.build().unwrap();
-        unsafe {
-            window
-                .make_current()
-                .expect("unable to make context current!");
-        }
+                .with_vsync(vsync);
+            let window_builder = glutin::WindowBuilder::new()
+                .with_title("WRech")
+                .with_multitouch()
+                .with_dimensions(size.width, size.height);
+            let window = glutin::GlWindow::new(window_builder, context_builder, events_loop)
+                .unwrap();
 
-        let gl = match window.get_api() {
-            glutin::Api::OpenGl => unsafe {
-                gl::GlFns::load_with(|symbol| window.get_proc_address(symbol) as *const _)
-            },
-            glutin::Api::OpenGlEs => unsafe {
-                gl::GlesFns::load_with(|symbol| window.get_proc_address(symbol) as *const _)
-            },
-            glutin::Api::WebGl => unimplemented!(),
-        };
-        WindowWrapper::Window(window, gl)
+            unsafe {
+                window
+                    .make_current()
+                    .expect("unable to make context current!");
+            }
+
+            let gl = match window.get_api() {
+                glutin::Api::OpenGl => unsafe {
+                    gl::GlFns::load_with(|symbol| window.get_proc_address(symbol) as *const _)
+                },
+                glutin::Api::OpenGlEs => unsafe {
+                    gl::GlesFns::load_with(|symbol| window.get_proc_address(symbol) as *const _)
+                },
+                glutin::Api::WebGl => unimplemented!(),
+            };
+            WindowWrapper::Window(window, gl)
+        }
+        None => {
+            let gl = match gl::GlType::default() {
+                gl::GlType::Gl => unsafe {
+                    gl::GlFns::load_with(|symbol| {
+                        HeadlessContext::get_proc_address(symbol) as *const _
+                    })
+                },
+                gl::GlType::Gles => unsafe {
+                    gl::GlesFns::load_with(|symbol| {
+                        HeadlessContext::get_proc_address(symbol) as *const _
+                    })
+                },
+            };
+            WindowWrapper::Headless(HeadlessContext::new(size.width, size.height), gl)
+        }
     };
 
     wrapper.gl().clear_color(0.3, 0.0, 0.0, 1.0);
@@ -313,7 +323,7 @@ fn create_notifier() -> (Box<RenderNotifier>, Receiver<()>) {
 
 fn main() {
     #[cfg(feature = "logging")]
-    env_logger::init().unwrap();
+    env_logger::init();
 
     let args_yaml = load_yaml!("args.yaml");
     let args = clap::App::from_yaml(args_yaml)
@@ -346,9 +356,15 @@ fn main() {
             DeviceUintSize::new(w, h)
         })
         .unwrap_or(DeviceUintSize::new(1920, 1080));
-    let is_headless = args.is_present("headless");
     let zoom_factor = args.value_of("zoom").map(|z| z.parse::<f32>().unwrap());
-    let mut window = make_window(size, dp_ratio, args.is_present("vsync"), is_headless);
+
+    let mut events_loop = if args.is_present("headless") {
+        None
+    } else {
+        Some(glutin::EventsLoop::new())
+    };
+
+    let mut window = make_window(size, dp_ratio, args.is_present("vsync"), &events_loop);
     let dp_ratio = dp_ratio.unwrap_or(window.hidpi_factor());
     let dim = window.get_inner_size();
 
@@ -364,6 +380,7 @@ fn main() {
 
     let mut wrench = Wrench::new(
         &mut window,
+        events_loop.as_mut().map(|el| el.create_proxy()),
         res_path,
         dp_ratio,
         save_type,
@@ -396,7 +413,6 @@ fn main() {
         return;
     } else if let Some(subargs) = args.subcommand_matches("reftest") {
         let dim = window.get_inner_size();
-        let harness = ReftestHarness::new(&mut wrench, &mut window, rx.unwrap());
         let base_manifest = Path::new("reftests/reftest.list");
         let specific_reftest = subargs.value_of("REFTEST").map(|x| Path::new(x));
         let mut reftest_options = ReftestOptions::default();
@@ -404,8 +420,11 @@ fn main() {
             reftest_options.allow_max_difference = allow_max_diff.parse().unwrap_or(1);
             reftest_options.allow_num_differences = dim.width as usize * dim.height as usize;
         }
-        harness.run(base_manifest, specific_reftest, &reftest_options);
-        return;
+        let num_failures = ReftestHarness::new(&mut wrench, &mut window, rx.unwrap())
+            .run(base_manifest, specific_reftest, &reftest_options);
+        wrench.renderer.deinit();
+        // exit with an error code to fail on CI
+        process::exit(num_failures as _);
     } else if let Some(_) = args.subcommand_matches("rawtest") {
         {
             let harness = RawtestHarness::new(&mut wrench, &mut window, rx.unwrap());
@@ -447,42 +466,41 @@ fn main() {
     wrench.update(dim);
     thing.do_frame(&mut wrench);
 
-    'outer: loop {
+    let mut body = |wrench: &mut Wrench, global_event: glutin::Event| {
         if let Some(window_title) = wrench.take_title() {
-            window.set_title(&window_title);
-        }
-
-        let mut events = Vec::new();
-
-        match window {
-            WindowWrapper::Headless(..) => {
-                events.push(glutin::Event::Awakened);
-            }
-            WindowWrapper::Window(ref window, _) => {
-                events.push(window.wait_events().next().unwrap());
-                events.extend(window.poll_events());
+            if !cfg!(windows) { //TODO: calling `set_title` from inside the `run_forever` loop is illegal...
+                window.set_title(&window_title);
             }
         }
 
         let mut do_frame = false;
         let mut do_render = false;
 
-        for event in events {
-            match event {
-                glutin::Event::Closed => {
-                    break 'outer;
+        match global_event {
+            glutin::Event::Awakened => {
+                do_render = true;
+            }
+            glutin::Event::WindowEvent { event, .. } => match event {
+                glutin::WindowEvent::Closed => {
+                    return glutin::ControlFlow::Break;
                 }
 
-                glutin::Event::Refresh |
-                glutin::Event::Awakened |
-                glutin::Event::Focused(..) |
-                glutin::Event::MouseMoved(..) => {
+                glutin::WindowEvent::Refresh |
+                glutin::WindowEvent::Focused(..) |
+                glutin::WindowEvent::CursorMoved { .. } => {
                     do_render = true;
                 }
 
-                glutin::Event::KeyboardInput(ElementState::Pressed, _scan_code, Some(vk)) => match vk {
+                glutin::WindowEvent::KeyboardInput {
+                    input: glutin::KeyboardInput {
+                        state: glutin::ElementState::Pressed,
+                        virtual_keycode: Some(vk),
+                        ..
+                    },
+                    ..
+                } => match vk {
                     VirtualKeyCode::Escape => {
-                        break 'outer;
+                        return glutin::ControlFlow::Break;
                     }
                     VirtualKeyCode::P => {
                         wrench.renderer.toggle_debug_flags(DebugFlags::PROFILER_DBG);
@@ -556,14 +574,15 @@ fn main() {
                     _ => {}
                 }
                 _ => {}
-            }
-        }
+            },
+            _ => return glutin::ControlFlow::Continue,
+        };
 
         let dim = window.get_inner_size();
         wrench.update(dim);
 
         if do_frame {
-            let frame_num = thing.do_frame(&mut wrench);
+            let frame_num = thing.do_frame(wrench);
             unsafe {
                 CURRENT_FRAME_NUMBER = frame_num;
             }
@@ -581,12 +600,20 @@ fn main() {
                 thing.next_frame();
             }
         }
-    }
 
-    if is_headless {
-        let rect = DeviceUintRect::new(DeviceUintPoint::zero(), size);
-        let pixels = wrench.renderer.read_pixels_rgba8(rect);
-        save_flipped("screenshot.png", pixels, size);
+        glutin::ControlFlow::Continue
+    };
+
+    match events_loop {
+        None => {
+            while body(&mut wrench, glutin::Event::Awakened) == glutin::ControlFlow::Continue {}
+            let rect = DeviceUintRect::new(DeviceUintPoint::zero(), size);
+            let pixels = wrench.renderer.read_pixels_rgba8(rect);
+            save_flipped("screenshot.png", pixels, size);
+        }
+        Some(ref mut events_loop) => {
+            events_loop.run_forever(|event| body(&mut wrench, event));
+        }
     }
 
     wrench.renderer.deinit();
