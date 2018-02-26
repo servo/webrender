@@ -936,7 +936,7 @@ impl CompositeOps {
     }
 }
 
-/// A rendering-oriented representation of frame::Frame built by the render backend
+/// A rendering-oriented representation of the frame built by the render backend
 /// and presented to the renderer.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]

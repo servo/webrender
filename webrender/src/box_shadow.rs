@@ -7,7 +7,7 @@ use api::{LayerPrimitiveInfo, LayerRect, LayerSize, LayerVector2D, LayoutSize, L
 use api::PipelineId;
 use app_units::Au;
 use clip::ClipSource;
-use frame_builder::FrameBuilder;
+use display_list_flattener::DisplayListFlattener;
 use gpu_types::BrushImageKind;
 use prim_store::{BrushKind, BrushMaskKind, BrushPrimitive, PrimitiveContainer};
 use prim_store::ScrollNodeAndClipChain;
@@ -48,7 +48,7 @@ pub struct BoxShadowCacheKey {
     pub clip_mode: BoxShadowClipMode,
 }
 
-impl FrameBuilder {
+impl<'a> DisplayListFlattener<'a> {
     pub fn add_box_shadow(
         &mut self,
         pipeline_id: PipelineId,

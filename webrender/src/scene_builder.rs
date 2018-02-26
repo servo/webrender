@@ -4,7 +4,7 @@
 
 use api::{DocumentId, PipelineId, ApiMsg, FrameMsg, ResourceUpdates};
 use api::channel::MsgSender;
-use frame::build_scene;
+use display_list_flattener::build_scene;
 use frame_builder::{FrameBuilderConfig, FrameBuilder};
 use clip_scroll_tree::ClipScrollTree;
 use internal_types::FastHashSet;
