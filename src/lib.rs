@@ -24,6 +24,7 @@ pub struct DirectComposition {
 
     egl: egl::Egl,
     egl_display: egl::types::EGLDisplay,
+    egl_config: egl::types::EGLConfig,
 
     composition_device: ComPtr<IDCompositionDevice>,
     root_visual: ComPtr<IDCompositionVisual>,
@@ -59,6 +60,7 @@ impl DirectComposition {
 
         let egl = egl::Egl;
         let egl_display = egl.initialize(d3d_device.as_raw());
+        let egl_config = egl.config(egl_display);
 
         let dxgi_device = d3d_device.cast::<winapi::shared::dxgi::IDXGIDevice>()?;
 
@@ -92,7 +94,7 @@ impl DirectComposition {
 
         Ok(DirectComposition {
             d3d_device, dxgi_factory, d3d_device_context,
-            egl, egl_display,
+            egl, egl_display, egl_config,
             composition_device, composition_target, root_visual,
         })
     }
@@ -133,6 +135,9 @@ impl DirectComposition {
             let back_buffer = ComPtr::<winapi::um::d3d11::ID3D11Texture2D>::new_with_uuid(|uuid, ptr_ptr| {
                 swap_chain.GetBuffer(0, uuid, ptr_ptr)
             })?;
+            let egl_surface = self.egl.create_surface(
+                self.egl_display, &*back_buffer, self.egl_config, width, height,
+            );
             let render_target_view = ComPtr::new_with(|ptr_ptr| {
                 self.d3d_device.CreateRenderTargetView(
                     as_ptr(&back_buffer), ptr::null_mut(), ptr_ptr,
