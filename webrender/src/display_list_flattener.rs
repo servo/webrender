@@ -122,7 +122,7 @@ impl ClipIdToIndexMapper {
     }
 }
 
-pub struct FlattenContext<'a> {
+pub struct DisplayListFlattener<'a> {
     scene: &'a Scene,
     builder: FrameBuilder,
     clip_scroll_tree: &'a mut ClipScrollTree,
@@ -134,7 +134,7 @@ pub struct FlattenContext<'a> {
     id_to_index_mapper: ClipIdToIndexMapper,
 }
 
-impl<'a> FlattenContext<'a> {
+impl<'a> DisplayListFlattener<'a> {
     // When changing this, please make the same modification to build_scene,
     // which will soon replace this method completely.
     pub fn create_frame_builder(
@@ -160,7 +160,7 @@ impl<'a> FlattenContext<'a> {
             .and_then(|color| if color.a > 0.0 { Some(color) } else { None });
 
         let frame_builder = {
-            let mut roller = FlattenContext {
+            let mut roller = DisplayListFlattener {
                 scene,
                 builder: old_builder.recycle(
                     view.inner_rect,
@@ -1119,7 +1119,7 @@ pub fn build_scene(config: &FrameBuilderConfig, request: SceneRequest) -> BuiltS
     let mut pipeline_epoch_map = FastHashMap::default();
     let mut clip_scroll_tree = ClipScrollTree::new();
 
-    let frame_builder = FlattenContext::create_frame_builder(
+    let frame_builder = DisplayListFlattener::create_frame_builder(
         FrameBuilder::empty(), // WIP, we're not really recycling anything here, clean this up.
         &request.scene,
         &mut clip_scroll_tree,
