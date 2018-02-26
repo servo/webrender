@@ -2,12 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize};
-use api::{ExternalImageType, ImageData, ImageFormat};
+use api::{ColorF, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
+use api::{ExternalImageType, ImageData, ImageFormat, PremultipliedColorF};
 use api::ImageDescriptor;
 use device::TextureFilter;
 use freelist::{FreeList, FreeListHandle, UpsertResult, WeakFreeListHandle};
 use gpu_cache::{GpuCache, GpuCacheHandle};
+use gpu_types::ImageSource;
 use internal_types::{CacheTextureId, FastHashMap, TextureUpdateList, TextureUpdateSource};
 use internal_types::{RenderTargetInfo, SourceTexture, TextureUpdate, TextureUpdateOp};
 use profiler::{ResourceProfileCounter, TextureCacheProfileCounters};
@@ -102,6 +103,8 @@ struct CacheEntry {
     filter: TextureFilter,
     // The actual device texture ID this is part of.
     texture_id: CacheTextureId,
+    // Color to modulate this cache item by.
+    color: PremultipliedColorF,
 }
 
 impl CacheEntry {
@@ -123,6 +126,7 @@ impl CacheEntry {
             format,
             filter,
             uv_rect_handle: GpuCacheHandle::new(),
+            color: ColorF::new(1.0, 1.0, 1.0, 1.0).premultiplied(),
         }
     }
 
@@ -140,13 +144,14 @@ impl CacheEntry {
                     ..
                 } => (origin, layer_index as f32),
             };
-            request.push([
-                origin.x as f32,
-                origin.y as f32,
-                (origin.x + self.size.width) as f32,
-                (origin.y + self.size.height) as f32,
-            ]);
-            request.push([layer_index, self.user_data[0], self.user_data[1], self.user_data[2]]);
+            let image_source = ImageSource {
+                p0: origin.to_f32(),
+                p1: (origin + self.size).to_f32(),
+                color: self.color,
+                texture_layer: layer_index,
+                user_data: self.user_data,
+            };
+            image_source.write_gpu_blocks(&mut request);
         }
     }
 }
@@ -1068,6 +1073,7 @@ impl TextureArray {
                 format: self.format,
                 filter: self.filter,
                 texture_id: self.texture_id.unwrap(),
+                color: ColorF::new(1.0, 1.0, 1.0, 1.0).premultiplied(),
             }
         })
     }

@@ -867,6 +867,10 @@ impl RenderPass {
                             };
                         }
 
+                        // Give the render task an opportunity to add any
+                        // information to the GPU cache, if appropriate.
+                        task.prepare_for_render(gpu_cache);
+
                         (target_kind, texture_target)
                     };
 
