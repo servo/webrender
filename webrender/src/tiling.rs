@@ -16,7 +16,7 @@ use gpu_types::{PrimitiveInstance};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::{PictureKind};
 use prim_store::{CachedGradient, PrimitiveIndex, PrimitiveKind, PrimitiveStore};
-use prim_store::{BrushMaskKind, BrushKind, DeferredResolve, EdgeAaSegmentMask};
+use prim_store::{BrushKind, DeferredResolve, EdgeAaSegmentMask};
 use profiler::FrameProfileCounters;
 use render_task::{BlitSource, RenderTaskAddress, RenderTaskId, RenderTaskKind};
 use render_task::{BlurTask, ClearMode, RenderTaskLocation, RenderTaskTree};
@@ -480,7 +480,6 @@ impl RenderTarget for ColorRenderTarget {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct AlphaRenderTarget {
     pub clip_batcher: ClipBatcher,
-    pub brush_mask_corners: Vec<PrimitiveInstance>,
     pub brush_mask_rounded_rects: Vec<PrimitiveInstance>,
     // List of blur operations to apply for this render target.
     pub vertical_blurs: Vec<BlurInstance>,
@@ -501,7 +500,6 @@ impl RenderTarget for AlphaRenderTarget {
     ) -> Self {
         AlphaRenderTarget {
             clip_batcher: ClipBatcher::new(),
-            brush_mask_corners: Vec::new(),
             brush_mask_rounded_rects: Vec::new(),
             vertical_blurs: Vec::new(),
             horizontal_blurs: Vec::new(),
@@ -603,11 +601,8 @@ impl RenderTarget for AlphaRenderTarget {
                                             BrushKind::Image { .. } => {
                                                 unreachable!("bug: unexpected brush here");
                                             }
-                                            BrushKind::Mask { ref kind, .. } => {
-                                                match *kind {
-                                                    BrushMaskKind::Corner(..) => &mut self.brush_mask_corners,
-                                                    BrushMaskKind::RoundedRect(..) => &mut self.brush_mask_rounded_rects,
-                                                }
+                                            BrushKind::Mask { .. } => {
+                                                &mut self.brush_mask_rounded_rects
                                             }
                                         };
                                         batch.push(PrimitiveInstance::from(instance));

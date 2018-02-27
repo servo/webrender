@@ -188,17 +188,11 @@ pub struct PrimitiveMetadata {
 }
 
 #[derive(Debug)]
-pub enum BrushMaskKind {
-    //Rect,         // TODO(gw): Optimization opportunity for masks with 0 border radii.
-    Corner(LayerSize),
-    RoundedRect(LayerRect, BorderRadius),
-}
-
-#[derive(Debug)]
 pub enum BrushKind {
     Mask {
         clip_mode: ClipMode,
-        kind: BrushMaskKind,
+        rect: LayerRect,
+        radii: BorderRadius,
     },
     Solid {
         color: ColorF,
@@ -345,15 +339,7 @@ impl BrushPrimitive {
                 // Opaque black with operator dest out
                 request.push(PremultipliedColorF::BLACK);
             }
-            BrushKind::Mask { clip_mode, kind: BrushMaskKind::Corner(radius) } => {
-                request.push([
-                    radius.width,
-                    radius.height,
-                    clip_mode as u32 as f32,
-                    0.0,
-                ]);
-            }
-            BrushKind::Mask { clip_mode, kind: BrushMaskKind::RoundedRect(rect, radii) } => {
+            BrushKind::Mask { clip_mode, rect, radii } => {
                 request.push([
                     clip_mode as u32 as f32,
                     0.0,
