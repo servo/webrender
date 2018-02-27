@@ -4,6 +4,7 @@ extern crate winapi;
 extern crate gleam;
 
 use com::{ComPtr, ToResult, HResult, as_ptr};
+use std::ffi::CString;
 use std::ptr;
 use std::rc::Rc;
 use winapi::shared::dxgi1_2::DXGI_SWAP_CHAIN_DESC1;
@@ -65,7 +66,8 @@ impl DirectComposition {
         let egl_display = egl.initialize(d3d_device.as_raw());
         let egl_config = egl.config(egl_display);
         let gleam = gleam::gl::GlesFns::load_with(|name| {
-            egl.GetProcAddress(name.as_ptr() as _) as *const _ as _
+            let name = CString::new(name.as_bytes()).unwrap();
+            egl.GetProcAddress(name.as_ptr()) as *const _ as _
         });
 
         let dxgi_device = d3d_device.cast::<winapi::shared::dxgi::IDXGIDevice>()?;
