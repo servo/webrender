@@ -8,7 +8,7 @@ use std::path::PathBuf;
 fn main() {
     // Building ANGLE is left as an exercise for the reader:
     // https://chromium.googlesource.com/angle/angle/+/HEAD/doc/DevSetup.md
-    let relative_angle_dir = PathBuf::from("..").join("angle");
+    let relative_angle_dir = PathBuf::from("..").join("..").join("angle");
 
     let angle_build_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap())
         .join(relative_angle_dir)
