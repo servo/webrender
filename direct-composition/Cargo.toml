@@ -1,0 +1,15 @@
+[package]
+name = "direct-composition"
+version = "0.1.0"
+authors = ["Simon Sapin <simon.sapin@exyr.org>"]
+
+[target.'cfg(windows)'.dependencies]
+winapi = {version = "0.3", features = ["winerror", "d3d11", "dcomp"]}
+
+# For the `main.rs` demo
+[dependencies]
+gleam = "0.4"
+winit = "0.10"
+
+[build-dependencies]
+gl_generator = "0.9.0"
