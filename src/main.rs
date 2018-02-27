@@ -82,5 +82,6 @@ fn direct_composition_from_window(window: &winit::Window) -> DirectComposition {
 fn render_plain_rgba_frame(composition: &DirectComposition, visual: &D3DVisual, rgba: &[f32; 4]) {
     visual.make_current(composition);
     composition.gleam.clear_color(rgba[0], rgba[1], rgba[2], rgba[3]);
+    assert_eq!(composition.gleam.get_error(), 0);
     visual.present();
 }

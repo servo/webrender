@@ -1,94 +1,119 @@
+use std::os::raw::{c_void, c_long};
 use std::ptr;
 use winapi;
-use winapi::ctypes::{c_void, c_long};
 use winapi::um::d3d11::ID3D11Device;
 use winapi::um::d3d11::ID3D11Texture2D;
 
+fn cast_attributes(slice: &[types::EGLenum]) -> &EGLint {
+    unsafe {
+        &*(slice.as_ptr() as *const EGLint)
+    }
+}
+
+macro_rules! attributes {
+    ($( $key: expr => $value: expr, )*) => {
+        cast_attributes(&[
+            $( $key, $value, )*
+            NONE,
+        ])
+    }
+}
 impl Egl {
+    fn check_error(&self) {
+        unsafe {
+            let error = self.GetError() as types::EGLenum;
+            assert_eq!(error, SUCCESS, "0x{:x} != 0x{:x}", error, SUCCESS);
+        }
+    }
+
+    fn check_ptr(&self, p: *const c_void) -> *const c_void {
+        self.check_error();
+        assert!(!p.is_null());
+        p
+    }
+
+    fn check_mut_ptr(&self, p: *mut c_void) -> *mut c_void {
+        self.check_error();
+        assert!(!p.is_null());
+        p
+    }
+
+    fn check_bool(&self, bool_result: types::EGLBoolean) {
+        self.check_error();
+        assert_eq!(bool_result, TRUE);
+    }
+
     pub unsafe fn initialize(&self, d3d_device: *mut ID3D11Device) -> types::EGLDisplay {
-        let egl_device = eglCreateDeviceANGLE(
+        let egl_device = self.check_mut_ptr(eglCreateDeviceANGLE(
             D3D11_DEVICE_ANGLE,
             d3d_device,
             ptr::null(),
-        );
-        assert!(!egl_device.is_null());
-        let attrib_list = [
-            EXPERIMENTAL_PRESENT_PATH_ANGLE, EXPERIMENTAL_PRESENT_PATH_FAST_ANGLE,
-            NONE,
-        ];
-        let egl_display = self.GetPlatformDisplayEXT(
+        ));
+        let egl_display = self.check_ptr(self.GetPlatformDisplayEXT(
             PLATFORM_DEVICE_EXT,
             egl_device,
-            attrib_list.as_ptr() as *const i32,
-        );
-        assert!(!egl_display.is_null());
-        assert!(egl_display != NO_DISPLAY);
-
-        self.Initialize(egl_display, ptr::null_mut(), ptr::null_mut());
+            attributes! [
+                EXPERIMENTAL_PRESENT_PATH_ANGLE => EXPERIMENTAL_PRESENT_PATH_FAST_ANGLE,
+            ],
+        ));
+        self.check_bool(self.Initialize(egl_display, ptr::null_mut(), ptr::null_mut()));
 
         egl_display
     }
 
     // Adapted from
     // https://searchfox.org/mozilla-central/rev/056a4057/gfx/gl/GLContextProviderEGL.cpp#635
-    pub unsafe fn config(&self, display: types::EGLSurface) -> types::EGLConfig {
+    pub unsafe fn config(&self, display: types::EGLDisplay) -> types::EGLConfig {
         let mut configs = [ptr::null(); 64];
-        let attrib_list = [
-            SURFACE_TYPE, WINDOW_BIT,
-            RENDERABLE_TYPE, OPENGL_ES2_BIT,
-            RED_SIZE, 8,
-            GREEN_SIZE, 8,
-            BLUE_SIZE, 8,
-            ALPHA_SIZE, 8,
-            NONE,
-        ];
         let mut num_configs = 0;
-        let choose_config_result = self.ChooseConfig(
+        self.check_bool(self.ChooseConfig(
             display,
-            attrib_list.as_ptr() as *const i32,
+            attributes! [
+                SURFACE_TYPE => WINDOW_BIT,
+                RENDERABLE_TYPE => OPENGL_ES2_BIT,
+                RED_SIZE => 8,
+                GREEN_SIZE => 8,
+                BLUE_SIZE => 8,
+                ALPHA_SIZE => 8,
+            ],
             configs.as_mut_ptr(),
             configs.len() as i32,
             &mut num_configs,
-        );
-        assert!(choose_config_result != FALSE);
+        ));
         assert!(num_configs >= 0);
         // FIXME: pick a preferable config?
         configs[0]
     }
 
-    pub unsafe fn create_context(&self, display: types::EGLSurface, config: types::EGLConfig)
+    pub unsafe fn create_context(&self, display: types::EGLDisplay, config: types::EGLConfig)
                                  -> types::EGLContext {
-        let attrib_list = [
-            NONE,
-        ];
-        let context = self.CreateContext(
+        self.check_ptr(self.CreateContext(
             display,
             config,
             NO_CONTEXT,
-            attrib_list.as_ptr() as *const i32,
-        );
-        assert!(!context.is_null());
-        context
+            attributes![],
+        ))
     }
 
-    pub unsafe fn create_surface(&self, display: types::EGLSurface, buffer: *const ID3D11Texture2D,
+    pub unsafe fn create_surface(&self, display: types::EGLDisplay, buffer: *const ID3D11Texture2D,
                                  config: types::EGLConfig, width: u32, height: u32)
                                  -> types::EGLSurface {
-        let attrib_list = [
-            WIDTH, width,
-            HEIGHT, height,
-            FLEXIBLE_SURFACE_COMPATIBILITY_SUPPORTED_ANGLE, TRUE,
-            NONE,
-        ];
-        let surface = self.CreatePbufferFromClientBuffer(
+        self.check_ptr(self.CreatePbufferFromClientBuffer(
             display,
             D3D_TEXTURE_ANGLE,
             buffer as types::EGLClientBuffer,
             config,
-            attrib_list.as_ptr() as *const i32,
-        );
-        assert!(!surface.is_null());
-        surface
+            attributes! [
+                WIDTH => width,
+                HEIGHT => height,
+                FLEXIBLE_SURFACE_COMPATIBILITY_SUPPORTED_ANGLE => TRUE,
+            ],
+        ))
+    }
+
+    pub unsafe fn make_current(&self, display: types::EGLDisplay, surface: types::EGLSurface,
+                               context: types::EGLContext) {
+        self.check_bool(self.MakeCurrent(display, surface, surface, context))
     }
 }
 
@@ -115,7 +140,7 @@ const D3D_TEXTURE_ANGLE: types::EGLenum = 0x33A3;
 const FLEXIBLE_SURFACE_COMPATIBILITY_SUPPORTED_ANGLE: types::EGLenum = 0x33A6;
 
 extern "C" {
-    pub fn eglCreateDeviceANGLE(
+    fn eglCreateDeviceANGLE(
         device_type: types::EGLenum,
         device: *mut ID3D11Device,
         attrib_list: *const types::EGLAttrib,

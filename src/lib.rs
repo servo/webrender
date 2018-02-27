@@ -173,13 +173,9 @@ impl D3DVisual {
 
     pub fn make_current(&self, composition: &DirectComposition) {
         unsafe {
-            let make_current_result = composition.egl.MakeCurrent(
-                composition.egl_display,
-                self.egl_surface,
-                self.egl_surface,
-                self.egl_context,
+            composition.egl.make_current(
+                composition.egl_display, self.egl_surface, self.egl_context,
             );
-            assert!(make_current_result == egl::TRUE);
         }
     }
 
