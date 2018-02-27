@@ -22,7 +22,7 @@ pub struct DirectComposition {
     d3d_device: ComPtr<ID3D11Device>,
     dxgi_factory: ComPtr<IDXGIFactory2>,
 
-    egl: egl::SharedEglThings,
+    egl: Rc<egl::SharedEglThings>,
     pub gleam: Rc<gleam::gl::Gl>,
 
     composition_device: ComPtr<IDCompositionDevice>,
@@ -128,7 +128,7 @@ impl DirectComposition {
             let back_buffer = ComPtr::<winapi::um::d3d11::ID3D11Texture2D>::new_with_uuid(|uuid, ptr_ptr| {
                 swap_chain.GetBuffer(0, uuid, ptr_ptr)
             })?;
-            let egl = egl::PerVisualEglThings::new(&self.egl, &*back_buffer, width, height);
+            let egl = egl::PerVisualEglThings::new(self.egl.clone(), &*back_buffer, width, height);
 
             let visual = ComPtr::new_with(|ptr_ptr| self.composition_device.CreateVisual(ptr_ptr))?;
             visual.SetContent(&*****swap_chain).to_result()?;
@@ -159,10 +159,8 @@ impl D3DVisual {
         }
     }
 
-    pub fn make_current(&self, composition: &DirectComposition) {
-        unsafe {
-            self.egl.make_current(&composition.egl)
-        }
+    pub fn make_current(&self) {
+        self.egl.make_current()
     }
 
     pub fn present(&self) {

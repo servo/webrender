@@ -1,6 +1,7 @@
 use std::ffi::CString;
 use std::os::raw::{c_void, c_long};
 use std::ptr;
+use std::rc::Rc;
 use winapi;
 use winapi::um::d3d11::ID3D11Device;
 use winapi::um::d3d11::ID3D11Texture2D;
@@ -27,7 +28,7 @@ macro_rules! attributes {
 }
 
 impl SharedEglThings {
-    pub unsafe fn new(d3d_device: *mut ID3D11Device) -> Self {
+    pub unsafe fn new(d3d_device: *mut ID3D11Device) -> Rc<Self> {
         let functions = Egl;
 
         let device = functions.check_mut_ptr(eglCreateDeviceANGLE(
@@ -66,7 +67,7 @@ impl SharedEglThings {
         // FIXME: pick a preferable config?
         let config = configs[0];
 
-        SharedEglThings { functions, display, config }
+        Rc::new(SharedEglThings { functions, display, config })
     }
 
     pub fn get_proc_address(&self, name: &str) -> *const c_void {
@@ -78,14 +79,16 @@ impl SharedEglThings {
 }
 
 pub struct PerVisualEglThings {
+    shared: Rc<SharedEglThings>,
     context: types::EGLContext,
     surface: types::EGLSurface,
 }
 
 impl PerVisualEglThings {
-    pub unsafe fn new(shared: &SharedEglThings, buffer: *const ID3D11Texture2D,
+    pub unsafe fn new(shared: Rc<SharedEglThings>, buffer: *const ID3D11Texture2D,
            width: u32, height: u32)
            -> Self {
+        let shared = shared.clone();
         let context = shared.functions.check_ptr(shared.functions.CreateContext(
             shared.display,
             shared.config,
@@ -105,13 +108,15 @@ impl PerVisualEglThings {
             ],
         ));
 
-        PerVisualEglThings { context, surface }
+        PerVisualEglThings { shared, context, surface }
     }
 
-    pub unsafe fn make_current(&self, shared: &SharedEglThings) {
-        shared.functions.check_bool(shared.functions.MakeCurrent(
-            shared.display, self.surface, self.surface, self.context
-        ))
+    pub fn make_current(&self) {
+        unsafe {
+            self.shared.functions.check_bool(self.shared.functions.MakeCurrent(
+                self.shared.display, self.surface, self.surface, self.context
+            ))
+        }
     }
 }
 
