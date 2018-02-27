@@ -25,7 +25,7 @@ use renderer::{BlendMode, ImageBufferKind};
 use renderer::BLOCKS_PER_UV_RECT;
 use resource_cache::{CacheItem, GlyphFetchResult, ImageRequest, ResourceCache};
 use std::{usize, f32, i32};
-use tiling::{RenderTargetContext, RenderTargetKind};
+use tiling::{RenderTargetContext};
 use util::{MatrixHelpers, TransformedRectKind};
 
 // Special sentinel value recognized by the shader. It is considered to be
@@ -47,24 +47,15 @@ pub enum TransformBatchKind {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BrushImageSourceKind {
     Color = 0,
-    Alpha = 1,
+    //Alpha = 1,            // Unused for now, but left here as shaders need to match.
     ColorAlphaMask = 2,
-}
-
-impl BrushImageSourceKind {
-    pub fn from_render_target_kind(render_target_kind: RenderTargetKind) -> BrushImageSourceKind {
-        match render_target_kind {
-            RenderTargetKind::Color => BrushImageSourceKind::Color,
-            RenderTargetKind::Alpha => BrushImageSourceKind::Alpha,
-        }
-    }
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BrushBatchKind {
-    Picture(BrushImageSourceKind),
+    Picture,
     Solid,
     Line,
     Image(ImageBufferKind),
@@ -904,9 +895,7 @@ impl AlphaBatchBuilder {
                             }
                             PictureKind::BoxShadow { image_kind, .. } => {
                                 let textures = BatchTextures::color(cache_item.texture_id);
-                                let kind = BrushBatchKind::Picture(
-                                    BrushImageSourceKind::from_render_target_kind(picture.target_kind()),
-                                );
+                                let kind = BrushBatchKind::Picture;
 
                                 self.add_brush_to_batch(
                                     &picture.brush,

@@ -629,12 +629,4 @@ impl PicturePrimitive {
             }
         }
     }
-
-    pub fn target_kind(&self) -> RenderTargetKind {
-        match self.kind {
-            PictureKind::TextShadow { .. } => RenderTargetKind::Color,
-            PictureKind::BoxShadow { .. } => RenderTargetKind::Alpha,
-            PictureKind::Image { .. } => RenderTargetKind::Color,
-        }
-    }
 }

@@ -20,7 +20,7 @@ use api::DebugCommand;
 #[cfg(not(feature = "debugger"))]
 use api::channel::MsgSender;
 use batch::{BatchKey, BatchKind, BatchTextures, BrushBatchKind};
-use batch::{BrushImageSourceKind, TransformBatchKind};
+use batch::{TransformBatchKind};
 #[cfg(any(feature = "capture", feature = "replay"))]
 use capture::{CaptureConfig, ExternalCaptureImage, PlainExternalImage};
 use debug_colors;
@@ -220,7 +220,7 @@ impl BatchKind {
             BatchKind::SplitComposite => "SplitComposite",
             BatchKind::Brush(kind) => {
                 match kind {
-                    BrushBatchKind::Picture(..) => "Brush (Picture)",
+                    BrushBatchKind::Picture => "Brush (Picture)",
                     BrushBatchKind::Solid => "Brush (Solid)",
                     BrushBatchKind::Line => "Brush (Line)",
                     BrushBatchKind::Image(..) => "Brush (Image)",
@@ -241,7 +241,7 @@ impl BatchKind {
             BatchKind::SplitComposite => GPU_TAG_PRIM_SPLIT_COMPOSITE,
             BatchKind::Brush(kind) => {
                 match kind {
-                    BrushBatchKind::Picture(..) => GPU_TAG_BRUSH_PICTURE,
+                    BrushBatchKind::Picture => GPU_TAG_BRUSH_PICTURE,
                     BrushBatchKind::Solid => GPU_TAG_BRUSH_SOLID,
                     BrushBatchKind::Line => GPU_TAG_BRUSH_LINE,
                     BrushBatchKind::Image(..) => GPU_TAG_BRUSH_IMAGE,
@@ -1602,9 +1602,7 @@ pub struct Renderer {
 
     // Brush shaders
     brush_mask_rounded_rect: LazilyCompiledShader,
-    brush_picture_rgba8: BrushShader,
-    brush_picture_rgba8_alpha_mask: BrushShader,
-    brush_picture_a8: BrushShader,
+    brush_picture: BrushShader,
     brush_solid: BrushShader,
     brush_line: BrushShader,
     brush_image: Vec<Option<BrushShader>>,
@@ -1838,24 +1836,10 @@ impl Renderer {
                              options.precache_shaders)
         };
 
-        let brush_picture_a8 = try!{
+        let brush_picture = try!{
             BrushShader::new("brush_picture",
                              &mut device,
-                             &["ALPHA_TARGET"],
-                             options.precache_shaders)
-        };
-
-        let brush_picture_rgba8 = try!{
-            BrushShader::new("brush_picture",
-                             &mut device,
-                             &["COLOR_TARGET"],
-                             options.precache_shaders)
-        };
-
-        let brush_picture_rgba8_alpha_mask = try!{
-            BrushShader::new("brush_picture",
-                             &mut device,
-                             &["COLOR_TARGET_ALPHA_MASK"],
+                             &[],
                              options.precache_shaders)
         };
 
@@ -2289,9 +2273,7 @@ impl Renderer {
             cs_blur_a8,
             cs_blur_rgba8,
             brush_mask_rounded_rect,
-            brush_picture_rgba8,
-            brush_picture_rgba8_alpha_mask,
-            brush_picture_a8,
+            brush_picture,
             brush_solid,
             brush_line,
             brush_image,
@@ -3220,13 +3202,8 @@ impl Renderer {
                                 &mut self.renderer_errors,
                             );
                     }
-                    BrushBatchKind::Picture(target_kind) => {
-                        let shader = match target_kind {
-                            BrushImageSourceKind::Alpha => &mut self.brush_picture_a8,
-                            BrushImageSourceKind::Color => &mut self.brush_picture_rgba8,
-                            BrushImageSourceKind::ColorAlphaMask => &mut self.brush_picture_rgba8_alpha_mask,
-                        };
-                        shader.bind(
+                    BrushBatchKind::Picture => {
+                        self.brush_picture.bind(
                             &mut self.device,
                             key.blend_mode,
                             projection,
@@ -4707,9 +4684,7 @@ impl Renderer {
         self.cs_blur_a8.deinit(&mut self.device);
         self.cs_blur_rgba8.deinit(&mut self.device);
         self.brush_mask_rounded_rect.deinit(&mut self.device);
-        self.brush_picture_rgba8.deinit(&mut self.device);
-        self.brush_picture_rgba8_alpha_mask.deinit(&mut self.device);
-        self.brush_picture_a8.deinit(&mut self.device);
+        self.brush_picture.deinit(&mut self.device);
         self.brush_solid.deinit(&mut self.device);
         self.brush_line.deinit(&mut self.device);
         self.brush_blend.deinit(&mut self.device);
