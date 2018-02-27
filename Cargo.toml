@@ -8,6 +8,7 @@ winapi = {version = "0.3", features = ["winerror", "d3d11", "dcomp"]}
 
 # For the `main.rs` demo
 [dependencies]
+gleam = "0.4"
 winit = "0.10"
 
 [build-dependencies]

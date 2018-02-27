@@ -1,9 +1,11 @@
 #![cfg(windows)]
 
 extern crate winapi;
+extern crate gleam;
 
 use com::{ComPtr, ToResult, HResult, as_ptr};
 use std::ptr;
+use std::rc::Rc;
 use winapi::shared::dxgi1_2::DXGI_SWAP_CHAIN_DESC1;
 use winapi::shared::dxgi1_2::IDXGIFactory2;
 use winapi::shared::minwindef::{TRUE, FALSE};
@@ -25,6 +27,7 @@ pub struct DirectComposition {
     egl: egl::Egl,
     egl_display: egl::types::EGLDisplay,
     egl_config: egl::types::EGLConfig,
+    pub gleam: Rc<gleam::gl::Gl>,
 
     composition_device: ComPtr<IDCompositionDevice>,
     root_visual: ComPtr<IDCompositionVisual>,
@@ -61,6 +64,9 @@ impl DirectComposition {
         let egl = egl::Egl;
         let egl_display = egl.initialize(d3d_device.as_raw());
         let egl_config = egl.config(egl_display);
+        let gleam = gleam::gl::GlesFns::load_with(|name| {
+            egl.GetProcAddress(name.as_ptr() as _) as *const _ as _
+        });
 
         let dxgi_device = d3d_device.cast::<winapi::shared::dxgi::IDXGIDevice>()?;
 
@@ -94,7 +100,7 @@ impl DirectComposition {
 
         Ok(DirectComposition {
             d3d_device, dxgi_factory, d3d_device_context,
-            egl, egl_display, egl_config,
+            egl, egl_display, egl_config, gleam,
             composition_device, composition_target, root_visual,
         })
     }
