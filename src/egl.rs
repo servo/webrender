@@ -82,6 +82,7 @@ impl SharedEglThings {
 impl Drop for SharedEglThings {
     fn drop(&mut self) {
         unsafe {
+            // FIXME does EGLDisplay or EGLConfig need clean up? How?
             self.functions.check_bool(eglReleaseDeviceANGLE(self.device))
         }
     }

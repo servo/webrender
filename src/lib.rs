@@ -134,7 +134,7 @@ impl DirectComposition {
             visual.SetContent(&*****swap_chain).to_result()?;
             self.root_visual.AddVisual(&*visual, FALSE, ptr::null_mut()).to_result()?;
 
-            Ok(D3DVisual { visual, swap_chain, egl })
+            Ok(D3DVisual { visual, swap_chain, back_buffer, egl })
         }
     }
 }
@@ -143,6 +143,10 @@ impl DirectComposition {
 pub struct D3DVisual {
     visual: ComPtr<IDCompositionVisual>,
     swap_chain: ComPtr<winapi::shared::dxgi1_2::IDXGISwapChain1>,
+
+    #[allow(unused)]  // FIXME: does this need to be kept alive?
+    back_buffer: ComPtr<winapi::um::d3d11::ID3D11Texture2D>,
+
     egl: egl::PerVisualEglThings,
 }
 
