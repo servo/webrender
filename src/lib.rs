@@ -135,6 +135,7 @@ impl DirectComposition {
             let back_buffer = ComPtr::<winapi::um::d3d11::ID3D11Texture2D>::new_with_uuid(|uuid, ptr_ptr| {
                 swap_chain.GetBuffer(0, uuid, ptr_ptr)
             })?;
+            let egl_context = self.egl.create_context(self.egl_display, self.egl_config);
             let egl_surface = self.egl.create_surface(
                 self.egl_display, &*back_buffer, self.egl_config, width, height,
             );
@@ -148,7 +149,7 @@ impl DirectComposition {
             visual.SetContent(&*****swap_chain).to_result()?;
             self.root_visual.AddVisual(&*visual, FALSE, ptr::null_mut()).to_result()?;
 
-            Ok(D3DVisual { visual, swap_chain, render_target_view })
+            Ok(D3DVisual { visual, swap_chain, render_target_view, egl_context, egl_surface })
         }
     }
 }
@@ -158,6 +159,8 @@ pub struct D3DVisual {
     visual: ComPtr<IDCompositionVisual>,
     pub swap_chain: ComPtr<winapi::shared::dxgi1_2::IDXGISwapChain1>,
     pub render_target_view: ComPtr<winapi::um::d3d11::ID3D11RenderTargetView>,
+    egl_context: egl::types::EGLContext,
+    egl_surface: egl::types::EGLSurface,
 }
 
 impl D3DVisual {
@@ -170,6 +173,18 @@ impl D3DVisual {
     pub fn set_offset_y(&self, offset_y: f32) -> HResult<()> {
         unsafe {
             self.visual.SetOffsetY_1(offset_y).to_result()
+        }
+    }
+
+    pub fn make_current(&self, composition: &DirectComposition) {
+        unsafe {
+            let make_current_result = composition.egl.MakeCurrent(
+                composition.egl_display,
+                self.egl_surface,
+                self.egl_surface,
+                self.egl_context,
+            );
+            assert!(make_current_result == egl::TRUE);
         }
     }
 }

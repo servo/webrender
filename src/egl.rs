@@ -56,6 +56,21 @@ impl Egl {
         configs[0]
     }
 
+    pub unsafe fn create_context(&self, display: types::EGLSurface, config: types::EGLConfig)
+                                 -> types::EGLContext {
+        let attrib_list = [
+            NONE,
+        ];
+        let context = self.CreateContext(
+            display,
+            config,
+            NO_CONTEXT,
+            attrib_list.as_ptr() as *const i32,
+        );
+        assert!(!context.is_null());
+        context
+    }
+
     pub unsafe fn create_surface(&self, display: types::EGLSurface, buffer: *const ID3D11Texture2D,
                                  config: types::EGLConfig, width: u32, height: u32)
                                  -> types::EGLSurface {
