@@ -8,6 +8,7 @@ use winapi::um::d3d11::ID3D11Texture2D;
 
 pub struct SharedEglThings {
     functions: Egl,
+    device: EGLDeviceEXT,
     display: types::EGLDisplay,
     config: types::EGLConfig,
 }
@@ -67,13 +68,21 @@ impl SharedEglThings {
         // FIXME: pick a preferable config?
         let config = configs[0];
 
-        Rc::new(SharedEglThings { functions, display, config })
+        Rc::new(SharedEglThings { functions, device, display, config })
     }
 
     pub fn get_proc_address(&self, name: &str) -> *const c_void {
         let name = CString::new(name.as_bytes()).unwrap();
         unsafe {
             self.functions.GetProcAddress(name.as_ptr()) as *const _ as _
+        }
+    }
+}
+
+impl Drop for SharedEglThings {
+    fn drop(&mut self) {
+        unsafe {
+            self.functions.check_bool(eglReleaseDeviceANGLE(self.device))
         }
     }
 }
@@ -114,8 +123,27 @@ impl PerVisualEglThings {
     pub fn make_current(&self) {
         unsafe {
             self.shared.functions.check_bool(self.shared.functions.MakeCurrent(
-                self.shared.display, self.surface, self.surface, self.context
+                self.shared.display, self.surface, self.surface, self.context,
             ))
+        }
+    }
+}
+
+impl Drop for PerVisualEglThings {
+    fn drop(&mut self) {
+        unsafe {
+            if self.shared.functions.GetCurrentContext() == self.context {
+                // release the current context without assigning a new one
+                self.shared.functions.check_bool(self.shared.functions.MakeCurrent(
+                    self.shared.display, NO_SURFACE, NO_SURFACE, NO_CONTEXT,
+                ))
+            }
+            self.shared.functions.check_bool(self.shared.functions.DestroyContext(
+                self.shared.display, self.context,
+            ));
+            self.shared.functions.check_bool(self.shared.functions.DestroySurface(
+                self.shared.display, self.surface,
+            ));
         }
     }
 }
@@ -174,4 +202,6 @@ extern "C" {
         device: *mut ID3D11Device,
         attrib_list: *const types::EGLAttrib,
     ) -> EGLDeviceEXT;
+
+    fn eglReleaseDeviceANGLE(device: EGLDeviceEXT) -> types::EGLBoolean;
 }
