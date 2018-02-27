@@ -30,8 +30,8 @@ fn main() {
 
     let mut rgba1 = [0., 0.2, 0.4, 1.];
     let mut rgba2 = [0., 0.5, 0., 0.5];
-    render_plain_rgba_frame(&composition, &visual1, &rgba1);
-    render_plain_rgba_frame(&composition, &visual2, &rgba2);
+    render_plain_rgba_frame(&visual1, &rgba1);
+    render_plain_rgba_frame(&visual2, &rgba2);
 
     let mut clicks: u32 = 0;
 
@@ -64,7 +64,7 @@ fn main() {
                     };
                     rgba[1] += 0.1;
                     rgba[1] %= 1.;
-                    render_plain_rgba_frame(&composition, visual, rgba)
+                    render_plain_rgba_frame(visual, rgba)
                 }
                 _ => {}
             }
@@ -79,9 +79,9 @@ fn direct_composition_from_window(window: &winit::Window) -> DirectComposition {
     }
 }
 
-fn render_plain_rgba_frame(composition: &DirectComposition, visual: &D3DVisual, rgba: &[f32; 4]) {
+fn render_plain_rgba_frame(visual: &D3DVisual, rgba: &[f32; 4]) {
     visual.make_current();
-    composition.gleam.clear_color(rgba[0], rgba[1], rgba[2], rgba[3]);
-    assert_eq!(composition.gleam.get_error(), 0);
+    visual.gleam.clear_color(rgba[0], rgba[1], rgba[2], rgba[3]);
+    assert_eq!(visual.gleam.get_error(), 0);
     visual.present();
 }
