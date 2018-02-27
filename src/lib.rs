@@ -11,7 +11,6 @@ use winapi::shared::dxgi1_2::DXGI_SWAP_CHAIN_DESC1;
 use winapi::shared::dxgi1_2::IDXGIFactory2;
 use winapi::shared::minwindef::{TRUE, FALSE};
 use winapi::shared::windef::HWND;
-use winapi::shared::winerror::S_OK;
 use winapi::um::d3d11::ID3D11Device;
 use winapi::um::dcomp::IDCompositionDevice;
 use winapi::um::dcomp::IDCompositionTarget;
@@ -23,7 +22,6 @@ mod egl;
 pub struct DirectComposition {
     d3d_device: ComPtr<ID3D11Device>,
     dxgi_factory: ComPtr<IDXGIFactory2>,
-    pub d3d_device_context: ComPtr<winapi::um::d3d11::ID3D11DeviceContext>,
 
     egl: egl::Egl,
     egl_display: egl::types::EGLDisplay,
@@ -81,11 +79,6 @@ impl DirectComposition {
             adapter.GetParent(uuid, ptr_ptr)
         })?;
 
-        let d3d_device_context = ComPtr::new_with(|ptr_ptr| {
-            d3d_device.GetImmediateContext(ptr_ptr);
-            S_OK
-        })?;
-
         // Create the DirectComposition device object.
         let composition_device = ComPtr::<IDCompositionDevice>::new_with_uuid(|uuid, ptr_ptr| {
             winapi::um::dcomp::DCompositionCreateDevice(&*dxgi_device, uuid,ptr_ptr)
@@ -101,7 +94,7 @@ impl DirectComposition {
         composition_target.SetRoot(&*root_visual).to_result()?;
 
         Ok(DirectComposition {
-            d3d_device, dxgi_factory, d3d_device_context,
+            d3d_device, dxgi_factory,
             egl, egl_display, egl_config, gleam,
             composition_device, composition_target, root_visual,
         })
@@ -147,17 +140,12 @@ impl DirectComposition {
             let egl_surface = self.egl.create_surface(
                 self.egl_display, &*back_buffer, self.egl_config, width, height,
             );
-            let render_target_view = ComPtr::new_with(|ptr_ptr| {
-                self.d3d_device.CreateRenderTargetView(
-                    as_ptr(&back_buffer), ptr::null_mut(), ptr_ptr,
-                )
-            })?;
 
             let visual = ComPtr::new_with(|ptr_ptr| self.composition_device.CreateVisual(ptr_ptr))?;
             visual.SetContent(&*****swap_chain).to_result()?;
             self.root_visual.AddVisual(&*visual, FALSE, ptr::null_mut()).to_result()?;
 
-            Ok(D3DVisual { visual, swap_chain, render_target_view, egl_context, egl_surface })
+            Ok(D3DVisual { visual, swap_chain, egl_context, egl_surface })
         }
     }
 }
@@ -165,8 +153,7 @@ impl DirectComposition {
 /// A DirectComposition "visual" configured for rendering with Direct3D.
 pub struct D3DVisual {
     visual: ComPtr<IDCompositionVisual>,
-    pub swap_chain: ComPtr<winapi::shared::dxgi1_2::IDXGISwapChain1>,
-    pub render_target_view: ComPtr<winapi::um::d3d11::ID3D11RenderTargetView>,
+    swap_chain: ComPtr<winapi::shared::dxgi1_2::IDXGISwapChain1>,
     egl_context: egl::types::EGLContext,
     egl_surface: egl::types::EGLSurface,
 }
