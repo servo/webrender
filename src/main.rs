@@ -1,10 +1,10 @@
 #[cfg(not(windows))]
 compile_error!("This demo only runs on Windows.");
 
-extern crate directcomposition;
+extern crate direct_composition;
 extern crate winit;
 
-use directcomposition::{DirectComposition, D3DVisual};
+use direct_composition::{DirectComposition, D3DVisual};
 use winit::os::windows::WindowExt;
 
 fn main() {
