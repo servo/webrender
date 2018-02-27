@@ -1,8 +1,15 @@
+use std::ffi::CString;
 use std::os::raw::{c_void, c_long};
 use std::ptr;
 use winapi;
 use winapi::um::d3d11::ID3D11Device;
 use winapi::um::d3d11::ID3D11Texture2D;
+
+pub struct SharedEglThings {
+    functions: Egl,
+    display: types::EGLDisplay,
+    config: types::EGLConfig,
+}
 
 fn cast_attributes(slice: &[types::EGLenum]) -> &EGLint {
     unsafe {
@@ -18,6 +25,96 @@ macro_rules! attributes {
         ])
     }
 }
+
+impl SharedEglThings {
+    pub unsafe fn new(d3d_device: *mut ID3D11Device) -> Self {
+        let functions = Egl;
+
+        let device = functions.check_mut_ptr(eglCreateDeviceANGLE(
+            D3D11_DEVICE_ANGLE,
+            d3d_device,
+            ptr::null(),
+        ));
+        let display = functions.check_ptr(functions.GetPlatformDisplayEXT(
+            PLATFORM_DEVICE_EXT,
+            device,
+            attributes! [
+                EXPERIMENTAL_PRESENT_PATH_ANGLE => EXPERIMENTAL_PRESENT_PATH_FAST_ANGLE,
+            ],
+        ));
+        functions.check_bool(functions.Initialize(display, ptr::null_mut(), ptr::null_mut()));
+
+        // Adapted from
+        // https://searchfox.org/mozilla-central/rev/056a4057/gfx/gl/GLContextProviderEGL.cpp#635
+        let mut configs = [ptr::null(); 64];
+        let mut num_configs = 0;
+        functions.check_bool(functions.ChooseConfig(
+            display,
+            attributes! [
+                SURFACE_TYPE => WINDOW_BIT,
+                RENDERABLE_TYPE => OPENGL_ES2_BIT,
+                RED_SIZE => 8,
+                GREEN_SIZE => 8,
+                BLUE_SIZE => 8,
+                ALPHA_SIZE => 8,
+            ],
+            configs.as_mut_ptr(),
+            configs.len() as i32,
+            &mut num_configs,
+        ));
+        assert!(num_configs >= 0);
+        // FIXME: pick a preferable config?
+        let config = configs[0];
+
+        SharedEglThings { functions, display, config }
+    }
+
+    pub fn get_proc_address(&self, name: &str) -> *const c_void {
+        let name = CString::new(name.as_bytes()).unwrap();
+        unsafe {
+            self.functions.GetProcAddress(name.as_ptr()) as *const _ as _
+        }
+    }
+}
+
+pub struct PerVisualEglThings {
+    context: types::EGLContext,
+    surface: types::EGLSurface,
+}
+
+impl PerVisualEglThings {
+    pub unsafe fn new(shared: &SharedEglThings, buffer: *const ID3D11Texture2D,
+           width: u32, height: u32)
+           -> Self {
+        let context = shared.functions.check_ptr(shared.functions.CreateContext(
+            shared.display,
+            shared.config,
+            NO_CONTEXT,
+            attributes![],
+        ));
+
+        let surface = shared.functions.check_ptr(shared.functions.CreatePbufferFromClientBuffer(
+            shared.display,
+            D3D_TEXTURE_ANGLE,
+            buffer as types::EGLClientBuffer,
+            shared.config,
+            attributes! [
+                WIDTH => width,
+                HEIGHT => height,
+                FLEXIBLE_SURFACE_COMPATIBILITY_SUPPORTED_ANGLE => TRUE,
+            ],
+        ));
+
+        PerVisualEglThings { context, surface }
+    }
+
+    pub unsafe fn make_current(&self, shared: &SharedEglThings) {
+        shared.functions.check_bool(shared.functions.MakeCurrent(
+            shared.display, self.surface, self.surface, self.context
+        ))
+    }
+}
+
 impl Egl {
     fn check_error(&self) {
         unsafe {
@@ -41,79 +138,6 @@ impl Egl {
     fn check_bool(&self, bool_result: types::EGLBoolean) {
         self.check_error();
         assert_eq!(bool_result, TRUE);
-    }
-
-    pub unsafe fn initialize(&self, d3d_device: *mut ID3D11Device) -> types::EGLDisplay {
-        let egl_device = self.check_mut_ptr(eglCreateDeviceANGLE(
-            D3D11_DEVICE_ANGLE,
-            d3d_device,
-            ptr::null(),
-        ));
-        let egl_display = self.check_ptr(self.GetPlatformDisplayEXT(
-            PLATFORM_DEVICE_EXT,
-            egl_device,
-            attributes! [
-                EXPERIMENTAL_PRESENT_PATH_ANGLE => EXPERIMENTAL_PRESENT_PATH_FAST_ANGLE,
-            ],
-        ));
-        self.check_bool(self.Initialize(egl_display, ptr::null_mut(), ptr::null_mut()));
-
-        egl_display
-    }
-
-    // Adapted from
-    // https://searchfox.org/mozilla-central/rev/056a4057/gfx/gl/GLContextProviderEGL.cpp#635
-    pub unsafe fn config(&self, display: types::EGLDisplay) -> types::EGLConfig {
-        let mut configs = [ptr::null(); 64];
-        let mut num_configs = 0;
-        self.check_bool(self.ChooseConfig(
-            display,
-            attributes! [
-                SURFACE_TYPE => WINDOW_BIT,
-                RENDERABLE_TYPE => OPENGL_ES2_BIT,
-                RED_SIZE => 8,
-                GREEN_SIZE => 8,
-                BLUE_SIZE => 8,
-                ALPHA_SIZE => 8,
-            ],
-            configs.as_mut_ptr(),
-            configs.len() as i32,
-            &mut num_configs,
-        ));
-        assert!(num_configs >= 0);
-        // FIXME: pick a preferable config?
-        configs[0]
-    }
-
-    pub unsafe fn create_context(&self, display: types::EGLDisplay, config: types::EGLConfig)
-                                 -> types::EGLContext {
-        self.check_ptr(self.CreateContext(
-            display,
-            config,
-            NO_CONTEXT,
-            attributes![],
-        ))
-    }
-
-    pub unsafe fn create_surface(&self, display: types::EGLDisplay, buffer: *const ID3D11Texture2D,
-                                 config: types::EGLConfig, width: u32, height: u32)
-                                 -> types::EGLSurface {
-        self.check_ptr(self.CreatePbufferFromClientBuffer(
-            display,
-            D3D_TEXTURE_ANGLE,
-            buffer as types::EGLClientBuffer,
-            config,
-            attributes! [
-                WIDTH => width,
-                HEIGHT => height,
-                FLEXIBLE_SURFACE_COMPATIBILITY_SUPPORTED_ANGLE => TRUE,
-            ],
-        ))
-    }
-
-    pub unsafe fn make_current(&self, display: types::EGLDisplay, surface: types::EGLSurface,
-                               context: types::EGLContext) {
-        self.check_bool(self.MakeCurrent(display, surface, surface, context))
     }
 }
 

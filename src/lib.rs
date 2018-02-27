@@ -4,7 +4,6 @@ extern crate winapi;
 extern crate gleam;
 
 use com::{ComPtr, ToResult, HResult, as_ptr};
-use std::ffi::CString;
 use std::ptr;
 use std::rc::Rc;
 use winapi::shared::dxgi1_2::DXGI_SWAP_CHAIN_DESC1;
@@ -23,9 +22,7 @@ pub struct DirectComposition {
     d3d_device: ComPtr<ID3D11Device>,
     dxgi_factory: ComPtr<IDXGIFactory2>,
 
-    egl: egl::Egl,
-    egl_display: egl::types::EGLDisplay,
-    egl_config: egl::types::EGLConfig,
+    egl: egl::SharedEglThings,
     pub gleam: Rc<gleam::gl::Gl>,
 
     composition_device: ComPtr<IDCompositionDevice>,
@@ -60,13 +57,8 @@ impl DirectComposition {
             ptr::null_mut(),
         ))?;
 
-        let egl = egl::Egl;
-        let egl_display = egl.initialize(d3d_device.as_raw());
-        let egl_config = egl.config(egl_display);
-        let gleam = gleam::gl::GlesFns::load_with(|name| {
-            let name = CString::new(name.as_bytes()).unwrap();
-            egl.GetProcAddress(name.as_ptr()) as *const _ as _
-        });
+        let egl = egl::SharedEglThings::new(d3d_device.as_raw());
+        let gleam = gleam::gl::GlesFns::load_with(|name| egl.get_proc_address(name));
 
         let dxgi_device = d3d_device.cast::<winapi::shared::dxgi::IDXGIDevice>()?;
 
@@ -95,7 +87,7 @@ impl DirectComposition {
 
         Ok(DirectComposition {
             d3d_device, dxgi_factory,
-            egl, egl_display, egl_config, gleam,
+            egl, gleam,
             composition_device, composition_target, root_visual,
         })
     }
@@ -136,16 +128,13 @@ impl DirectComposition {
             let back_buffer = ComPtr::<winapi::um::d3d11::ID3D11Texture2D>::new_with_uuid(|uuid, ptr_ptr| {
                 swap_chain.GetBuffer(0, uuid, ptr_ptr)
             })?;
-            let egl_context = self.egl.create_context(self.egl_display, self.egl_config);
-            let egl_surface = self.egl.create_surface(
-                self.egl_display, &*back_buffer, self.egl_config, width, height,
-            );
+            let egl = egl::PerVisualEglThings::new(&self.egl, &*back_buffer, width, height);
 
             let visual = ComPtr::new_with(|ptr_ptr| self.composition_device.CreateVisual(ptr_ptr))?;
             visual.SetContent(&*****swap_chain).to_result()?;
             self.root_visual.AddVisual(&*visual, FALSE, ptr::null_mut()).to_result()?;
 
-            Ok(D3DVisual { visual, swap_chain, egl_context, egl_surface })
+            Ok(D3DVisual { visual, swap_chain, egl })
         }
     }
 }
@@ -154,8 +143,7 @@ impl DirectComposition {
 pub struct D3DVisual {
     visual: ComPtr<IDCompositionVisual>,
     swap_chain: ComPtr<winapi::shared::dxgi1_2::IDXGISwapChain1>,
-    egl_context: egl::types::EGLContext,
-    egl_surface: egl::types::EGLSurface,
+    egl: egl::PerVisualEglThings,
 }
 
 impl D3DVisual {
@@ -173,9 +161,7 @@ impl D3DVisual {
 
     pub fn make_current(&self, composition: &DirectComposition) {
         unsafe {
-            composition.egl.make_current(
-                composition.egl_display, self.egl_surface, self.egl_context,
-            );
+            self.egl.make_current(&composition.egl)
         }
     }
 
