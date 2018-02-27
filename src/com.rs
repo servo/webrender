@@ -43,7 +43,7 @@ pub fn as_ptr<T>(x: &T) -> *mut T {
     x as *const T as _
 }
 
-/// Forked from https://github.com/retep998/wio-rs/blob/44093f7db8/src/com.rs
+/// Forked from <https://github.com/retep998/wio-rs/blob/44093f7db8/src/com.rs>
 #[derive(PartialEq, Debug)]
 pub struct ComPtr<T>(*mut T) where T: Interface;
 

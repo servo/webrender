@@ -195,4 +195,10 @@ impl D3DVisual {
             assert!(make_current_result == egl::TRUE);
         }
     }
+
+    pub fn present(&self) {
+        unsafe {
+            self.swap_chain.Present(0, 0).to_result().unwrap()
+        }
+    }
 }

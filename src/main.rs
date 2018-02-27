@@ -5,7 +5,6 @@ extern crate directcomposition;
 extern crate winit;
 
 use directcomposition::{DirectComposition, D3DVisual};
-use directcomposition::com::ToResult;
 use winit::os::windows::WindowExt;
 
 fn main() {
@@ -83,7 +82,5 @@ fn direct_composition_from_window(window: &winit::Window) -> DirectComposition {
 fn render_plain_rgba_frame(composition: &DirectComposition, visual: &D3DVisual, rgba: &[f32; 4]) {
     visual.make_current(composition);
     composition.gleam.clear_color(rgba[0], rgba[1], rgba[2], rgba[3]);
-    unsafe {
-        visual.swap_chain.Present(0, 0).to_result().unwrap()
-    }
+    visual.present();
 }
