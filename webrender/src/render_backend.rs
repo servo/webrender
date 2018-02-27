@@ -18,7 +18,7 @@ use api::CapturedDocument;
 use clip_scroll_tree::ClipScrollTree;
 #[cfg(feature = "debugger")]
 use debug_server;
-use frame::FlattenContext;
+use display_list_flattener::DisplayListFlattener;
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use gpu_cache::GpuCache;
 use hit_test::{HitTest, HitTester};
@@ -331,12 +331,12 @@ impl Document {
             return old_builder;
         }
 
-        // The FlattenContext will re-create the up-to-date current scene's pipeline epoch map and
-        // clip scroll tree from the information in the pending scene.
+        // The DisplayListFlattener will re-create the up-to-date current scene's pipeline epoch
+        // map and clip scroll tree from the information in the pending scene.
         self.current.scene.pipeline_epochs.clear();
         let old_scrolling_states = self.clip_scroll_tree.drain();
 
-        let frame_builder = FlattenContext::create_frame_builder(
+        let frame_builder = DisplayListFlattener::create_frame_builder(
             old_builder,
             &self.pending.scene,
             &mut self.clip_scroll_tree,

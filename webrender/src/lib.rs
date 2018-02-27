@@ -66,8 +66,8 @@ mod debug_render;
 #[cfg(feature = "debugger")]
 mod debug_server;
 mod device;
+mod display_list_flattener;
 mod ellipse;
-mod frame;
 mod frame_builder;
 mod freelist;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
