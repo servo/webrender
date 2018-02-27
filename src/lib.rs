@@ -129,12 +129,13 @@ impl DirectComposition {
                 swap_chain.GetBuffer(0, uuid, ptr_ptr)
             })?;
             let egl = egl::PerVisualEglThings::new(self.egl.clone(), &*back_buffer, width, height);
+            let gleam = self.gleam.clone();
 
             let visual = ComPtr::new_with(|ptr_ptr| self.composition_device.CreateVisual(ptr_ptr))?;
             visual.SetContent(&*****swap_chain).to_result()?;
             self.root_visual.AddVisual(&*visual, FALSE, ptr::null_mut()).to_result()?;
 
-            Ok(D3DVisual { visual, swap_chain, back_buffer, egl })
+            Ok(D3DVisual { visual, swap_chain, back_buffer, egl, gleam })
         }
     }
 }
@@ -148,6 +149,7 @@ pub struct D3DVisual {
     back_buffer: ComPtr<winapi::um::d3d11::ID3D11Texture2D>,
 
     egl: egl::PerVisualEglThings,
+    pub gleam: Rc<gleam::gl::Gl>,
 }
 
 impl D3DVisual {
@@ -168,6 +170,7 @@ impl D3DVisual {
     }
 
     pub fn present(&self) {
+        self.gleam.finish();
         unsafe {
             self.swap_chain.Present(0, 0).to_result().unwrap()
         }
