@@ -36,25 +36,25 @@ macro_rules! attributes {
 
 impl SharedEglThings {
     pub unsafe fn new(d3d_device: *mut ID3D11Device) -> Rc<Self> {
-        let device = check_mut_ptr(eglCreateDeviceANGLE(
+        let device = eglCreateDeviceANGLE(
             D3D11_DEVICE_ANGLE,
             d3d_device,
             ptr::null(),
-        ));
-        let display = check_ptr(GetPlatformDisplayEXT(
+        ).check();
+        let display = GetPlatformDisplayEXT(
             PLATFORM_DEVICE_EXT,
             device,
             attributes! [
                 EXPERIMENTAL_PRESENT_PATH_ANGLE => EXPERIMENTAL_PRESENT_PATH_FAST_ANGLE,
             ],
-        ));
-        check_bool(Initialize(display, ptr::null_mut(), ptr::null_mut()));
+        ).check();
+        Initialize(display, ptr::null_mut(), ptr::null_mut()).check();
 
         // Adapted from
         // https://searchfox.org/mozilla-central/rev/056a4057/gfx/gl/GLContextProviderEGL.cpp#635
         let mut configs = [ptr::null(); 64];
         let mut num_configs = 0;
-        check_bool(ChooseConfig(
+        ChooseConfig(
             display,
             attributes! [
                 SURFACE_TYPE => WINDOW_BIT,
@@ -67,7 +67,7 @@ impl SharedEglThings {
             configs.as_mut_ptr(),
             configs.len() as i32,
             &mut num_configs,
-        ));
+        ).check();
         assert!(num_configs >= 0);
         // FIXME: pick a preferable config?
         let config = configs[0];
@@ -80,7 +80,7 @@ impl Drop for SharedEglThings {
     fn drop(&mut self) {
         unsafe {
             // FIXME does EGLDisplay or EGLConfig need clean up? How?
-            check_bool(eglReleaseDeviceANGLE(self.device))
+            eglReleaseDeviceANGLE(self.device).check();
         }
     }
 }
@@ -95,14 +95,14 @@ impl PerVisualEglThings {
     pub unsafe fn new(shared: Rc<SharedEglThings>, buffer: *const ID3D11Texture2D,
            width: u32, height: u32)
            -> Self {
-        let context = check_ptr(CreateContext(
+        let context = CreateContext(
             shared.display,
             shared.config,
             NO_CONTEXT,
             attributes![],
-        ));
+        ).check();
 
-        let surface = check_ptr(CreatePbufferFromClientBuffer(
+        let surface = CreatePbufferFromClientBuffer(
             shared.display,
             D3D_TEXTURE_ANGLE,
             buffer as types::EGLClientBuffer,
@@ -112,14 +112,14 @@ impl PerVisualEglThings {
                 HEIGHT => height,
                 FLEXIBLE_SURFACE_COMPATIBILITY_SUPPORTED_ANGLE => TRUE,
             ],
-        ));
+        ).check();
 
         PerVisualEglThings { shared, context, surface }
     }
 
     pub fn make_current(&self) {
         unsafe {
-            check_bool(MakeCurrent(self.shared.display, self.surface, self.surface, self.context))
+            MakeCurrent(self.shared.display, self.surface, self.surface, self.context).check();
         }
     }
 }
@@ -129,10 +129,10 @@ impl Drop for PerVisualEglThings {
         unsafe {
             if GetCurrentContext() == self.context {
                 // release the current context without assigning a new one
-                check_bool(MakeCurrent(self.shared.display, NO_SURFACE, NO_SURFACE, NO_CONTEXT))
+                MakeCurrent(self.shared.display, NO_SURFACE, NO_SURFACE, NO_CONTEXT).check();
             }
-            check_bool(DestroyContext(self.shared.display, self.context));
-            check_bool(DestroySurface(self.shared.display, self.surface));
+            DestroyContext(self.shared.display, self.context).check();
+            DestroySurface(self.shared.display, self.surface).check();
         }
     }
 }
@@ -144,21 +144,32 @@ fn check_error() {
     }
 }
 
-fn check_ptr(p: *const c_void) -> *const c_void {
-    check_error();
-    assert!(!p.is_null());
-    p
+trait Check {
+    fn check(self) -> Self;
 }
 
-fn check_mut_ptr(p: *mut c_void) -> *mut c_void {
-    check_error();
-    assert!(!p.is_null());
-    p
+impl Check for *const c_void {
+    fn check(self) -> Self {
+        check_error();
+        assert!(!self.is_null());
+        self
+    }
 }
 
-fn check_bool(bool_result: types::EGLBoolean) {
-    check_error();
-    assert_eq!(bool_result, TRUE);
+impl Check for *mut c_void {
+    fn check(self) -> Self {
+        check_error();
+        assert!(!self.is_null());
+        self
+    }
+}
+
+impl Check for types::EGLBoolean {
+    fn check(self) -> Self {
+        check_error();
+        assert_eq!(self, TRUE);
+        self
+    }
 }
 
 // Adapted from https://github.com/tomaka/glutin/blob/1f3b8360cb/src/api/egl/ffi.rs
