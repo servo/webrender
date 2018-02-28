@@ -99,7 +99,7 @@ impl DirectComposition {
         }
     }
 
-    pub fn create_d3d_visual(&self, width: u32, height: u32) -> D3DVisual {
+    pub fn create_angle_visual(&self, width: u32, height: u32) -> AngleVisual {
         unsafe {
             let desc = DXGI_SWAP_CHAIN_DESC1 {
                 Width: width,
@@ -135,20 +135,20 @@ impl DirectComposition {
             visual.SetContent(&*****swap_chain).check_hresult();
             self.root_visual.AddVisual(&*visual, FALSE, ptr::null_mut()).check_hresult();
 
-            D3DVisual { visual, swap_chain, egl, gleam }
+            AngleVisual { visual, swap_chain, egl, gleam }
         }
     }
 }
 
 /// A DirectComposition "visual" configured for rendering with Direct3D.
-pub struct D3DVisual {
+pub struct AngleVisual {
     visual: ComPtr<IDCompositionVisual>,
     swap_chain: ComPtr<winapi::shared::dxgi1_2::IDXGISwapChain1>,
     egl: egl::PerVisualEglThings,
     pub gleam: Rc<gleam::gl::Gl>,
 }
 
-impl D3DVisual {
+impl AngleVisual {
     pub fn set_offset_x(&self, offset_x: f32) {
         unsafe {
             self.visual.SetOffsetX_1(offset_x).check_hresult()

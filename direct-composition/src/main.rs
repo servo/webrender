@@ -6,7 +6,7 @@ extern crate gleam;
 extern crate webrender;
 extern crate winit;
 
-use direct_composition::{DirectComposition, D3DVisual};
+use direct_composition::{DirectComposition, AngleVisual};
 use winit::os::windows::WindowExt;
 
 fn main() {
@@ -25,11 +25,11 @@ fn main() {
         webrender::RendererOptions::default(),
     ).unwrap();
 
-    let visual1 = composition.create_d3d_visual(300, 200);
+    let visual1 = composition.create_angle_visual(300, 200);
     visual1.set_offset_x(100.);
     visual1.set_offset_y(50.);
 
-    let visual2 = composition.create_d3d_visual(400, 300);
+    let visual2 = composition.create_angle_visual(400, 300);
     let mut offset_y = 100.;
     visual2.set_offset_x(200.);
     visual2.set_offset_y(offset_y);
@@ -89,7 +89,7 @@ fn direct_composition_from_window(window: &winit::Window) -> DirectComposition {
     }
 }
 
-fn render_plain_rgba_frame(visual: &D3DVisual, &(r, g, b, a): &(f32, f32, f32, f32)) {
+fn render_plain_rgba_frame(visual: &AngleVisual, &(r, g, b, a): &(f32, f32, f32, f32)) {
     visual.make_current();
     visual.gleam.clear_color(r, g, b, a);
     visual.gleam.clear(gleam::gl::COLOR_BUFFER_BIT);
