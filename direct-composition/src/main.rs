@@ -6,7 +6,8 @@ extern crate gleam;
 extern crate webrender;
 extern crate winit;
 
-use direct_composition::{DirectComposition, AngleVisual};
+use direct_composition::DirectComposition;
+use webrender::api::{ColorF, DeviceUintSize};
 use winit::os::windows::WindowExt;
 
 fn main() {
@@ -25,23 +26,22 @@ fn main() {
         webrender::RendererOptions::default(),
     ).unwrap();
 
-    let visual1 = composition.create_angle_visual(300, 200);
-    visual1.set_offset_x(100.);
-    visual1.set_offset_y(50.);
-
-    let visual2 = composition.create_angle_visual(400, 300);
+    let mut clicks: usize = 0;
     let mut offset_y = 100.;
-    visual2.set_offset_x(200.);
-    visual2.set_offset_y(offset_y);
+    let mut rects = [
+        Rectangle::new(&composition, DeviceUintSize::new(300, 200), 0., 0.2, 0.4, 1.),
+        Rectangle::new(&composition, DeviceUintSize::new(400, 300), 0., 0.5, 0., 0.5),
+    ];
+    rects[0].render();
+    rects[1].render();
+
+    rects[0].visual.set_offset_x(100.);
+    rects[0].visual.set_offset_y(50.);
+
+    rects[1].visual.set_offset_x(200.);
+    rects[1].visual.set_offset_y(offset_y);
 
     composition.commit();
-
-    let mut rgba1 = (0., 0.2, 0.4, 1.);
-    let mut rgba2 = (0., 0.5, 0., 0.5);
-    render_plain_rgba_frame(&visual1, &rgba1);
-    render_plain_rgba_frame(&visual2, &rgba2);
-
-    let mut clicks: u32 = 0;
 
     events_loop.run_forever(|event| {
         if let winit::Event::WindowEvent { event, .. } = event {
@@ -56,7 +56,7 @@ fn main() {
                     };
                     offset_y = (offset_y - 10. * dy).max(0.).min(468.);
 
-                    visual2.set_offset_y(offset_y);
+                    rects[1].visual.set_offset_y(offset_y);
                     composition.commit();
                 }
                 winit::WindowEvent::MouseInput {
@@ -65,14 +65,10 @@ fn main() {
                     ..
                 } => {
                     clicks += 1;
-                    let (rgba, visual) = if clicks % 2 == 0 {
-                        (&mut rgba1, &visual1)
-                    } else {
-                        (&mut rgba2, &visual2)
-                    };
-                    rgba.1 += 0.1;
-                    rgba.1 %= 1.;
-                    render_plain_rgba_frame(visual, rgba)
+                    let rect = &mut rects[clicks % 2];
+                    rect.color.g += 0.1;
+                    rect.color.g %= 1.;
+                    rect.render()
                 }
                 _ => {}
             }
@@ -89,13 +85,30 @@ fn direct_composition_from_window(window: &winit::Window) -> DirectComposition {
     }
 }
 
-fn render_plain_rgba_frame(visual: &AngleVisual, &(r, g, b, a): &(f32, f32, f32, f32)) {
-    visual.make_current();
-    visual.gleam.clear_color(r, g, b, a);
-    visual.gleam.clear(gleam::gl::COLOR_BUFFER_BIT);
-    assert_eq!(visual.gleam.get_error(), 0);
-    visual.present();
+struct Rectangle {
+    visual: direct_composition::AngleVisual,
+    color: ColorF,
 }
+
+impl Rectangle {
+    fn new(composition: &DirectComposition, size: DeviceUintSize,
+           r: f32, g: f32, b: f32, a: f32)
+           -> Self {
+        Rectangle {
+            visual: composition.create_angle_visual(size.width, size.height),
+            color: ColorF { r, g, b, a },
+        }
+    }
+
+    fn render(&self) {
+        self.visual.make_current();
+        self.visual.gleam.clear_color(self.color.r, self.color.g, self.color.b, self.color.a);
+        self.visual.gleam.clear(gleam::gl::COLOR_BUFFER_BIT);
+        assert_eq!(self.visual.gleam.get_error(), 0);
+        self.visual.present();
+    }
+}
+
 
 #[derive(Clone)]
 struct Notifier {
