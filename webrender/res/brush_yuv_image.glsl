@@ -17,10 +17,6 @@
 //           that needing to compile to / select a different shader when
 //           there is a different color space.
 
-#ifdef WR_FEATURE_ALPHA_PASS
-varying vec2 vLocalPos;
-#endif
-
 #if defined (WR_FEATURE_YUV_PLANAR)
     varying vec3 vUv_Y;
     flat varying vec4 vUvBounds_Y;
@@ -79,10 +75,6 @@ void brush_vs(
     PictureTask pic_task
 ) {
     vec2 f = (vi.local_pos - local_rect.p0) / local_rect.size;
-
-#ifdef WR_FEATURE_ALPHA_PASS
-    vLocalPos = vi.local_pos;
-#endif
 
 #if defined (WR_FEATURE_YUV_PLANAR)
     write_uv_rect(user_data.x, f, TEX_SIZE(sColor0), vUv_Y, vUvBounds_Y);
@@ -163,10 +155,6 @@ vec4 brush_fs() {
     // See the YuvColorMatrix definition for an explanation of where the constants come from.
     vec3 rgb = YuvColorMatrix * (yuv_value - vec3(0.06275, 0.50196, 0.50196));
     vec4 color = vec4(rgb, 1.0);
-
-#ifdef WR_FEATURE_ALPHA_PASS
-    color *= init_transform_fs(vLocalPos);
-#endif
 
     return color;
 }

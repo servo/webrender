@@ -240,6 +240,9 @@ VertexInfo write_vertex(RectWithSize instance_rect,
 
     gl_Position = uTransform * vec4(final_pos, z, 1.0);
 
+    // It may be referenced by the fragment shader calling `init_transform_fs` later
+    init_transform_vs(vec4(vec2(-1000000.0), vec2(1000000.0)));
+
     VertexInfo vi = VertexInfo(
         clamped_local_pos,
         device_pos,

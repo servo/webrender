@@ -2,6 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#ifdef WR_FEATURE_ALPHA_PASS
+varying vec3 vBrushLocalPos;
+#endif
+
 #ifdef WR_VERTEX_SHADER
 
 void brush_vs(
@@ -102,16 +106,6 @@ void main(void) {
             pic_task,
             brush_prim.local_rect
         );
-
-        // TODO(gw): transform bounds may be referenced by
-        //           the fragment shader when running in
-        //           the alpha pass, even on non-transformed
-        //           items. For now, just ensure it has no
-        //           effect. We can tidy this up as we move
-        //           more items to be brush shaders.
-#ifdef WR_FEATURE_ALPHA_PASS
-        init_transform_vs(vec4(vec2(-1000000.0), vec2(1000000.0)));
-#endif
     } else {
         bvec4 edge_mask = notEqual(brush.edge_mask & ivec4(1, 2, 4, 8), ivec4(0));
         bool do_perspective_interpolation = (brush.flags & BRUSH_FLAG_PERSPECTIVE_INTERPOLATION) != 0;
@@ -139,6 +133,7 @@ void main(void) {
         vi.screen_pos,
         clip_area
     );
+    vBrushLocalPos = vec3(vi.local_pos, scroll_node.is_axis_aligned ? 0.0 : 1.0);
 #endif
 
     // Run the specific brush VS code to write interpolators.
@@ -164,6 +159,8 @@ void main(void) {
 #ifdef WR_FEATURE_ALPHA_PASS
     // Apply the clip mask
     color *= do_clip();
+    //if (vBrushLocalPos.z != 0.0)
+        color *= init_transform_fs(vBrushLocalPos.xy);
 #endif
 
     // TODO(gw): Handle pre-multiply common code here as required.

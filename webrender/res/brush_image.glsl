@@ -6,10 +6,6 @@
 
 #include shared,prim_shared,brush
 
-#ifdef WR_FEATURE_ALPHA_PASS
-varying vec2 vLocalPos;
-#endif
-
 varying vec3 vUv;
 flat varying vec4 vUvBounds;
 
@@ -166,8 +162,6 @@ void brush_vs(
             vSelect = vec2(0.0, 0.0);
             break;
     }
-
-    vLocalPos = vi.local_pos;
 #endif
 }
 #endif
@@ -180,7 +174,7 @@ vec4 brush_fs() {
 
 #ifdef WR_FEATURE_ALPHA_PASS
     vec4 mask = mix(texel.rrrr, texel.aaaa, vSelect.x);
-    vec4 color = mix(texel, vColor * mask, vSelect.y) * init_transform_fs(vLocalPos);
+    vec4 color = mix(texel, vColor * mask, vSelect.y);
 
     // Fail-safe to ensure that we don't sample outside the rendered
     // portion of a picture source.

@@ -15,10 +15,6 @@ flat varying float vEndRadius;
 
 varying vec2 vPos;
 
-#ifdef WR_FEATURE_ALPHA_PASS
-varying vec2 vLocalPos;
-#endif
-
 #ifdef WR_VERTEX_SHADER
 
 struct RadialGradient {
@@ -57,10 +53,6 @@ void brush_vs(
 
     // Whether to repeat the gradient instead of clamping.
     vGradientRepeat = float(int(gradient.ratio_xy_extend_mode.y) != EXTEND_MODE_CLAMP);
-
-#ifdef WR_FEATURE_ALPHA_PASS
-    vLocalPos = vi.local_pos;
-#endif
 }
 #endif
 
@@ -107,10 +99,6 @@ vec4 brush_fs() {
     vec4 color = sample_gradient(vGradientAddress,
                                  offset,
                                  vGradientRepeat);
-
-#ifdef WR_FEATURE_ALPHA_PASS
-    color *= init_transform_fs(vLocalPos);
-#endif
 
     return color;
 }
