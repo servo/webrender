@@ -1,4 +1,3 @@
-use std::fmt;
 use std::ops;
 use std::ptr;
 use winapi::Interface;
@@ -8,39 +7,24 @@ use winapi::shared::winerror::HRESULT;
 use winapi::shared::winerror::SUCCEEDED;
 use winapi::um::unknwnbase::IUnknown;
 
-pub type HResult<T> = Result<T, HResultError>;
-
-/// An error code returned by a Windows API.
-pub struct HResultError(HRESULT);
-
-impl fmt::Debug for HResultError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "0x{:08X}", self.0 as u32)
-    }
+pub fn as_ptr<T>(x: &T) -> *mut T {
+    x as *const T as _
 }
 
-impl From<HRESULT> for HResultError {
-    fn from(h: HRESULT) -> Self {
-        HResultError(h)
-    }
+pub trait CheckHResult {
+    fn check_hresult(self);
 }
 
-pub trait ToResult: Sized {
-    fn to_result(self) -> HResult<()>;
-}
-
-impl ToResult for HRESULT {
-    fn to_result(self) -> HResult<()> {
-        if SUCCEEDED(self) {
-            Ok(())
-        } else {
-            Err(HResultError(self))
+impl CheckHResult for HRESULT {
+    fn check_hresult(self) {
+        if !SUCCEEDED(self) {
+            panic_com(self)
         }
     }
 }
 
-pub fn as_ptr<T>(x: &T) -> *mut T {
-    x as *const T as _
+fn panic_com(hresult: HRESULT) -> ! {
+    panic!("COM error 0x{:08X}", hresult as u32)
 }
 
 /// Forked from <https://github.com/retep998/wio-rs/blob/44093f7db8/src/com.rs>
@@ -58,26 +42,26 @@ impl<T> ComPtr<T> where T: Interface {
 
     /// For use with APIs that take an interface UUID and
     /// "return" a new COM object through a `*mut *mut c_void` out-parameter.
-    pub unsafe fn new_with_uuid<F>(f: F) -> HResult<Self>
+    pub unsafe fn new_with_uuid<F>(f: F) -> Self
         where F: FnOnce(&GUID, *mut *mut c_void) -> HRESULT
     {
         Self::new_with(|ptr| f(&T::uuidof(), ptr as _))
     }
 
     /// For use with APIs that "return" a new COM object through a `*mut *mut T` out-parameter.
-    pub unsafe fn new_with<F>(f: F) -> HResult<Self>
+    pub unsafe fn new_with<F>(f: F) -> Self
         where F: FnOnce(*mut *mut T) -> HRESULT
     {
         let mut ptr = ptr::null_mut();
-        let status = f(&mut ptr);
-        if SUCCEEDED(status) {
-            Ok(ComPtr::from_raw(ptr))
+        let hresult = f(&mut ptr);
+        if SUCCEEDED(hresult) {
+            ComPtr::from_raw(ptr)
         } else {
             if !ptr.is_null() {
                 let ptr = ptr as *mut IUnknown;
                 (*ptr).Release();
             }
-            Err(HResultError(status))
+            panic_com(hresult)
         }
     }
 
@@ -92,7 +76,7 @@ impl<T> ComPtr<T> where T: Interface {
     }
 
     /// Performs QueryInterface fun.
-    pub fn cast<U>(&self) -> HResult<ComPtr<U>> where U: Interface {
+    pub fn cast<U>(&self) -> ComPtr<U> where U: Interface {
         unsafe {
             ComPtr::<U>::new_with_uuid(|uuid, ptr| self.as_unknown().QueryInterface(uuid, ptr))
         }

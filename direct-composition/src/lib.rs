@@ -3,7 +3,7 @@
 extern crate winapi;
 extern crate gleam;
 
-use com::{ComPtr, ToResult, HResult, as_ptr};
+use com::{ComPtr, CheckHResult, as_ptr};
 use std::ptr;
 use std::rc::Rc;
 use winapi::shared::dxgi1_2::DXGI_SWAP_CHAIN_DESC1;
@@ -15,7 +15,7 @@ use winapi::um::dcomp::IDCompositionDevice;
 use winapi::um::dcomp::IDCompositionTarget;
 use winapi::um::dcomp::IDCompositionVisual;
 
-pub mod com;
+mod com;
 mod egl;
 
 pub struct DirectComposition {
@@ -38,7 +38,7 @@ impl DirectComposition {
     /// # Safety
     ///
     /// `hwnd` must be a valid handle to a window.
-    pub unsafe fn new(hwnd: HWND) -> HResult<Self> {
+    pub unsafe fn new(hwnd: HWND) -> Self {
         let d3d_device = ComPtr::new_with(|ptr_ptr| winapi::um::d3d11::D3D11CreateDevice(
             ptr::null_mut(),
             winapi::um::d3dcommon::D3D_DRIVER_TYPE_HARDWARE,
@@ -55,51 +55,51 @@ impl DirectComposition {
             ptr_ptr,
             &mut 0,
             ptr::null_mut(),
-        ))?;
+        ));
 
         let egl = egl::SharedEglThings::new(d3d_device.as_raw());
         let gleam = gleam::gl::GlesFns::load_with(egl::get_proc_address);
 
-        let dxgi_device = d3d_device.cast::<winapi::shared::dxgi::IDXGIDevice>()?;
+        let dxgi_device = d3d_device.cast::<winapi::shared::dxgi::IDXGIDevice>();
 
         // https://msdn.microsoft.com/en-us/library/windows/desktop/hh404556(v=vs.85).aspx#code-snippet-1
         // “Because you can create a Direct3D device without creating a swap chain,
         //  you might need to retrieve the factory that is used to create the device
         //  in order to create a swap chain.”
-        let adapter = ComPtr::new_with(|ptr_ptr| dxgi_device.GetAdapter(ptr_ptr))?;
+        let adapter = ComPtr::new_with(|ptr_ptr| dxgi_device.GetAdapter(ptr_ptr));
         let dxgi_factory = ComPtr::<IDXGIFactory2>::new_with_uuid(|uuid, ptr_ptr| {
             adapter.GetParent(uuid, ptr_ptr)
-        })?;
+        });
 
         // Create the DirectComposition device object.
         let composition_device = ComPtr::<IDCompositionDevice>::new_with_uuid(|uuid, ptr_ptr| {
             winapi::um::dcomp::DCompositionCreateDevice(&*dxgi_device, uuid,ptr_ptr)
-        })?;
+        });
 
         // Create the composition target object based on the
         // specified application window.
         let composition_target = ComPtr::new_with(|ptr_ptr| {
             composition_device.CreateTargetForHwnd(hwnd, TRUE, ptr_ptr)
-        })?;
+        });
 
-        let root_visual = ComPtr::new_with(|ptr_ptr| composition_device.CreateVisual(ptr_ptr))?;
-        composition_target.SetRoot(&*root_visual).to_result()?;
+        let root_visual = ComPtr::new_with(|ptr_ptr| composition_device.CreateVisual(ptr_ptr));
+        composition_target.SetRoot(&*root_visual).check_hresult();
 
-        Ok(DirectComposition {
+        DirectComposition {
             d3d_device, dxgi_factory,
             egl, gleam,
             composition_device, composition_target, root_visual,
-        })
-    }
-
-    /// Execute changes to the DirectComposition scene.
-    pub fn commit(&self) -> HResult<()> {
-        unsafe {
-            self.composition_device.Commit().to_result()
         }
     }
 
-    pub fn create_d3d_visual(&self, width: u32, height: u32) -> HResult<D3DVisual> {
+    /// Execute changes to the DirectComposition scene.
+    pub fn commit(&self) {
+        unsafe {
+            self.composition_device.Commit().check_hresult()
+        }
+    }
+
+    pub fn create_d3d_visual(&self, width: u32, height: u32) -> D3DVisual {
         unsafe {
             let desc = DXGI_SWAP_CHAIN_DESC1 {
                 Width: width,
@@ -124,18 +124,18 @@ impl DirectComposition {
                     ptr::null_mut(),
                     ptr_ptr,
                 )
-            })?;
+            });
             let back_buffer = ComPtr::<winapi::um::d3d11::ID3D11Texture2D>::new_with_uuid(|uuid, ptr_ptr| {
                 swap_chain.GetBuffer(0, uuid, ptr_ptr)
-            })?;
+            });
             let egl = egl::PerVisualEglThings::new(self.egl.clone(), &*back_buffer, width, height);
             let gleam = self.gleam.clone();
 
-            let visual = ComPtr::new_with(|ptr_ptr| self.composition_device.CreateVisual(ptr_ptr))?;
-            visual.SetContent(&*****swap_chain).to_result()?;
-            self.root_visual.AddVisual(&*visual, FALSE, ptr::null_mut()).to_result()?;
+            let visual = ComPtr::new_with(|ptr_ptr| self.composition_device.CreateVisual(ptr_ptr));
+            visual.SetContent(&*****swap_chain).check_hresult();
+            self.root_visual.AddVisual(&*visual, FALSE, ptr::null_mut()).check_hresult();
 
-            Ok(D3DVisual { visual, swap_chain, egl, gleam })
+            D3DVisual { visual, swap_chain, egl, gleam }
         }
     }
 }
@@ -149,15 +149,15 @@ pub struct D3DVisual {
 }
 
 impl D3DVisual {
-    pub fn set_offset_x(&self, offset_x: f32) -> HResult<()> {
+    pub fn set_offset_x(&self, offset_x: f32) {
         unsafe {
-            self.visual.SetOffsetX_1(offset_x).to_result()
+            self.visual.SetOffsetX_1(offset_x).check_hresult()
         }
     }
 
-    pub fn set_offset_y(&self, offset_y: f32) -> HResult<()> {
+    pub fn set_offset_y(&self, offset_y: f32) {
         unsafe {
-            self.visual.SetOffsetY_1(offset_y).to_result()
+            self.visual.SetOffsetY_1(offset_y).check_hresult()
         }
     }
 
@@ -168,7 +168,7 @@ impl D3DVisual {
     pub fn present(&self) {
         self.gleam.finish();
         unsafe {
-            self.swap_chain.Present(0, 0).to_result().unwrap()
+            self.swap_chain.Present(0, 0).check_hresult()
         }
     }
 }

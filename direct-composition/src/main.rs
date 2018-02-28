@@ -18,16 +18,16 @@ fn main() {
 
     let composition = direct_composition_from_window(&window);
 
-    let visual1 = composition.create_d3d_visual(300, 200).unwrap();
-    visual1.set_offset_x(100.).unwrap();
-    visual1.set_offset_y(50.).unwrap();
+    let visual1 = composition.create_d3d_visual(300, 200);
+    visual1.set_offset_x(100.);
+    visual1.set_offset_y(50.);
 
-    let visual2 = composition.create_d3d_visual(400, 300).unwrap();
+    let visual2 = composition.create_d3d_visual(400, 300);
     let mut offset_y = 100.;
-    visual2.set_offset_x(200.).unwrap();
-    visual2.set_offset_y(offset_y).unwrap();
+    visual2.set_offset_x(200.);
+    visual2.set_offset_y(offset_y);
 
-    composition.commit().unwrap();
+    composition.commit();
 
     let mut rgba1 = [0., 0.2, 0.4, 1.];
     let mut rgba2 = [0., 0.5, 0., 0.5];
@@ -49,8 +49,8 @@ fn main() {
                     };
                     offset_y = (offset_y - 10. * dy).max(0.).min(468.);
 
-                    visual2.set_offset_y(offset_y).unwrap();
-                    composition.commit().unwrap();
+                    visual2.set_offset_y(offset_y);
+                    composition.commit();
                 }
                 winit::WindowEvent::MouseInput {
                     button: winit::MouseButton::Left,
@@ -76,7 +76,7 @@ fn main() {
 
 fn direct_composition_from_window(window: &winit::Window) -> DirectComposition {
     unsafe {
-        DirectComposition::new(window.get_hwnd() as _).unwrap()
+        DirectComposition::new(window.get_hwnd() as _)
     }
 }
 
