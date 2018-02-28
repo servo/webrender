@@ -301,12 +301,19 @@ impl BatchList {
         }
     }
 
+    fn add_bounding_rect(
+        &mut self,
+        task_relative_bounding_rect: &DeviceIntRect,
+    ) {
+        self.combined_bounding_rect = self.combined_bounding_rect.union(task_relative_bounding_rect);
+    }
+
     pub fn get_suitable_batch(
         &mut self,
         key: BatchKey,
         task_relative_bounding_rect: &DeviceIntRect,
     ) -> &mut Vec<PrimitiveInstance> {
-        self.combined_bounding_rect = self.combined_bounding_rect.union(task_relative_bounding_rect);
+        self.add_bounding_rect(task_relative_bounding_rect);
 
         match key.blend_mode {
             BlendMode::None => {
@@ -1241,6 +1248,8 @@ impl AlphaBatchBuilder {
             brush_flags: BrushFlags::PERSPECTIVE_INTERPOLATION,
             user_data,
         };
+
+        self.batch_list.add_bounding_rect(task_relative_bounding_rect);
 
         match brush.segment_desc {
             Some(ref segment_desc) => {
