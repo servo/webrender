@@ -133,10 +133,6 @@ impl PerVisualEglThings {
 impl Drop for PerVisualEglThings {
     fn drop(&mut self) {
         unsafe {
-            if GetCurrentContext() == self.context {
-                // release the current context without assigning a new one
-                MakeCurrent(self.shared.display, NO_SURFACE, NO_SURFACE, NO_CONTEXT).check();
-            }
             DestroyContext(self.shared.display, self.context).check();
             DestroySurface(self.shared.display, self.surface).check();
         }
