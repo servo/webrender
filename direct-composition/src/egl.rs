@@ -68,12 +68,18 @@ impl SharedEglThings {
             configs.len() as i32,
             &mut num_configs,
         ).check();
-        assert!(num_configs >= 0);
-        // FIXME: pick a preferable config?
-        let config = configs[0];
+        let config = pick_config(&configs[..num_configs as usize]);
 
         Rc::new(SharedEglThings { device, display, config })
     }
+}
+
+fn pick_config(configs: &[types::EGLConfig]) -> types::EGLConfig {
+    // FIXME: better criteria to make this choice?
+    // Firefox uses GetConfigAttrib to find a config that has the requested r/g/b/a sizes
+    // https://searchfox.org/mozilla-central/rev/056a4057/gfx/gl/GLContextProviderEGL.cpp#662-685
+
+    configs[0]
 }
 
 impl Drop for SharedEglThings {
