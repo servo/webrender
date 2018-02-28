@@ -2,6 +2,7 @@
 compile_error!("This demo only runs on Windows.");
 
 extern crate direct_composition;
+extern crate gleam;
 extern crate winit;
 
 use direct_composition::{DirectComposition, D3DVisual};
@@ -82,6 +83,7 @@ fn direct_composition_from_window(window: &winit::Window) -> DirectComposition {
 fn render_plain_rgba_frame(visual: &D3DVisual, rgba: &[f32; 4]) {
     visual.make_current();
     visual.gleam.clear_color(rgba[0], rgba[1], rgba[2], rgba[3]);
+    visual.gleam.clear(gleam::gl::COLOR_BUFFER_BIT);
     assert_eq!(visual.gleam.get_error(), 0);
     visual.present();
 }
