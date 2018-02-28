@@ -36,7 +36,7 @@ fn main() {
         "EGL_EXT_platform_base",
         "EGL_EXT_platform_device",
     ]).write_bindings(
-        gl_generator::StaticStructGenerator,
+        gl_generator::StaticGenerator,
         &mut File::create(&out_dir.join(bindings)).unwrap()
     )
     .unwrap();

@@ -58,7 +58,7 @@ impl DirectComposition {
         ))?;
 
         let egl = egl::SharedEglThings::new(d3d_device.as_raw());
-        let gleam = gleam::gl::GlesFns::load_with(|name| egl.get_proc_address(name));
+        let gleam = gleam::gl::GlesFns::load_with(egl::get_proc_address);
 
         let dxgi_device = d3d_device.cast::<winapi::shared::dxgi::IDXGIDevice>()?;
 
