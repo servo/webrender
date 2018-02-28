@@ -17,6 +17,7 @@ pub struct SharedEglThings {
     device: EGLDeviceEXT,
     display: types::EGLDisplay,
     config: types::EGLConfig,
+    context: types::EGLContext,
 }
 
 fn cast_attributes(slice: &[types::EGLenum]) -> &EGLint {
@@ -70,7 +71,9 @@ impl SharedEglThings {
         ).check();
         let config = pick_config(&configs[..num_configs as usize]);
 
-        Rc::new(SharedEglThings { device, display, config })
+        let context = CreateContext(display, config, NO_CONTEXT, attributes![]).check();
+
+        Rc::new(SharedEglThings { device, display, config, context })
     }
 }
 
@@ -86,6 +89,7 @@ impl Drop for SharedEglThings {
     fn drop(&mut self) {
         unsafe {
             // FIXME does EGLDisplay or EGLConfig need clean up? How?
+            DestroyContext(self.display, self.context).check();
             eglReleaseDeviceANGLE(self.device).check();
         }
     }
@@ -93,7 +97,6 @@ impl Drop for SharedEglThings {
 
 pub struct PerVisualEglThings {
     shared: Rc<SharedEglThings>,
-    context: types::EGLContext,
     surface: types::EGLSurface,
 }
 
@@ -101,13 +104,6 @@ impl PerVisualEglThings {
     pub unsafe fn new(shared: Rc<SharedEglThings>, buffer: *const ID3D11Texture2D,
            width: u32, height: u32)
            -> Self {
-        let context = CreateContext(
-            shared.display,
-            shared.config,
-            NO_CONTEXT,
-            attributes![],
-        ).check();
-
         let surface = CreatePbufferFromClientBuffer(
             shared.display,
             D3D_TEXTURE_ANGLE,
@@ -120,12 +116,12 @@ impl PerVisualEglThings {
             ],
         ).check();
 
-        PerVisualEglThings { shared, context, surface }
+        PerVisualEglThings { shared, surface }
     }
 
     pub fn make_current(&self) {
         unsafe {
-            MakeCurrent(self.shared.display, self.surface, self.surface, self.context).check();
+            MakeCurrent(self.shared.display, self.surface, self.surface, self.shared.context).check();
         }
     }
 }
@@ -133,7 +129,6 @@ impl PerVisualEglThings {
 impl Drop for PerVisualEglThings {
     fn drop(&mut self) {
         unsafe {
-            DestroyContext(self.shared.display, self.context).check();
             DestroySurface(self.shared.display, self.surface).check();
         }
     }
