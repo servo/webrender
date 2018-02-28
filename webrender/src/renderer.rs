@@ -19,6 +19,7 @@ use api::ApiMsg;
 use api::DebugCommand;
 #[cfg(not(feature = "debugger"))]
 use api::channel::MsgSender;
+use api::channel::PayloadReceiverHelperMethods;
 use batch::{BatchKey, BatchKind, BatchTextures, BrushBatchKind};
 use batch::{TransformBatchKind};
 #[cfg(any(feature = "capture", feature = "replay"))]
@@ -2175,7 +2176,7 @@ impl Renderer {
         // First set the flags to default and later call set_debug_flags to ensure any
         // potential transition when enabling a flag is run.
         let debug_flags = DebugFlags::default();
-        let payload_tx_for_backend = payload_tx.clone();
+        let payload_rx_for_backend = payload_rx.to_mpsc_receiver();
         let recorder = options.recorder;
         let thread_listener = Arc::new(options.thread_listener);
         let thread_listener_for_rayon_start = thread_listener.clone();
@@ -2238,8 +2239,7 @@ impl Renderer {
                 }
                 let mut backend = RenderBackend::new(
                     api_rx,
-                    payload_rx,
-                    payload_tx_for_backend,
+                    payload_rx_for_backend,
                     result_tx,
                     scene_tx,
                     scene_rx,
