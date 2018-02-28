@@ -5,9 +5,9 @@
 use ipc_channel::ipc::{self, IpcBytesReceiver, IpcBytesSender, IpcReceiver, IpcSender};
 use serde::{Deserialize, Serialize};
 use std::io::{Error, ErrorKind};
-use std::{error, io};
 use std::sync::mpsc;
 use std::thread;
+use std::{error, io};
 
 ///
 /// Handles the channel implementation when IPC is enabled.
