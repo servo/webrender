@@ -71,7 +71,13 @@ impl SharedEglThings {
         ).check();
         let config = pick_config(&configs[..num_configs as usize]);
 
-        let context = CreateContext(display, config, NO_CONTEXT, attributes![]).check();
+        let context = CreateContext(
+            display, config, NO_CONTEXT,
+            attributes![
+                 CONTEXT_CLIENT_VERSION => 3,
+            ]
+        ).check();
+        MakeCurrent(display, NO_SURFACE, NO_SURFACE, context).check();
 
         Rc::new(SharedEglThings { device, display, config, context })
     }

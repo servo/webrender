@@ -3,6 +3,7 @@ compile_error!("This demo only runs on Windows.");
 
 extern crate direct_composition;
 extern crate gleam;
+extern crate webrender;
 extern crate winit;
 
 use direct_composition::{DirectComposition, D3DVisual};
@@ -17,6 +18,12 @@ fn main() {
         .unwrap();
 
     let composition = direct_composition_from_window(&window);
+
+    let (renderer, _api_sender) = webrender::Renderer::new(
+        composition.gleam.clone(),
+        Box::new(Notifier { events_proxy: events_loop.create_proxy() }),
+        webrender::RendererOptions::default(),
+    ).unwrap();
 
     let visual1 = composition.create_d3d_visual(300, 200);
     visual1.set_offset_x(100.);
@@ -72,6 +79,8 @@ fn main() {
         }
         winit::ControlFlow::Continue
     });
+
+    renderer.deinit()
 }
 
 fn direct_composition_from_window(window: &winit::Window) -> DirectComposition {
@@ -86,4 +95,23 @@ fn render_plain_rgba_frame(visual: &D3DVisual, &(r, g, b, a): &(f32, f32, f32, f
     visual.gleam.clear(gleam::gl::COLOR_BUFFER_BIT);
     assert_eq!(visual.gleam.get_error(), 0);
     visual.present();
+}
+
+#[derive(Clone)]
+struct Notifier {
+    events_proxy: winit::EventsLoopProxy,
+}
+
+impl webrender::api::RenderNotifier for Notifier {
+    fn clone(&self) -> Box<webrender::api::RenderNotifier> {
+        Box::new(Clone::clone(self))
+    }
+
+    fn wake_up(&self) {
+        let _ = self.events_proxy.wakeup();
+    }
+
+    fn new_document_ready(&self, _: webrender::api::DocumentId, _: bool, _: bool) {
+        self.wake_up();
+    }
 }
