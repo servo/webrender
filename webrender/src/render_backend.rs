@@ -9,8 +9,7 @@ use api::{DeviceIntPoint, DevicePixelScale, DeviceUintPoint, DeviceUintRect, Dev
 use api::{DocumentId, DocumentLayer, ExternalScrollId, FrameMsg, HitTestResult};
 use api::{IdNamespace, LayerPoint, PipelineId, RenderNotifier, SceneMsg, ScrollClamping};
 use api::{ScrollEventPhase, ScrollLocation, ScrollNodeState, TransactionMsg, WorldPoint};
-use api::channel::{MsgReceiver, PayloadReceiver, PayloadReceiverHelperMethods};
-use api::channel::{PayloadSender, PayloadSenderHelperMethods};
+use api::channel::{MsgReceiver, Payload};
 #[cfg(feature = "capture")]
 use api::CaptureBits;
 #[cfg(feature = "replay")]
@@ -409,11 +408,12 @@ struct PlainRenderBackend {
 /// The render backend operates on its own thread.
 pub struct RenderBackend {
     api_rx: MsgReceiver<ApiMsg>,
-    payload_rx: PayloadReceiver,
-    payload_tx: PayloadSender,
+    payload_rx: Receiver<Payload>,
     result_tx: Sender<ResultMsg>,
     scene_tx: Sender<SceneBuilderRequest>,
     scene_rx: Receiver<SceneBuilderResult>,
+
+    payload_buffer: Vec<Payload>,
 
     default_device_pixel_ratio: f32,
 
@@ -432,8 +432,7 @@ pub struct RenderBackend {
 impl RenderBackend {
     pub fn new(
         api_rx: MsgReceiver<ApiMsg>,
-        payload_rx: PayloadReceiver,
-        payload_tx: PayloadSender,
+        payload_rx: Receiver<Payload>,
         result_tx: Sender<ResultMsg>,
         scene_tx: Sender<SceneBuilderRequest>,
         scene_rx: Receiver<SceneBuilderResult>,
@@ -450,10 +449,10 @@ impl RenderBackend {
         RenderBackend {
             api_rx,
             payload_rx,
-            payload_tx,
             result_tx,
             scene_tx,
             scene_rx,
+            payload_buffer: Vec::new(),
             default_device_pixel_ratio,
             resource_cache,
             gpu_cache: GpuCache::new(),
@@ -509,13 +508,20 @@ impl RenderBackend {
             } => {
                 profile_scope!("SetDisplayList");
 
-                let mut data;
-                while {
-                    data = self.payload_rx.recv_payload().unwrap();
-                    data.epoch != epoch || data.pipeline_id != pipeline_id
-                } {
-                    self.payload_tx.send_payload(data).unwrap()
-                }
+                let data = if let Some(idx) = self.payload_buffer.iter().position(|data|
+                    data.epoch == epoch && data.pipeline_id == pipeline_id
+                ) {
+                    self.payload_buffer.swap_remove(idx)
+                } else {
+                    loop {
+                        let data = self.payload_rx.recv().unwrap();
+                        if data.epoch == epoch && data.pipeline_id == pipeline_id {
+                            break data;
+                        } else {
+                            self.payload_buffer.push(data);
+                        }
+                    }
+                };
 
                 if let Some(ref mut r) = self.recorder {
                     r.write_payload(frame_counter, &data.to_data());
