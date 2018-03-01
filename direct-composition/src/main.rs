@@ -2,16 +2,19 @@
 compile_error!("This demo only runs on Windows.");
 
 extern crate direct_composition;
+extern crate euclid;
 extern crate gleam;
 extern crate webrender;
 extern crate winit;
 
 use direct_composition::DirectComposition;
-use webrender::api::{ColorF, DeviceUintSize};
+use webrender::api;
 use winit::os::windows::WindowExt;
 
 fn main() {
     let mut events_loop = winit::EventsLoop::new();
+    let notifier = Box::new(Notifier { events_proxy: events_loop.create_proxy() });
+
     let window = winit::WindowBuilder::new()
         .with_title("Hello, world!")
         .with_dimensions(1024, 768)
@@ -19,21 +22,21 @@ fn main() {
         .unwrap();
 
     let composition = direct_composition_from_window(&window);
-
-    let (renderer, _api_sender) = webrender::Renderer::new(
-        composition.gleam.clone(),
-        Box::new(Notifier { events_proxy: events_loop.create_proxy() }),
-        webrender::RendererOptions::default(),
-    ).unwrap();
+    let factor = window.hidpi_factor();
 
     let mut clicks: usize = 0;
     let mut offset_y = 100.;
+    let size = api::DeviceUintSize::new;
     let mut rects = [
-        Rectangle::new(&composition, DeviceUintSize::new(300, 200), 0., 0.2, 0.4, 1.),
-        Rectangle::new(&composition, DeviceUintSize::new(400, 300), 0., 0.5, 0., 0.5),
+        Rectangle::new(&composition, &notifier, factor, size(300, 200), 0., 0.2, 0.4, 1.),
+        Rectangle::new(&composition, &notifier, factor, size(400, 300), 0., 0.5, 0., 0.5),
     ];
-    rects[0].render();
-    rects[1].render();
+    rects[0].render(factor);
+    rects[1].render(factor);
+
+    // FIXME: what shows up on screen for each visual seems to be one frame late?
+    rects[0].render(factor);
+    rects[1].render(factor);
 
     rects[0].visual.set_offset_x(100.);
     rects[0].visual.set_offset_y(50.);
@@ -68,15 +71,13 @@ fn main() {
                     let rect = &mut rects[clicks % 2];
                     rect.color.g += 0.1;
                     rect.color.g %= 1.;
-                    rect.render()
+                    rect.render(factor)
                 }
                 _ => {}
             }
         }
         winit::ControlFlow::Continue
     });
-
-    renderer.deinit()
 }
 
 fn direct_composition_from_window(window: &winit::Window) -> DirectComposition {
@@ -87,36 +88,91 @@ fn direct_composition_from_window(window: &winit::Window) -> DirectComposition {
 
 struct Rectangle {
     visual: direct_composition::AngleVisual,
-    color: ColorF,
+    renderer: Option<webrender::Renderer>,
+    api: api::RenderApi,
+    document_id: api::DocumentId,
+    size: api::DeviceUintSize,
+    color: api::ColorF,
 }
 
 impl Rectangle {
-    fn new(composition: &DirectComposition, size: DeviceUintSize,
-           r: f32, g: f32, b: f32, a: f32)
+    fn new(composition: &DirectComposition, notifier: &Box<Notifier>,
+           device_pixel_ratio: f32, size: api::DeviceUintSize, r: f32, g: f32, b: f32, a: f32)
            -> Self {
-        Rectangle {
-            visual: composition.create_angle_visual(size.width, size.height),
-            color: ColorF { r, g, b, a },
+        let visual = composition.create_angle_visual(size.width, size.height);
+        visual.make_current();
+
+        let (renderer, sender) = webrender::Renderer::new(
+            composition.gleam.clone(),
+            notifier.clone(),
+            webrender::RendererOptions {
+                clear_color: Some(api::ColorF::new(0., 0., 0., 0.)),
+                device_pixel_ratio,
+                ..webrender::RendererOptions::default()
+            },
+        ).unwrap();
+        let api = sender.create_api();
+
+       Rectangle {
+            visual,
+            renderer: Some(renderer),
+            document_id: api.add_document(size, 0),
+            api,
+            size,
+            color: api::ColorF { r, g, b, a },
         }
     }
 
-    fn render(&self) {
+    fn render(&mut self, device_pixel_ratio: f32) {
         self.visual.make_current();
-        self.visual.gleam.clear_color(self.color.r, self.color.g, self.color.b, self.color.a);
-        self.visual.gleam.clear(gleam::gl::COLOR_BUFFER_BIT);
-        assert_eq!(self.visual.gleam.get_error(), 0);
+
+        let pipeline_id = api::PipelineId(0, 0);
+        let layout_size = self.size.to_f32() / euclid::TypedScale::new(device_pixel_ratio);
+        let mut builder = api::DisplayListBuilder::new(pipeline_id, layout_size);
+
+        let rect = euclid::TypedRect::new(euclid::TypedPoint2D::zero(), layout_size);
+        builder.push_rect(
+            &api::PrimitiveInfo::with_clip(
+                rect,
+                api::LocalClip::RoundedRect(rect, api::ComplexClipRegion::new(
+                    rect, api::BorderRadius::uniform(20.), api::ClipMode::Clip,
+                ))
+            ),
+            self.color,
+        );
+
+        let mut transaction = api::Transaction::new();
+        transaction.set_display_list(
+            api::Epoch(0),
+            None,
+            layout_size,
+            builder.finalize(),
+            true,
+        );
+        transaction.set_root_pipeline(pipeline_id);
+        transaction.generate_frame();
+        self.api.send_transaction(self.document_id, transaction);
+        let renderer = self.renderer.as_mut().unwrap();
+        renderer.update();
+        renderer.render(self.size).unwrap();
+        let _ = renderer.flush_pipeline_info();
         self.visual.present();
     }
 }
 
+impl Drop for Rectangle {
+    fn drop(&mut self) {
+        self.renderer.take().unwrap().deinit()
+    }
+}
 
 #[derive(Clone)]
 struct Notifier {
     events_proxy: winit::EventsLoopProxy,
 }
 
-impl webrender::api::RenderNotifier for Notifier {
-    fn clone(&self) -> Box<webrender::api::RenderNotifier> {
+impl api::RenderNotifier for Notifier {
+    fn clone(&self) -> Box<api::RenderNotifier> {
         Box::new(Clone::clone(self))
     }
 
@@ -124,7 +180,7 @@ impl webrender::api::RenderNotifier for Notifier {
         let _ = self.events_proxy.wakeup();
     }
 
-    fn new_document_ready(&self, _: webrender::api::DocumentId, _: bool, _: bool) {
+    fn new_document_ready(&self, _: api::DocumentId, _: bool, _: bool) {
         self.wake_up();
     }
 }

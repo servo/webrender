@@ -8,6 +8,7 @@ winapi = {version = "0.3", features = ["winerror", "d3d11", "dcomp"]}
 
 # For the `main.rs` demo
 [dependencies]
+euclid = "0.16"
 gleam = "0.4"
 webrender = {path = "../webrender"}
 winit = "0.10"
