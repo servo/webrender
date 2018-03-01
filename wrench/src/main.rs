@@ -293,8 +293,14 @@ fn make_window(
     wrapper
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum NotifierEvent {
+    WakeUp,
+    ShutDown,
+}
+
 struct Notifier {
-    tx: Sender<()>,
+    tx: Sender<NotifierEvent>,
 }
 
 // setup a notifier so we can wait for frames to be finished
@@ -306,7 +312,11 @@ impl RenderNotifier for Notifier {
     }
 
     fn wake_up(&self) {
-        self.tx.send(()).unwrap();
+        self.tx.send(NotifierEvent::WakeUp).unwrap();
+    }
+
+    fn shut_down(&self) {
+        self.tx.send(NotifierEvent::ShutDown).unwrap();
     }
 
     fn new_document_ready(&self, _: DocumentId, scrolled: bool, _composite_needed: bool) {
@@ -316,7 +326,7 @@ impl RenderNotifier for Notifier {
     }
 }
 
-fn create_notifier() -> (Box<RenderNotifier>, Receiver<()>) {
+fn create_notifier() -> (Box<RenderNotifier>, Receiver<NotifierEvent>) {
     let (tx, rx) = channel();
     (Box::new(Notifier { tx: tx }), rx)
 }
@@ -420,17 +430,19 @@ fn main() {
             reftest_options.allow_max_difference = allow_max_diff.parse().unwrap_or(1);
             reftest_options.allow_num_differences = dim.width as usize * dim.height as usize;
         }
-        let num_failures = ReftestHarness::new(&mut wrench, &mut window, rx.unwrap())
+        let rx = rx.unwrap();
+        let num_failures = ReftestHarness::new(&mut wrench, &mut window, &rx)
             .run(base_manifest, specific_reftest, &reftest_options);
-        wrench.renderer.deinit();
+        wrench.shut_down(rx);
         // exit with an error code to fail on CI
         process::exit(num_failures as _);
     } else if let Some(_) = args.subcommand_matches("rawtest") {
+        let rx = rx.unwrap();
         {
-            let harness = RawtestHarness::new(&mut wrench, &mut window, rx.unwrap());
+            let harness = RawtestHarness::new(&mut wrench, &mut window, &rx);
             harness.run();
         }
-        wrench.renderer.deinit();
+        wrench.shut_down(rx);
         return;
     } else if let Some(subargs) = args.subcommand_matches("perf") {
         // Perf mode wants to benchmark the total cost of drawing

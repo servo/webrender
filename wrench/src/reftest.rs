@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use NotifierEvent;
 use WindowWrapper;
 use base64;
 use image::load as load_piston_image;
@@ -292,10 +293,10 @@ impl ReftestManifest {
 pub struct ReftestHarness<'a> {
     wrench: &'a mut Wrench,
     window: &'a mut WindowWrapper,
-    rx: Receiver<()>,
+    rx: &'a Receiver<NotifierEvent>,
 }
 impl<'a> ReftestHarness<'a> {
-    pub fn new(wrench: &'a mut Wrench, window: &'a mut WindowWrapper, rx: Receiver<()>) -> Self {
+    pub fn new(wrench: &'a mut Wrench, window: &'a mut WindowWrapper, rx: &'a Receiver<NotifierEvent>) -> Self {
         ReftestHarness { wrench, window, rx }
     }
 
