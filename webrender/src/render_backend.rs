@@ -685,8 +685,9 @@ impl RenderBackend {
 
     pub fn run(&mut self, mut profile_counters: BackendProfileCounters) {
         let mut frame_counter: u32 = 0;
+        let mut keep_going = true;
 
-        loop {
+        while keep_going {
             profile_scope!("handle_msg");
 
             while let Ok(msg) = self.scene_rx.try_recv() {
@@ -730,7 +731,7 @@ impl RenderBackend {
                 }
             }
 
-            let keep_going = match self.api_rx.recv() {
+            keep_going = match self.api_rx.recv() {
                 Ok(msg) => {
                     if let Some(ref mut r) = self.recorder {
                         r.write_msg(frame_counter, &msg);
@@ -739,13 +740,10 @@ impl RenderBackend {
                 }
                 Err(..) => { false }
             };
-
-            if !keep_going {
-                let _ = self.scene_tx.send(SceneBuilderRequest::Stop);
-                self.notifier.shut_down();
-                break;
-            }
         }
+
+        let _ = self.scene_tx.send(SceneBuilderRequest::Stop);
+        self.notifier.shut_down();
     }
 
     fn process_api_msg(
