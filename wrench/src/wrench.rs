@@ -9,21 +9,21 @@ use crossbeam::sync::chase_lev;
 #[cfg(windows)]
 use dwrote;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
+use NotifierEvent;
 use font_loader::system_fonts;
 use glutin::EventsLoopProxy;
 use json_frame_writer::JsonFrameWriter;
 use ron_frame_writer::RonFrameWriter;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Receiver;
+use std::sync::{Arc, Mutex};
 use time;
-use webrender;
 use webrender::api::*;
 use webrender::{DebugFlags, RendererStats};
+use webrender;
 use yaml_frame_writer::YamlFrameWriterReceiver;
 use {WindowWrapper, BLACK_COLOR, WHITE_COLOR};
-use NotifierEvent;
 
 // TODO(gw): This descriptor matches what we currently support for fonts
 //           but is quite a mess. We should at least document and
