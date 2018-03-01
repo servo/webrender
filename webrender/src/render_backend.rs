@@ -1148,10 +1148,15 @@ impl RenderBackend {
         bits: CaptureBits,
         profile_counters: &mut BackendProfileCounters,
     ) -> DebugOutput {
+        use std::fs;
         use capture::CaptureConfig;
 
         debug!("capture: saving {:?}", root);
-        let (resources, deferred) = self.resource_cache.save_capture(&root);
+        if !root.is_dir() {
+            if let Err(e) = fs::create_dir_all(&root) {
+                panic!("Unable to create capture dir: {:?}", e);
+            }
+        }
         let config = CaptureConfig::new(root, bits);
 
         for (&id, doc) in &mut self.documents {
@@ -1173,6 +1178,9 @@ impl RenderBackend {
                 config.serialize(&rendered_document.frame, file_name);
             }
         }
+
+        debug!("\tresource cache");
+        let (resources, deferred) = self.resource_cache.save_capture(&config.root);
 
         info!("\tbackend");
         let backend = PlainRenderBackend {
