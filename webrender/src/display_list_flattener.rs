@@ -216,14 +216,13 @@ impl<'a> DisplayListFlattener<'a> {
         view: &DocumentView,
         output_pipelines: &FastHashSet<PipelineId>,
         frame_builder_config: &FrameBuilderConfig,
-        pipeline_epochs: &mut FastHashMap<PipelineId, Epoch>,
+        new_scene: &mut Scene,
     ) -> FrameBuilder {
         // We checked that the root pipeline is available on the render backend.
         let root_pipeline_id = scene.root_pipeline_id.unwrap();
         let root_pipeline = scene.pipelines.get(&root_pipeline_id).unwrap();
 
         let root_epoch = scene.pipeline_epochs[&root_pipeline_id];
-        pipeline_epochs.insert(root_pipeline_id, root_epoch);
 
         let background_color = root_pipeline
             .background_color
@@ -261,7 +260,11 @@ impl<'a> DisplayListFlattener<'a> {
         flattener.flatten_root(root_pipeline, &root_pipeline.viewport_size);
 
         debug_assert!(flattener.picture_stack.is_empty());
-        pipeline_epochs.extend(flattener.pipeline_epochs.drain(..));
+
+        new_scene.root_pipeline_id = Some(root_pipeline_id);
+        new_scene.pipeline_epochs.insert(root_pipeline_id, root_epoch);
+        new_scene.pipeline_epochs.extend(flattener.pipeline_epochs.drain(..));
+        new_scene.pipelines = scene.pipelines.clone();
 
         FrameBuilder::with_display_list_flattener(
             view.inner_rect,
@@ -2621,10 +2624,9 @@ impl<'a> DisplayListFlattener<'a> {
 }
 
 pub fn build_scene(config: &FrameBuilderConfig, request: SceneRequest) -> BuiltScene {
-    // TODO: mutably pass the scene and update its own pipeline epoch map instead of
-    // creating a new one here.
-    let mut pipeline_epoch_map = FastHashMap::default();
+
     let mut clip_scroll_tree = ClipScrollTree::new();
+    let mut new_scene = Scene::new();
 
     let frame_builder = DisplayListFlattener::create_frame_builder(
         FrameBuilder::empty(), // WIP, we're not really recycling anything here, clean this up.
@@ -2635,14 +2637,11 @@ pub fn build_scene(config: &FrameBuilderConfig, request: SceneRequest) -> BuiltS
         &request.view,
         &request.output_pipelines,
         config,
-        &mut pipeline_epoch_map
+        &mut new_scene
     );
 
-    let mut scene = request.scene;
-    scene.pipeline_epochs = pipeline_epoch_map;
-
     BuiltScene {
-        scene,
+        scene: new_scene,
         frame_builder,
         clip_scroll_tree,
         removed_pipelines: request.removed_pipelines,
