@@ -619,6 +619,7 @@ impl RenderBackend {
             if !keep_going {
                 let _ = self.scene_tx.send(SceneBuilderRequest::Stop);
                 self.notifier.shut_down();
+                break;
             }
         }
     }
