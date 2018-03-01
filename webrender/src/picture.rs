@@ -7,7 +7,7 @@ use api::{LayerRect, LayerToWorldScale, LayerVector2D, MixBlendMode, PipelineId}
 use api::{PremultipliedColorF, Shadow};
 use box_shadow::{BLUR_SAMPLE_SCALE, BoxShadowCacheKey};
 use clip_scroll_tree::ClipScrollNodeIndex;
-use frame_builder::{FrameContext, FrameState, PictureState};
+use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState};
 use gpu_cache::{GpuCacheHandle, GpuDataRequest};
 use gpu_types::{BrushImageKind, PictureType};
 use prim_store::{BrushKind, BrushPrimitive, PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
@@ -317,8 +317,8 @@ impl PicturePrimitive {
         prim_local_rect: &LayerRect,
         pic_state_for_children: PictureState,
         pic_state: &mut PictureState,
-        frame_context: &FrameContext,
-        frame_state: &mut FrameState,
+        frame_context: &FrameBuildingContext,
+        frame_state: &mut FrameBuildingState,
     ) {
         let content_scale = LayerToWorldScale::new(1.0) * frame_context.device_pixel_scale;
 

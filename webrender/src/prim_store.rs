@@ -12,7 +12,8 @@ use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, CoordinateSystemId};
 use clip_scroll_node::ClipScrollNode;
 use clip::{ClipChain, ClipChainNode, ClipChainNodeIter, ClipChainNodeRef, ClipSource};
 use clip::{ClipSourcesHandle, ClipWorkItem};
-use frame_builder::{FrameContext, FrameState, PictureContext, PictureState, PrimitiveRunContext};
+use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
+use frame_builder::PrimitiveRunContext;
 use glyph_rasterizer::{FontInstance, FontTransform};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
@@ -1079,8 +1080,8 @@ impl PrimitiveStore {
         pic_state_for_children: PictureState,
         pic_context: &PictureContext,
         pic_state: &mut PictureState,
-        frame_context: &FrameContext,
-        frame_state: &mut FrameState,
+        frame_context: &FrameBuildingContext,
+        frame_state: &mut FrameBuildingState,
     ) {
         let metadata = &mut self.cpu_metadata[prim_index.0];
         match metadata.prim_kind {
@@ -1358,8 +1359,8 @@ impl PrimitiveStore {
         prim_run_context: &PrimitiveRunContext,
         clips: &Vec<ClipWorkItem>,
         has_clips_from_other_coordinate_systems: bool,
-        frame_context: &FrameContext,
-        frame_state: &mut FrameState,
+        frame_context: &FrameBuildingContext,
+        frame_state: &mut FrameBuildingState,
     ) {
         match brush.segment_desc {
             Some(ref segment_desc) => {
@@ -1480,8 +1481,8 @@ impl PrimitiveStore {
         combined_outer_rect: &DeviceIntRect,
         has_clips_from_other_coordinate_systems: bool,
         pic_state: &mut PictureState,
-        frame_context: &FrameContext,
-        frame_state: &mut FrameState,
+        frame_context: &FrameBuildingContext,
+        frame_state: &mut FrameBuildingState,
     ) -> bool {
         let metadata = &self.cpu_metadata[prim_index.0];
         let brush = match metadata.prim_kind {
@@ -1548,8 +1549,8 @@ impl PrimitiveStore {
         prim_run_context: &PrimitiveRunContext,
         prim_screen_rect: &DeviceIntRect,
         pic_state: &mut PictureState,
-        frame_context: &FrameContext,
-        frame_state: &mut FrameState,
+        frame_context: &FrameBuildingContext,
+        frame_state: &mut FrameBuildingState,
     ) -> bool {
         self.cpu_metadata[prim_index.0].clip_task_id = None;
 
@@ -1679,8 +1680,8 @@ impl PrimitiveStore {
         prim_run_context: &PrimitiveRunContext,
         pic_context: &PictureContext,
         pic_state: &mut PictureState,
-        frame_context: &FrameContext,
-        frame_state: &mut FrameState,
+        frame_context: &FrameBuildingContext,
+        frame_state: &mut FrameBuildingState,
     ) -> Option<LayerRect> {
         let mut may_need_clip_mask = true;
         let mut pic_state_for_children = PictureState::new();
@@ -1838,8 +1839,8 @@ impl PrimitiveStore {
         &mut self,
         pic_context: &PictureContext,
         pic_state: &mut PictureState,
-        frame_context: &FrameContext,
-        frame_state: &mut FrameState,
+        frame_context: &FrameBuildingContext,
+        frame_state: &mut FrameBuildingState,
     ) -> PrimitiveRunLocalRect {
         let mut result = PrimitiveRunLocalRect {
             local_rect_in_actual_parent_space: LayerRect::zero(),

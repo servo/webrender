@@ -50,7 +50,7 @@ pub struct FrameBuilder {
     pub scrollbar_prims: Vec<ScrollbarPrimitive>,
 }
 
-pub struct FrameContext<'a> {
+pub struct FrameBuildingContext<'a> {
     pub device_pixel_scale: DevicePixelScale,
     pub scene_properties: &'a SceneProperties,
     pub pipelines: &'a FastHashMap<PipelineId, Arc<ScenePipeline>>,
@@ -59,7 +59,7 @@ pub struct FrameContext<'a> {
     pub node_data: &'a [ClipScrollNodeData],
 }
 
-pub struct FrameState<'a> {
+pub struct FrameBuildingState<'a> {
     pub render_tasks: &'a mut RenderTaskTree,
     pub profile_counters: &'a mut FrameProfileCounters,
     pub clip_store: &'a mut ClipStore,
@@ -181,7 +181,7 @@ impl FrameBuilder {
             .expect("No display list?")
             .display_list;
 
-        let frame_context = FrameContext {
+        let frame_context = FrameBuildingContext {
             device_pixel_scale,
             scene_properties,
             pipelines,
@@ -190,7 +190,7 @@ impl FrameBuilder {
             node_data,
         };
 
-        let mut frame_state = FrameState {
+        let mut frame_state = FrameBuildingState {
             render_tasks,
             profile_counters,
             clip_store: &mut self.clip_store,
