@@ -8,15 +8,18 @@ extern crate webrender;
 extern crate winit;
 
 use direct_composition::DirectComposition;
+use std::sync::mpsc;
 use webrender::api;
 use winit::os::windows::WindowExt;
 
 fn main() {
     let mut events_loop = winit::EventsLoop::new();
-    let notifier = Box::new(Notifier { events_proxy: events_loop.create_proxy() });
+
+    let (tx, rx) = mpsc::channel();
+    let notifier = Box::new(Notifier { events_proxy: events_loop.create_proxy(), tx });
 
     let window = winit::WindowBuilder::new()
-        .with_title("Hello, world!")
+        .with_title("WebRender + ANGLE + DirectComposition")
         .with_dimensions(1024, 768)
         .build(&events_loop)
         .unwrap();
@@ -31,12 +34,8 @@ fn main() {
         Rectangle::new(&composition, &notifier, factor, size(300, 200), 0., 0.2, 0.4, 1.),
         Rectangle::new(&composition, &notifier, factor, size(400, 300), 0., 0.5, 0., 0.5),
     ];
-    rects[0].render(factor);
-    rects[1].render(factor);
-
-    // FIXME: what shows up on screen for each visual seems to be one frame late?
-    rects[0].render(factor);
-    rects[1].render(factor);
+    rects[0].render(factor, &rx);
+    rects[1].render(factor, &rx);
 
     rects[0].visual.set_offset_x(100.);
     rects[0].visual.set_offset_y(50.);
@@ -71,7 +70,7 @@ fn main() {
                     let rect = &mut rects[clicks % 2];
                     rect.color.g += 0.1;
                     rect.color.g %= 1.;
-                    rect.render(factor)
+                    rect.render(factor, &rx)
                 }
                 _ => {}
             }
@@ -123,7 +122,7 @@ impl Rectangle {
         }
     }
 
-    fn render(&mut self, device_pixel_ratio: f32) {
+    fn render(&mut self, device_pixel_ratio: f32, rx: &mpsc::Receiver<()>) {
         self.visual.make_current();
 
         let pipeline_id = api::PipelineId(0, 0);
@@ -152,6 +151,7 @@ impl Rectangle {
         transaction.set_root_pipeline(pipeline_id);
         transaction.generate_frame();
         self.api.send_transaction(self.document_id, transaction);
+        rx.recv().unwrap();
         let renderer = self.renderer.as_mut().unwrap();
         renderer.update();
         renderer.render(self.size).unwrap();
@@ -169,6 +169,7 @@ impl Drop for Rectangle {
 #[derive(Clone)]
 struct Notifier {
     events_proxy: winit::EventsLoopProxy,
+    tx: mpsc::Sender<()>,
 }
 
 impl api::RenderNotifier for Notifier {
@@ -177,6 +178,7 @@ impl api::RenderNotifier for Notifier {
     }
 
     fn wake_up(&self) {
+        self.tx.send(()).unwrap();
         let _ = self.events_proxy.wakeup();
     }
 
