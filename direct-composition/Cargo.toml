@@ -6,12 +6,9 @@ authors = ["Simon Sapin <simon.sapin@exyr.org>"]
 [target.'cfg(windows)'.dependencies]
 winapi = {version = "0.3", features = ["winerror", "d3d11", "dcomp"]}
 
-# For the `main.rs` demo
 [dependencies]
 euclid = "0.16"
 gleam = "0.4"
+mozangle = {version = "0.1", features = ["egl"]}
 webrender = {path = "../webrender"}
 winit = "0.10"
-
-[build-dependencies]
-gl_generator = "0.9.0"

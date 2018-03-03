@@ -1,7 +1,8 @@
 #![cfg(windows)]
 
-extern crate winapi;
 extern crate gleam;
+extern crate mozangle;
+extern crate winapi;
 
 use com::{ComPtr, CheckHResult, as_ptr};
 use std::ptr;

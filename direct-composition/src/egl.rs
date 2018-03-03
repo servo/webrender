@@ -1,17 +1,11 @@
-use std::ffi::CString;
-use std::os::raw::{c_void, c_long};
+use std::os::raw::c_void;
 use std::ptr;
 use std::rc::Rc;
-use winapi;
+use mozangle::egl::ffi::*;
 use winapi::um::d3d11::ID3D11Device;
 use winapi::um::d3d11::ID3D11Texture2D;
 
-pub fn get_proc_address(name: &str) -> *const c_void {
-    let name = CString::new(name.as_bytes()).unwrap();
-    unsafe {
-        GetProcAddress(name.as_ptr()) as *const _ as _
-    }
-}
+pub use mozangle::egl::get_proc_address;
 
 pub struct SharedEglThings {
     device: EGLDeviceEXT,
@@ -39,7 +33,7 @@ impl SharedEglThings {
     pub unsafe fn new(d3d_device: *mut ID3D11Device) -> Rc<Self> {
         let device = eglCreateDeviceANGLE(
             D3D11_DEVICE_ANGLE,
-            d3d_device,
+            d3d_device as *mut c_void,
             ptr::null(),
         ).check();
         let display = GetPlatformDisplayEXT(
@@ -173,36 +167,4 @@ impl Check for types::EGLBoolean {
         assert_eq!(self, TRUE);
         self
     }
-}
-
-// Adapted from https://github.com/tomaka/glutin/blob/1f3b8360cb/src/api/egl/ffi.rs
-#[allow(non_camel_case_types)] pub type khronos_utime_nanoseconds_t = khronos_uint64_t;
-#[allow(non_camel_case_types)] pub type khronos_uint64_t = u64;
-#[allow(non_camel_case_types)] pub type khronos_ssize_t = c_long;
-pub type EGLint = i32;
-pub type EGLNativeDisplayType = *const c_void;
-pub type EGLNativePixmapType = *const c_void;
-pub type EGLNativeWindowType = winapi::shared::windef::HWND;
-pub type NativeDisplayType = EGLNativeDisplayType;
-pub type NativePixmapType = EGLNativePixmapType;
-pub type NativeWindowType = EGLNativeWindowType;
-
-include!(concat!(env!("OUT_DIR"), "/egl_bindings.rs"));
-
-
-// Adapted from https://chromium.googlesource.com/angle/angle/+/master/include/EGL/eglext_angle.h
-type EGLDeviceEXT = *mut c_void;
-const EXPERIMENTAL_PRESENT_PATH_ANGLE: types::EGLenum = 0x33A4;
-const EXPERIMENTAL_PRESENT_PATH_FAST_ANGLE: types::EGLenum = 0x33A9;
-const D3D_TEXTURE_ANGLE: types::EGLenum = 0x33A3;
-const FLEXIBLE_SURFACE_COMPATIBILITY_SUPPORTED_ANGLE: types::EGLenum = 0x33A6;
-
-extern "C" {
-    fn eglCreateDeviceANGLE(
-        device_type: types::EGLenum,
-        device: *mut ID3D11Device,
-        attrib_list: *const types::EGLAttrib,
-    ) -> EGLDeviceEXT;
-
-    fn eglReleaseDeviceANGLE(device: EGLDeviceEXT) -> types::EGLBoolean;
 }
