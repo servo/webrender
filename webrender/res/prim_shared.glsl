@@ -86,6 +86,16 @@ uniform HIGHP_SAMPLER_FLOAT sampler2D sRenderTasks;
 in ivec4 aData0;
 in ivec4 aData1;
 
+// Work around Angle bug that forgets to update sampler metadata,
+// by making the use of those samplers uniform across programs.
+// https://github.com/servo/webrender/wiki/Driver-issues#texturesize-in-vertex-shaders
+void markCacheTexturesUsed() {
+    vec2 size = vec2(textureSize(sCacheA8, 0)) + vec2(textureSize(sCacheRGBA8, 0));
+    if (size.x > 1000000.0) {
+        gl_Position = vec4(0.0);
+    }
+}
+
 // get_fetch_uv is a macro to work around a macOS Intel driver parsing bug.
 // TODO: convert back to a function once the driver issues are resolved, if ever.
 // https://github.com/servo/webrender/pull/623
@@ -358,6 +368,8 @@ PrimitiveInstance fetch_prim_instance() {
     pi.user_data1 = aData1.z;
     pi.user_data2 = aData1.w;
 
+    markCacheTexturesUsed();
+
     return pi;
 }
 
@@ -384,6 +396,8 @@ CompositeInstance fetch_composite_instance() {
     ci.user_data1 = aData1.y;
     ci.user_data2 = aData1.z;
     ci.user_data3 = aData1.w;
+
+    markCacheTexturesUsed();
 
     return ci;
 }
