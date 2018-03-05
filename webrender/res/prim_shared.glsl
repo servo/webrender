@@ -242,7 +242,6 @@ RenderTaskCommonData fetch_render_task_common_data(int index) {
 
 #define PIC_TYPE_IMAGE          1
 #define PIC_TYPE_TEXT_SHADOW    2
-#define PIC_TYPE_BOX_SHADOW     3
 
 /*
  The dynamic picture that this brush exists on. Right now, it
@@ -272,6 +271,7 @@ PictureTask fetch_picture_task(int address) {
 struct ClipArea {
     RenderTaskCommonData common_data;
     vec2 screen_origin;
+    bool local_space;
 };
 
 ClipArea fetch_clip_area(int index) {
@@ -283,11 +283,13 @@ ClipArea fetch_clip_area(int index) {
             0.0
         );
         area.screen_origin = vec2(0.0);
+        area.local_space = false;
     } else {
         RenderTaskData task_data = fetch_render_task_data(index);
 
         area.common_data = task_data.common_data;
         area.screen_origin = task_data.data1.xy;
+        area.local_space = task_data.data1.z == 0.0;
     }
 
     return area;
@@ -802,7 +804,7 @@ float do_clip() {
         vec4(vClipMaskUv.xy, vClipMaskUvBounds.zw));
     // check for the dummy bounds, which are given to the opaque objects
     return vClipMaskUvBounds.xy == vClipMaskUvBounds.zw ? 1.0:
-        all(inside) ? texelFetch(sSharedCacheA8, ivec3(vClipMaskUv), 0).r : 0.0;
+        all(inside) ? texelFetch(sCacheA8, ivec3(vClipMaskUv), 0).r : 0.0;
 }
 
 #ifdef WR_FEATURE_DITHERING

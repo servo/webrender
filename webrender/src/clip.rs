@@ -3,15 +3,18 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderRadius, ClipMode, ComplexClipRegion, DeviceIntRect, DevicePixelScale, ImageMask};
-use api::{ImageRendering, LayerRect, LayoutPoint, LayoutVector2D, LocalClip};
+use api::{ImageRendering, LayerRect, LayerSize, LayoutPoint, LayoutVector2D, LocalClip};
+use api::{BoxShadowClipMode, LayerPoint, LayerToWorldScale};
 use border::{BorderCornerClipSource, ensure_no_corner_overlap};
+use box_shadow::{BLUR_SAMPLE_SCALE, BoxShadowClipSource, BoxShadowCacheKey};
 use clip_scroll_tree::{ClipChainIndex, CoordinateSystemId};
 use ellipse::Ellipse;
 use freelist::{FreeList, FreeListHandle, WeakFreeListHandle};
 use gpu_cache::{GpuCache, GpuCacheHandle, ToGpuBlocks};
 use gpu_types::ClipScrollNodeIndex;
 use prim_store::{ClipData, ImageMaskData};
-use resource_cache::{ImageRequest, ResourceCache};
+use render_task::to_cache_size;
+use resource_cache::{CacheItem, ImageRequest, ResourceCache};
 use util::{LayerToWorldFastTransform, MaxRect, calculate_screen_bounding_rect};
 use util::extract_inner_rect_safe;
 use std::sync::Arc;
@@ -78,6 +81,7 @@ pub enum ClipSource {
     /// adjacent border edges. Expand to handle dotted style
     /// and different styles per edge.
     BorderCorner(BorderCornerClipSource),
+    BoxShadow(BoxShadowClipSource),
 }
 
 impl From<ClipRegion> for ClipSources {
@@ -114,6 +118,74 @@ impl ClipSource {
             radii,
             clip_mode,
         )
+    }
+
+    pub fn new_box_shadow(
+        shadow_rect: LayerRect,
+        shadow_radius: BorderRadius,
+        prim_shadow_rect: LayerRect,
+        blur_radius: f32,
+        clip_mode: BoxShadowClipMode,
+    ) -> ClipSource {
+        // Create a minimal size primitive mask to blur. In this
+        // case, we ensure the size of each corner is the same,
+        // to simplify the shader logic that stretches the blurred
+        // result across the primitive.
+        let max_corner_width = shadow_radius.top_left.width
+                                    .max(shadow_radius.bottom_left.width)
+                                    .max(shadow_radius.top_right.width)
+                                    .max(shadow_radius.bottom_right.width);
+        let max_corner_height = shadow_radius.top_left.height
+                                    .max(shadow_radius.bottom_left.height)
+                                    .max(shadow_radius.top_right.height)
+                                    .max(shadow_radius.bottom_right.height);
+
+        // If the largest corner is smaller than the blur radius, we need to ensure
+        // that it's big enough that the corners don't affect the middle segments.
+        let used_corner_width = max_corner_width.max(BLUR_SAMPLE_SCALE * blur_radius);
+        let used_corner_height = max_corner_height.max(BLUR_SAMPLE_SCALE * blur_radius);
+
+        // Minimal nine-patch size, corner + internal + corner.
+        let mut actual_shadow_rect_size = LayerSize::new(
+            2.0 * used_corner_width + BLUR_SAMPLE_SCALE * blur_radius,
+            2.0 * used_corner_height + BLUR_SAMPLE_SCALE * blur_radius,
+        );
+
+        // If the width or height ends up being bigger than the original
+        // primitive shadow rect, just blur the entire rect and draw that
+        // as a simple blit. This is necessary for correctness, since the
+        // blur of one corner may affect the blur in another corner.
+        if actual_shadow_rect_size.width > shadow_rect.size.width ||
+           actual_shadow_rect_size.height > shadow_rect.size.height {
+            actual_shadow_rect_size.width = shadow_rect.size.width;
+            actual_shadow_rect_size.height = shadow_rect.size.height;
+        }
+
+        // The task size is the rect + surrounding room for the blur.
+        let mut shadow_rect_alloc_size = actual_shadow_rect_size;
+        shadow_rect_alloc_size.width += 2.0 * BLUR_SAMPLE_SCALE * blur_radius;
+        shadow_rect_alloc_size.height += 2.0 * BLUR_SAMPLE_SCALE * blur_radius;
+
+        // The minimal rect to blur.
+        let minimal_shadow_rect = LayerRect::new(
+            LayerPoint::new(
+                BLUR_SAMPLE_SCALE * blur_radius,
+                BLUR_SAMPLE_SCALE * blur_radius,
+            ),
+            actual_shadow_rect_size,
+        );
+
+        ClipSource::BoxShadow(BoxShadowClipSource {
+            shadow_rect_alloc_size,
+            shadow_radius,
+            prim_shadow_rect,
+            blur_radius,
+            clip_mode,
+            cache_item: CacheItem::invalid(),
+            cache_key: None,
+            clip_data_handle: GpuCacheHandle::new(),
+            minimal_shadow_rect,
+        })
     }
 }
 
@@ -186,6 +258,7 @@ impl ClipSources {
                     local_inner = local_inner
                         .and_then(|r| inner_rect.and_then(|ref inner| r.intersection(inner)));
                 }
+                ClipSource::BoxShadow(..) |
                 ClipSource::BorderCorner { .. } => {
                     can_calculate_inner_rect = false;
                     break;
@@ -210,6 +283,7 @@ impl ClipSources {
         &mut self,
         gpu_cache: &mut GpuCache,
         resource_cache: &mut ResourceCache,
+        device_pixel_scale: DevicePixelScale,
     ) {
         for &mut (ref mut source, ref mut handle) in &mut self.clips {
             if let Some(mut request) = gpu_cache.request(handle) {
@@ -217,6 +291,15 @@ impl ClipSources {
                     ClipSource::Image(ref mask) => {
                         let data = ImageMaskData { local_rect: mask.rect };
                         data.write_gpu_blocks(request);
+                    }
+                    ClipSource::BoxShadow(ref info) => {
+                        request.push([
+                            info.shadow_rect_alloc_size.width,
+                            info.shadow_rect_alloc_size.height,
+                            info.clip_mode as i32 as f32,
+                            0.0,
+                        ]);
+                        request.push(info.prim_shadow_rect);
                     }
                     ClipSource::Rectangle(rect) => {
                         let data = ClipData::uniform(rect, 0.0, ClipMode::Clip);
@@ -232,15 +315,49 @@ impl ClipSources {
                 }
             }
 
-            if let ClipSource::Image(ref mask) = *source {
-                resource_cache.request_image(
-                    ImageRequest {
-                        key: mask.image,
-                        rendering: ImageRendering::Auto,
-                        tile: None,
-                    },
-                    gpu_cache,
-                );
+            match *source {
+                ClipSource::Image(ref mask) => {
+                    resource_cache.request_image(
+                        ImageRequest {
+                            key: mask.image,
+                            rendering: ImageRendering::Auto,
+                            tile: None,
+                        },
+                        gpu_cache,
+                    );
+                }
+                ClipSource::BoxShadow(ref mut info) => {
+                    // Quote from https://drafts.csswg.org/css-backgrounds-3/#shadow-blur
+                    // "the image that would be generated by applying to the shadow a
+                    // Gaussian blur with a standard deviation equal to half the blur radius."
+                    let blur_radius_dp = (info.blur_radius * 0.5 * device_pixel_scale.0).round();
+
+                    // Create the cache key for this box-shadow render task.
+                    let content_scale = LayerToWorldScale::new(1.0) * device_pixel_scale;
+                    let cache_size = to_cache_size(info.shadow_rect_alloc_size * content_scale);
+                    let bs_cache_key = BoxShadowCacheKey {
+                        blur_radius_dp: blur_radius_dp as i32,
+                        clip_mode: info.clip_mode,
+                        rect_size: (info.shadow_rect_alloc_size * content_scale).round().to_i32(),
+                        br_top_left: (info.shadow_radius.top_left * content_scale).round().to_i32(),
+                        br_top_right: (info.shadow_radius.top_right * content_scale).round().to_i32(),
+                        br_bottom_right: (info.shadow_radius.bottom_right * content_scale).round().to_i32(),
+                        br_bottom_left: (info.shadow_radius.bottom_left * content_scale).round().to_i32(),
+                    };
+
+                    info.cache_key = Some((cache_size, bs_cache_key));
+
+                    if let Some(mut request) = gpu_cache.request(&mut info.clip_data_handle) {
+                        let data = ClipData::rounded_rect(
+                            &info.minimal_shadow_rect,
+                            &info.shadow_radius,
+                            ClipMode::Clip,
+                        );
+
+                        data.write(&mut request);
+                    }
+                }
+                _ => {}
             }
         }
     }
