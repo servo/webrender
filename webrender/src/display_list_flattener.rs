@@ -349,6 +349,7 @@ impl<'a> DisplayListFlattener<'a> {
                         &info,
                         bg_color,
                         None,
+                        Vec::new(),
                     );
                 }
             }
@@ -700,6 +701,7 @@ impl<'a> DisplayListFlattener<'a> {
                     &prim_info,
                     info.color,
                     None,
+                    Vec::new(),
                 );
             }
             SpecificDisplayItem::ClearRectangle => {
@@ -1512,6 +1514,7 @@ impl<'a> DisplayListFlattener<'a> {
         info: &LayerPrimitiveInfo,
         color: ColorF,
         segments: Option<BrushSegmentDescriptor>,
+        extra_clips: Vec<ClipSource>,
     ) {
         if color.a == 0.0 {
             // Don't add transparent rectangles to the draw list, but do consider them for hit
@@ -1530,7 +1533,7 @@ impl<'a> DisplayListFlattener<'a> {
         self.add_primitive(
             clip_and_scroll,
             info,
-            Vec::new(),
+            extra_clips,
             PrimitiveContainer::Brush(prim),
         );
     }
