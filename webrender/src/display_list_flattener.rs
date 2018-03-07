@@ -1167,7 +1167,12 @@ impl<'a> DisplayListFlattener<'a> {
 
         let stacking_context = self.sc_stack.last().expect("bug: no stacking context!");
 
-        let clip_sources = self.clip_store.insert(ClipSources::new(clip_sources));
+        let clip_sources = if clip_sources.is_empty() {
+            None
+        } else {
+            Some(self.clip_store.insert(ClipSources::new(clip_sources)))
+        };
+
         let prim_index = self.prim_store.add_primitive(
             &info.rect,
             &info.local_clip.clip_rect(),
@@ -1274,9 +1279,6 @@ impl<'a> DisplayListFlattener<'a> {
                 None,
             );
 
-            // No clip sources needed for the main framebuffer.
-            let clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
-
             // Add root picture primitive. The provided layer rect
             // is zero, because we don't yet know the size of the
             // picture. Instead, this is calculated recursively
@@ -1285,7 +1287,7 @@ impl<'a> DisplayListFlattener<'a> {
                 &LayerRect::zero(),
                 &max_clip,
                 true,
-                clip_sources,
+                None,
                 None,
                 PrimitiveContainer::Picture(pic),
             );
@@ -1354,13 +1356,11 @@ impl<'a> DisplayListFlattener<'a> {
                 None,
             );
 
-            let clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
-
             let prim_index = self.prim_store.add_primitive(
                 &LayerRect::zero(),
                 &max_clip,
                 is_backface_visible,
-                clip_sources,
+                None,
                 None,
                 PrimitiveContainer::Picture(container),
             );
@@ -1405,13 +1405,12 @@ impl<'a> DisplayListFlattener<'a> {
                 current_reference_frame_index,
                 None,
             );
-            let src_clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
 
             let src_prim_index = self.prim_store.add_primitive(
                 &LayerRect::zero(),
                 &max_clip,
                 is_backface_visible,
-                src_clip_sources,
+                None,
                 None,
                 PrimitiveContainer::Picture(src_prim),
             );
@@ -1436,13 +1435,12 @@ impl<'a> DisplayListFlattener<'a> {
                 current_reference_frame_index,
                 None,
             );
-            let src_clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
 
             let src_prim_index = self.prim_store.add_primitive(
                 &LayerRect::zero(),
                 &max_clip,
                 is_backface_visible,
-                src_clip_sources,
+                None,
                 None,
                 PrimitiveContainer::Picture(src_prim),
             );
@@ -1490,12 +1488,11 @@ impl<'a> DisplayListFlattener<'a> {
             frame_output_pipeline_id,
         );
 
-        let sc_clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
         let sc_prim_index = self.prim_store.add_primitive(
             &LayerRect::zero(),
             &max_clip,
             is_backface_visible,
-            sc_clip_sources,
+            None,
             None,
             PrimitiveContainer::Picture(sc_prim),
         );
@@ -1649,8 +1646,6 @@ impl<'a> DisplayListFlattener<'a> {
     ) -> ClipScrollNodeIndex {
         let clip_rect = clip_region.main;
         let clip_sources = ClipSources::from(clip_region);
-
-        debug_assert!(clip_sources.has_clips());
         let handle = self.clip_store.insert(clip_sources);
 
         let node_index = self.id_to_index_mapper.get_node_index(new_node_id);
