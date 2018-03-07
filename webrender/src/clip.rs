@@ -127,6 +127,17 @@ impl ClipSource {
         blur_radius: f32,
         clip_mode: BoxShadowClipMode,
     ) -> ClipSource {
+        // Get the fractional offsets required to match the
+        // source rect with a minimal rect.
+        let fract_offset = LayerPoint::new(
+            shadow_rect.origin.x.fract().abs(),
+            shadow_rect.origin.y.fract().abs(),
+        );
+        let fract_size = LayerSize::new(
+            shadow_rect.size.width.fract().abs(),
+            shadow_rect.size.height.fract().abs(),
+        );
+
         // Create a minimal size primitive mask to blur. In this
         // case, we ensure the size of each corner is the same,
         // to simplify the shader logic that stretches the blurred
@@ -140,39 +151,43 @@ impl ClipSource {
                                     .max(shadow_radius.top_right.height)
                                     .max(shadow_radius.bottom_right.height);
 
+        // Get maximum distance that can be affected by given blur radius.
+        let blur_region = (BLUR_SAMPLE_SCALE * blur_radius).ceil();
+
         // If the largest corner is smaller than the blur radius, we need to ensure
         // that it's big enough that the corners don't affect the middle segments.
-        let used_corner_width = max_corner_width.max(BLUR_SAMPLE_SCALE * blur_radius);
-        let used_corner_height = max_corner_height.max(BLUR_SAMPLE_SCALE * blur_radius);
+        let used_corner_width = max_corner_width.max(blur_region);
+        let used_corner_height = max_corner_height.max(blur_region);
 
         // Minimal nine-patch size, corner + internal + corner.
-        let mut actual_shadow_rect_size = LayerSize::new(
-            2.0 * used_corner_width + BLUR_SAMPLE_SCALE * blur_radius,
-            2.0 * used_corner_height + BLUR_SAMPLE_SCALE * blur_radius,
+        let min_shadow_rect_size = LayerSize::new(
+            2.0 * used_corner_width + blur_region,
+            2.0 * used_corner_height + blur_region,
+        );
+
+        // The minimal rect to blur.
+        let mut minimal_shadow_rect = LayerRect::new(
+            LayerPoint::new(
+                blur_region + fract_offset.x,
+                blur_region + fract_offset.y,
+            ),
+            LayerSize::new(
+                min_shadow_rect_size.width + fract_size.width,
+                min_shadow_rect_size.height + fract_size.height,
+            ),
         );
 
         // If the width or height ends up being bigger than the original
         // primitive shadow rect, just blur the entire rect and draw that
         // as a simple blit. This is necessary for correctness, since the
         // blur of one corner may affect the blur in another corner.
-        if actual_shadow_rect_size.width > shadow_rect.size.width ||
-           actual_shadow_rect_size.height > shadow_rect.size.height {
-            actual_shadow_rect_size.width = shadow_rect.size.width;
-            actual_shadow_rect_size.height = shadow_rect.size.height;
-        }
+        minimal_shadow_rect.size.width = minimal_shadow_rect.size.width.min(shadow_rect.size.width);
+        minimal_shadow_rect.size.height = minimal_shadow_rect.size.height.min(shadow_rect.size.height);
 
-        // The task size is the rect + surrounding room for the blur.
-        let mut shadow_rect_alloc_size = actual_shadow_rect_size;
-        shadow_rect_alloc_size.width += 2.0 * BLUR_SAMPLE_SCALE * blur_radius;
-        shadow_rect_alloc_size.height += 2.0 * BLUR_SAMPLE_SCALE * blur_radius;
-
-        // The minimal rect to blur.
-        let minimal_shadow_rect = LayerRect::new(
-            LayerPoint::new(
-                BLUR_SAMPLE_SCALE * blur_radius,
-                BLUR_SAMPLE_SCALE * blur_radius,
-            ),
-            actual_shadow_rect_size,
+        // Expand the shadow rect by enough room for the blur to take effect.
+        let shadow_rect_alloc_size = LayerSize::new(
+            2.0 * blur_region + minimal_shadow_rect.size.width.ceil(),
+            2.0 * blur_region + minimal_shadow_rect.size.height.ceil(),
         );
 
         ClipSource::BoxShadow(BoxShadowClipSource {
