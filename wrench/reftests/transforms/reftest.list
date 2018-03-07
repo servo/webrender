@@ -7,7 +7,7 @@
 fuzzy(1,4) == rotated-image.yaml rotated-image.png
 == singular.yaml singular-ref.yaml
 fuzzy(1,630) == perspective.yaml perspective.png
-fuzzy(1,11) == prim-suite.yaml prim-suite.png
+fuzzy(1,156) == prim-suite.yaml prim-suite.png
 == segments-bug.yaml segments-bug-ref.yaml
 == content-offset.yaml content-offset.png
 == coord-system.yaml coord-system.png
