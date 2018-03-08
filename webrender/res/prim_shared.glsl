@@ -100,7 +100,8 @@ void markCacheTexturesUsed() {
 // TODO: convert back to a function once the driver issues are resolved, if ever.
 // https://github.com/servo/webrender/pull/623
 // https://github.com/servo/servo/issues/13953
-#define get_fetch_uv(i, vpi)  ivec2(vpi * (i % (WR_MAX_VERTEX_TEXTURE_WIDTH/vpi)), i / (WR_MAX_VERTEX_TEXTURE_WIDTH/vpi))
+// Do the division with unsigned ints because that's more efficient with D3D
+#define get_fetch_uv(i, vpi)  ivec2(int(uint(vpi) * (uint(i) % uint(WR_MAX_VERTEX_TEXTURE_WIDTH/vpi))), int(uint(i) / uint(WR_MAX_VERTEX_TEXTURE_WIDTH/vpi)))
 
 
 vec4[8] fetch_from_resource_cache_8(int address) {
