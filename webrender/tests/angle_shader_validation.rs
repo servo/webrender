@@ -5,7 +5,7 @@
 extern crate mozangle;
 extern crate webrender;
 
-use mozangle::shaders::{initialize, BuiltInResources, Output, ShaderSpec, ShaderValidator};
+use mozangle::shaders::{BuiltInResources, Output, ShaderSpec, ShaderValidator};
 
 // from glslang
 const FRAGMENT_SHADER: u32 = 0x8B30;
@@ -30,6 +30,10 @@ const SHADERS: &[Shader] = &[
     },
     Shader {
         name: "cs_clip_image",
+        features: CLIP_FEATURES,
+    },
+    Shader {
+        name: "cs_clip_box_shadow",
         features: CLIP_FEATURES,
     },
     Shader {
@@ -84,10 +88,6 @@ const SHADERS: &[Shader] = &[
         features: &[],
     },
     Shader {
-        name: "brush_picture",
-        features: &[],
-    },
-    Shader {
         name: "brush_blend",
         features: &[],
     },
@@ -113,7 +113,7 @@ const VERSION_STRING: &str = "#version 300 es\n";
 
 #[test]
 fn validate_shaders() {
-    initialize().unwrap();
+    mozangle::shaders::initialize().unwrap();
 
     let resources = BuiltInResources::default();
     let vs_validator =

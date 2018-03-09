@@ -13,7 +13,7 @@ use gpu_cache::GpuCache;
 use gpu_types::{ClipChainRectIndex, ClipScrollNodeData, PictureType};
 use hit_test::{HitTester, HitTestingRun};
 use internal_types::{FastHashMap};
-use picture::{ContentOrigin, PictureSurface};
+use picture::{ContentOrigin};
 use prim_store::{CachedGradient, PrimitiveIndex, PrimitiveRun, PrimitiveStore};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_backend::FrameId;
@@ -50,7 +50,7 @@ pub struct FrameBuilder {
     pub scrollbar_prims: Vec<ScrollbarPrimitive>,
 }
 
-pub struct FrameContext<'a> {
+pub struct FrameBuildingContext<'a> {
     pub device_pixel_scale: DevicePixelScale,
     pub scene_properties: &'a SceneProperties,
     pub pipelines: &'a FastHashMap<PipelineId, Arc<ScenePipeline>>,
@@ -59,7 +59,7 @@ pub struct FrameContext<'a> {
     pub node_data: &'a [ClipScrollNodeData],
 }
 
-pub struct FrameState<'a> {
+pub struct FrameBuildingState<'a> {
     pub render_tasks: &'a mut RenderTaskTree,
     pub profile_counters: &'a mut FrameProfileCounters,
     pub clip_store: &'a mut ClipStore,
@@ -181,7 +181,7 @@ impl FrameBuilder {
             .expect("No display list?")
             .display_list;
 
-        let frame_context = FrameContext {
+        let frame_context = FrameBuildingContext {
             device_pixel_scale,
             scene_properties,
             pipelines,
@@ -190,7 +190,7 @@ impl FrameBuilder {
             node_data,
         };
 
-        let mut frame_state = FrameState {
+        let mut frame_state = FrameBuildingState {
             render_tasks,
             profile_counters,
             clip_store: &mut self.clip_store,
@@ -235,7 +235,7 @@ impl FrameBuilder {
         );
 
         let render_task_id = frame_state.render_tasks.add(root_render_task);
-        pic.surface = Some(PictureSurface::RenderTask(render_task_id));
+        pic.surface = Some(render_task_id);
         Some(render_task_id)
     }
 

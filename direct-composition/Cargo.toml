@@ -7,7 +7,7 @@ authors = ["Simon Sapin <simon.sapin@exyr.org>"]
 winapi = {version = "0.3", features = ["winerror", "d3d11", "dcomp"]}
 
 [dependencies]
-euclid = "0.16"
+euclid = "0.17"
 gleam = "0.4"
 mozangle = {version = "0.1", features = ["egl"]}
 webrender = {path = "../webrender"}

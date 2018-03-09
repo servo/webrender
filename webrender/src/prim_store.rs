@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipMode, ColorF, ComplexClipRegion};
+use api::{AlphaType, BorderRadius, BoxShadowClipMode, BuiltDisplayList, ClipMode, ColorF, ComplexClipRegion};
 use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, FontRenderMode};
 use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
@@ -12,7 +12,8 @@ use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, CoordinateSystemId};
 use clip_scroll_node::ClipScrollNode;
 use clip::{ClipChain, ClipChainNode, ClipChainNodeIter, ClipChainNodeRef, ClipSource};
 use clip::{ClipSourcesHandle, ClipWorkItem};
-use frame_builder::{FrameContext, FrameState, PictureContext, PictureState, PrimitiveRunContext};
+use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
+use frame_builder::PrimitiveRunContext;
 use glyph_rasterizer::{FontInstance, FontTransform};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
@@ -167,7 +168,7 @@ pub struct ScreenRect {
 #[derive(Debug)]
 pub struct PrimitiveMetadata {
     pub opacity: PrimitiveOpacity,
-    pub clip_sources: ClipSourcesHandle,
+    pub clip_sources: Option<ClipSourcesHandle>,
     pub prim_kind: PrimitiveKind,
     pub cpu_prim_index: SpecificPrimitiveIndex,
     pub gpu_location: GpuCacheHandle,
@@ -189,11 +190,6 @@ pub struct PrimitiveMetadata {
 
 #[derive(Debug)]
 pub enum BrushKind {
-    Mask {
-        clip_mode: ClipMode,
-        rect: LayerRect,
-        radii: BorderRadius,
-    },
     Solid {
         color: ColorF,
     },
@@ -247,7 +243,6 @@ impl BrushKind {
             BrushKind::RadialGradient { .. } |
             BrushKind::LinearGradient { .. } => true,
 
-            BrushKind::Mask { .. } |
             BrushKind::Clear |
             BrushKind::Line { .. } => false,
         }
@@ -338,27 +333,6 @@ impl BrushPrimitive {
             BrushKind::Clear => {
                 // Opaque black with operator dest out
                 request.push(PremultipliedColorF::BLACK);
-            }
-            BrushKind::Mask { clip_mode, rect, radii } => {
-                request.push([
-                    clip_mode as u32 as f32,
-                    0.0,
-                    0.0,
-                    0.0
-                ]);
-                request.push(rect);
-                request.push([
-                    radii.top_left.width,
-                    radii.top_left.height,
-                    radii.top_right.width,
-                    radii.top_right.height,
-                ]);
-                request.push([
-                    radii.bottom_right.width,
-                    radii.bottom_right.height,
-                    radii.bottom_left.width,
-                    radii.bottom_left.height,
-                ]);
             }
             BrushKind::Line { color, wavy_line_thickness, style, orientation } => {
                 request.push(color);
@@ -963,7 +937,7 @@ impl PrimitiveStore {
         local_rect: &LayerRect,
         local_clip_rect: &LayerRect,
         is_backface_visible: bool,
-        clip_sources: ClipSourcesHandle,
+        clip_sources: Option<ClipSourcesHandle>,
         tag: Option<ItemTag>,
         container: PrimitiveContainer,
     ) -> PrimitiveIndex {
@@ -989,7 +963,6 @@ impl PrimitiveStore {
                 let opacity = match brush.kind {
                     BrushKind::Clear => PrimitiveOpacity::translucent(),
                     BrushKind::Solid { ref color } => PrimitiveOpacity::from_alpha(color.a),
-                    BrushKind::Mask { .. } => PrimitiveOpacity::translucent(),
                     BrushKind::Line { .. } => PrimitiveOpacity::translucent(),
                     BrushKind::Image { .. } => PrimitiveOpacity::translucent(),
                     BrushKind::YuvImage { .. } => PrimitiveOpacity::opaque(),
@@ -1079,8 +1052,8 @@ impl PrimitiveStore {
         pic_state_for_children: PictureState,
         pic_context: &PictureContext,
         pic_state: &mut PictureState,
-        frame_context: &FrameContext,
-        frame_state: &mut FrameState,
+        frame_context: &FrameBuildingContext,
+        frame_state: &mut FrameBuildingState,
     ) {
         let metadata = &mut self.cpu_metadata[prim_index.0];
         match metadata.prim_kind {
@@ -1205,7 +1178,7 @@ impl PrimitiveStore {
 
                                     // Pass the image opacity, so that the cached render task
                                     // item inherits the same opacity properties.
-                                    (target_to_cache_task_id, [0.0; 3], image_properties.descriptor.is_opaque)
+                                    (target_to_cache_task_id, image_properties.descriptor.is_opaque)
                                 }
                             );
                         }
@@ -1287,7 +1260,6 @@ impl PrimitiveStore {
                             );
                         }
                     }
-                    BrushKind::Mask { .. } |
                     BrushKind::Solid { .. } |
                     BrushKind::Clear |
                     BrushKind::Line { .. } |
@@ -1358,8 +1330,8 @@ impl PrimitiveStore {
         prim_run_context: &PrimitiveRunContext,
         clips: &Vec<ClipWorkItem>,
         has_clips_from_other_coordinate_systems: bool,
-        frame_context: &FrameContext,
-        frame_state: &mut FrameState,
+        frame_context: &FrameBuildingContext,
+        frame_state: &mut FrameBuildingState,
     ) {
         match brush.segment_desc {
             Some(ref segment_desc) => {
@@ -1409,6 +1381,31 @@ impl PrimitiveStore {
                     ClipSource::Rectangle(rect) => {
                         (rect, None, ClipMode::Clip)
                     }
+                    ClipSource::BoxShadow(ref info) => {
+                        // For inset box shadows, we can clip out any
+                        // pixels that are inside the shadow region
+                        // and are beyond the inner rect, as they can't
+                        // be affected by the blur radius.
+                        let inner_clip_mode = match info.clip_mode {
+                            BoxShadowClipMode::Outset => None,
+                            BoxShadowClipMode::Inset => Some(ClipMode::ClipOut),
+                        };
+
+                        // Push a region into the segment builder where the
+                        // box-shadow can have an effect on the result. This
+                        // ensures clip-mask tasks get allocated for these
+                        // pixel regions, even if no other clips affect them.
+                        segment_builder.push_mask_region(
+                            info.prim_shadow_rect,
+                            info.prim_shadow_rect.inflate(
+                                -0.5 * info.shadow_rect_alloc_size.width,
+                                -0.5 * info.shadow_rect_alloc_size.height,
+                            ),
+                            inner_clip_mode,
+                        );
+
+                        continue;
+                    }
                     ClipSource::BorderCorner(..) |
                     ClipSource::Image(..) => {
                         // TODO(gw): We can easily extend the segment builder
@@ -1438,7 +1435,7 @@ impl PrimitiveStore {
                     relative_transform.transform_rect(&local_clip_rect)
                 };
 
-                segment_builder.push_rect(local_clip_rect, radius, mode);
+                segment_builder.push_clip_rect(local_clip_rect, radius, mode);
             }
         }
 
@@ -1480,8 +1477,8 @@ impl PrimitiveStore {
         combined_outer_rect: &DeviceIntRect,
         has_clips_from_other_coordinate_systems: bool,
         pic_state: &mut PictureState,
-        frame_context: &FrameContext,
-        frame_state: &mut FrameState,
+        frame_context: &FrameBuildingContext,
+        frame_state: &mut FrameBuildingState,
     ) -> bool {
         let metadata = &self.cpu_metadata[prim_index.0];
         let brush = match metadata.prim_kind {
@@ -1530,6 +1527,10 @@ impl PrimitiveStore {
                     bounds,
                     clips.clone(),
                     prim_run_context.scroll_node.coordinate_system_id,
+                    frame_state.clip_store,
+                    frame_state.gpu_cache,
+                    frame_state.resource_cache,
+                    frame_state.render_tasks,
                 );
 
                 let clip_task_id = frame_state.render_tasks.add(clip_task);
@@ -1548,8 +1549,8 @@ impl PrimitiveStore {
         prim_run_context: &PrimitiveRunContext,
         prim_screen_rect: &DeviceIntRect,
         pic_state: &mut PictureState,
-        frame_context: &FrameContext,
-        frame_state: &mut FrameState,
+        frame_context: &FrameBuildingContext,
+        frame_state: &mut FrameBuildingState,
     ) -> bool {
         self.cpu_metadata[prim_index.0].clip_task_id = None;
 
@@ -1569,11 +1570,12 @@ impl PrimitiveStore {
         let transform = &prim_run_context.scroll_node.world_content_transform;
         let extra_clip =  {
             let metadata = &self.cpu_metadata[prim_index.0];
-            let prim_clips = frame_state.clip_store.get_mut(&metadata.clip_sources);
-            if prim_clips.has_clips() {
+            metadata.clip_sources.as_ref().map(|ref clip_sources| {
+                let prim_clips = frame_state.clip_store.get_mut(clip_sources);
                 prim_clips.update(
                     frame_state.gpu_cache,
                     frame_state.resource_cache,
+                    frame_context.device_pixel_scale,
                 );
                 let (screen_inner_rect, screen_outer_rect) =
                     prim_clips.get_screen_bounds(transform, frame_context.device_pixel_scale);
@@ -1582,10 +1584,10 @@ impl PrimitiveStore {
                     combined_outer_rect = combined_outer_rect.and_then(|r| r.intersection(&outer));
                 }
 
-                Some(Arc::new(ClipChainNode {
+                Arc::new(ClipChainNode {
                     work_item: ClipWorkItem {
                         scroll_node_data_index: prim_run_context.scroll_node.node_data_index,
-                        clip_sources: metadata.clip_sources.weak(),
+                        clip_sources: clip_sources.weak(),
                         coordinate_system_id: prim_coordinate_system_id,
                     },
                     // The local_clip_rect a property of ClipChain nodes that are ClipScrollNodes.
@@ -1596,10 +1598,8 @@ impl PrimitiveStore {
                     screen_inner_rect,
                     screen_outer_rect: screen_outer_rect.unwrap_or(prim_screen_rect),
                     prev: None,
-                }))
-            } else {
-                None
-            }
+                })
+            })
         };
 
         // If everything is clipped out, then we don't need to render this primitive.
@@ -1664,6 +1664,10 @@ impl PrimitiveStore {
             combined_outer_rect,
             clips,
             prim_coordinate_system_id,
+            frame_state.clip_store,
+            frame_state.gpu_cache,
+            frame_state.resource_cache,
+            frame_state.render_tasks,
         );
 
         let clip_task_id = frame_state.render_tasks.add(clip_task);
@@ -1679,8 +1683,8 @@ impl PrimitiveStore {
         prim_run_context: &PrimitiveRunContext,
         pic_context: &PictureContext,
         pic_state: &mut PictureState,
-        frame_context: &FrameContext,
-        frame_state: &mut FrameState,
+        frame_context: &FrameBuildingContext,
+        frame_state: &mut FrameBuildingState,
     ) -> Option<LayerRect> {
         let mut may_need_clip_mask = true;
         let mut pic_state_for_children = PictureState::new();
@@ -1717,7 +1721,6 @@ impl PrimitiveStore {
                         may_need_clip_mask = composite_mode.is_some();
                         (true, Some(reference_frame_index))
                     }
-                    PictureKind::BoxShadow { .. } |
                     PictureKind::TextShadow { .. } => {
                         (false, None)
                     }
@@ -1757,10 +1760,7 @@ impl PrimitiveStore {
             pic.runs = pic_context_for_children.prim_runs;
 
             let metadata = &mut self.cpu_metadata[prim_index.0];
-            metadata.local_rect = pic.update_local_rect(
-                metadata.local_rect,
-                result,
-            );
+            metadata.local_rect = pic.update_local_rect(result);
         }
 
         let (local_rect, unclipped_device_rect) = {
@@ -1838,8 +1838,8 @@ impl PrimitiveStore {
         &mut self,
         pic_context: &PictureContext,
         pic_state: &mut PictureState,
-        frame_context: &FrameContext,
-        frame_state: &mut FrameState,
+        frame_context: &FrameBuildingContext,
+        frame_state: &mut FrameBuildingState,
     ) -> PrimitiveRunLocalRect {
         let mut result = PrimitiveRunLocalRect {
             local_rect_in_actual_parent_space: LayerRect::zero(),
