@@ -92,6 +92,7 @@ mod resource_cache;
 mod scene;
 mod scene_builder;
 mod segment;
+mod shade;
 mod spring;
 mod texture_allocator;
 mod texture_cache;
