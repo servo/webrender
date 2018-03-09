@@ -1189,7 +1189,7 @@ impl LazilyCompiledShader {
 
         if precache {
             let t0 = precise_time_ns();
-            let program = try!{ shader.get(device) };
+            let program = shader.get(device)?;
             let t1 = precise_time_ns();
             device.bind_program(program);
             device.draw_triangles_u16(0, 3);
@@ -1225,26 +1225,24 @@ impl LazilyCompiledShader {
 
     fn get(&mut self, device: &mut Device) -> Result<&Program, ShaderError> {
         if self.program.is_none() {
-            let program = try!{
-                match self.kind {
-                    ShaderKind::Primitive | ShaderKind::Brush | ShaderKind::Text => {
-                        create_prim_shader(self.name,
-                                           device,
-                                           &self.features,
-                                           VertexArrayKind::Primitive)
-                    }
-                    ShaderKind::Cache(format) => {
-                        create_prim_shader(self.name,
-                                           device,
-                                           &self.features,
-                                           format)
-                    }
-                    ShaderKind::ClipCache => {
-                        create_clip_shader(self.name, device)
-                    }
+            let program = match self.kind {
+                ShaderKind::Primitive | ShaderKind::Brush | ShaderKind::Text => {
+                    create_prim_shader(self.name,
+                                       device,
+                                       &self.features,
+                                       VertexArrayKind::Primitive)
+                }
+                ShaderKind::Cache(format) => {
+                    create_prim_shader(self.name,
+                                       device,
+                                       &self.features,
+                                       format)
+                }
+                ShaderKind::ClipCache => {
+                    create_clip_shader(self.name, device)
                 }
             };
-            self.program = Some(program);
+            self.program = Some(program?);
         }
 
         Ok(self.program.as_ref().unwrap())
@@ -1280,24 +1278,24 @@ impl BrushShader {
         features: &[&'static str],
         precache: bool,
     ) -> Result<Self, ShaderError> {
-        let opaque = try!{
-            LazilyCompiledShader::new(ShaderKind::Brush,
-                                      name,
-                                      features,
-                                      device,
-                                      precache)
-        };
+        let opaque = LazilyCompiledShader::new(
+            ShaderKind::Brush,
+            name,
+            features,
+            device,
+            precache,
+        )?;
 
         let mut alpha_features = features.to_vec();
         alpha_features.push(ALPHA_FEATURE);
 
-        let alpha = try!{
-            LazilyCompiledShader::new(ShaderKind::Brush,
-                                      name,
-                                      &alpha_features,
-                                      device,
-                                      precache)
-        };
+        let alpha = LazilyCompiledShader::new(
+            ShaderKind::Brush,
+            name,
+            &alpha_features,
+            device,
+            precache,
+        )?;
 
         Ok(BrushShader { opaque, alpha })
     }
@@ -1344,24 +1342,24 @@ impl PrimitiveShader {
         features: &[&'static str],
         precache: bool,
     ) -> Result<Self, ShaderError> {
-        let simple = try!{
-            LazilyCompiledShader::new(ShaderKind::Primitive,
-                                      name,
-                                      features,
-                                      device,
-                                      precache)
-        };
+        let simple = LazilyCompiledShader::new(
+            ShaderKind::Primitive,
+            name,
+            features,
+            device,
+            precache,
+        )?;
 
         let mut transform_features = features.to_vec();
         transform_features.push(TRANSFORM_FEATURE);
 
-        let transform = try!{
-            LazilyCompiledShader::new(ShaderKind::Primitive,
-                                      name,
-                                      &transform_features,
-                                      device,
-                                      precache)
-        };
+        let transform = LazilyCompiledShader::new(
+            ShaderKind::Primitive,
+            name,
+            &transform_features,
+            device,
+            precache,
+        )?;
 
         Ok(PrimitiveShader { simple, transform })
     }
@@ -1403,35 +1401,35 @@ impl TextShader {
         features: &[&'static str],
         precache: bool,
     ) -> Result<Self, ShaderError> {
-        let simple = try!{
-            LazilyCompiledShader::new(ShaderKind::Text,
-                                      name,
-                                      features,
-                                      device,
-                                      precache)
-        };
+        let simple = LazilyCompiledShader::new(
+            ShaderKind::Text,
+            name,
+            features,
+            device,
+            precache,
+        )?;
 
         let mut transform_features = features.to_vec();
         transform_features.push("TRANSFORM");
 
-        let transform = try!{
-            LazilyCompiledShader::new(ShaderKind::Text,
-                                      name,
-                                      &transform_features,
-                                      device,
-                                      precache)
-        };
+        let transform = LazilyCompiledShader::new(
+            ShaderKind::Text,
+            name,
+            &transform_features,
+            device,
+            precache,
+        )?;
 
         let mut glyph_transform_features = features.to_vec();
         glyph_transform_features.push("GLYPH_TRANSFORM");
 
-        let glyph_transform = try!{
-            LazilyCompiledShader::new(ShaderKind::Text,
-                                      name,
-                                      &glyph_transform_features,
-                                      device,
-                                      precache)
-        };
+        let glyph_transform = LazilyCompiledShader::new(
+            ShaderKind::Text,
+            name,
+            &glyph_transform_features,
+            device,
+            precache,
+        )?;
 
         Ok(TextShader { simple, transform, glyph_transform })
     }
@@ -1734,8 +1732,8 @@ impl Renderer {
         notifier: Box<RenderNotifier>,
         mut options: RendererOptions,
     ) -> Result<(Renderer, RenderApiSender), RendererError> {
-        let (api_tx, api_rx) = try!{ channel::msg_channel() };
-        let (payload_tx, payload_rx) = try!{ channel::payload_channel() };
+        let (api_tx, api_rx) = channel::msg_channel()?;
+        let (payload_tx, payload_rx) = channel::payload_channel()?;
         let (result_tx, result_rx) = channel();
         let gl_type = gl.get_type();
         let dithering_feature = ["DITHERING"];
@@ -1782,125 +1780,123 @@ impl Renderer {
 
         device.begin_frame();
 
-        let cs_text_run = try!{
-            LazilyCompiledShader::new(ShaderKind::Cache(VertexArrayKind::Primitive),
-                                      "cs_text_run",
-                                      &[],
-                                      &mut device,
-                                      options.precache_shaders)
-        };
+        let cs_text_run = LazilyCompiledShader::new(
+            ShaderKind::Cache(VertexArrayKind::Primitive),
+            "cs_text_run",
+            &[],
+            &mut device,
+            options.precache_shaders,
+        )?;
 
-        let brush_solid = try!{
-            BrushShader::new("brush_solid",
-                             &mut device,
-                             &[],
-                             options.precache_shaders)
-        };
+        let brush_solid = BrushShader::new(
+            "brush_solid",
+            &mut device,
+            &[],
+            options.precache_shaders,
+        )?;
 
-        let brush_line = try!{
-            BrushShader::new("brush_line",
-                             &mut device,
-                             &[],
-                             options.precache_shaders)
-        };
+        let brush_line = BrushShader::new(
+            "brush_line",
+            &mut device,
+            &[],
+            options.precache_shaders,
+        )?;
 
-        let brush_blend = try!{
-            BrushShader::new("brush_blend",
-                             &mut device,
-                             &[],
-                             options.precache_shaders)
-        };
+        let brush_blend = BrushShader::new(
+            "brush_blend",
+            &mut device,
+            &[],
+            options.precache_shaders,
+        )?;
 
-        let brush_mix_blend = try!{
-            BrushShader::new("brush_mix_blend",
-                             &mut device,
-                             &[],
-                             options.precache_shaders)
-        };
+        let brush_mix_blend = BrushShader::new(
+            "brush_mix_blend",
+            &mut device,
+            &[],
+            options.precache_shaders,
+        )?;
 
-        let brush_radial_gradient = try!{
-            BrushShader::new("brush_radial_gradient",
-                             &mut device,
-                             if options.enable_dithering {
-                                &dithering_feature
-                             } else {
-                                &[]
-                             },
-                             options.precache_shaders)
-        };
+        let brush_radial_gradient = BrushShader::new(
+            "brush_radial_gradient",
+            &mut device,
+            if options.enable_dithering {
+               &dithering_feature
+            } else {
+               &[]
+            },
+            options.precache_shaders,
+        )?;
 
-        let brush_linear_gradient = try!{
-            BrushShader::new("brush_linear_gradient",
-                             &mut device,
-                             if options.enable_dithering {
-                                &dithering_feature
-                             } else {
-                                &[]
-                             },
-                             options.precache_shaders)
-        };
+        let brush_linear_gradient = BrushShader::new(
+            "brush_linear_gradient",
+            &mut device,
+            if options.enable_dithering {
+               &dithering_feature
+            } else {
+               &[]
+            },
+            options.precache_shaders,
+        )?;
 
-        let cs_blur_a8 = try!{
-            LazilyCompiledShader::new(ShaderKind::Cache(VertexArrayKind::Blur),
-                                     "cs_blur",
-                                      &["ALPHA_TARGET"],
-                                      &mut device,
-                                      options.precache_shaders)
-        };
+        let cs_blur_a8 = LazilyCompiledShader::new(
+            ShaderKind::Cache(VertexArrayKind::Blur),
+            "cs_blur",
+            &["ALPHA_TARGET"],
+            &mut device,
+            options.precache_shaders,
+        )?;
 
-        let cs_blur_rgba8 = try!{
-            LazilyCompiledShader::new(ShaderKind::Cache(VertexArrayKind::Blur),
-                                     "cs_blur",
-                                      &["COLOR_TARGET"],
-                                      &mut device,
-                                      options.precache_shaders)
-        };
+        let cs_blur_rgba8 = LazilyCompiledShader::new(
+            ShaderKind::Cache(VertexArrayKind::Blur),
+            "cs_blur",
+            &["COLOR_TARGET"],
+            &mut device,
+            options.precache_shaders,
+        )?;
 
-        let cs_clip_rectangle = try!{
-            LazilyCompiledShader::new(ShaderKind::ClipCache,
-                                      "cs_clip_rectangle",
-                                      &[],
-                                      &mut device,
-                                      options.precache_shaders)
-        };
+        let cs_clip_rectangle = LazilyCompiledShader::new(
+            ShaderKind::ClipCache,
+            "cs_clip_rectangle",
+            &[],
+            &mut device,
+            options.precache_shaders,
+        )?;
 
-        let cs_clip_box_shadow = try!{
-            LazilyCompiledShader::new(ShaderKind::ClipCache,
-                                      "cs_clip_box_shadow",
-                                      &[],
-                                      &mut device,
-                                      options.precache_shaders)
-        };
+        let cs_clip_box_shadow = LazilyCompiledShader::new(
+            ShaderKind::ClipCache,
+            "cs_clip_box_shadow",
+            &[],
+            &mut device,
+            options.precache_shaders,
+        )?;
 
-        let cs_clip_image = try!{
-            LazilyCompiledShader::new(ShaderKind::ClipCache,
-                                      "cs_clip_image",
-                                      &[],
-                                      &mut device,
-                                      options.precache_shaders)
-        };
+        let cs_clip_image = LazilyCompiledShader::new(
+            ShaderKind::ClipCache,
+            "cs_clip_image",
+            &[],
+            &mut device,
+            options.precache_shaders,
+        )?;
 
-        let cs_clip_border = try!{
-            LazilyCompiledShader::new(ShaderKind::ClipCache,
-                                      "cs_clip_border",
-                                      &[],
-                                      &mut device,
-                                      options.precache_shaders)
-        };
+        let cs_clip_border = LazilyCompiledShader::new(
+            ShaderKind::ClipCache,
+            "cs_clip_border",
+            &[],
+            &mut device,
+            options.precache_shaders,
+        )?;
 
-        let ps_text_run = try!{
-            TextShader::new("ps_text_run",
-                            &mut device,
-                            &[],
-                            options.precache_shaders)
-        };
+        let ps_text_run = TextShader::new("ps_text_run",
+            &mut device,
+            &[],
+            options.precache_shaders,
+        )?;
 
-        let ps_text_run_dual_source = try!{
-            TextShader::new("ps_text_run",
-                            &mut device,
-                            &["DUAL_SOURCE_BLENDING"],
-                            options.precache_shaders)
-        };
+        let ps_text_run_dual_source = TextShader::new("ps_text_run",
+            &mut device,
+            &["DUAL_SOURCE_BLENDING"],
+            options.precache_shaders,
+        )?;
 
         // All image configuration.
         let mut image_features = Vec::new();
@@ -1917,21 +1913,18 @@ impl Renderer {
                 if feature_string != "" {
                     image_features.push(feature_string);
                 }
-                let shader = try!{
-                    PrimitiveShader::new("ps_image",
-                                         &mut device,
-                                         &image_features,
-                                         options.precache_shaders)
-                };
-                ps_image[buffer_kind] = Some(shader);
-
-                let shader = try!{
-                    BrushShader::new("brush_image",
-                                     &mut device,
-                                     &image_features,
-                                     options.precache_shaders)
-                };
-                brush_image[buffer_kind] = Some(shader);
+                ps_image[buffer_kind] = Some(PrimitiveShader::new(
+                    "ps_image",
+                    &mut device,
+                    &image_features,
+                    options.precache_shaders,
+                )?);
+                brush_image[buffer_kind] = Some(BrushShader::new(
+                    "brush_image",
+                    &mut device,
+                    &image_features,
+                    options.precache_shaders,
+                )?);
             }
             image_features.clear();
         }
@@ -1962,12 +1955,12 @@ impl Renderer {
                             yuv_features.push(feature_string);
                         }
 
-                        let shader = try!{
-                            BrushShader::new("brush_yuv_image",
-                                             &mut device,
-                                             &yuv_features,
-                                             options.precache_shaders)
-                        };
+                        let shader = BrushShader::new(
+                            "brush_yuv_image",
+                            &mut device,
+                            &yuv_features,
+                            options.precache_shaders,
+                        )?;
                         let index = Renderer::get_yuv_shader_index(
                             IMAGE_BUFFER_KINDS[buffer_kind],
                             YUV_FORMATS[format_kind],
@@ -1980,35 +1973,35 @@ impl Renderer {
             }
         }
 
-        let ps_border_corner = try!{
-            PrimitiveShader::new("ps_border_corner",
-                                 &mut device,
-                                 &[],
-                                 options.precache_shaders)
-        };
+        let ps_border_corner = PrimitiveShader::new(
+            "ps_border_corner",
+             &mut device,
+             &[],
+             options.precache_shaders,
+        )?;
 
-        let ps_border_edge = try!{
-            PrimitiveShader::new("ps_border_edge",
-                                 &mut device,
-                                 &[],
-                                 options.precache_shaders)
-        };
+        let ps_border_edge = PrimitiveShader::new(
+            "ps_border_edge",
+             &mut device,
+             &[],
+             options.precache_shaders,
+        )?;
 
-        let ps_hw_composite = try!{
-            LazilyCompiledShader::new(ShaderKind::Primitive,
-                                     "ps_hardware_composite",
-                                     &[],
-                                     &mut device,
-                                     options.precache_shaders)
-        };
+        let ps_hw_composite = LazilyCompiledShader::new(
+            ShaderKind::Primitive,
+            "ps_hardware_composite",
+            &[],
+            &mut device,
+            options.precache_shaders,
+        )?;
 
-        let ps_split_composite = try!{
-            LazilyCompiledShader::new(ShaderKind::Primitive,
-                                     "ps_split_composite",
-                                     &[],
-                                     &mut device,
-                                     options.precache_shaders)
-        };
+        let ps_split_composite = LazilyCompiledShader::new(
+            ShaderKind::Primitive,
+            "ps_split_composite",
+            &[],
+            &mut device,
+            options.precache_shaders,
+        )?;
 
         let texture_cache = TextureCache::new(max_device_size);
         let max_texture_size = texture_cache.max_texture_size();
@@ -2197,47 +2190,43 @@ impl Renderer {
         )?;
 
         let (scene_builder, scene_tx, scene_rx) = SceneBuilder::new(config, api_tx.clone());
-        try! {
-            thread::Builder::new().name(scene_thread_name.clone()).spawn(move || {
-                register_thread_with_profiler(scene_thread_name.clone());
-                if let Some(ref thread_listener) = *thread_listener_for_scene_builder {
-                    thread_listener.thread_started(&scene_thread_name);
-                }
+        thread::Builder::new().name(scene_thread_name.clone()).spawn(move || {
+            register_thread_with_profiler(scene_thread_name.clone());
+            if let Some(ref thread_listener) = *thread_listener_for_scene_builder {
+                thread_listener.thread_started(&scene_thread_name);
+            }
 
-                let mut scene_builder = scene_builder;
-                scene_builder.run();
+            let mut scene_builder = scene_builder;
+            scene_builder.run();
 
-                if let Some(ref thread_listener) = *thread_listener_for_scene_builder {
-                    thread_listener.thread_stopped(&scene_thread_name);
-                }
-            })
-        };
+            if let Some(ref thread_listener) = *thread_listener_for_scene_builder {
+                thread_listener.thread_stopped(&scene_thread_name);
+            }
+        })?;
 
-        try!{
-            thread::Builder::new().name(rb_thread_name.clone()).spawn(move || {
-                register_thread_with_profiler(rb_thread_name.clone());
-                if let Some(ref thread_listener) = *thread_listener_for_render_backend {
-                    thread_listener.thread_started(&rb_thread_name);
-                }
-                let mut backend = RenderBackend::new(
-                    api_rx,
-                    payload_rx_for_backend,
-                    result_tx,
-                    scene_tx,
-                    scene_rx,
-                    device_pixel_ratio,
-                    resource_cache,
-                    backend_notifier,
-                    config,
-                    recorder,
-                    enable_render_on_scroll,
-                );
-                backend.run(backend_profile_counters);
-                if let Some(ref thread_listener) = *thread_listener_for_render_backend {
-                    thread_listener.thread_stopped(&rb_thread_name);
-                }
-            })
-        };
+        thread::Builder::new().name(rb_thread_name.clone()).spawn(move || {
+            register_thread_with_profiler(rb_thread_name.clone());
+            if let Some(ref thread_listener) = *thread_listener_for_render_backend {
+                thread_listener.thread_started(&rb_thread_name);
+            }
+            let mut backend = RenderBackend::new(
+                api_rx,
+                payload_rx_for_backend,
+                result_tx,
+                scene_tx,
+                scene_rx,
+                device_pixel_ratio,
+                resource_cache,
+                backend_notifier,
+                config,
+                recorder,
+                enable_render_on_scroll,
+            );
+            backend.run(backend_profile_counters);
+            if let Some(ref thread_listener) = *thread_listener_for_render_backend {
+                thread_listener.thread_stopped(&rb_thread_name);
+            }
+        })?;
 
         let gpu_profile = GpuProfiler::new(Rc::clone(device.rc_gl()));
         #[cfg(feature = "capture")]
