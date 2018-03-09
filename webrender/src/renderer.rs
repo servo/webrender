@@ -1179,7 +1179,7 @@ impl LazilyCompiledShader {
         features: &[&'static str],
         device: &mut Device,
         precache: bool,
-    ) -> Result<LazilyCompiledShader, ShaderError> {
+    ) -> Result<Self, ShaderError> {
         let mut shader = LazilyCompiledShader {
             program: None,
             name,
@@ -1300,27 +1300,16 @@ impl BrushShader {
         Ok(BrushShader { opaque, alpha })
     }
 
-    fn bind<M>(
-        &mut self,
-        device: &mut Device,
-        blend_mode: BlendMode,
-        projection: &Transform3D<f32>,
-        mode: M,
-        renderer_errors: &mut Vec<RendererError>,
-    ) where M: Into<ShaderMode> {
+    fn get(&mut self, blend_mode: BlendMode) -> &mut LazilyCompiledShader {
         match blend_mode {
-            BlendMode::None => {
-                self.opaque.bind(device, projection, mode, renderer_errors)
-            }
+            BlendMode::None => &mut self.opaque,
             BlendMode::Alpha |
             BlendMode::PremultipliedAlpha |
             BlendMode::PremultipliedDestOut |
             BlendMode::SubpixelDualSource |
             BlendMode::SubpixelConstantTextColor(..) |
             BlendMode::SubpixelVariableTextColor |
-            BlendMode::SubpixelWithBgColor => {
-                self.alpha.bind(device, projection, mode, renderer_errors)
-            }
+            BlendMode::SubpixelWithBgColor => &mut self.alpha,
         }
     }
 
@@ -1364,21 +1353,10 @@ impl PrimitiveShader {
         Ok(PrimitiveShader { simple, transform })
     }
 
-    fn bind<M>(
-        &mut self,
-        device: &mut Device,
-        transform_kind: TransformedRectKind,
-        projection: &Transform3D<f32>,
-        mode: M,
-        renderer_errors: &mut Vec<RendererError>,
-    ) where M: Into<ShaderMode> {
+    fn get(&mut self, transform_kind: TransformedRectKind) -> &mut LazilyCompiledShader {
         match transform_kind {
-            TransformedRectKind::AxisAligned => {
-                self.simple.bind(device, projection, mode, renderer_errors)
-            }
-            TransformedRectKind::Complex => {
-                self.transform.bind(device, projection, mode, renderer_errors)
-            }
+            TransformedRectKind::AxisAligned => &mut self.simple,
+            TransformedRectKind::Complex => &mut self.transform,
         }
     }
 
@@ -1434,33 +1412,21 @@ impl TextShader {
         Ok(TextShader { simple, transform, glyph_transform })
     }
 
-    fn bind<M>(
+    fn get(
         &mut self,
-        device: &mut Device,
         glyph_format: GlyphFormat,
         transform_kind: TransformedRectKind,
-        projection: &Transform3D<f32>,
-        mode: M,
-        renderer_errors: &mut Vec<RendererError>,
-    ) where M: Into<ShaderMode> {
+    ) -> &mut LazilyCompiledShader {
         match glyph_format {
             GlyphFormat::Alpha |
             GlyphFormat::Subpixel |
             GlyphFormat::Bitmap |
-            GlyphFormat::ColorBitmap => {
-                match transform_kind {
-                    TransformedRectKind::AxisAligned => {
-                        self.simple.bind(device, projection, mode, renderer_errors)
-                    }
-                    TransformedRectKind::Complex => {
-                        self.transform.bind(device, projection, mode, renderer_errors)
-                    }
-                }
+            GlyphFormat::ColorBitmap => match transform_kind {
+                TransformedRectKind::AxisAligned => &mut self.simple,
+                TransformedRectKind::Complex => &mut self.transform,
             }
             GlyphFormat::TransformedAlpha |
-            GlyphFormat::TransformedSubpixel => {
-                self.glyph_transform.bind(device, projection, mode, renderer_errors)
-            }
+            GlyphFormat::TransformedSubpixel => &mut self.glyph_transform,
         }
     }
 
@@ -3138,84 +3104,35 @@ impl Renderer {
     ) {
         match key.kind {
             BatchKind::HardwareComposite => {
-                self.ps_hw_composite
-                    .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+                &mut self.ps_hw_composite
             }
             BatchKind::SplitComposite => {
-                self.ps_split_composite.bind(
-                    &mut self.device,
-                    projection,
-                    0,
-                    &mut self.renderer_errors,
-                );
+                &mut self.ps_split_composite
             }
             BatchKind::Brush(brush_kind) => {
                 match brush_kind {
                     BrushBatchKind::Solid => {
-                        self.brush_solid.bind(
-                            &mut self.device,
-                            key.blend_mode,
-                            projection,
-                            0,
-                            &mut self.renderer_errors,
-                        );
+                        &mut self.brush_solid
                     }
                     BrushBatchKind::Image(image_buffer_kind) => {
                         self.brush_image[image_buffer_kind as usize]
                             .as_mut()
                             .expect("Unsupported image shader kind")
-                            .bind(
-                                &mut self.device,
-                                key.blend_mode,
-                                projection,
-                                0,
-                                &mut self.renderer_errors,
-                            );
                     }
                     BrushBatchKind::Line => {
-                        self.brush_line.bind(
-                            &mut self.device,
-                            key.blend_mode,
-                            projection,
-                            0,
-                            &mut self.renderer_errors,
-                        );
+                        &mut self.brush_line
                     }
                     BrushBatchKind::Blend => {
-                        self.brush_blend.bind(
-                            &mut self.device,
-                            key.blend_mode,
-                            projection,
-                            0,
-                            &mut self.renderer_errors,
-                        );
+                        &mut self.brush_blend
                     }
                     BrushBatchKind::MixBlend { .. } => {
-                        self.brush_mix_blend.bind(
-                            &mut self.device,
-                            key.blend_mode,
-                            projection,
-                            0,
-                            &mut self.renderer_errors,
-                        );
+                        &mut self.brush_mix_blend
                     }
                     BrushBatchKind::RadialGradient => {
-                        self.brush_radial_gradient.bind(
-                            &mut self.device,
-                            key.blend_mode,
-                            projection,
-                            0,
-                            &mut self.renderer_errors,
-                        );
+                        &mut self.brush_radial_gradient
                     }
                     BrushBatchKind::LinearGradient => {
-                        self.brush_linear_gradient.bind(
-                            &mut self.device,
-                            key.blend_mode,
-                            projection,
-                            0,
-                            &mut self.renderer_errors,
-                        );
+                        &mut self.brush_linear_gradient
                     }
                     BrushBatchKind::YuvImage(image_buffer_kind, format, color_space) => {
                         let shader_index =
@@ -3223,52 +3140,32 @@ impl Renderer {
                         self.brush_yuv_image[shader_index]
                             .as_mut()
                             .expect("Unsupported YUV shader kind")
-                            .bind(
-                                &mut self.device,
-                                key.blend_mode,
-                                projection,
-                                0,
-                                &mut self.renderer_errors,
-                            );
                     }
-                }
+                }.get(key.blend_mode)
             }
-            BatchKind::Transformable(transform_kind, batch_kind) => match batch_kind {
-                TransformBatchKind::TextRun(..) => {
-                    unreachable!("bug: text batches are special cased");
-                }
-                TransformBatchKind::Image(image_buffer_kind) => {
-                    self.ps_image[image_buffer_kind as usize]
-                        .as_mut()
-                        .expect("Unsupported image shader kind")
-                        .bind(
-                            &mut self.device,
-                            transform_kind,
-                            projection,
-                            0,
-                            &mut self.renderer_errors,
-                        );
-                }
-                TransformBatchKind::BorderCorner => {
-                    self.ps_border_corner.bind(
-                        &mut self.device,
-                        transform_kind,
-                        projection,
-                        0,
-                        &mut self.renderer_errors,
-                    );
-                }
-                TransformBatchKind::BorderEdge => {
-                    self.ps_border_edge.bind(
-                        &mut self.device,
-                        transform_kind,
-                        projection,
-                        0,
-                        &mut self.renderer_errors,
-                    );
-                }
-            },
-        };
+            BatchKind::Transformable(transform_kind, batch_kind) => {
+                match batch_kind {
+                    TransformBatchKind::TextRun(..) => {
+                        unreachable!("bug: text batches are special cased");
+                    }
+                    TransformBatchKind::Image(image_buffer_kind) => {
+                        self.ps_image[image_buffer_kind as usize]
+                            .as_mut()
+                            .expect("Unsupported image shader kind")
+                    }
+                    TransformBatchKind::BorderCorner => {
+                        &mut self.ps_border_corner
+                    }
+                    TransformBatchKind::BorderEdge => {
+                        &mut self.ps_border_edge
+                    }
+                }.get(transform_kind)
+            }
+        }.bind(
+            &mut self.device, projection,
+            0,
+            &mut self.renderer_errors,
+        );
 
         // Handle special case readback for composites.
         if let BatchKind::Brush(BrushBatchKind::MixBlend { task_id, source_id, backdrop_id }) = key.kind {
@@ -3619,14 +3516,14 @@ impl Renderer {
                             BlendMode::PremultipliedAlpha => {
                                 self.device.set_blend_mode_premultiplied_alpha();
 
-                                self.ps_text_run.bind(
-                                    &mut self.device,
-                                    glyph_format,
-                                    transform_kind,
-                                    projection,
-                                    TextShaderMode::from(glyph_format),
-                                    &mut self.renderer_errors,
-                                );
+                                self.ps_text_run
+                                    .get(glyph_format, transform_kind)
+                                    .bind(
+                                        &mut self.device,
+                                        projection,
+                                        TextShaderMode::from(glyph_format),
+                                        &mut self.renderer_errors,
+                                    );
 
                                 self.draw_instanced_batch(
                                     &batch.instances,
@@ -3638,14 +3535,14 @@ impl Renderer {
                             BlendMode::SubpixelDualSource => {
                                 self.device.set_blend_mode_subpixel_dual_source();
 
-                                self.ps_text_run_dual_source.bind(
-                                    &mut self.device,
-                                    glyph_format,
-                                    transform_kind,
-                                    projection,
-                                    TextShaderMode::SubpixelDualSource,
-                                    &mut self.renderer_errors,
-                                );
+                                self.ps_text_run_dual_source
+                                    .get(glyph_format, transform_kind)
+                                    .bind(
+                                        &mut self.device,
+                                        projection,
+                                        TextShaderMode::SubpixelDualSource,
+                                        &mut self.renderer_errors,
+                                    );
 
                                 self.draw_instanced_batch(
                                     &batch.instances,
@@ -3657,14 +3554,14 @@ impl Renderer {
                             BlendMode::SubpixelConstantTextColor(color) => {
                                 self.device.set_blend_mode_subpixel_constant_text_color(color);
 
-                                self.ps_text_run.bind(
-                                    &mut self.device,
-                                    glyph_format,
-                                    transform_kind,
-                                    projection,
-                                    TextShaderMode::SubpixelConstantTextColor,
-                                    &mut self.renderer_errors,
-                                );
+                                self.ps_text_run
+                                    .get(glyph_format, transform_kind)
+                                    .bind(
+                                        &mut self.device,
+                                        projection,
+                                        TextShaderMode::SubpixelConstantTextColor,
+                                        &mut self.renderer_errors,
+                                    );
 
                                 self.draw_instanced_batch(
                                     &batch.instances,
@@ -3680,14 +3577,14 @@ impl Renderer {
                                 //
                                 self.device.set_blend_mode_subpixel_pass0();
 
-                                self.ps_text_run.bind(
-                                    &mut self.device,
-                                    glyph_format,
-                                    transform_kind,
-                                    projection,
-                                    TextShaderMode::SubpixelPass0,
-                                    &mut self.renderer_errors,
-                                );
+                                self.ps_text_run
+                                    .get(glyph_format, transform_kind)
+                                    .bind(
+                                        &mut self.device,
+                                        projection,
+                                        TextShaderMode::SubpixelPass0,
+                                        &mut self.renderer_errors,
+                                    );
 
                                 self.draw_instanced_batch(
                                     &batch.instances,
@@ -3698,14 +3595,14 @@ impl Renderer {
 
                                 self.device.set_blend_mode_subpixel_pass1();
 
-                                self.ps_text_run.bind(
-                                    &mut self.device,
-                                    glyph_format,
-                                    transform_kind,
-                                    projection,
-                                    TextShaderMode::SubpixelPass1,
-                                    &mut self.renderer_errors,
-                                );
+                                self.ps_text_run
+                                    .get(glyph_format, transform_kind)
+                                    .bind(
+                                        &mut self.device,
+                                        projection,
+                                        TextShaderMode::SubpixelPass1,
+                                        &mut self.renderer_errors,
+                                    );
 
                                 // When drawing the 2nd pass, we know that the VAO, textures etc
                                 // are all set up from the previous draw_instanced_batch call,
@@ -3722,14 +3619,14 @@ impl Renderer {
                                 //
                                 self.device.set_blend_mode_subpixel_with_bg_color_pass0();
 
-                                self.ps_text_run.bind(
-                                    &mut self.device,
-                                    glyph_format,
-                                    transform_kind,
-                                    projection,
-                                    TextShaderMode::SubpixelWithBgColorPass0,
-                                    &mut self.renderer_errors,
-                                );
+                                self.ps_text_run
+                                    .get(glyph_format, transform_kind)
+                                    .bind(
+                                        &mut self.device,
+                                        projection,
+                                        TextShaderMode::SubpixelWithBgColorPass0,
+                                        &mut self.renderer_errors,
+                                    );
 
                                 self.draw_instanced_batch(
                                     &batch.instances,
@@ -3740,14 +3637,14 @@ impl Renderer {
 
                                 self.device.set_blend_mode_subpixel_with_bg_color_pass1();
 
-                                self.ps_text_run.bind(
-                                    &mut self.device,
-                                    glyph_format,
-                                    transform_kind,
-                                    projection,
-                                    TextShaderMode::SubpixelWithBgColorPass1,
-                                    &mut self.renderer_errors,
-                                );
+                                self.ps_text_run
+                                    .get(glyph_format, transform_kind)
+                                    .bind(
+                                        &mut self.device,
+                                        projection,
+                                        TextShaderMode::SubpixelWithBgColorPass1,
+                                        &mut self.renderer_errors,
+                                    );
 
                                 // When drawing the 2nd and 3rd passes, we know that the VAO, textures etc
                                 // are all set up from the previous draw_instanced_batch call,
@@ -3758,14 +3655,14 @@ impl Renderer {
 
                                 self.device.set_blend_mode_subpixel_with_bg_color_pass2();
 
-                                self.ps_text_run.bind(
-                                    &mut self.device,
-                                    glyph_format,
-                                    transform_kind,
-                                    projection,
-                                    TextShaderMode::SubpixelWithBgColorPass2,
-                                    &mut self.renderer_errors,
-                                );
+                                self.ps_text_run
+                                    .get(glyph_format, transform_kind)
+                                    .bind(
+                                        &mut self.device,
+                                        projection,
+                                        TextShaderMode::SubpixelWithBgColorPass2,
+                                        &mut self.renderer_errors,
+                                    );
 
                                 self.device
                                     .draw_indexed_triangles_instanced_u16(6, batch.instances.len() as i32);
