@@ -157,7 +157,7 @@ extern crate time;
 #[cfg(feature = "debugger")]
 extern crate ws;
 #[cfg(feature = "debugger")]
-extern crate image;
+extern crate image as image_loader;
 #[cfg(feature = "debugger")]
 extern crate base64;
 #[cfg(all(feature = "capture", feature = "png"))]
