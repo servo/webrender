@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 #![cfg(windows)]
 
 extern crate gleam;
@@ -74,7 +78,7 @@ impl DirectComposition {
 
         // Create the DirectComposition device object.
         let composition_device = ComPtr::<IDCompositionDevice>::new_with_uuid(|uuid, ptr_ptr| {
-            winapi::um::dcomp::DCompositionCreateDevice(&*dxgi_device, uuid,ptr_ptr)
+            winapi::um::dcomp::DCompositionCreateDevice(&*dxgi_device, uuid, ptr_ptr)
         });
 
         // Create the composition target object based on the
