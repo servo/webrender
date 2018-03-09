@@ -283,7 +283,7 @@ version = "0.1.0"
 dependencies = [
  "euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam 0.4.23 (registry+https://github.com/rust-lang/crates.io-index)",
- "mozangle 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "mozangle 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "webrender 0.57.0",
  "winapi 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "winit 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -709,7 +709,7 @@ dependencies = [
 
 [[package]]
 name = "mozangle"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "cc 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1271,7 +1271,7 @@ dependencies = [
  "image 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "mozangle 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "mozangle 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "num-traits 0.1.37 (registry+https://github.com/rust-lang/crates.io-index)",
  "plane-split 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "png 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1535,7 +1535,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum memoffset 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "0f9dc261e2b62d7a622bf416ea3c5245cdd5d9a7fcc428c0d06804dfce1775b3"
 "checksum mio 0.6.7 (registry+https://github.com/rust-lang/crates.io-index)" = "6d19442734abd7d780b981c590c325680d933e99795fe1f693f0686c9ed48022"
 "checksum miow 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "8c1f2f3b1cf331de6896aabf6e9d55dca90356cc9960cca7eaaf408a355ae919"
-"checksum mozangle 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)" = "4d916e4f2d39a00eeeb082ceb7c63c741e7c9d4f7915945f9225ae5e3b284092"
+"checksum mozangle 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "7b41d9b5488bd3bf519736839a5b573953bc20b093f9a444a02ca1c8956fe59f"
 "checksum net2 0.2.26 (registry+https://github.com/rust-lang/crates.io-index)" = "5edf9cb6be97212423aed9413dd4729d62b370b5e1c571750e882cebbbc1e3e2"
 "checksum nodrop 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)" = "9a2228dca57108069a5262f2ed8bd2e82496d2e074a06d1ccc7ce1687b6ae0a2"
 "checksum num 0.1.36 (registry+https://github.com/rust-lang/crates.io-index)" = "bde7c03b09e7c6a301ee81f6ddf66d7a28ec305699e3d3b056d2fc56470e3120"
