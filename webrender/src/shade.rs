@@ -50,10 +50,6 @@ pub const IMAGE_BUFFER_KINDS: [ImageBufferKind; 4] = [
     ImageBufferKind::Texture2DArray,
 ];
 
-// A generic mode that can be passed to shaders to change
-// behaviour per draw-call.
-pub type ShaderMode = i32;
-
 const TRANSFORM_FEATURE: &str = "TRANSFORM";
 const ALPHA_FEATURE: &str = "ALPHA_PASS";
 const DITHERING_FEATURE: &str = "DITHERING";
@@ -106,13 +102,12 @@ impl LazilyCompiledShader {
         Ok(shader)
     }
 
-    pub fn bind<M>(
+    pub fn bind(
         &mut self,
         device: &mut Device,
         projection: &Transform3D<f32>,
-        mode: M,
         renderer_errors: &mut Vec<RendererError>,
-    ) where M: Into<ShaderMode> {
+    ) {
         let program = match self.get(device) {
             Ok(program) => program,
             Err(e) => {
@@ -121,7 +116,7 @@ impl LazilyCompiledShader {
             }
         };
         device.bind_program(program);
-        device.set_uniforms(program, projection, mode.into());
+        device.set_uniforms(program, projection);
     }
 
     fn get(&mut self, device: &mut Device) -> Result<&Program, ShaderError> {

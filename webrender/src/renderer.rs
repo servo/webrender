@@ -51,7 +51,7 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 use record::ApiRecordingReceiver;
 use render_backend::RenderBackend;
 use scene_builder::SceneBuilder;
-use shade::{ShaderMode, Shaders};
+use shade::Shaders;
 use render_task::{RenderTask, RenderTaskKind, RenderTaskTree};
 use resource_cache::ResourceCache;
 
@@ -282,12 +282,6 @@ enum TextShaderMode {
     SubpixelDualSource = 7,
     Bitmap = 8,
     ColorBitmap = 9,
-}
-
-impl Into<ShaderMode> for TextShaderMode {
-    fn into(self) -> i32 {
-        self as i32
-    }
 }
 
 impl From<GlyphFormat> for TextShaderMode {
@@ -2492,7 +2486,6 @@ impl Renderer {
             .get(key)
             .bind(
                 &mut self.device, projection,
-                0,
                 &mut self.renderer_errors,
             );
 
@@ -2667,7 +2660,7 @@ impl Renderer {
 
             self.device.set_blend(false);
             self.shaders.cs_blur_rgba8
-                .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+                .bind(&mut self.device, projection, &mut self.renderer_errors);
 
             if !target.vertical_blurs.is_empty() {
                 self.draw_instanced_batch(
@@ -2703,7 +2696,7 @@ impl Renderer {
 
                 let _timer = self.gpu_profile.start_timer(GPU_TAG_CACHE_TEXT_RUN);
                 self.shaders.cs_text_run
-                    .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+                    .bind(&mut self.device, projection, &mut self.renderer_errors);
                 for (texture_id, instances) in &alpha_batch_container.text_run_cache_prims {
                     self.draw_instanced_batch(
                         instances,
@@ -2785,9 +2778,6 @@ impl Renderer {
 
                         self.device.set_blend(true);
                         // bind the proper shader first
-                        // Note: this is the only place where `mode` uniform is really used,
-                        // and even here it's initially provided as 0. Perhaps, we could omit
-                        // setting this uniform entirely at the program binding.
                         match batch.key.blend_mode {
                             BlendMode::SubpixelDualSource => &mut self.shaders.ps_text_run_dual_source,
                             _ => &mut self.shaders.ps_text_run,
@@ -2796,7 +2786,6 @@ impl Renderer {
                             .bind(
                                 &mut self.device,
                                 projection,
-                                0,
                                 &mut self.renderer_errors,
                             );
 
@@ -2804,7 +2793,7 @@ impl Renderer {
                             BlendMode::Alpha => panic!("Attempt to composite non-premultiplied text primitives."),
                             BlendMode::PremultipliedAlpha => {
                                 self.device.set_blend_mode_premultiplied_alpha();
-                                self.device.switch_mode(TextShaderMode::from(glyph_format).into());
+                                self.device.switch_mode(TextShaderMode::from(glyph_format) as _);
 
                                 self.draw_instanced_batch(
                                     &batch.instances,
@@ -2815,7 +2804,7 @@ impl Renderer {
                             }
                             BlendMode::SubpixelDualSource => {
                                 self.device.set_blend_mode_subpixel_dual_source();
-                                self.device.switch_mode(TextShaderMode::SubpixelDualSource.into());
+                                self.device.switch_mode(TextShaderMode::SubpixelDualSource as _);
 
                                 self.draw_instanced_batch(
                                     &batch.instances,
@@ -2826,7 +2815,7 @@ impl Renderer {
                             }
                             BlendMode::SubpixelConstantTextColor(color) => {
                                 self.device.set_blend_mode_subpixel_constant_text_color(color);
-                                self.device.switch_mode(TextShaderMode::SubpixelConstantTextColor.into());
+                                self.device.switch_mode(TextShaderMode::SubpixelConstantTextColor as _);
 
                                 self.draw_instanced_batch(
                                     &batch.instances,
@@ -2841,7 +2830,7 @@ impl Renderer {
                                 // http://anholt.livejournal.com/32058.html
                                 //
                                 self.device.set_blend_mode_subpixel_pass0();
-                                self.device.switch_mode(TextShaderMode::SubpixelPass0.into());
+                                self.device.switch_mode(TextShaderMode::SubpixelPass0 as _);
 
                                 self.draw_instanced_batch(
                                     &batch.instances,
@@ -2851,7 +2840,7 @@ impl Renderer {
                                 );
 
                                 self.device.set_blend_mode_subpixel_pass1();
-                                self.device.switch_mode(TextShaderMode::SubpixelPass1.into());
+                                self.device.switch_mode(TextShaderMode::SubpixelPass1 as _);
 
                                 // When drawing the 2nd pass, we know that the VAO, textures etc
                                 // are all set up from the previous draw_instanced_batch call,
@@ -2867,7 +2856,7 @@ impl Renderer {
                                 // /webrender/doc/text-rendering.md
                                 //
                                 self.device.set_blend_mode_subpixel_with_bg_color_pass0();
-                                self.device.switch_mode(TextShaderMode::SubpixelWithBgColorPass0.into());
+                                self.device.switch_mode(TextShaderMode::SubpixelWithBgColorPass0 as _);
 
                                 self.draw_instanced_batch(
                                     &batch.instances,
@@ -2877,7 +2866,7 @@ impl Renderer {
                                 );
 
                                 self.device.set_blend_mode_subpixel_with_bg_color_pass1();
-                                self.device.switch_mode(TextShaderMode::SubpixelWithBgColorPass1.into());
+                                self.device.switch_mode(TextShaderMode::SubpixelWithBgColorPass1 as _);
 
                                 // When drawing the 2nd and 3rd passes, we know that the VAO, textures etc
                                 // are all set up from the previous draw_instanced_batch call,
@@ -2887,7 +2876,7 @@ impl Renderer {
                                     .draw_indexed_triangles_instanced_u16(6, batch.instances.len() as i32);
 
                                 self.device.set_blend_mode_subpixel_with_bg_color_pass2();
-                                self.device.switch_mode(TextShaderMode::SubpixelWithBgColorPass2.into());
+                                self.device.switch_mode(TextShaderMode::SubpixelWithBgColorPass2 as _);
 
                                 self.device
                                     .draw_indexed_triangles_instanced_u16(6, batch.instances.len() as i32);
@@ -3037,7 +3026,7 @@ impl Renderer {
 
             self.device.set_blend(false);
             self.shaders.cs_blur_a8
-                .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+                .bind(&mut self.device, projection, &mut self.renderer_errors);
 
             if !target.vertical_blurs.is_empty() {
                 self.draw_instanced_batch(
@@ -3071,7 +3060,7 @@ impl Renderer {
                 let _gm2 = self.gpu_profile.start_marker("clip borders [clear]");
                 self.device.set_blend(false);
                 self.shaders.cs_clip_border
-                    .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+                    .bind(&mut self.device, projection, &mut self.renderer_errors);
                 self.draw_instanced_batch(
                     &target.clip_batcher.border_clears,
                     VertexArrayKind::Clip,
@@ -3090,7 +3079,7 @@ impl Renderer {
                 self.device.set_blend(true);
                 self.device.set_blend_mode_max();
                 self.shaders.cs_clip_border
-                    .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+                    .bind(&mut self.device, projection, &mut self.renderer_errors);
                 self.draw_instanced_batch(
                     &target.clip_batcher.borders,
                     VertexArrayKind::Clip,
@@ -3109,7 +3098,6 @@ impl Renderer {
                 self.shaders.cs_clip_rectangle.bind(
                     &mut self.device,
                     projection,
-                    0,
                     &mut self.renderer_errors,
                 );
                 self.draw_instanced_batch(
@@ -3130,7 +3118,7 @@ impl Renderer {
                     ],
                 };
                 self.shaders.cs_clip_box_shadow
-                    .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+                    .bind(&mut self.device, projection, &mut self.renderer_errors);
                 self.draw_instanced_batch(
                     items,
                     VertexArrayKind::Clip,
@@ -3150,7 +3138,7 @@ impl Renderer {
                     ],
                 };
                 self.shaders.cs_clip_image
-                    .bind(&mut self.device, projection, 0, &mut self.renderer_errors);
+                    .bind(&mut self.device, projection, &mut self.renderer_errors);
                 self.draw_instanced_batch(
                     items,
                     VertexArrayKind::Clip,
@@ -3201,7 +3189,7 @@ impl Renderer {
             let _timer = self.gpu_profile.start_timer(GPU_TAG_BLUR);
 
             self.shaders.cs_blur_a8
-                .bind(&mut self.device, &projection, 0, &mut self.renderer_errors);
+                .bind(&mut self.device, &projection, &mut self.renderer_errors);
 
             self.draw_instanced_batch(
                 &target.horizontal_blurs,

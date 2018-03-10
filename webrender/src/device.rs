@@ -1459,15 +1459,12 @@ impl Device {
         &self,
         program: &Program,
         transform: &Transform3D<f32>,
-        mode: i32,
     ) {
         debug_assert!(self.inside_frame);
         self.gl
             .uniform_matrix_4fv(program.u_transform, false, &transform.to_row_major_array());
         self.gl
             .uniform_1f(program.u_device_pixel_ratio, self.device_pixel_ratio);
-        self.gl
-            .uniform_1i(program.u_mode, mode);
     }
 
     pub fn switch_mode(&self, mode: i32) {
