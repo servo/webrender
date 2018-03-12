@@ -78,6 +78,7 @@ mod glyph_rasterizer;
 mod gpu_cache;
 mod gpu_types;
 mod hit_test;
+mod image;
 mod internal_types;
 mod picture;
 mod prim_store;
