@@ -1,6 +1,7 @@
 [configs]
 skip-check-length = false
 skip-check-licenses = false
+check-alphabetical-order = false
 
 [ignore]
 # Ignored packages with duplicated versions
