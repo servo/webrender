@@ -16,6 +16,9 @@
 #define SUBPX_DIR_HORIZONTAL  1
 #define SUBPX_DIR_VERTICAL    2
 
+#define RASTER_LOCAL            0
+#define RASTER_SCREEN           1
+
 #define EPSILON     0.0001
 
 uniform sampler2DArray sCacheA8;
