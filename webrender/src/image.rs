@@ -30,8 +30,8 @@ pub struct TiledImageInfo {
 /// for example if the image is tiled.
 ///
 /// In all of the "decompose" methods below, we independently handle horizontal and vertical
-/// decomposition. This lets us generate the minimum amount of primitives by, for  example,
-/// decompositing the repetition horizontally while repeating vertically in the shader (for
+/// decomposition. This lets us generate the minimum amount of primitives by, for example,
+/// decomposing the repetition horizontally while repeating vertically in the shader (for
 /// an image where the width is too bug but the height is not).
 ///
 /// decompose_image and decompose_row handle image repetitions while decompose_cache_tiles
@@ -120,7 +120,7 @@ fn decompose_cache_tiles(
     //  ################### |  -+  ---+
     //  #----+----+----+----+
     //
-    // In the ascii diagram above, a large image is plit into tiles of almost regular size.
+    // In the ascii diagram above, a large image is split into tiles of almost regular size.
     // The tiles on the right and bottom edges (hatched in the diagram) are smaller than
     // the regular tiles and are handled separately in the code see leftover_width/height.
     // each generated image primitive corresponds to a tile in the texture cache, with the
@@ -154,7 +154,7 @@ fn decompose_cache_tiles(
     let img_dw = tile_size_f32 / (info.device_image_size.width as f32);
     let img_dh = tile_size_f32 / (info.device_image_size.height as f32);
 
-    // Strected size of the tile in layout space.
+    // Stretched size of the tile in layout space.
     let stretched_tile_size = LayerSize::new(
         img_dw * info.stretch_size.width,
         img_dh * info.stretch_size.height,
@@ -237,12 +237,12 @@ fn add_device_tile(
     shader_repeat_y: bool,
     callback: &mut FnMut(&DecomposedTile),
 ) {
-    // If the the image is tiled along a given axis, we can't have the shader compute
+    // If the image is tiled along a given axis, we can't have the shader compute
     // the image repetition pattern. In this case we base the primitive's rectangle size
-    // on the stretched tile size which effectively cancels the repetion (and repetition
+    // on the stretched tile size which effectively cancels the repetition (and repetition
     // has to be emulated by generating more primitives).
     // If the image is not tiled along this axis, we can perform the repetition in the
-    // shader. in this case we use the item's size in the primitive (on that particular
+    // shader. In this case we use the item's size in the primitive (on that particular
     // axis).
     // See the shader_repeat_x/y code below.
 
