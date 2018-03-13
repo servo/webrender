@@ -1062,10 +1062,7 @@ impl PrimitiveStore {
                 self.cpu_pictures[metadata.cpu_prim_index.0]
                     .prepare_for_render(
                         prim_index,
-                        &metadata.screen_rect
-                            .expect("bug: trying to draw an off-screen picture!?")
-                            .clipped,
-                        &metadata.local_rect,
+                        metadata,
                         pic_state_for_children,
                         pic_state,
                         frame_context,
