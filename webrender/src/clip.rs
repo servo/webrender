@@ -421,32 +421,11 @@ impl From<LayerRect> for Geometry {
     }
 }
 
-pub trait Contains {
-    fn contains(&self, point: &LayoutPoint) -> bool;
-}
-
-impl Contains for LocalClip {
-    fn contains(&self, point: &LayoutPoint) -> bool {
-        if !self.clip_rect().contains(point) {
-            return false;
-        }
-        match self {
-            &LocalClip::Rect(..) => true,
-            &LocalClip::RoundedRect(_, complex_clip) => complex_clip.contains(point),
-        }
-    }
-}
-
-impl Contains for ComplexClipRegion {
-    fn contains(&self, point: &LayoutPoint) -> bool {
-        rounded_rectangle_contains_point(point, &self.rect, &self.radii)
-    }
-}
-
-pub fn rounded_rectangle_contains_point(point: &LayoutPoint,
-                                        rect: &LayerRect,
-                                        radii: &BorderRadius)
-                                        -> bool {
+pub fn rounded_rectangle_contains_point(
+    point: &LayoutPoint,
+    rect: &LayerRect,
+    radii: &BorderRadius
+) -> bool {
     if !rect.contains(point) {
         return false;
     }
