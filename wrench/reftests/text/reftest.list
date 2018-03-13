@@ -51,3 +51,4 @@ platform(linux) == clipped-transform.yaml clipped-transform.png
 platform(mac) == color-bitmap-shadow.yaml color-bitmap-shadow-ref.yaml
 platform(linux) == writing-modes.yaml writing-modes-ref.yaml
 platform(linux) == blurred-shadow-local-clip-rect.yaml blurred-shadow-local-clip-rect-ref.png
+platform(linux) == two-shadows.yaml two-shadows.png
