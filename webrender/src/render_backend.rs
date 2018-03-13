@@ -197,7 +197,6 @@ impl Document {
             &self.pending.scene,
             &mut self.clip_scroll_tree,
             resource_cache.get_font_instances(),
-            resource_cache.get_tiled_image_map(),
             &self.view,
             &self.output_pipelines,
             &self.frame_builder_config,
@@ -242,7 +241,6 @@ impl Document {
                 removed_pipelines: replace(&mut self.pending.removed_pipelines, Vec::new()),
                 view: self.view.clone(),
                 font_instances: resource_cache.get_font_instances(),
-                tiled_image_map: resource_cache.get_tiled_image_map(),
                 output_pipelines: self.output_pipelines.clone(),
             })
         } else {
