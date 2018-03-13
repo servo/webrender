@@ -1072,19 +1072,40 @@ impl AlphaBatchBuilder {
                                                     BatchTextures::render_target_cache(),
                                                 );
 
-                                                let (filter_mode, extra_cache_address) = match filter {
-                                                    FilterOp::Blur(..) => (0, 0),
-                                                    FilterOp::Contrast(..) => (1, 0),
-                                                    FilterOp::Grayscale(..) => (2, 0),
-                                                    FilterOp::HueRotate(..) => (3, 0),
-                                                    FilterOp::Invert(..) => (4, 0),
-                                                    FilterOp::Saturate(..) => (5, 0),
-                                                    FilterOp::Sepia(..) => (6, 0),
-                                                    FilterOp::Brightness(..) => (7, 0),
-                                                    FilterOp::Opacity(..) => (8, 0),
-                                                    FilterOp::DropShadow(..) => (9, 0),
-                                                    FilterOp::ColorMatrix(..) => {
-                                                        (10, extra_gpu_data_handle.as_int(gpu_cache))
+                                                let filter_mode = match filter {
+                                                    FilterOp::Blur(..) => 0,
+                                                    FilterOp::Contrast(..) => 1,
+                                                    FilterOp::Grayscale(..) => 2,
+                                                    FilterOp::HueRotate(..) => 3,
+                                                    FilterOp::Invert(..) => 4,
+                                                    FilterOp::Saturate(..) => 5,
+                                                    FilterOp::Sepia(..) => 6,
+                                                    FilterOp::Brightness(..) => 7,
+                                                    FilterOp::Opacity(..) => 8,
+                                                    FilterOp::DropShadow(..) => 9,
+                                                    FilterOp::ColorMatrix(..) => 10,
+                                                };
+
+                                                let user_data = match filter {
+                                                    FilterOp::Contrast(amount) |
+                                                    FilterOp::Grayscale(amount) |
+                                                    FilterOp::Invert(amount) |
+                                                    FilterOp::Saturate(amount) |
+                                                    FilterOp::Sepia(amount) |
+                                                    FilterOp::Brightness(amount) |
+                                                    FilterOp::Opacity(_, amount) => {
+                                                        (amount * 65536.0) as i32
+                                                    }
+                                                    FilterOp::HueRotate(angle) => {
+                                                        (0.01745329251 * angle * 65536.0) as i32
+                                                    }
+                                                    // Go through different paths
+                                                    FilterOp::Blur(..) |
+                                                    FilterOp::DropShadow(..) => {
+                                                        unreachable!();
+                                                    }
+                                                    FilterOp::ColorMatrix(_) => {
+                                                        extra_gpu_data_handle.as_int(gpu_cache)
                                                     }
                                                 };
 
@@ -1101,7 +1122,7 @@ impl AlphaBatchBuilder {
                                                     user_data: [
                                                         cache_task_address.0 as i32,
                                                         filter_mode,
-                                                        extra_cache_address,
+                                                        user_data,
                                                     ],
                                                 };
 
