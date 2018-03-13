@@ -11,7 +11,7 @@ use clip::{ClipSource, ClipStore, ClipWorkItem};
 use clip_scroll_tree::{CoordinateSystemId};
 use euclid::{TypedTransform3D, vec3};
 use glyph_rasterizer::GlyphFormat;
-use gpu_cache::{GpuCache, GpuCacheAddress};
+use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use gpu_types::{BrushFlags, BrushInstance, ClipChainRectIndex};
 use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex, RasterizationSpace};
 use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
@@ -757,91 +757,48 @@ impl AlphaBatchBuilder {
             PrimitiveKind::Image => {
                 let image_cpu = &ctx.prim_store.cpu_images[prim_metadata.cpu_prim_index.0];
 
-                // TODO remove the code duplication
-                let mut request = image_cpu.key.request;
-                for &(tile, gpu_cache_handle) in &image_cpu.visible_tiles {
-                    request.tile = Some(tile.tile_offset);
-
-                    let cache_item = match image_cpu.source {
-                        ImageSource::Default => {
-                            resolve_image(
-                                request,
-                                ctx.resource_cache,
-                                gpu_cache,
-                                deferred_resolves,
-                            )
-                        }
-                        ImageSource::Cache { ref item, .. } => {
-                            item.clone()
-                        }
-                    };
-
-                    if cache_item.texture_id == SourceTexture::Invalid {
-                        warn!("Warnings: skip a PrimitiveKind::Image");
-                        debug!("at {:?}.", task_relative_bounding_rect);
-                        return;
-                    }
-
-                    let base_instance = SimplePrimitiveInstance::new(
-                        gpu_cache.get_address(&gpu_cache_handle),
-                        task_address,
-                        clip_task_address,
-                        clip_chain_rect_index,
+                // Common case: the image isn't decomposed.
+                if image_cpu.visible_tiles.is_empty() {
+                    self.add_image_to_batch(
+                        &image_cpu.source,
+                        image_cpu.key.request,
                         scroll_id,
-                        z,
-                    );
-
-                    let batch_kind = TransformBatchKind::Image(get_buffer_kind(cache_item.texture_id));
-                    let key = BatchKey::new(
-                        BatchKind::Transformable(transform_kind, batch_kind),
+                        prim_metadata.gpu_location,
+                        task_address,
                         non_segmented_blend_mode,
-                        BatchTextures {
-                            colors: [
-                                cache_item.texture_id,
-                                SourceTexture::Invalid,
-                                SourceTexture::Invalid,
-                            ],
-                        },
+                        clip_chain_rect_index,
+                        clip_task_address,
+                        &task_relative_bounding_rect,
+                        transform_kind,
+                        z,
+                        &ctx.resource_cache,
+                        gpu_cache,
+                        deferred_resolves,
                     );
-                    let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
-                    batch.push(base_instance.build(cache_item.uv_rect_handle.as_int(gpu_cache), 0, 0));
                 }
 
-                if image_cpu.visible_tiles.is_empty() {
-                    let cache_item = match image_cpu.source {
-                        ImageSource::Default => {
-                            resolve_image(
-                                image_cpu.key.request,
-                                ctx.resource_cache,
-                                gpu_cache,
-                                deferred_resolves,
-                            )
-                        }
-                        ImageSource::Cache { ref item, .. } => {
-                            item.clone()
-                        }
-                    };
-
-                    if cache_item.texture_id == SourceTexture::Invalid {
-                        warn!("Warnings: skip a PrimitiveKind::Image");
-                        debug!("at {:?}.", task_relative_bounding_rect);
-                        return;
-                    }
-
-                    let batch_kind = TransformBatchKind::Image(get_buffer_kind(cache_item.texture_id));
-                    let key = BatchKey::new(
-                        BatchKind::Transformable(transform_kind, batch_kind),
-                        non_segmented_blend_mode,
-                        BatchTextures {
-                            colors: [
-                                cache_item.texture_id,
-                                SourceTexture::Invalid,
-                                SourceTexture::Invalid,
-                            ],
+                // If we had to perform image decomposition (see prim_store.rs), each decomposed
+                // tile acts like an individual image primitive.
+                for &(tile, gpu_cache_handle) in &image_cpu.visible_tiles {
+                    self.add_image_to_batch(
+                        &image_cpu.source,
+                        ImageRequest {
+                            tile: Some(tile.tile_offset),
+                            ..image_cpu.key.request
                         },
+                        scroll_id,
+                        gpu_cache_handle,
+                        task_address,
+                        non_segmented_blend_mode,
+                        clip_chain_rect_index,
+                        clip_task_address,
+                        &task_relative_bounding_rect,
+                        transform_kind,
+                        z,
+                        &ctx.resource_cache,
+                        gpu_cache,
+                        deferred_resolves,
                     );
-                    let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
-                    batch.push(base_instance.build(cache_item.uv_rect_handle.as_int(gpu_cache), 0, 0));
                 }
             }
             PrimitiveKind::TextRun => {
@@ -1241,6 +1198,70 @@ impl AlphaBatchBuilder {
             }
         }
     }
+
+    fn add_image_to_batch(
+        &mut self,
+        source: &ImageSource,
+        request: ImageRequest,
+        scroll_id: ClipScrollNodeIndex,
+        gpu_cache_handle: GpuCacheHandle,
+        task_address: RenderTaskAddress,
+        non_segmented_blend_mode: BlendMode,
+        clip_chain_rect_index: ClipChainRectIndex,
+        clip_task_address: RenderTaskAddress,
+        task_relative_bounding_rect: &DeviceIntRect,
+        transform_kind: TransformedRectKind,
+        z: i32,
+        resource_cache: &ResourceCache,
+        gpu_cache: &mut GpuCache,
+        deferred_resolves: &mut Vec<DeferredResolve>,
+    ) {
+        let cache_item = match source {
+            &ImageSource::Default => {
+                resolve_image(
+                    request,
+                    resource_cache,
+                    gpu_cache,
+                    deferred_resolves,
+                )
+            }
+            &ImageSource::Cache { ref item, .. } => {
+                item.clone()
+            }
+        };
+
+        if cache_item.texture_id == SourceTexture::Invalid {
+            warn!("Warnings: skip a PrimitiveKind::Image");
+            debug!("at {:?}.", task_relative_bounding_rect);
+            return;
+        }
+
+        let base_instance = SimplePrimitiveInstance::new(
+            gpu_cache.get_address(&gpu_cache_handle),
+            task_address,
+            clip_task_address,
+            clip_chain_rect_index,
+            scroll_id,
+            z,
+        );
+
+        let batch_kind = TransformBatchKind::Image(get_buffer_kind(cache_item.texture_id));
+        let key = BatchKey::new(
+            BatchKind::Transformable(transform_kind, batch_kind),
+            non_segmented_blend_mode,
+            BatchTextures {
+                colors: [
+                    cache_item.texture_id,
+                    SourceTexture::Invalid,
+                    SourceTexture::Invalid,
+                ],
+            },
+        );
+
+        let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
+        batch.push(base_instance.build(cache_item.uv_rect_handle.as_int(gpu_cache), 0, 0));
+    }
+
 
     fn add_brush_to_batch(
         &mut self,
