@@ -274,59 +274,66 @@ impl PicturePrimitive {
             } => {
                 match composite_mode {
                     Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
-                        let blur_std_deviation = blur_radius * frame_context.device_pixel_scale.0;
-                        let blur_range = (blur_std_deviation * BLUR_SAMPLE_SCALE).ceil() as i32;
+                        // If blur radius is 0, we can skip drawing this an an
+                        // intermediate surface.
+                        if blur_radius == 0.0 {
+                            pic_state.tasks.extend(pic_state_for_children.tasks);
+                            self.surface = None;
+                        } else {
+                            let blur_std_deviation = blur_radius * frame_context.device_pixel_scale.0;
+                            let blur_range = (blur_std_deviation * BLUR_SAMPLE_SCALE).ceil() as i32;
 
-                        // The clipped field is the part of the picture that is visible
-                        // on screen. The unclipped field is the screen-space rect of
-                        // the complete picture, if no screen / clip-chain was applied
-                        // (this includes the extra space for blur region). To ensure
-                        // that we draw a large enough part of the picture to get correct
-                        // blur results, inflate that clipped area by the blur range, and
-                        // then intersect with the total screen rect, to minimize the
-                        // allocation size.
-                        let device_rect = prim_screen_rect
-                            .clipped
-                            .inflate(blur_range, blur_range)
-                            .intersection(&prim_screen_rect.unclipped)
-                            .unwrap();
+                            // The clipped field is the part of the picture that is visible
+                            // on screen. The unclipped field is the screen-space rect of
+                            // the complete picture, if no screen / clip-chain was applied
+                            // (this includes the extra space for blur region). To ensure
+                            // that we draw a large enough part of the picture to get correct
+                            // blur results, inflate that clipped area by the blur range, and
+                            // then intersect with the total screen rect, to minimize the
+                            // allocation size.
+                            let device_rect = prim_screen_rect
+                                .clipped
+                                .inflate(blur_range, blur_range)
+                                .intersection(&prim_screen_rect.unclipped)
+                                .unwrap();
 
-                        // If scrolling or property animation has resulted in the task
-                        // rect being different than last time, invalidate the GPU
-                        // cache entry for this picture to ensure that the correct
-                        // task rect is provided to the image shader.
-                        if *task_rect != device_rect {
-                            frame_state.gpu_cache.invalidate(&prim_metadata.gpu_location);
-                            *task_rect = device_rect;
+                            // If scrolling or property animation has resulted in the task
+                            // rect being different than last time, invalidate the GPU
+                            // cache entry for this picture to ensure that the correct
+                            // task rect is provided to the image shader.
+                            if *task_rect != device_rect {
+                                frame_state.gpu_cache.invalidate(&prim_metadata.gpu_location);
+                                *task_rect = device_rect;
+                            }
+
+                            let content_origin = ContentOrigin::Screen(device_rect.origin);
+
+                            let picture_task = RenderTask::new_picture(
+                                RenderTaskLocation::Dynamic(None, device_rect.size),
+                                prim_index,
+                                RenderTargetKind::Color,
+                                content_origin,
+                                PremultipliedColorF::TRANSPARENT,
+                                ClearMode::Transparent,
+                                pic_state_for_children.tasks,
+                                PictureType::Image,
+                            );
+
+                            let picture_task_id = frame_state.render_tasks.add(picture_task);
+
+                            let blur_render_task = RenderTask::new_blur(
+                                blur_std_deviation,
+                                picture_task_id,
+                                frame_state.render_tasks,
+                                RenderTargetKind::Color,
+                                ClearMode::Transparent,
+                                PremultipliedColorF::TRANSPARENT,
+                            );
+
+                            let render_task_id = frame_state.render_tasks.add(blur_render_task);
+                            pic_state.tasks.push(render_task_id);
+                            self.surface = Some(render_task_id);
                         }
-
-                        let content_origin = ContentOrigin::Screen(device_rect.origin);
-
-                        let picture_task = RenderTask::new_picture(
-                            RenderTaskLocation::Dynamic(None, device_rect.size),
-                            prim_index,
-                            RenderTargetKind::Color,
-                            content_origin,
-                            PremultipliedColorF::TRANSPARENT,
-                            ClearMode::Transparent,
-                            pic_state_for_children.tasks,
-                            PictureType::Image,
-                        );
-
-                        let picture_task_id = frame_state.render_tasks.add(picture_task);
-
-                        let blur_render_task = RenderTask::new_blur(
-                            blur_std_deviation,
-                            picture_task_id,
-                            frame_state.render_tasks,
-                            RenderTargetKind::Color,
-                            ClearMode::Transparent,
-                            PremultipliedColorF::TRANSPARENT,
-                        );
-
-                        let render_task_id = frame_state.render_tasks.add(blur_render_task);
-                        pic_state.tasks.push(render_task_id);
-                        self.surface = Some(render_task_id);
                     }
                     Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, blur_radius, color))) => {
                         // TODO(gw): This is totally wrong and can never work with
