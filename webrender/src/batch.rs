@@ -644,7 +644,21 @@ impl AlphaBatchBuilder {
             }
         };
 
-        let prim_cache_address = gpu_cache.get_address(&prim_metadata.gpu_location);
+        let use_metadata_gpu_location = match prim_metadata.prim_kind {
+            PrimitiveKind::Image => {
+                // We have per-tile cache requests in this situation.
+                let image_cpu = &ctx.prim_store.cpu_images[prim_metadata.cpu_prim_index.0];
+                image_cpu.visible_tiles.is_empty()
+            }
+            _ => { true }
+        };
+
+        let prim_cache_address = if use_metadata_gpu_location {
+            gpu_cache.get_address(&prim_metadata.gpu_location)
+        } else {
+            GpuCacheAddress::invalid()
+        };
+
         let no_textures = BatchTextures::no_texture();
         let clip_task_address = prim_metadata
             .clip_task_id
