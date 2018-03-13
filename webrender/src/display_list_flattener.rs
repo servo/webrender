@@ -635,49 +635,49 @@ impl<'a> DisplayListFlattener<'a> {
         let prim_info = item.get_layer_primitive_info(&reference_frame_relative_offset);
         match *item.item() {
             SpecificDisplayItem::Image(ref info) => {
-                match self.tiled_image_map.get(&info.image_key).cloned() {
-                    Some(tiling) => {
-                        // The image resource is tiled. We have to generate an image primitive
-                        // for each tile.
-                        decompose_image(
-                            &TiledImageInfo {
-                                rect: prim_info.rect,
-                                tile_spacing: info.tile_spacing,
-                                stretch_size: info.stretch_size,
-                                device_image_size: tiling.image_size,
-                                device_tile_size: tiling.tile_size as u32,
-                            },
-                            &mut|tile| {
-                                let mut prim_info = prim_info.clone();
-                                prim_info.rect = tile.rect;
-                                self.add_image(
-                                    clip_and_scroll,
-                                    &prim_info,
-                                    tile.stretch_size,
-                                    info.tile_spacing,
-                                    None,
-                                    info.image_key,
-                                    info.image_rendering,
-                                    info.alpha_type,
-                                    Some(tile.tile_offset),
-                                );
-                            }
-                        );
-                    }
-                    None => {
-                        self.add_image(
-                            clip_and_scroll,
-                            &prim_info,
-                            info.stretch_size,
-                            info.tile_spacing,
-                            None,
-                            info.image_key,
-                            info.image_rendering,
-                            info.alpha_type,
-                            None,
-                        );
-                    }
-                }
+//                match self.tiled_image_map.get(&info.image_key).cloned() {
+//                    Some(tiling) => {
+//                        // The image resource is tiled. We have to generate an image primitive
+//                        // for each tile.
+//                        decompose_image(
+//                            &TiledImageInfo {
+//                                rect: prim_info.rect,
+//                                tile_spacing: info.tile_spacing,
+//                                stretch_size: info.stretch_size,
+//                                device_image_size: tiling.image_size,
+//                                device_tile_size: tiling.tile_size as u32,
+//                            },
+//                            &mut|tile| {
+//                                let mut prim_info = prim_info.clone();
+//                                prim_info.rect = tile.rect;
+//                                self.add_image(
+//                                    clip_and_scroll,
+//                                    &prim_info,
+//                                    tile.stretch_size,
+//                                    info.tile_spacing,
+//                                    None,
+//                                    info.image_key,
+//                                    info.image_rendering,
+//                                    info.alpha_type,
+//                                    Some(tile.tile_offset),
+//                                );
+//                            }
+//                        );
+//                    }
+//                    None => {
+//                    }
+//                }
+                self.add_image(
+                    clip_and_scroll,
+                    &prim_info,
+                    info.stretch_size,
+                    info.tile_spacing,
+                    None,
+                    info.image_key,
+                    info.image_rendering,
+                    info.alpha_type,
+                    None,
+                );
             }
             SpecificDisplayItem::YuvImage(ref info) => {
                 self.add_yuv_image(
@@ -2287,6 +2287,7 @@ impl<'a> DisplayListFlattener<'a> {
                         )
                     }),
                 },
+                visible_tiles: Vec::new(),
             };
 
             self.add_primitive(

@@ -5,6 +5,7 @@
 use api::{TileOffset, LayerRect, LayerSize, LayerVector2D, DeviceUintSize};
 use euclid::rect;
 
+#[derive(Copy, Clone, Debug)]
 pub struct DecomposedTile {
     pub rect: LayerRect,
     pub stretch_size: LayerSize,

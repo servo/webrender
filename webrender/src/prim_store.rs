@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AlphaType, BorderRadius, BoxShadowClipMode, BuiltDisplayList, ClipMode, ColorF, ComplexClipRegion};
-use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, FontRenderMode};
+use api::{DeviceIntRect, DeviceIntSize, DeviceUintSize, DevicePixelScale, Epoch, ExtendMode, FontRenderMode};
 use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
 use api::{LineStyle, PremultipliedColorF, YuvColorSpace, YuvFormat};
@@ -18,6 +18,7 @@ use glyph_rasterizer::{FontInstance, FontTransform};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
 use gpu_types::{ClipChainRectIndex};
+use image::*;
 use picture::{PictureKind, PicturePrimitive};
 use render_task::{BlitSource, RenderTask, RenderTaskCacheKey, RenderTaskCacheKeyKind};
 use render_task::RenderTaskId;
@@ -406,6 +407,7 @@ pub struct ImagePrimitiveCpu {
     pub current_epoch: Epoch,
     pub source: ImageSource,
     pub key: ImageCacheKey,
+    pub visible_tiles: Vec<(DecomposedTile, GpuCacheHandle)>,
 }
 
 impl ToGpuBlocks for ImagePrimitiveCpu {
@@ -1185,12 +1187,54 @@ impl PrimitiveStore {
                         }
                     }
 
-                    // Request source image from the texture cache, if required.
-                    if request_source_image {
-                        frame_state.resource_cache.request_image(
-                            image_cpu.key.request,
-                            frame_state.gpu_cache,
+                    if let Some(tile_size) = image_properties.tiling {
+                        let rect = metadata.local_rect;
+                        let device_image_size = DeviceUintSize::new(
+                            image_properties.descriptor.width,
+                            image_properties.descriptor.height,
                         );
+                        let mut request = image_cpu.key.request;
+                        image_cpu.visible_tiles.clear();
+                        decompose_image(
+                            &TiledImageInfo {
+                                rect,
+                                tile_spacing: image_cpu.tile_spacing,
+                                stretch_size: image_cpu.stretch_size,
+                                device_image_size,
+                                device_tile_size: tile_size as u32,
+                            },
+                            &mut|tile| {
+                                if request_source_image {
+                                    request.tile = Some(tile.tile_offset);
+                                    frame_state.resource_cache.request_image(
+                                        request,
+                                        frame_state.gpu_cache,
+                                    );
+                                }
+                                let mut gpu_cache_handle = GpuCacheHandle::new();
+                                if let Some(mut request) = frame_state.gpu_cache.request(&mut gpu_cache_handle) {
+                                    // has to match VECS_PER_BRUSH_PRIM
+                                    request.push(tile.rect);
+                                    request.push(metadata.local_clip_rect);
+                                    request.push([
+                                        tile.stretch_size.width, tile.stretch_size.height,
+                                        image_cpu.tile_spacing.width, image_cpu.tile_spacing.height,
+                                    ]);
+                                }
+
+                                image_cpu.visible_tiles.push((*tile, gpu_cache_handle));
+                            }
+                        );
+
+                        println!(" -- {} tiles", image_cpu.visible_tiles.len());
+                    } else {
+                        // Request source image from the texture cache, if required.
+                        if request_source_image {
+                            frame_state.resource_cache.request_image(
+                                image_cpu.key.request,
+                                frame_state.gpu_cache,
+                            );
+                        }
                     }
                 }
             }

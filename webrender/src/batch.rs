@@ -757,40 +757,92 @@ impl AlphaBatchBuilder {
             PrimitiveKind::Image => {
                 let image_cpu = &ctx.prim_store.cpu_images[prim_metadata.cpu_prim_index.0];
 
-                let cache_item = match image_cpu.source {
-                    ImageSource::Default => {
-                        resolve_image(
-                            image_cpu.key.request,
-                            ctx.resource_cache,
-                            gpu_cache,
-                            deferred_resolves,
-                        )
-                    }
-                    ImageSource::Cache { ref item, .. } => {
-                        item.clone()
-                    }
-                };
+                // TODO remove the code duplication
+                let mut request = image_cpu.key.request;
+                for &(tile, gpu_cache_handle) in &image_cpu.visible_tiles {
+                    request.tile = Some(tile.tile_offset);
 
-                if cache_item.texture_id == SourceTexture::Invalid {
-                    warn!("Warnings: skip a PrimitiveKind::Image");
-                    debug!("at {:?}.", task_relative_bounding_rect);
-                    return;
+                    let cache_item = match image_cpu.source {
+                        ImageSource::Default => {
+                            resolve_image(
+                                request,
+                                ctx.resource_cache,
+                                gpu_cache,
+                                deferred_resolves,
+                            )
+                        }
+                        ImageSource::Cache { ref item, .. } => {
+                            item.clone()
+                        }
+                    };
+
+                    if cache_item.texture_id == SourceTexture::Invalid {
+                        warn!("Warnings: skip a PrimitiveKind::Image");
+                        debug!("at {:?}.", task_relative_bounding_rect);
+                        return;
+                    }
+
+                    let base_instance = SimplePrimitiveInstance::new(
+                        gpu_cache.get_address(&gpu_cache_handle),
+                        task_address,
+                        clip_task_address,
+                        clip_chain_rect_index,
+                        scroll_id,
+                        z,
+                    );
+
+                    let batch_kind = TransformBatchKind::Image(get_buffer_kind(cache_item.texture_id));
+                    let key = BatchKey::new(
+                        BatchKind::Transformable(transform_kind, batch_kind),
+                        non_segmented_blend_mode,
+                        BatchTextures {
+                            colors: [
+                                cache_item.texture_id,
+                                SourceTexture::Invalid,
+                                SourceTexture::Invalid,
+                            ],
+                        },
+                    );
+                    let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
+                    batch.push(base_instance.build(cache_item.uv_rect_handle.as_int(gpu_cache), 0, 0));
                 }
 
-                let batch_kind = TransformBatchKind::Image(get_buffer_kind(cache_item.texture_id));
-                let key = BatchKey::new(
-                    BatchKind::Transformable(transform_kind, batch_kind),
-                    non_segmented_blend_mode,
-                    BatchTextures {
-                        colors: [
-                            cache_item.texture_id,
-                            SourceTexture::Invalid,
-                            SourceTexture::Invalid,
-                        ],
-                    },
-                );
-                let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
-                batch.push(base_instance.build(cache_item.uv_rect_handle.as_int(gpu_cache), 0, 0));
+                if image_cpu.visible_tiles.is_empty() {
+                    let cache_item = match image_cpu.source {
+                        ImageSource::Default => {
+                            resolve_image(
+                                image_cpu.key.request,
+                                ctx.resource_cache,
+                                gpu_cache,
+                                deferred_resolves,
+                            )
+                        }
+                        ImageSource::Cache { ref item, .. } => {
+                            item.clone()
+                        }
+                    };
+
+                    if cache_item.texture_id == SourceTexture::Invalid {
+                        warn!("Warnings: skip a PrimitiveKind::Image");
+                        debug!("at {:?}.", task_relative_bounding_rect);
+                        return;
+                    }
+
+                    let batch_kind = TransformBatchKind::Image(get_buffer_kind(cache_item.texture_id));
+                    let key = BatchKey::new(
+                        BatchKind::Transformable(transform_kind, batch_kind),
+                        non_segmented_blend_mode,
+                        BatchTextures {
+                            colors: [
+                                cache_item.texture_id,
+                                SourceTexture::Invalid,
+                                SourceTexture::Invalid,
+                            ],
+                        },
+                    );
+                    let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
+                    batch.push(base_instance.build(cache_item.uv_rect_handle.as_int(gpu_cache), 0, 0));
+                }
             }
             PrimitiveKind::TextRun => {
                 let text_cpu =
