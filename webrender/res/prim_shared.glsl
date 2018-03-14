@@ -16,6 +16,9 @@
 #define SUBPX_DIR_HORIZONTAL  1
 #define SUBPX_DIR_VERTICAL    2
 
+#define RASTER_LOCAL            0
+#define RASTER_SCREEN           1
+
 #define EPSILON     0.0001
 
 uniform sampler2DArray sCacheA8;
@@ -71,7 +74,7 @@ vec4[2] fetch_from_resource_cache_2(int address) {
 
 #ifdef WR_VERTEX_SHADER
 
-#define VECS_PER_CLIP_SCROLL_NODE   5
+#define VECS_PER_CLIP_SCROLL_NODE   9
 #define VECS_PER_LOCAL_CLIP_RECT    1
 #define VECS_PER_RENDER_TASK        3
 #define VECS_PER_PRIM_HEADER        2
@@ -90,7 +93,8 @@ in ivec4 aData1;
 // TODO: convert back to a function once the driver issues are resolved, if ever.
 // https://github.com/servo/webrender/pull/623
 // https://github.com/servo/servo/issues/13953
-#define get_fetch_uv(i, vpi)  ivec2(vpi * (i % (WR_MAX_VERTEX_TEXTURE_WIDTH/vpi)), i / (WR_MAX_VERTEX_TEXTURE_WIDTH/vpi))
+// Do the division with unsigned ints because that's more efficient with D3D
+#define get_fetch_uv(i, vpi)  ivec2(int(uint(vpi) * (uint(i) % uint(WR_MAX_VERTEX_TEXTURE_WIDTH/vpi))), int(uint(i) / uint(WR_MAX_VERTEX_TEXTURE_WIDTH/vpi)))
 
 
 vec4[8] fetch_from_resource_cache_8(int address) {
@@ -154,6 +158,7 @@ vec4 fetch_from_resource_cache_1(int address) {
 
 struct ClipScrollNode {
     mat4 transform;
+    mat4 inv_transform;
     bool is_axis_aligned;
 };
 
@@ -166,13 +171,19 @@ ClipScrollNode fetch_clip_scroll_node(int index) {
     // of OSX.
     ivec2 uv = get_fetch_uv(index, VECS_PER_CLIP_SCROLL_NODE);
     ivec2 uv0 = ivec2(uv.x + 0, uv.y);
+    ivec2 uv1 = ivec2(uv.x + 8, uv.y);
 
     node.transform[0] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(0, 0));
     node.transform[1] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(1, 0));
     node.transform[2] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(2, 0));
     node.transform[3] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(3, 0));
 
-    vec4 misc = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(4, 0));
+    node.inv_transform[0] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(4, 0));
+    node.inv_transform[1] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(5, 0));
+    node.inv_transform[2] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(6, 0));
+    node.inv_transform[3] = TEXEL_FETCH(sClipScrollNodes, uv0, 0, ivec2(7, 0));
+
+    vec4 misc = TEXEL_FETCH(sClipScrollNodes, uv1, 0, ivec2(0, 0));
     node.is_axis_aligned = misc.x == 0.0;
 
     return node;
@@ -242,7 +253,6 @@ RenderTaskCommonData fetch_render_task_common_data(int index) {
 
 #define PIC_TYPE_IMAGE          1
 #define PIC_TYPE_TEXT_SHADOW    2
-#define PIC_TYPE_BOX_SHADOW     3
 
 /*
  The dynamic picture that this brush exists on. Right now, it
@@ -272,6 +282,7 @@ PictureTask fetch_picture_task(int address) {
 struct ClipArea {
     RenderTaskCommonData common_data;
     vec2 screen_origin;
+    bool local_space;
 };
 
 ClipArea fetch_clip_area(int index) {
@@ -283,11 +294,13 @@ ClipArea fetch_clip_area(int index) {
             0.0
         );
         area.screen_origin = vec2(0.0);
+        area.local_space = false;
     } else {
         RenderTaskData task_data = fetch_render_task_data(index);
 
         area.common_data = task_data.common_data;
         area.screen_origin = task_data.data1.xy;
+        area.local_space = task_data.data1.z == 0.0;
     }
 
     return area;
@@ -476,9 +489,8 @@ vec4 get_node_pos(vec2 pos, ClipScrollNode node) {
     vec3 a = ah.xyz / ah.w;
 
     // get the normal to the scroll node plane
-    mat4 inv_transform = inverse(node.transform);
-    vec3 n = transpose(mat3(inv_transform)) * vec3(0.0, 0.0, 1.0);
-    return untransform(pos, n, a, inv_transform);
+    vec3 n = transpose(mat3(node.inv_transform)) * vec3(0.0, 0.0, 1.0);
+    return untransform(pos, n, a, node.inv_transform);
 }
 
 // Compute a snapping offset in world space (adjusted to pixel ratio),
@@ -802,7 +814,7 @@ float do_clip() {
         vec4(vClipMaskUv.xy, vClipMaskUvBounds.zw));
     // check for the dummy bounds, which are given to the opaque objects
     return vClipMaskUvBounds.xy == vClipMaskUvBounds.zw ? 1.0:
-        all(inside) ? texelFetch(sSharedCacheA8, ivec3(vClipMaskUv), 0).r : 0.0;
+        all(inside) ? texelFetch(sCacheA8, ivec3(vClipMaskUv), 0).r : 0.0;
 }
 
 #ifdef WR_FEATURE_DITHERING

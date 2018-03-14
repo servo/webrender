@@ -13,12 +13,30 @@ varying vec2 vLocalPos;
 varying vec3 vUv;
 flat varying vec4 vUvBounds;
 flat varying vec4 vColor;
+
+#ifdef WR_FEATURE_ALPHA_PASS
 flat varying vec2 vSelect;
+flat varying vec4 vUvClipBounds;
+#endif
+
 #ifdef WR_VERTEX_SHADER
 
-#define IMAGE_SOURCE_COLOR              0
-#define IMAGE_SOURCE_ALPHA              1
-#define IMAGE_SOURCE_MASK_FROM_COLOR    2
+#ifdef WR_FEATURE_ALPHA_PASS
+    #define IMAGE_SOURCE_COLOR              0
+    #define IMAGE_SOURCE_ALPHA              1
+    #define IMAGE_SOURCE_MASK_FROM_COLOR    2
+#endif
+
+struct ImageBrush {
+    RectWithSize rendered_task_rect;
+};
+
+ImageBrush fetch_image_primitive(int address) {
+    vec4 data = fetch_from_resource_cache_1(address);
+    RectWithSize rendered_task_rect = RectWithSize(data.xy, data.zw);
+    ImageBrush brush = ImageBrush(rendered_task_rect);
+    return brush;
+}
 
 void brush_vs(
     VertexInfo vi,
@@ -42,17 +60,52 @@ void brush_vs(
     vUv.z = res.layer;
     vColor = res.color;
 
-    vec2 f = (vi.local_pos - local_rect.p0) / local_rect.size;
+    // Handle case where the UV coords are inverted (e.g. from an
+    // external image).
+    vec2 min_uv = min(uv0, uv1);
+    vec2 max_uv = max(uv0, uv1);
+
+    vUvBounds = vec4(
+        min_uv + vec2(0.5),
+        max_uv - vec2(0.5)
+    ) / texture_size.xyxy;
+
+    vec2 f;
+
+#ifdef WR_FEATURE_ALPHA_PASS
+    // Derive the texture coordinates for this image, based on
+    // whether the source image is a local-space or screen-space
+    // image.
+    switch (user_data.z) {
+        case RASTER_SCREEN: {
+            ImageBrush image = fetch_image_primitive(prim_address);
+
+            f = (vi.snapped_device_pos - image.rendered_task_rect.p0) / image.rendered_task_rect.size;
+
+            vUvClipBounds = vec4(
+                min_uv,
+                max_uv
+            ) / texture_size.xyxy;
+            break;
+        }
+        case RASTER_LOCAL:
+        default: {
+            f = (vi.local_pos - local_rect.p0) / local_rect.size;
+
+            // Set the clip bounds to a value that won't have any
+            // effect for local space images.
+            vUvClipBounds = vec4(0.0, 0.0, 1.0, 1.0);
+            break;
+        }
+    }
+#else
+    f = (vi.local_pos - local_rect.p0) / local_rect.size;
+#endif
+
     vUv.xy = mix(uv0, uv1, f);
     vUv.xy /= texture_size;
 
-    // Handle case where the UV coords are inverted (e.g. from an
-    // external image).
-    vUvBounds = vec4(
-        min(uv0, uv1) + vec2(0.5),
-        max(uv0, uv1) - vec2(0.5)
-    ) / texture_size.xyxy;
-
+#ifdef WR_FEATURE_ALPHA_PASS
     switch (user_data.y) {
         case IMAGE_SOURCE_COLOR:
             vSelect = vec2(0.0, 0.0);
@@ -65,7 +118,6 @@ void brush_vs(
             break;
     }
 
-#ifdef WR_FEATURE_ALPHA_PASS
     vLocalPos = vi.local_pos;
 #endif
 }
@@ -76,11 +128,16 @@ vec4 brush_fs() {
     vec2 uv = clamp(vUv.xy, vUvBounds.xy, vUvBounds.zw);
 
     vec4 texel = TEX_SAMPLE(sColor0, vec3(uv, vUv.z));
-    vec4 mask = mix(texel.rrrr, texel.aaaa, vSelect.x);
-    vec4 color = mix(texel, vColor * mask, vSelect.y);
 
 #ifdef WR_FEATURE_ALPHA_PASS
-    color *= init_transform_fs(vLocalPos);
+    vec4 mask = mix(texel.rrrr, texel.aaaa, vSelect.x);
+    vec4 color = mix(texel, vColor * mask, vSelect.y) * init_transform_fs(vLocalPos);
+
+    // Fail-safe to ensure that we don't sample outside the rendered
+    // portion of a picture source.
+    color.a *= point_inside_rect(vUv.xy, vUvClipBounds.xy, vUvClipBounds.zw);
+#else
+    vec4 color = texel;
 #endif
 
     return color;

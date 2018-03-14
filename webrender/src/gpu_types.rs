@@ -2,12 +2,21 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{DevicePoint, LayerToWorldTransform, PremultipliedColorF};
+use api::{DevicePoint, LayerToWorldTransform, PremultipliedColorF, WorldToLayerTransform};
 use gpu_cache::{GpuCacheAddress, GpuDataRequest};
 use prim_store::EdgeAaSegmentMask;
 use render_task::RenderTaskAddress;
 
 // Contains type that must exactly match the same structures declared in GLSL.
+
+#[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[repr(C)]
+pub enum RasterizationSpace {
+    Local = 0,
+    Screen = 1,
+}
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone)]
@@ -195,16 +204,6 @@ impl From<BrushInstance> for PrimitiveInstance {
     }
 }
 
-// Defines how a brush image is stretched onto the primitive.
-// In the future, we may draw with segments for each portion
-// of the primitive, in which case this will be redundant.
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub enum BrushImageKind {
-    Simple = 0,     // A normal rect
-    NinePatch = 1,  // A nine-patch image (stretch inside segments)
-}
-
 #[derive(Copy, Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -217,6 +216,7 @@ pub struct ClipScrollNodeIndex(pub u32);
 #[repr(C)]
 pub struct ClipScrollNodeData {
     pub transform: LayerToWorldTransform,
+    pub inv_transform: WorldToLayerTransform,
     pub transform_kind: f32,
     pub padding: [f32; 3],
 }
@@ -225,6 +225,7 @@ impl ClipScrollNodeData {
     pub fn invalid() -> Self {
         ClipScrollNodeData {
             transform: LayerToWorldTransform::identity(),
+            inv_transform: WorldToLayerTransform::identity(),
             transform_kind: 0.0,
             padding: [0.0; 3],
         }
@@ -242,7 +243,6 @@ pub struct ClipChainRectIndex(pub usize);
 pub enum PictureType {
     Image = 1,
     TextShadow = 2,
-    BoxShadow = 3,
 }
 
 #[derive(Debug, Copy, Clone)]

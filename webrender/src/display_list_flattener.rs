@@ -5,10 +5,10 @@
 
 use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayListIter};
 use api::{ClipAndScrollInfo, ClipId, ColorF, ComplexClipRegion, DeviceIntPoint, DeviceIntRect};
-use api::{DeviceIntSize, DevicePixelScale, DeviceUintRect, DeviceUintSize};
+use api::{DeviceIntSize, DevicePixelScale, DeviceUintRect};
 use api::{DisplayItemRef, Epoch, ExtendMode, ExternalScrollId, FilterOp};
 use api::{FontInstanceKey, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop};
-use api::{IframeDisplayItem, ImageDisplayItem, ImageKey, ImageRendering, ItemRange, LayerPoint};
+use api::{IframeDisplayItem, ImageKey, ImageRendering, ItemRange, LayerPoint};
 use api::{LayerPrimitiveInfo, LayerRect, LayerSize, LayerVector2D, LayoutSize, LayoutTransform};
 use api::{LayoutVector2D, LineOrientation, LineStyle, LocalClip, PipelineId};
 use api::{PropertyBinding, RepeatMode, ScrollFrameDisplayItem, ScrollPolicy, ScrollSensitivity};
@@ -19,10 +19,11 @@ use border::ImageBorderSegment;
 use clip::{ClipRegion, ClipSource, ClipSources, ClipStore};
 use clip_scroll_node::{ClipScrollNode, NodeType, StickyFrameInfo};
 use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, ClipScrollTree};
-use euclid::{SideOffsets2D, rect, vec2};
+use euclid::{SideOffsets2D, vec2};
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use glyph_rasterizer::FontInstance;
 use hit_test::{HitTestingItem, HitTestingRun};
+use image::{decompose_image, TiledImageInfo};
 use internal_types::{FastHashMap, FastHashSet};
 use picture::{PictureCompositeMode, PictureKind, PicturePrimitive};
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor, CachedGradient};
@@ -216,14 +217,13 @@ impl<'a> DisplayListFlattener<'a> {
         view: &DocumentView,
         output_pipelines: &FastHashSet<PipelineId>,
         frame_builder_config: &FrameBuilderConfig,
-        pipeline_epochs: &mut FastHashMap<PipelineId, Epoch>,
+        new_scene: &mut Scene,
     ) -> FrameBuilder {
         // We checked that the root pipeline is available on the render backend.
         let root_pipeline_id = scene.root_pipeline_id.unwrap();
         let root_pipeline = scene.pipelines.get(&root_pipeline_id).unwrap();
 
         let root_epoch = scene.pipeline_epochs[&root_pipeline_id];
-        pipeline_epochs.insert(root_pipeline_id, root_epoch);
 
         let background_color = root_pipeline
             .background_color
@@ -261,7 +261,11 @@ impl<'a> DisplayListFlattener<'a> {
         flattener.flatten_root(root_pipeline, &root_pipeline.viewport_size);
 
         debug_assert!(flattener.picture_stack.is_empty());
-        pipeline_epochs.extend(flattener.pipeline_epochs.drain(..));
+
+        new_scene.root_pipeline_id = Some(root_pipeline_id);
+        new_scene.pipeline_epochs.insert(root_pipeline_id, root_epoch);
+        new_scene.pipeline_epochs.extend(flattener.pipeline_epochs.drain(..));
+        new_scene.pipelines = scene.pipelines.clone();
 
         FrameBuilder::with_display_list_flattener(
             view.inner_rect,
@@ -635,12 +639,29 @@ impl<'a> DisplayListFlattener<'a> {
                     Some(tiling) => {
                         // The image resource is tiled. We have to generate an image primitive
                         // for each tile.
-                        self.decompose_image(
-                            clip_and_scroll,
-                            &prim_info,
-                            info,
-                            tiling.image_size,
-                            tiling.tile_size as u32,
+                        decompose_image(
+                            &TiledImageInfo {
+                                rect: prim_info.rect,
+                                tile_spacing: info.tile_spacing,
+                                stretch_size: info.stretch_size,
+                                device_image_size: tiling.image_size,
+                                device_tile_size: tiling.tile_size as u32,
+                            },
+                            &mut|tile| {
+                                let mut prim_info = prim_info.clone();
+                                prim_info.rect = tile.rect;
+                                self.add_image(
+                                    clip_and_scroll,
+                                    &prim_info,
+                                    tile.stretch_size,
+                                    info.tile_spacing,
+                                    None,
+                                    info.image_key,
+                                    info.image_rendering,
+                                    info.alpha_type,
+                                    Some(tile.tile_offset),
+                                );
+                            }
                         );
                     }
                     None => {
@@ -738,7 +759,6 @@ impl<'a> DisplayListFlattener<'a> {
                 let mut prim_info = prim_info.clone();
                 prim_info.rect = bounds;
                 self.add_box_shadow(
-                    pipeline_id,
                     clip_and_scroll,
                     &prim_info,
                     &box_shadow_info.offset,
@@ -841,308 +861,6 @@ impl<'a> DisplayListFlattener<'a> {
         None
     }
 
-    /// Decomposes an image display item that is repeated into an image per individual repetition.
-    /// We need to do this when we are unable to perform the repetition in the shader,
-    /// for example if the image is tiled.
-    ///
-    /// In all of the "decompose" methods below, we independently handle horizontal and vertical
-    /// decomposition. This lets us generate the minimum amount of primitives by, for  example,
-    /// decompositing the repetition horizontally while repeating vertically in the shader (for
-    /// an image where the width is too bug but the height is not).
-    ///
-    /// decompose_image and decompose_image_row handle image repetitions while decompose_tiled_image
-    /// takes care of the decomposition required by the internal tiling of the image.
-    fn decompose_image(
-        &mut self,
-        clip_and_scroll: ScrollNodeAndClipChain,
-        prim_info: &LayerPrimitiveInfo,
-        info: &ImageDisplayItem,
-        image_size: DeviceUintSize,
-        tile_size: u32,
-    ) {
-        let no_vertical_tiling = image_size.height <= tile_size;
-        let no_vertical_spacing = info.tile_spacing.height == 0.0;
-        let item_rect = prim_info.rect;
-        if no_vertical_tiling && no_vertical_spacing {
-            self.decompose_image_row(
-                clip_and_scroll,
-                prim_info,
-                info,
-                image_size,
-                tile_size,
-            );
-            return;
-        }
-
-        // Decompose each vertical repetition into rows.
-        let layout_stride = info.stretch_size.height + info.tile_spacing.height;
-        let num_repetitions = (item_rect.size.height / layout_stride).ceil() as u32;
-        for i in 0 .. num_repetitions {
-            if let Some(row_rect) = rect(
-                item_rect.origin.x,
-                item_rect.origin.y + (i as f32) * layout_stride,
-                item_rect.size.width,
-                info.stretch_size.height,
-            ).intersection(&item_rect)
-            {
-                let mut prim_info = prim_info.clone();
-                prim_info.rect = row_rect;
-                self.decompose_image_row(
-                    clip_and_scroll,
-                    &prim_info,
-                    info,
-                    image_size,
-                    tile_size,
-                );
-            }
-        }
-    }
-
-    fn decompose_image_row(
-        &mut self,
-        clip_and_scroll: ScrollNodeAndClipChain,
-        prim_info: &LayerPrimitiveInfo,
-        info: &ImageDisplayItem,
-        image_size: DeviceUintSize,
-        tile_size: u32,
-    ) {
-        let no_horizontal_tiling = image_size.width <= tile_size;
-        let no_horizontal_spacing = info.tile_spacing.width == 0.0;
-        if no_horizontal_tiling && no_horizontal_spacing {
-            self.decompose_tiled_image(
-                clip_and_scroll,
-                prim_info,
-                info,
-                image_size,
-                tile_size,
-            );
-            return;
-        }
-
-        // Decompose each horizontal repetition.
-        let item_rect = prim_info.rect;
-        let layout_stride = info.stretch_size.width + info.tile_spacing.width;
-        let num_repetitions = (item_rect.size.width / layout_stride).ceil() as u32;
-        for i in 0 .. num_repetitions {
-            if let Some(decomposed_rect) = rect(
-                item_rect.origin.x + (i as f32) * layout_stride,
-                item_rect.origin.y,
-                info.stretch_size.width,
-                item_rect.size.height,
-            ).intersection(&item_rect)
-            {
-                let mut prim_info = prim_info.clone();
-                prim_info.rect = decomposed_rect;
-                self.decompose_tiled_image(
-                    clip_and_scroll,
-                    &prim_info,
-                    info,
-                    image_size,
-                    tile_size,
-                );
-            }
-        }
-    }
-
-    fn decompose_tiled_image(
-        &mut self,
-        clip_and_scroll: ScrollNodeAndClipChain,
-        prim_info: &LayerPrimitiveInfo,
-        info: &ImageDisplayItem,
-        image_size: DeviceUintSize,
-        tile_size: u32,
-    ) {
-        // The image resource is tiled. We have to generate an image primitive
-        // for each tile.
-        // We need to do this because the image is broken up into smaller tiles in the texture
-        // cache and the image shader is not able to work with this type of sparse representation.
-
-        // The tiling logic works as follows:
-        //
-        //  ###################-+  -+
-        //  #    |    |    |//# |   | image size
-        //  #    |    |    |//# |   |
-        //  #----+----+----+--#-+   |  -+
-        //  #    |    |    |//# |   |   | regular tile size
-        //  #    |    |    |//# |   |   |
-        //  #----+----+----+--#-+   |  -+-+
-        //  #////|////|////|//# |   |     | "leftover" height
-        //  ################### |  -+  ---+
-        //  #----+----+----+----+
-        //
-        // In the ascii diagram above, a large image is plit into tiles of almost regular size.
-        // The tiles on the right and bottom edges (hatched in the diagram) are smaller than
-        // the regular tiles and are handled separately in the code see leftover_width/height.
-        // each generated image primitive corresponds to a tile in the texture cache, with the
-        // assumption that the smaller tiles with leftover sizes are sized to fit their own
-        // irregular size in the texture cache.
-        //
-        // For the case where we don't tile along an axis, we can still perform the repetition in
-        // the shader (for this particular axis), and it is worth special-casing for this to avoid
-        // generating many primitives.
-        // This can happen with very tall and thin images used as a repeating background.
-        // Apparently web authors do that...
-
-        let item_rect = prim_info.rect;
-        let needs_repeat_x = info.stretch_size.width < item_rect.size.width;
-        let needs_repeat_y = info.stretch_size.height < item_rect.size.height;
-
-        let tiled_in_x = image_size.width > tile_size;
-        let tiled_in_y = image_size.height > tile_size;
-
-        // If we don't actually tile in this dimension, repeating can be done in the shader.
-        let shader_repeat_x = needs_repeat_x && !tiled_in_x;
-        let shader_repeat_y = needs_repeat_y && !tiled_in_y;
-
-        let tile_size_f32 = tile_size as f32;
-
-        // Note: this rounds down so it excludes the partially filled tiles on the right and
-        // bottom edges (we handle them separately below).
-        let num_tiles_x = (image_size.width / tile_size) as u16;
-        let num_tiles_y = (image_size.height / tile_size) as u16;
-
-        // Ratio between (image space) tile size and image size.
-        let img_dw = tile_size_f32 / (image_size.width as f32);
-        let img_dh = tile_size_f32 / (image_size.height as f32);
-
-        // Strected size of the tile in layout space.
-        let stretched_tile_size = LayerSize::new(
-            img_dw * info.stretch_size.width,
-            img_dh * info.stretch_size.height,
-        );
-
-        // The size in pixels of the tiles on the right and bottom edges, smaller
-        // than the regular tile size if the image is not a multiple of the tile size.
-        // Zero means the image size is a multiple of the tile size.
-        let leftover =
-            DeviceUintSize::new(image_size.width % tile_size, image_size.height % tile_size);
-
-        for ty in 0 .. num_tiles_y {
-            for tx in 0 .. num_tiles_x {
-                self.add_tile_primitive(
-                    clip_and_scroll,
-                    prim_info,
-                    info,
-                    TileOffset::new(tx, ty),
-                    stretched_tile_size,
-                    1.0,
-                    1.0,
-                    shader_repeat_x,
-                    shader_repeat_y,
-                );
-            }
-            if leftover.width != 0 {
-                // Tiles on the right edge that are smaller than the tile size.
-                self.add_tile_primitive(
-                    clip_and_scroll,
-                    prim_info,
-                    info,
-                    TileOffset::new(num_tiles_x, ty),
-                    stretched_tile_size,
-                    (leftover.width as f32) / tile_size_f32,
-                    1.0,
-                    shader_repeat_x,
-                    shader_repeat_y,
-                );
-            }
-        }
-
-        if leftover.height != 0 {
-            for tx in 0 .. num_tiles_x {
-                // Tiles on the bottom edge that are smaller than the tile size.
-                self.add_tile_primitive(
-                    clip_and_scroll,
-                    prim_info,
-                    info,
-                    TileOffset::new(tx, num_tiles_y),
-                    stretched_tile_size,
-                    1.0,
-                    (leftover.height as f32) / tile_size_f32,
-                    shader_repeat_x,
-                    shader_repeat_y,
-                );
-            }
-
-            if leftover.width != 0 {
-                // Finally, the bottom-right tile with a "leftover" size.
-                self.add_tile_primitive(
-                    clip_and_scroll,
-                    prim_info,
-                    info,
-                    TileOffset::new(num_tiles_x, num_tiles_y),
-                    stretched_tile_size,
-                    (leftover.width as f32) / tile_size_f32,
-                    (leftover.height as f32) / tile_size_f32,
-                    shader_repeat_x,
-                    shader_repeat_y,
-                );
-            }
-        }
-    }
-
-    fn add_tile_primitive(
-        &mut self,
-        clip_and_scroll: ScrollNodeAndClipChain,
-        prim_info: &LayerPrimitiveInfo,
-        info: &ImageDisplayItem,
-        tile_offset: TileOffset,
-        stretched_tile_size: LayerSize,
-        tile_ratio_width: f32,
-        tile_ratio_height: f32,
-        shader_repeat_x: bool,
-        shader_repeat_y: bool,
-    ) {
-        // If the the image is tiled along a given axis, we can't have the shader compute
-        // the image repetition pattern. In this case we base the primitive's rectangle size
-        // on the stretched tile size which effectively cancels the repetion (and repetition
-        // has to be emulated by generating more primitives).
-        // If the image is not tiled along this axis, we can perform the repetition in the
-        // shader. in this case we use the item's size in the primitive (on that particular
-        // axis).
-        // See the shader_repeat_x/y code below.
-
-        let stretched_size = LayerSize::new(
-            stretched_tile_size.width * tile_ratio_width,
-            stretched_tile_size.height * tile_ratio_height,
-        );
-
-        let mut prim_rect = LayerRect::new(
-            prim_info.rect.origin +
-                LayerVector2D::new(
-                    tile_offset.x as f32 * stretched_tile_size.width,
-                    tile_offset.y as f32 * stretched_tile_size.height,
-                ),
-            stretched_size,
-        );
-
-        if shader_repeat_x {
-            assert_eq!(tile_offset.x, 0);
-            prim_rect.size.width = prim_info.rect.size.width;
-        }
-
-        if shader_repeat_y {
-            assert_eq!(tile_offset.y, 0);
-            prim_rect.size.height = prim_info.rect.size.height;
-        }
-
-        // Fix up the primitive's rect if it overflows the original item rect.
-        if let Some(prim_rect) = prim_rect.intersection(&prim_info.rect) {
-            let mut prim_info = prim_info.clone();
-            prim_info.rect = prim_rect;
-            self.add_image(
-                clip_and_scroll,
-                &prim_info,
-                stretched_size,
-                info.tile_spacing,
-                None,
-                info.image_key,
-                info.image_rendering,
-                info.alpha_type,
-                Some(tile_offset),
-            );
-        }
-    }
-
     /// Create a primitive and add it to the prim store. This method doesn't
     /// add the primitive to the draw list, so can be used for creating
     /// sub-primitives.
@@ -1164,7 +882,12 @@ impl<'a> DisplayListFlattener<'a> {
 
         let stacking_context = self.sc_stack.last().expect("bug: no stacking context!");
 
-        let clip_sources = self.clip_store.insert(ClipSources::new(clip_sources));
+        let clip_sources = if clip_sources.is_empty() {
+            None
+        } else {
+            Some(self.clip_store.insert(ClipSources::new(clip_sources)))
+        };
+
         let prim_index = self.prim_store.add_primitive(
             &info.rect,
             &info.local_clip.clip_rect(),
@@ -1271,9 +994,6 @@ impl<'a> DisplayListFlattener<'a> {
                 None,
             );
 
-            // No clip sources needed for the main framebuffer.
-            let clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
-
             // Add root picture primitive. The provided layer rect
             // is zero, because we don't yet know the size of the
             // picture. Instead, this is calculated recursively
@@ -1282,7 +1002,7 @@ impl<'a> DisplayListFlattener<'a> {
                 &LayerRect::zero(),
                 &max_clip,
                 true,
-                clip_sources,
+                None,
                 None,
                 PrimitiveContainer::Picture(pic),
             );
@@ -1307,9 +1027,8 @@ impl<'a> DisplayListFlattener<'a> {
                         *composite_mode = Some(PictureCompositeMode::Blit);
                     }
                 }
-                PictureKind::TextShadow { .. } |
-                PictureKind::BoxShadow { .. } => {
-                    panic!("bug: text/box pictures invalid here");
+                PictureKind::TextShadow { .. } => {
+                    panic!("bug: text pictures invalid here");
                 }
             }
         }
@@ -1351,13 +1070,11 @@ impl<'a> DisplayListFlattener<'a> {
                 None,
             );
 
-            let clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
-
             let prim_index = self.prim_store.add_primitive(
                 &LayerRect::zero(),
                 &max_clip,
                 is_backface_visible,
-                clip_sources,
+                None,
                 None,
                 PrimitiveContainer::Picture(container),
             );
@@ -1402,13 +1119,12 @@ impl<'a> DisplayListFlattener<'a> {
                 current_reference_frame_index,
                 None,
             );
-            let src_clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
 
             let src_prim_index = self.prim_store.add_primitive(
                 &LayerRect::zero(),
                 &max_clip,
                 is_backface_visible,
-                src_clip_sources,
+                None,
                 None,
                 PrimitiveContainer::Picture(src_prim),
             );
@@ -1433,13 +1149,12 @@ impl<'a> DisplayListFlattener<'a> {
                 current_reference_frame_index,
                 None,
             );
-            let src_clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
 
             let src_prim_index = self.prim_store.add_primitive(
                 &LayerRect::zero(),
                 &max_clip,
                 is_backface_visible,
-                src_clip_sources,
+                None,
                 None,
                 PrimitiveContainer::Picture(src_prim),
             );
@@ -1487,12 +1202,11 @@ impl<'a> DisplayListFlattener<'a> {
             frame_output_pipeline_id,
         );
 
-        let sc_clip_sources = self.clip_store.insert(ClipSources::new(Vec::new()));
         let sc_prim_index = self.prim_store.add_primitive(
             &LayerRect::zero(),
             &max_clip,
             is_backface_visible,
-            sc_clip_sources,
+            None,
             None,
             PrimitiveContainer::Picture(sc_prim),
         );
@@ -1646,8 +1360,6 @@ impl<'a> DisplayListFlattener<'a> {
     ) -> ClipScrollNodeIndex {
         let clip_rect = clip_region.main;
         let clip_sources = ClipSources::from(clip_region);
-
-        debug_assert!(clip_sources.has_clips());
         let handle = self.clip_store.insert(clip_sources);
 
         let node_index = self.id_to_index_mapper.get_node_index(new_node_id);
@@ -2621,10 +2333,9 @@ impl<'a> DisplayListFlattener<'a> {
 }
 
 pub fn build_scene(config: &FrameBuilderConfig, request: SceneRequest) -> BuiltScene {
-    // TODO: mutably pass the scene and update its own pipeline epoch map instead of
-    // creating a new one here.
-    let mut pipeline_epoch_map = FastHashMap::default();
+
     let mut clip_scroll_tree = ClipScrollTree::new();
+    let mut new_scene = Scene::new();
 
     let frame_builder = DisplayListFlattener::create_frame_builder(
         FrameBuilder::empty(), // WIP, we're not really recycling anything here, clean this up.
@@ -2635,14 +2346,11 @@ pub fn build_scene(config: &FrameBuilderConfig, request: SceneRequest) -> BuiltS
         &request.view,
         &request.output_pipelines,
         config,
-        &mut pipeline_epoch_map
+        &mut new_scene
     );
 
-    let mut scene = request.scene;
-    scene.pipeline_epochs = pipeline_epoch_map;
-
     BuiltScene {
-        scene,
+        scene: new_scene,
         frame_builder,
         clip_scroll_tree,
         removed_pipelines: request.removed_pipelines,

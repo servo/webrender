@@ -320,7 +320,7 @@ impl ResourceCache {
         gpu_cache: &mut GpuCache,
         render_tasks: &mut RenderTaskTree,
         f: F,
-    ) -> CacheItem where F: FnMut(&mut RenderTaskTree) -> (RenderTaskId, [f32; 3], bool) {
+    ) -> CacheItem where F: FnMut(&mut RenderTaskTree) -> (RenderTaskId, bool) {
         self.cached_render_tasks.request_render_task(
             key,
             &mut self.texture_cache,
@@ -1060,9 +1060,6 @@ impl ResourceCache {
 
         info!("saving resource cache");
         let res = &self.resources;
-        if !root.is_dir() {
-            fs::create_dir_all(root).unwrap()
-        }
         let path_fonts = root.join("fonts");
         if !path_fonts.is_dir() {
             fs::create_dir(&path_fonts).unwrap();
