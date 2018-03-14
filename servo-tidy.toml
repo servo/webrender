@@ -13,6 +13,7 @@ packages = [
     "gl_generator",
     "lazy_static",
     "log",
+    "rand",
     "user32-sys",
     "winapi",
     "yaml-rust",
