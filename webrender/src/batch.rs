@@ -1072,19 +1072,40 @@ impl AlphaBatchBuilder {
                                                     BatchTextures::render_target_cache(),
                                                 );
 
-                                                let (filter_mode, extra_cache_address) = match filter {
-                                                    FilterOp::Blur(..) => (0, 0),
-                                                    FilterOp::Contrast(..) => (1, 0),
-                                                    FilterOp::Grayscale(..) => (2, 0),
-                                                    FilterOp::HueRotate(..) => (3, 0),
-                                                    FilterOp::Invert(..) => (4, 0),
-                                                    FilterOp::Saturate(..) => (5, 0),
-                                                    FilterOp::Sepia(..) => (6, 0),
-                                                    FilterOp::Brightness(..) => (7, 0),
-                                                    FilterOp::Opacity(..) => (8, 0),
-                                                    FilterOp::DropShadow(..) => (9, 0),
-                                                    FilterOp::ColorMatrix(..) => {
-                                                        (10, extra_gpu_data_handle.as_int(gpu_cache))
+                                                let filter_mode = match filter {
+                                                    FilterOp::Blur(..) => 0,
+                                                    FilterOp::Contrast(..) => 1,
+                                                    FilterOp::Grayscale(..) => 2,
+                                                    FilterOp::HueRotate(..) => 3,
+                                                    FilterOp::Invert(..) => 4,
+                                                    FilterOp::Saturate(..) => 5,
+                                                    FilterOp::Sepia(..) => 6,
+                                                    FilterOp::Brightness(..) => 7,
+                                                    FilterOp::Opacity(..) => 8,
+                                                    FilterOp::DropShadow(..) => 9,
+                                                    FilterOp::ColorMatrix(..) => 10,
+                                                };
+
+                                                let user_data = match filter {
+                                                    FilterOp::Contrast(amount) |
+                                                    FilterOp::Grayscale(amount) |
+                                                    FilterOp::Invert(amount) |
+                                                    FilterOp::Saturate(amount) |
+                                                    FilterOp::Sepia(amount) |
+                                                    FilterOp::Brightness(amount) |
+                                                    FilterOp::Opacity(_, amount) => {
+                                                        (amount * 65536.0) as i32
+                                                    }
+                                                    FilterOp::HueRotate(angle) => {
+                                                        (0.01745329251 * angle * 65536.0) as i32
+                                                    }
+                                                    // Go through different paths
+                                                    FilterOp::Blur(..) |
+                                                    FilterOp::DropShadow(..) => {
+                                                        unreachable!();
+                                                    }
+                                                    FilterOp::ColorMatrix(_) => {
+                                                        extra_gpu_data_handle.as_int(gpu_cache)
                                                     }
                                                 };
 
@@ -1101,7 +1122,7 @@ impl AlphaBatchBuilder {
                                                     user_data: [
                                                         cache_task_address.0 as i32,
                                                         filter_mode,
-                                                        extra_cache_address,
+                                                        user_data,
                                                     ],
                                                 };
 
@@ -1148,25 +1169,32 @@ impl AlphaBatchBuilder {
                                         batch.push(PrimitiveInstance::from(instance));
                                     }
                                     PictureCompositeMode::Blit => {
-                                        let src_task_address = render_tasks.get_task_address(source_id);
-                                        let key = BatchKey::new(
-                                            BatchKind::HardwareComposite,
-                                            BlendMode::PremultipliedAlpha,
-                                            BatchTextures::render_target_cache(),
+                                        let kind = BatchKind::Brush(
+                                            BrushBatchKind::Image(ImageBufferKind::Texture2DArray)
                                         );
+                                        let key = BatchKey::new(kind, non_segmented_blend_mode, textures);
                                         let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
-                                        let item_bounding_rect = prim_metadata.screen_rect.expect("bug!!").clipped;
-                                        let instance = CompositePrimitiveInstance::new(
-                                            task_address,
-                                            src_task_address,
-                                            RenderTaskAddress(0),
-                                            item_bounding_rect.origin.x,
-                                            item_bounding_rect.origin.y,
-                                            z,
-                                            item_bounding_rect.size.width,
-                                            item_bounding_rect.size.height,
-                                        );
 
+                                        let uv_rect_address = render_tasks[cache_task_id]
+                                            .get_texture_handle()
+                                            .as_int(gpu_cache);
+
+                                        let instance = BrushInstance {
+                                            picture_address: task_address,
+                                            prim_address: prim_cache_address,
+                                            clip_chain_rect_index,
+                                            scroll_id,
+                                            clip_task_address,
+                                            z,
+                                            segment_index: 0,
+                                            edge_flags: EdgeAaSegmentMask::empty(),
+                                            brush_flags: BrushFlags::empty(),
+                                            user_data: [
+                                                uv_rect_address,
+                                                BrushImageSourceKind::Color as i32,
+                                                RasterizationSpace::Screen as i32,
+                                            ],
+                                        };
                                         batch.push(PrimitiveInstance::from(instance));
                                     }
                                 }

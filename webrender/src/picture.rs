@@ -272,13 +272,15 @@ impl PicturePrimitive {
                 composite_mode,
                 ..
             } => {
-                match composite_mode {
+                let device_rect = match composite_mode {
                     Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
                         // If blur radius is 0, we can skip drawing this an an
                         // intermediate surface.
                         if blur_radius == 0.0 {
                             pic_state.tasks.extend(pic_state_for_children.tasks);
                             self.surface = None;
+
+                            DeviceIntRect::zero()
                         } else {
                             let blur_std_deviation = blur_radius * frame_context.device_pixel_scale.0;
                             let blur_range = (blur_std_deviation * BLUR_SAMPLE_SCALE).ceil() as i32;
@@ -296,15 +298,6 @@ impl PicturePrimitive {
                                 .inflate(blur_range, blur_range)
                                 .intersection(&prim_screen_rect.unclipped)
                                 .unwrap();
-
-                            // If scrolling or property animation has resulted in the task
-                            // rect being different than last time, invalidate the GPU
-                            // cache entry for this picture to ensure that the correct
-                            // task rect is provided to the image shader.
-                            if *task_rect != device_rect {
-                                frame_state.gpu_cache.invalidate(&prim_metadata.gpu_location);
-                                *task_rect = device_rect;
-                            }
 
                             let content_origin = ContentOrigin::Screen(device_rect.origin);
 
@@ -333,6 +326,8 @@ impl PicturePrimitive {
                             let render_task_id = frame_state.render_tasks.add(blur_render_task);
                             pic_state.tasks.push(render_task_id);
                             self.surface = Some(render_task_id);
+
+                            device_rect
                         }
                     }
                     Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, blur_radius, color))) => {
@@ -368,6 +363,8 @@ impl PicturePrimitive {
                         let render_task_id = frame_state.render_tasks.add(blur_render_task);
                         pic_state.tasks.push(render_task_id);
                         self.surface = Some(render_task_id);
+
+                        rect
                     }
                     Some(PictureCompositeMode::MixBlend(..)) => {
                         let content_origin = ContentOrigin::Screen(prim_screen_rect.clipped.origin);
@@ -393,6 +390,8 @@ impl PicturePrimitive {
                         let render_task_id = frame_state.render_tasks.add(picture_task);
                         pic_state.tasks.push(render_task_id);
                         self.surface = Some(render_task_id);
+
+                        prim_screen_rect.clipped
                     }
                     Some(PictureCompositeMode::Filter(filter)) => {
                         let content_origin = ContentOrigin::Screen(prim_screen_rect.clipped.origin);
@@ -430,6 +429,8 @@ impl PicturePrimitive {
                             pic_state.tasks.push(render_task_id);
                             self.surface = Some(render_task_id);
                         }
+
+                        prim_screen_rect.clipped
                     }
                     Some(PictureCompositeMode::Blit) => {
                         let content_origin = ContentOrigin::Screen(prim_screen_rect.clipped.origin);
@@ -448,11 +449,24 @@ impl PicturePrimitive {
                         let render_task_id = frame_state.render_tasks.add(picture_task);
                         pic_state.tasks.push(render_task_id);
                         self.surface = Some(render_task_id);
+
+                        prim_screen_rect.clipped
                     }
                     None => {
                         pic_state.tasks.extend(pic_state_for_children.tasks);
                         self.surface = None;
+
+                        DeviceIntRect::zero()
                     }
+                };
+
+                // If scrolling or property animation has resulted in the task
+                // rect being different than last time, invalidate the GPU
+                // cache entry for this picture to ensure that the correct
+                // task rect is provided to the image shader.
+                if *task_rect != device_rect {
+                    frame_state.gpu_cache.invalidate(&prim_metadata.gpu_location);
+                    *task_rect = device_rect;
                 }
             }
             PictureKind::TextShadow { blur_radius, color, content_rect, .. } => {
@@ -498,50 +512,12 @@ impl PicturePrimitive {
     }
 
     pub fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
-        // TODO(gw): It's unfortunate that we pay a fixed cost
-        //           of 5 GPU blocks / picture, just due to the size
-        //           of the color matrix. There aren't typically very
-        //           many pictures in a scene, but we should consider
-        //           making this more efficient for the common case.
         match self.kind {
             PictureKind::TextShadow { .. } => {
                 request.push([0.0; 4]);
             }
-            PictureKind::Image { composite_mode, task_rect, .. } => {
-                match composite_mode {
-                    Some(PictureCompositeMode::Filter(filter)) => {
-                        let amount = match filter {
-                            FilterOp::Contrast(amount) => amount,
-                            FilterOp::Grayscale(amount) => amount,
-                            FilterOp::HueRotate(angle) => 0.01745329251 * angle,
-                            FilterOp::Invert(amount) => amount,
-                            FilterOp::Saturate(amount) => amount,
-                            FilterOp::Sepia(amount) => amount,
-                            FilterOp::Brightness(amount) => amount,
-                            FilterOp::Opacity(_, amount) => amount,
-
-                            // Go through different paths
-                            FilterOp::Blur(..) |
-                            FilterOp::DropShadow(..) |
-                            FilterOp::ColorMatrix(_) => {
-                                // TODO(gw): The data for blur (and drop-shadows in the future)
-                                //           doesn't match how the brush_blend shader uses this
-                                //           data for other filter types (see below). We should
-                                //           update the brush_blend and brush_mix_blend shaders
-                                //           to do screen-space UV calculation the same way that
-                                //           the brush_image shader does, and move the amount
-                                //           storage into the extra gpu data or instance data.
-                                request.push(task_rect.to_f32());
-                                return;
-                            }
-                        };
-
-                        request.push([amount, 1.0 - amount, 0.0, 0.0]);
-                    }
-                    _ => {
-                        request.push([0.0; 4]);
-                    }
-                }
+            PictureKind::Image { task_rect, .. } => {
+                request.push(task_rect.to_f32());
             }
         }
     }

@@ -35,8 +35,6 @@ void brush_vs(
     vec2 uv1 = uv0 + src_task.common_data.task_rect.size;
     vUvClipBounds = vec4(uv0, uv1) / texture_size.xyxy;
 
-    vOp = user_data.y;
-
     float lumR = 0.2126;
     float lumG = 0.7152;
     float lumB = 0.0722;
@@ -44,23 +42,26 @@ void brush_vs(
     float oneMinusLumG = 1.0 - lumG;
     float oneMinusLumB = 1.0 - lumB;
 
-    vec4 amount = fetch_from_resource_cache_1(prim_address);
-    vAmount = amount.x;
+    float amount = float(user_data.z) / 65536.0;
+    float invAmount = 1.0 - amount;
+
+    vOp = user_data.y;
+    vAmount = amount;
 
     switch (vOp) {
         case 2: {
             // Grayscale
-            vColorMat = mat4(vec4(lumR + oneMinusLumR * amount.y, lumR - lumR * amount.y, lumR - lumR * amount.y, 0.0),
-                             vec4(lumG - lumG * amount.y, lumG + oneMinusLumG * amount.y, lumG - lumG * amount.y, 0.0),
-                             vec4(lumB - lumB * amount.y, lumB - lumB * amount.y, lumB + oneMinusLumB * amount.y, 0.0),
+            vColorMat = mat4(vec4(lumR + oneMinusLumR * invAmount, lumR - lumR * invAmount, lumR - lumR * invAmount, 0.0),
+                             vec4(lumG - lumG * invAmount, lumG + oneMinusLumG * invAmount, lumG - lumG * invAmount, 0.0),
+                             vec4(lumB - lumB * invAmount, lumB - lumB * invAmount, lumB + oneMinusLumB * invAmount, 0.0),
                              vec4(0.0, 0.0, 0.0, 1.0));
             vColorOffset = vec4(0.0);
             break;
         }
         case 3: {
             // HueRotate
-            float c = cos(amount.x);
-            float s = sin(amount.x);
+            float c = cos(amount);
+            float s = sin(amount);
             vColorMat = mat4(vec4(lumR + oneMinusLumR * c - lumR * s, lumR - lumR * c + 0.143 * s, lumR - lumR * c - oneMinusLumR * s, 0.0),
                             vec4(lumG - lumG * c - lumG * s, lumG + oneMinusLumG * c + 0.140 * s, lumG - lumG * c + lumG * s, 0.0),
                             vec4(lumB - lumB * c + oneMinusLumB * s, lumB - lumB * c - 0.283 * s, lumB + oneMinusLumB * c + lumB * s, 0.0),
@@ -70,18 +71,18 @@ void brush_vs(
         }
         case 5: {
             // Saturate
-            vColorMat = mat4(vec4(amount.y * lumR + amount.x, amount.y * lumR, amount.y * lumR, 0.0),
-                             vec4(amount.y * lumG, amount.y * lumG + amount.x, amount.y * lumG, 0.0),
-                             vec4(amount.y * lumB, amount.y * lumB, amount.y * lumB + amount.x, 0.0),
+            vColorMat = mat4(vec4(invAmount * lumR + amount, invAmount * lumR, invAmount * lumR, 0.0),
+                             vec4(invAmount * lumG, invAmount * lumG + amount, invAmount * lumG, 0.0),
+                             vec4(invAmount * lumB, invAmount * lumB, invAmount * lumB + amount, 0.0),
                              vec4(0.0, 0.0, 0.0, 1.0));
             vColorOffset = vec4(0.0);
             break;
         }
         case 6: {
             // Sepia
-            vColorMat = mat4(vec4(0.393 + 0.607 * amount.y, 0.349 - 0.349 * amount.y, 0.272 - 0.272 * amount.y, 0.0),
-                             vec4(0.769 - 0.769 * amount.y, 0.686 + 0.314 * amount.y, 0.534 - 0.534 * amount.y, 0.0),
-                             vec4(0.189 - 0.189 * amount.y, 0.168 - 0.168 * amount.y, 0.131 + 0.869 * amount.y, 0.0),
+            vColorMat = mat4(vec4(0.393 + 0.607 * invAmount, 0.349 - 0.349 * invAmount, 0.272 - 0.272 * invAmount, 0.0),
+                             vec4(0.769 - 0.769 * invAmount, 0.686 + 0.314 * invAmount, 0.534 - 0.534 * invAmount, 0.0),
+                             vec4(0.189 - 0.189 * invAmount, 0.168 - 0.168 * invAmount, 0.131 + 0.869 * invAmount, 0.0),
                              vec4(0.0, 0.0, 0.0, 1.0));
             vColorOffset = vec4(0.0);
             break;
