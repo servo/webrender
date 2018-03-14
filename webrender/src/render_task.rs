@@ -577,7 +577,7 @@ impl RenderTask {
                         0.0,
                         0.0,
                     ],
-                    task.color.to_array()
+                    [0.0; 4],
                 )
             }
             RenderTaskKind::Readback(..) |
