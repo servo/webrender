@@ -25,10 +25,10 @@ use glyph_rasterizer::FontInstance;
 use hit_test::{HitTestingItem, HitTestingRun};
 use image::{decompose_image, TiledImageInfo};
 use internal_types::{FastHashMap, FastHashSet};
-use picture::{PictureCompositeMode, PictureKind, PicturePrimitive};
+use picture::{PictureCompositeMode, PictureKind};
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor, CachedGradient};
 use prim_store::{CachedGradientIndex, ImageCacheKey, ImagePrimitiveCpu, ImageSource};
-use prim_store::{PrimitiveContainer, PrimitiveIndex, PrimitiveKind, PrimitiveStore};
+use prim_store::{PictureIndex, PrimitiveContainer, PrimitiveIndex, PrimitiveKind, PrimitiveStore};
 use prim_store::{ScrollNodeAndClipChain, TextRunPrimitiveCpu};
 use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest, TiledImageMap};
@@ -185,7 +185,7 @@ pub struct DisplayListFlattener<'a> {
     sc_stack: Vec<FlattenedStackingContext>,
 
     /// A stack of the current pictures.
-    picture_stack: Vec<PrimitiveIndex>,
+    picture_stack: Vec<PictureIndex>,
 
     /// A list of scrollbar primitives.
     pub scrollbar_prims: Vec<ScrollbarPrimitive>,
@@ -930,15 +930,9 @@ impl<'a> DisplayListFlattener<'a> {
         clip_and_scroll: ScrollNodeAndClipChain,
     ) {
         // Add primitive to the top-most Picture on the stack.
-        // TODO(gw): Let's consider removing the extra indirection
-        //           needed to get a specific primitive index...
-        let pic_prim_index = self.picture_stack.last().unwrap();
-        let metadata = &self.prim_store.cpu_metadata[pic_prim_index.0];
-        let pic = &mut self.prim_store.cpu_pictures[metadata.cpu_prim_index.0];
-        pic.add_primitive(
-            prim_index,
-            clip_and_scroll
-        );
+        let pic_index = self.picture_stack.last().unwrap();
+        let pic = &mut self.prim_store.pictures[pic_index.0];
+        pic.add_primitive(prim_index, clip_and_scroll);
     }
 
     /// Convenience interface that creates a primitive entry and adds it
@@ -981,12 +975,12 @@ impl<'a> DisplayListFlattener<'a> {
         // If there is no root picture, create one for the main framebuffer.
         if self.sc_stack.is_empty() {
             // Should be no pictures at all if the stack is empty...
-            debug_assert!(self.prim_store.cpu_pictures.is_empty());
+            debug_assert!(self.prim_store.pictures.is_empty());
             debug_assert_eq!(transform_style, TransformStyle::Flat);
 
             // This picture stores primitive runs for items on the
             // main framebuffer.
-            let pic = PicturePrimitive::new_image(
+            let pic_index = self.prim_store.add_image_picture(
                 None,
                 false,
                 pipeline_id,
@@ -994,20 +988,7 @@ impl<'a> DisplayListFlattener<'a> {
                 None,
             );
 
-            // Add root picture primitive. The provided layer rect
-            // is zero, because we don't yet know the size of the
-            // picture. Instead, this is calculated recursively
-            // when we cull primitives.
-            let prim_index = self.prim_store.add_primitive(
-                &LayerRect::zero(),
-                &max_clip,
-                true,
-                None,
-                None,
-                PrimitiveContainer::Picture(pic),
-            );
-
-            self.picture_stack.push(prim_index);
+            self.picture_stack.push(pic_index);
         } else if composite_ops.mix_blend_mode.is_some() && self.sc_stack.len() > 2 {
             // If we have a mix-blend-mode, and we aren't the primary framebuffer,
             // the stacking context needs to be isolated to blend correctly as per
@@ -1015,9 +996,8 @@ impl<'a> DisplayListFlattener<'a> {
             // TODO(gw): The way we detect not being the primary framebuffer (len > 2)
             //           is hacky and depends on how we create a root stacking context
             //           during flattening.
-            let current_pic_prim_index = self.picture_stack.last().unwrap();
-            let pic_cpu_prim_index = self.prim_store.cpu_metadata[current_pic_prim_index.0].cpu_prim_index;
-            let parent_pic = &mut self.prim_store.cpu_pictures[pic_cpu_prim_index.0];
+            let parent_pic_index = self.picture_stack.last().unwrap();
+            let parent_pic = &mut self.prim_store.pictures[parent_pic_index.0];
 
             match parent_pic.kind {
                 PictureKind::Image { ref mut composite_mode, .. } => {
@@ -1058,11 +1038,11 @@ impl<'a> DisplayListFlattener<'a> {
             participating_in_3d_context &&
             parent_transform_style == TransformStyle::Flat;
 
-        let rendering_context_3d_prim_index = if establishes_3d_context {
+        let rendering_context_3d_pic_index = if establishes_3d_context {
             // If establishing a 3d context, we need to add a picture
             // that will be the container for all the planes and any
             // un-transformed content.
-            let container = PicturePrimitive::new_image(
+            let container_index = self.prim_store.add_image_picture(
                 None,
                 false,
                 pipeline_id,
@@ -1070,31 +1050,33 @@ impl<'a> DisplayListFlattener<'a> {
                 None,
             );
 
+            let prim = BrushPrimitive::new_picture(container_index);
+
             let prim_index = self.prim_store.add_primitive(
                 &LayerRect::zero(),
                 &max_clip,
                 is_backface_visible,
                 None,
                 None,
-                PrimitiveContainer::Picture(container),
+                PrimitiveContainer::Brush(prim),
             );
 
-            let parent_pic_prim_index = *self.picture_stack.last().unwrap();
-            let pic_prim_index = self.prim_store.cpu_metadata[parent_pic_prim_index.0].cpu_prim_index;
-            let pic = &mut self.prim_store.cpu_pictures[pic_prim_index.0];
+            let parent_pic_index = *self.picture_stack.last().unwrap();
+
+            let pic = &mut self.prim_store.pictures[parent_pic_index.0];
             pic.add_primitive(
                 prim_index,
                 clip_and_scroll,
             );
 
-            self.picture_stack.push(prim_index);
+            self.picture_stack.push(container_index);
 
-            Some(prim_index)
+            Some(container_index)
         } else {
             None
         };
 
-        let mut parent_pic_prim_index = if !establishes_3d_context && participating_in_3d_context {
+        let mut parent_pic_index = if !establishes_3d_context && participating_in_3d_context {
             // If we're in a 3D context, we will parent the picture
             // to the first stacking context we find that is a
             // 3D rendering context container. This follows the spec
@@ -1103,8 +1085,8 @@ impl<'a> DisplayListFlattener<'a> {
             self.sc_stack
                 .iter()
                 .rev()
-                .find(|sc| sc.rendering_context_3d_prim_index.is_some())
-                .map(|sc| sc.rendering_context_3d_prim_index.unwrap())
+                .find(|sc| sc.rendering_context_3d_pic_index.is_some())
+                .map(|sc| sc.rendering_context_3d_pic_index.unwrap())
                 .unwrap()
         } else {
             *self.picture_stack.last().unwrap()
@@ -1112,7 +1094,7 @@ impl<'a> DisplayListFlattener<'a> {
 
         // For each filter, create a new image with that composite mode.
         for filter in composite_ops.filters.iter().rev() {
-            let src_prim = PicturePrimitive::new_image(
+            let src_pic_index = self.prim_store.add_image_picture(
                 Some(PictureCompositeMode::Filter(*filter)),
                 false,
                 pipeline_id,
@@ -1120,29 +1102,30 @@ impl<'a> DisplayListFlattener<'a> {
                 None,
             );
 
+            let src_prim = BrushPrimitive::new_picture(src_pic_index);
+
             let src_prim_index = self.prim_store.add_primitive(
                 &LayerRect::zero(),
                 &max_clip,
                 is_backface_visible,
                 None,
                 None,
-                PrimitiveContainer::Picture(src_prim),
+                PrimitiveContainer::Brush(src_prim),
             );
 
-            let pic_prim_index = self.prim_store.cpu_metadata[parent_pic_prim_index.0].cpu_prim_index;
-            parent_pic_prim_index = src_prim_index;
-            let pic = &mut self.prim_store.cpu_pictures[pic_prim_index.0];
-            pic.add_primitive(
+            let parent_pic = &mut self.prim_store.pictures[parent_pic_index.0];
+            parent_pic_index = src_pic_index;
+            parent_pic.add_primitive(
                 src_prim_index,
                 clip_and_scroll,
             );
 
-            self.picture_stack.push(src_prim_index);
+            self.picture_stack.push(src_pic_index);
         }
 
         // Same for mix-blend-mode.
         if let Some(mix_blend_mode) = composite_ops.mix_blend_mode {
-            let src_prim = PicturePrimitive::new_image(
+            let src_pic_index = self.prim_store.add_image_picture(
                 Some(PictureCompositeMode::MixBlend(mix_blend_mode)),
                 false,
                 pipeline_id,
@@ -1150,24 +1133,25 @@ impl<'a> DisplayListFlattener<'a> {
                 None,
             );
 
+            let src_prim = BrushPrimitive::new_picture(src_pic_index);
+
             let src_prim_index = self.prim_store.add_primitive(
                 &LayerRect::zero(),
                 &max_clip,
                 is_backface_visible,
                 None,
                 None,
-                PrimitiveContainer::Picture(src_prim),
+                PrimitiveContainer::Brush(src_prim),
             );
 
-            let pic_prim_index = self.prim_store.cpu_metadata[parent_pic_prim_index.0].cpu_prim_index;
-            parent_pic_prim_index = src_prim_index;
-            let pic = &mut self.prim_store.cpu_pictures[pic_prim_index.0];
-            pic.add_primitive(
+            let parent_pic = &mut self.prim_store.pictures[parent_pic_index.0];
+            parent_pic_index = src_pic_index;
+            parent_pic.add_primitive(
                 src_prim_index,
                 clip_and_scroll,
             );
 
-            self.picture_stack.push(src_prim_index);
+            self.picture_stack.push(src_pic_index);
         }
 
         // By default, this picture will be collapsed into
@@ -1194,7 +1178,7 @@ impl<'a> DisplayListFlattener<'a> {
         }
 
         // Add picture for this actual stacking context contents to render into.
-        let sc_prim = PicturePrimitive::new_image(
+        let pic_index = self.prim_store.add_image_picture(
             composite_mode,
             participating_in_3d_context,
             pipeline_id,
@@ -1202,24 +1186,24 @@ impl<'a> DisplayListFlattener<'a> {
             frame_output_pipeline_id,
         );
 
+        // Create a brush primitive that draws this picture.
+        let sc_prim = BrushPrimitive::new_picture(pic_index);
+
+        // Add the brush to the parent picture.
         let sc_prim_index = self.prim_store.add_primitive(
             &LayerRect::zero(),
             &max_clip,
             is_backface_visible,
             None,
             None,
-            PrimitiveContainer::Picture(sc_prim),
+            PrimitiveContainer::Brush(sc_prim),
         );
 
-        let pic_prim_index = self.prim_store.cpu_metadata[parent_pic_prim_index.0].cpu_prim_index;
-        let sc_pic = &mut self.prim_store.cpu_pictures[pic_prim_index.0];
-        sc_pic.add_primitive(
-            sc_prim_index,
-            clip_and_scroll,
-        );
+        let parent_pic = &mut self.prim_store.pictures[parent_pic_index.0];
+        parent_pic.add_primitive(sc_prim_index, clip_and_scroll);
 
         // Add this as the top-most picture for primitives to be added to.
-        self.picture_stack.push(sc_prim_index);
+        self.picture_stack.push(pic_index);
 
         // TODO(gw): This is super conservative. We can expand on this a lot
         //           once all the picture code is in place and landed.
@@ -1234,7 +1218,7 @@ impl<'a> DisplayListFlattener<'a> {
             pipeline_id,
             allow_subpixel_aa,
             transform_style,
-            rendering_context_3d_prim_index,
+            rendering_context_3d_pic_index,
         };
 
         self.sc_stack.push(sc);
@@ -1250,7 +1234,7 @@ impl<'a> DisplayListFlattener<'a> {
         pop_count += sc.composite_ops.count();
 
         // Remove the 3d context container if created
-        if sc.rendering_context_3d_prim_index.is_some() {
+        if sc.rendering_context_3d_pic_index.is_some() {
             pop_count += 1;
         }
 
@@ -1410,7 +1394,9 @@ impl<'a> DisplayListFlattener<'a> {
         info: &LayerPrimitiveInfo,
     ) {
         let pipeline_id = self.sc_stack.last().unwrap().pipeline_id;
-        let prim = PicturePrimitive::new_text_shadow(shadow, pipeline_id);
+        let pic_index = self.prim_store.add_shadow_picture(shadow, pipeline_id);
+
+        let prim = BrushPrimitive::new_picture(pic_index);
 
         // Create an empty shadow primitive. Insert it into
         // the draw lists immediately so that it will be drawn
@@ -1419,7 +1405,7 @@ impl<'a> DisplayListFlattener<'a> {
         let prim_index = self.create_primitive(
             info,
             Vec::new(),
-            PrimitiveContainer::Picture(prim),
+            PrimitiveContainer::Brush(prim),
         );
 
         let pending = vec![(prim_index, clip_and_scroll)];
@@ -1549,7 +1535,8 @@ impl<'a> DisplayListFlattener<'a> {
         let mut fast_shadow_prims = Vec::new();
         for (idx, &(shadow_prim_index, _)) in self.shadow_prim_stack.iter().enumerate() {
             let shadow_metadata = &self.prim_store.cpu_metadata[shadow_prim_index.0];
-            let picture = &self.prim_store.cpu_pictures[shadow_metadata.cpu_prim_index.0];
+            let brush = &self.prim_store.cpu_brushes[shadow_metadata.cpu_prim_index.0];
+            let picture = &self.prim_store.pictures[brush.get_picture_index().0];
             match picture.kind {
                 PictureKind::TextShadow { offset, color, blur_radius, .. } if blur_radius == 0.0 => {
                     fast_shadow_prims.push((idx, offset, color));
@@ -1597,9 +1584,9 @@ impl<'a> DisplayListFlattener<'a> {
 
         for &(shadow_prim_index, _) in &self.shadow_prim_stack {
             let shadow_metadata = &mut self.prim_store.cpu_metadata[shadow_prim_index.0];
-            debug_assert_eq!(shadow_metadata.prim_kind, PrimitiveKind::Picture);
-            let picture =
-                &mut self.prim_store.cpu_pictures[shadow_metadata.cpu_prim_index.0];
+            debug_assert_eq!(shadow_metadata.prim_kind, PrimitiveKind::Brush);
+            let brush = &self.prim_store.cpu_brushes[shadow_metadata.cpu_prim_index.0];
+            let picture = &mut self.prim_store.pictures[brush.get_picture_index().0];
 
             match picture.kind {
                 // Only run real blurs here (fast path zero blurs are handled above).
@@ -2147,7 +2134,8 @@ impl<'a> DisplayListFlattener<'a> {
         let mut fast_shadow_prims = Vec::new();
         for (idx, &(shadow_prim_index, _)) in self.shadow_prim_stack.iter().enumerate() {
             let shadow_metadata = &self.prim_store.cpu_metadata[shadow_prim_index.0];
-            let picture_prim = &self.prim_store.cpu_pictures[shadow_metadata.cpu_prim_index.0];
+            let brush = &self.prim_store.cpu_brushes[shadow_metadata.cpu_prim_index.0];
+            let picture_prim = &self.prim_store.pictures[brush.get_picture_index().0];
             match picture_prim.kind {
                 PictureKind::TextShadow { offset, color, blur_radius, .. } if blur_radius == 0.0 => {
                     let mut text_prim = prim.clone();
@@ -2201,9 +2189,9 @@ impl<'a> DisplayListFlattener<'a> {
         // the indices as sub-primitives to the shadow primitives.
         for &(shadow_prim_index, _) in &self.shadow_prim_stack {
             let shadow_metadata = &mut self.prim_store.cpu_metadata[shadow_prim_index.0];
-            debug_assert_eq!(shadow_metadata.prim_kind, PrimitiveKind::Picture);
-            let picture =
-                &mut self.prim_store.cpu_pictures[shadow_metadata.cpu_prim_index.0];
+            debug_assert_eq!(shadow_metadata.prim_kind, PrimitiveKind::Brush);
+            let brush = &self.prim_store.cpu_brushes[shadow_metadata.cpu_prim_index.0];
+            let picture = &mut self.prim_store.pictures[brush.get_picture_index().0];
 
             match picture.kind {
                 // Only run real blurs here (fast path zero blurs are handled above).
@@ -2443,9 +2431,9 @@ struct FlattenedStackingContext {
     transform_style: TransformStyle,
 
     /// If Some(..), this stacking context establishes a new
-    /// 3d rendering context, and the value is the primitive
+    /// 3d rendering context, and the value is the picture
     // index of the 3d context container.
-    rendering_context_3d_prim_index: Option<PrimitiveIndex>,
+    rendering_context_3d_pic_index: Option<PictureIndex>,
 }
 
 #[derive(Debug)]
