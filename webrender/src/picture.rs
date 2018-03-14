@@ -11,7 +11,7 @@ use clip_scroll_tree::ClipScrollNodeIndex;
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState};
 use gpu_cache::{GpuCacheHandle, GpuDataRequest};
 use gpu_types::{PictureType};
-use prim_store::{BrushKind, BrushPrimitive, PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
+use prim_store::{PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
 use prim_store::{PrimitiveMetadata, ScrollNodeAndClipChain};
 use render_task::{ClearMode, RenderTask};
 use render_task::{RenderTaskId, RenderTaskLocation, to_cache_size};
@@ -110,15 +110,6 @@ pub struct PicturePrimitive {
     // picture. For text shadows and box shadows, we want to
     // unconditionally draw them.
     pub cull_children: bool,
-
-    // The brush primitive that will be used to draw this
-    // picture.
-    // TODO(gw): Having a brush primitive embedded here
-    //           makes the code complex in a few places.
-    //           Consider a better way to structure this.
-    //           Maybe embed the PicturePrimitive inside
-    //           the BrushKind enum instead?
-    pub brush: BrushPrimitive,
 }
 
 impl PicturePrimitive {
@@ -134,10 +125,6 @@ impl PicturePrimitive {
             },
             pipeline_id,
             cull_children: false,
-            brush: BrushPrimitive::new(
-                BrushKind::Picture,
-                None,
-            ),
         }
     }
 
@@ -184,10 +171,6 @@ impl PicturePrimitive {
             },
             pipeline_id,
             cull_children: true,
-            brush: BrushPrimitive::new(
-                BrushKind::Picture,
-                None,
-            ),
         }
     }
 
