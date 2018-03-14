@@ -964,7 +964,7 @@ impl ResourceCache {
         self.resources.font_instances
             .write()
             .unwrap()
-            .retain(|key, _| key.0 == namespace);
+            .retain(|key, _| key.0 != namespace);
         for &key in self.resources.font_templates.keys().filter(|key| key.0 == namespace) {
             self.glyph_rasterizer.delete_font(key);
         }
