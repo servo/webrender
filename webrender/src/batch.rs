@@ -373,7 +373,12 @@ impl AlphaBatchContainer {
     }
 
     fn merge(&mut self, builder: AlphaBatchBuilder) {
-        self.text_run_cache_prims.extend(builder.text_run_cache_prims);
+        for (key, value) in builder.text_run_cache_prims {
+            self.text_run_cache_prims
+                .entry(key)
+                .or_insert(vec![])
+                .extend(value);
+        }
 
         for other_batch in builder.batch_list.opaque_batch_list.batches {
             let batch_index = self.opaque_batches.iter().position(|batch| {
