@@ -374,6 +374,13 @@ impl DocumentOps {
         }
     }
 
+    fn render() -> Self {
+        DocumentOps {
+            render: true,
+            ..DocumentOps::nop()
+        }
+    }
+
     fn combine(&mut self, other: Self) {
         self.scroll = self.scroll || other.scroll;
         self.build = self.build || other.build;
@@ -668,7 +675,7 @@ impl RenderBackend {
             }
             FrameMsg::UpdateDynamicProperties(property_bindings) => {
                 doc.dynamic_properties.set_properties(property_bindings);
-                DocumentOps::build()
+                DocumentOps::render()
             }
         }
     }
