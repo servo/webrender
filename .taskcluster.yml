@@ -140,6 +140,7 @@ tasks:
           export RUST_BACKTRACE=1 &&
           export RUSTFLAGS='--deny warnings' &&
           export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH" &&
+          export RUSTC_WRAPPER=sccache &&
           (cd wrench && python script/headless.py reftest) &&
           (cd wrench && cargo build --release)
     routes:
@@ -171,6 +172,7 @@ tasks:
           export RUST_BACKTRACE=1 &&
           export RUSTFLAGS='--deny warnings' &&
           export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH" &&
+          export RUSTC_WRAPPER=sccache &&
           (cd webrender_api && cargo test --verbose --features "ipc") &&
           (cd webrender && cargo build --verbose --no-default-features) &&
           (cd webrender && cargo build --verbose --features capture,profiler) &&
