@@ -172,9 +172,18 @@ impl Document {
 
     // TODO: We will probably get rid of this soon and always forward to the scene building thread.
     fn build_scene(&mut self, resource_cache: &mut ResourceCache) {
+        let max_texture_size = resource_cache.max_texture_size();
 
-        if self.view.window_size.width == 0 || self.view.window_size.height == 0 {
-            error!("ERROR: Invalid window dimensions! Please call api.set_window_size()");
+        if self.view.window_size.width == 0 ||
+           self.view.window_size.height == 0 ||
+           self.view.window_size.width > max_texture_size ||
+           self.view.window_size.height > max_texture_size {
+            error!("ERROR: Invalid window dimensions {}x{}. Please call api.set_window_size()",
+                self.view.window_size.width,
+                self.view.window_size.height,
+            );
+
+            return;
         }
 
         let old_builder = self.frame_builder.take().unwrap_or_else(FrameBuilder::empty);
