@@ -131,15 +131,18 @@ impl Rectangle {
         let mut builder = api::DisplayListBuilder::new(pipeline_id, layout_size);
 
         let rect = euclid::TypedRect::new(euclid::TypedPoint2D::zero(), layout_size);
-        builder.push_rect(
-            &api::PrimitiveInfo::with_clip(
-                rect,
-                api::LocalClip::RoundedRect(rect, api::ComplexClipRegion::new(
-                    rect, api::BorderRadius::uniform(20.), api::ClipMode::Clip,
-                ))
-            ),
-            self.color,
+
+        let region = api::ComplexClipRegion::new(
+            rect,
+            api::BorderRadius::uniform(20.),
+            api::ClipMode::Clip
         );
+        let clip_id = builder.define_clip(rect, vec![region], None);
+        builder.push_clip_id(clip_id);
+
+        builder.push_rect(&api::PrimitiveInfo::new(rect), self.color);
+
+        builder.pop_clip_id();
 
         let mut transaction = api::Transaction::new();
         transaction.set_display_list(

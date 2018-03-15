@@ -3,17 +3,16 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayListIter};
-use api::{ClipAndScrollInfo, ClipId, ColorF, ComplexClipRegion, DeviceIntPoint, DeviceIntRect};
-use api::{DeviceIntSize, DevicePixelScale, DeviceUintRect};
-use api::{DisplayItemRef, Epoch, ExtendMode, ExternalScrollId, FilterOp};
-use api::{FontInstanceKey, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop};
-use api::{IframeDisplayItem, ImageKey, ImageRendering, ItemRange, LayerPoint};
-use api::{LayerPrimitiveInfo, LayerRect, LayerSize, LayerVector2D, LayoutSize, LayoutTransform};
-use api::{LayoutVector2D, LineOrientation, LineStyle, LocalClip, PipelineId};
-use api::{PropertyBinding, RepeatMode, ScrollFrameDisplayItem, ScrollPolicy, ScrollSensitivity};
-use api::{Shadow, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect};
-use api::{TileOffset, TransformStyle, YuvColorSpace, YuvData};
+use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayListIter, ClipAndScrollInfo};
+use api::{ClipId, ColorF, ComplexClipRegion, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
+use api::{DevicePixelScale, DeviceUintRect, DisplayItemRef, Epoch, ExtendMode, ExternalScrollId};
+use api::{FilterOp, FontInstanceKey, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop};
+use api::{IframeDisplayItem, ImageKey, ImageRendering, ItemRange, LayerPoint, LayerPrimitiveInfo};
+use api::{LayerRect, LayerSize, LayerVector2D, LayoutRect, LayoutSize, LayoutTransform};
+use api::{LayoutVector2D, LineOrientation, LineStyle, LocalClip, PipelineId, PropertyBinding};
+use api::{RepeatMode, ScrollFrameDisplayItem, ScrollPolicy, ScrollSensitivity, Shadow};
+use api::{SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect, TileOffset};
+use api::{TransformStyle, YuvColorSpace, YuvData};
 use app_units::Au;
 use border::ImageBorderSegment;
 use clip::{ClipRegion, ClipSource, ClipSources, ClipStore};
@@ -442,7 +441,7 @@ impl<'a> DisplayListFlattener<'a> {
     ) {
         let complex_clips = self.get_complex_clips(pipeline_id, item.complex_clip().0);
         let clip_region = ClipRegion::create_for_clip_node(
-            *item.local_clip().clip_rect(),
+            *item.clip_rect(),
             complex_clips,
             info.image_mask,
             &reference_frame_relative_offset,
@@ -451,9 +450,7 @@ impl<'a> DisplayListFlattener<'a> {
         // This is useful when calculating scroll extents for the
         // ClipScrollNode::scroll(..) API as well as for properly setting sticky
         // positioning offsets.
-        let frame_rect = item.local_clip()
-            .clip_rect()
-            .translate(&reference_frame_relative_offset);
+        let frame_rect = item.clip_rect().translate(&reference_frame_relative_offset);
         let content_rect = item.rect().translate(&reference_frame_relative_offset);
 
         debug_assert!(info.clip_id != info.scroll_frame_id);
@@ -584,7 +581,7 @@ impl<'a> DisplayListFlattener<'a> {
             info.clip_id,
             clip_and_scroll_ids.scroll_node_id,
             ClipRegion::create_for_clip_node_with_local_clip(
-                &item.local_clip(),
+                &LocalClip::from(*item.clip_rect()),
                 &reference_frame_relative_offset
             ),
         );
@@ -804,7 +801,7 @@ impl<'a> DisplayListFlattener<'a> {
             SpecificDisplayItem::Clip(ref info) => {
                 let complex_clips = self.get_complex_clips(pipeline_id, item.complex_clip().0);
                 let clip_region = ClipRegion::create_for_clip_node(
-                    *item.local_clip().clip_rect(),
+                    *item.clip_rect(),
                     complex_clips,
                     info.image_mask,
                     &reference_frame_relative_offset,
@@ -867,19 +864,9 @@ impl<'a> DisplayListFlattener<'a> {
     pub fn create_primitive(
         &mut self,
         info: &LayerPrimitiveInfo,
-        mut clip_sources: Vec<ClipSource>,
+        clip_sources: Vec<ClipSource>,
         container: PrimitiveContainer,
     ) -> PrimitiveIndex {
-        if let &LocalClip::RoundedRect(main, region) = &info.local_clip {
-            clip_sources.push(ClipSource::Rectangle(main));
-
-            clip_sources.push(ClipSource::new_rounded_rect(
-                region.rect,
-                region.radii,
-                region.mode,
-            ));
-        }
-
         let stacking_context = self.sc_stack.last().expect("bug: no stacking context!");
 
         let clip_sources = if clip_sources.is_empty() {
@@ -890,7 +877,7 @@ impl<'a> DisplayListFlattener<'a> {
 
         let prim_index = self.prim_store.add_primitive(
             &info.rect,
-            &info.local_clip.clip_rect(),
+            &info.clip_rect,
             info.is_backface_visible && stacking_context.is_backface_visible,
             clip_sources,
             info.tag,
@@ -1570,8 +1557,7 @@ impl<'a> DisplayListFlattener<'a> {
             );
             let mut info = info.clone();
             info.rect = info.rect.translate(&shadow_offset);
-            info.local_clip =
-              LocalClip::from(info.local_clip.clip_rect().translate(&shadow_offset));
+            info.clip_rect = info.clip_rect.translate(&shadow_offset);
             let prim_index = self.create_primitive(
                 &info,
                 Vec::new(),
@@ -2164,8 +2150,7 @@ impl<'a> DisplayListFlattener<'a> {
             let rect = info.rect;
             let mut info = info.clone();
             info.rect = rect.translate(&text_prim.offset);
-            info.local_clip =
-              LocalClip::from(info.local_clip.clip_rect().translate(&text_prim.offset));
+            info.clip_rect = info.clip_rect.translate(&text_prim.offset);
             let prim_index = self.create_primitive(
                 &info,
                 Vec::new(),
@@ -2383,7 +2368,9 @@ impl PrimitiveInfoTiler for LayerPrimitiveInfo {
 
         if tile_repeat.width < self.rect.size.width ||
            tile_repeat.height < self.rect.size.height {
-            let local_clip = self.local_clip.clip_by(&self.rect);
+            let clip_rect = self.clip_rect
+                .intersection(&self.rect)
+                .unwrap_or_else(LayoutRect::zero);
             let rect_p0 = self.rect.origin;
             let rect_p1 = self.rect.bottom_right();
 
@@ -2397,7 +2384,7 @@ impl PrimitiveInfoTiler for LayerPrimitiveInfo {
                             LayerPoint::new(x0, y0),
                             tile_size,
                         ),
-                        local_clip,
+                        clip_rect,
                         is_backface_visible: self.is_backface_visible,
                         tag: self.tag,
                     });
