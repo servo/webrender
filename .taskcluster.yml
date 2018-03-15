@@ -22,7 +22,7 @@ tasks:
   # ---
   #   FROM ubuntu:16.04
   #   RUN apt-get -y update && apt-get install -y curl git python python-pip cmake pkg-config libx11-dev libgl1-mesa-dev libfontconfig1-dev
-  #   RUN pip install mako servo-tidy
+  #   RUN pip install mako voluptuous PyYAML servo-tidy
   #   RUN useradd -d /home/worker -s /bin/bash -m worker
   #   USER worker
   #   WORKDIR /home/worker
@@ -63,6 +63,7 @@ tasks:
           curl https://sh.rustup.rs -sSf | sh -s -- -y &&
           git clone {{event.head.repo.url}} webrender && cd webrender &&
           git checkout {{event.head.sha}} &&
+          servo-tidy &&
           (cd wrench && python script/headless.py reftest) &&
           (cd wrench && cargo build --release)
     routes:
@@ -94,6 +95,7 @@ tasks:
           curl https://sh.rustup.rs -sSf | sh -s -- -y &&
           git clone {{event.head.repo.url}} webrender && cd webrender &&
           git checkout {{event.head.sha}} &&
+          servo-tidy &&
           (cd webrender_api && cargo test --verbose --features "ipc") &&
           (cd webrender && cargo build --verbose --no-default-features) &&
           (cd webrender && cargo build --verbose --features capture,profiler) &&
@@ -107,7 +109,7 @@ tasks:
   # Talk to :kats or :jrmuizel if you need more details about this. The machines
   # are hooked up to taskcluster using taskcluster-worker; they use a worker-type
   # of kats-webrender-ci-osx. They are set up with all the dependencies needed
-  # to build and test webrender, including Rust (currently 1.20), servo-tidy,
+  # to build and test webrender, including Rust (currently 1.24), servo-tidy,
   # mako, zlib, etc. Note that unlike the docker-worker used for Linux, these
   # machines WILL persist state from one run to the next, so any cleanup needs
   # to be handled explicitly.
@@ -134,7 +136,7 @@ tasks:
           rm -rf webrender &&
           git clone {{event.head.repo.url}} webrender && cd webrender &&
           git checkout {{event.head.sha}} &&
-          source ../servotidy-venv/bin/activate &&
+          source ../servotidy-venv/bin/activate && servo-tidy &&
           export RUST_BACKTRACE=1 &&
           export RUSTFLAGS='--deny warnings' &&
           export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH" &&
@@ -165,7 +167,7 @@ tasks:
           rm -rf webrender &&
           git clone {{event.head.repo.url}} webrender && cd webrender &&
           git checkout {{event.head.sha}} &&
-          source ../servotidy-venv/bin/activate &&
+          source ../servotidy-venv/bin/activate && servo-tidy &&
           export RUST_BACKTRACE=1 &&
           export RUSTFLAGS='--deny warnings' &&
           export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH" &&
