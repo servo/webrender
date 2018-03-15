@@ -303,7 +303,6 @@ impl PicturePrimitive {
                                 frame_state.render_tasks,
                                 RenderTargetKind::Color,
                                 ClearMode::Transparent,
-                                PremultipliedColorF::TRANSPARENT,
                             );
 
                             let render_task_id = frame_state.render_tasks.add(blur_render_task);
@@ -313,7 +312,7 @@ impl PicturePrimitive {
                             device_rect
                         }
                     }
-                    Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, blur_radius, color))) => {
+                    Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, blur_radius, _))) => {
                         // TODO(gw): This is totally wrong and can never work with
                         //           transformed drop-shadow elements. Fix me!
                         let rect = (prim_metadata.local_rect.translate(&-offset) * content_scale).round().to_i32();
@@ -338,7 +337,6 @@ impl PicturePrimitive {
                             frame_state.render_tasks,
                             RenderTargetKind::Color,
                             ClearMode::Transparent,
-                            color.premultiplied(),
                         );
 
                         *secondary_render_task_id = Some(picture_task_id);
@@ -484,7 +482,6 @@ impl PicturePrimitive {
                     frame_state.render_tasks,
                     RenderTargetKind::Color,
                     ClearMode::Transparent,
-                    color.premultiplied(),
                 );
 
                 let render_task_id = frame_state.render_tasks.add(blur_render_task);
@@ -498,9 +495,20 @@ impl PicturePrimitive {
         match self.kind {
             PictureKind::TextShadow { .. } => {
                 request.push([0.0; 4]);
+                request.push(PremultipliedColorF::WHITE);
             }
-            PictureKind::Image { task_rect, .. } => {
+            PictureKind::Image { task_rect, composite_mode, .. } => {
+                let color = match composite_mode {
+                    Some(PictureCompositeMode::Filter(FilterOp::DropShadow(_, _, color))) => {
+                        color.premultiplied()
+                    }
+                    _ => {
+                        PremultipliedColorF::WHITE
+                    }
+                };
+
                 request.push(task_rect.to_f32());
+                request.push(color);
             }
         }
     }
