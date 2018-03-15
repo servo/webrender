@@ -8,6 +8,7 @@ use api::{DeviceIntSize};
 use clip::ClipSource;
 use display_list_flattener::DisplayListFlattener;
 use gpu_cache::GpuCacheHandle;
+use gpu_types::BoxShadowStretchMode;
 use prim_store::{BrushKind, BrushPrimitive, PrimitiveContainer};
 use prim_store::ScrollNodeAndClipChain;
 use resource_cache::CacheItem;
@@ -19,6 +20,7 @@ pub struct BoxShadowClipSource {
     pub shadow_radius: BorderRadius,
     pub blur_radius: f32,
     pub clip_mode: BoxShadowClipMode,
+    pub stretch_mode: BoxShadowStretchMode,
 
     // The current cache key (in device-pixels), and handles
     // to the cached clip region and blurred texture.
