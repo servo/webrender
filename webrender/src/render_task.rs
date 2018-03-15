@@ -727,13 +727,13 @@ impl RenderTask {
     ) {
         let (target_rect, target_index) = self.get_target_rect();
 
-        let (cache_handle, color) = match self.kind {
+        let cache_handle = match self.kind {
             RenderTaskKind::HorizontalBlur(ref mut info) |
             RenderTaskKind::VerticalBlur(ref mut info) => {
-                (&mut info.uv_rect_handle, info.color)
+                &mut info.uv_rect_handle
             }
             RenderTaskKind::Picture(ref mut info) => {
-                (&mut info.uv_rect_handle, info.color)
+                &mut info.uv_rect_handle
             }
             RenderTaskKind::Readback(..) |
             RenderTaskKind::Scaling(..) |
@@ -748,7 +748,6 @@ impl RenderTask {
             let image_source = ImageSource {
                 p0: target_rect.origin.to_f32(),
                 p1: target_rect.bottom_right().to_f32(),
-                color,
                 texture_layer: target_index.0 as f32,
                 user_data: [0.0; 3],
             };

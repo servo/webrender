@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#define VECS_PER_SPECIFIC_BRUSH 1
+#define VECS_PER_SPECIFIC_BRUSH 2
 
 #include shared,prim_shared,brush
 
@@ -12,11 +12,11 @@ varying vec2 vLocalPos;
 
 varying vec3 vUv;
 flat varying vec4 vUvBounds;
-flat varying vec4 vColor;
 
 #ifdef WR_FEATURE_ALPHA_PASS
 flat varying vec2 vSelect;
 flat varying vec4 vUvClipBounds;
+flat varying vec4 vColor;
 #endif
 
 #ifdef WR_VERTEX_SHADER
@@ -29,12 +29,13 @@ flat varying vec4 vUvClipBounds;
 
 struct ImageBrush {
     RectWithSize rendered_task_rect;
+    vec4 color;
 };
 
 ImageBrush fetch_image_primitive(int address) {
-    vec4 data = fetch_from_resource_cache_1(address);
-    RectWithSize rendered_task_rect = RectWithSize(data.xy, data.zw);
-    ImageBrush brush = ImageBrush(rendered_task_rect);
+    vec4[2] data = fetch_from_resource_cache_2(address);
+    RectWithSize rendered_task_rect = RectWithSize(data[0].xy, data[0].zw);
+    ImageBrush brush = ImageBrush(rendered_task_rect, data[1]);
     return brush;
 }
 
@@ -58,7 +59,6 @@ void brush_vs(
     vec2 uv1 = res.uv_rect.p1;
 
     vUv.z = res.layer;
-    vColor = res.color;
 
     // Handle case where the UV coords are inverted (e.g. from an
     // external image).
@@ -73,13 +73,14 @@ void brush_vs(
     vec2 f;
 
 #ifdef WR_FEATURE_ALPHA_PASS
+    ImageBrush image = fetch_image_primitive(prim_address);
+    vColor = image.color;
+
     // Derive the texture coordinates for this image, based on
     // whether the source image is a local-space or screen-space
     // image.
     switch (user_data.z) {
-        case RASTER_SCREEN: {
-            ImageBrush image = fetch_image_primitive(prim_address);
-
+        case RASTER_SCREEN:
             f = (vi.snapped_device_pos - image.rendered_task_rect.p0) / image.rendered_task_rect.size;
 
             vUvClipBounds = vec4(
@@ -87,7 +88,6 @@ void brush_vs(
                 max_uv
             ) / texture_size.xyxy;
             break;
-        }
         case RASTER_LOCAL:
         default: {
             f = (vi.local_pos - local_rect.p0) / local_rect.size;

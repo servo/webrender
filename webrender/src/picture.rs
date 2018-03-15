@@ -515,9 +515,20 @@ impl PicturePrimitive {
         match self.kind {
             PictureKind::TextShadow { .. } => {
                 request.push([0.0; 4]);
+                request.push(PremultipliedColorF::WHITE);
             }
-            PictureKind::Image { task_rect, .. } => {
+            PictureKind::Image { task_rect, composite_mode, .. } => {
+                let color = match composite_mode {
+                    Some(PictureCompositeMode::Filter(FilterOp::DropShadow(_, _, color))) => {
+                        color.premultiplied()
+                    }
+                    _ => {
+                        PremultipliedColorF::WHITE
+                    }
+                };
+
                 request.push(task_rect.to_f32());
+                request.push(color);
             }
         }
     }

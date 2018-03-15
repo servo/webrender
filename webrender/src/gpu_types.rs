@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{DevicePoint, LayerToWorldTransform, PremultipliedColorF, WorldToLayerTransform};
+use api::{DevicePoint, LayerToWorldTransform, WorldToLayerTransform};
 use gpu_cache::{GpuCacheAddress, GpuDataRequest};
 use prim_store::EdgeAaSegmentMask;
 use render_task::RenderTaskAddress;
@@ -254,7 +254,6 @@ pub struct ImageSource {
     pub p1: DevicePoint,
     pub texture_layer: f32,
     pub user_data: [f32; 3],
-    pub color: PremultipliedColorF,
 }
 
 impl ImageSource {
@@ -271,6 +270,5 @@ impl ImageSource {
             self.user_data[1],
             self.user_data[2],
         ]);
-        request.push(self.color);
     }
 }

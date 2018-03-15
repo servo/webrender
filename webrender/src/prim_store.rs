@@ -326,6 +326,7 @@ impl BrushPrimitive {
             }
             BrushKind::Image { .. } => {
                 request.push([0.0; 4]);
+                request.push(PremultipliedColorF::WHITE);
             }
             BrushKind::Solid { color } => {
                 request.push(color.premultiplied());
