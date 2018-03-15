@@ -22,7 +22,6 @@ use euclid::{SideOffsets2D, vec2};
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use glyph_rasterizer::FontInstance;
 use hit_test::{HitTestingItem, HitTestingRun};
-use image::{decompose_image, TiledImageInfo};
 use internal_types::{FastHashMap, FastHashSet};
 use picture::{PictureCompositeMode, PictureKind, PicturePrimitive};
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor, CachedGradient};
@@ -30,7 +29,7 @@ use prim_store::{CachedGradientIndex, ImageCacheKey, ImagePrimitiveCpu, ImageSou
 use prim_store::{PrimitiveContainer, PrimitiveIndex, PrimitiveKind, PrimitiveStore};
 use prim_store::{ScrollNodeAndClipChain, TextRunPrimitiveCpu};
 use render_backend::{DocumentView};
-use resource_cache::{FontInstanceMap, ImageRequest, TiledImageMap};
+use resource_cache::{FontInstanceMap, ImageRequest};
 use scene::{Scene, ScenePipeline, StackingContextHelpers};
 use scene_builder::{BuiltScene, SceneRequest};
 use std::{f32, mem, usize};
@@ -150,9 +149,6 @@ pub struct DisplayListFlattener<'a> {
     /// The map of all font instances.
     font_instances: FontInstanceMap,
 
-    /// The map of tiled images.
-    tiled_image_map: TiledImageMap,
-
     /// Used to track the latest flattened epoch for each pipeline.
     pipeline_epochs: Vec<(PipelineId, Epoch)>,
 
@@ -212,7 +208,6 @@ impl<'a> DisplayListFlattener<'a> {
         scene: &Scene,
         clip_scroll_tree: &mut ClipScrollTree,
         font_instances: FontInstanceMap,
-        tiled_image_map: TiledImageMap,
         view: &DocumentView,
         output_pipelines: &FastHashSet<PipelineId>,
         frame_builder_config: &FrameBuilderConfig,
@@ -232,7 +227,6 @@ impl<'a> DisplayListFlattener<'a> {
             scene,
             clip_scroll_tree,
             font_instances,
-            tiled_image_map,
             config: *frame_builder_config,
             pipeline_epochs: Vec::new(),
             replacements: Vec::new(),
@@ -632,49 +626,17 @@ impl<'a> DisplayListFlattener<'a> {
         let prim_info = item.get_layer_primitive_info(&reference_frame_relative_offset);
         match *item.item() {
             SpecificDisplayItem::Image(ref info) => {
-                match self.tiled_image_map.get(&info.image_key).cloned() {
-                    Some(tiling) => {
-                        // The image resource is tiled. We have to generate an image primitive
-                        // for each tile.
-                        decompose_image(
-                            &TiledImageInfo {
-                                rect: prim_info.rect,
-                                tile_spacing: info.tile_spacing,
-                                stretch_size: info.stretch_size,
-                                device_image_size: tiling.image_size,
-                                device_tile_size: tiling.tile_size as u32,
-                            },
-                            &mut|tile| {
-                                let mut prim_info = prim_info.clone();
-                                prim_info.rect = tile.rect;
-                                self.add_image(
-                                    clip_and_scroll,
-                                    &prim_info,
-                                    tile.stretch_size,
-                                    info.tile_spacing,
-                                    None,
-                                    info.image_key,
-                                    info.image_rendering,
-                                    info.alpha_type,
-                                    Some(tile.tile_offset),
-                                );
-                            }
-                        );
-                    }
-                    None => {
-                        self.add_image(
-                            clip_and_scroll,
-                            &prim_info,
-                            info.stretch_size,
-                            info.tile_spacing,
-                            None,
-                            info.image_key,
-                            info.image_rendering,
-                            info.alpha_type,
-                            None,
-                        );
-                    }
-                }
+                self.add_image(
+                    clip_and_scroll,
+                    &prim_info,
+                    info.stretch_size,
+                    info.tile_spacing,
+                    None,
+                    info.image_key,
+                    info.image_rendering,
+                    info.alpha_type,
+                    None,
+                );
             }
             SpecificDisplayItem::YuvImage(ref info) => {
                 self.add_yuv_image(
@@ -2272,6 +2234,7 @@ impl<'a> DisplayListFlattener<'a> {
                         )
                     }),
                 },
+                visible_tiles: Vec::new(),
             };
 
             self.add_primitive(
@@ -2327,7 +2290,6 @@ pub fn build_scene(config: &FrameBuilderConfig, request: SceneRequest) -> BuiltS
         &request.scene,
         &mut clip_scroll_tree,
         request.font_instances,
-        request.tiled_image_map,
         &request.view,
         &request.output_pipelines,
         config,
