@@ -42,9 +42,9 @@ before_install:
   - virtualenv ../venv
   - source ../venv/bin/activate
   - python --version
-  - pip install mako servo-tidy
+  - pip install mako voluptuous PyYAML servo-tidy
 script:
-  - servo-tidy
+#  - servo-tidy
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender_api && cargo test --verbose --features "ipc"); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo build --verbose --no-default-features); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo build --verbose --features profiler,capture); fi
