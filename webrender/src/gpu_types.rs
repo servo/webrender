@@ -18,6 +18,15 @@ pub enum RasterizationSpace {
     Screen = 1,
 }
 
+#[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[repr(C)]
+pub enum BoxShadowStretchMode {
+    Stretch = 0,
+    Simple = 1,
+}
+
 #[repr(i32)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
