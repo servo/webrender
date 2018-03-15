@@ -2011,6 +2011,8 @@ impl PrimitiveStore {
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
     ) -> bool {
+        assert!(frame_context.screen_rect.contains_rect(combined_outer_rect));
+
         let metadata = &self.cpu_metadata[prim_index.0];
         let brush = match metadata.prim_kind {
             PrimitiveKind::Brush => {
@@ -2043,13 +2045,14 @@ impl PrimitiveStore {
                 continue;
             }
 
-            let segment_screen_rect = calculate_screen_bounding_rect(
+            let intersected_rect = calculate_screen_bounding_rect(
                 &prim_run_context.scroll_node.world_content_transform,
                 &segment.local_rect,
                 frame_context.device_pixel_scale,
+                Some(&combined_outer_rect),
             );
 
-            let bounds = match combined_outer_rect.intersection(&segment_screen_rect) {
+            let bounds = match intersected_rect {
                 Some(bounds) => bounds,
                 None => {
                     segment.clip_task_id = BrushSegmentTaskId::Empty;
@@ -2122,8 +2125,11 @@ impl PrimitiveStore {
                     frame_state.resource_cache,
                     frame_context.device_pixel_scale,
                 );
-                let (screen_inner_rect, screen_outer_rect) =
-                    prim_clips.get_screen_bounds(transform, frame_context.device_pixel_scale);
+                let (screen_inner_rect, screen_outer_rect) = prim_clips.get_screen_bounds(
+                    transform,
+                    frame_context.device_pixel_scale,
+                    Some(&prim_screen_rect),
+                );
 
                 if let Some(outer) = screen_outer_rect {
                     combined_outer_rect = combined_outer_rect.and_then(|r| r.intersection(&outer));
@@ -2332,6 +2338,8 @@ impl PrimitiveStore {
                 return None;
             }
 
+            metadata.screen_rect = None;
+
             // Inflate the local rect for this primitive by the inflation factor of
             // the picture context. This ensures that even if the primitive itself
             // is not visible, any effects from the blur radius will be correctly
@@ -2340,28 +2348,23 @@ impl PrimitiveStore {
                 .inflate(pic_context.inflation_factor, pic_context.inflation_factor)
                 .intersection(&metadata.local_clip_rect)?;
 
-            let screen_bounding_rect = calculate_screen_bounding_rect(
+            let unclipped = calculate_screen_bounding_rect(
                 &prim_run_context.scroll_node.world_content_transform,
                 &local_rect,
                 frame_context.device_pixel_scale,
-            );
+                None, //TODO: inflate `frame_context.screen_rect` appropriately
+            )?;
 
-            metadata.screen_rect = screen_bounding_rect
-                .intersection(&prim_run_context.clip_chain.combined_outer_screen_rect)
-                .map(|clipped| {
-                    ScreenRect {
-                        clipped,
-                        unclipped: screen_bounding_rect,
-                    }
-                });
+            let clipped = unclipped
+                .intersection(&prim_run_context.clip_chain.combined_outer_screen_rect)?;
 
-            if metadata.screen_rect.is_none() {
-                return None;
-            }
-
+            metadata.screen_rect = Some(ScreenRect {
+                clipped,
+                unclipped,
+            });
             metadata.clip_chain_rect_index = prim_run_context.clip_chain_rect_index;
 
-            (local_rect, screen_bounding_rect)
+            (local_rect, unclipped)
         };
 
         if may_need_clip_mask && !self.update_clip_task(

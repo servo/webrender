@@ -352,7 +352,7 @@ impl ClipScrollNode {
         clip_store: &mut ClipStore,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
-        clip_chains: &mut Vec<ClipChain>,
+        clip_chains: &mut [ClipChain],
     ) {
         let (clip_sources_handle, clip_chain_index, stored_clip_chain_node) = match self.node_type {
             NodeType::Clip { ref handle, clip_chain_index, ref mut clip_chain_node } =>
@@ -369,16 +369,20 @@ impl ClipScrollNode {
             resource_cache,
             device_pixel_scale,
         );
-        let (screen_inner_rect, screen_outer_rect) =
-            clip_sources.get_screen_bounds(&self.world_viewport_transform, device_pixel_scale);
+
+        let (screen_inner_rect, screen_outer_rect) = clip_sources.get_screen_bounds(
+            &self.world_viewport_transform,
+            device_pixel_scale,
+            None,
+        );
 
         // All clipping ClipScrollNodes should have outer rectangles, because they never
         // use the BorderCorner clip type and they always have at last one non-ClipOut
         // Rectangle ClipSource.
-        let screen_outer_rect = screen_outer_rect.expect("Clipping node didn't have outer rect.");
-        let local_outer_rect = clip_sources.local_outer_rect.expect(
-            "Clipping node didn't have outer rect."
-        );
+        let screen_outer_rect = screen_outer_rect
+            .expect("Clipping node didn't have outer rect.");
+        let local_outer_rect = clip_sources.local_outer_rect
+            .expect("Clipping node didn't have outer rect.");
 
         let new_node = ClipChainNode {
             work_item: ClipWorkItem {
