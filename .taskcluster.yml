@@ -63,7 +63,6 @@ tasks:
           curl https://sh.rustup.rs -sSf | sh -s -- -y &&
           git clone {{event.head.repo.url}} webrender && cd webrender &&
           git checkout {{event.head.sha}} &&
-          servo-tidy &&
           (cd wrench && python script/headless.py reftest) &&
           (cd wrench && cargo build --release)
     routes:
@@ -95,7 +94,6 @@ tasks:
           curl https://sh.rustup.rs -sSf | sh -s -- -y &&
           git clone {{event.head.repo.url}} webrender && cd webrender &&
           git checkout {{event.head.sha}} &&
-          servo-tidy &&
           (cd webrender_api && cargo test --verbose --features "ipc") &&
           (cd webrender && cargo build --verbose --no-default-features) &&
           (cd webrender && cargo build --verbose --features capture,profiler) &&
@@ -136,7 +134,7 @@ tasks:
           rm -rf webrender &&
           git clone {{event.head.repo.url}} webrender && cd webrender &&
           git checkout {{event.head.sha}} &&
-          source ../servotidy-venv/bin/activate && servo-tidy &&
+          source ../servotidy-venv/bin/activate &&
           export RUST_BACKTRACE=1 &&
           export RUSTFLAGS='--deny warnings' &&
           export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH" &&
@@ -167,7 +165,7 @@ tasks:
           rm -rf webrender &&
           git clone {{event.head.repo.url}} webrender && cd webrender &&
           git checkout {{event.head.sha}} &&
-          source ../servotidy-venv/bin/activate && servo-tidy &&
+          source ../servotidy-venv/bin/activate &&
           export RUST_BACKTRACE=1 &&
           export RUSTFLAGS='--deny warnings' &&
           export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH" &&
