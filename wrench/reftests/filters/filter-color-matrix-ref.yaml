@@ -16,6 +16,3 @@ root:
         - type: rect
           bounds: [60, 10, 50, 50]
           color: [255, 0, 0, 1]
-        - type: rect
-          bounds: [60, 60, 50, 50]
-          color: [128, 128, 128, 1]
