@@ -1,10 +1,22 @@
 [configs]
 skip-check-length = false
 skip-check-licenses = false
+check-alphabetical-order = false
 
 [ignore]
 # Ignored packages with duplicated versions
-packages = []
+packages = [
+    "gdi32-sys",
+    "winapi",
+    "gl_generator",
+    "log",
+    "core-foundation",
+    "core-foundation-sys",
+    "yaml-rust",
+    "user32-sys",
+    "lazy_static",
+    "core-graphics"
+]
 
 # Files that are ignored for all tidy and lint checks.
 files = [ ]
