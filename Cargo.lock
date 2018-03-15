@@ -259,7 +259,7 @@ dependencies = [
 name = "direct-composition"
 version = "0.1.0"
 dependencies = [
- "euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "euclid 0.17.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "mozangle 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "webrender 0.57.2",
@@ -330,7 +330,7 @@ dependencies = [
 
 [[package]]
 name = "euclid"
-version = "0.17.0"
+version = "0.17.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "num-traits 0.1.43 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -622,7 +622,7 @@ version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "arrayvec 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
- "euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "euclid 0.17.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "num-traits 0.1.43 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -817,7 +817,7 @@ dependencies = [
  "core-graphics 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "core-text 9.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "dwrite-sys 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "euclid 0.17.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "freetype 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "kernel32-sys 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.20 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -835,7 +835,7 @@ name = "pathfinder_gfx_utils"
 version = "0.1.0"
 source = "git+https://github.com/pcwalton/pathfinder#2701757e29edff169d52779d054fca5247fd95f9"
 dependencies = [
- "euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "euclid 0.17.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -848,7 +848,7 @@ dependencies = [
  "bit-vec 0.4.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "euclid 0.17.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "half 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "lyon_geom 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -864,7 +864,7 @@ version = "0.1.0"
 source = "git+https://github.com/pcwalton/pathfinder#2701757e29edff169d52779d054fca5247fd95f9"
 dependencies = [
  "arrayvec 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
- "euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "euclid 0.17.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "lyon_geom 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lyon_path 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.37 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -883,11 +883,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "plane-split"
-version = "0.8.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "binary-space-partition 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "euclid 0.17.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "num-traits 0.1.43 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -1349,7 +1349,7 @@ dependencies = [
  "core-text 9.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "dwrote 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "euclid 0.17.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "freetype 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fxhash 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1363,7 +1363,7 @@ dependencies = [
  "pathfinder_gfx_utils 0.1.0 (git+https://github.com/pcwalton/pathfinder)",
  "pathfinder_partitioner 0.1.0 (git+https://github.com/pcwalton/pathfinder)",
  "pathfinder_path_utils 0.1.0 (git+https://github.com/pcwalton/pathfinder)",
- "plane-split 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "plane-split 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "png 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.3.15 (registry+https://github.com/rust-lang/crates.io-index)",
  "rayon 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1388,7 +1388,7 @@ dependencies = [
  "core-foundation 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "core-graphics 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "dwrote 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "euclid 0.17.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "ipc-channel 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.37 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_bytes 0.10.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1468,7 +1468,7 @@ dependencies = [
  "crossbeam 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "dwrote 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "euclid 0.17.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "font-loader 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "glutin 0.13.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1583,7 +1583,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum either 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "18785c1ba806c258137c937e44ada9ee7e69a37e3c72077542cd2f069d78562a"
 "checksum enum_primitive 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "be4551092f4d519593039259a9ed8daedf0da12e5109c5280338073eaeb81180"
 "checksum env_logger 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)" = "f15f0b172cb4f52ed5dbf47f774a387cd2315d1bf7894ab5af9b083ae27efa5a"
-"checksum euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b2744c002882c67d0f6d6e8cfdf16eae729dc27744d312745132e62218b7de5c"
+"checksum euclid 0.17.3 (registry+https://github.com/rust-lang/crates.io-index)" = "c95fd0d455f114291a3109286bd387bd423770058474a2d3f38b712cd661df60"
 "checksum expat-sys 2.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "cef36cd1a8a02d28b91d97347c63247b9e4cb8a8e36df36f8201dc87a1c0859c"
 "checksum fnv 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)" = "6cc484842f1e2884faf56f529f960cc12ad8c71ce96cc7abba0a067c98fee344"
 "checksum font-loader 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "2fbd86bafc9e14ab7076e084d31eed4633120f910d0c42a017e5382aac89937f"
@@ -1647,7 +1647,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum pathfinder_path_utils 0.1.0 (git+https://github.com/pcwalton/pathfinder)" = "<none>"
 "checksum percent-encoding 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "de154f638187706bde41d9b4738748933d64e6b37bdbffc0b47a97d16a6ae356"
 "checksum pkg-config 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)" = "3a8b4c6b8165cd1a1cd4b9b120978131389f64bdaf456435caa41e630edba903"
-"checksum plane-split 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)" = "69c557e11e3a1533bc969fa596e5011e1d9f76dd61cd102ef942c9f8654b17a2"
+"checksum plane-split 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)" = "7079b8485b4f9d9560dee7a69ca8f6ca781f9f284ff9d2bf27255d440b03e4af"
 "checksum png 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)" = "f0b0cabbbd20c2d7f06dbf015e06aad59b6ca3d9ed14848783e98af9aaf19925"
 "checksum proc-macro2 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)" = "49b6a521dc81b643e9a51e0d1cf05df46d5a2f3c0280ea72bcb68276ba64a118"
 "checksum quote 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)" = "7b0ff51282f28dc1b53fd154298feaa2e77c5ea0dba68e1fd8b03b72fbe13d2a"
