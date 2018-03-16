@@ -418,9 +418,8 @@ pub struct GradientStop {
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RadialGradient {
-    pub start_center: LayoutPoint,
+    pub center: LayoutPoint,
     pub start_radius: f32,
-    pub end_center: LayoutPoint,
     pub end_radius: f32,
     pub ratio_xy: f32,
     pub extend_mode: ExtendMode,

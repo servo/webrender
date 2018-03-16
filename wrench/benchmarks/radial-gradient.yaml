@@ -3,57 +3,50 @@ root:
   items:
     - type: radial-gradient
       bounds: [ 0, 0, 1980, 1080]
-      start-center: [ 990, 540 ]
+      center: [ 990, 540 ]
       start-radius: 5
-      end-center: [ 990, 540 ]
       end-radius: 8000
       stops: [ 0.0, black, 1.0, white ]
       repeat: false
     - type: radial-gradient
       bounds: [ 0, 0, 1980, 1080]
-      start-center: [ 990, 540 ]
+      center: [ 990, 540 ]
       start-radius: 5
-      end-center: [ 990, 540 ]
       end-radius: 8000
       stops: [ 0.0, black, 1.0, white ]
       repeat: false
     - type: radial-gradient
       bounds: [ 0, 0, 1980, 1080]
-      start-center: [ 990, 540 ]
+      center: [ 990, 540 ]
       start-radius: 5
-      end-center: [ 990, 540 ]
       end-radius: 8000
       stops: [ 0.0, black, 1.0, white ]
       repeat: false
     - type: radial-gradient
       bounds: [ 0, 0, 1980, 1080]
-      start-center: [ 990, 540 ]
+      center: [ 990, 540 ]
       start-radius: 5
-      end-center: [ 990, 540 ]
       end-radius: 8000
       stops: [ 0.0, black, 1.0, white ]
       repeat: false
     - type: radial-gradient
       bounds: [ 0, 0, 1980, 1080]
-      start-center: [ 990, 540 ]
+      center: [ 990, 540 ]
       start-radius: 5
-      end-center: [ 990, 540 ]
       end-radius: 8000
       stops: [ 0.0, black, 1.0, white ]
       repeat: false
     - type: radial-gradient
       bounds: [ 0, 0, 1980, 1080]
-      start-center: [ 990, 540 ]
+      center: [ 990, 540 ]
       start-radius: 5
-      end-center: [ 990, 540 ]
       end-radius: 8000
       stops: [ 0.0, black, 1.0, white ]
       repeat: false
     - type: radial-gradient
       bounds: [ 0, 0, 1980, 1080]
-      start-center: [ 990, 540 ]
+      center: [ 990, 540 ]
       start-radius: 5
-      end-center: [ 990, 540 ]
       end-radius: 8000
       stops: [ 0.0, black, 1.0, white ]
       repeat: false
