@@ -1188,9 +1188,8 @@ impl DisplayListBuilder {
             self.push_stops(&stops);
 
             return RadialGradient {
-                start_center: center,
+                center,
                 start_radius: 0.0,
-                end_center: center,
                 end_radius: 1.0,
                 ratio_xy: 1.0,
                 extend_mode,
@@ -1203,9 +1202,8 @@ impl DisplayListBuilder {
         self.push_stops(&stops);
 
         RadialGradient {
-            start_center: center,
+            center,
             start_radius: radius.width * start_offset,
-            end_center: center,
             end_radius: radius.width * end_offset,
             ratio_xy: radius.width / radius.height,
             extend_mode,
@@ -1216,9 +1214,8 @@ impl DisplayListBuilder {
     // because create_gradient stores the stops in anticipation
     pub fn create_complex_radial_gradient(
         &mut self,
-        start_center: LayoutPoint,
+        center: LayoutPoint,
         start_radius: f32,
-        end_center: LayoutPoint,
         end_radius: f32,
         ratio_xy: f32,
         stops: Vec<GradientStop>,
@@ -1227,9 +1224,8 @@ impl DisplayListBuilder {
         self.push_stops(&stops);
 
         RadialGradient {
-            start_center,
+            center,
             start_radius,
-            end_center,
             end_radius,
             ratio_xy,
             extend_mode,
