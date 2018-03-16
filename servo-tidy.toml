@@ -19,7 +19,9 @@ packages = [
 ]
 
 # Files that are ignored for all tidy and lint checks.
-files = [ ]
+files = [
+    "./wrench/src/egl.rs",  # Copied from glutin
+]
 
 # Many directories are currently ignored while we tidy things up
 # gradually.
