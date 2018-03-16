@@ -40,14 +40,3 @@ root:
             - type: rect
               bounds: [0, 0, 50, 50]
               color: [0, 0, 255, 1]
-        - type: stacking-context
-          bounds: [60, 60, 50, 50]
-          filters: color-matrix( 1, 0, 0, 0,
-                                 0, 1, 0, 0,
-                                 0, 0, 1, 0,
-                                 0, 0, 0, 0.5,
-                                 0, 0, 0, 0 )
-          items:
-            - type: rect
-              bounds: [0, 0, 50, 50]
-              color: [255, 255, 255, 1]
