@@ -1442,11 +1442,6 @@ impl YamlFrameReader {
         yaml: &Yaml,
         info: &mut LayoutPrimitiveInfo,
     ) {
-        let rect = yaml["bounds"]
-            .as_rect()
-            .expect("Text shadows require bounds");
-        info.rect = rect;
-        info.clip_rect = rect;
         let blur_radius = yaml["blur-radius"].as_f32().unwrap_or(0.0);
         let offset = yaml["offset"].as_vector().unwrap_or(LayoutVector2D::zero());
         let color = yaml["color"].as_colorf().unwrap_or(*BLACK_COLOR);

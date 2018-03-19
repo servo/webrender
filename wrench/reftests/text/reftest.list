@@ -18,7 +18,7 @@ fuzzy(1,100) == decorations-suite.yaml decorations-suite.png
 == split-batch.yaml split-batch-ref.yaml
 == shadow-red.yaml shadow-red-ref.yaml
 fuzzy(1,735) == shadow-grey.yaml shadow-grey-ref.yaml
-fuzzy(1,614) == shadow-grey-transparent.yaml shadow-grey-ref.yaml
+fuzzy(1,653) == shadow-grey-transparent.yaml shadow-grey-ref.yaml
 == subtle-shadow.yaml subtle-shadow-ref.yaml
 == shadow-atomic.yaml shadow-atomic-ref.yaml
 == shadow-clip-rect.yaml shadow-atomic-ref.yaml
@@ -52,3 +52,5 @@ platform(mac) == color-bitmap-shadow.yaml color-bitmap-shadow-ref.yaml
 platform(linux) == writing-modes.yaml writing-modes-ref.yaml
 platform(linux) == blurred-shadow-local-clip-rect.yaml blurred-shadow-local-clip-rect-ref.png
 platform(linux) == two-shadows.yaml two-shadows.png
+== shadow-clip.yaml shadow-clip-ref.yaml
+fuzzy(1,1) platform(linux) == shadow-transforms.yaml shadow-transforms.png

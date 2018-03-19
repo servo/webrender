@@ -6,14 +6,14 @@
 # but fails when all the tests are run
 fuzzy(1,4) == rotated-image.yaml rotated-image.png
 == singular.yaml singular-ref.yaml
-fuzzy(1,630) == perspective.yaml perspective.png
+platform(linux) fuzzy(1,630) == perspective.yaml perspective.png
 fuzzy(1,156) == prim-suite.yaml prim-suite.png
 == segments-bug.yaml segments-bug-ref.yaml
 == content-offset.yaml content-offset.png
 == coord-system.yaml coord-system.png
 zoom(4) == border-zoom.yaml border-zoom.png
-fuzzy(1,520) == perspective-origin.yaml perspective-origin.png
-fuzzy(1,120) == screen-space-blit.yaml screen-space-blit.png
+platform(linux) fuzzy(1,520) == perspective-origin.yaml perspective-origin.png
+fuzzy(1,180) == screen-space-blit.yaml screen-space-blit.png
 platform(linux) fuzzy(1,186) == screen-space-blur.yaml screen-space-blur.png
 == nested-rotate-x.yaml nested-rotate-x.png
 == nested-preserve-3d.yaml nested-preserve-3d.png
