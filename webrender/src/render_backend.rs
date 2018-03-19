@@ -963,14 +963,6 @@ impl RenderBackend {
 
         let doc = self.documents.get_mut(&document_id).unwrap();
 
-        if !doc.can_render() {
-            // TODO: this happens if we are building the first scene asynchronously and
-            // scroll at the same time. we should keep track of the fact that we skipped
-            // composition here and do it as soon as we receive the scene.
-            op.render = false;
-            op.composite = false;
-        }
-
         if transaction_msg.generate_frame {
             if let Some(ref mut ros) = doc.render_on_scroll {
                 *ros = true;
@@ -980,6 +972,14 @@ impl RenderBackend {
                 op.render = true;
                 op.composite = true;
             }
+        }
+
+        if !doc.can_render() {
+            // TODO: this happens if we are building the first scene asynchronously and
+            // scroll at the same time. we should keep track of the fact that we skipped
+            // composition here and do it as soon as we receive the scene.
+            op.render = false;
+            op.composite = false;
         }
 
         debug_assert!(op.render || !op.composite);
