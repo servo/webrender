@@ -419,9 +419,9 @@ pub struct GradientStop {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RadialGradient {
     pub center: LayoutPoint,
+    pub radius: LayoutSize,
     pub start_radius: f32,
     pub end_radius: f32,
-    pub ratio_xy: f32,
     pub extend_mode: ExtendMode,
 } // IMPLICIT stops: Vec<GradientStop>
 

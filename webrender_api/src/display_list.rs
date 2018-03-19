@@ -1189,9 +1189,9 @@ impl DisplayListBuilder {
 
             return RadialGradient {
                 center,
+                radius: LayoutSize::new(1.0, 1.0),
                 start_radius: 0.0,
                 end_radius: 1.0,
-                ratio_xy: 1.0,
                 extend_mode,
             };
         }
@@ -1203,9 +1203,9 @@ impl DisplayListBuilder {
 
         RadialGradient {
             center,
+            radius,
             start_radius: radius.width * start_offset,
             end_radius: radius.width * end_offset,
-            ratio_xy: radius.width / radius.height,
             extend_mode,
         }
     }
@@ -1215,9 +1215,9 @@ impl DisplayListBuilder {
     pub fn create_complex_radial_gradient(
         &mut self,
         center: LayoutPoint,
+        radius: LayoutSize,
         start_radius: f32,
         end_radius: f32,
-        ratio_xy: f32,
         stops: Vec<GradientStop>,
         extend_mode: ExtendMode,
     ) -> RadialGradient {
@@ -1225,9 +1225,9 @@ impl DisplayListBuilder {
 
         RadialGradient {
             center,
+            radius,
             start_radius,
             end_radius,
-            ratio_xy,
             extend_mode,
         }
     }
