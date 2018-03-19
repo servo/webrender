@@ -13,7 +13,6 @@ use gpu_cache::GpuCache;
 use gpu_types::{ClipChainRectIndex, ClipScrollNodeData, PictureType};
 use hit_test::{HitTester, HitTestingRun};
 use internal_types::{FastHashMap};
-use picture::{ContentOrigin};
 use prim_store::{CachedGradient, PrimitiveIndex, PrimitiveRun, PrimitiveStore};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_backend::FrameId;
@@ -71,11 +70,9 @@ pub struct FrameBuildingState<'a> {
 
 pub struct PictureContext<'a> {
     pub pipeline_id: PipelineId,
-    pub perform_culling: bool,
     pub prim_runs: Vec<PrimitiveRun>,
     pub original_reference_frame_index: Option<ClipScrollNodeIndex>,
     pub display_list: &'a BuiltDisplayList,
-    pub draw_text_transformed: bool,
     pub inv_world_transform: Option<WorldToLayerFastTransform>,
 }
 
@@ -202,11 +199,9 @@ impl FrameBuilder {
 
         let pic_context = PictureContext {
             pipeline_id: root_clip_scroll_node.pipeline_id,
-            perform_culling: true,
             prim_runs: mem::replace(&mut self.prim_store.pictures[0].runs, Vec::new()),
             original_reference_frame_index: None,
             display_list,
-            draw_text_transformed: true,
             inv_world_transform: None,
         };
 
@@ -227,7 +222,7 @@ impl FrameBuilder {
             RenderTaskLocation::Fixed(frame_context.screen_rect),
             PrimitiveIndex(0),
             RenderTargetKind::Color,
-            ContentOrigin::Screen(DeviceIntPoint::zero()),
+            DeviceIntPoint::zero(),
             PremultipliedColorF::TRANSPARENT,
             ClearMode::Transparent,
             pic_state.tasks,
