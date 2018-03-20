@@ -6,16 +6,17 @@ check-alphabetical-order = false
 [ignore]
 # Ignored packages with duplicated versions
 packages = [
-    "gdi32-sys",
-    "winapi",
-    "gl_generator",
-    "log",
     "core-foundation",
     "core-foundation-sys",
-    "yaml-rust",
-    "user32-sys",
+    "core-graphics",
+    "gdi32-sys",
+    "gl_generator",
     "lazy_static",
-    "core-graphics"
+    "log",
+    "rand",
+    "user32-sys",
+    "winapi",
+    "yaml-rust",
 ]
 
 # Files that are ignored for all tidy and lint checks.
