@@ -197,9 +197,6 @@ pub struct EvictionNotice {
     evicted: Rc<Cell<bool>>,
 }
 
-// Only checked and updated on the main thread.
-unsafe impl Send for EvictionNotice {}
-
 impl EvictionNotice {
     fn notify(&self) {
         self.evicted.set(true);

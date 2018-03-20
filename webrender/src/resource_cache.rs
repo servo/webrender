@@ -22,9 +22,8 @@ use device::TextureFilter;
 use glyph_cache::{GlyphCache, GlyphCacheEntry};
 use glyph_rasterizer::{FontInstance, GlyphFormat, GlyphRasterizer, GlyphRequest};
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
-use internal_types::{FastHashMap, FastHashSet, ResourceCacheError, SourceTexture, TextureUpdateList};
+use internal_types::{FastHashMap, FastHashSet, SourceTexture, TextureUpdateList};
 use profiler::{ResourceProfileCounters, TextureCacheProfileCounters};
-use rayon::ThreadPool;
 use render_backend::FrameId;
 use render_task::{RenderTaskCache, RenderTaskCacheKey, RenderTaskId, RenderTaskTree};
 use std::collections::hash_map::Entry::{self, Occupied, Vacant};
@@ -277,12 +276,10 @@ pub struct ResourceCache {
 impl ResourceCache {
     pub fn new(
         texture_cache: TextureCache,
-        workers: Arc<ThreadPool>,
+        glyph_rasterizer: GlyphRasterizer,
         blob_image_renderer: Option<Box<BlobImageRenderer>>,
-    ) -> Result<Self, ResourceCacheError> {
-        let glyph_rasterizer = GlyphRasterizer::new(workers)?;
-
-        Ok(ResourceCache {
+    ) -> Self {
+        ResourceCache {
             cached_glyphs: GlyphCache::new(),
             cached_images: ResourceClassCache::new(),
             cached_render_tasks: RenderTaskCache::new(),
@@ -294,7 +291,7 @@ impl ResourceCache {
             pending_image_requests: FastHashSet::default(),
             glyph_rasterizer,
             blob_image_renderer,
-        })
+        }
     }
 
     pub fn max_texture_size(&self) -> u32 {
