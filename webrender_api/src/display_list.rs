@@ -1075,12 +1075,11 @@ impl DisplayListBuilder {
 
         assert!(first.offset <= last.offset);
 
-        let stops_origin = first.offset;
         let stops_delta = last.offset - first.offset;
 
         if stops_delta > 0.000001 {
             for stop in stops {
-                stop.offset = (stop.offset - stops_origin) / stops_delta;
+                stop.offset = (stop.offset - first.offset) / stops_delta;
             }
 
             (first.offset, last.offset)
@@ -1095,22 +1094,10 @@ impl DisplayListBuilder {
                     // This gradient is two colors split at the offset of the stops,
                     // so create a gradient with two colors split at 0.5 and adjust
                     // the gradient line so 0.5 is at the offset of the stops
-                    stops.push(GradientStop {
-                        color: first.color,
-                        offset: 0.0,
-                    });
-                    stops.push(GradientStop {
-                        color: first.color,
-                        offset: 0.5,
-                    });
-                    stops.push(GradientStop {
-                        color: last.color,
-                        offset: 0.5,
-                    });
-                    stops.push(GradientStop {
-                        color: last.color,
-                        offset: 1.0,
-                    });
+                    stops.push(GradientStop { color: first.color, offset: 0.0, });
+                    stops.push(GradientStop { color: first.color, offset: 0.5, });
+                    stops.push(GradientStop { color: last.color, offset: 0.5, });
+                    stops.push(GradientStop { color: last.color, offset: 1.0, });
 
                     let offset = last.offset;
 
@@ -1121,14 +1108,8 @@ impl DisplayListBuilder {
                     // position should just display the last color. I believe the
                     // spec says that it should be the average color of the gradient,
                     // but this matches what Gecko and Blink does
-                    stops.push(GradientStop {
-                        color: last.color,
-                        offset: 0.0,
-                    });
-                    stops.push(GradientStop {
-                        color: last.color,
-                        offset: 1.0,
-                    });
+                    stops.push(GradientStop { color: last.color, offset: 0.0, });
+                    stops.push(GradientStop { color: last.color, offset: 1.0, });
 
                     (0.0, 1.0)
                 }
@@ -1175,14 +1156,8 @@ impl DisplayListBuilder {
             let last_color = stops.last().unwrap().color;
 
             let stops = [
-                GradientStop {
-                    offset: 0.0,
-                    color: last_color,
-                },
-                GradientStop {
-                    offset: 1.0,
-                    color: last_color,
-                },
+                GradientStop { offset: 0.0, color: last_color, },
+                GradientStop { offset: 1.0, color: last_color, },
             ];
 
             self.push_stops(&stops);
@@ -1190,8 +1165,8 @@ impl DisplayListBuilder {
             return RadialGradient {
                 center,
                 radius: LayoutSize::new(1.0, 1.0),
-                start_radius: 0.0,
-                end_radius: 1.0,
+                start_offset: 0.0,
+                end_offset: 1.0,
                 extend_mode,
             };
         }
@@ -1204,30 +1179,8 @@ impl DisplayListBuilder {
         RadialGradient {
             center,
             radius,
-            start_radius: radius.width * start_offset,
-            end_radius: radius.width * end_offset,
-            extend_mode,
-        }
-    }
-
-    // NOTE: gradients must be pushed in the order they're created
-    // because create_gradient stores the stops in anticipation
-    pub fn create_complex_radial_gradient(
-        &mut self,
-        center: LayoutPoint,
-        radius: LayoutSize,
-        start_radius: f32,
-        end_radius: f32,
-        stops: Vec<GradientStop>,
-        extend_mode: ExtendMode,
-    ) -> RadialGradient {
-        self.push_stops(&stops);
-
-        RadialGradient {
-            center,
-            radius,
-            start_radius,
-            end_radius,
+            start_offset: start_offset,
+            end_offset: end_offset,
             extend_mode,
         }
     }

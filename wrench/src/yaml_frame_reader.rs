@@ -601,67 +601,28 @@ impl YamlFrameReader {
     fn to_radial_gradient(&mut self, dl: &mut DisplayListBuilder, item: &Yaml) -> RadialGradient {
         let center = item["center"].as_point().expect("radial gradient must have center");
         let radius = item["radius"].as_size().expect("radial gradient must have a radius");
-
-        if item["start-radius"].is_badvalue() {
-            let stops = item["stops"]
-                .as_vec()
-                .expect("radial gradient must have stops")
-                .chunks(2)
-                .map(|chunk| {
-                    GradientStop {
-                        offset: chunk[0]
-                            .as_force_f32()
-                            .expect("gradient stop offset is not f32"),
-                        color: chunk[1]
-                            .as_colorf()
-                            .expect("gradient stop color is not color"),
-                    }
-                })
-                .collect::<Vec<_>>();
-            let extend_mode = if item["repeat"].as_bool().unwrap_or(false) {
-                ExtendMode::Repeat
-            } else {
-                ExtendMode::Clamp
-            };
-
-            dl.create_radial_gradient(center, radius, stops, extend_mode)
+        let stops = item["stops"]
+            .as_vec()
+            .expect("radial gradient must have stops")
+            .chunks(2)
+            .map(|chunk| {
+                GradientStop {
+                    offset: chunk[0]
+                        .as_force_f32()
+                        .expect("gradient stop offset is not f32"),
+                    color: chunk[1]
+                        .as_colorf()
+                        .expect("gradient stop color is not color"),
+                }
+            })
+            .collect::<Vec<_>>();
+        let extend_mode = if item["repeat"].as_bool().unwrap_or(false) {
+            ExtendMode::Repeat
         } else {
-            let start_radius = item["start-radius"]
-                .as_force_f32()
-                .expect("radial gradient must have start radius");
-            let end_radius = item["end-radius"]
-                .as_force_f32()
-                .expect("radial gradient must have end radius");
-            let stops = item["stops"]
-                .as_vec()
-                .expect("radial gradient must have stops")
-                .chunks(2)
-                .map(|chunk| {
-                    GradientStop {
-                        offset: chunk[0]
-                            .as_force_f32()
-                            .expect("gradient stop offset is not f32"),
-                        color: chunk[1]
-                            .as_colorf()
-                            .expect("gradient stop color is not color"),
-                    }
-                })
-                .collect::<Vec<_>>();
-            let extend_mode = if item["repeat"].as_bool().unwrap_or(false) {
-                ExtendMode::Repeat
-            } else {
-                ExtendMode::Clamp
-            };
+            ExtendMode::Clamp
+        };
 
-            dl.create_complex_radial_gradient(
-                center,
-                radius,
-                start_radius,
-                end_radius,
-                stops,
-                extend_mode,
-            )
-        }
+        dl.create_radial_gradient(center, radius, stops, extend_mode)
     }
 
     fn handle_rect(
