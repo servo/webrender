@@ -232,6 +232,22 @@ impl ClipSource {
             minimal_shadow_rect,
         })
     }
+
+    // Return a modified clip source that is the same as self
+    // but offset in local-space by a specified amount.
+    pub fn offset(&self, offset: &LayoutVector2D) -> ClipSource {
+        match *self {
+            ClipSource::LineDecoration(ref info) => {
+                ClipSource::LineDecoration(LineDecorationClipSource {
+                    rect: info.rect.translate(offset),
+                    ..*info
+                })
+            }
+            _ => {
+                panic!("bug: other clip sources not expected here yet");
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
