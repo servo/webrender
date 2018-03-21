@@ -649,35 +649,6 @@ impl AlphaBatchBuilder {
                                 let textures = BatchTextures::render_target_cache();
 
                                 match picture.kind {
-                                    PictureKind::TextShadow { .. } => {
-                                        let kind = BatchKind::Brush(
-                                            BrushBatchKind::Image(ImageBufferKind::Texture2DArray)
-                                        );
-                                        let key = BatchKey::new(kind, non_segmented_blend_mode, textures);
-                                        let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
-
-                                        let uv_rect_address = render_tasks[cache_task_id]
-                                            .get_texture_handle()
-                                            .as_int(gpu_cache);
-
-                                        let instance = BrushInstance {
-                                            picture_address: task_address,
-                                            prim_address: prim_cache_address,
-                                            clip_chain_rect_index,
-                                            scroll_id,
-                                            clip_task_address,
-                                            z,
-                                            segment_index: 0,
-                                            edge_flags: EdgeAaSegmentMask::empty(),
-                                            brush_flags: BrushFlags::empty(),
-                                            user_data: [
-                                                uv_rect_address,
-                                                BrushImageSourceKind::Color as i32,
-                                                RasterizationSpace::Screen as i32,
-                                            ],
-                                        };
-                                        batch.push(PrimitiveInstance::from(instance));
-                                    }
                                     PictureKind::Image {
                                         composite_mode,
                                         secondary_render_task_id,

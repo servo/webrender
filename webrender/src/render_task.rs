@@ -9,7 +9,7 @@ use clip::{ClipSource, ClipStore, ClipWorkItem};
 use clip_scroll_tree::CoordinateSystemId;
 use device::TextureFilter;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
-use gpu_types::{ImageSource, PictureType, RasterizationSpace};
+use gpu_types::{ImageSource, RasterizationSpace};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use prim_store::{PrimitiveIndex, ImageCacheKey};
 #[cfg(feature = "debugger")]
@@ -168,7 +168,6 @@ pub struct PictureTask {
     pub target_kind: RenderTargetKind,
     pub content_origin: DeviceIntPoint,
     pub color: PremultipliedColorF,
-    pub pic_type: PictureType,
     pub uv_rect_handle: GpuCacheHandle,
 }
 
@@ -262,7 +261,6 @@ impl RenderTask {
         color: PremultipliedColorF,
         clear_mode: ClearMode,
         children: Vec<RenderTaskId>,
-        pic_type: PictureType,
     ) -> Self {
         RenderTask {
             children,
@@ -272,7 +270,6 @@ impl RenderTask {
                 target_kind,
                 content_origin,
                 color,
-                pic_type,
                 uv_rect_handle: GpuCacheHandle::new(),
             }),
             clear_mode,

@@ -2,14 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorF, FilterOp, MixBlendMode, PipelineId};
-use api::{DeviceIntRect, LayerRect, LayerToWorldScale, LayerVector2D};
-use api::{PremultipliedColorF, Shadow};
+use api::{FilterOp, MixBlendMode, PipelineId, PremultipliedColorF};
+use api::{DeviceIntRect, LayerRect, LayerToWorldScale};
 use box_shadow::{BLUR_SAMPLE_SCALE};
 use clip_scroll_tree::ClipScrollNodeIndex;
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState};
 use gpu_cache::{GpuCacheHandle, GpuDataRequest};
-use gpu_types::{PictureType};
 use prim_store::{PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
 use prim_store::{PrimitiveMetadata, ScrollNodeAndClipChain};
 use render_task::{ClearMode, RenderTask};
@@ -42,11 +40,6 @@ pub enum PictureCompositeMode {
 
 #[derive(Debug)]
 pub enum PictureKind {
-    TextShadow {
-        offset: LayerVector2D,
-        color: ColorF,
-        blur_radius: f32,
-    },
     Image {
         // If a mix-blend-mode, contains the render task for
         // the readback of the framebuffer that we use to sample
@@ -91,26 +84,16 @@ pub struct PicturePrimitive {
     // The pipeline that the primitives on this picture belong to.
     pub pipeline_id: PipelineId,
 
+    // If true, apply the local clip rect to primitive drawn
+    // in this picture.
+    pub apply_local_clip_rect: bool,
+
     // The current screen-space rect of the rendered
     // portion of this picture.
     task_rect: DeviceIntRect,
 }
 
 impl PicturePrimitive {
-    pub fn new_text_shadow(shadow: Shadow, pipeline_id: PipelineId) -> Self {
-        PicturePrimitive {
-            runs: Vec::new(),
-            surface: None,
-            kind: PictureKind::TextShadow {
-                offset: shadow.offset,
-                color: shadow.color,
-                blur_radius: shadow.blur_radius,
-            },
-            pipeline_id,
-            task_rect: DeviceIntRect::zero(),
-        }
-    }
-
     pub fn resolve_scene_properties(&mut self, properties: &SceneProperties) -> bool {
         match self.kind {
             PictureKind::Image { ref mut composite_mode, .. } => {
@@ -128,7 +111,6 @@ impl PicturePrimitive {
                     _ => true,
                 }
             }
-            _ => true
         }
     }
 
@@ -138,6 +120,7 @@ impl PicturePrimitive {
         pipeline_id: PipelineId,
         reference_frame_index: ClipScrollNodeIndex,
         frame_output_pipeline_id: Option<PipelineId>,
+        apply_local_clip_rect: bool,
     ) -> Self {
         PicturePrimitive {
             runs: Vec::new(),
@@ -151,6 +134,7 @@ impl PicturePrimitive {
                 real_local_rect: LayerRect::zero(),
                 extra_gpu_data_handle: GpuCacheHandle::new(),
             },
+            apply_local_clip_rect,
             pipeline_id,
             task_rect: DeviceIntRect::zero(),
         }
@@ -187,10 +171,6 @@ impl PicturePrimitive {
                 *real_local_rect = prim_run_rect.local_rect_in_original_parent_space;
 
                 match composite_mode {
-                    Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
-                        let inflate_size = blur_radius * BLUR_SAMPLE_SCALE;
-                        local_content_rect.inflate(inflate_size, inflate_size)
-                    }
                     Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, blur_radius, _))) => {
                         let inflate_size = blur_radius * BLUR_SAMPLE_SCALE;
                         local_content_rect.inflate(inflate_size, inflate_size)
@@ -200,14 +180,6 @@ impl PicturePrimitive {
                         local_content_rect
                     }
                 }
-            }
-            PictureKind::TextShadow { blur_radius, .. } => {
-                let blur_offset = blur_radius * BLUR_SAMPLE_SCALE;
-
-                local_content_rect.inflate(
-                    blur_offset,
-                    blur_offset,
-                )
             }
         }
     }
@@ -270,7 +242,6 @@ impl PicturePrimitive {
                                 PremultipliedColorF::TRANSPARENT,
                                 ClearMode::Transparent,
                                 pic_state_for_children.tasks,
-                                PictureType::Image,
                             );
 
                             let picture_task_id = frame_state.render_tasks.add(picture_task);
@@ -302,7 +273,6 @@ impl PicturePrimitive {
                             PremultipliedColorF::TRANSPARENT,
                             ClearMode::Transparent,
                             pic_state_for_children.tasks,
-                            PictureType::Image,
                         );
                         picture_task.mark_for_saving();
 
@@ -334,7 +304,6 @@ impl PicturePrimitive {
                             PremultipliedColorF::TRANSPARENT,
                             ClearMode::Transparent,
                             pic_state_for_children.tasks,
-                            PictureType::Image,
                         );
 
                         let readback_task_id = frame_state.render_tasks.add(
@@ -377,7 +346,6 @@ impl PicturePrimitive {
                                 PremultipliedColorF::TRANSPARENT,
                                 ClearMode::Transparent,
                                 pic_state_for_children.tasks,
-                                PictureType::Image,
                             );
 
                             let render_task_id = frame_state.render_tasks.add(picture_task);
@@ -396,7 +364,6 @@ impl PicturePrimitive {
                             PremultipliedColorF::TRANSPARENT,
                             ClearMode::Transparent,
                             pic_state_for_children.tasks,
-                            PictureType::Image,
                         );
 
                         let render_task_id = frame_state.render_tasks.add(picture_task);
@@ -412,51 +379,6 @@ impl PicturePrimitive {
                         DeviceIntRect::zero()
                     }
                 };
-            }
-            PictureKind::TextShadow { blur_radius, color, .. } => {
-                // This is a shadow element. Create a render task that will
-                // render the text run to a target, and then apply a gaussian
-                // blur to that text run in order to build the actual primitive
-                // which will be blitted to the framebuffer.
-
-                // Quote from https://drafts.csswg.org/css-backgrounds-3/#shadow-blur
-                // "the image that would be generated by applying to the shadow a
-                // Gaussian blur with a standard deviation equal to half the blur radius."
-                let device_radius = (blur_radius * frame_context.device_pixel_scale.0).round();
-                let blur_std_deviation = device_radius * 0.5;
-
-                let blur_range = (blur_std_deviation * BLUR_SAMPLE_SCALE).ceil() as i32;
-
-                device_rect = prim_screen_rect
-                    .clipped
-                    .inflate(blur_range, blur_range)
-                    .intersection(&prim_screen_rect.unclipped)
-                    .unwrap();
-
-                let picture_task = RenderTask::new_picture(
-                    RenderTaskLocation::Dynamic(None, device_rect.size),
-                    prim_index,
-                    RenderTargetKind::Color,
-                    device_rect.origin,
-                    color.premultiplied(),
-                    ClearMode::Transparent,
-                    pic_state_for_children.tasks,
-                    PictureType::TextShadow,
-                );
-
-                let picture_task_id = frame_state.render_tasks.add(picture_task);
-
-                let blur_render_task = RenderTask::new_blur(
-                    blur_std_deviation,
-                    picture_task_id,
-                    frame_state.render_tasks,
-                    RenderTargetKind::Color,
-                    ClearMode::Transparent,
-                );
-
-                let render_task_id = frame_state.render_tasks.add(blur_render_task);
-                pic_state.tasks.push(render_task_id);
-                self.surface = Some(render_task_id);
             }
         }
 
@@ -474,9 +396,6 @@ impl PicturePrimitive {
         request.push(self.task_rect.to_f32());
 
         match self.kind {
-            PictureKind::TextShadow { .. } => {
-                request.push(PremultipliedColorF::WHITE);
-            }
             PictureKind::Image { composite_mode, .. } => {
                 let color = match composite_mode {
                     Some(PictureCompositeMode::Filter(FilterOp::DropShadow(_, _, color))) => {
