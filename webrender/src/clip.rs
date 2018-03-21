@@ -4,7 +4,7 @@
 
 use api::{BorderRadius, ClipMode, ComplexClipRegion, DeviceIntRect, DevicePixelScale, ImageMask};
 use api::{ImageRendering, LayerRect, LayerSize, LayoutPoint, LayoutVector2D, LocalClip};
-use api::{BoxShadowClipMode, LayerPoint, LayerToWorldScale};
+use api::{BoxShadowClipMode, LayerPoint, LayerToWorldScale, LineOrientation, LineStyle};
 use border::{BorderCornerClipSource, ensure_no_corner_overlap};
 use box_shadow::{BLUR_SAMPLE_SCALE, BoxShadowClipSource, BoxShadowCacheKey};
 use clip_scroll_tree::{ClipChainIndex, CoordinateSystemId};
@@ -16,12 +16,20 @@ use prim_store::{ClipData, ImageMaskData};
 use render_task::to_cache_size;
 use resource_cache::{CacheItem, ImageRequest, ResourceCache};
 use util::{LayerToWorldFastTransform, MaxRect, calculate_screen_bounding_rect};
-use util::extract_inner_rect_safe;
+use util::{extract_inner_rect_safe, pack_as_float};
 use std::sync::Arc;
 
 pub type ClipStore = FreeList<ClipSources>;
 pub type ClipSourcesHandle = FreeListHandle<ClipSources>;
 pub type ClipSourcesWeakHandle = WeakFreeListHandle<ClipSources>;
+
+#[derive(Debug)]
+pub struct LineDecorationClipSource {
+    rect: LayerRect,
+    style: LineStyle,
+    orientation: LineOrientation,
+    wavy_line_thickness: f32,
+}
 
 #[derive(Clone, Debug)]
 pub struct ClipRegion {
@@ -82,6 +90,7 @@ pub enum ClipSource {
     /// and different styles per edge.
     BorderCorner(BorderCornerClipSource),
     BoxShadow(BoxShadowClipSource),
+    LineDecoration(LineDecorationClipSource),
 }
 
 impl From<ClipRegion> for ClipSources {
@@ -117,6 +126,22 @@ impl ClipSource {
             rect,
             radii,
             clip_mode,
+        )
+    }
+
+    pub fn new_line_decoration(
+        rect: LayerRect,
+        style: LineStyle,
+        orientation: LineOrientation,
+        wavy_line_thickness: f32,
+    ) -> ClipSource {
+        ClipSource::LineDecoration(
+            LineDecorationClipSource {
+                rect,
+                style,
+                orientation,
+                wavy_line_thickness,
+            }
         )
     }
 
@@ -279,7 +304,8 @@ impl ClipSources {
                         .and_then(|r| inner_rect.and_then(|ref inner| r.intersection(inner)));
                 }
                 ClipSource::BoxShadow(..) |
-                ClipSource::BorderCorner { .. } => {
+                ClipSource::BorderCorner { .. } |
+                ClipSource::LineDecoration(..) => {
                     can_calculate_inner_rect = false;
                     break;
                 }
@@ -331,6 +357,15 @@ impl ClipSources {
                     }
                     ClipSource::BorderCorner(ref mut source) => {
                         source.write(request);
+                    }
+                    ClipSource::LineDecoration(ref info) => {
+                        request.push(info.rect);
+                        request.push([
+                            info.wavy_line_thickness,
+                            pack_as_float(info.style as u32),
+                            pack_as_float(info.orientation as u32),
+                            0.0,
+                        ]);
                     }
                 }
             }

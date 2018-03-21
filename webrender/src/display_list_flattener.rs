@@ -1510,14 +1510,31 @@ impl<'a> DisplayListFlattener<'a> {
         style: LineStyle,
     ) {
         let line = BrushPrimitive::new(
-            BrushKind::Line {
-                wavy_line_thickness,
-                color: line_color.premultiplied(),
-                style,
-                orientation,
+            BrushKind::Solid {
+                color: *line_color,
             },
             None,
         );
+
+        let build_extra_clips = |local_rect| {
+            match style {
+                LineStyle::Solid => {
+                    Vec::new()
+                }
+                LineStyle::Wavy |
+                LineStyle::Dotted |
+                LineStyle::Dashed => {
+                    vec![
+                        ClipSource::new_line_decoration(
+                            local_rect,
+                            style,
+                            orientation,
+                            wavy_line_thickness,
+                        ),
+                    ]
+                }
+            }
+        };
 
         let mut fast_shadow_prims = Vec::new();
         let mut slow_shadow_prims = Vec::new();
@@ -1534,17 +1551,16 @@ impl<'a> DisplayListFlattener<'a> {
                         slow_shadow_prims.push((pic_index, offset, color));
                     }
                 }
-                _ => {}
+                _ => {
+                    unreachable!("bug: unexpected picture kind");
+                }
             }
         }
 
         for (idx, shadow_offset, shadow_color) in fast_shadow_prims {
             let line = BrushPrimitive::new(
-                BrushKind::Line {
-                    wavy_line_thickness,
-                    color: shadow_color.premultiplied(),
-                    style,
-                    orientation,
+                BrushKind::Solid {
+                    color: shadow_color,
                 },
                 None,
             );
@@ -1553,7 +1569,7 @@ impl<'a> DisplayListFlattener<'a> {
             info.clip_rect = info.clip_rect.translate(&shadow_offset);
             let prim_index = self.create_primitive(
                 &info,
-                Vec::new(),
+                build_extra_clips(info.rect),
                 PrimitiveContainer::Brush(line),
             );
             self.shadow_prim_stack[idx].1.push((prim_index, clip_and_scroll));
@@ -1562,7 +1578,7 @@ impl<'a> DisplayListFlattener<'a> {
         if line_color.a > 0.0 {
             let prim_index = self.create_primitive(
                 &info,
-                Vec::new(),
+                build_extra_clips(info.rect),
                 PrimitiveContainer::Brush(line),
             );
 
@@ -1576,11 +1592,8 @@ impl<'a> DisplayListFlattener<'a> {
 
         for (pic_index, shadow_offset, shadow_color) in slow_shadow_prims {
             let line = BrushPrimitive::new(
-                BrushKind::Line {
-                    wavy_line_thickness,
-                    color: shadow_color.premultiplied(),
-                    style,
-                    orientation,
+                BrushKind::Solid {
+                    color: shadow_color,
                 },
                 None,
             );
@@ -1589,7 +1602,7 @@ impl<'a> DisplayListFlattener<'a> {
             info.clip_rect = info.clip_rect.translate(&shadow_offset);
             let prim_index = self.create_primitive(
                 &info,
-                Vec::new(),
+                build_extra_clips(info.rect),
                 PrimitiveContainer::Brush(line),
             );
 
