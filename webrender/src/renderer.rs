@@ -1484,6 +1484,7 @@ impl Renderer {
         let blob_image_renderer = options.blob_image_renderer.take();
         let thread_listener_for_render_backend = thread_listener.clone();
         let thread_listener_for_scene_builder = thread_listener.clone();
+        let renderer_id_for_render_backend = options.renderer_id.clone();
         let rb_thread_name = format!("WRRenderBackend#{}", options.renderer_id.unwrap_or(0));
         let scene_thread_name = format!("WRSceneBuilder#{}", options.renderer_id.unwrap_or(0));
         let glyph_rasterizer = GlyphRasterizer::new(workers)?;
@@ -1506,6 +1507,7 @@ impl Renderer {
         thread::Builder::new().name(rb_thread_name.clone()).spawn(move || {
             register_thread_with_profiler(rb_thread_name.clone());
             if let Some(ref thread_listener) = *thread_listener_for_render_backend {
+                thread_listener.new_render_backend_thread(renderer_id_for_render_backend);
                 thread_listener.thread_started(&rb_thread_name);
             }
 
@@ -3821,6 +3823,7 @@ pub trait OutputImageHandler {
 pub trait ThreadListener {
     fn thread_started(&self, thread_name: &str);
     fn thread_stopped(&self, thread_name: &str);
+    fn new_render_backend_thread(&self, renderer_id: Option<u64>);
 }
 
 pub struct RendererOptions {
