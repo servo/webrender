@@ -334,6 +334,12 @@ impl<'a> ReftestHarness<'a> {
     fn run_reftest(&mut self, t: &Reftest) -> bool {
         println!("REFTEST {}", t);
 
+        self.wrench
+            .api
+            .send_debug_cmd(
+                DebugCommand::ClearCaches(ClearCache::all())
+            );
+
         self.wrench.set_page_zoom(ZoomFactor::new(t.zoom_factor));
 
         if t.disable_dual_source_blending {
