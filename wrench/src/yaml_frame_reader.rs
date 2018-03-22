@@ -104,7 +104,7 @@ fn generate_checkerboard_image(
     }
 
     (
-        ImageDescriptor::new(width, height, ImageFormat::BGRA8, true),
+        ImageDescriptor::new(width, height, ImageFormat::BGRA8, true, false),
         ImageData::new(pixels),
     )
 }
@@ -122,7 +122,7 @@ fn generate_xy_gradient_image(w: u32, h: u32) -> (ImageDescriptor, ImageData) {
     }
 
     (
-        ImageDescriptor::new(w, h, ImageFormat::BGRA8, true),
+        ImageDescriptor::new(w, h, ImageFormat::BGRA8, true, false),
         ImageData::new(pixels),
     )
 }
@@ -152,7 +152,7 @@ fn generate_solid_color_image(
     }
 
     (
-        ImageDescriptor::new(w, h, ImageFormat::BGRA8, a == 255),
+        ImageDescriptor::new(w, h, ImageFormat::BGRA8, a == 255, false),
         ImageData::new(pixels),
     )
 }
@@ -200,6 +200,7 @@ pub struct YamlFrameReader {
     fonts: HashMap<FontDescriptor, FontKey>,
     font_instances: HashMap<(FontKey, Au, FontInstanceFlags), FontInstanceKey>,
     font_render_mode: Option<FontRenderMode>,
+    allow_mipmaps: bool,
 
     /// A HashMap that allows specifying a numeric id for clip and clip chains in YAML
     /// and having each of those ids correspond to a unique ClipId.
@@ -224,6 +225,7 @@ impl YamlFrameReader {
             font_render_mode: None,
             image_map: HashMap::new(),
             clip_id_map: HashMap::new(),
+            allow_mipmaps: false,
         }
     }
 
@@ -415,6 +417,7 @@ impl YamlFrameReader {
                     image_dims.1,
                     format,
                     is_image_opaque(format, &bytes[..]),
+                    self.allow_mipmaps,
                 );
                 let data = ImageData::new(bytes);
                 (descriptor, data)
@@ -514,6 +517,10 @@ impl YamlFrameReader {
                     stretch,
                 } => wrench.font_key_from_properties(family, weight, style, stretch),
             })
+    }
+
+    pub fn allow_mipmaps(&mut self, allow_mipmaps: bool) {
+        self.allow_mipmaps = allow_mipmaps;
     }
 
     pub fn set_font_render_mode(&mut self, render_mode: Option<FontRenderMode>) {
