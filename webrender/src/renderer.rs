@@ -42,7 +42,6 @@ use internal_types::{SourceTexture, ORTHO_FAR_PLANE, ORTHO_NEAR_PLANE, ResourceC
 use internal_types::{CacheTextureId, DebugOutput, FastHashMap, RenderedDocument, ResultMsg};
 use internal_types::{TextureUpdateList, TextureUpdateOp, TextureUpdateSource};
 use internal_types::{RenderTargetInfo, SavedTargetIndex};
-use picture::ContentOrigin;
 use prim_store::DeferredResolve;
 use profiler::{BackendProfileCounters, FrameProfileCounters, Profiler};
 use profiler::{GpuProfileTag, RendererProfileCounters, RendererProfileTimers};
@@ -120,10 +119,6 @@ const GPU_TAG_BRUSH_LINE: GpuProfileTag = GpuProfileTag {
 const GPU_TAG_CACHE_CLIP: GpuProfileTag = GpuProfileTag {
     label: "C_Clip",
     color: debug_colors::PURPLE,
-};
-const GPU_TAG_CACHE_TEXT_RUN: GpuProfileTag = GpuProfileTag {
-    label: "C_TextRun",
-    color: debug_colors::MISTYROSE,
 };
 const GPU_TAG_SETUP_TARGET: GpuProfileTag = GpuProfileTag {
     label: "target init",
@@ -1816,14 +1811,6 @@ impl Renderer {
         );
 
         for alpha_batch_container in &target.alpha_batch_containers {
-            for (_, batch) in &alpha_batch_container.text_run_cache_prims {
-                debug_target.add(
-                    debug_server::BatchKind::Cache,
-                    "Text Shadow",
-                    batch.len(),
-                );
-            }
-
             for batch in alpha_batch_container
                 .opaque_batches
                 .iter()
@@ -2427,17 +2414,11 @@ impl Renderer {
         let (readback_rect, readback_layer) = readback.get_target_rect();
         let (backdrop_rect, _) = backdrop.get_target_rect();
         let backdrop_screen_origin = match backdrop.kind {
-            RenderTaskKind::Picture(ref task_info) => match task_info.content_origin {
-                ContentOrigin::Local(_) => panic!("bug: composite from a local-space rasterized picture?"),
-                ContentOrigin::Screen(p) => p,
-            },
+            RenderTaskKind::Picture(ref task_info) => task_info.content_origin,
             _ => panic!("bug: composite on non-picture?"),
         };
         let source_screen_origin = match source.kind {
-            RenderTaskKind::Picture(ref task_info) => match task_info.content_origin {
-                ContentOrigin::Local(_) => panic!("bug: composite from a local-space rasterized picture?"),
-                ContentOrigin::Screen(p) => p,
-            },
+            RenderTaskKind::Picture(ref task_info) => task_info.content_origin,
             _ => panic!("bug: composite on non-picture?"),
         };
 
@@ -2685,31 +2666,6 @@ impl Renderer {
         }
 
         self.handle_scaling(render_tasks, &target.scalings, SourceTexture::CacheRGBA8);
-
-        // Draw any textrun caches for this target. For now, this
-        // is only used to cache text runs that are to be blurred
-        // for shadow support. In the future it may be worth
-        // considering using this for (some) other text runs, since
-        // it removes the overhead of submitting many small glyphs
-        // to multiple tiles in the normal text run case.
-        for alpha_batch_container in &target.alpha_batch_containers {
-            if !alpha_batch_container.text_run_cache_prims.is_empty() {
-                self.device.set_blend(true);
-                self.device.set_blend_mode_premultiplied_alpha();
-
-                let _timer = self.gpu_profile.start_timer(GPU_TAG_CACHE_TEXT_RUN);
-                self.shaders.cs_text_run
-                    .bind(&mut self.device, projection, &mut self.renderer_errors);
-                for (texture_id, instances) in &alpha_batch_container.text_run_cache_prims {
-                    self.draw_instanced_batch(
-                        instances,
-                        VertexArrayKind::Primitive,
-                        &BatchTextures::color(*texture_id),
-                        stats,
-                    );
-                }
-            }
-        }
 
         //TODO: record the pixel count for cached primitives
 
