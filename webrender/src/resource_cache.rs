@@ -954,6 +954,9 @@ impl ResourceCache {
         if what.contains(ClearCache::RENDER_TASKS) {
             self.cached_render_tasks.clear();
         }
+        if what.contains(ClearCache::TEXTURE_CACHE) {
+            self.texture_cache.clear();
+        }
     }
 
     pub fn clear_namespace(&mut self, namespace: IdNamespace) {
