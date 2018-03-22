@@ -687,9 +687,17 @@ impl YamlFrameWriter {
             };
 
             let mut v = new_table();
-            rect_node(&mut v, "bounds", &base.rect());
+            let info = base.get_layer_primitive_info(&LayoutVector2D::zero());
+            rect_node(&mut v, "bounds", &info.rect);
+            rect_node(&mut v, "clip-rect", &info.clip_rect);
 
-            rect_node(&mut v, "clip-rect", base.clip_rect());
+            if let Some(tag) = info.tag {
+                yaml_node(
+                    &mut v,
+                    "hit-testing-tag",
+                     Yaml::Array(vec![Yaml::Integer(tag.0 as i64), Yaml::Integer(tag.1 as i64)])
+                );
+            }
 
             let clip_and_scroll_yaml = match clip_id_mapper.map_info(&base.clip_and_scroll()) {
                 (scroll_id, Some(clip_id)) => {

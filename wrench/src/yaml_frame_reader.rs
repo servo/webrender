@@ -373,6 +373,19 @@ impl YamlFrameReader {
         }
     }
 
+    fn to_hit_testing_tag(&self, item: &Yaml) -> Option<ItemTag> {
+        match *item {
+            Yaml::Array(ref array) if array.len() == 2 => {
+                match (array[0].as_i64(), array[1].as_i64()) {
+                    (Some(first), Some(second)) => Some((first as u64, second as u16)),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+
+    }
+
     pub fn add_or_get_image(
             &mut self,
             file: &Path,
@@ -1290,6 +1303,8 @@ impl YamlFrameReader {
 
             let mut info = LayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), clip_rect);
             info.is_backface_visible = item["backface-visible"].as_bool().unwrap_or(true);;
+            info.tag = self.to_hit_testing_tag(&item["hit-testing-tag"]);
+
             match item_type {
                 "rect" => self.handle_rect(dl, item, &mut info),
                 "clear-rect" => self.handle_clear_rect(dl, item, &mut info),
