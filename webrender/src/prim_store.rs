@@ -20,10 +20,10 @@ use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuData
                 ToGpuBlocks};
 use gpu_types::{ClipChainRectIndex};
 use picture::{PictureCompositeMode, PicturePrimitive};
-use render_task::{BlitSource, RenderTask, RenderTaskCacheKey, RenderTaskCacheKeyKind};
-use render_task::RenderTaskId;
+use render_task::{BlitSource, RenderTask, RenderTaskCacheKey};
+use render_task::{RenderTaskCacheKeyKind, RenderTaskId};
 use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
-use resource_cache::{CacheItem, ImageProperties, ImageRequest, ResourceCache};
+use resource_cache::{CacheItem, ImageProperties, ImageRequest};
 use segment::SegmentBuilder;
 use std::{mem, usize};
 use std::sync::Arc;
@@ -650,11 +650,10 @@ impl TextRunPrimitiveCpu {
 
     fn prepare_for_render(
         &mut self,
-        resource_cache: &mut ResourceCache,
         device_pixel_scale: DevicePixelScale,
         transform: Option<LayerToWorldTransform>,
         display_list: &BuiltDisplayList,
-        gpu_cache: &mut GpuCache,
+        frame_building_state: &mut FrameBuildingState,
     ) {
         let font = self.get_font(device_pixel_scale, transform);
 
@@ -693,7 +692,12 @@ impl TextRunPrimitiveCpu {
             }
         }
 
-        resource_cache.request_glyphs(font, &self.glyph_keys, gpu_cache);
+        frame_building_state.resource_cache
+                            .request_glyphs(font,
+                                            &self.glyph_keys,
+                                            frame_building_state.gpu_cache,
+                                            frame_building_state.render_tasks,
+                                            frame_building_state.special_render_passes);
     }
 
     fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
@@ -1168,11 +1172,10 @@ impl PrimitiveStore {
                 // The transform only makes sense for screen space rasterization
                 let transform = Some(prim_run_context.scroll_node.world_content_transform.into());
                 text.prepare_for_render(
-                    frame_state.resource_cache,
                     frame_context.device_pixel_scale,
                     transform,
                     pic_context.display_list,
-                    frame_state.gpu_cache,
+                    frame_state,
                 );
             }
             PrimitiveKind::Image => {
@@ -1233,6 +1236,7 @@ impl PrimitiveStore {
                                 },
                                 frame_state.gpu_cache,
                                 frame_state.render_tasks,
+                                None,
                                 |render_tasks| {
                                     // We need to render the image cache this frame,
                                     // so will need access to the source texture.

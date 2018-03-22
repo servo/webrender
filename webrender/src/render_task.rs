@@ -4,13 +4,20 @@
 
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, ImageDescriptor, ImageFormat};
 use api::{DeviceSize, PremultipliedColorF};
+#[cfg(feature = "pathfinder")]
+use api::FontRenderMode;
 use box_shadow::{BoxShadowCacheKey};
 use clip::{ClipSource, ClipStore, ClipWorkItem};
 use clip_scroll_tree::CoordinateSystemId;
 use device::TextureFilter;
+#[cfg(feature = "pathfinder")]
+use euclid::{TypedPoint2D, TypedVector2D};
+use glyph_rasterizer::GpuGlyphCacheKey;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use gpu_types::{ImageSource, RasterizationSpace};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
+#[cfg(feature = "pathfinder")]
+use pathfinder_partitioner::mesh::Mesh;
 use prim_store::{PrimitiveIndex, ImageCacheKey};
 #[cfg(feature = "debugger")]
 use print_tree::{PrintTreePrinter};
@@ -20,6 +27,8 @@ use std::{cmp, ops, usize, f32, i32};
 use texture_cache::{TextureCache, TextureCacheHandle};
 use tiling::{RenderPass, RenderTargetIndex};
 use tiling::{RenderTargetKind};
+#[cfg(feature = "pathfinder")]
+use webrender_api::DevicePixel;
 
 const FLOATS_PER_RENDER_TASK_INFO: usize = 8;
 pub const MAX_BLUR_STD_DEVIATION: f32 = 4.0;
@@ -76,7 +85,7 @@ impl RenderTaskTree {
         &self,
         id: RenderTaskId,
         pass_index: usize,
-        passes: &mut Vec<RenderPass>,
+        passes: &mut [RenderPass],
     ) {
         debug_assert_eq!(self.frame_id, id.1);
         let task = &self.tasks[id.0 as usize];
@@ -196,6 +205,25 @@ impl BlurTask {
     }
 }
 
+#[cfg(feature = "pathfinder")]
+#[derive(Debug)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct GlyphTask {
+    /// After job building, this becomes `None`.
+    pub mesh: Option<Mesh>,
+    pub origin: DeviceIntPoint,
+    pub subpixel_offset: TypedPoint2D<f32, DevicePixel>,
+    pub render_mode: FontRenderMode,
+    pub embolden_amount: TypedVector2D<f32, DevicePixel>,
+}
+
+#[cfg(not(feature = "pathfinder"))]
+#[derive(Debug)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct GlyphTask;
+
 // Where the source data for a blit task can be found.
 #[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -232,6 +260,8 @@ pub enum RenderTaskKind {
     ClipRegion(ClipRegionTask),
     VerticalBlur(BlurTask),
     HorizontalBlur(BlurTask),
+    #[allow(dead_code)]
+    Glyph(GlyphTask),
     Readback(DeviceIntRect),
     Scaling(RenderTargetKind),
     Blit(BlitTask),
@@ -362,6 +392,7 @@ impl RenderTask {
                             },
                             gpu_cache,
                             render_tasks,
+                            None,
                             |render_tasks| {
                                 // Draw the rounded rect.
                                 let mask_task = RenderTask::new_rounded_rect_mask(
@@ -517,6 +548,29 @@ impl RenderTask {
         }
     }
 
+    #[cfg(feature = "pathfinder")]
+    pub fn new_glyph(location: RenderTaskLocation,
+                     mesh: Mesh,
+                     origin: &DeviceIntPoint,
+                     subpixel_offset: &TypedPoint2D<f32, DevicePixel>,
+                     render_mode: FontRenderMode,
+                     embolden_amount: &TypedVector2D<f32, DevicePixel>)
+                     -> Self {
+        RenderTask {
+            children: vec![],
+            location: location,
+            kind: RenderTaskKind::Glyph(GlyphTask {
+                mesh: Some(mesh),
+                origin: *origin,
+                subpixel_offset: *subpixel_offset,
+                render_mode: render_mode,
+                embolden_amount: *embolden_amount,
+            }),
+            clear_mode: ClearMode::Transparent,
+            saved_index: None,
+        }
+    }
+
     // Write (up to) 8 floats of data specific to the type
     // of render task that is provided to the GPU shaders
     // via a vertex texture.
@@ -560,6 +614,9 @@ impl RenderTask {
                     0.0,
                 ]
             }
+            RenderTaskKind::Glyph(_) => {
+                [1.0, 0.0, 0.0]
+            }
             RenderTaskKind::Readback(..) |
             RenderTaskKind::Scaling(..) |
             RenderTaskKind::Blit(..) => {
@@ -596,7 +653,8 @@ impl RenderTask {
             RenderTaskKind::Readback(..) |
             RenderTaskKind::Scaling(..) |
             RenderTaskKind::Blit(..) |
-            RenderTaskKind::CacheMask(..) => {
+            RenderTaskKind::CacheMask(..) |
+            RenderTaskKind::Glyph(..) => {
                 panic!("texture handle not supported for this task kind");
             }
         }
@@ -655,6 +713,10 @@ impl RenderTask {
                 task_info.target_kind
             }
 
+            RenderTaskKind::Glyph(..) => {
+                RenderTargetKind::Color
+            }
+
             RenderTaskKind::Scaling(target_kind) => {
                 target_kind
             }
@@ -683,7 +745,8 @@ impl RenderTask {
             RenderTaskKind::HorizontalBlur(..) |
             RenderTaskKind::Scaling(..) |
             RenderTaskKind::ClipRegion(..) |
-            RenderTaskKind::Blit(..) => false,
+            RenderTaskKind::Blit(..) |
+            RenderTaskKind::Glyph(..) => false,
 
             // TODO(gw): For now, we've disabled the shared clip mask
             //           optimization. It's of dubious value in the
@@ -712,7 +775,8 @@ impl RenderTask {
             RenderTaskKind::Scaling(..) |
             RenderTaskKind::Blit(..) |
             RenderTaskKind::ClipRegion(..) |
-            RenderTaskKind::CacheMask(..) => {
+            RenderTaskKind::CacheMask(..) |
+            RenderTaskKind::Glyph(..) => {
                 return;
             }
         };
@@ -762,6 +826,9 @@ impl RenderTask {
                 pt.new_level("Blit".to_owned());
                 pt.add_item(format!("source: {:?}", task.source));
             }
+            RenderTaskKind::Glyph(..) => {
+                pt.new_level("Glyph".to_owned());
+            }
         }
 
         pt.add_item(format!("clear to: {:?}", self.clear_mode));
@@ -790,15 +857,17 @@ impl RenderTask {
     }
 }
 
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum RenderTaskCacheKeyKind {
     BoxShadow(BoxShadowCacheKey),
     Image(ImageCacheKey),
+    #[allow(dead_code)]
+    Glyph(GpuGlyphCacheKey),
 }
 
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct RenderTaskCacheKey {
@@ -859,8 +928,10 @@ impl RenderTaskCache {
         texture_cache: &mut TextureCache,
         gpu_cache: &mut GpuCache,
         render_tasks: &mut RenderTaskTree,
+        user_data: Option<[f32; 3]>,
         mut f: F,
-    ) -> CacheItem where F: FnMut(&mut RenderTaskTree) -> (RenderTaskId, bool) {
+    ) -> Result<CacheItem, ()>
+         where F: FnMut(&mut RenderTaskTree) -> Result<(RenderTaskId, bool), ()> {
         // Get the texture cache handle for this cache key,
         // or create one.
         let cache_entry = self.entries
@@ -869,11 +940,11 @@ impl RenderTaskCache {
                                   handle: TextureCacheHandle::new(),
                               });
 
-        // Check if this texture cache handle is valie.
+        // Check if this texture cache handle is valid.
         if texture_cache.request(&mut cache_entry.handle, gpu_cache) {
             // Invoke user closure to get render task chain
             // to draw this into the texture cache.
-            let (render_task_id, is_opaque) = f(render_tasks);
+            let (render_task_id, is_opaque) = try!(f(render_tasks));
             let render_task = &mut render_tasks[render_task_id];
 
             // Select the right texture page to allocate from.
@@ -909,7 +980,7 @@ impl RenderTaskCache {
                 descriptor,
                 TextureFilter::Linear,
                 None,
-                [0.0; 3],
+                user_data.unwrap_or([0.0; 3]),
                 None,
                 gpu_cache,
                 None,
@@ -931,7 +1002,26 @@ impl RenderTaskCache {
 
         // Finally, return the texture cache handle that we know
         // is now up to date.
+        Ok(texture_cache.get(&cache_entry.handle))
+    }
+
+    #[allow(dead_code)]
+    pub fn get_cache_item_for_render_task(&self,
+                                          texture_cache: &TextureCache,
+                                          key: &RenderTaskCacheKey)
+                                          -> CacheItem {
+        // Get the texture cache handle for this cache key.
+        let cache_entry = self.entries.get(key).unwrap();
         texture_cache.get(&cache_entry.handle)
+    }
+
+    #[allow(dead_code)]
+    pub fn cache_item_is_allocated_for_render_task(&self,
+                                                   texture_cache: &TextureCache,
+                                                   key: &RenderTaskCacheKey)
+                                                   -> bool {
+        let cache_entry = self.entries.get(key).unwrap();
+        texture_cache.is_allocated(&cache_entry.handle)
     }
 }
 
