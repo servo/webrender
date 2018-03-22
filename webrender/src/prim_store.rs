@@ -5,8 +5,8 @@
 use api::{AlphaType, BorderRadius, BoxShadowClipMode, BuiltDisplayList, ClipMode, ColorF, ComplexClipRegion};
 use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, FontRenderMode};
 use api::{GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
-use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, LineOrientation};
-use api::{LineStyle, PipelineId, PremultipliedColorF, Shadow, YuvColorSpace, YuvFormat};
+use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D};
+use api::{PipelineId, PremultipliedColorF, Shadow, YuvColorSpace, YuvFormat};
 use border::{BorderCornerInstance, BorderEdgeKind};
 use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, CoordinateSystemId};
 use clip_scroll_node::ClipScrollNode;
@@ -198,12 +198,6 @@ pub enum BrushKind {
         color: ColorF,
     },
     Clear,
-    Line {
-        color: PremultipliedColorF,
-        wavy_line_thickness: f32,
-        style: LineStyle,
-        orientation: LineOrientation,
-    },
     Picture {
         pic_index: PictureIndex,
     },
@@ -248,8 +242,7 @@ impl BrushKind {
             BrushKind::RadialGradient { .. } |
             BrushKind::LinearGradient { .. } => true,
 
-            BrushKind::Clear |
-            BrushKind::Line { .. } => false,
+            BrushKind::Clear => false,
         }
     }
 }
@@ -354,15 +347,6 @@ impl BrushPrimitive {
             BrushKind::Clear => {
                 // Opaque black with operator dest out
                 request.push(PremultipliedColorF::BLACK);
-            }
-            BrushKind::Line { color, wavy_line_thickness, style, orientation } => {
-                request.push(color);
-                request.push([
-                    wavy_line_thickness,
-                    pack_as_float(style as u32),
-                    pack_as_float(orientation as u32),
-                    0.0,
-                ]);
             }
             BrushKind::LinearGradient { start_point, end_point, extend_mode, .. } => {
                 request.push([
@@ -1024,7 +1008,6 @@ impl PrimitiveStore {
                 let opacity = match brush.kind {
                     BrushKind::Clear => PrimitiveOpacity::translucent(),
                     BrushKind::Solid { ref color } => PrimitiveOpacity::from_alpha(color.a),
-                    BrushKind::Line { .. } => PrimitiveOpacity::translucent(),
                     BrushKind::Image { .. } => PrimitiveOpacity::translucent(),
                     BrushKind::YuvImage { .. } => PrimitiveOpacity::opaque(),
                     BrushKind::RadialGradient { .. } => PrimitiveOpacity::translucent(),
@@ -1300,8 +1283,7 @@ impl PrimitiveStore {
                             );
                     }
                     BrushKind::Solid { .. } |
-                    BrushKind::Clear |
-                    BrushKind::Line { .. } => {}
+                    BrushKind::Clear => {}
                 }
             }
         }
@@ -1427,6 +1409,7 @@ impl PrimitiveStore {
                         continue;
                     }
                     ClipSource::BorderCorner(..) |
+                    ClipSource::LineDecoration(..) |
                     ClipSource::Image(..) => {
                         // TODO(gw): We can easily extend the segment builder
                         //           to support these clip sources in the

@@ -11,7 +11,7 @@ use clip_scroll_tree::{ClipScrollTree, ClipScrollNodeIndex};
 use device::{FrameId, Texture};
 use gpu_cache::{GpuCache};
 use gpu_types::{BlurDirection, BlurInstance};
-use gpu_types::{ClipScrollNodeData};
+use gpu_types::{ClipScrollNodeData, ZBufferIdGenerator};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::PictureKind;
 use prim_store::{CachedGradient, PrimitiveIndex, PrimitiveKind, PrimitiveStore};
@@ -314,6 +314,7 @@ impl RenderTarget for ColorRenderTarget {
         deferred_resolves: &mut Vec<DeferredResolve>,
     ) {
         let mut merged_batches = AlphaBatchContainer::new(None);
+        let mut z_generator = ZBufferIdGenerator::new();
 
         for task_id in &self.alpha_tasks {
             let task = &render_tasks[*task_id];
@@ -336,6 +337,7 @@ impl RenderTarget for ColorRenderTarget {
                                 gpu_cache,
                                 render_tasks,
                                 deferred_resolves,
+                                &mut z_generator,
                             );
 
                             if let Some(batch_container) = batch_builder.build(&mut merged_batches) {

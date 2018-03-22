@@ -440,7 +440,7 @@ impl PicturePrimitive {
                     device_rect.origin,
                     color.premultiplied(),
                     ClearMode::Transparent,
-                    Vec::new(),
+                    pic_state_for_children.tasks,
                     PictureType::TextShadow,
                 );
 

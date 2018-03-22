@@ -12,7 +12,7 @@ use clip_scroll_tree::{CoordinateSystemId};
 use euclid::{TypedTransform3D, vec3};
 use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheAddress};
-use gpu_types::{BrushFlags, BrushInstance, ClipChainRectIndex};
+use gpu_types::{BrushFlags, BrushInstance, ClipChainRectIndex, ZBufferId, ZBufferIdGenerator};
 use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex, RasterizationSpace};
 use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
@@ -56,7 +56,6 @@ pub enum BrushImageSourceKind {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BrushBatchKind {
     Solid,
-    Line,
     Image(ImageBufferKind),
     Blend,
     MixBlend {
@@ -457,6 +456,7 @@ impl AlphaBatchBuilder {
         gpu_cache: &mut GpuCache,
         render_tasks: &RenderTaskTree,
         deferred_resolves: &mut Vec<DeferredResolve>,
+        z_generator: &mut ZBufferIdGenerator,
     ) {
         let task_address = render_tasks.get_task_address(task_id);
 
@@ -489,6 +489,7 @@ impl AlphaBatchBuilder {
                 deferred_resolves,
                 &mut splitter,
                 content_origin,
+                z_generator,
             );
         }
 
@@ -524,7 +525,7 @@ impl AlphaBatchBuilder {
                 RenderTaskAddress(0),
                 gpu_address,
                 0,
-                prim_index.0 as i32,
+                z_generator.next(),
                 0,
                 0,
             );
@@ -548,6 +549,7 @@ impl AlphaBatchBuilder {
         deferred_resolves: &mut Vec<DeferredResolve>,
         splitter: &mut BspSplitter<f64, WorldPixel>,
         content_origin: DeviceIntPoint,
+        z_generator: &mut ZBufferIdGenerator,
     ) {
         for i in 0 .. run.count {
             let prim_index = PrimitiveIndex(run.base_prim_index.0 + i);
@@ -566,6 +568,7 @@ impl AlphaBatchBuilder {
                     deferred_resolves,
                     splitter,
                     content_origin,
+                    z_generator,
                 );
             }
         }
@@ -588,8 +591,9 @@ impl AlphaBatchBuilder {
         deferred_resolves: &mut Vec<DeferredResolve>,
         splitter: &mut BspSplitter<f64, WorldPixel>,
         content_origin: DeviceIntPoint,
+        z_generator: &mut ZBufferIdGenerator,
     ) {
-        let z = prim_index.0 as i32;
+        let z = z_generator.next();
         let prim_metadata = ctx.prim_store.get_metadata(prim_index);
         let scroll_node = &ctx.node_data[scroll_id.0 as usize];
         // TODO(gw): Calculating this for every primitive is a bit
@@ -961,6 +965,7 @@ impl AlphaBatchBuilder {
                                     gpu_cache,
                                     render_tasks,
                                     deferred_resolves,
+                                    z_generator,
                                 );
                             }
                         }
@@ -1181,7 +1186,7 @@ impl AlphaBatchBuilder {
         scroll_id: ClipScrollNodeIndex,
         task_address: RenderTaskAddress,
         transform_kind: TransformedRectKind,
-        z: i32,
+        z: ZBufferId,
         render_tasks: &RenderTaskTree,
         user_data: [i32; 3],
     ) {
@@ -1281,13 +1286,6 @@ impl BrushPrimitive {
         cached_gradients: &[CachedGradient],
     ) -> Option<(BrushBatchKind, BatchTextures, [i32; 3])> {
         match self.kind {
-            BrushKind::Line { .. } => {
-                Some((
-                    BrushBatchKind::Line,
-                    BatchTextures::no_texture(),
-                    [0; 3],
-                ))
-            }
             BrushKind::Image { request, .. } => {
                 let cache_item = resolve_image(
                     request,
@@ -1440,7 +1438,6 @@ impl AlphaBatchHelpers for PrimitiveStore {
                         }
                     }
                     BrushKind::Solid { .. } |
-                    BrushKind::Line { .. } |
                     BrushKind::YuvImage { .. } |
                     BrushKind::RadialGradient { .. } |
                     BrushKind::LinearGradient { .. } |
@@ -1552,6 +1549,7 @@ pub struct ClipBatcher {
     pub border_clears: Vec<ClipMaskInstance>,
     pub borders: Vec<ClipMaskInstance>,
     pub box_shadows: FastHashMap<SourceTexture, Vec<ClipMaskInstance>>,
+    pub line_decorations: Vec<ClipMaskInstance>,
 }
 
 impl ClipBatcher {
@@ -1562,6 +1560,7 @@ impl ClipBatcher {
             border_clears: Vec::new(),
             borders: Vec::new(),
             box_shadows: FastHashMap::default(),
+            line_decorations: Vec::new(),
         }
     }
 
@@ -1628,6 +1627,12 @@ impl ClipBatcher {
                             debug!("Key:{:?} Rect::{:?}", mask.image, mask.rect);
                             continue;
                         }
+                    }
+                    ClipSource::LineDecoration(..) => {
+                        self.line_decorations.push(ClipMaskInstance {
+                            clip_data_address: gpu_address,
+                            ..instance
+                        });
                     }
                     ClipSource::BoxShadow(ref info) => {
                         debug_assert_ne!(info.cache_item.texture_id, SourceTexture::Invalid);

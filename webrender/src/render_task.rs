@@ -20,7 +20,7 @@ use texture_cache::{TextureCache, TextureCacheHandle};
 use tiling::{RenderPass, RenderTargetIndex};
 use tiling::{RenderTargetKind};
 
-const FLOATS_PER_RENDER_TASK_INFO: usize = 12;
+const FLOATS_PER_RENDER_TASK_INFO: usize = 8;
 pub const MAX_BLUR_STD_DEVIATION: f32 = 4.0;
 pub const MIN_DOWNSCALING_RT_SIZE: i32 = 128;
 
@@ -385,6 +385,7 @@ impl RenderTask {
                     ClipSource::Rectangle(..) |
                     ClipSource::RoundedRectangle(..) |
                     ClipSource::Image(..) |
+                    ClipSource::LineDecoration(..) |
                     ClipSource::BorderCorner(..) => {}
                 }
             }
@@ -523,56 +524,41 @@ impl RenderTask {
         //           more type-safe. Although, it will always need
         //           to be kept in sync with the GLSL code anyway.
 
-        let (data1, data2) = match self.kind {
+        let data = match self.kind {
             RenderTaskKind::Picture(ref task) => {
-                (
-                    // Note: has to match `PICTURE_TYPE_*` in shaders
-                    [
-                        task.content_origin.x as f32,
-                        task.content_origin.y as f32,
-                        task.pic_type as u32 as f32,
-                    ],
-                    task.color.to_array()
-                )
+                // Note: has to match `PICTURE_TYPE_*` in shaders
+                [
+                    task.content_origin.x as f32,
+                    task.content_origin.y as f32,
+                    0.0,
+                ]
             }
             RenderTaskKind::CacheMask(ref task) => {
-                (
-                    [
-                        task.actual_rect.origin.x as f32,
-                        task.actual_rect.origin.y as f32,
-                        RasterizationSpace::Screen as i32 as f32,
-                    ],
-                    [0.0; 4],
-                )
+                [
+                    task.actual_rect.origin.x as f32,
+                    task.actual_rect.origin.y as f32,
+                    RasterizationSpace::Screen as i32 as f32,
+                ]
             }
             RenderTaskKind::ClipRegion(..) => {
-                (
-                    [
-                        0.0,
-                        0.0,
-                        RasterizationSpace::Local as i32 as f32,
-                    ],
-                    [0.0; 4],
-                )
+                [
+                    0.0,
+                    0.0,
+                    RasterizationSpace::Local as i32 as f32,
+                ]
             }
             RenderTaskKind::VerticalBlur(ref task) |
             RenderTaskKind::HorizontalBlur(ref task) => {
-                (
-                    [
-                        task.blur_std_deviation,
-                        0.0,
-                        0.0,
-                    ],
-                    [0.0; 4],
-                )
+                [
+                    task.blur_std_deviation,
+                    0.0,
+                    0.0,
+                ]
             }
             RenderTaskKind::Readback(..) |
             RenderTaskKind::Scaling(..) |
             RenderTaskKind::Blit(..) => {
-                (
-                    [0.0; 3],
-                    [0.0; 4],
-                )
+                [0.0; 3]
             }
         };
 
@@ -585,13 +571,9 @@ impl RenderTask {
                 target_rect.size.width as f32,
                 target_rect.size.height as f32,
                 target_index.0 as f32,
-                data1[0],
-                data1[1],
-                data1[2],
-                data2[0],
-                data2[1],
-                data2[2],
-                data2[3],
+                data[0],
+                data[1],
+                data[2],
             ]
         }
     }
