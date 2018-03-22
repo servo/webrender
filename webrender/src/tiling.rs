@@ -9,19 +9,25 @@ use batch::{AlphaBatchBuilder, AlphaBatchContainer, ClipBatcher, resolve_image};
 use clip::{ClipStore};
 use clip_scroll_tree::{ClipScrollTree, ClipScrollNodeIndex};
 use device::{FrameId, Texture};
+#[cfg(feature = "pathfinder")]
+use euclid::{TypedPoint2D, TypedVector2D};
 use gpu_cache::{GpuCache};
 use gpu_types::{BlurDirection, BlurInstance};
 use gpu_types::{ClipScrollNodeData, ZBufferIdGenerator};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::PictureKind;
+#[cfg(feature = "pathfinder")]
+use pathfinder_partitioner::mesh::Mesh;
 use prim_store::{CachedGradient, PrimitiveIndex, PrimitiveKind, PrimitiveStore};
 use prim_store::{BrushKind, DeferredResolve};
 use profiler::FrameProfileCounters;
-use render_task::{BlitSource, RenderTaskId, RenderTaskKind};
-use render_task::{BlurTask, ClearMode, RenderTaskLocation, RenderTaskTree};
+use render_task::{BlitSource, RenderTaskAddress, RenderTaskId, RenderTaskKind};
+use render_task::{BlurTask, ClearMode, GlyphTask, RenderTaskLocation, RenderTaskTree};
 use resource_cache::ResourceCache;
 use std::{cmp, usize, f32, i32};
 use texture_allocator::GuillotineAllocator;
+#[cfg(feature = "pathfinder")]
+use webrender_api::{DevicePixel, FontRenderMode};
 
 const MIN_TARGET_SIZE: u32 = 2048;
 
@@ -262,6 +268,23 @@ pub struct BlitJob {
     pub target_rect: DeviceIntRect,
 }
 
+#[cfg(feature = "pathfinder")]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct GlyphJob {
+    pub mesh: Mesh,
+    pub target_rect: DeviceIntRect,
+    pub origin: DeviceIntPoint,
+    pub subpixel_offset: TypedPoint2D<f32, DevicePixel>,
+    pub render_mode: FontRenderMode,
+    pub embolden_amount: TypedVector2D<f32, DevicePixel>,
+}
+
+#[cfg(not(feature = "pathfinder"))]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct GlyphJob;
+
 /// A render target represents a number of rendering operations on a surface.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -373,19 +396,15 @@ impl RenderTarget for ColorRenderTarget {
             RenderTaskKind::VerticalBlur(ref info) => {
                 info.add_instances(
                     &mut self.vertical_blurs,
-                    task_id,
-                    task.children[0],
                     BlurDirection::Vertical,
-                    render_tasks,
+                    render_tasks.get_task_address(task_id),
                 );
             }
             RenderTaskKind::HorizontalBlur(ref info) => {
                 info.add_instances(
                     &mut self.horizontal_blurs,
-                    task_id,
-                    task.children[0],
                     BlurDirection::Horizontal,
-                    render_tasks,
+                    render_tasks.get_task_address(task_id),
                 );
             }
             RenderTaskKind::Picture(ref task_info) => {
@@ -417,6 +436,10 @@ impl RenderTarget for ColorRenderTarget {
             RenderTaskKind::ClipRegion(..) |
             RenderTaskKind::CacheMask(..) => {
                 panic!("Should not be added to color target!");
+            }
+            RenderTaskKind::Glyph(..) => {
+                // FIXME(pcwalton): Support color glyphs.
+                panic!("Glyphs should not be added to color target!");
             }
             RenderTaskKind::Readback(device_rect) => {
                 self.readbacks.push(device_rect);
@@ -542,25 +565,22 @@ impl RenderTarget for AlphaRenderTarget {
         match task.kind {
             RenderTaskKind::Readback(..) |
             RenderTaskKind::Picture(..) |
-            RenderTaskKind::Blit(..) => {
+            RenderTaskKind::Blit(..) |
+            RenderTaskKind::Glyph(..) => {
                 panic!("BUG: should not be added to alpha target!");
             }
             RenderTaskKind::VerticalBlur(ref info) => {
                 info.add_instances(
                     &mut self.vertical_blurs,
-                    task_id,
-                    task.children[0],
                     BlurDirection::Vertical,
-                    render_tasks,
+                    render_tasks.get_task_address(task_id),
                 );
             }
             RenderTaskKind::HorizontalBlur(ref info) => {
                 info.add_instances(
                     &mut self.horizontal_blurs,
-                    task_id,
-                    task.children[0],
                     BlurDirection::Horizontal,
-                    render_tasks,
+                    render_tasks.get_task_address(task_id),
                 );
             }
             RenderTaskKind::CacheMask(ref task_info) => {
@@ -604,6 +624,7 @@ impl RenderTarget for AlphaRenderTarget {
 pub struct TextureCacheRenderTarget {
     pub horizontal_blurs: Vec<BlurInstance>,
     pub blits: Vec<BlitJob>,
+    pub glyphs: Vec<GlyphJob>,
 }
 
 impl TextureCacheRenderTarget {
@@ -612,26 +633,27 @@ impl TextureCacheRenderTarget {
         _screen_size: DeviceIntSize,
     ) -> Self {
         TextureCacheRenderTarget {
-            horizontal_blurs: Vec::new(),
-            blits: Vec::new(),
+            horizontal_blurs: vec![],
+            blits: vec![],
+            glyphs: vec![],
         }
     }
 
     fn add_task(
         &mut self,
         task_id: RenderTaskId,
-        render_tasks: &RenderTaskTree,
+        render_tasks: &mut RenderTaskTree,
     ) {
-        let task = &render_tasks[task_id];
+        let task_address = render_tasks.get_task_address(task_id);
+        let task = &mut render_tasks[task_id];
+        let target_rect = task.get_target_rect();
 
         match task.kind {
             RenderTaskKind::HorizontalBlur(ref info) => {
                 info.add_instances(
                     &mut self.horizontal_blurs,
-                    task_id,
-                    task.children[0],
                     BlurDirection::Horizontal,
-                    render_tasks,
+                    task_address,
                 );
             }
             RenderTaskKind::Blit(ref task_info) => {
@@ -644,13 +666,15 @@ impl TextureCacheRenderTarget {
                     BlitSource::RenderTask { task_id } => {
                         // Add a blit job to copy from an existing render
                         // task to this target.
-                        let (target_rect, _) = task.get_target_rect();
                         self.blits.push(BlitJob {
                             source: BlitJobSource::RenderTask(task_id),
-                            target_rect,
+                            target_rect: target_rect.0,
                         });
                     }
                 }
+            }
+            RenderTaskKind::Glyph(ref mut task_info) => {
+                self.add_glyph_task(task_info, target_rect.0)
             }
             RenderTaskKind::VerticalBlur(..) |
             RenderTaskKind::Picture(..) |
@@ -662,6 +686,21 @@ impl TextureCacheRenderTarget {
             }
         }
     }
+
+    #[cfg(feature = "pathfinder")]
+    fn add_glyph_task(&mut self, task_info: &mut GlyphTask, target_rect: DeviceIntRect) {
+        self.glyphs.push(GlyphJob {
+            mesh: task_info.mesh.take().unwrap(),
+            target_rect: target_rect,
+            origin: task_info.origin,
+            subpixel_offset: task_info.subpixel_offset,
+            render_mode: task_info.render_mode,
+            embolden_amount: task_info.embolden_amount,
+        })
+    }
+
+    #[cfg(not(feature = "pathfinder"))]
+    fn add_glyph_task(&mut self, _: &mut GlyphTask, _: DeviceIntRect) {}
 }
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -930,14 +969,12 @@ impl BlurTask {
     fn add_instances(
         &self,
         instances: &mut Vec<BlurInstance>,
-        task_id: RenderTaskId,
-        source_task_id: RenderTaskId,
         blur_direction: BlurDirection,
-        render_tasks: &RenderTaskTree,
+        task_address: RenderTaskAddress,
     ) {
         let instance = BlurInstance {
-            task_address: render_tasks.get_task_address(task_id),
-            src_task_address: render_tasks.get_task_address(source_task_id),
+            task_address: task_address,
+            src_task_address: task_address,
             blur_direction,
         };
 

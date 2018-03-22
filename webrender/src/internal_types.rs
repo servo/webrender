@@ -5,7 +5,7 @@
 use api::{DebugCommand, DeviceUintRect, DocumentId, ExternalImageData, ExternalImageId};
 use api::ImageFormat;
 use clip_scroll_tree::ClipScrollNodeIndex;
-use device::TextureFilter;
+use device::{ExternalTexture, TextureFilter};
 use renderer::PipelineInfo;
 use gpu_cache::GpuCacheUpdateList;
 use fxhash::FxHasher;
@@ -65,6 +65,9 @@ pub enum SourceTexture {
     CacheA8,
     CacheRGBA8,
     RenderTaskCache(SavedTargetIndex),
+    // For Pathfinder integration.
+    #[allow(dead_code)]
+    Custom(ExternalTexture),
 }
 
 pub const ORTHO_NEAR_PLANE: f32 = -1000000.0;

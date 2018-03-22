@@ -6,6 +6,7 @@ use api::GlyphKey;
 use glyph_rasterizer::{FontInstance, GlyphFormat};
 use internal_types::FastHashMap;
 use resource_cache::ResourceClassCache;
+use std::sync::Arc;
 use texture_cache::{TextureCache, TextureCacheHandle, EvictionNotice};
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -25,6 +26,15 @@ pub enum GlyphCacheEntry {
     // A glyph that has been submitted to the font backend for rasterization,
     // but is still pending a result.
     Pending,
+}
+
+#[allow(dead_code)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Clone)]
+pub enum CachedGlyphData {
+    Memory(Arc<Vec<u8>>),
+    Gpu,
 }
 
 pub type GlyphKeyCache = ResourceClassCache<GlyphKey, GlyphCacheEntry, EvictionNotice>;

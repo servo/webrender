@@ -1150,13 +1150,15 @@ impl PrimitiveStore {
                             let key = image_cpu.key;
 
                             // Request a pre-rendered image task.
-                            *item = frame_state.resource_cache.request_render_task(
+                            let texture_cache_handle = frame_state.resource_cache
+                                                                  .request_render_task(
                                 RenderTaskCacheKey {
                                     size,
                                     kind: RenderTaskCacheKeyKind::Image(key),
                                 },
                                 frame_state.gpu_cache,
                                 frame_state.render_tasks,
+                                None,
                                 |render_tasks| {
                                     // We need to render the image cache this frame,
                                     // so will need access to the source texture.
@@ -1192,6 +1194,7 @@ impl PrimitiveStore {
                                     (target_to_cache_task_id, image_properties.descriptor.is_opaque)
                                 }
                             );
+                            *item = frame_state.resource_cache.get_texture(&texture_cache_handle)
                         }
                         ImageSource::Default => {
                             // Normal images just reference the source texture each frame.

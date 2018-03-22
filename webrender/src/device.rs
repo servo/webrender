@@ -3,9 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use super::shader_source;
-use api::{ColorF, ImageDescriptor, ImageFormat};
-use api::{DeviceIntPoint, DeviceIntRect, DeviceUintRect, DeviceUintSize};
-use api::TextureTarget;
+use api::{ColorF, DeviceIntPoint, DeviceIntRect, DeviceUintRect, DeviceUintSize};
+use api::{ImageDescriptor, ImageFormat, TextureTarget};
 use euclid::Transform3D;
 use gleam::gl;
 use internal_types::{FastHashMap, RenderTargetInfo};
@@ -19,8 +18,8 @@ use std::ops::Add;
 use std::path::PathBuf;
 use std::ptr;
 use std::rc::Rc;
+use std::slice;
 use std::thread;
-
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, Eq, PartialOrd)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -40,6 +39,9 @@ impl Add<usize> for FrameId {
         FrameId(self.0 + other)
     }
 }
+
+#[derive(Debug, Copy, Clone, PartialEq, Ord, Eq, PartialOrd)]
+pub struct TextureId(gl::GLuint);
 
 const GL_FORMAT_BGRA_GL: gl::GLuint = gl::BGRA;
 
@@ -108,6 +110,11 @@ pub enum UploadMethod {
     /// Accumulate the changes in PBO first before transferring to a texture.
     PixelBuffer(VertexUsageHint),
 }
+
+/// Plain old data that can be used to initialize a texture.
+pub unsafe trait Texel: Copy {}
+unsafe impl Texel for u8 {}
+unsafe impl Texel for f32 {}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ReadPixelsFormat {
@@ -407,17 +414,19 @@ impl<T> Drop for VBO<T> {
     }
 }
 
-#[cfg_attr(feature = "replay", derive(Clone))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ExternalTexture {
     id: gl::GLuint,
-    target: gl::GLuint,
+    target: TextureTarget,
 }
 
 impl ExternalTexture {
     pub fn new(id: u32, target: TextureTarget) -> Self {
         ExternalTexture {
             id,
-            target: get_gl_target(target),
+            target: target,
         }
     }
 
@@ -429,7 +438,7 @@ impl ExternalTexture {
 
 pub struct Texture {
     id: gl::GLuint,
-    target: gl::GLuint,
+    target: TextureTarget,
     layer_count: i32,
     format: ImageFormat,
     width: u32,
@@ -480,12 +489,19 @@ impl Texture {
 
     #[cfg(feature = "replay")]
     pub fn into_external(mut self) -> ExternalTexture {
-        let ext = ExternalTexture {
-            id: self.id,
-            target: self.target,
-        };
+        let ext = self.to_external();
         self.id = 0; // don't complain, moved out
         ext
+    }
+
+    #[inline]
+    pub fn to_external(&self) -> ExternalTexture {
+        // FIXME(pcwalton): It'd be nice to ensure that the `ExternalTexture` can't outlive this
+        // texture.
+        ExternalTexture {
+            id: self.id,
+            target: self.target,
+        }
     }
 }
 
@@ -837,14 +853,16 @@ impl Device {
     where
         S: Into<TextureSlot>,
     {
-        self.bind_texture_impl(sampler.into(), texture.id, texture.target);
+        self.bind_texture_impl(sampler.into(), texture.id, get_gl_target(texture.target));
     }
 
     pub fn bind_external_texture<S>(&mut self, sampler: S, external_texture: &ExternalTexture)
     where
         S: Into<TextureSlot>,
     {
-        self.bind_texture_impl(sampler.into(), external_texture.id, external_texture.target);
+        self.bind_texture_impl(sampler.into(),
+                               external_texture.id,
+                               get_gl_target(external_texture.target));
     }
 
     pub fn bind_read_target_impl(&mut self, fbo_id: FBOId) {
@@ -938,7 +956,7 @@ impl Device {
     ) -> Texture {
         Texture {
             id: self.gl.gen_textures(1)[0],
-            target: get_gl_target(target),
+            target: target,
             width: 0,
             height: 0,
             layer_count: 0,
@@ -994,8 +1012,8 @@ impl Device {
             .expect("Only renderable textures are expected for resize here");
 
         self.bind_texture(DEFAULT_TEXTURE, texture);
-        self.set_texture_parameters(texture.target, texture.filter);
-        self.update_target_storage(texture, &rt_info, true, None);
+        self.set_texture_parameters(get_gl_target(texture.target), texture.filter);
+        self.update_target_storage::<u8>(texture, &rt_info, true, None);
 
         let rect = DeviceIntRect::new(DeviceIntPoint::zero(), old_size.to_i32());
         for (read_fbo, &draw_fbo) in old_fbos.into_iter().zip(&texture.fbo_ids) {
@@ -1008,7 +1026,7 @@ impl Device {
         self.bind_read_target(None);
     }
 
-    pub fn init_texture(
+    pub fn init_texture<T: Texel>(
         &mut self,
         texture: &mut Texture,
         mut width: u32,
@@ -1016,7 +1034,7 @@ impl Device {
         filter: TextureFilter,
         render_target: Option<RenderTargetInfo>,
         layer_count: i32,
-        pixels: Option<&[u8]>,
+        pixels: Option<&[T]>,
     ) {
         debug_assert!(self.inside_frame);
 
@@ -1036,7 +1054,7 @@ impl Device {
         texture.last_frame_used = self.frame_id;
 
         self.bind_texture(DEFAULT_TEXTURE, texture);
-        self.set_texture_parameters(texture.target, filter);
+        self.set_texture_parameters(get_gl_target(texture.target), filter);
 
         match render_target {
             Some(info) => {
@@ -1049,12 +1067,12 @@ impl Device {
     }
 
     /// Updates the render target storage for the texture, creating FBOs as required.
-    fn update_target_storage(
+    fn update_target_storage<T: Texel>(
         &mut self,
         texture: &mut Texture,
         rt_info: &RenderTargetInfo,
         is_resized: bool,
-        pixels: Option<&[u8]>,
+        pixels: Option<&[T]>,
     ) {
         assert!(texture.layer_count > 0 || texture.width + texture.height == 0);
 
@@ -1063,10 +1081,11 @@ impl Device {
 
         if allocate_color {
             let desc = gl_describe_format(self.gl(), texture.format);
-            match texture.target {
+            let target = get_gl_target(texture.target);
+            match target {
                 gl::TEXTURE_2D_ARRAY => {
                     self.gl.tex_image_3d(
-                        texture.target,
+                        target,
                         0,
                         desc.internal,
                         texture.width as _,
@@ -1075,13 +1094,13 @@ impl Device {
                         0,
                         desc.external,
                         desc.pixel_type,
-                        pixels,
+                        pixels.map(texels_to_u8_slice),
                     )
                 }
                 _ => {
                     assert_eq!(texture.layer_count, 1);
                     self.gl.tex_image_2d(
-                        texture.target,
+                        target,
                         0,
                         desc.internal,
                         texture.width as _,
@@ -1089,7 +1108,7 @@ impl Device {
                         0,
                         desc.external,
                         desc.pixel_type,
-                        pixels,
+                        pixels.map(texels_to_u8_slice),
                     )
                 }
             }
@@ -1139,7 +1158,7 @@ impl Device {
             let original_bound_fbo = self.bound_draw_fbo;
             for (fbo_index, &fbo_id) in texture.fbo_ids.iter().enumerate() {
                 self.bind_external_draw_target(fbo_id);
-                match texture.target {
+                match get_gl_target(texture.target) {
                     gl::TEXTURE_2D_ARRAY => {
                         self.gl.framebuffer_texture_layer(
                             gl::DRAW_FRAMEBUFFER,
@@ -1149,12 +1168,12 @@ impl Device {
                             fbo_index as _,
                         )
                     }
-                    _ => {
+                    target => {
                         assert_eq!(fbo_index, 0);
                         self.gl.framebuffer_texture_2d(
                             gl::DRAW_FRAMEBUFFER,
                             gl::COLOR_ATTACHMENT0,
-                            texture.target,
+                            target,
                             texture.id,
                             0,
                         )
@@ -1172,9 +1191,10 @@ impl Device {
         }
     }
 
-    fn update_texture_storage(&mut self, texture: &Texture, pixels: Option<&[u8]>) {
+    fn update_texture_storage<T: Texel>(&mut self, texture: &Texture, pixels: Option<&[T]>) {
         let desc = gl_describe_format(self.gl(), texture.format);
-        match texture.target {
+        let gl_target = get_gl_target(texture.target);
+        match gl_target {
             gl::TEXTURE_2D_ARRAY => {
                 self.gl.tex_image_3d(
                     gl::TEXTURE_2D_ARRAY,
@@ -1186,12 +1206,12 @@ impl Device {
                     0,
                     desc.external,
                     desc.pixel_type,
-                    pixels,
+                    pixels.map(texels_to_u8_slice),
                 );
             }
             gl::TEXTURE_2D | gl::TEXTURE_RECTANGLE | gl::TEXTURE_EXTERNAL_OES => {
                 self.gl.tex_image_2d(
-                    texture.target,
+                    gl_target,
                     0,
                     desc.internal,
                     texture.width as _,
@@ -1199,7 +1219,7 @@ impl Device {
                     0,
                     desc.external,
                     desc.pixel_type,
-                    pixels,
+                    pixels.map(texels_to_u8_slice),
                 );
             }
             _ => panic!("BUG: Unexpected texture target!"),
@@ -1265,7 +1285,7 @@ impl Device {
         self.bind_texture(DEFAULT_TEXTURE, texture);
         let desc = gl_describe_format(self.gl(), texture.format);
 
-        self.free_texture_storage_impl(texture.target, desc);
+        self.free_texture_storage_impl(get_gl_target(texture.target), desc);
 
         if let Some(RBOId(depth_rb)) = texture.depth_rb.take() {
             self.gl.delete_renderbuffers(&[depth_rb]);
@@ -1288,6 +1308,13 @@ impl Device {
     pub fn delete_texture(&mut self, mut texture: Texture) {
         self.free_texture_storage(&mut texture);
         self.gl.delete_textures(&[texture.id]);
+
+        for bound_texture in &mut self.bound_textures {
+            if *bound_texture == texture.id {
+                *bound_texture = 0
+            }
+        }
+
         texture.id = 0;
     }
 
@@ -1295,7 +1322,7 @@ impl Device {
     pub fn delete_external_texture(&mut self, mut external: ExternalTexture) {
         self.bind_external_texture(DEFAULT_TEXTURE, &external);
         //Note: the format descriptor here doesn't really matter
-        self.free_texture_storage_impl(external.target, FormatDesc {
+        self.free_texture_storage_impl(get_gl_target(external.target), FormatDesc {
             internal: gl::R8 as _,
             external: gl::RED,
             pixel_type: gl::UNSIGNED_BYTE,
@@ -1573,7 +1600,7 @@ impl Device {
         self.bind_texture(DEFAULT_TEXTURE, texture);
         let desc = gl_describe_format(self.gl(), format);
         self.gl.get_tex_image_into_buffer(
-            texture.target,
+            get_gl_target(texture.target),
             0,
             desc.external,
             desc.pixel_type,
@@ -1615,7 +1642,7 @@ impl Device {
     }
 
     pub fn attach_read_texture(&mut self, texture: &Texture, layer_id: i32) {
-        self.attach_read_texture_raw(texture.id, texture.target, layer_id)
+        self.attach_read_texture_raw(texture.id, get_gl_target(texture.target), layer_id)
     }
 
     fn bind_vao_impl(&mut self, id: gl::GLuint) {
@@ -2021,9 +2048,11 @@ impl Device {
     }
     pub fn set_blend_mode_subpixel_pass0(&self) {
         self.gl.blend_func(gl::ZERO, gl::ONE_MINUS_SRC_COLOR);
+        self.gl.blend_equation(gl::FUNC_ADD);
     }
     pub fn set_blend_mode_subpixel_pass1(&self) {
         self.gl.blend_func(gl::ONE, gl::ONE);
+        self.gl.blend_equation(gl::FUNC_ADD);
     }
     pub fn set_blend_mode_subpixel_with_bg_color_pass0(&self) {
         self.gl.blend_func_separate(gl::ZERO, gl::ONE_MINUS_SRC_COLOR, gl::ZERO, gl::ONE);
@@ -2046,6 +2075,7 @@ impl Device {
     }
     pub fn set_blend_mode_subpixel_dual_source(&self) {
         self.gl.blend_func(gl::ONE, gl::ONE_MINUS_SRC1_COLOR);
+        self.gl.blend_equation(gl::FUNC_ADD);
     }
 
     pub fn supports_extension(&self, extension: &str) -> bool {
@@ -2217,10 +2247,12 @@ impl<'a> UploadTarget<'a> {
         let pos = chunk.rect.origin;
         let size = chunk.rect.size;
 
-        match self.texture.target {
+        let gl_target = get_gl_target(self.texture.target);
+
+        match gl_target {
             gl::TEXTURE_2D_ARRAY => {
                 self.gl.tex_sub_image_3d_pbo(
-                    self.texture.target,
+                    gl_target,
                     0,
                     pos.x as _,
                     pos.y as _,
@@ -2235,7 +2267,7 @@ impl<'a> UploadTarget<'a> {
             }
             gl::TEXTURE_2D | gl::TEXTURE_RECTANGLE | gl::TEXTURE_EXTERNAL_OES => {
                 self.gl.tex_sub_image_2d_pbo(
-                    self.texture.target,
+                    gl_target,
                     0,
                     pos.x as _,
                     pos.y as _,
@@ -2251,12 +2283,18 @@ impl<'a> UploadTarget<'a> {
 
         // If using tri-linear filtering, build the mip-map chain for this texture.
         if self.texture.filter == TextureFilter::Trilinear {
-            self.gl.generate_mipmap(self.texture.target);
+            self.gl.generate_mipmap(gl_target);
         }
 
         // Reset row length to 0, otherwise the stride would apply to all texture uploads.
         if chunk.stride.is_some() {
             self.gl.pixel_store_i(gl::UNPACK_ROW_LENGTH, 0 as _);
         }
+    }
+}
+
+fn texels_to_u8_slice<T: Texel>(texels: &[T]) -> &[u8] {
+    unsafe {
+        slice::from_raw_parts(texels.as_ptr() as *const u8, texels.len() * mem::size_of::<T>())
     }
 }

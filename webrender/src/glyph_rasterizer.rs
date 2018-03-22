@@ -11,15 +11,28 @@ use api::{GlyphDimensions, GlyphKey, SubpixelDirection};
 use api::{ImageData, ImageDescriptor, ImageFormat, LayerToWorldTransform};
 use app_units::Au;
 use device::TextureFilter;
+#[cfg(feature = "pathfinder")]
+use euclid::{TypedPoint2D, TypedSize2D, TypedVector2D};
 use glyph_cache::{GlyphCache, GlyphCacheEntry, CachedGlyphInfo};
 use gpu_cache::GpuCache;
 use internal_types::ResourceCacheError;
+#[cfg(feature = "pathfinder")]
+use pathfinder_font_renderer;
+#[cfg(feature = "pathfinder")]
+use pathfinder_partitioner::mesh::Mesh as PathfinderMesh;
+#[cfg(feature = "pathfinder")]
+use pathfinder_path_utils::cubic_to_quadratic::CubicToQuadraticTransformer;
 use platform::font::FontContext;
 use profiler::TextureCacheProfileCounters;
 use rayon::ThreadPool;
+#[cfg(not(feature = "pathfinder"))]
 use rayon::prelude::*;
+use render_task::{RenderTaskCache, RenderTaskTree};
+#[cfg(feature = "pathfinder")]
+use render_task::{RenderTask, RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskLocation};
 use std::cmp;
 use std::collections::hash_map::Entry;
+use std::f32;
 use std::hash::{Hash, Hasher};
 use std::mem;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -27,6 +40,30 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use texture_cache::{TextureCache, TextureCacheHandle};
 #[cfg(test)]
 use thread_profiler::register_thread_with_profiler;
+use tiling::RenderPass;
+#[cfg(feature = "pathfinder")]
+use tiling::RenderTargetKind;
+#[cfg(feature = "pathfinder")]
+use webrender_api::{DeviceIntPoint, DeviceIntSize, DevicePixel};
+
+/// Should match macOS 10.13 High Sierra.
+///
+/// We multiply by sqrt(2) to compensate for the fact that dilation amounts are relative to the
+/// pixel square on macOS and relative to the vertex normal in Pathfinder.
+#[cfg(feature = "pathfinder")]
+const STEM_DARKENING_FACTOR_X: f32 = 0.0121 * f32::consts::SQRT_2;
+#[cfg(feature = "pathfinder")]
+const STEM_DARKENING_FACTOR_Y: f32 = 0.0121 * 1.25 * f32::consts::SQRT_2;
+
+/// Likewise, should match macOS 10.13 High Sierra.
+#[cfg(feature = "pathfinder")]
+const MAX_STEM_DARKENING_AMOUNT: f32 = 0.3 * f32::consts::SQRT_2;
+
+#[cfg(feature = "pathfinder")]
+const CUBIC_TO_QUADRATIC_APPROX_TOLERANCE: f32 = 0.01;
+
+#[cfg(feature = "pathfinder")]
+type PathfinderFontContext = pathfinder_font_renderer::FontContext<FontKey>;
 
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -79,10 +116,12 @@ impl FontTransform {
         )
     }
 
+    #[cfg(not(feature = "pathfinder"))]
     pub fn determinant(&self) -> f64 {
         self.scale_x as f64 * self.scale_y as f64 - self.skew_y as f64 * self.skew_x as f64
     }
 
+    #[cfg(not(feature = "pathfinder"))]
     pub fn compute_scale(&self) -> Option<(f64, f64)> {
         let det = self.determinant();
         if det != 0.0 {
@@ -94,6 +133,7 @@ impl FontTransform {
         }
     }
 
+    #[cfg(not(feature = "pathfinder"))]
     pub fn pre_scale(&self, scale_x: f32, scale_y: f32) -> Self {
         FontTransform::new(
             self.scale_x * scale_x,
@@ -103,6 +143,7 @@ impl FontTransform {
         )
     }
 
+    #[cfg(not(feature = "pathfinder"))]
     pub fn invert_scale(&self, x_scale: f64, y_scale: f64) -> Self {
         self.pre_scale(x_scale.recip() as f32, y_scale.recip() as f32)
     }
@@ -261,12 +302,20 @@ pub struct FontContexts {
     // (in theory that's only the render backend thread so no contention expected either).
     shared_context: Mutex<FontContext>,
 
+    #[cfg(feature = "pathfinder")]
+    pathfinder_context: Box<Mutex<PathfinderFontContext>>,
+    #[cfg(not(feature = "pathfinder"))]
+    #[allow(dead_code)]
+    pathfinder_context: (),
+
     // Stored here as a convenience to get the current thread index.
+    #[allow(dead_code)]
     workers: Arc<ThreadPool>,
 }
 
 impl FontContexts {
     /// Get access to the font context associated to the current thread.
+    #[cfg(not(feature = "pathfinder"))]
     pub fn lock_current_context(&self) -> MutexGuard<FontContext> {
         let id = self.current_worker_id();
         self.lock_context(id)
@@ -289,11 +338,17 @@ impl FontContexts {
         self.shared_context.lock().unwrap()
     }
 
+    #[cfg(feature = "pathfinder")]
+    pub fn lock_pathfinder_context(&self) -> MutexGuard<PathfinderFontContext> {
+        self.pathfinder_context.lock().unwrap()
+    }
+
     // number of contexts associated to workers
     pub fn num_worker_contexts(&self) -> usize {
         self.worker_contexts.len()
     }
 
+    #[cfg(not(feature = "pathfinder"))]
     fn current_worker_id(&self) -> Option<usize> {
         self.workers.current_thread_index()
     }
@@ -320,6 +375,9 @@ pub struct GlyphRasterizer {
     // - we don't have to worry about the ordering of events if a font is used on
     //   a frame where it is used (although it seems unlikely).
     fonts_to_remove: Vec<FontKey>,
+
+    #[allow(dead_code)]
+    next_gpu_glyph_cache_key: GpuGlyphCacheKey,
 }
 
 impl GlyphRasterizer {
@@ -335,10 +393,13 @@ impl GlyphRasterizer {
             contexts.push(Mutex::new(FontContext::new()?));
         }
 
+        let pathfinder_context = create_pathfinder_font_context()?;
+
         Ok(GlyphRasterizer {
             font_contexts: Arc::new(FontContexts {
                 worker_contexts: contexts,
                 shared_context: Mutex::new(shared_context),
+                pathfinder_context: pathfinder_context,
                 workers: Arc::clone(&workers),
             }),
             pending_glyphs: 0,
@@ -346,6 +407,7 @@ impl GlyphRasterizer {
             glyph_tx,
             workers,
             fonts_to_remove: Vec::new(),
+            next_gpu_glyph_cache_key: GpuGlyphCacheKey(0),
         })
     }
 
@@ -368,7 +430,18 @@ impl GlyphRasterizer {
                 .lock_context(Some(i))
                 .add_font(&font_key, &template);
         }
+
+        self.add_font_to_pathfinder(&font_key, &template);
     }
+
+    #[cfg(feature = "pathfinder")]
+    fn add_font_to_pathfinder(&mut self, font_key: &FontKey, template: &FontTemplate) {
+        let font_contexts = Arc::clone(&self.font_contexts);
+        font_contexts.lock_pathfinder_context().add_font(&font_key, &template);
+    }
+
+    #[cfg(not(feature = "pathfinder"))]
+    fn add_font_to_pathfinder(&mut self, _: &FontKey, _: &FontTemplate) {}
 
     pub fn delete_font(&mut self, font_key: FontKey) {
         self.fonts_to_remove.push(font_key);
@@ -422,7 +495,7 @@ impl GlyphRasterizer {
                 }
             }
 
-            new_glyphs.push(key.clone());
+            new_glyphs.push((*key).clone());
         }
 
         if new_glyphs.is_empty() {
@@ -430,13 +503,82 @@ impl GlyphRasterizer {
         }
 
         self.pending_glyphs += 1;
+
+        self.request_glyphs_from_backend(font, new_glyphs);
+    }
+
+    #[cfg(feature = "pathfinder")]
+    fn request_glyphs_from_backend(&mut self, font: FontInstance, glyphs: Vec<GlyphKey>) {
+        let mut font_context = self.font_contexts.lock_pathfinder_context();
+
+        let raster_jobs: Vec<_> = glyphs.into_iter().map(|key| {
+            let pathfinder_font_instance = pathfinder_font_renderer::FontInstance {
+                font_key: font.font_key.clone(),
+                size: font.size,
+            };
+            let pathfinder_subpixel_offset =
+                pathfinder_font_renderer::SubpixelOffset(key.subpixel_offset as u8);
+            let glyph_subpixel_offset: f64 = key.subpixel_offset.into();
+            let pathfinder_glyph_key =
+                pathfinder_font_renderer::GlyphKey::new(key.index, pathfinder_subpixel_offset);
+            let raster_result = match (font_context.glyph_outline(&pathfinder_font_instance,
+                                                                  &pathfinder_glyph_key),
+                                       font_context.glyph_dimensions(&pathfinder_font_instance,
+                                                                     &pathfinder_glyph_key,
+                                                                     false)) {
+                (Ok(outline), Ok(dimensions)) => {
+                    // TODO(pcwalton)
+                    let mut mesh = PathfinderMesh::new();
+                    mesh.push_stencil_segments(CubicToQuadraticTransformer::new(
+                        outline.iter(),
+                        CUBIC_TO_QUADRATIC_APPROX_TOLERANCE));
+                    mesh.push_stencil_normals(CubicToQuadraticTransformer::new(
+                        outline.iter(),
+                        CUBIC_TO_QUADRATIC_APPROX_TOLERANCE));
+                    let glyph_origin = TypedPoint2D::new(dimensions.origin.x,
+                                                         -dimensions.origin.y);
+                    let glyph_size = TypedSize2D::from_untyped(&dimensions.size.to_i32());
+                    // FIXME(pcwalton): Support vertical subpixel offsets.
+                    // FIXME(pcwalton): Embolden amount should be 0 on macOS if "Use LCD font
+                    // smoothing" is unchecked in System Preferences.
+
+                    GlyphRasterResult::Mesh(Mesh {
+                        mesh: mesh,
+                        origin: glyph_origin,
+                        dimensions: glyph_size,
+                        subpixel_offset: TypedPoint2D::new(glyph_subpixel_offset as f32, 0.0),
+                        render_mode: font.render_mode,
+                        embolden_amount: compute_embolden_amount(font.size.to_f32_px()),
+                    })
+                }
+                _ => {
+                    // TODO(pcwalton): Fall back to CPU rendering.
+                    GlyphRasterResult::LoadFailed
+                }
+            };
+
+            GlyphRasterJob {
+                key: key,
+                result: raster_result
+            }
+        }).collect();
+
+        drop(self.glyph_tx.send(GlyphRasterJobs {
+            font: font,
+            jobs: raster_jobs,
+        }));
+    }
+
+    #[cfg(not(feature = "pathfinder"))]
+    fn request_glyphs_from_backend(&mut self, font: FontInstance, glyphs: Vec<GlyphKey>) {
         let font_contexts = Arc::clone(&self.font_contexts);
         let glyph_tx = self.glyph_tx.clone();
+
         // spawn an async task to get off of the render backend thread as early as
         // possible and in that task use rayon's fork join dispatch to rasterize the
         // glyphs in the thread pool.
         self.workers.spawn(move || {
-            let jobs = new_glyphs
+            let jobs = glyphs
                 .par_iter()
                 .map(|key: &GlyphKey| {
                     profile_scope!("glyph-raster");
@@ -447,7 +589,7 @@ impl GlyphRasterizer {
                     };
 
                     // Sanity check.
-                    if let Some(ref glyph) = job.result {
+                    if let GlyphRasterResult::Bitmap(ref glyph) = job.result {
                         let bpp = 4; // We always render glyphs in 32 bits RGBA format.
                         assert_eq!(
                             glyph.bytes.len(),
@@ -484,6 +626,10 @@ impl GlyphRasterizer {
         glyph_cache: &mut GlyphCache,
         texture_cache: &mut TextureCache,
         gpu_cache: &mut GpuCache,
+        render_task_cache: &mut RenderTaskCache,
+        render_tasks: &mut RenderTaskTree,
+        alpha_glyph_pass: &mut RenderPass,
+        color_glyph_pass: &mut RenderPass,
         _texture_cache_profile: &mut TextureCacheProfileCounters,
     ) {
         // Pull rasterized glyphs from the queue and Update the caches.
@@ -508,8 +654,13 @@ impl GlyphRasterizer {
             let glyph_key_cache = glyph_cache.get_glyph_key_cache_for_font_mut(font);
 
             for GlyphRasterJob { key, result } in jobs {
-                let glyph_info = result.map_or(GlyphCacheEntry::Blank, |glyph| {
-                    if glyph.width > 0 && glyph.height > 0 {
+                let glyph_info = match result {
+                    GlyphRasterResult::LoadFailed => GlyphCacheEntry::Blank,
+                    GlyphRasterResult::Bitmap(ref glyph) if glyph.width == 0 ||
+                                                            glyph.height == 0 => {
+                        GlyphCacheEntry::Blank
+                    }
+                    GlyphRasterResult::Bitmap(glyph) => {
                         assert_eq!((glyph.left.fract(), glyph.top.fract()), (0.0, 0.0));
                         let mut texture_cache_handle = TextureCacheHandle::new();
                         texture_cache.request(&mut texture_cache_handle, gpu_cache);
@@ -535,10 +686,17 @@ impl GlyphRasterizer {
                             texture_cache_handle,
                             format: glyph.format,
                         })
-                    } else {
-                        GlyphCacheEntry::Blank
                     }
-                });
+                    GlyphRasterResult::Mesh(mesh) => {
+                        self.resolve_mesh_glyph(mesh,
+                                                texture_cache,
+                                                gpu_cache,
+                                                render_task_cache,
+                                                render_tasks,
+                                                alpha_glyph_pass,
+                                                color_glyph_pass)
+                    }
+                };
                 glyph_key_cache.insert(key, glyph_info);
             }
         }
@@ -562,6 +720,81 @@ impl GlyphRasterizer {
         }
     }
 
+    #[cfg(feature = "pathfinder")]
+    fn resolve_mesh_glyph(&mut self,
+                          mesh: Mesh,
+                          texture_cache: &mut TextureCache,
+                          gpu_cache: &mut GpuCache,
+                          render_task_cache: &mut RenderTaskCache,
+                          render_tasks: &mut RenderTaskTree,
+                          alpha_glyph_pass: &mut RenderPass,
+                          color_glyph_pass: &mut RenderPass)
+                          -> GlyphCacheEntry {
+        let render_task_cache_key = RenderTaskCacheKey {
+            size: mesh.dimensions,
+            kind: RenderTaskCacheKeyKind::Glyph(self.next_gpu_glyph_cache_key),
+        };
+
+        self.next_gpu_glyph_cache_key.0 += 1;
+
+        let mut pathfinder_mesh = Some(mesh.mesh);
+        let Mesh { dimensions, origin, subpixel_offset, render_mode, embolden_amount, .. } = mesh;
+
+        let user_data = [origin.x as f32, (origin.y - dimensions.height) as f32, 1.0];
+        let texture_cache_handle = render_task_cache.request_render_task(render_task_cache_key,
+                                                                         texture_cache,
+                                                                         gpu_cache,
+                                                                         render_tasks,
+                                                                         Some(user_data),
+                                                                         |render_tasks| {
+            let location = RenderTaskLocation::Dynamic(None, dimensions);
+            let pathfinder_mesh = pathfinder_mesh.take().unwrap();
+            let glyph_render_task = RenderTask::new_glyph(location,
+                                                          pathfinder_mesh,
+                                                          &origin,
+                                                          &subpixel_offset,
+                                                          render_mode,
+                                                          &embolden_amount);
+            let root_task_id = render_tasks.add(glyph_render_task);
+            match render_mode {
+                FontRenderMode::Mono | FontRenderMode::Alpha => {
+                    alpha_glyph_pass.add_render_task(root_task_id,
+                                                     dimensions,
+                                                     RenderTargetKind::Alpha);
+                }
+                FontRenderMode::Subpixel => {
+                    color_glyph_pass.add_render_task(root_task_id,
+                                                     dimensions,
+                                                     RenderTargetKind::Color);
+                }
+            }
+            (root_task_id, false)
+        });
+
+        let glyph_format = match render_mode {
+            FontRenderMode::Mono | FontRenderMode::Alpha => GlyphFormat::Alpha,
+            FontRenderMode::Subpixel => GlyphFormat::Subpixel,
+        };
+
+        GlyphCacheEntry::Cached(CachedGlyphInfo {
+            texture_cache_handle: texture_cache_handle,
+            format: glyph_format,
+        })
+    }
+
+    #[cfg(not(feature = "pathfinder"))]
+    fn resolve_mesh_glyph(&mut self,
+                          _: Mesh,
+                          _: &mut TextureCache,
+                          _: &mut GpuCache,
+                          _: &mut RenderTaskCache,
+                          _: &mut RenderTaskTree,
+                          _: &mut RenderPass,
+                          _: &mut RenderPass)
+                          -> GlyphCacheEntry {
+        GlyphCacheEntry::Blank
+    }
+
     #[cfg(feature = "replay")]
     pub fn reset(&mut self) {
         //TODO: any signals need to be sent to the workers?
@@ -570,7 +803,11 @@ impl GlyphRasterizer {
     }
 }
 
-impl FontContext {
+trait AddFont {
+    fn add_font(&mut self, font_key: &FontKey, template: &FontTemplate);
+}
+
+impl AddFont for FontContext {
     fn add_font(&mut self, font_key: &FontKey, template: &FontTemplate) {
         match template {
             &FontTemplate::Raw(ref bytes, index) => {
@@ -578,6 +815,20 @@ impl FontContext {
             }
             &FontTemplate::Native(ref native_font_handle) => {
                 self.add_native_font(&font_key, (*native_font_handle).clone());
+            }
+        }
+    }
+}
+
+#[cfg(feature = "pathfinder")]
+impl AddFont for PathfinderFontContext {
+    fn add_font(&mut self, font_key: &FontKey, template: &FontTemplate) {
+        match template {
+            &FontTemplate::Raw(ref bytes, index) => {
+                drop(self.add_font_from_memory(&font_key, bytes.clone(), index));
+            }
+            &FontTemplate::Native(ref native_font_handle) => {
+                drop(self.add_native_font(&font_key, (*native_font_handle).clone().0));
             }
         }
     }
@@ -602,7 +853,50 @@ impl GlyphRequest {
 
 struct GlyphRasterJob {
     key: GlyphKey,
-    result: Option<RasterizedGlyph>,
+    result: GlyphRasterResult,
+}
+
+pub enum GlyphRasterResult {
+    LoadFailed,
+    #[allow(dead_code)]
+    Bitmap(RasterizedGlyph),
+    #[allow(dead_code)]
+    Mesh(Mesh),
+}
+
+#[cfg(feature = "pathfinder")]
+pub struct Mesh {
+    mesh: PathfinderMesh,
+    origin: DeviceIntPoint,
+    subpixel_offset: TypedPoint2D<f32, DevicePixel>,
+    dimensions: DeviceIntSize,
+    render_mode: FontRenderMode,
+    embolden_amount: TypedVector2D<f32, DevicePixel>,
+}
+
+#[cfg(not(feature = "pathfinder"))]
+pub struct Mesh;
+
+#[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct GpuGlyphCacheKey(pub u32);
+
+#[cfg(feature = "pathfinder")]
+fn create_pathfinder_font_context() -> Result<Box<Mutex<PathfinderFontContext>>,
+                                              ResourceCacheError> {
+    match PathfinderFontContext::new() {
+        Ok(context) => Ok(Box::new(Mutex::new(context))),
+        Err(_) => {
+            let msg = "Failed to create the Pathfinder font context!".to_owned();
+            Err(ResourceCacheError::new(msg))
+        }
+    }
+}
+
+#[cfg(not(feature = "pathfinder"))]
+fn create_pathfinder_font_context() -> Result<(), ResourceCacheError> {
+    Ok(())
 }
 
 struct GlyphRasterJobs {
@@ -681,4 +975,10 @@ fn rasterize_200_glyphs() {
         &mut gpu_cache,
         &mut TextureCacheProfileCounters::new(),
     );
+}
+
+#[cfg(feature = "pathfinder")]
+fn compute_embolden_amount(ppem: f32) -> TypedVector2D<f32, DevicePixel> {
+    TypedVector2D::new(f32::min(ppem * STEM_DARKENING_FACTOR_X, MAX_STEM_DARKENING_AMOUNT),
+                       f32::min(ppem * STEM_DARKENING_FACTOR_Y, MAX_STEM_DARKENING_AMOUNT))
 }

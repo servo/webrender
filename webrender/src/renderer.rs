@@ -36,6 +36,8 @@ use euclid::{rect, Transform3D};
 use frame_builder::FrameBuilderConfig;
 use gleam::gl;
 use glyph_rasterizer::{GlyphFormat, GlyphRasterizer};
+#[cfg(feature = "pathfinder")]
+use glyph_renderer::GlyphRenderer;
 use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
 use gpu_types::PrimitiveInstance;
 use internal_types::{SourceTexture, ORTHO_FAR_PLANE, ORTHO_NEAR_PLANE, ResourceCacheError};
@@ -72,6 +74,8 @@ use thread_profiler::{register_thread_with_profiler, write_profile};
 use tiling::{AlphaRenderTarget, ColorRenderTarget};
 use tiling::{BlitJob, BlitJobSource, RenderPass, RenderPassKind, RenderTargetList};
 use tiling::{Frame, RenderTarget, ScalingInfo, TextureCacheRenderTarget};
+#[cfg(not(feature = "pathfinder"))]
+use tiling::GlyphJob;
 use time::precise_time_ns;
 
 
@@ -440,6 +444,90 @@ pub(crate) mod desc {
         ],
         instance_attributes: &[],
     };
+
+    pub const VECTOR_STENCIL: VertexDescriptor = VertexDescriptor {
+        vertex_attributes: &[
+            VertexAttribute {
+                name: "aPosition",
+                count: 2,
+                kind: VertexAttributeKind::F32,
+            },
+        ],
+        instance_attributes: &[
+            VertexAttribute {
+                name: "aFromPosition",
+                count: 2,
+                kind: VertexAttributeKind::F32,
+            },
+            VertexAttribute {
+                name: "aCtrlPosition",
+                count: 2,
+                kind: VertexAttributeKind::F32,
+            },
+            VertexAttribute {
+                name: "aToPosition",
+                count: 2,
+                kind: VertexAttributeKind::F32,
+            },
+            VertexAttribute {
+                name: "aFromNormal",
+                count: 2,
+                kind: VertexAttributeKind::F32,
+            },
+            VertexAttribute {
+                name: "aCtrlNormal",
+                count: 2,
+                kind: VertexAttributeKind::F32,
+            },
+            VertexAttribute {
+                name: "aToNormal",
+                count: 2,
+                kind: VertexAttributeKind::F32,
+            },
+            VertexAttribute {
+                name: "aPathID",
+                count: 1,
+                kind: VertexAttributeKind::U16,
+            },
+            VertexAttribute {
+                name: "aPad",
+                count: 1,
+                kind: VertexAttributeKind::U16,
+            },
+        ],
+    };
+
+    pub const VECTOR_COVER: VertexDescriptor = VertexDescriptor {
+        vertex_attributes: &[
+            VertexAttribute {
+                name: "aPosition",
+                count: 2,
+                kind: VertexAttributeKind::F32,
+            },
+        ],
+        instance_attributes: &[
+            VertexAttribute {
+                name: "aTargetRect",
+                count: 4,
+                kind: VertexAttributeKind::I32,
+            },
+            VertexAttribute {
+                name: "aStencilOrigin",
+                count: 2,
+                kind: VertexAttributeKind::I32,
+            },
+            VertexAttribute {
+                name: "aSubpixel",
+                count: 1,
+                kind: VertexAttributeKind::U16,
+            },
+            VertexAttribute {
+                name: "aPad",
+                count: 1,
+                kind: VertexAttributeKind::U16,
+            },
+        ],
+    };
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -447,6 +535,8 @@ pub(crate) enum VertexArrayKind {
     Primitive,
     Blur,
     Clip,
+    VectorStencil,
+    VectorCover,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -532,6 +622,19 @@ impl CpuProfile {
     }
 }
 
+#[cfg(not(feature = "pathfinder"))]
+pub struct GlyphRenderer;
+
+#[cfg(not(feature = "pathfinder"))]
+impl GlyphRenderer {
+    fn new(_: &mut Device, _: &VAO, _: bool) -> Result<GlyphRenderer, RendererError> {
+        Ok(GlyphRenderer)
+    }
+}
+
+#[cfg(not(feature = "pathfinder"))]
+struct StenciledGlyphPage;
+
 struct ActiveTexture {
     texture: Texture,
     saved_index: Option<SavedTargetIndex>,
@@ -576,7 +679,7 @@ impl SourceTextureResolver {
     fn new(device: &mut Device) -> SourceTextureResolver {
         let mut dummy_cache_texture = device
             .create_texture(TextureTarget::Array, ImageFormat::BGRA8);
-        device.init_texture(
+        device.init_texture::<u8>(
             &mut dummy_cache_texture,
             1,
             1,
@@ -686,6 +789,9 @@ impl SourceTextureResolver {
                     .expect(&format!("BUG: External image should be resolved by now"));
                 device.bind_external_texture(sampler, texture);
             }
+            SourceTexture::Custom(external_texture) => {
+                device.bind_external_texture(sampler, &external_texture);
+            }
             SourceTexture::TextureCache(index) => {
                 let texture = &self.cache_texture_map[index.0];
                 device.bind_texture(sampler, texture);
@@ -715,7 +821,7 @@ impl SourceTextureResolver {
                     None => &self.dummy_cache_texture,
                 }
             ),
-            SourceTexture::External(..) => {
+            SourceTexture::External(..) | SourceTexture::Custom(..) => {
                 panic!("BUG: External textures cannot be resolved, they can only be bound.");
             }
             SourceTexture::TextureCache(index) => {
@@ -860,7 +966,7 @@ impl CacheTexture {
                 if max_height > old_size.height {
                     // Create a f32 texture that can be used for the vertex shader
                     // to fetch data from.
-                    device.init_texture(
+                    device.init_texture::<u8>(
                         &mut self.texture,
                         new_size.width,
                         new_size.height,
@@ -894,7 +1000,7 @@ impl CacheTexture {
                     if old_size.height > 0 {
                         device.resize_renderable_texture(&mut self.texture, new_size);
                     } else {
-                        device.init_texture(
+                        device.init_texture::<u8>(
                             &mut self.texture,
                             new_size.width,
                             new_size.height,
@@ -1076,7 +1182,7 @@ impl VertexDataTexture {
         if needed_height > texture_size.height {
             let new_height = (needed_height + 127) & !127;
 
-            device.init_texture(
+            device.init_texture::<u8>(
                 &mut self.texture,
                 width,
                 new_height,
@@ -1132,13 +1238,15 @@ struct TargetSelector {
 pub struct Renderer {
     result_rx: Receiver<ResultMsg>,
     debug_server: DebugServer,
-    device: Device,
+    pub device: Device,
     pending_texture_updates: Vec<TextureUpdateList>,
     pending_gpu_cache_updates: Vec<GpuCacheUpdateList>,
     pending_shader_updates: Vec<PathBuf>,
     active_documents: Vec<(DocumentId, RenderedDocument)>,
 
     shaders: Shaders,
+
+    pub glyph_renderer: GlyphRenderer,
 
     max_texture_size: u32,
     max_recorded_profiles: usize,
@@ -1152,7 +1260,7 @@ pub struct Renderer {
     profiler: Profiler,
     last_time: u64,
 
-    gpu_profile: GpuProfiler<GpuProfileTag>,
+    pub gpu_profile: GpuProfiler<GpuProfileTag>,
     prim_vao: VAO,
     blur_vao: VAO,
     clip_vao: VAO,
@@ -1187,7 +1295,7 @@ pub struct Renderer {
     // Currently allocated FBOs for output frames.
     output_targets: FastHashMap<u32, FrameOutput>,
 
-    renderer_errors: Vec<RendererError>,
+    pub renderer_errors: Vec<RendererError>,
 
     /// List of profile results from previous frames. Can be retrieved
     /// via get_frame_profiles().
@@ -1405,9 +1513,12 @@ impl Renderer {
         device.update_vao_indices(&prim_vao, &quad_indices, VertexUsageHint::Static);
         device.update_vao_main_vertices(&prim_vao, &quad_vertices, VertexUsageHint::Static);
 
+        let glyph_renderer = try!(GlyphRenderer::new(&mut device,
+                                                     &prim_vao,
+                                                     options.precache_shaders));
+
         let blur_vao = device.create_vao_with_new_instances(&desc::BLUR, &prim_vao);
         let clip_vao = device.create_vao_with_new_instances(&desc::CLIP, &prim_vao);
-
         let texture_cache_upload_pbo = device.create_pbo();
 
         let texture_resolver = SourceTextureResolver::new(&mut device);
@@ -1549,6 +1660,7 @@ impl Renderer {
             enable_clear_scissor: options.enable_clear_scissor,
             last_time: 0,
             gpu_profile,
+            glyph_renderer,
             prim_vao,
             blur_vao,
             clip_vao,
@@ -2185,7 +2297,7 @@ impl Renderer {
         // For an artificial stress test of GPU cache resizing,
         // always pass an extra update list with at least one block in it.
         let gpu_cache_height = self.gpu_cache_texture.get_height();
-        if gpu_cache_height != 0 &&  GPU_CACHE_RESIZE_TEST {
+        if gpu_cache_height != 0 && GPU_CACHE_RESIZE_TEST {
             self.pending_gpu_cache_updates.push(GpuCacheUpdateList {
                 frame_id: FrameId::new(0),
                 height: gpu_cache_height,
@@ -2206,7 +2318,7 @@ impl Renderer {
             self.renderer_errors.push(RendererError::MaxTextureSize);
         }
 
-        //Note: if we decide to switch to scatter-style GPU cache update
+        // Note: if we decide to switch to scatter-style GPU cache update
         // permanently, we can have this code nicer with `BufferUploader` kind
         // of helper, similarly to how `TextureUploader` API is used.
         self.gpu_cache_texture.prepare_for_updates(
@@ -2272,7 +2384,7 @@ impl Renderer {
 
                         // Ensure no PBO is bound when creating the texture storage,
                         // or GL will attempt to read data from there.
-                        self.device.init_texture(
+                        self.device.init_texture::<u8>(
                             texture,
                             width,
                             height,
@@ -2339,7 +2451,7 @@ impl Renderer {
         }
     }
 
-    fn draw_instanced_batch<T>(
+    pub(crate) fn draw_instanced_batch<T>(
         &mut self,
         data: &[T],
         vertex_array_kind: VertexArrayKind,
@@ -2359,11 +2471,11 @@ impl Renderer {
             self.device.bind_texture(TextureSampler::Dither, texture);
         }
 
-        let vao = match vertex_array_kind {
-            VertexArrayKind::Primitive => &self.prim_vao,
-            VertexArrayKind::Clip => &self.clip_vao,
-            VertexArrayKind::Blur => &self.blur_vao,
-        };
+        let vao = get_vao(vertex_array_kind,
+                          &self.prim_vao,
+                          &self.clip_vao,
+                          &self.blur_vao,
+                          &self.glyph_renderer);
 
         self.device.bind_vao(vao);
 
@@ -3132,27 +3244,41 @@ impl Renderer {
         render_tasks: &RenderTaskTree,
         stats: &mut RendererStats,
     ) {
-        let projection = {
+        let (target_size, projection) = {
             let texture = self.texture_resolver
                 .resolve(texture)
                 .expect("BUG: invalid target texture");
             let target_size = texture.get_dimensions();
-
-            self.device
-                .bind_draw_target(Some((texture, layer)), Some(target_size));
-            self.device.disable_depth();
-            self.device.disable_depth_write();
-            self.device.set_blend(false);
-
-            Transform3D::ortho(
+            let projection = Transform3D::ortho(
                 0.0,
                 target_size.width as f32,
                 0.0,
                 target_size.height as f32,
                 ORTHO_NEAR_PLANE,
                 ORTHO_FAR_PLANE,
-            )
+            );
+            (target_size, projection)
         };
+
+        self.device.disable_depth();
+        self.device.disable_depth_write();
+
+        self.device.set_blend(false);
+
+        // Handle any Pathfinder glyphs.
+        let stencil_page = self.stencil_glyphs(&target.glyphs, &projection, &target_size, stats);
+
+        {
+            let texture = self.texture_resolver
+                .resolve(texture)
+                .expect("BUG: invalid target texture");
+            self.device
+                .bind_draw_target(Some((texture, layer)), Some(target_size));
+        }
+
+        self.device.disable_depth();
+        self.device.disable_depth_write();
+        self.device.set_blend(false);
 
         // Handle any blits to this texture from child tasks.
         self.handle_blits(&target.blits, render_tasks);
@@ -3171,7 +3297,28 @@ impl Renderer {
                 stats,
             );
         }
+
+        // Blit any Pathfinder glyphs to the cache texture.
+        if let Some(stencil_page) = stencil_page {
+            self.cover_glyphs(stencil_page, &projection, stats);
+        }
     }
+
+    #[cfg(not(feature = "pathfinder"))]
+    fn stencil_glyphs(&mut self,
+                      _: &[GlyphJob],
+                      _: &Transform3D<f32>,
+                      _: &DeviceUintSize,
+                      _: &mut RendererStats)
+                      -> Option<StenciledGlyphPage> {
+        None
+    }
+
+    #[cfg(not(feature = "pathfinder"))]
+    fn cover_glyphs(&mut self,
+                    _: StenciledGlyphPage,
+                    _: &Transform3D<f32>,
+                    _: &mut RendererStats) {}
 
     fn update_deferred_resolves(&mut self, deferred_resolves: &[DeferredResolve]) -> Option<GpuCacheUpdateList> {
         // The first thing we do is run through any pending deferred
@@ -3307,7 +3454,7 @@ impl Renderer {
             }
         };
 
-        self.device.init_texture(
+        self.device.init_texture::<u8>(
             &mut texture,
             list.max_size.width,
             list.max_size.height,
@@ -4264,5 +4411,38 @@ impl Renderer {
         self.output_image_handler = Some(Box::new(()) as Box<_>);
         self.external_image_handler = Some(Box::new(image_handler) as Box<_>);
         info!("done.");
+    }
+}
+
+// FIXME(pcwalton): We should really gather up all the VAOs into a separate structure so that they
+// don't have to be passed in as parameters here.
+#[cfg(feature = "pathfinder")]
+fn get_vao<'a>(vertex_array_kind: VertexArrayKind,
+               prim_vao: &'a VAO,
+               clip_vao: &'a VAO,
+               blur_vao: &'a VAO,
+               glyph_renderer: &'a GlyphRenderer)
+               -> &'a VAO {
+    match vertex_array_kind {
+        VertexArrayKind::Primitive => prim_vao,
+        VertexArrayKind::Clip => clip_vao,
+        VertexArrayKind::Blur => blur_vao,
+        VertexArrayKind::VectorStencil => &glyph_renderer.vector_stencil_vao,
+        VertexArrayKind::VectorCover => &glyph_renderer.vector_cover_vao,
+    }
+}
+
+#[cfg(not(feature = "pathfinder"))]
+fn get_vao<'a>(vertex_array_kind: VertexArrayKind,
+               prim_vao: &'a VAO,
+               clip_vao: &'a VAO,
+               blur_vao: &'a VAO,
+               _: &'a GlyphRenderer)
+               -> &'a VAO {
+    match vertex_array_kind {
+        VertexArrayKind::Primitive => prim_vao,
+        VertexArrayKind::Clip => clip_vao,
+        VertexArrayKind::Blur => blur_vao,
+        VertexArrayKind::VectorStencil | VertexArrayKind::VectorCover => unreachable!(),
     }
 }

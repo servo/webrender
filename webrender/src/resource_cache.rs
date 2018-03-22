@@ -20,6 +20,12 @@ use capture::PlainExternalImage;
 use capture::CaptureConfig;
 use device::TextureFilter;
 use glyph_cache::{GlyphCache, GlyphCacheEntry};
+#[cfg(feature = "capture")]
+use glyph_cache::{CachedGlyphData, GenericCachedGlyphInfo};
+#[cfg(feature = "capture")]
+use glyph_cache::{PlainGlyphCacheRef, PlainCachedGlyphInfo};
+#[cfg(feature = "replay")]
+use glyph_cache::{CachedGlyphInfo, PlainGlyphCacheOwn};
 use glyph_rasterizer::{FontInstance, GlyphFormat, GlyphRasterizer, GlyphRequest};
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use internal_types::{FastHashMap, FastHashSet, SourceTexture, TextureUpdateList};
@@ -35,7 +41,7 @@ use std::mem;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use texture_cache::{TextureCache, TextureCacheHandle};
-
+use tiling::RenderPass;
 
 const DEFAULT_TILE_SIZE: TileSize = 512;
 
@@ -320,15 +326,21 @@ impl ResourceCache {
         key: RenderTaskCacheKey,
         gpu_cache: &mut GpuCache,
         render_tasks: &mut RenderTaskTree,
+        user_data: Option<[f32; 3]>,
         f: F,
-    ) -> CacheItem where F: FnMut(&mut RenderTaskTree) -> (RenderTaskId, bool) {
+    ) -> TextureCacheHandle where F: FnMut(&mut RenderTaskTree) -> (RenderTaskId, bool) {
         self.cached_render_tasks.request_render_task(
             key,
             &mut self.texture_cache,
             gpu_cache,
             render_tasks,
+            user_data,
             f
         )
+    }
+
+    pub fn get_texture(&mut self, handle: &TextureCacheHandle) -> CacheItem {
+        self.texture_cache.get(handle)
     }
 
     pub fn update_resources(
@@ -803,6 +815,9 @@ impl ResourceCache {
     pub fn block_until_all_resources_added(
         &mut self,
         gpu_cache: &mut GpuCache,
+        render_tasks: &mut RenderTaskTree,
+        alpha_glyph_pass: &mut RenderPass,
+        color_glyph_pass: &mut RenderPass,
         texture_cache_profile: &mut TextureCacheProfileCounters,
     ) {
         profile_scope!("block_until_all_resources_added");
@@ -814,6 +829,10 @@ impl ResourceCache {
             &mut self.cached_glyphs,
             &mut self.texture_cache,
             gpu_cache,
+            &mut self.cached_render_tasks,
+            render_tasks,
+            alpha_glyph_pass,
+            color_glyph_pass,
             texture_cache_profile,
         );
 
