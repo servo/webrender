@@ -921,6 +921,7 @@ impl RenderTaskCache {
                 size.height as u32,
                 image_format,
                 is_opaque,
+                false,
             );
 
             // Allocate space in the texture cache, but don't supply
