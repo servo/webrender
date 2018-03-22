@@ -31,7 +31,6 @@ use util::{self, MaxRect, WorldToLayerFastTransform};
 pub struct FrameBuilderConfig {
     pub enable_scrollbars: bool,
     pub default_font_render_mode: FontRenderMode,
-    pub debug: bool,
     pub dual_source_blending_is_supported: bool,
     pub dual_source_blending_is_enabled: bool,
 }
@@ -123,7 +122,6 @@ impl FrameBuilder {
             config: FrameBuilderConfig {
                 enable_scrollbars: false,
                 default_font_render_mode: FontRenderMode::Mono,
-                debug: false,
                 dual_source_blending_is_enabled: true,
                 dual_source_blending_is_supported: false,
             },
