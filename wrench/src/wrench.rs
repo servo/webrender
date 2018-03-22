@@ -577,6 +577,7 @@ impl Wrench {
             "M - Trigger memory pressure event",
             "T - Save CPU profile to a file",
             "C - Save a capture to captures/wrench/",
+            "X - Do a hit test at the current cursor position",
         ];
 
         let color_and_offset = [(*BLACK_COLOR, 2.0), (*WHITE_COLOR, 0.0)];
