@@ -18,7 +18,7 @@ use freetype::freetype::{FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH, FT_LOAD_NO_AUTOHIN
 use freetype::freetype::{FT_LOAD_NO_BITMAP, FT_LOAD_NO_HINTING, FT_LOAD_VERTICAL_LAYOUT};
 use freetype::freetype::{FT_FACE_FLAG_SCALABLE, FT_FACE_FLAG_FIXED_SIZES};
 use freetype::succeeded;
-use glyph_rasterizer::{FontInstance, GlyphFormat, RasterizedGlyph};
+use glyph_rasterizer::{FontInstance, GlyphFormat, GlyphRasterResult, RasterizedGlyph};
 use internal_types::{FastHashMap, ResourceCacheError};
 use std::{cmp, mem, ptr, slice};
 use std::cmp::max;
@@ -582,26 +582,23 @@ impl FontContext {
         }
     }
 
-    pub fn rasterize_glyph(
-        &mut self,
-        font: &FontInstance,
-        key: &GlyphKey,
-    ) -> Option<RasterizedGlyph> {
+    #[cfg(not(feature = "pathfinder"))]
+    pub fn rasterize_glyph(&mut self, font: &FontInstance, key: &GlyphKey) -> GlyphRasterResult {
         let slot = match self.load_glyph(font, key) {
             Some(slot) => slot,
-            None => return None,
+            None => return GlyphRasterResult::LoadFailed,
         };
 
         // Get dimensions of the glyph, to see if we need to rasterize it.
         let dimensions = match self.get_glyph_dimensions_impl(slot, font, key, false) {
             Some(val) => val,
-            None => return None,
+            None => return GlyphRasterResult::LoadFailed,
         };
         let GlyphDimensions { mut left, mut top, width, height, .. } = dimensions;
 
         // For spaces and other non-printable characters, early out.
         if width == 0 || height == 0 {
-            return None;
+            return GlyphRasterResult::LoadFailed;
         }
 
         let format = unsafe { (*slot).format };
@@ -613,13 +610,13 @@ impl FontContext {
             }
             FT_Glyph_Format::FT_GLYPH_FORMAT_OUTLINE => {
                 if !self.rasterize_glyph_outline(slot, font, key) {
-                    return None;
+                    return GlyphRasterResult::LoadFailed;
                 }
             }
             _ => {
                 error!("Unsupported format");
                 debug!("format={:?}", format);
-                return None;
+                return GlyphRasterResult::LoadFailed;
             }
         };
 
@@ -772,7 +769,7 @@ impl FontContext {
             _ => font.get_alpha_glyph_format(),
         };
 
-        Some(RasterizedGlyph {
+        GlyphRasterResult::Bitmap(RasterizedGlyph {
             left: left as f32,
             top: top as f32,
             width: actual_width as u32,
