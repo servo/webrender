@@ -1484,14 +1484,8 @@ impl PrimitiveStore {
         frame_state: &mut FrameBuildingState,
     ) -> bool {
         let metadata = &self.cpu_metadata[prim_index.0];
-        let brush = match metadata.prim_kind {
-            PrimitiveKind::Brush => {
-                &mut self.cpu_brushes[metadata.cpu_prim_index.0]
-            }
-            _ => {
-                return false;
-            }
-        };
+        let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
+        debug_assert!(metadata.prim_kind == PrimitiveKind::Brush);
 
         PrimitiveStore::write_brush_segment_description(
             brush,
@@ -1622,19 +1616,33 @@ impl PrimitiveStore {
             &mut has_clips_from_other_coordinate_systems
         );
 
+        // If the primitive is a segmented brush, segments may refer to clip tasks in which
+        // case we must not early out before updating the task references which happens in
+        // update_clip_task_for_brush.
+        //
+        // TODO: in some situations it might be preferrable to reset the segments and relax
+        // the branches below that require no_segments.
+        let is_brush;
+        let no_segments;
+        {
+            let metadata = &self.cpu_metadata[prim_index.0];
+            is_brush = metadata.prim_kind == PrimitiveKind::Brush;
+            no_segments = !is_brush || self.cpu_brushes[metadata.cpu_prim_index.0].segment_desc.is_none();
+        }
+
         // This can happen if we had no clips or if all the clips were optimized away. In
         // some cases we still need to create a clip mask in order to create a rectangular
         // clip in screen space coordinates.
         if clips.is_empty() {
             // If we don't have any clips from other coordinate systems, the local clip
             // calculated from the clip chain should be sufficient to ensure proper clipping.
-            if !has_clips_from_other_coordinate_systems {
+            if !has_clips_from_other_coordinate_systems && no_segments {
                 return true;
             }
 
             // If we have filtered all clips and the screen rect isn't any smaller, we can just
             // skip masking entirely.
-            if combined_outer_rect == prim_screen_rect {
+            if combined_outer_rect == prim_screen_rect && no_segments {
                 return true;
             }
             // Otherwise we create an empty mask, but with an empty inner rect to avoid further
@@ -1642,12 +1650,12 @@ impl PrimitiveStore {
             combined_inner_rect = DeviceIntRect::zero();
         }
 
-        if combined_inner_rect.contains_rect(&prim_screen_rect) {
+        if combined_inner_rect.contains_rect(&prim_screen_rect) && no_segments {
            return true;
         }
 
         // First try to  render this primitive's mask using optimized brush rendering.
-        if self.update_clip_task_for_brush(
+        if is_brush && self.update_clip_task_for_brush(
             prim_run_context,
             prim_index,
             &clips,
