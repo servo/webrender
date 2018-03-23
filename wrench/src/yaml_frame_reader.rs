@@ -400,7 +400,7 @@ impl YamlFrameReader {
         if self.list_resources { println!("{}", file.to_string_lossy()); }
         let (descriptor, image_data) = match image::open(file) {
             Ok(image) => {
-                let image_dims = image.dimensions();
+                let (image_width, image_height) = image.dimensions();
                 let (format, bytes) = match image {
                     image::ImageLuma8(_) => {
                         (ImageFormat::R8, image.raw_pixels())
@@ -412,7 +412,7 @@ impl YamlFrameReader {
                     }
                     image::ImageRgb8(_) => {
                         let bytes = image.raw_pixels();
-                        let mut pixels = Vec::new();
+                        let mut pixels = Vec::with_capacity(image_width as usize * image_height as usize * 4);
                         for bgr in bytes.chunks(3) {
                             pixels.extend_from_slice(&[
                                 bgr[2],
@@ -426,8 +426,8 @@ impl YamlFrameReader {
                     _ => panic!("We don't support whatever your crazy image type is, come on"),
                 };
                 let descriptor = ImageDescriptor::new(
-                    image_dims.0,
-                    image_dims.1,
+                    image_width,
+                    image_height,
                     format,
                     is_image_opaque(format, &bytes[..]),
                     self.allow_mipmaps,
