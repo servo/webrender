@@ -310,7 +310,7 @@ impl FrameBuilder {
 
         self.update_scroll_bars(clip_scroll_tree, gpu_cache);
 
-        let mut render_tasks = RenderTaskTree::new();
+        let mut render_tasks = RenderTaskTree::new(frame_id);
 
         let main_render_task_id = self.build_layer_screen_rects_and_cull_layers(
             clip_scroll_tree,
