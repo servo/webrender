@@ -1543,6 +1543,18 @@ impl PrimitiveStore {
         true
     }
 
+    fn reset_clip_task(&mut self, prim_index: PrimitiveIndex) {
+        let metadata = &mut self.cpu_metadata[prim_index.0];
+        metadata.clip_task_id = None;
+        if metadata.prim_kind == PrimitiveKind::Brush {
+            if let Some(ref mut desc) = self.cpu_brushes[metadata.cpu_prim_index.0].segment_desc {
+                for segment in &mut desc.segments {
+                    segment.clip_task_id = None;
+                }
+            }
+        }
+    }
+
     fn update_clip_task(
         &mut self,
         prim_index: PrimitiveIndex,
@@ -1552,7 +1564,8 @@ impl PrimitiveStore {
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
     ) -> bool {
-        self.cpu_metadata[prim_index.0].clip_task_id = None;
+        // Reset clips from previous frames since we may clip differently each frame.
+        self.reset_clip_task(prim_index);
 
         let prim_screen_rect = match prim_screen_rect.intersection(&frame_context.screen_rect) {
             Some(rect) => rect,
