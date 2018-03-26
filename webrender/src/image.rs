@@ -2,8 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{TileOffset, LayerRect, LayerSize, LayerVector2D, DeviceUintSize};
+use api::{TileOffset, LayerRect, LayerSize, LayerPoint, LayerVector2D, DeviceUintSize};
 use euclid::rect;
+use prim_store::EdgeAaSegmentMask;
 
 pub struct DecomposedTile {
     pub rect: LayerRect,
@@ -276,5 +277,72 @@ fn add_device_tile(
             rect,
             stretch_size,
         });
+    }
+}
+
+pub fn for_each_repetition(
+    prim_rect: &LayerRect,
+    visible_rect: &LayerRect,
+    stride: &LayerSize,
+    callback: &mut FnMut(&LayerPoint, EdgeAaSegmentMask),
+) {
+    let clip = prim_rect.intersection(&visible_rect);
+    assert!(stride.width > 0.0);
+    assert!(stride.height > 0.0);
+
+    if clip.is_none() {
+        return;
+    }
+
+    let clip = clip.unwrap();
+
+    let nx = if clip.origin.x > prim_rect.origin.x {
+        f32::floor((visible_rect.origin.x - prim_rect.origin.x) / stride.width)
+    } else {
+        0.0
+    };
+
+    let ny = if clip.origin.y > prim_rect.origin.y {
+        f32::floor((visible_rect.origin.y - prim_rect.origin.y) / stride.height)
+    } else {
+        0.0
+    };
+
+    let x0 = prim_rect.origin.x + nx * stride.width;
+    let y0 = prim_rect.origin.y + ny * stride.height;
+
+    let mut p = LayerPoint::new(x0, y0);
+
+    let x_most = clip.max_x();
+    let y_most = clip.max_y();
+
+    let x_count = f32::ceil((x_most - x0) / stride.width) as i32;
+    let y_count = f32::ceil((y_most - y0) / stride.height) as i32;
+
+    for y in 0..y_count {
+        let mut row_flags = EdgeAaSegmentMask::empty();
+        if y == 0 {
+            row_flags |= EdgeAaSegmentMask::TOP;
+        }
+        if y == y_count - 1 {
+            row_flags |= EdgeAaSegmentMask::BOTTOM;
+        }
+
+        for x in 0..x_count {
+            let mut edge_flags = row_flags;
+            if x == 0 {
+                edge_flags |= EdgeAaSegmentMask::LEFT;
+            }
+            if x == x_count - 1 {
+                edge_flags |= EdgeAaSegmentMask::RIGHT;
+            }
+
+            callback(&p, edge_flags);
+
+            p.x += stride.width;
+        }
+
+        p.x = x0;
+        p.y += stride.height;
     }
 }

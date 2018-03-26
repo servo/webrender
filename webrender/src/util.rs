@@ -156,6 +156,22 @@ pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
     (b - a) * t + a
 }
 
+pub fn screen_to_layer_bounding_rect(
+    transform: &WorldToLayerFastTransform,
+    rect: &DeviceRect,
+    device_pixel_scale: DevicePixelScale,
+) -> LayerRect {
+    let rect = *rect / device_pixel_scale;
+    let points = [
+        transform.transform_point2d(&rect.origin),
+        transform.transform_point2d(&rect.top_right()),
+        transform.transform_point2d(&rect.bottom_left()),
+        transform.transform_point2d(&rect.bottom_right()),
+    ];
+
+    LayerRect::from_points(&points)
+}
+
 pub fn calculate_screen_bounding_rect(
     transform: &LayerToWorldFastTransform,
     rect: &LayerRect,

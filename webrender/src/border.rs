@@ -458,6 +458,7 @@ impl<'a> DisplayListFlattener<'a> {
                         segment(p1.x, p0.y, p2.x, p1.y),
                     ],
                     clip_mask_kind: BrushClipMaskKind::Unknown,
+                    source_per_segment: false,
                 };
 
                 self.add_solid_rectangle(
@@ -474,6 +475,7 @@ impl<'a> DisplayListFlattener<'a> {
                         segment(p0.x, p1.y, p1.x, p2.y),
                     ],
                     clip_mask_kind: BrushClipMaskKind::Unknown,
+                    source_per_segment: false,
                 };
 
                 self.add_solid_rectangle(
@@ -490,6 +492,7 @@ impl<'a> DisplayListFlattener<'a> {
                         segment(p2.x, p1.y, p3.x, p2.y),
                     ],
                     clip_mask_kind: BrushClipMaskKind::Unknown,
+                    source_per_segment: false,
                 };
 
                 self.add_solid_rectangle(
@@ -508,6 +511,7 @@ impl<'a> DisplayListFlattener<'a> {
                         segment(p0.x, p2.y, p1.x, p3.y),
                     ],
                     clip_mask_kind: BrushClipMaskKind::Unknown,
+                    source_per_segment: false,
                 };
 
                 self.add_solid_rectangle(
