@@ -14,6 +14,7 @@ use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use prim_store::{PrimitiveIndex, ImageCacheKey};
 #[cfg(feature = "debugger")]
 use print_tree::{PrintTreePrinter};
+use render_backend::FrameId;
 use resource_cache::{CacheItem, ResourceCache};
 use std::{cmp, ops, usize, f32, i32};
 use texture_cache::{TextureCache, TextureCacheHandle};
@@ -27,7 +28,7 @@ pub const MIN_DOWNSCALING_RT_SIZE: i32 = 128;
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct RenderTaskId(pub u32); // TODO(gw): Make private when using GPU cache!
+pub struct RenderTaskId(pub u32, FrameId); // TODO(gw): Make private when using GPU cache!
 
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
@@ -42,24 +43,27 @@ pub struct RenderTaskTree {
     pub tasks: Vec<RenderTask>,
     pub task_data: Vec<RenderTaskData>,
     next_saved: SavedTargetIndex,
+    frame_id: FrameId,
 }
 
 impl RenderTaskTree {
-    pub fn new() -> Self {
+    pub fn new(frame_id: FrameId) -> Self {
         RenderTaskTree {
             tasks: Vec::new(),
             task_data: Vec::new(),
             next_saved: SavedTargetIndex(0),
+            frame_id,
         }
     }
 
     pub fn add(&mut self, task: RenderTask) -> RenderTaskId {
-        let id = RenderTaskId(self.tasks.len() as u32);
+        let id = self.tasks.len();
         self.tasks.push(task);
-        id
+        RenderTaskId(id as _, self.frame_id)
     }
 
     pub fn max_depth(&self, id: RenderTaskId, depth: usize, max_depth: &mut usize) {
+        debug_assert_eq!(self.frame_id, id.1);
         let depth = depth + 1;
         *max_depth = cmp::max(*max_depth, depth);
         let task = &self.tasks[id.0 as usize];
@@ -74,6 +78,7 @@ impl RenderTaskTree {
         pass_index: usize,
         passes: &mut Vec<RenderPass>,
     ) {
+        debug_assert_eq!(self.frame_id, id.1);
         let task = &self.tasks[id.0 as usize];
 
         for child in &task.children {
@@ -106,6 +111,7 @@ impl RenderTaskTree {
     }
 
     pub fn get_task_address(&self, id: RenderTaskId) -> RenderTaskAddress {
+        debug_assert_eq!(self.frame_id, id.1);
         RenderTaskAddress(id.0)
     }
 
@@ -125,12 +131,14 @@ impl RenderTaskTree {
 impl ops::Index<RenderTaskId> for RenderTaskTree {
     type Output = RenderTask;
     fn index(&self, id: RenderTaskId) -> &RenderTask {
+        debug_assert_eq!(self.frame_id, id.1);
         &self.tasks[id.0 as usize]
     }
 }
 
 impl ops::IndexMut<RenderTaskId> for RenderTaskTree {
     fn index_mut(&mut self, id: RenderTaskId) -> &mut RenderTask {
+        debug_assert_eq!(self.frame_id, id.1);
         &mut self.tasks[id.0 as usize]
     }
 }
