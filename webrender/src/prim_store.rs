@@ -5,7 +5,7 @@
 use api::{AlphaType, BorderRadius, BoxShadowClipMode, BuiltDisplayList, ClipMode, ColorF, ComplexClipRegion};
 use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, FontRenderMode};
 use api::{FilterOp, GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
-use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D};
+use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, DeviceRect};
 use api::{PipelineId, PremultipliedColorF, Shadow, YuvColorSpace, YuvFormat};
 use border::{BorderCornerInstance, BorderEdgeKind};
 use box_shadow::BLUR_SAMPLE_SCALE;
@@ -13,12 +13,14 @@ use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, CoordinateSystemId};
 use clip_scroll_node::ClipScrollNode;
 use clip::{ClipChain, ClipChainNode, ClipChainNodeIter, ClipChainNodeRef, ClipSource};
 use clip::{ClipSourcesHandle, ClipWorkItem};
+use euclid::rect;
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
 use frame_builder::PrimitiveRunContext;
 use glyph_rasterizer::{FontInstance, FontTransform};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
 use gpu_types::{ClipChainRectIndex};
+use image::for_each_repetition;
 use picture::{PictureCompositeMode, PicturePrimitive};
 use render_task::{BlitSource, RenderTask, RenderTaskCacheKey, RenderTaskCacheKeyKind};
 use render_task::RenderTaskId;
@@ -28,7 +30,7 @@ use segment::SegmentBuilder;
 use std::{mem, usize};
 use std::sync::Arc;
 use util::{MatrixHelpers, WorldToLayerFastTransform, calculate_screen_bounding_rect};
-use util::{pack_as_float, recycle_vec};
+use util::{pack_as_float, recycle_vec, screen_to_layer_bounding_rect};
 
 
 const MIN_BRUSH_SPLIT_AREA: f32 = 256.0 * 256.0;
@@ -206,6 +208,8 @@ pub enum BrushKind {
         request: ImageRequest,
         current_epoch: Epoch,
         alpha_type: AlphaType,
+        stretch_size: LayerSize,
+        tile_spacing: LayerSize,
     },
     YuvImage {
         yuv_key: [ImageKey; 3],
@@ -294,10 +298,27 @@ pub enum BrushClipMaskKind {
     Global,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum SegmentSrc {
+    /// Segments sample their corresponding part of the source pattern.
+    ///
+    /// This is the common case, useful when using segments for clipping.
+    Auto,
+    /// All segments sample from the entire source pattern.
+    ///
+    /// Useful when segments are used to decompose a repeated pattern.
+    Full,
+    /// We don't have a source pattern for this type of brush.
+    ///
+    /// This lets us avoid computing the uv rect for primitives that won't use it like solid colors.
+    None,
+}
+
 #[derive(Debug)]
 pub struct BrushSegmentDescriptor {
     pub segments: Vec<BrushSegment>,
     pub clip_mask_kind: BrushClipMaskKind,
+    pub src: SegmentSrc,
 }
 
 #[derive(Debug)]
@@ -1288,7 +1309,7 @@ impl PrimitiveStore {
                 let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
 
                 match brush.kind {
-                    BrushKind::Image { request, ref mut current_epoch, .. } => {
+                    BrushKind::Image { request, ref mut current_epoch, stretch_size, tile_spacing, .. } => {
                         let image_properties = frame_state
                             .resource_cache
                             .get_image_properties(request.key);
@@ -1306,6 +1327,67 @@ impl PrimitiveStore {
                             request,
                             frame_state.gpu_cache,
                         );
+
+                        // If the image is repeated it has to be decomposed on the CPU.
+                        if tile_spacing != LayerSize::zero() || stretch_size != metadata.local_rect.size {
+                            // TODO: If the stretch size is larger than the local rect we end up generating a single
+                            // segment, and lose the ability to further segment the primitive for cliping purposes.
+
+                            let mut visible_rect = metadata.local_clip_rect;
+
+                            if let Some(transform) = prim_run_context.scroll_node.world_content_transform.inverse() {
+                                let screen_rect = screen_to_layer_bounding_rect(
+                                    &transform,
+                                    &prim_run_context.clip_chain.combined_outer_screen_rect.to_f32(),
+                                    frame_context.device_pixel_scale
+                                );
+
+                                visible_rect = visible_rect.intersection(&screen_rect).unwrap_or(LayerRect::zero());
+                            } else {
+                                // TODO: If we don't restrict decomposition to the visible area because the transform
+                                // isn't invertible we might generate a lot of segments.
+                                // Maybe in this situation the best we can do is to cull clusters of N repetitions
+                                // in screen space. We can do this as part of the work to handle large amounts
+                                // of repetitions.
+                            }
+
+                            let stride = stretch_size + tile_spacing;
+                            let mut base_edge_flags = EdgeAaSegmentMask::empty();
+                            if tile_spacing.width > 0.0 {
+                                base_edge_flags |= EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::RIGHT;
+                            }
+                            if tile_spacing.height > 0.0 {
+                                base_edge_flags |= EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::BOTTOM;
+                            }
+
+                            // TODO(review) should this always be true?
+                            let may_need_clip_mask = true;
+
+                            let mut segments = brush.segment_desc.take().map_or(Vec::new(), |desc| desc.segments);
+                            segments.clear();
+
+                            for_each_repetition(
+                                &metadata.local_rect,
+                                &visible_rect,
+                                &stride,
+                                &mut |origin, edge_flags| {
+                                    segments.push(
+                                        BrushSegment::new(
+                                            *origin,
+                                            stretch_size,
+                                            may_need_clip_mask,
+                                            base_edge_flags | edge_flags,
+                                        ),
+                                    );
+                                }
+                            );
+
+                            brush.segment_desc = Some(BrushSegmentDescriptor {
+                                segments,
+                                clip_mask_kind: BrushClipMaskKind::Unknown,
+                                src: SegmentSrc::Full,
+                            });
+                        }
                     }
                     BrushKind::YuvImage { format, yuv_key, image_rendering, .. } => {
                         let channel_num = format.get_plane_num();
@@ -1368,7 +1450,7 @@ impl PrimitiveStore {
         if let Some(mut request) = frame_state.gpu_cache.request(&mut metadata.gpu_location) {
             // has to match VECS_PER_BRUSH_PRIM
             request.push(metadata.local_rect);
-            request.push(metadata.local_clip_rect);
+            request.push(metadata.local_clip_rect.intersection(&metadata.local_rect).unwrap());
 
             match metadata.prim_kind {
                 PrimitiveKind::Border => {
@@ -1389,12 +1471,31 @@ impl PrimitiveStore {
                     match brush.segment_desc {
                         Some(ref segment_desc) => {
                             for segment in &segment_desc.segments {
+                                let uv_rect = match segment_desc.src {
+                                    SegmentSrc::None => rect(0.0, 0.0, 0.0, 0.0),
+                                    SegmentSrc::Full => rect(0.0, 0.0, 1.0, 1.0),
+                                    SegmentSrc::Auto => {
+                                        let relative_origin = segment.local_rect.origin - metadata.local_rect.origin;
+                                        rect(
+                                            relative_origin.x / metadata.local_rect.size.width,
+                                            relative_origin.y / metadata.local_rect.size.height,
+                                            segment.local_rect.size.width / metadata.local_rect.size.width,
+                                            segment.local_rect.size.height / metadata.local_rect.size.height,
+                                        )
+                                    }
+                                };
                                 // has to match VECS_PER_SEGMENT
-                                request.write_segment(segment.local_rect);
+                                request.write_segment(
+                                    segment.local_rect,
+                                    uv_rect,
+                                );
                             }
                         }
                         None => {
-                            request.write_segment(metadata.local_rect);
+                            request.write_segment(
+                                metadata.local_rect,
+                                rect(0.0, 0.0, 1.0, 1.0),
+                            );
                         }
                     }
                 }
@@ -1529,6 +1630,12 @@ impl PrimitiveStore {
                 //           retaining it across primitives.
                 let mut segments = Vec::new();
 
+                let segment_src = match brush.kind {
+                    BrushKind::Solid { .. } |
+                    BrushKind::Clear  => SegmentSrc::None,
+                    _ => SegmentSrc::Auto,
+                };
+
                 segment_builder.build(|segment| {
                     segments.push(
                         BrushSegment::new(
@@ -1543,6 +1650,7 @@ impl PrimitiveStore {
                 brush.segment_desc = Some(BrushSegmentDescriptor {
                     segments,
                     clip_mask_kind,
+                    src: segment_src,
                 });
             }
         }
@@ -2121,20 +2229,13 @@ fn get_local_clip_rect_for_nodes(
 
 impl<'a> GpuDataRequest<'a> {
     // Write the GPU cache data for an individual segment.
-    // TODO(gw): The second block is currently unused. In
-    //           the future, it will be used to store a
-    //           UV rect, allowing segments to reference
-    //           part of an image.
     fn write_segment(
         &mut self,
         local_rect: LayerRect,
+        // The sub-rect that this segment samples from in normalized coordinates.
+        src_rect: DeviceRect,
     ) {
         self.push(local_rect);
-        self.push([
-            0.0,
-            0.0,
-            0.0,
-            0.0
-        ]);
+        self.push(src_rect);
     }
 }

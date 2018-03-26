@@ -7,7 +7,8 @@
 void brush_vs(
     VertexInfo vi,
     int prim_address,
-    RectWithSize local_rect,
+    RectWithSize segment_local_rect,
+    RectWithSize segment_uv_rect,
     ivec3 user_data,
     PictureTask pic_task
 );
@@ -82,6 +83,8 @@ void main(void) {
 
     vec4[2] segment_data = fetch_from_resource_cache_2(segment_address);
     RectWithSize local_segment_rect = RectWithSize(segment_data[0].xy, segment_data[0].zw);
+    // A sub-rect within the primitive's uv rect.
+    RectWithSize segment_uv_rect = RectWithSize(segment_data[1].xy, segment_data[1].zw);
 
     VertexInfo vi;
 
@@ -140,11 +143,14 @@ void main(void) {
     );
 #endif
 
+
+
     // Run the specific brush VS code to write interpolators.
     brush_vs(
         vi,
         brush.prim_address + VECS_PER_BRUSH_PRIM,
-        brush_prim.local_rect,
+        local_segment_rect,
+        segment_uv_rect,
         brush.user_data,
         pic_task
     );

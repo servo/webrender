@@ -42,7 +42,8 @@ ImageBrush fetch_image_primitive(int address) {
 void brush_vs(
     VertexInfo vi,
     int prim_address,
-    RectWithSize local_rect,
+    RectWithSize segment_local_rect,
+    RectWithSize segment_src_rect,
     ivec3 user_data,
     PictureTask pic_task
 ) {
@@ -90,7 +91,7 @@ void brush_vs(
             break;
         case RASTER_LOCAL:
         default: {
-            f = (vi.local_pos - local_rect.p0) / local_rect.size;
+            f = (vi.local_pos - segment_local_rect.p0) / segment_local_rect.size;
 
             // Set the clip bounds to a value that won't have any
             // effect for local space images.
@@ -103,8 +104,10 @@ void brush_vs(
         }
     }
 #else
-    f = (vi.local_pos - local_rect.p0) / local_rect.size;
+    f = (vi.local_pos - segment_local_rect.p0) / segment_local_rect.size;
 #endif
+
+    f = segment_src_rect.p0 + f * segment_src_rect.size;
 
     vUv.xy = mix(uv0, uv1, f);
     vUv.xy /= texture_size;

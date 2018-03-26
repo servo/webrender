@@ -2120,17 +2120,21 @@ impl<'a> DisplayListFlattener<'a> {
             tile: tile_offset,
         };
 
+        // We don't yet have a good way to deal with images with large amount of repetitions using
+        // brushes, so fallback to the non-brush image shader for now;
+        let many_repetitions = (stretch_size.width / info.rect.size.width) *
+            (stretch_size.height / info.rect.size.height) > 200.0;
+
         // See if conditions are met to run through the new
         // image brush shader, which supports segments.
-        if tile_spacing == LayerSize::zero() &&
-           stretch_size == info.rect.size &&
-           sub_rect.is_none() &&
-           tile_offset.is_none() {
+        if sub_rect.is_none() && !many_repetitions && tile_offset.is_none() {
             let prim = BrushPrimitive::new(
                 BrushKind::Image {
                     request,
                     current_epoch: Epoch::invalid(),
                     alpha_type,
+                    stretch_size,
+                    tile_spacing,
                 },
                 None,
             );
