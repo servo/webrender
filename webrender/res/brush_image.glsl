@@ -57,11 +57,21 @@ vec2 transform_point_snapped(
 void brush_vs(
     VertexInfo vi,
     int prim_address,
-    RectWithSize local_rect,
+    RectWithSize prim_local_rect,
+    RectWithSize segment_local_rect,
     ivec3 user_data,
     mat4 transform,
     PictureTask pic_task
 ) {
+    // We will derive the uv coordinates from the local rect, using either the segment or
+    // the primitive's local rect depending on whether we want each segment to sample from
+    // the entire image or parts of it.
+    RectWithSize local_rect = prim_local_rect;
+    int segment_source = (user_data.y >> 8) & 0xff;
+    if (segment_source == SEGMENT_SOURCE_FULL) {
+        local_rect = segment_local_rect;
+    }
+
     // If this is in WR_FEATURE_TEXTURE_RECT mode, the rect and size use
     // non-normalized texture coordinates.
 #ifdef WR_FEATURE_TEXTURE_RECT
@@ -89,8 +99,8 @@ void brush_vs(
     vec2 f;
 
 #ifdef WR_FEATURE_ALPHA_PASS
-    int image_source = user_data.y >> 16;
-    int raster_space = user_data.y & 0xffff;
+    int image_source = (user_data.y >> 16) & 0xff;
+    int raster_space = user_data.y & 0xff;
 
     // Derive the texture coordinates for this image, based on
     // whether the source image is a local-space or screen-space

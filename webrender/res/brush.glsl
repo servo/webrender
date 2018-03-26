@@ -7,7 +7,8 @@
 void brush_vs(
     VertexInfo vi,
     int prim_address,
-    RectWithSize local_rect,
+    RectWithSize prim_local_rect,
+    RectWithSize segment_local_rect,
     ivec3 user_data,
     mat4 transform,
     PictureTask pic_task
@@ -17,6 +18,9 @@ void brush_vs(
 #define VECS_PER_SEGMENT                    2
 
 #define BRUSH_FLAG_PERSPECTIVE_INTERPOLATION    1
+
+#define SEGMENT_SOURCE_AUTO 0
+#define SEGMENT_SOURCE_FULL 1
 
 struct BrushInstance {
     int picture_address;
@@ -146,6 +150,7 @@ void main(void) {
         vi,
         brush.prim_address + VECS_PER_BRUSH_PRIM,
         brush_prim.local_rect,
+        local_segment_rect,
         brush.user_data,
         scroll_node.transform,
         pic_task

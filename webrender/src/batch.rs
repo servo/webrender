@@ -19,7 +19,7 @@ use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::{PictureCompositeMode, PicturePrimitive};
 use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{CachedGradient, ImageSource, PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
-use prim_store::{BrushPrimitive, BrushKind, DeferredResolve, EdgeAaSegmentMask, PictureIndex, PrimitiveRun};
+use prim_store::{BrushPrimitive, BrushKind, DeferredResolve, EdgeAaSegmentMask, PictureIndex, PrimitiveRun, SegmentSrc};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKind, RenderTaskTree};
 use renderer::{BlendMode, ImageBufferKind};
 use renderer::BLOCKS_PER_UV_RECT;
@@ -47,7 +47,7 @@ pub enum TransformBatchKind {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BrushImageSourceKind {
     Color = 0,
-    //Alpha = 1,            // Unused for now, but left here as shaders need to match.
+    //Alpha = 0x1,            // Unused for now, but left here as shaders need to match.
     ColorAlphaMask = 2,
 }
 
@@ -1255,6 +1255,11 @@ impl BrushPrimitive {
     ) -> Option<(BrushBatchKind, BatchTextures, [i32; 3])> {
         match self.kind {
             BrushKind::Image { request, .. } => {
+                let segment_src = match self.segment_desc {
+                    Some(ref desc) => { desc.src }
+                    None => SegmentSrc::Auto,
+                };
+
                 let cache_item = resolve_image(
                     request,
                     resource_cache,
@@ -1266,13 +1271,13 @@ impl BrushPrimitive {
                     None
                 } else {
                     let textures = BatchTextures::color(cache_item.texture_id);
-
                     Some((
                         BrushBatchKind::Image(get_buffer_kind(cache_item.texture_id)),
                         textures,
                         [
                             cache_item.uv_rect_handle.as_int(gpu_cache),
-                            (BrushImageSourceKind::Color as i32) << 16|
+                            (BrushImageSourceKind::Color as i32) << 16 |
+                            (segment_src as i32) << 8 |
                              RasterizationSpace::Local as i32,
                             0,
                         ],

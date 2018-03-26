@@ -9,7 +9,7 @@ use ellipse::Ellipse;
 use display_list_flattener::DisplayListFlattener;
 use gpu_cache::GpuDataRequest;
 use prim_store::{BorderPrimitiveCpu, BrushClipMaskKind, BrushSegment, BrushSegmentDescriptor};
-use prim_store::{EdgeAaSegmentMask, PrimitiveContainer, ScrollNodeAndClipChain};
+use prim_store::{EdgeAaSegmentMask, PrimitiveContainer, ScrollNodeAndClipChain, SegmentSrc};
 use util::{lerp, pack_as_float};
 
 #[repr(u8)]
@@ -458,6 +458,7 @@ impl<'a> DisplayListFlattener<'a> {
                         segment(p1.x, p0.y, p2.x, p1.y),
                     ],
                     clip_mask_kind: BrushClipMaskKind::Unknown,
+                    src: SegmentSrc::Auto,
                 };
 
                 self.add_solid_rectangle(
@@ -474,6 +475,7 @@ impl<'a> DisplayListFlattener<'a> {
                         segment(p0.x, p1.y, p1.x, p2.y),
                     ],
                     clip_mask_kind: BrushClipMaskKind::Unknown,
+                    src: SegmentSrc::Auto,
                 };
 
                 self.add_solid_rectangle(
@@ -490,6 +492,7 @@ impl<'a> DisplayListFlattener<'a> {
                         segment(p2.x, p1.y, p3.x, p2.y),
                     ],
                     clip_mask_kind: BrushClipMaskKind::Unknown,
+                    src: SegmentSrc::Auto,
                 };
 
                 self.add_solid_rectangle(
@@ -508,6 +511,7 @@ impl<'a> DisplayListFlattener<'a> {
                         segment(p0.x, p2.y, p1.x, p3.y),
                     ],
                     clip_mask_kind: BrushClipMaskKind::Unknown,
+                    src: SegmentSrc::Auto,
                 };
 
                 self.add_solid_rectangle(

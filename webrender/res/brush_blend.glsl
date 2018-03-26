@@ -20,7 +20,8 @@ flat varying vec4 vUvClipBounds;
 void brush_vs(
     VertexInfo vi,
     int prim_address,
-    RectWithSize local_rect,
+    RectWithSize prim_local_rect,
+    RectWithSize segment_local_rect,
     ivec3 user_data,
     mat4 transform,
     PictureTask pic_task

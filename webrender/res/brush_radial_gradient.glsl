@@ -34,14 +34,15 @@ RadialGradient fetch_radial_gradient(int address) {
 void brush_vs(
     VertexInfo vi,
     int prim_address,
-    RectWithSize local_rect,
+    RectWithSize prim_local_rect,
+    RectWithSize segment_local_rect,
     ivec3 user_data,
     mat4 transform,
     PictureTask pic_task
 ) {
     RadialGradient gradient = fetch_radial_gradient(prim_address);
 
-    vPos = vi.local_pos - local_rect.p0;
+    vPos = vi.local_pos - prim_local_rect.p0;
 
     vCenter = gradient.center_start_end_radius.xy;
     vStartRadius = gradient.center_start_end_radius.z;

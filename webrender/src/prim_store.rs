@@ -20,6 +20,7 @@ use glyph_rasterizer::{FontInstance, FontTransform};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
 use gpu_types::{ClipChainRectIndex};
+use image::for_each_repetition;
 use picture::{PictureCompositeMode, PicturePrimitive};
 use render_task::{BlitSource, RenderTask, RenderTaskCacheKey};
 use render_task::{RenderTaskCacheKeyKind, RenderTaskId};
@@ -213,6 +214,8 @@ pub enum BrushKind {
         request: ImageRequest,
         current_epoch: Epoch,
         alpha_type: AlphaType,
+        stretch_size: LayerSize,
+        tile_spacing: LayerSize,
     },
     YuvImage {
         yuv_key: [ImageKey; 3],
@@ -304,10 +307,26 @@ pub enum BrushClipMaskKind {
     Global,
 }
 
+#[repr(i32)]
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum SegmentSrc {
+    /// Segments sample their corresponding part of the source pattern.
+    ///
+    /// This is the common case, useful when using segments for clipping.
+    /// This must correspond to SEGMENT_SOURCE_AUTO in brush.glsl.
+    Auto = 0,
+    /// All segments sample from the entire source pattern.
+    ///
+    /// Useful when segments are used to decompose a repeated pattern.
+    /// This must correspond to SEGMENT_SOURCE_FULL in brush.glsl.
+    Full = 1,
+}
+
 #[derive(Debug)]
 pub struct BrushSegmentDescriptor {
     pub segments: Vec<BrushSegment>,
     pub clip_mask_kind: BrushClipMaskKind,
+    pub src: SegmentSrc,
 }
 
 #[derive(Debug)]
@@ -1301,7 +1320,7 @@ impl PrimitiveStore {
                 let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
 
                 match brush.kind {
-                    BrushKind::Image { request, ref mut current_epoch, .. } => {
+                    BrushKind::Image { request, ref mut current_epoch, stretch_size, tile_spacing, .. } => {
                         let image_properties = frame_state
                             .resource_cache
                             .get_image_properties(request.key);
@@ -1319,6 +1338,72 @@ impl PrimitiveStore {
                             request,
                             frame_state.gpu_cache,
                         );
+
+                        // If the image is repeated it has to be decomposed on the CPU.
+                        if tile_spacing != LayerSize::zero() || stretch_size != metadata.local_rect.size {
+                            let mut visible_rect = metadata.local_clip_rect;
+
+                            let world_screen_rect = prim_run_context
+                                .clip_chain.combined_outer_screen_rect
+                                .to_f32() / frame_context.device_pixel_scale;
+                            if let Some(layer_screen_rect) = prim_run_context
+                                .scroll_node
+                                .world_content_transform
+                                .unapply(&world_screen_rect) {
+
+                                visible_rect = visible_rect.intersection(&layer_screen_rect)
+                                    .unwrap_or(LayerRect::zero());
+
+                            }
+
+                            // If there is spacing between repetitions we need to consider anti-aliasing
+                            // along the border of the segments accordingly.
+                            let mut base_edge_flags = EdgeAaSegmentMask::empty();
+                            if tile_spacing.width > 0.0 {
+                                base_edge_flags |= EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::RIGHT;
+                            }
+                            if tile_spacing.height > 0.0 {
+                                base_edge_flags |= EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::BOTTOM;
+                            }
+
+                            // TODO(review) should this always be true?
+                            let may_need_clip_mask = true;
+
+                            let mut segments = brush.segment_desc.take().map_or(Vec::new(), |desc| desc.segments);
+                            let previous_segment_count = segments.len();
+                            segments.clear();
+
+                            let stride = stretch_size + tile_spacing;
+                            for_each_repetition(
+                                &metadata.local_rect,
+                                &visible_rect,
+                                &stride,
+                                &mut |origin, edge_flags| {
+                                    segments.push(
+                                        BrushSegment::new(
+                                            *origin,
+                                            stretch_size,
+                                            may_need_clip_mask,
+                                            base_edge_flags | edge_flags,
+                                        ),
+                                    );
+                                }
+                            );
+
+                            // If the number of gpu blocks for the reuqest changes we can't reuse
+                            // the same gpu location.
+                            if previous_segment_count == segments.len() {
+                                frame_state.gpu_cache.invalidate(&metadata.gpu_location);
+                            } else {
+                                metadata.gpu_location = GpuCacheHandle::new();
+                            }
+
+                            brush.segment_desc = Some(BrushSegmentDescriptor {
+                                segments,
+                                clip_mask_kind: BrushClipMaskKind::Unknown,
+                                src: SegmentSrc::Full,
+                            });
+                        }
                     }
                     BrushKind::YuvImage { format, yuv_key, image_rendering, .. } => {
                         let channel_num = format.get_plane_num();
@@ -1407,7 +1492,7 @@ impl PrimitiveStore {
         if let Some(mut request) = frame_state.gpu_cache.request(&mut metadata.gpu_location) {
             // has to match VECS_PER_BRUSH_PRIM
             request.push(metadata.local_rect);
-            request.push(metadata.local_clip_rect);
+            request.push(metadata.local_clip_rect.intersection(&metadata.local_rect).unwrap());
 
             match metadata.prim_kind {
                 PrimitiveKind::Border => {
@@ -1582,6 +1667,7 @@ impl PrimitiveStore {
                 brush.segment_desc = Some(BrushSegmentDescriptor {
                     segments,
                     clip_mask_kind,
+                    src: SegmentSrc::Auto,
                 });
             }
         }
@@ -2170,7 +2256,7 @@ impl<'a> GpuDataRequest<'a> {
     //           part of an image.
     fn write_segment(
         &mut self,
-        local_rect: LayerRect,
+        local_rect: LayerRect
     ) {
         self.push(local_rect);
         self.push([
