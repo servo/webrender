@@ -1145,7 +1145,7 @@ pub struct Renderer {
 
     clear_color: Option<ColorF>,
     enable_clear_scissor: bool,
-    debug: DebugRenderer,
+    debug: Option<DebugRenderer>,
     debug_flags: DebugFlags,
     backend_profile_counters: BackendProfileCounters,
     profile_counters: RendererProfileCounters,
@@ -1385,7 +1385,11 @@ impl Renderer {
             None
         };
 
-        let debug_renderer = DebugRenderer::new(&mut device);
+        let debug_renderer = if options.debug_renderer_enabled {
+            Some(DebugRenderer::new(&mut device))
+        } else {
+            None
+        };
 
         let x0 = 0.0;
         let y0 = 0.0;
@@ -2137,10 +2141,12 @@ impl Renderer {
             self.cpu_profiles.push_back(cpu_profile);
         }
 
-        if self.debug_flags.contains(DebugFlags::PROFILER_DBG) {
+        if self.debug_flags.contains(DebugFlags::PROFILER_DBG) &&
+           self.debug.is_some() {
             if let Some(framebuffer_size) = framebuffer_size {
                 //TODO: take device/pixel ratio into equation?
                 let screen_fraction = 1.0 / framebuffer_size.to_f32().area();
+                let debug_renderer = self.debug.as_mut().unwrap();
                 self.profiler.draw_profile(
                     &frame_profiles,
                     &self.backend_profile_counters,
@@ -2148,7 +2154,7 @@ impl Renderer {
                     &mut profile_timers,
                     &profile_samplers,
                     screen_fraction,
-                    &mut self.debug,
+                    debug_renderer,
                     self.debug_flags.contains(DebugFlags::COMPACT_PROFILER),
                 );
             }
@@ -2161,7 +2167,9 @@ impl Renderer {
         profile_timers.cpu_time.profile(|| {
             let _gm = self.gpu_profile.start_marker("end frame");
             self.gpu_profile.end_frame();
-            self.debug.render(&mut self.device, framebuffer_size);
+            if let Some(ref mut debug_renderer) = self.debug {
+                debug_renderer.render(&mut self.device, framebuffer_size);
+            }
             self.device.end_frame();
         });
         self.last_time = current_time;
@@ -3524,8 +3532,8 @@ impl Renderer {
         frame.has_been_rendered = true;
     }
 
-    pub fn debug_renderer<'b>(&'b mut self) -> &'b mut DebugRenderer {
-        &mut self.debug
+    pub fn debug_renderer<'b>(&'b mut self) -> Option<&'b mut DebugRenderer> {
+        self.debug.as_mut()
     }
 
     pub fn get_debug_flags(&self) -> DebugFlags {
@@ -3657,18 +3665,21 @@ impl Renderer {
     }
 
     fn draw_epoch_debug(&mut self) {
-        if !self.debug_flags.contains(DebugFlags::EPOCHS) {
+        if !self.debug_flags.contains(DebugFlags::EPOCHS) || 
+            self.debug.is_none() {
             return;
         }
 
-        let dy = self.debug.line_height();
+        let debug_renderer = self.debug.as_mut().unwrap();
+
+        let dy = debug_renderer.line_height();
         let x0: f32 = 30.0;
         let y0: f32 = 30.0;
         let mut y = y0;
         let mut text_width = 0.0;
         for (pipeline, epoch) in  &self.pipeline_info.epochs {
             y += dy;
-            let w = self.debug.add_text(
+            let w = debug_renderer.add_text(
                 x0, y,
                 &format!("{:?}: {:?}", pipeline, epoch),
                 ColorU::new(255, 255, 0, 255),
@@ -3677,7 +3688,7 @@ impl Renderer {
         }
 
         let margin = 10.0;
-        self.debug.add_quad(
+        debug_renderer.add_quad(
             &x0 - margin,
             y0 - margin,
             x0 + text_width + margin,
@@ -3729,7 +3740,9 @@ impl Renderer {
         self.device.delete_vao(self.prim_vao);
         self.device.delete_vao(self.clip_vao);
         self.device.delete_vao(self.blur_vao);
-        self.debug.deinit(&mut self.device);
+        if let Some(debug_renderer) = self.debug {
+            debug_renderer.deinit(&mut self.device);
+        }
         for (_, target) in self.output_targets {
             self.device.delete_fbo(target.fbo_id);
         }
@@ -3820,6 +3833,13 @@ pub struct RendererOptions {
     pub debug_flags: DebugFlags,
     pub renderer_id: Option<u64>,
     pub disable_dual_source_blending: bool,
+    /// If the `DebugRenderer` infrastructure should be enabled or not.
+    /// If this is set to `false`, the [`Renderer::debug_renderer()`]
+    /// will return `None`. By default, this feature is enabled, even in release mode. 
+    /// Disabling the debug renderer can save a bit of startup time.
+    ///
+    /// [`Renderer::debug_renderer()`]: ./struct.Renderer.html#method.debug_renderer
+    pub debug_renderer_enabled: bool,
 }
 
 impl Default for RendererOptions {
@@ -3851,6 +3871,7 @@ impl Default for RendererOptions {
             renderer_id: None,
             cached_programs: None,
             disable_dual_source_blending: false,
+            debug_renderer_enabled: true,
         }
     }
 }
