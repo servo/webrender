@@ -53,4 +53,4 @@ platform(linux) == writing-modes.yaml writing-modes-ref.yaml
 platform(linux) == blurred-shadow-local-clip-rect.yaml blurred-shadow-local-clip-rect-ref.png
 platform(linux) == two-shadows.yaml two-shadows.png
 == shadow-clip.yaml shadow-clip-ref.yaml
-fuzzy(1,47) platform(linux) == shadow-transforms.yaml shadow-transforms.png
+fuzzy(1,68) platform(linux) == shadow-transforms.yaml shadow-transforms.png
