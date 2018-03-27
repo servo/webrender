@@ -203,14 +203,20 @@ impl ClipSource {
         );
 
         // If the width or height ends up being bigger than the original
-        // primitive shadow rect, just blur the entire rect and draw that
-        // as a simple blit. This is necessary for correctness, since the
-        // blur of one corner may affect the blur in another corner.
-        let mut stretch_mode = BoxShadowStretchMode::Stretch;
-        if shadow_rect.size.width < minimal_shadow_rect.size.width ||
-           shadow_rect.size.height < minimal_shadow_rect.size.height {
-            minimal_shadow_rect.size = shadow_rect.size;
-            stretch_mode = BoxShadowStretchMode::Simple;
+        // primitive shadow rect, just blur the entire rect along that
+        // axis and draw that as a simple blit. This is necessary for
+        // correctness, since the blur of one corner may affect the blur
+        // in another corner.
+        let mut stretch_mode_x = BoxShadowStretchMode::Stretch;
+        if shadow_rect.size.width < minimal_shadow_rect.size.width {
+            minimal_shadow_rect.size.width = shadow_rect.size.width;
+            stretch_mode_x = BoxShadowStretchMode::Simple;
+        }
+
+        let mut stretch_mode_y = BoxShadowStretchMode::Stretch;
+        if shadow_rect.size.height < minimal_shadow_rect.size.height {
+            minimal_shadow_rect.size.height = shadow_rect.size.height;
+            stretch_mode_y = BoxShadowStretchMode::Simple;
         }
 
         // Expand the shadow rect by enough room for the blur to take effect.
@@ -225,7 +231,8 @@ impl ClipSource {
             prim_shadow_rect,
             blur_radius,
             clip_mode,
-            stretch_mode,
+            stretch_mode_x,
+            stretch_mode_y,
             cache_item: CacheItem::invalid(),
             cache_key: None,
             clip_data_handle: GpuCacheHandle::new(),
@@ -343,7 +350,13 @@ impl ClipSources {
                             info.shadow_rect_alloc_size.width,
                             info.shadow_rect_alloc_size.height,
                             info.clip_mode as i32 as f32,
-                            info.stretch_mode as i32 as f32,
+                            0.0,
+                        ]);
+                        request.push([
+                            info.stretch_mode_x as i32 as f32,
+                            info.stretch_mode_y as i32 as f32,
+                            0.0,
+                            0.0,
                         ]);
                         request.push(info.prim_shadow_rect);
                     }

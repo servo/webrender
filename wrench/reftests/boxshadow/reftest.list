@@ -25,4 +25,5 @@ fuzzy(1,4) == inset-downscale.yaml inset-downscale.png
 fuzzy(1,685) == overlap1.yaml overlap1.png
 == overlap2.yaml overlap2.png
 == no-stretch.yaml no-stretch.png
-
+== box-shadow-stretch-mode-x.yaml box-shadow-stretch-mode-x.png
+== box-shadow-stretch-mode-y.yaml box-shadow-stretch-mode-y.png
