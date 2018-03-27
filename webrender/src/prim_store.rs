@@ -19,7 +19,7 @@ use glyph_rasterizer::{FontInstance, FontTransform};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
 use gpu_types::{ClipChainRectIndex};
-use picture::{PictureCompositeMode, PictureKind, PicturePrimitive};
+use picture::{PictureCompositeMode, PicturePrimitive};
 use render_task::{BlitSource, RenderTask, RenderTaskCacheKey, RenderTaskCacheKeyKind};
 use render_task::RenderTaskId;
 use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
@@ -1805,22 +1805,16 @@ impl PrimitiveStore {
                         return None;
                     }
 
-                    let (inflation_factor, original_reference_frame_index) = match pic.kind {
-                        PictureKind::Image { reference_frame_index, composite_mode, .. } => {
-                            may_need_clip_mask = composite_mode.is_some();
+                    may_need_clip_mask = pic.composite_mode.is_some();
 
-                            let inflation_factor = match composite_mode {
-                                Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
-                                    // The amount of extra space needed for primitives inside
-                                    // this picture to ensure the visibility check is correct.
-                                    BLUR_SAMPLE_SCALE * blur_radius
-                                }
-                                _ => {
-                                    0.0
-                                }
-                            };
-
-                            (inflation_factor, Some(reference_frame_index))
+                    let inflation_factor = match pic.composite_mode {
+                        Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
+                            // The amount of extra space needed for primitives inside
+                            // this picture to ensure the visibility check is correct.
+                            BLUR_SAMPLE_SCALE * blur_radius
+                        }
+                        _ => {
+                            0.0
                         }
                     };
 
@@ -1838,7 +1832,7 @@ impl PrimitiveStore {
                     PictureContext {
                         pipeline_id: pic.pipeline_id,
                         prim_runs: mem::replace(&mut pic.runs, Vec::new()),
-                        original_reference_frame_index,
+                        original_reference_frame_index: Some(pic.reference_frame_index),
                         display_list,
                         inv_world_transform,
                         apply_local_clip_rect: pic.apply_local_clip_rect,
