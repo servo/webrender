@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{ColorF, ColorU};
+#[cfg(feature = "debug_renderer")]
 use debug_render::DebugRenderer;
 use euclid::{Point2D, Rect, Size2D, vec2};
 use query::{GpuSampler, GpuTimer, NamedTag};
@@ -495,6 +496,7 @@ struct ProfileGraph {
 }
 
 impl ProfileGraph {
+    #[cfg(feature = "debug_renderer")]
     fn new(
         max_samples: usize,
         short_description: &'static str,
@@ -506,6 +508,7 @@ impl ProfileGraph {
         }
     }
 
+    #[cfg(feature = "debug_renderer")]
     fn push(&mut self, ns: u64) {
         let ms = ns as f64 / 1000000.0;
         if self.values.len() == self.max_samples {
@@ -534,6 +537,7 @@ impl ProfileGraph {
         stats
     }
 
+    #[cfg(feature = "debug_renderer")]
     fn draw_graph(
         &self,
         x: f32,
@@ -633,15 +637,18 @@ impl ProfileCounter for ProfileGraph {
     }
 }
 
+#[cfg(feature = "debug_renderer")]
 struct GpuFrame {
     total_time: u64,
     samples: Vec<GpuTimer<GpuProfileTag>>,
 }
 
+#[cfg(feature = "debug_renderer")]
 struct GpuFrameCollection {
     frames: VecDeque<GpuFrame>,
 }
 
+#[cfg(feature = "debug_renderer")]
 impl GpuFrameCollection {
     fn new() -> Self {
         GpuFrameCollection {
@@ -660,6 +667,7 @@ impl GpuFrameCollection {
     }
 }
 
+#[cfg(feature = "debug_renderer")]
 impl GpuFrameCollection {
     fn draw(&self, x: f32, y: f32, debug_renderer: &mut DebugRenderer) -> Rect<f32> {
         let graph_rect = Rect::new(
@@ -750,6 +758,7 @@ impl GpuFrameCollection {
     }
 }
 
+#[cfg(feature = "debug_renderer")]
 struct DrawState {
     x_left: f32,
     y_left: f32,
@@ -757,6 +766,7 @@ struct DrawState {
     y_right: f32,
 }
 
+#[cfg(feature = "debug_renderer")]
 pub struct Profiler {
     draw_state: DrawState,
     backend_time: ProfileGraph,
@@ -766,7 +776,9 @@ pub struct Profiler {
     ipc_time: ProfileGraph,
 }
 
+#[cfg(feature = "debug_renderer")]
 impl Profiler {
+
     pub fn new() -> Self {
         Profiler {
             draw_state: DrawState {

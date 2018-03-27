@@ -24,6 +24,7 @@ use batch::{BatchKey, BatchKind, BatchTextures, BrushBatchKind, TransformBatchKi
 #[cfg(any(feature = "capture", feature = "replay"))]
 use capture::{CaptureConfig, ExternalCaptureImage, PlainExternalImage};
 use debug_colors;
+#[cfg(feature = "debug_renderer")]
 use debug_render::DebugRenderer;
 #[cfg(feature = "debugger")]
 use debug_server::{self, DebugServer};
@@ -43,8 +44,10 @@ use internal_types::{CacheTextureId, DebugOutput, FastHashMap, RenderedDocument,
 use internal_types::{TextureUpdateList, TextureUpdateOp, TextureUpdateSource};
 use internal_types::{RenderTargetInfo, SavedTargetIndex};
 use prim_store::DeferredResolve;
-use profiler::{BackendProfileCounters, FrameProfileCounters, Profiler};
-use profiler::{GpuProfileTag, RendererProfileCounters, RendererProfileTimers};
+use profiler::{BackendProfileCounters, FrameProfileCounters,
+               GpuProfileTag, RendererProfileCounters, RendererProfileTimers};
+#[cfg(feature = "debug_renderer")]
+use profiler::Profiler;
 use query::{GpuProfiler, GpuTimer};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use record::ApiRecordingReceiver;
@@ -1145,10 +1148,12 @@ pub struct Renderer {
 
     clear_color: Option<ColorF>,
     enable_clear_scissor: bool,
+    #[cfg(feature = "debug_renderer")]
     debug: Option<DebugRenderer>,
     debug_flags: DebugFlags,
     backend_profile_counters: BackendProfileCounters,
     profile_counters: RendererProfileCounters,
+    #[cfg(feature = "debug_renderer")]
     profiler: Profiler,
     last_time: u64,
 
@@ -1385,6 +1390,7 @@ impl Renderer {
             None
         };
 
+        #[cfg(feature = "debug_renderer")]
         let debug_renderer = if options.debug_renderer_enabled {
             Some(DebugRenderer::new(&mut device))
         } else {
@@ -1542,10 +1548,12 @@ impl Renderer {
             pending_gpu_cache_updates: Vec::new(),
             pending_shader_updates: Vec::new(),
             shaders,
+            #[cfg(feature = "debug_renderer")]
             debug: debug_renderer,
             debug_flags,
             backend_profile_counters: BackendProfileCounters::new(),
             profile_counters: RendererProfileCounters::new(),
+            #[cfg(feature = "debug_renderer")]
             profiler: Profiler::new(),
             max_texture_size: max_device_size,
             max_recorded_profiles: options.max_recorded_profiles,
@@ -2141,22 +2149,23 @@ impl Renderer {
             self.cpu_profiles.push_back(cpu_profile);
         }
 
-        if self.debug_flags.contains(DebugFlags::PROFILER_DBG) &&
-           self.debug.is_some() {
-            if let Some(framebuffer_size) = framebuffer_size {
-                //TODO: take device/pixel ratio into equation?
-                let screen_fraction = 1.0 / framebuffer_size.to_f32().area();
-                let debug_renderer = self.debug.as_mut().unwrap();
-                self.profiler.draw_profile(
-                    &frame_profiles,
-                    &self.backend_profile_counters,
-                    &self.profile_counters,
-                    &mut profile_timers,
-                    &profile_samplers,
-                    screen_fraction,
-                    debug_renderer,
-                    self.debug_flags.contains(DebugFlags::COMPACT_PROFILER),
-                );
+        #[cfg(feature = "debug_renderer")]
+        {
+            if self.debug_flags.contains(DebugFlags::PROFILER_DBG) {
+                if let Some(framebuffer_size) = framebuffer_size {
+                    //TODO: take device/pixel ratio into equation?
+                    let screen_fraction = 1.0 / framebuffer_size.to_f32().area();
+                    self.profiler.draw_profile(
+                        &frame_profiles,
+                        &self.backend_profile_counters,
+                        &self.profile_counters,
+                        &mut profile_timers,
+                        &profile_samplers,
+                        screen_fraction,
+                        &mut self.debug,
+                        self.debug_flags.contains(DebugFlags::COMPACT_PROFILER),
+                    );
+                }
             }
         }
 
@@ -2167,8 +2176,9 @@ impl Renderer {
         profile_timers.cpu_time.profile(|| {
             let _gm = self.gpu_profile.start_marker("end frame");
             self.gpu_profile.end_frame();
-            if let Some(ref mut debug_renderer) = self.debug {
-                debug_renderer.render(&mut self.device, framebuffer_size);
+            #[cfg(feature = "debug_renderer")]
+            {        
+                self.debug.render(&mut self.device, framebuffer_size);
             }
             self.device.end_frame();
         });
@@ -3517,6 +3527,8 @@ impl Renderer {
             self.draw_render_target_debug(framebuffer_size);
             self.draw_texture_cache_debug(framebuffer_size);
         }
+
+        #[cfg(feature = "debug_renderer")]
         self.draw_epoch_debug();
 
         // Garbage collect any frame outputs that weren't used this frame.
@@ -3532,6 +3544,7 @@ impl Renderer {
         frame.has_been_rendered = true;
     }
 
+    #[cfg(feature = "debug_renderer")]
     pub fn debug_renderer<'b>(&'b mut self) -> Option<&'b mut DebugRenderer> {
         self.debug.as_mut()
     }
@@ -3664,6 +3677,7 @@ impl Renderer {
         }
     }
 
+    #[cfg(feature = "debug_renderer")]
     fn draw_epoch_debug(&mut self) {
         if !self.debug_flags.contains(DebugFlags::EPOCHS) || 
             self.debug.is_none() {
@@ -3740,9 +3754,14 @@ impl Renderer {
         self.device.delete_vao(self.prim_vao);
         self.device.delete_vao(self.clip_vao);
         self.device.delete_vao(self.blur_vao);
-        if let Some(debug_renderer) = self.debug {
-            debug_renderer.deinit(&mut self.device);
+        
+        #[cfg(feature = "debug_renderer")]
+        {         
+            if let Some(debug_renderer) = self.debug {
+                debug_renderer.deinit(&mut self.device);
+            }
         }
+
         for (_, target) in self.output_targets {
             self.device.delete_fbo(target.fbo_id);
         }

@@ -62,6 +62,7 @@ mod clip_scroll_node;
 mod clip_scroll_tree;
 mod debug_colors;
 mod debug_font_data;
+#[cfg(feature = "debug_renderer")]
 mod debug_render;
 #[cfg(feature = "debugger")]
 mod debug_server;
