@@ -171,6 +171,10 @@ impl PicturePrimitive {
                 *real_local_rect = prim_run_rect.local_rect_in_original_parent_space;
 
                 match composite_mode {
+                    Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
+                        let inflate_size = (blur_radius * BLUR_SAMPLE_SCALE).ceil();
+                        local_content_rect.inflate(inflate_size, inflate_size)
+                    }
                     Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, blur_radius, _))) => {
                         let inflate_size = blur_radius * BLUR_SAMPLE_SCALE;
                         local_content_rect.inflate(inflate_size, inflate_size)
