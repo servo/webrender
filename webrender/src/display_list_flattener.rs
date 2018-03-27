@@ -24,7 +24,7 @@ use glyph_rasterizer::FontInstance;
 use hit_test::{HitTestingItem, HitTestingRun};
 use image::{decompose_image, TiledImageInfo};
 use internal_types::{FastHashMap, FastHashSet};
-use picture::{PictureCompositeMode, PictureKind};
+use picture::PictureCompositeMode;
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor, CachedGradient};
 use prim_store::{CachedGradientIndex, ImageCacheKey, ImagePrimitiveCpu, ImageSource};
 use prim_store::{PictureIndex, PrimitiveContainer, PrimitiveIndex, PrimitiveStore};
@@ -1010,14 +1010,10 @@ impl<'a> DisplayListFlattener<'a> {
             let parent_pic_index = self.picture_stack.last().unwrap();
             let parent_pic = &mut self.prim_store.pictures[parent_pic_index.0];
 
-            match parent_pic.kind {
-                PictureKind::Image { ref mut composite_mode, .. } => {
-                    // If not already isolated for some other reason,
-                    // make this picture as isolated.
-                    if composite_mode.is_none() {
-                        *composite_mode = Some(PictureCompositeMode::Blit);
-                    }
-                }
+            // If not already isolated for some other reason,
+            // make this picture as isolated.
+            if parent_pic.composite_mode.is_none() {
+                parent_pic.composite_mode = Some(PictureCompositeMode::Blit);
             }
         }
 

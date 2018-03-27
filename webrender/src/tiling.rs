@@ -13,7 +13,6 @@ use gpu_cache::{GpuCache};
 use gpu_types::{BlurDirection, BlurInstance};
 use gpu_types::{ClipScrollNodeData, ZBufferIdGenerator};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
-use picture::PictureKind;
 use prim_store::{CachedGradient, PrimitiveIndex, PrimitiveKind, PrimitiveStore};
 use prim_store::{BrushKind, DeferredResolve};
 use profiler::FrameProfileCounters;
@@ -399,7 +398,7 @@ impl RenderTarget for ColorRenderTarget {
 
                         // If this pipeline is registered as a frame output
                         // store the information necessary to do the copy.
-                        if let PictureKind::Image { frame_output_pipeline_id: Some(pipeline_id), .. } = pic.kind {
+                        if let Some(pipeline_id) = pic.frame_output_pipeline_id {
                             self.outputs.push(FrameOutput {
                                 pipeline_id,
                                 task_id,
