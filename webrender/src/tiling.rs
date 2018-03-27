@@ -397,15 +397,13 @@ impl RenderTarget for ColorRenderTarget {
 
                         self.alpha_tasks.push(task_id);
 
-                        if let PictureKind::Image { frame_output_pipeline_id, .. } = pic.kind {
-                            // If this pipeline is registered as a frame output
-                            // store the information necessary to do the copy.
-                            if let Some(pipeline_id) = frame_output_pipeline_id {
-                                self.outputs.push(FrameOutput {
-                                    pipeline_id,
-                                    task_id,
-                                });
-                            }
+                        // If this pipeline is registered as a frame output
+                        // store the information necessary to do the copy.
+                        if let PictureKind::Image { frame_output_pipeline_id: Some(pipeline_id), .. } = pic.kind {
+                            self.outputs.push(FrameOutput {
+                                pipeline_id,
+                                task_id,
+                            });
                         }
                     }
                     _ => {
