@@ -2,22 +2,33 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorF, ColorU};
-#[cfg(feature = "debug_renderer")]
-use debug_render::DebugRenderer;
-use euclid::{Point2D, Rect, Size2D, vec2};
-use query::{GpuSampler, GpuTimer, NamedTag};
+use api::ColorF;
+use query::{GpuTimer, NamedTag};
 use std::collections::vec_deque::VecDeque;
-use internal_types::FastHashMap;
-use renderer::MAX_VERTEX_TEXTURE_WIDTH;
-use std::{f32, mem};
+use std::f32;
 use time::precise_time_ns;
 
-const GRAPH_WIDTH: f32 = 1024.0;
-const GRAPH_HEIGHT: f32 = 320.0;
-const GRAPH_PADDING: f32 = 8.0;
-const GRAPH_FRAME_HEIGHT: f32 = 16.0;
-const PROFILE_PADDING: f32 = 10.0;
+cfg_if! {
+    if #[cfg(feature = "debug_renderer")] {
+        use api::ColorU;
+        use debug_render::DebugRenderer;
+        use euclid::{Point2D, Rect, Size2D, vec2};
+        use query::GpuSampler;
+        use internal_types::FastHashMap;
+        use renderer::MAX_VERTEX_TEXTURE_WIDTH;
+        use std::mem;
+    }
+}
+
+cfg_if! {
+    if #[cfg(feature = "debug_renderer")] {
+        const GRAPH_WIDTH: f32 = 1024.0;
+        const GRAPH_HEIGHT: f32 = 320.0;
+        const GRAPH_PADDING: f32 = 8.0;
+        const GRAPH_FRAME_HEIGHT: f32 = 16.0;
+        const PROFILE_PADDING: f32 = 10.0;
+    }
+}
 
 const ONE_SECOND_NS: u64 = 1000000000;
 
@@ -26,7 +37,7 @@ pub struct GpuProfileTag {
     pub label: &'static str,
     pub color: ColorF,
 }
-
+ 
 impl NamedTag for GpuProfileTag {
     fn get_label(&self) -> &str {
         self.label
@@ -86,11 +97,13 @@ impl ProfileCounter for IntProfileCounter {
     }
 }
 
+#[cfg(feature = "debug_renderer")]
 pub struct FloatProfileCounter {
     description: &'static str,
     value: f32,
 }
 
+#[cfg(feature = "debug_renderer")]
 impl ProfileCounter for FloatProfileCounter {
     fn description(&self) -> &'static str {
         self.description
@@ -490,6 +503,7 @@ struct GraphStats {
 }
 
 struct ProfileGraph {
+    #[cfg(feature = "debug_renderer")]
     max_samples: usize,
     values: VecDeque<f32>,
     short_description: &'static str,

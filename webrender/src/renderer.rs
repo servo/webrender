@@ -9,25 +9,17 @@
 //!
 //! [renderer]: struct.Renderer.html
 
-use api::{BlobImageRenderer, ColorF, ColorU, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
+use api::{BlobImageRenderer, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentId, Epoch, ExternalImageId};
 use api::{ExternalImageType, FontRenderMode, ImageFormat, PipelineId};
 use api::{RenderApiSender, RenderNotifier, TexelRect, TextureTarget};
 use api::{channel};
-#[cfg(not(feature = "debugger"))]
-use api::ApiMsg;
 use api::DebugCommand;
-#[cfg(not(feature = "debugger"))]
-use api::channel::MsgSender;
 use api::channel::PayloadReceiverHelperMethods;
 use batch::{BatchKey, BatchKind, BatchTextures, BrushBatchKind, TransformBatchKind};
 #[cfg(any(feature = "capture", feature = "replay"))]
 use capture::{CaptureConfig, ExternalCaptureImage, PlainExternalImage};
 use debug_colors;
-#[cfg(feature = "debug_renderer")]
-use debug_render::DebugRenderer;
-#[cfg(feature = "debugger")]
-use debug_server::{self, DebugServer};
 use device::{DepthFunction, Device, FrameId, Program, UploadMethod, Texture, PBO};
 use device::{ExternalTexture, FBOId, TextureSlot};
 use device::{FileWatcherHandler, ShaderError, TextureFilter,
@@ -46,9 +38,7 @@ use internal_types::{RenderTargetInfo, SavedTargetIndex};
 use prim_store::DeferredResolve;
 use profiler::{BackendProfileCounters, FrameProfileCounters,
                GpuProfileTag, RendererProfileCounters, RendererProfileTimers};
-#[cfg(feature = "debug_renderer")]
-use profiler::Profiler;
-use query::{GpuProfiler, GpuTimer};
+use query::GpuProfiler;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use record::ApiRecordingReceiver;
 use render_backend::RenderBackend;
@@ -57,8 +47,6 @@ use shade::Shaders;
 use render_task::{RenderTask, RenderTaskKind, RenderTaskTree};
 use resource_cache::ResourceCache;
 
-#[cfg(feature = "debugger")]
-use serde_json;
 use std;
 use std::cmp;
 use std::collections::VecDeque;
@@ -77,6 +65,24 @@ use tiling::{BlitJob, BlitJobSource, RenderPass, RenderPassKind, RenderTargetLis
 use tiling::{Frame, RenderTarget, ScalingInfo, TextureCacheRenderTarget};
 use time::precise_time_ns;
 
+cfg_if! {
+    if #[cfg(feature = "debugger")] {
+        use serde_json;
+        use debug_server::{self, DebugServer};
+    } else {
+        use api::ApiMsg;
+        use api::channel::MsgSender;
+    }
+}
+
+cfg_if! {
+    if #[cfg(feature = "debug_renderer")] {
+        use api::ColorU;    
+        use debug_render::DebugRenderer;
+        use profiler::Profiler;
+        use query::GpuTimer;
+    }
+}
 
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 /// Enabling this toggle would force the GPU cache scattered texture to
@@ -499,6 +505,7 @@ pub struct GpuProfile {
 }
 
 impl GpuProfile {
+    #[cfg(feature = "debug_renderer")]
     fn new<T>(frame_id: FrameId, timers: &[GpuTimer<T>]) -> GpuProfile {
         let mut paint_time_ns = 0;
         for timer in timers {
@@ -2028,6 +2035,7 @@ impl Renderer {
         let mut frame_profiles = Vec::new();
         let mut profile_timers = RendererProfileTimers::new();
 
+        #[cfg(feature = "debug_renderer")]
         let profile_samplers = {
             let _gm = self.gpu_profile.start_marker("build samples");
             // Block CPU waiting for last frame's GPU profiles to arrive.
@@ -3849,13 +3857,6 @@ pub struct RendererOptions {
     pub debug_flags: DebugFlags,
     pub renderer_id: Option<u64>,
     pub disable_dual_source_blending: bool,
-    /// If the `DebugRenderer` infrastructure should be enabled or not.
-    /// If this is set to `false`, the [`Renderer::debug_renderer()`]
-    /// will return `None`. By default, this feature is enabled, even in release mode. 
-    /// Disabling the debug renderer can save a bit of startup time.
-    ///
-    /// [`Renderer::debug_renderer()`]: ./struct.Renderer.html#method.debug_renderer
-    pub debug_renderer_enabled: bool,
 }
 
 impl Default for RendererOptions {
@@ -3887,7 +3888,6 @@ impl Default for RendererOptions {
             renderer_id: None,
             cached_programs: None,
             disable_dual_source_blending: false,
-            debug_renderer_enabled: true,
         }
     }
 }
