@@ -1390,13 +1390,6 @@ impl Renderer {
             None
         };
 
-        #[cfg(feature = "debug_renderer")]
-        let debug_renderer = if options.debug_renderer_enabled {
-            Some(DebugRenderer::new(&mut device))
-        } else {
-            None
-        };
-
         let x0 = 0.0;
         let y0 = 0.0;
         let x1 = 1.0;
@@ -1549,7 +1542,7 @@ impl Renderer {
             pending_shader_updates: Vec::new(),
             shaders,
             #[cfg(feature = "debug_renderer")]
-            debug: debug_renderer,
+            debug: None,
             debug_flags,
             backend_profile_counters: BackendProfileCounters::new(),
             profile_counters: RendererProfileCounters::new(),
@@ -2155,6 +2148,7 @@ impl Renderer {
                 if let Some(framebuffer_size) = framebuffer_size {
                     //TODO: take device/pixel ratio into equation?
                     let screen_fraction = 1.0 / framebuffer_size.to_f32().area();
+                    let device = &mut self.device;
                     self.profiler.draw_profile(
                         &frame_profiles,
                         &self.backend_profile_counters,
@@ -2162,7 +2156,7 @@ impl Renderer {
                         &mut profile_timers,
                         &profile_samplers,
                         screen_fraction,
-                        &mut self.debug,
+                        self.debug.get_or_insert_with(|| DebugRenderer::new(device)),
                         self.debug_flags.contains(DebugFlags::COMPACT_PROFILER),
                     );
                 }
@@ -2178,7 +2172,9 @@ impl Renderer {
             self.gpu_profile.end_frame();
             #[cfg(feature = "debug_renderer")]
             {        
-                self.debug.render(&mut self.device, framebuffer_size);
+                let device = &mut self.device;
+                self.debug.get_or_insert_with(|| DebugRenderer::new(device))
+                          .render(device, framebuffer_size);
             }
             self.device.end_frame();
         });
@@ -3545,8 +3541,9 @@ impl Renderer {
     }
 
     #[cfg(feature = "debug_renderer")]
-    pub fn debug_renderer<'b>(&'b mut self) -> Option<&'b mut DebugRenderer> {
-        self.debug.as_mut()
+    pub fn debug_renderer<'b>(&'b mut self) -> &'b mut DebugRenderer {
+        let device = &mut self.device;
+        self.debug.get_or_insert_with(|| DebugRenderer::new(device))
     }
 
     pub fn get_debug_flags(&self) -> DebugFlags {

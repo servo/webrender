@@ -563,7 +563,7 @@ impl Wrench {
         ];
 
         let color_and_offset = [(*BLACK_COLOR, 2.0), (*WHITE_COLOR, 0.0)];
-        let dr = self.renderer.debug_renderer().unwrap();
+        let dr = self.renderer.debug_renderer();
 
         for ref co in &color_and_offset {
             let x = self.device_pixel_ratio * (15.0 + co.1);
