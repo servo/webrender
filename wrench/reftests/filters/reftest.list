@@ -34,3 +34,4 @@
 == filter-drop-shadow-on-viewport-edge.yaml filter-drop-shadow-on-viewport-edge.png
 == blend-clipped.yaml blend-clipped.png
 == filter-segments.yaml filter-segments-ref.yaml
+== iframe-dropshadow.yaml iframe-dropshadow-ref.yaml
