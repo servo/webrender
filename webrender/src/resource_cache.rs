@@ -1322,11 +1322,7 @@ impl ResourceCache {
         for (key, template) in resources.image_templates {
             let data = match CaptureConfig::deserialize::<PlainExternalImage, _>(root, &template.data) {
                 Some(plain) => {
-                    let ext_data = ExternalImageData {
-                        id: plain.id,
-                        channel_index: plain.channel_index,
-                        image_type: ExternalImageType::Buffer,
-                    };
+                    let ext_data = plain.external;
                     external_images.push(plain);
                     ImageData::External(ext_data)
                 }
