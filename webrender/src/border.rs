@@ -445,7 +445,7 @@ impl<'a> DisplayListFlattener<'a> {
             let segment = |x0, y0, x1, y1| BrushSegment::new(
                 LayerPoint::new(x0, y0),
                 LayerSize::new(x1-x0, y1-y0),
-                false,
+                true,
                 EdgeAaSegmentMask::all() // Note: this doesn't seem right, needs revision
             );
 
