@@ -57,6 +57,7 @@ pub struct HitTestingItem {
     rect: LayerRect,
     clip_rect: LayerRect,
     tag: ItemTag,
+    is_backface_visible: bool,
 }
 
 impl HitTestingItem {
@@ -65,6 +66,7 @@ impl HitTestingItem {
             rect: info.rect,
             clip_rect: info.clip_rect,
             tag: tag,
+            is_backface_visible: info.is_backface_visible,
         }
     }
 }
@@ -264,6 +266,11 @@ impl HitTester {
                     Some(point) => point,
                     None => continue,
                 };
+
+                // Don't hit items with backface-visibility:hidden if they are facing the back.
+                if !item.is_backface_visible && transform.is_backface_visible() {
+                    continue;
+                }
 
                 result.items.push(HitTestItem {
                     pipeline: pipeline_id,
