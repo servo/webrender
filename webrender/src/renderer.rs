@@ -77,7 +77,7 @@ cfg_if! {
 
 cfg_if! {
     if #[cfg(feature = "debug_renderer")] {
-        use api::ColorU;    
+        use api::ColorU;
         use debug_render::DebugRenderer;
         use profiler::Profiler;
         use query::GpuTimer;
@@ -1136,6 +1136,29 @@ struct TargetSelector {
     format: ImageFormat,
 }
 
+#[cfg(feature = "debug_renderer")]
+struct LazyInitializedDebugRenderer {
+    debug_renderer: Option<DebugRenderer>,
+}
+
+#[cfg(feature = "debug_renderer")]
+impl LazyInitializedDebugRenderer {
+    pub fn new() -> Self {
+        Self {
+            debug_renderer: None,
+        }
+    }
+
+    pub fn get_mut<'a>(&'a mut self, device: &mut Device) -> &'a mut DebugRenderer {
+        self.debug_renderer.get_or_insert_with(|| DebugRenderer::new(device))
+    }
+
+    pub fn deinit(self, device: &mut Device) {
+        if let Some(debug_renderer) = self.debug_renderer {
+            debug_renderer.deinit(device);
+        }
+    }
+}
 
 /// The renderer is responsible for submitting to the GPU the work prepared by the
 /// RenderBackend.
@@ -1156,7 +1179,7 @@ pub struct Renderer {
     clear_color: Option<ColorF>,
     enable_clear_scissor: bool,
     #[cfg(feature = "debug_renderer")]
-    debug: Option<DebugRenderer>,
+    debug: LazyInitializedDebugRenderer,
     debug_flags: DebugFlags,
     backend_profile_counters: BackendProfileCounters,
     profile_counters: RendererProfileCounters,
@@ -1549,7 +1572,7 @@ impl Renderer {
             pending_shader_updates: Vec::new(),
             shaders,
             #[cfg(feature = "debug_renderer")]
-            debug: None,
+            debug: LazyInitializedDebugRenderer::new(),
             debug_flags,
             backend_profile_counters: BackendProfileCounters::new(),
             profile_counters: RendererProfileCounters::new(),
@@ -2156,7 +2179,6 @@ impl Renderer {
                 if let Some(framebuffer_size) = framebuffer_size {
                     //TODO: take device/pixel ratio into equation?
                     let screen_fraction = 1.0 / framebuffer_size.to_f32().area();
-                    let device = &mut self.device;
                     self.profiler.draw_profile(
                         &frame_profiles,
                         &self.backend_profile_counters,
@@ -2164,7 +2186,7 @@ impl Renderer {
                         &mut profile_timers,
                         &profile_samplers,
                         screen_fraction,
-                        self.debug.get_or_insert_with(|| DebugRenderer::new(device)),
+                        self.debug.get_mut(&mut self.device),
                         self.debug_flags.contains(DebugFlags::COMPACT_PROFILER),
                     );
                 }
@@ -2179,10 +2201,9 @@ impl Renderer {
             let _gm = self.gpu_profile.start_marker("end frame");
             self.gpu_profile.end_frame();
             #[cfg(feature = "debug_renderer")]
-            {        
-                let device = &mut self.device;
-                self.debug.get_or_insert_with(|| DebugRenderer::new(device))
-                          .render(device, framebuffer_size);
+            {
+                self.debug.get_mut(&mut self.device)
+                          .render(&mut self.device, framebuffer_size);
             }
             self.device.end_frame();
         });
@@ -3550,8 +3571,7 @@ impl Renderer {
 
     #[cfg(feature = "debug_renderer")]
     pub fn debug_renderer<'b>(&'b mut self) -> &'b mut DebugRenderer {
-        let device = &mut self.device;
-        self.debug.get_or_insert_with(|| DebugRenderer::new(device))
+        self.debug.get_mut(&mut self.device)
     }
 
     pub fn get_debug_flags(&self) -> DebugFlags {
@@ -3684,12 +3704,11 @@ impl Renderer {
 
     #[cfg(feature = "debug_renderer")]
     fn draw_epoch_debug(&mut self) {
-        if !self.debug_flags.contains(DebugFlags::EPOCHS) || 
-            self.debug.is_none() {
+        if !self.debug_flags.contains(DebugFlags::EPOCHS) {
             return;
         }
 
-        let debug_renderer = self.debug.as_mut().unwrap();
+        let debug_renderer = self.debug.get_mut(&mut self.device);
 
         let dy = debug_renderer.line_height();
         let x0: f32 = 30.0;
@@ -3759,12 +3778,10 @@ impl Renderer {
         self.device.delete_vao(self.prim_vao);
         self.device.delete_vao(self.clip_vao);
         self.device.delete_vao(self.blur_vao);
-        
+
         #[cfg(feature = "debug_renderer")]
-        {         
-            if let Some(debug_renderer) = self.debug {
-                debug_renderer.deinit(&mut self.device);
-            }
+        {
+            self.debug.deinit(&mut self.device);
         }
 
         for (_, target) in self.output_targets {
