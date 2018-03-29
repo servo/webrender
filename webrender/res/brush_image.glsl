@@ -111,14 +111,15 @@ void brush_vs(
 
 #ifdef WR_FEATURE_ALPHA_PASS
     switch (user_data.y) {
-        case IMAGE_SOURCE_COLOR:
-            vSelect = vec2(0.0, 0.0);
-            break;
         case IMAGE_SOURCE_ALPHA:
             vSelect = vec2(0.0, 1.0);
             break;
         case IMAGE_SOURCE_MASK_FROM_COLOR:
             vSelect = vec2(1.0, 1.0);
+            break;
+        case IMAGE_SOURCE_COLOR:
+        default:
+            vSelect = vec2(0.0, 0.0);
             break;
     }
 
