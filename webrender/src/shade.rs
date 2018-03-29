@@ -447,7 +447,6 @@ pub struct Shaders {
     ps_border_corner: PrimitiveShader,
     ps_border_edge: PrimitiveShader,
 
-    ps_hw_composite: LazilyCompiledShader,
     ps_split_composite: LazilyCompiledShader,
 }
 
@@ -657,14 +656,6 @@ impl Shaders {
              options.precache_shaders,
         )?;
 
-        let ps_hw_composite = LazilyCompiledShader::new(
-            ShaderKind::Primitive,
-            "ps_hardware_composite",
-            &[],
-            device,
-            options.precache_shaders,
-        )?;
-
         let ps_split_composite = LazilyCompiledShader::new(
             ShaderKind::Primitive,
             "ps_split_composite",
@@ -693,7 +684,6 @@ impl Shaders {
             ps_image,
             ps_border_corner,
             ps_border_edge,
-            ps_hw_composite,
             ps_split_composite,
         })
     }
@@ -709,9 +699,6 @@ impl Shaders {
 
     pub fn get(&mut self, key: &BatchKey) -> &mut LazilyCompiledShader {
         match key.kind {
-            BatchKind::HardwareComposite => {
-                &mut self.ps_hw_composite
-            }
             BatchKind::SplitComposite => {
                 &mut self.ps_split_composite
             }
@@ -801,7 +788,6 @@ impl Shaders {
         }
         self.ps_border_corner.deinit(device);
         self.ps_border_edge.deinit(device);
-        self.ps_hw_composite.deinit(device);
         self.ps_split_composite.deinit(device);
     }
 }

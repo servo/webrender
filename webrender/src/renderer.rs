@@ -137,10 +137,6 @@ const GPU_TAG_PRIM_IMAGE: GpuProfileTag = GpuProfileTag {
     label: "Image",
     color: debug_colors::GREEN,
 };
-const GPU_TAG_PRIM_HW_COMPOSITE: GpuProfileTag = GpuProfileTag {
-    label: "HwComposite",
-    color: debug_colors::DODGERBLUE,
-};
 const GPU_TAG_PRIM_SPLIT_COMPOSITE: GpuProfileTag = GpuProfileTag {
     label: "SplitComposite",
     color: debug_colors::DARKBLUE,
@@ -209,7 +205,6 @@ impl BatchKind {
     #[cfg(feature = "debugger")]
     fn debug_name(&self) -> &'static str {
         match *self {
-            BatchKind::HardwareComposite => "HardwareComposite",
             BatchKind::SplitComposite => "SplitComposite",
             BatchKind::Brush(kind) => {
                 match kind {
@@ -228,7 +223,6 @@ impl BatchKind {
 
     fn sampler_tag(&self) -> GpuProfileTag {
         match *self {
-            BatchKind::HardwareComposite => GPU_TAG_PRIM_HW_COMPOSITE,
             BatchKind::SplitComposite => GPU_TAG_PRIM_SPLIT_COMPOSITE,
             BatchKind::Brush(kind) => {
                 match kind {

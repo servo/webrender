@@ -7,6 +7,7 @@ use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, Fon
 use api::{FilterOp, GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D};
 use api::{PipelineId, PremultipliedColorF, Shadow, YuvColorSpace, YuvFormat};
+use batch::BrushImageSourceKind;
 use border::{BorderCornerInstance, BorderEdgeKind};
 use box_shadow::BLUR_SAMPLE_SCALE;
 use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, CoordinateSystemId};
@@ -201,6 +202,12 @@ pub enum BrushKind {
     Clear,
     Picture {
         pic_index: PictureIndex,
+        // What kind of texels to sample from the
+        // picture (e.g color or alpha mask).
+        source_kind: BrushImageSourceKind,
+        // A local space offset to apply when drawing
+        // this picture.
+        local_offset: LayerVector2D,
     },
     Image {
         request: ImageRequest,
@@ -317,10 +324,16 @@ impl BrushPrimitive {
         }
     }
 
-    pub fn new_picture(pic_index: PictureIndex) -> BrushPrimitive {
+    pub fn new_picture(
+        pic_index: PictureIndex,
+        source_kind: BrushImageSourceKind,
+        local_offset: LayerVector2D,
+    ) -> BrushPrimitive {
         BrushPrimitive {
             kind: BrushKind::Picture {
                 pic_index,
+                source_kind,
+                local_offset,
             },
             segment_desc: None,
         }
@@ -329,19 +342,12 @@ impl BrushPrimitive {
     fn write_gpu_blocks(
         &self,
         request: &mut GpuDataRequest,
-        pictures: &[PicturePrimitive],
     ) {
         // has to match VECS_PER_SPECIFIC_BRUSH
         match self.kind {
-            BrushKind::Picture { pic_index } => {
-                pictures[pic_index.0].write_gpu_blocks(request);
-            }
-            BrushKind::YuvImage { .. } => {
-            }
-            BrushKind::Image { .. } => {
-                request.push([0.0; 4]);
-                request.push(PremultipliedColorF::WHITE);
-            }
+            BrushKind::Picture { .. } |
+            BrushKind::YuvImage { .. } |
+            BrushKind::Image { .. } => {}
             BrushKind::Solid { color } => {
                 request.push(color.premultiplied());
             }
@@ -1347,16 +1353,25 @@ impl PrimitiveStore {
                             );
                         }
                     }
-                    BrushKind::Picture { pic_index } => {
-                        self.pictures[pic_index.0]
-                            .prepare_for_render(
-                                prim_index,
-                                metadata,
-                                pic_state_for_children,
-                                pic_state,
-                                frame_context,
-                                frame_state,
-                            );
+                    BrushKind::Picture { pic_index, source_kind, .. } => {
+                        // If this picture is referenced by multiple brushes,
+                        // we only want to prepare it once per frame. It
+                        // should be prepared for the main color pass.
+                        // TODO(gw): Make this a bit more explicit - perhaps
+                        //           we could mark which brush::picture is
+                        //           the owner of the picture, vs the shadow
+                        //           which is just referencing it.
+                        if source_kind == BrushImageSourceKind::Color {
+                            self.pictures[pic_index.0]
+                                .prepare_for_render(
+                                    prim_index,
+                                    metadata,
+                                    pic_state_for_children,
+                                    pic_state,
+                                    frame_context,
+                                    frame_state,
+                                );
+                        }
                     }
                     BrushKind::Solid { .. } |
                     BrushKind::Clear => {}
@@ -1385,7 +1400,7 @@ impl PrimitiveStore {
                 }
                 PrimitiveKind::Brush => {
                     let brush = &self.cpu_brushes[metadata.cpu_prim_index.0];
-                    brush.write_gpu_blocks(&mut request, &self.pictures);
+                    brush.write_gpu_blocks(&mut request);
                     match brush.segment_desc {
                         Some(ref segment_desc) => {
                             for segment in &segment_desc.segments {
@@ -1797,7 +1812,7 @@ impl PrimitiveStore {
         // local space, which may force us to render this item on a larger
         // picture target, if being composited.
         if let PrimitiveKind::Brush = prim_kind {
-            if let BrushKind::Picture { pic_index } = self.cpu_brushes[cpu_prim_index.0].kind {
+            if let BrushKind::Picture { pic_index, local_offset, .. } = self.cpu_brushes[cpu_prim_index.0].kind {
                 let pic_context_for_children = {
                     let pic = &mut self.pictures[pic_index.0];
 
@@ -1852,7 +1867,11 @@ impl PrimitiveStore {
                 pic.runs = pic_context_for_children.prim_runs;
 
                 let metadata = &mut self.cpu_metadata[prim_index.0];
-                metadata.local_rect = pic.update_local_rect(result);
+                // Store local rect of the picture for this brush,
+                // also applying any local offset for the instance.
+                metadata.local_rect = pic
+                    .update_local_rect(result)
+                    .translate(&local_offset);
             }
         }
 
