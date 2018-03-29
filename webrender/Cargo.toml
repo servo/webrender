@@ -9,10 +9,11 @@ build = "build.rs"
 [features]
 default = ["freetype-lib"]
 freetype-lib = ["freetype/servo-freetype-sys"]
-profiler = ["thread_profiler/thread_profiler"]
-debugger = ["ws", "serde_json", "serde", "image", "base64"]
+profiler = ["thread_profiler/thread_profiler", "debug_renderer"]
+debugger = ["ws", "serde_json", "serde", "image", "base64", "debug_renderer"]
 capture = ["webrender_api/serialize", "ron", "serde"]
 replay = ["webrender_api/deserialize", "ron", "serde"]
+debug_renderer = []
 
 [dependencies]
 app_units = "0.6"
@@ -38,6 +39,7 @@ serde = { optional = true, version = "1.0", features = ["serde_derive"] }
 image = { optional = true, version = "0.18" }
 base64 = { optional = true, version = "0.6" }
 ron = { optional = true, version = "0.1.7" }
+cfg-if = "0.1.2"
 
 [dev-dependencies]
 mozangle = "0.1"

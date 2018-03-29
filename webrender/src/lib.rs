@@ -48,6 +48,8 @@ extern crate lazy_static;
 extern crate log;
 #[macro_use]
 extern crate thread_profiler;
+#[macro_use]
+extern crate cfg_if;
 #[cfg(any(feature = "debugger", feature = "capture", feature = "replay"))]
 #[macro_use]
 extern crate serde;
@@ -61,7 +63,9 @@ mod clip;
 mod clip_scroll_node;
 mod clip_scroll_tree;
 mod debug_colors;
+#[cfg(feature = "debug_renderer")]
 mod debug_font_data;
+#[cfg(feature = "debug_renderer")]
 mod debug_render;
 #[cfg(feature = "debugger")]
 mod debug_server;

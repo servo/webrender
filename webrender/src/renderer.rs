@@ -9,24 +9,17 @@
 //!
 //! [renderer]: struct.Renderer.html
 
-use api::{BlobImageRenderer, ColorF, ColorU, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
+use api::{BlobImageRenderer, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentId, Epoch, ExternalImageId};
 use api::{ExternalImageType, FontRenderMode, ImageFormat, PipelineId};
 use api::{RenderApiSender, RenderNotifier, TexelRect, TextureTarget};
 use api::{channel};
-#[cfg(not(feature = "debugger"))]
-use api::ApiMsg;
 use api::DebugCommand;
-#[cfg(not(feature = "debugger"))]
-use api::channel::MsgSender;
 use api::channel::PayloadReceiverHelperMethods;
 use batch::{BatchKey, BatchKind, BatchTextures, BrushBatchKind, TransformBatchKind};
 #[cfg(any(feature = "capture", feature = "replay"))]
 use capture::{CaptureConfig, ExternalCaptureImage, PlainExternalImage};
 use debug_colors;
-use debug_render::DebugRenderer;
-#[cfg(feature = "debugger")]
-use debug_server::{self, DebugServer};
 use device::{DepthFunction, Device, FrameId, Program, UploadMethod, Texture, PBO};
 use device::{ExternalTexture, FBOId, TextureSlot};
 use device::{FileWatcherHandler, ShaderError, TextureFilter,
@@ -43,9 +36,9 @@ use internal_types::{CacheTextureId, DebugOutput, FastHashMap, RenderedDocument,
 use internal_types::{TextureUpdateList, TextureUpdateOp, TextureUpdateSource};
 use internal_types::{RenderTargetInfo, SavedTargetIndex};
 use prim_store::DeferredResolve;
-use profiler::{BackendProfileCounters, FrameProfileCounters, Profiler};
-use profiler::{GpuProfileTag, RendererProfileCounters, RendererProfileTimers};
-use query::{GpuProfiler, GpuTimer};
+use profiler::{BackendProfileCounters, FrameProfileCounters,
+               GpuProfileTag, RendererProfileCounters, RendererProfileTimers};
+use query::GpuProfiler;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use record::ApiRecordingReceiver;
 use render_backend::RenderBackend;
@@ -54,8 +47,6 @@ use shade::Shaders;
 use render_task::{RenderTask, RenderTaskKind, RenderTaskTree};
 use resource_cache::ResourceCache;
 
-#[cfg(feature = "debugger")]
-use serde_json;
 use std;
 use std::cmp;
 use std::collections::VecDeque;
@@ -74,6 +65,24 @@ use tiling::{BlitJob, BlitJobSource, RenderPass, RenderPassKind, RenderTargetLis
 use tiling::{Frame, RenderTarget, ScalingInfo, TextureCacheRenderTarget};
 use time::precise_time_ns;
 
+cfg_if! {
+    if #[cfg(feature = "debugger")] {
+        use serde_json;
+        use debug_server::{self, DebugServer};
+    } else {
+        use api::ApiMsg;
+        use api::channel::MsgSender;
+    }
+}
+
+cfg_if! {
+    if #[cfg(feature = "debug_renderer")] {
+        use api::ColorU;
+        use debug_render::DebugRenderer;
+        use profiler::Profiler;
+        use query::GpuTimer;
+    }
+}
 
 pub const MAX_VERTEX_TEXTURE_WIDTH: usize = 1024;
 /// Enabling this toggle would force the GPU cache scattered texture to
@@ -496,6 +505,7 @@ pub struct GpuProfile {
 }
 
 impl GpuProfile {
+    #[cfg(feature = "debug_renderer")]
     fn new<T>(frame_id: FrameId, timers: &[GpuTimer<T>]) -> GpuProfile {
         let mut paint_time_ns = 0;
         for timer in timers {
@@ -1126,6 +1136,29 @@ struct TargetSelector {
     format: ImageFormat,
 }
 
+#[cfg(feature = "debug_renderer")]
+struct LazyInitializedDebugRenderer {
+    debug_renderer: Option<DebugRenderer>,
+}
+
+#[cfg(feature = "debug_renderer")]
+impl LazyInitializedDebugRenderer {
+    pub fn new() -> Self {
+        Self {
+            debug_renderer: None,
+        }
+    }
+
+    pub fn get_mut<'a>(&'a mut self, device: &mut Device) -> &'a mut DebugRenderer {
+        self.debug_renderer.get_or_insert_with(|| DebugRenderer::new(device))
+    }
+
+    pub fn deinit(self, device: &mut Device) {
+        if let Some(debug_renderer) = self.debug_renderer {
+            debug_renderer.deinit(device);
+        }
+    }
+}
 
 /// The renderer is responsible for submitting to the GPU the work prepared by the
 /// RenderBackend.
@@ -1145,10 +1178,12 @@ pub struct Renderer {
 
     clear_color: Option<ColorF>,
     enable_clear_scissor: bool,
-    debug: DebugRenderer,
+    #[cfg(feature = "debug_renderer")]
+    debug: LazyInitializedDebugRenderer,
     debug_flags: DebugFlags,
     backend_profile_counters: BackendProfileCounters,
     profile_counters: RendererProfileCounters,
+    #[cfg(feature = "debug_renderer")]
     profiler: Profiler,
     last_time: u64,
 
@@ -1385,8 +1420,6 @@ impl Renderer {
             None
         };
 
-        let debug_renderer = DebugRenderer::new(&mut device);
-
         let x0 = 0.0;
         let y0 = 0.0;
         let x1 = 1.0;
@@ -1538,10 +1571,12 @@ impl Renderer {
             pending_gpu_cache_updates: Vec::new(),
             pending_shader_updates: Vec::new(),
             shaders,
-            debug: debug_renderer,
+            #[cfg(feature = "debug_renderer")]
+            debug: LazyInitializedDebugRenderer::new(),
             debug_flags,
             backend_profile_counters: BackendProfileCounters::new(),
             profile_counters: RendererProfileCounters::new(),
+            #[cfg(feature = "debug_renderer")]
             profiler: Profiler::new(),
             max_texture_size: max_device_size,
             max_recorded_profiles: options.max_recorded_profiles,
@@ -2023,6 +2058,7 @@ impl Renderer {
         let mut frame_profiles = Vec::new();
         let mut profile_timers = RendererProfileTimers::new();
 
+        #[cfg(feature = "debug_renderer")]
         let profile_samplers = {
             let _gm = self.gpu_profile.start_marker("build samples");
             // Block CPU waiting for last frame's GPU profiles to arrive.
@@ -2137,20 +2173,23 @@ impl Renderer {
             self.cpu_profiles.push_back(cpu_profile);
         }
 
-        if self.debug_flags.contains(DebugFlags::PROFILER_DBG) {
-            if let Some(framebuffer_size) = framebuffer_size {
-                //TODO: take device/pixel ratio into equation?
-                let screen_fraction = 1.0 / framebuffer_size.to_f32().area();
-                self.profiler.draw_profile(
-                    &frame_profiles,
-                    &self.backend_profile_counters,
-                    &self.profile_counters,
-                    &mut profile_timers,
-                    &profile_samplers,
-                    screen_fraction,
-                    &mut self.debug,
-                    self.debug_flags.contains(DebugFlags::COMPACT_PROFILER),
-                );
+        #[cfg(feature = "debug_renderer")]
+        {
+            if self.debug_flags.contains(DebugFlags::PROFILER_DBG) {
+                if let Some(framebuffer_size) = framebuffer_size {
+                    //TODO: take device/pixel ratio into equation?
+                    let screen_fraction = 1.0 / framebuffer_size.to_f32().area();
+                    self.profiler.draw_profile(
+                        &frame_profiles,
+                        &self.backend_profile_counters,
+                        &self.profile_counters,
+                        &mut profile_timers,
+                        &profile_samplers,
+                        screen_fraction,
+                        self.debug.get_mut(&mut self.device),
+                        self.debug_flags.contains(DebugFlags::COMPACT_PROFILER),
+                    );
+                }
             }
         }
 
@@ -2161,7 +2200,11 @@ impl Renderer {
         profile_timers.cpu_time.profile(|| {
             let _gm = self.gpu_profile.start_marker("end frame");
             self.gpu_profile.end_frame();
-            self.debug.render(&mut self.device, framebuffer_size);
+            #[cfg(feature = "debug_renderer")]
+            {
+                self.debug.get_mut(&mut self.device)
+                          .render(&mut self.device, framebuffer_size);
+            }
             self.device.end_frame();
         });
         self.last_time = current_time;
@@ -3509,6 +3552,8 @@ impl Renderer {
             self.draw_render_target_debug(framebuffer_size);
             self.draw_texture_cache_debug(framebuffer_size);
         }
+
+        #[cfg(feature = "debug_renderer")]
         self.draw_epoch_debug();
 
         // Garbage collect any frame outputs that weren't used this frame.
@@ -3524,8 +3569,9 @@ impl Renderer {
         frame.has_been_rendered = true;
     }
 
+    #[cfg(feature = "debug_renderer")]
     pub fn debug_renderer<'b>(&'b mut self) -> &'b mut DebugRenderer {
-        &mut self.debug
+        self.debug.get_mut(&mut self.device)
     }
 
     pub fn get_debug_flags(&self) -> DebugFlags {
@@ -3656,19 +3702,22 @@ impl Renderer {
         }
     }
 
+    #[cfg(feature = "debug_renderer")]
     fn draw_epoch_debug(&mut self) {
         if !self.debug_flags.contains(DebugFlags::EPOCHS) {
             return;
         }
 
-        let dy = self.debug.line_height();
+        let debug_renderer = self.debug.get_mut(&mut self.device);
+
+        let dy = debug_renderer.line_height();
         let x0: f32 = 30.0;
         let y0: f32 = 30.0;
         let mut y = y0;
         let mut text_width = 0.0;
         for (pipeline, epoch) in  &self.pipeline_info.epochs {
             y += dy;
-            let w = self.debug.add_text(
+            let w = debug_renderer.add_text(
                 x0, y,
                 &format!("{:?}: {:?}", pipeline, epoch),
                 ColorU::new(255, 255, 0, 255),
@@ -3677,7 +3726,7 @@ impl Renderer {
         }
 
         let margin = 10.0;
-        self.debug.add_quad(
+        debug_renderer.add_quad(
             &x0 - margin,
             y0 - margin,
             x0 + text_width + margin,
@@ -3729,7 +3778,12 @@ impl Renderer {
         self.device.delete_vao(self.prim_vao);
         self.device.delete_vao(self.clip_vao);
         self.device.delete_vao(self.blur_vao);
-        self.debug.deinit(&mut self.device);
+
+        #[cfg(feature = "debug_renderer")]
+        {
+            self.debug.deinit(&mut self.device);
+        }
+
         for (_, target) in self.output_targets {
             self.device.delete_fbo(target.fbo_id);
         }
