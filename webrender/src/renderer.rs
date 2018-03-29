@@ -2367,7 +2367,9 @@ impl Renderer {
                                         let dummy_data: Vec<u8> = vec![255; total_size as usize];
                                         uploader.upload(rect, layer_index, stride, &dummy_data);
                                     }
-                                    _ => panic!("No external buffer found"),
+                                    ExternalImageSource::NativeTexture(eid) => {
+                                        panic!("Unexpected external texture {:?} for the texture cache update of {:?}", eid, id);
+                                    }
                                 };
                                 handler.unlock(id, channel_index);
                             }
@@ -4157,8 +4159,7 @@ impl Renderer {
                 }
                 let plain = PlainExternalImage {
                     data: short_path,
-                    id: def.external.id,
-                    channel_index: def.external.channel_index,
+                    external: def.external,
                     uv: ext_image.uv,
                 };
                 config.serialize(&plain, &def.short_path);
@@ -4232,9 +4233,9 @@ impl Renderer {
                     e.insert(Arc::new(buffer)).clone()
                 }
             };
-            let key = (plain_ext.id, plain_ext.channel_index);
+            let ext = plain_ext.external;
             let value = (CapturedExternalImageData::Buffer(data), plain_ext.uv);
-            image_handler.data.insert(key, value);
+            image_handler.data.insert((ext.id, ext.channel_index), value);
         }
 
         if let Some(renderer) = CaptureConfig::deserialize::<PlainRenderer, _>(&root, "renderer") {
