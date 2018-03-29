@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AlphaType, DeviceIntRect, DeviceIntSize, LayerToWorldScale};
+use api::{AlphaType, DeviceIntRect, DeviceIntSize};
 use api::{DeviceUintRect, DeviceUintPoint, DeviceUintSize, ExternalImageType, FilterOp, ImageRendering, LayerRect};
 use api::{DeviceIntPoint, SubpixelDirection, YuvColorSpace, YuvFormat};
 use api::{LayerToWorldTransform, WorldPixel};
@@ -72,7 +72,6 @@ pub enum BrushBatchKind {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BatchKind {
-    HardwareComposite,
     SplitComposite,
     Transformable(TransformedRectKind, TransformBatchKind),
     Brush(BrushBatchKind),
@@ -639,7 +638,7 @@ impl AlphaBatchBuilder {
                 let brush = &ctx.prim_store.cpu_brushes[prim_metadata.cpu_prim_index.0];
 
                 match brush.kind {
-                    BrushKind::Picture { pic_index } => {
+                    BrushKind::Picture { pic_index, source_kind, .. } => {
                         let picture =
                             &ctx.prim_store.pictures[pic_index.0];
 
@@ -703,19 +702,44 @@ impl AlphaBatchBuilder {
                                                     brush_flags: BrushFlags::empty(),
                                                     user_data: [
                                                         uv_rect_address,
-                                                        BrushImageSourceKind::Color as i32,
+                                                        (BrushImageSourceKind::Color as i32) << 16 |
                                                         RasterizationSpace::Screen as i32,
+                                                        picture.extra_gpu_data_handle.as_int(gpu_cache),
                                                     ],
                                                 };
                                                 batch.push(PrimitiveInstance::from(instance));
                                             }
-                                            FilterOp::DropShadow(offset, _, _) => {
+                                            FilterOp::DropShadow(..) => {
                                                 let kind = BatchKind::Brush(
                                                     BrushBatchKind::Image(ImageBufferKind::Texture2DArray),
                                                 );
-                                                let key = BatchKey::new(kind, non_segmented_blend_mode, textures);
 
-                                                let uv_rect_address = render_tasks[cache_task_id]
+                                                let (textures, task_id) = match source_kind {
+                                                    BrushImageSourceKind::Color => {
+                                                        let secondary_id = picture.secondary_render_task_id.expect("no secondary!?");
+                                                        let saved_index = render_tasks[secondary_id].saved_index.expect("no saved index!?");
+                                                        debug_assert_ne!(saved_index, SavedTargetIndex::PENDING);
+                                                        let textures = BatchTextures {
+                                                            colors: [
+                                                                SourceTexture::RenderTaskCache(saved_index),
+                                                                SourceTexture::Invalid,
+                                                                SourceTexture::Invalid,
+                                                            ],
+                                                        };
+                                                        (textures, secondary_id)
+                                                    }
+                                                    BrushImageSourceKind::ColorAlphaMask => {
+                                                        (textures, cache_task_id)
+                                                    }
+                                                };
+
+                                                let key = BatchKey::new(
+                                                    kind,
+                                                    non_segmented_blend_mode,
+                                                    textures,
+                                                );
+
+                                                let uv_rect_address = render_tasks[task_id]
                                                     .get_texture_handle()
                                                     .as_int(gpu_cache);
 
@@ -728,56 +752,16 @@ impl AlphaBatchBuilder {
                                                     z,
                                                     segment_index: 0,
                                                     edge_flags: EdgeAaSegmentMask::empty(),
-                                                    brush_flags: BrushFlags::PERSPECTIVE_INTERPOLATION,
+                                                    brush_flags: BrushFlags::empty(),
                                                     user_data: [
                                                         uv_rect_address,
-                                                        BrushImageSourceKind::ColorAlphaMask as i32,
-                                                        // TODO(gw): This is totally wrong, but the drop-shadow code itself
-                                                        //           is completely wrong, and doesn't work correctly with
-                                                        //           transformed Picture sources. I'm leaving this as is for
-                                                        //           now, and will fix drop-shadows properly, as a follow up.
-                                                        RasterizationSpace::Local as i32,
+                                                        (source_kind as i32) << 16 |
+                                                        RasterizationSpace::Screen as i32,
+                                                        picture.extra_gpu_data_handle.as_int(gpu_cache),
                                                     ],
                                                 };
 
-                                                {
-                                                    let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
-                                                    batch.push(PrimitiveInstance::from(instance));
-                                                }
-
-                                                let secondary_id = picture.secondary_render_task_id.expect("no secondary!?");
-                                                let saved_index = render_tasks[secondary_id].saved_index.expect("no saved index!?");
-                                                debug_assert_ne!(saved_index, SavedTargetIndex::PENDING);
-                                                let secondary_task_address = render_tasks.get_task_address(secondary_id);
-                                                let secondary_textures = BatchTextures {
-                                                    colors: [
-                                                        SourceTexture::RenderTaskCache(saved_index),
-                                                        SourceTexture::Invalid,
-                                                        SourceTexture::Invalid,
-                                                    ],
-                                                };
-                                                let key = BatchKey::new(
-                                                    BatchKind::HardwareComposite,
-                                                    BlendMode::PremultipliedAlpha,
-                                                    secondary_textures,
-                                                );
                                                 let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
-                                                let content_rect = prim_metadata.local_rect.translate(&-offset);
-                                                let rect =
-                                                    (content_rect * LayerToWorldScale::new(1.0) * ctx.device_pixel_scale).round()
-                                                                                                                         .to_i32();
-
-                                                let instance = CompositePrimitiveInstance::new(
-                                                    task_address,
-                                                    secondary_task_address,
-                                                    RenderTaskAddress(0),
-                                                    rect.origin.x,
-                                                    rect.origin.y,
-                                                    z,
-                                                    rect.size.width,
-                                                    rect.size.height,
-                                                );
-
                                                 batch.push(PrimitiveInstance::from(instance));
                                             }
                                             _ => {
@@ -906,8 +890,9 @@ impl AlphaBatchBuilder {
                                             brush_flags: BrushFlags::empty(),
                                             user_data: [
                                                 uv_rect_address,
-                                                BrushImageSourceKind::Color as i32,
+                                                (BrushImageSourceKind::Color as i32) << 16 |
                                                 RasterizationSpace::Screen as i32,
+                                                picture.extra_gpu_data_handle.as_int(gpu_cache),
                                             ],
                                         };
                                         batch.push(PrimitiveInstance::from(instance));
@@ -1228,7 +1213,7 @@ impl AlphaBatchBuilder {
 impl BrushPrimitive {
     pub fn get_picture_index(&self) -> PictureIndex {
         match self.kind {
-            BrushKind::Picture { pic_index } => {
+            BrushKind::Picture { pic_index, .. } => {
                 pic_index
             }
             _ => {
@@ -1263,8 +1248,9 @@ impl BrushPrimitive {
                         textures,
                         [
                             cache_item.uv_rect_handle.as_int(gpu_cache),
-                            BrushImageSourceKind::Color as i32,
-                            RasterizationSpace::Local as i32,
+                            (BrushImageSourceKind::Color as i32) << 16|
+                             RasterizationSpace::Local as i32,
+                            0,
                         ],
                     ))
                 }

@@ -14,6 +14,7 @@ use api::{RepeatMode, ScrollFrameDisplayItem, ScrollPolicy, ScrollSensitivity, S
 use api::{SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect, TileOffset};
 use api::{TransformStyle, YuvColorSpace, YuvData};
 use app_units::Au;
+use batch::BrushImageSourceKind;
 use border::ImageBorderSegment;
 use clip::{ClipRegion, ClipSource, ClipSources, ClipStore};
 use clip_scroll_node::{ClipScrollNode, NodeType, StickyFrameInfo};
@@ -1055,7 +1056,11 @@ impl<'a> DisplayListFlattener<'a> {
                 true,
             );
 
-            let prim = BrushPrimitive::new_picture(container_index);
+            let prim = BrushPrimitive::new_picture(
+                container_index,
+                BrushImageSourceKind::Color,
+                LayerVector2D::zero(),
+            );
 
             let prim_index = self.prim_store.add_primitive(
                 &LayerRect::zero(),
@@ -1108,8 +1113,34 @@ impl<'a> DisplayListFlattener<'a> {
                 true,
             );
 
-            let src_prim = BrushPrimitive::new_picture(src_pic_index);
+            // For drop shadows, add an extra brush::picture primitive
+            // that will draw the picture as an alpha mask.
+            let shadow_prim_index = match *filter {
+                FilterOp::DropShadow(offset, ..) => {
+                    let shadow_prim = BrushPrimitive::new_picture(
+                        src_pic_index,
+                        BrushImageSourceKind::ColorAlphaMask,
+                        offset,
+                    );
+                    Some(self.prim_store.add_primitive(
+                        &LayerRect::zero(),
+                        &max_clip,
+                        is_backface_visible,
+                        None,
+                        None,
+                        PrimitiveContainer::Brush(shadow_prim),
+                    ))
+                }
+                _ => {
+                    None
+                }
+            };
 
+            let src_prim = BrushPrimitive::new_picture(
+                src_pic_index,
+                BrushImageSourceKind::Color,
+                LayoutVector2D::zero(),
+            );
             let src_prim_index = self.prim_store.add_primitive(
                 &LayerRect::zero(),
                 &max_clip,
@@ -1121,6 +1152,14 @@ impl<'a> DisplayListFlattener<'a> {
 
             let parent_pic = &mut self.prim_store.pictures[parent_pic_index.0];
             parent_pic_index = src_pic_index;
+
+            if let Some(shadow_prim_index) = shadow_prim_index {
+                parent_pic.add_primitive(
+                    shadow_prim_index,
+                    clip_and_scroll,
+                );
+            }
+
             parent_pic.add_primitive(
                 src_prim_index,
                 clip_and_scroll,
@@ -1140,7 +1179,11 @@ impl<'a> DisplayListFlattener<'a> {
                 true,
             );
 
-            let src_prim = BrushPrimitive::new_picture(src_pic_index);
+            let src_prim = BrushPrimitive::new_picture(
+                src_pic_index,
+                BrushImageSourceKind::Color,
+                LayoutVector2D::zero(),
+            );
 
             let src_prim_index = self.prim_store.add_primitive(
                 &LayerRect::zero(),
@@ -1195,7 +1238,11 @@ impl<'a> DisplayListFlattener<'a> {
         );
 
         // Create a brush primitive that draws this picture.
-        let sc_prim = BrushPrimitive::new_picture(pic_index);
+        let sc_prim = BrushPrimitive::new_picture(
+            pic_index,
+            BrushImageSourceKind::Color,
+            LayoutVector2D::zero(),
+        );
 
         // Add the brush to the parent picture.
         let sc_prim_index = self.prim_store.add_primitive(
@@ -1424,7 +1471,11 @@ impl<'a> DisplayListFlattener<'a> {
         );
 
         // Create the primitive to draw the shadow picture into the scene.
-        let shadow_prim = BrushPrimitive::new_picture(shadow_pic_index);
+        let shadow_prim = BrushPrimitive::new_picture(
+            shadow_pic_index,
+            BrushImageSourceKind::Color,
+            LayoutVector2D::zero(),
+        );
         let shadow_prim_index = self.prim_store.add_primitive(
             &LayerRect::zero(),
             &max_clip,
