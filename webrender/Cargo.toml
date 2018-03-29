@@ -11,7 +11,7 @@ default = ["freetype-lib"]
 freetype-lib = ["freetype/servo-freetype-sys"]
 profiler = ["thread_profiler/thread_profiler", "debug_renderer"]
 debugger = ["ws", "serde_json", "serde", "image", "base64", "debug_renderer"]
-capture = ["webrender_api/serialize", "ron", "serde"]
+capture = ["webrender_api/serialize", "ron", "serde", "debug_renderer"]
 replay = ["webrender_api/deserialize", "ron", "serde"]
 debug_renderer = []
 
