@@ -1375,25 +1375,35 @@ impl BrushPrimitive {
                 ))
             }
             BrushKind::RadialGradient { gradient_index, .. } => {
+                let segment_src = match self.segment_desc {
+                    Some(ref desc) => { desc.src }
+                    None => SegmentSrc::Auto,
+                };
+
                 let stops_handle = &cached_gradients[gradient_index.0].handle;
                 Some((
                     BrushBatchKind::RadialGradient,
                     BatchTextures::no_texture(),
                     [
                         stops_handle.as_int(gpu_cache),
-                        0,
+                        segment_src as i32,
                         0,
                     ],
                 ))
             }
             BrushKind::LinearGradient { gradient_index, .. } => {
+                let segment_src = match self.segment_desc {
+                    Some(ref desc) => { desc.src }
+                    None => SegmentSrc::Auto,
+                };
+
                 let stops_handle = &cached_gradients[gradient_index.0].handle;
                 Some((
                     BrushBatchKind::LinearGradient,
                     BatchTextures::no_texture(),
                     [
                         stops_handle.as_int(gpu_cache),
-                        0,
+                        segment_src as i32,
                         0,
                     ],
                 ))

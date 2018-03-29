@@ -232,6 +232,8 @@ pub enum BrushKind {
         start_radius: f32,
         end_radius: f32,
         ratio_xy: f32,
+        tile_spacing: LayerSize,
+        stretch_size: LayerSize
     },
     LinearGradient {
         gradient_index: CachedGradientIndex,
@@ -241,6 +243,8 @@ pub enum BrushKind {
         reverse_stops: bool,
         start_point: LayerPoint,
         end_point: LayerPoint,
+        tile_spacing: LayerSize,
+        stretch_size: LayerSize
     }
 }
 
@@ -1540,6 +1544,86 @@ impl PrimitiveStore {
                     }
                     BrushKind::Solid { .. } |
                     BrushKind::Clear => {}
+                }
+
+                // Handle repeated linear a radial gradients decomposition here since it is exactly
+                // the same code.
+                let repeat_params = match brush.kind {
+                    BrushKind::LinearGradient { tile_spacing, stretch_size, .. } |
+                    BrushKind::RadialGradient { tile_spacing, stretch_size, .. } => {
+                        if tile_spacing != LayerSize::zero() || stretch_size != metadata.local_rect.size {
+                            Some((tile_spacing, stretch_size))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => {
+                        None
+                    }
+                };
+
+                if let Some((tile_spacing, stretch_size)) = repeat_params {
+                    let mut visible_rect = metadata.local_clip_rect;
+
+                    let world_screen_rect = prim_run_context
+                        .clip_chain.combined_outer_screen_rect
+                        .to_f32() / frame_context.device_pixel_scale;
+                    if let Some(layer_screen_rect) = prim_run_context
+                        .scroll_node
+                        .world_content_transform
+                        .unapply(&world_screen_rect) {
+
+                        visible_rect = visible_rect.intersection(&layer_screen_rect)
+                            .unwrap_or(LayerRect::zero());
+
+                    }
+
+                    // If there is spacing between repetitions we need to consider anti-aliasing
+                    // along the border of the segments accordingly.
+                    let mut base_edge_flags = EdgeAaSegmentMask::empty();
+                    if tile_spacing.width > 0.0 {
+                        base_edge_flags |= EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::RIGHT;
+                    }
+                    if tile_spacing.height > 0.0 {
+                        base_edge_flags |= EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::BOTTOM;
+                    }
+
+                    let may_need_clip_mask = true;
+
+                    let mut segments = brush.segment_desc.take().map_or(Vec::new(), |desc| desc.segments);
+                    let previous_segment_count = segments.len();
+                    segments.clear();
+
+                    let stride = stretch_size + tile_spacing;
+                    for_each_repetition(
+                        &metadata.local_rect,
+                        &visible_rect,
+                        &stride,
+                        &mut |origin, edge_flags| {
+                            segments.push(
+                                BrushSegment::new(
+                                    *origin,
+                                    stretch_size,
+                                    may_need_clip_mask,
+                                    base_edge_flags | edge_flags,
+                                ),
+                            );
+                        }
+                    );
+
+                    // If the number of gpu blocks for the reuqest changes we can't reuse
+                    // the same gpu location.
+                    if previous_segment_count == segments.len() {
+                        frame_state.gpu_cache.invalidate(&metadata.gpu_location);
+                    } else {
+                        metadata.gpu_location = GpuCacheHandle::new();
+                    }
+
+                    brush.segment_desc = Some(BrushSegmentDescriptor {
+                        segments,
+                        clip_mask_kind: BrushClipMaskKind::Unknown,
+                        src: SegmentSrc::Full,
+                    });
                 }
             }
         }

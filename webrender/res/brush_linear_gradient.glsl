@@ -39,9 +39,14 @@ void brush_vs(
     mat4 transform,
     PictureTask pic_task
 ) {
+    vec2 origin = prim_local_rect.p0;
+    if (user_data.y == SEGMENT_SOURCE_FULL) {
+        origin = segment_local_rect.p0;
+    }
+
     Gradient gradient = fetch_gradient(prim_address);
 
-    vPos = vi.local_pos - prim_local_rect.p0;
+    vPos = vi.local_pos - origin;
 
     vec2 start_point = gradient.start_end_point.xy;
     vec2 end_point = gradient.start_end_point.zw;
