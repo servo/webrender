@@ -98,6 +98,7 @@ tasks:
           servo-tidy &&
           (cd webrender_api && cargo test --verbose --features "ipc") &&
           (cd webrender && cargo build --verbose --no-default-features) &&
+          (cd webrender && cargo build --verbose --no-default-features --features capture) &&
           (cd webrender && cargo build --verbose --features capture,profiler) &&
           (cd webrender && cargo build --verbose --features replay) &&
           (cd wrench && cargo build --verbose --features env_logger) &&
@@ -175,6 +176,7 @@ tasks:
           export RUSTC_WRAPPER=sccache &&
           (cd webrender_api && cargo test --verbose --features "ipc") &&
           (cd webrender && cargo build --verbose --no-default-features) &&
+          (cd webrender && cargo build --verbose --no-default-features --features capture) &&
           (cd webrender && cargo build --verbose --features capture,profiler) &&
           (cd webrender && cargo build --verbose --features replay) &&
           (cd wrench && cargo build --verbose --features env_logger) &&

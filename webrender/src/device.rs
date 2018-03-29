@@ -6,7 +6,7 @@ use super::shader_source;
 use api::{ColorF, ImageFormat};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceUintRect, DeviceUintSize};
 use api::TextureTarget;
-#[cfg(feature = "debug_renderer")]
+#[cfg(any(feature = "debug_renderer", feature="capture"))]
 use api::ImageDescriptor;
 use euclid::Transform3D;
 use gleam::gl;
@@ -463,12 +463,12 @@ impl Texture {
         self.format
     }
 
-    #[cfg(feature = "debug_renderer")]
+    #[cfg(any(feature = "debug_renderer", feature = "capture"))]
     pub fn get_filter(&self) -> TextureFilter {
         self.filter
     }
 
-    #[cfg(feature = "debug_renderer")]
+    #[cfg(any(feature = "debug_renderer", feature = "capture"))]
     pub fn get_render_target(&self) -> Option<RenderTargetInfo> {
         self.render_target.clone()
     }
@@ -1530,7 +1530,7 @@ impl Device {
         }
     }
 
-    #[cfg(feature = "debug_renderer")]
+    #[cfg(any(feature = "debug_renderer", feature = "capture"))]
     pub fn read_pixels(&mut self, img_desc: &ImageDescriptor) -> Vec<u8> {
         let desc = gl_describe_format(self.gl(), img_desc.format);
         self.gl.read_pixels(
@@ -1596,7 +1596,7 @@ impl Device {
     }
 
     /// Attaches the provided texture to the current Read FBO binding.
-    #[cfg(feature = "debug_renderer")]
+    #[cfg(any(feature = "debug_renderer", feature="capture"))]
     fn attach_read_texture_raw(
         &mut self, texture_id: gl::GLuint, target: gl::GLuint, layer_id: i32
     ) {
@@ -1623,14 +1623,14 @@ impl Device {
         }
     }
 
-    #[cfg(feature = "debug_renderer")]
+    #[cfg(any(feature = "debug_renderer", feature="capture"))]
     pub fn attach_read_texture_external(
         &mut self, texture_id: gl::GLuint, target: TextureTarget, layer_id: i32
     ) {
         self.attach_read_texture_raw(texture_id, get_gl_target(target), layer_id)
     }
 
-    #[cfg(feature = "debug_renderer")]
+    #[cfg(any(feature = "debug_renderer", feature="capture"))]
     pub fn attach_read_texture(&mut self, texture: &Texture, layer_id: i32) {
         self.attach_read_texture_raw(texture.id, texture.target, layer_id)
     }
