@@ -48,7 +48,7 @@ rand = "0.3"                # for the benchmarks
 glutin = "0.12"             # for the example apps
 
 [target.'cfg(any(target_os = "android", all(unix, not(target_os = "macos"))))'.dependencies]
-freetype = { version = "0.3", default-features = false }
+freetype = { version = "0.4", default-features = false }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 dwrote = "0.4.1"
