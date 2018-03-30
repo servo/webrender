@@ -17,6 +17,7 @@ use freetype::freetype::{FT_LOAD_COLOR, FT_LOAD_DEFAULT, FT_LOAD_FORCE_AUTOHINT}
 use freetype::freetype::{FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH, FT_LOAD_NO_AUTOHINT};
 use freetype::freetype::{FT_LOAD_NO_BITMAP, FT_LOAD_NO_HINTING, FT_LOAD_VERTICAL_LAYOUT};
 use freetype::freetype::{FT_FACE_FLAG_SCALABLE, FT_FACE_FLAG_FIXED_SIZES};
+use freetype::succeeded;
 use glyph_rasterizer::{FontInstance, GlyphFormat, RasterizedGlyph};
 use internal_types::{FastHashMap, ResourceCacheError};
 use std::{cmp, mem, ptr, slice};
@@ -152,7 +153,7 @@ impl FontContext {
             FT_Init_FreeType(&mut lib)
         };
 
-        if result.succeeded() {
+        if succeeded(result) {
             Ok(FontContext {
                 lib,
                 faces: FastHashMap::default(),
@@ -161,7 +162,7 @@ impl FontContext {
         } else {
             // TODO(gw): Provide detailed error values.
             Err(ResourceCacheError::new(
-                format!("Failed to initialize FreeType - {}", result.0)
+                format!("Failed to initialize FreeType - {}", result)
             ))
         }
     }
@@ -182,7 +183,7 @@ impl FontContext {
                     &mut face,
                 )
             };
-            if result.succeeded() && !face.is_null() {
+            if succeeded(result) && !face.is_null() {
                 self.faces.insert(
                     *font_key,
                     Face {
@@ -209,7 +210,7 @@ impl FontContext {
                     &mut face,
                 )
             };
-            if result.succeeded() && !face.is_null() {
+            if succeeded(result) && !face.is_null() {
                 self.faces.insert(
                     *font_key,
                     Face {
@@ -227,7 +228,7 @@ impl FontContext {
     pub fn delete_font(&mut self, font_key: &FontKey) {
         if let Some(face) = self.faces.remove(font_key) {
             let result = unsafe { FT_Done_Face(face.face) };
-            assert!(result.succeeded());
+            assert!(succeeded(result));
         }
     }
 
@@ -316,11 +317,11 @@ impl FontContext {
             }
         };
 
-        if result.succeeded() {
+        if succeeded(result) {
             result = unsafe { FT_Load_Glyph(face.face, glyph.index as FT_UInt, load_flags as FT_Int32) };
         };
 
-        if result.succeeded() {
+        if succeeded(result) {
             let slot = unsafe { (*face.face).glyph };
             assert!(slot != ptr::null_mut());
 
@@ -567,7 +568,7 @@ impl FontContext {
             (FontRenderMode::Subpixel, _) => FT_Render_Mode::FT_RENDER_MODE_LCD,
         };
         let result = unsafe { FT_Render_Glyph(slot, render_mode) };
-        if !result.succeeded() {
+        if !succeeded(result) {
             error!("Unable to rasterize");
             debug!(
                 "{:?} with {:?}, {:?}",
