@@ -199,6 +199,8 @@ impl Hash for FontVariation {
 pub struct GlyphOptions {
     pub render_mode: FontRenderMode,
     pub flags: FontInstanceFlags,
+    /// The DPI used for rasterizing this font
+    pub dpi: Option<u32>,
 }
 
 impl Default for GlyphOptions {
@@ -206,6 +208,7 @@ impl Default for GlyphOptions {
         GlyphOptions {
             render_mode: FontRenderMode::Subpixel,
             flags: FontInstanceFlags::empty(),
+            dpi: None,
         }
     }
 }

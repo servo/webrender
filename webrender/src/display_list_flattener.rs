@@ -689,6 +689,7 @@ impl<'a> DisplayListFlattener<'a> {
                     item.glyphs(),
                     item.display_list().get(item.glyphs()).count(),
                     text_info.glyph_options,
+                    text_info.glyph_options.and_then(|options| options.dpi),
                 );
             }
             SpecificDisplayItem::Rectangle(ref info) => {
@@ -2010,6 +2011,7 @@ impl<'a> DisplayListFlattener<'a> {
         glyph_range: ItemRange<GlyphInstance>,
         glyph_count: usize,
         glyph_options: Option<GlyphOptions>,
+        dpi: Option<u32>,
     ) {
         let prim = {
             let instance_map = self.font_instances.read().unwrap();
@@ -2074,6 +2076,7 @@ impl<'a> DisplayListFlattener<'a> {
                 flags,
                 font_instance.platform_options,
                 font_instance.variations.clone(),
+                dpi,
             );
             TextRunPrimitiveCpu {
                 font: prim_font,

@@ -305,14 +305,15 @@ impl FontContext {
                 yx: (shape.skew_y * -65536.0) as FT_Fixed,
                 yy: (shape.scale_y * 65536.0) as FT_Fixed,
             };
+            let dpi = font.dpi.unwrap_or(72);
             unsafe {
                 FT_Set_Transform(face.face, &mut ft_shape, ptr::null_mut());
                 FT_Set_Char_Size(
                     face.face,
                     (req_size * x_scale * 64.0 + 0.5) as FT_F26Dot6,
                     (req_size * y_scale * 64.0 + 0.5) as FT_F26Dot6,
-                    0,
-                    0,
+                    dpi,
+                    dpi,
                 )
             }
         };
