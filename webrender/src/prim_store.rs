@@ -1050,20 +1050,21 @@ impl PrimitiveStore {
         reference_frame_index: ClipScrollNodeIndex,
         frame_output_pipeline_id: Option<PipelineId>,
         apply_local_clip_rect: bool,
+        force_intermediate_surface: bool,
     ) -> PictureIndex {
-        let pic = PicturePrimitive::new_image(
+        let picture = PicturePrimitive::new_image(
             composite_mode,
             is_in_3d_context,
             pipeline_id,
             reference_frame_index,
             frame_output_pipeline_id,
             apply_local_clip_rect,
+            force_intermediate_surface,
         );
 
-        let pic_index = PictureIndex(self.pictures.len());
-        self.pictures.push(pic);
-
-        pic_index
+        let picture_index = PictureIndex(self.pictures.len());
+        self.pictures.push(picture);
+        picture_index
     }
 
     pub fn add_primitive(
@@ -1844,7 +1845,7 @@ impl PrimitiveStore {
                         return None;
                     }
 
-                    may_need_clip_mask = pic.composite_mode.is_some();
+                    may_need_clip_mask = pic.composite_mode.is_some() || pic.force_intermediate_surface;
 
                     let inflation_factor = match pic.composite_mode {
                         Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
