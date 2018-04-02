@@ -1410,6 +1410,12 @@ impl<'a> DisplayListFlattener<'a> {
         // Gaussian blur with a standard deviation equal to half the blur radius."
         let std_deviation = shadow.blur_radius * 0.5;
 
+        // If the shadow has no blur, any elements will get directly rendered
+        // into the parent picture surface, instead of allocating and drawing
+        // into an intermediate surface. In this case, we will need to apply
+        // the local clip rect to primitives.
+        let apply_local_clip_rect = shadow.blur_radius == 0.0;
+
         // Create a picture that the shadow primitives will be added to. If the
         // blur radius is 0, the code in Picture::prepare_for_render will
         // detect this and mark the picture to be drawn directly into the
@@ -1420,7 +1426,7 @@ impl<'a> DisplayListFlattener<'a> {
             pipeline_id,
             current_reference_frame_index,
             None,
-            false,
+            apply_local_clip_rect,
         );
 
         // Create the primitive to draw the shadow picture into the scene.
