@@ -677,8 +677,8 @@ impl AlphaBatchBuilder {
                                 // to picture compositing operations.
                                 let source_id = cache_task_id;
 
-                                match picture.composite_mode.expect("bug: only composites here") {
-                                    PictureCompositeMode::Filter(filter) => {
+                                match picture.composite_mode {
+                                    Some(PictureCompositeMode::Filter(filter)) => {
                                         match filter {
                                             FilterOp::Blur(..) => {
                                                 let kind = BatchKind::Brush(
@@ -846,7 +846,7 @@ impl AlphaBatchBuilder {
                                             }
                                         }
                                     }
-                                    PictureCompositeMode::MixBlend(mode) => {
+                                    Some(PictureCompositeMode::MixBlend(mode)) => {
                                         let backdrop_id = picture.secondary_render_task_id.expect("no backdrop!?");
 
                                         let key = BatchKey::new(
@@ -883,7 +883,7 @@ impl AlphaBatchBuilder {
 
                                         batch.push(PrimitiveInstance::from(instance));
                                     }
-                                    PictureCompositeMode::Blit => {
+                                    Some(PictureCompositeMode::Blit) | None => {
                                         let kind = BatchKind::Brush(
                                             BrushBatchKind::Image(ImageBufferKind::Texture2DArray)
                                         );

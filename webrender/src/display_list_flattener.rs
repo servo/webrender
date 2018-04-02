@@ -320,8 +320,10 @@ impl<'a> DisplayListFlattener<'a> {
         let reference_frame_info = self.id_to_index_mapper.simple_scroll_and_clip_chain(
             &ClipId::root_reference_frame(pipeline_id)
         );
+
+        let root_scroll_node = ClipId::root_scroll_node(pipeline_id);
         let scroll_frame_info = self.id_to_index_mapper.simple_scroll_and_clip_chain(
-            &ClipId::root_scroll_node(pipeline_id)
+            &root_scroll_node,
         );
 
         self.push_stacking_context(
@@ -330,7 +332,8 @@ impl<'a> DisplayListFlattener<'a> {
             TransformStyle::Flat,
             true,
             true,
-            scroll_frame_info,
+            root_scroll_node,
+            None,
         );
 
         // For the root pipeline, there's no need to add a full screen rectangle
@@ -466,12 +469,11 @@ impl<'a> DisplayListFlattener<'a> {
         &mut self,
         traversal: &mut BuiltDisplayListIter<'a>,
         pipeline_id: PipelineId,
+        item: &DisplayItemRef,
+        stacking_context: &StackingContext,
         unreplaced_scroll_id: ClipId,
         mut scroll_node_id: ClipId,
         mut reference_frame_relative_offset: LayerVector2D,
-        bounds: &LayerRect,
-        stacking_context: &StackingContext,
-        filters: ItemRange<FilterOp>,
         is_backface_visible: bool,
     ) {
         // Avoid doing unnecessary work for empty stacking contexts.
@@ -489,7 +491,7 @@ impl<'a> DisplayListFlattener<'a> {
                 .expect("No display list?!")
                 .display_list;
             CompositeOps::new(
-                stacking_context.filter_ops_for_compositing(display_list, filters),
+                stacking_context.filter_ops_for_compositing(display_list, item.filters()),
                 stacking_context.mix_blend_mode_for_compositing(),
             )
         };
@@ -499,6 +501,7 @@ impl<'a> DisplayListFlattener<'a> {
             self.replacements.push((unreplaced_scroll_id, scroll_node_id));
         }
 
+        let bounds = item.rect();
         reference_frame_relative_offset += bounds.origin.to_vector();
 
         // If we have a transformation or a perspective, we should have been assigned a new
@@ -526,16 +529,15 @@ impl<'a> DisplayListFlattener<'a> {
 
         // We apply the replacements one more time in case we need to set it to a replacement
         // that we just pushed above.
-        let sc_scroll_node = self.apply_scroll_frame_id_replacement(unreplaced_scroll_id);
-        let stacking_context_clip_and_scroll =
-            self.id_to_index_mapper.simple_scroll_and_clip_chain(&sc_scroll_node);
+        let final_scroll_node = self.apply_scroll_frame_id_replacement(unreplaced_scroll_id);
         self.push_stacking_context(
             pipeline_id,
             composition_operations,
             stacking_context.transform_style,
             is_backface_visible,
             false,
-            stacking_context_clip_and_scroll,
+            final_scroll_node,
+            stacking_context.clip_node_id,
         );
 
         self.flatten_items(
@@ -773,12 +775,11 @@ impl<'a> DisplayListFlattener<'a> {
                 self.flatten_stacking_context(
                     &mut subtraversal,
                     pipeline_id,
+                    &item,
+                    &info.stacking_context,
                     unreplaced_scroll_id,
                     clip_and_scroll_ids.scroll_node_id,
                     reference_frame_relative_offset,
-                    &item.rect(),
-                    &info.stacking_context,
-                    item.filters(),
                     prim_info.is_backface_visible,
                 );
                 return Some(subtraversal);
@@ -968,8 +969,18 @@ impl<'a> DisplayListFlattener<'a> {
         transform_style: TransformStyle,
         is_backface_visible: bool,
         is_pipeline_root: bool,
-        clip_and_scroll: ScrollNodeAndClipChain,
+        positioning_node: ClipId,
+        clipping_node: Option<ClipId>,
     ) {
+        let clip_chain_id = match clipping_node {
+            Some(ref clipping_node) => self.id_to_index_mapper.get_clip_chain_index(clipping_node),
+            None => ClipChainIndex(0), // This means no clipping.
+        };
+        let clip_and_scroll = ScrollNodeAndClipChain::new(
+            self.id_to_index_mapper.get_node_index(positioning_node),
+            clip_chain_id
+        );
+
         // Construct the necessary set of Picture primitives
         // to draw this stacking context.
         let current_reference_frame_index = self.current_reference_frame_index();
@@ -997,6 +1008,7 @@ impl<'a> DisplayListFlattener<'a> {
                 current_reference_frame_index,
                 None,
                 true,
+                false,
             );
 
             self.picture_stack.push(pic_index);
@@ -1053,6 +1065,7 @@ impl<'a> DisplayListFlattener<'a> {
                 current_reference_frame_index,
                 None,
                 true,
+                false,
             );
 
             let prim = BrushPrimitive::new_picture(container_index);
@@ -1069,10 +1082,7 @@ impl<'a> DisplayListFlattener<'a> {
             let parent_pic_index = *self.picture_stack.last().unwrap();
 
             let pic = &mut self.prim_store.pictures[parent_pic_index.0];
-            pic.add_primitive(
-                prim_index,
-                clip_and_scroll,
-            );
+            pic.add_primitive(prim_index, clip_and_scroll);
 
             self.picture_stack.push(container_index);
 
@@ -1106,6 +1116,7 @@ impl<'a> DisplayListFlattener<'a> {
                 current_reference_frame_index,
                 None,
                 true,
+                false,
             );
 
             let src_prim = BrushPrimitive::new_picture(src_pic_index);
@@ -1121,10 +1132,7 @@ impl<'a> DisplayListFlattener<'a> {
 
             let parent_pic = &mut self.prim_store.pictures[parent_pic_index.0];
             parent_pic_index = src_pic_index;
-            parent_pic.add_primitive(
-                src_prim_index,
-                clip_and_scroll,
-            );
+            parent_pic.add_primitive(src_prim_index, clip_and_scroll);
 
             self.picture_stack.push(src_pic_index);
         }
@@ -1138,6 +1146,7 @@ impl<'a> DisplayListFlattener<'a> {
                 current_reference_frame_index,
                 None,
                 true,
+                false,
             );
 
             let src_prim = BrushPrimitive::new_picture(src_pic_index);
@@ -1153,10 +1162,7 @@ impl<'a> DisplayListFlattener<'a> {
 
             let parent_pic = &mut self.prim_store.pictures[parent_pic_index.0];
             parent_pic_index = src_pic_index;
-            parent_pic.add_primitive(
-                src_prim_index,
-                clip_and_scroll,
-            );
+            parent_pic.add_primitive(src_prim_index, clip_and_scroll);
 
             self.picture_stack.push(src_pic_index);
         }
@@ -1191,7 +1197,8 @@ impl<'a> DisplayListFlattener<'a> {
             pipeline_id,
             current_reference_frame_index,
             frame_output_pipeline_id,
-                true,
+            true,
+            clipping_node.is_some(),
         );
 
         // Create a brush primitive that draws this picture.
@@ -1420,6 +1427,7 @@ impl<'a> DisplayListFlattener<'a> {
             pipeline_id,
             current_reference_frame_index,
             None,
+            false,
             false,
         );
 
