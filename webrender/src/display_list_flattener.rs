@@ -11,7 +11,7 @@ use api::{IframeDisplayItem, ImageKey, ImageRendering, ItemRange, LayerPoint, La
 use api::{LayerRect, LayerSize, LayerVector2D, LayoutRect, LayoutSize, LayoutTransform};
 use api::{LayoutVector2D, LineOrientation, LineStyle, LocalClip, PipelineId, PropertyBinding};
 use api::{RepeatMode, ScrollFrameDisplayItem, ScrollPolicy, ScrollSensitivity, Shadow};
-use api::{SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect, TileOffset};
+use api::{SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect};
 use api::{TransformStyle, YuvColorSpace, YuvData};
 use app_units::Au;
 use batch::BrushImageSourceKind;
@@ -23,7 +23,6 @@ use euclid::{SideOffsets2D, vec2};
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use glyph_rasterizer::FontInstance;
 use hit_test::{HitTestingItem, HitTestingRun};
-use image::{decompose_image, TiledImageInfo};
 use internal_types::{FastHashMap, FastHashSet};
 use picture::PictureCompositeMode;
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor, CachedGradient};
@@ -627,49 +626,16 @@ impl<'a> DisplayListFlattener<'a> {
         let prim_info = item.get_layer_primitive_info(&reference_frame_relative_offset);
         match *item.item() {
             SpecificDisplayItem::Image(ref info) => {
-                match self.tiled_image_map.get(&info.image_key).cloned() {
-                    Some(tiling) => {
-                        // The image resource is tiled. We have to generate an image primitive
-                        // for each tile.
-                        decompose_image(
-                            &TiledImageInfo {
-                                rect: prim_info.rect,
-                                tile_spacing: info.tile_spacing,
-                                stretch_size: info.stretch_size,
-                                device_image_size: tiling.image_size,
-                                device_tile_size: tiling.tile_size as u32,
-                            },
-                            &mut|tile| {
-                                let mut prim_info = prim_info.clone();
-                                prim_info.rect = tile.rect;
-                                self.add_image(
-                                    clip_and_scroll,
-                                    &prim_info,
-                                    tile.stretch_size,
-                                    info.tile_spacing,
-                                    None,
-                                    info.image_key,
-                                    info.image_rendering,
-                                    info.alpha_type,
-                                    Some(tile.tile_offset),
-                                );
-                            }
-                        );
-                    }
-                    None => {
-                        self.add_image(
-                            clip_and_scroll,
-                            &prim_info,
-                            info.stretch_size,
-                            info.tile_spacing,
-                            None,
-                            info.image_key,
-                            info.image_rendering,
-                            info.alpha_type,
-                            None,
-                        );
-                    }
-                }
+                self.add_image(
+                    clip_and_scroll,
+                    &prim_info,
+                    info.stretch_size,
+                    info.tile_spacing,
+                    None,
+                    info.image_key,
+                    info.image_rendering,
+                    info.alpha_type,
+                );
             }
             SpecificDisplayItem::YuvImage(ref info) => {
                 self.add_yuv_image(
@@ -1831,7 +1797,6 @@ impl<'a> DisplayListFlattener<'a> {
                         border.image_key,
                         ImageRendering::Auto,
                         AlphaType::PremultipliedAlpha,
-                        None,
                     );
                 }
             }
@@ -2161,7 +2126,6 @@ impl<'a> DisplayListFlattener<'a> {
         image_key: ImageKey,
         image_rendering: ImageRendering,
         alpha_type: AlphaType,
-        tile_offset: Option<TileOffset>,
     ) {
         // If the tile spacing is the same as the rect size,
         // then it is effectively zero. We use this later on
@@ -2174,17 +2138,17 @@ impl<'a> DisplayListFlattener<'a> {
         let request = ImageRequest {
             key: image_key,
             rendering: image_rendering,
-            tile: tile_offset,
+            tile: None,
         };
 
         // We don't yet have a good way to deal with images with large amount of repetitions using
         // brushes, so fallback to the non-brush image shader for now;
-        let many_repetitions = (stretch_size.width / info.rect.size.width) *
-            (stretch_size.height / info.rect.size.height) > 200.0;
+        let many_repetitions = (info.rect.size.width / stretch_size.width) *
+            (info.rect.size.height / stretch_size.height) > 200.0;
 
         // See if conditions are met to run through the new
         // image brush shader, which supports segments.
-        if sub_rect.is_none() && !many_repetitions && tile_offset.is_none() {
+        if sub_rect.is_none() && !many_repetitions {
             let prim = BrushPrimitive::new(
                 BrushKind::Image {
                     request,
@@ -2192,6 +2156,7 @@ impl<'a> DisplayListFlattener<'a> {
                     alpha_type,
                     stretch_size,
                     tile_spacing,
+                    visible_tiles: Vec::new(),
                 },
                 None,
             );

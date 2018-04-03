@@ -5,8 +5,8 @@
 use api::{AlphaType, BorderRadius, BoxShadowClipMode, BuiltDisplayList, ClipMode, ColorF, ComplexClipRegion};
 use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, FontRenderMode};
 use api::{FilterOp, GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
-use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D};
-use api::{PipelineId, PremultipliedColorF, Shadow, YuvColorSpace, YuvFormat};
+use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, DeviceUintSize};
+use api::{PipelineId, PremultipliedColorF, Shadow, YuvColorSpace, YuvFormat, TileOffset};
 use batch::BrushImageSourceKind;
 use border::{BorderCornerInstance, BorderEdgeKind};
 use box_shadow::BLUR_SAMPLE_SCALE;
@@ -20,7 +20,7 @@ use glyph_rasterizer::{FontInstance, FontTransform};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
 use gpu_types::{ClipChainRectIndex};
-use image::for_each_repetition;
+use image::{for_each_repetition, for_each_tile};
 use picture::{PictureCompositeMode, PicturePrimitive};
 use render_task::{BlitSource, RenderTask, RenderTaskCacheKey};
 use render_task::{RenderTaskCacheKeyKind, RenderTaskId};
@@ -216,6 +216,7 @@ pub enum BrushKind {
         alpha_type: AlphaType,
         stretch_size: LayerSize,
         tile_spacing: LayerSize,
+        visible_tiles: Vec<TileOffset>,
     },
     YuvImage {
         yuv_key: [ImageKey; 3],
@@ -1320,11 +1321,13 @@ impl PrimitiveStore {
                 let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
 
                 match brush.kind {
-                    BrushKind::Image { request, ref mut current_epoch, stretch_size, tile_spacing, .. } => {
+                    BrushKind::Image { request, ref mut current_epoch, stretch_size, tile_spacing, ref mut visible_tiles, .. } => {
                         let image_properties = frame_state
                             .resource_cache
                             .get_image_properties(request.key);
 
+
+                        let mut tiling = None;
                         if let Some(image_properties) = image_properties {
                             // See if this image has been updated since we last hit this code path.
                             // If so, we need to update the opacity.
@@ -1332,16 +1335,29 @@ impl PrimitiveStore {
                                 *current_epoch = image_properties.epoch;
                                 metadata.opacity.is_opaque = image_properties.descriptor.is_opaque;
                             }
+
+                            tiling = image_properties.tiling.map(|tile_size| {
+                                (
+                                    tile_size,
+                                    DeviceUintSize::new(
+                                        image_properties.descriptor.width,
+                                        image_properties.descriptor.height,
+                                    ),
+                                )
+                            });
                         }
 
-                        frame_state.resource_cache.request_image(
-                            request,
-                            frame_state.gpu_cache,
-                        );
+                        if tiling.is_none() {
+                            frame_state.resource_cache.request_image(
+                                request,
+                                frame_state.gpu_cache,
+                            );
+                        }
 
-                        // If the image is repeated it has to be decomposed on the CPU.
-                        if tile_spacing != LayerSize::zero() || stretch_size != metadata.local_rect.size {
-                            let mut visible_rect = metadata.local_clip_rect;
+                        if tiling.is_some() || tile_spacing != LayerSize::zero() || stretch_size != metadata.local_rect.size {
+                            let mut visible_rect = metadata.local_rect
+                                .intersection(&metadata.local_clip_rect)
+                                .unwrap_or(LayerRect::zero());
 
                             let world_screen_rect = prim_run_context
                                 .clip_chain.combined_outer_screen_rect
@@ -1351,7 +1367,8 @@ impl PrimitiveStore {
                                 .world_content_transform
                                 .unapply(&world_screen_rect) {
 
-                                visible_rect = visible_rect.intersection(&layer_screen_rect)
+                                visible_rect = visible_rect
+                                    .intersection(&layer_screen_rect)
                                     .unwrap_or(LayerRect::zero());
 
                             }
@@ -1374,19 +1391,58 @@ impl PrimitiveStore {
                             segments.clear();
 
                             let stride = stretch_size + tile_spacing;
+
+                            visible_tiles.clear();
+
                             for_each_repetition(
                                 &metadata.local_rect,
                                 &visible_rect,
                                 &stride,
                                 &mut |origin, edge_flags| {
-                                    segments.push(
-                                        BrushSegment::new(
-                                            *origin,
-                                            stretch_size,
-                                            may_need_clip_mask,
-                                            base_edge_flags | edge_flags,
-                                        ),
-                                    );
+                                    let edge_flags = base_edge_flags | edge_flags;
+
+                                    match tiling {
+                                        Some((tile_size, device_image_size)) => {
+                                            let image_rect = LayerRect {
+                                                origin: *origin,
+                                                size: stretch_size,
+                                            };
+
+                                            for_each_tile(
+                                                &image_rect,
+                                                &visible_rect,
+                                                &device_image_size,
+                                                tile_size as u32,
+                                                &mut |segment_rect, tile_offset, tile_flags| {
+
+                                                    frame_state.resource_cache.request_image(
+                                                        request.with_tile(tile_offset),
+                                                        frame_state.gpu_cache,
+                                                    );
+                                                    visible_tiles.push(tile_offset);
+
+                                                    segments.push(
+                                                        BrushSegment::new(
+                                                            segment_rect.origin,
+                                                            segment_rect.size,
+                                                            may_need_clip_mask,
+                                                            tile_flags & edge_flags,
+                                                        ),
+                                                    );
+                                                }
+                                            );
+                                        }
+                                        None => {
+                                            segments.push(
+                                                BrushSegment::new(
+                                                    *origin,
+                                                    stretch_size,
+                                                    may_need_clip_mask,
+                                                    edge_flags,
+                                                ),
+                                            );
+                                        }
+                                    }
                                 }
                             );
 
