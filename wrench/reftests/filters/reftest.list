@@ -33,4 +33,4 @@
 == filter-drop-shadow.yaml filter-drop-shadow.png
 == filter-drop-shadow-on-viewport-edge.yaml filter-drop-shadow-on-viewport-edge.png
 == blend-clipped.yaml blend-clipped.png
-
+== filter-segments.yaml filter-segments-ref.yaml
