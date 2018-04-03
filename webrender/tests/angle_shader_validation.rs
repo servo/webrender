@@ -59,10 +59,6 @@ const SHADERS: &[Shader] = &[
         features: PRIM_FEATURES,
     },
     Shader {
-        name: "ps_hardware_composite",
-        features: PRIM_FEATURES,
-    },
-    Shader {
         name: "ps_split_composite",
         features: PRIM_FEATURES,
     },

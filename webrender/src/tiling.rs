@@ -323,7 +323,7 @@ impl RenderTarget for ColorRenderTarget {
                     let brush_index = ctx.prim_store.cpu_metadata[pic_task.prim_index.0].cpu_prim_index;
                     let brush = &ctx.prim_store.cpu_brushes[brush_index.0];
                     match brush.kind {
-                        BrushKind::Picture { pic_index } => {
+                        BrushKind::Picture { pic_index, .. } => {
                             let pic = &ctx.prim_store.pictures[pic_index.0];
                             let (target_rect, _) = task.get_target_rect();
 
