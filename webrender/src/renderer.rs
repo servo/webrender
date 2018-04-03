@@ -255,6 +255,7 @@ bitflags! {
         const DISABLE_BATCHING  = 1 << 5;
         const EPOCHS            = 1 << 6;
         const COMPACT_PROFILER  = 1 << 7;
+        const ECHO_DRIVER_MESSAGES = 1 << 8;
     }
 }
 
@@ -2302,6 +2303,10 @@ impl Renderer {
                     );
                 }
             }
+        }
+
+        if self.debug_flags.contains(DebugFlags::ECHO_DRIVER_MESSAGES) {
+            self.device.echo_driver_messages();
         }
 
         self.backend_profile_counters.reset();
