@@ -237,11 +237,14 @@ impl BrushKind {
     fn supports_segments(&self) -> bool {
         match *self {
             BrushKind::Solid { .. } |
-            BrushKind::Picture { .. } |
             BrushKind::Image { .. } |
             BrushKind::YuvImage { .. } |
             BrushKind::RadialGradient { .. } |
             BrushKind::LinearGradient { .. } => true,
+
+            // TODO(gw): Allow batch.rs to add segment instances
+            //           for Picture primitives.
+            BrushKind::Picture { .. } => false,
 
             BrushKind::Clear => false,
         }
