@@ -54,4 +54,5 @@ platform(linux) == blurred-shadow-local-clip-rect.yaml blurred-shadow-local-clip
 platform(linux) == two-shadows.yaml two-shadows.png
 == shadow-clip.yaml shadow-clip-ref.yaml
 == shadow-fast-clip.yaml shadow-fast-clip-ref.yaml
+== shadow-partial-glyph.yaml shadow-partial-glyph-ref.yaml
 fuzzy(1,68) platform(linux) == shadow-transforms.yaml shadow-transforms.png
