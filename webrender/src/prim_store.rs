@@ -1354,6 +1354,7 @@ impl PrimitiveStore {
                         }
                     }
                     BrushKind::Picture { pic_index, source_kind, .. } => {
+                        let pic = &mut self.pictures[pic_index.0];
                         // If this picture is referenced by multiple brushes,
                         // we only want to prepare it once per frame. It
                         // should be prepared for the main color pass.
@@ -1361,9 +1362,9 @@ impl PrimitiveStore {
                         //           we could mark which brush::picture is
                         //           the owner of the picture, vs the shadow
                         //           which is just referencing it.
-                        if source_kind == BrushImageSourceKind::Color {
-                            self.pictures[pic_index.0]
-                                .prepare_for_render(
+                        match source_kind {
+                            BrushImageSourceKind::Color => {
+                                pic.prepare_for_render(
                                     prim_index,
                                     metadata,
                                     pic_state_for_children,
@@ -1371,6 +1372,22 @@ impl PrimitiveStore {
                                     frame_context,
                                     frame_state,
                                 );
+                            }
+                            BrushImageSourceKind::ColorAlphaMask => {
+                                // Since we will always visit the shadow
+                                // brush first, use this to clear out the
+                                // render tasks from the previous frame.
+                                // This ensures that if the primary brush
+                                // is found to be non-visible, then we
+                                // won't try to draw the drop-shadow either.
+                                // This isn't quite correct - it can result
+                                // in clipping artifacts if the image is
+                                // off-screen, but the drop-shadow is
+                                // partially visible - we can fix this edge
+                                // case as a follow up.
+                                pic.surface = None;
+                                pic.secondary_render_task_id = None;
+                            }
                         }
                     }
                     BrushKind::Solid { .. } |

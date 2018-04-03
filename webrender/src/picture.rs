@@ -391,7 +391,7 @@ impl PicturePrimitive {
             // cache entry for this picture to ensure that the correct
             // task rect is provided to the image shader.
             if self.task_rect != device_rect {
-                frame_state.gpu_cache.invalidate(&prim_metadata.gpu_location);
+                frame_state.gpu_cache.invalidate(&self.extra_gpu_data_handle);
                 self.task_rect = device_rect;
             }
 
