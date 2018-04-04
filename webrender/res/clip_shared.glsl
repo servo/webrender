@@ -51,7 +51,23 @@ RectWithSize intersect_rect(RectWithSize a, RectWithSize b) {
 ClipVertexInfo write_clip_tile_vertex(RectWithSize local_clip_rect,
                                       ClipScrollNode scroll_node,
                                       ClipArea area) {
-    vec2 actual_pos = area.screen_origin + aPosition.xy * area.common_data.task_rect.size;
+    vec2 device_pos = area.screen_origin + aPosition.xy * area.common_data.task_rect.size;
+    vec2 actual_pos;
+
+    // =============================
+    if (scroll_node.is_axis_aligned) {
+        vec4 world_p0 = scroll_node.transform * vec4(local_clip_rect.p0, 0.0, 1.0);
+        vec4 world_p1 = scroll_node.transform * vec4(local_clip_rect.p0 + local_clip_rect.size, 0.0, 1.0);
+        vec4 world_pos = uDevicePixelRatio * vec4(world_p0.xy, world_p1.xy) /
+                                             vec4(world_p0.ww, world_p1.ww);
+        vec4 snap_offsets = floor(world_pos + 0.5) - world_pos;
+        vec2 normalized_snap_pos = (device_pos - world_pos.xy) / (world_pos.zw - world_pos.xy);
+        vec2 ref_pos = mix(snap_offsets.xy, snap_offsets.zw, normalized_snap_pos);
+        actual_pos = device_pos - ref_pos;
+    } else {
+        actual_pos = device_pos;
+    }
+    // =============================
 
     vec4 node_pos;
 
@@ -64,7 +80,7 @@ ClipVertexInfo write_clip_tile_vertex(RectWithSize local_clip_rect,
     }
 
     // compute the point position inside the scroll node, in CSS space
-    vec2 vertex_pos = actual_pos +
+    vec2 vertex_pos = device_pos +
                       area.common_data.task_rect.p0 -
                       area.screen_origin;
 
