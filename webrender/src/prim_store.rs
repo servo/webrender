@@ -1359,33 +1359,13 @@ impl PrimitiveStore {
                         }
 
                         if tiling.is_some() || tile_spacing != LayerSize::zero() || stretch_size != metadata.local_rect.size {
-                            let mut visible_rect = metadata.local_rect
-                                .intersection(&metadata.local_clip_rect)
-                                .unwrap_or(LayerRect::zero());
+                            let visible_rect = compute_conservatrive_visible_rect(
+                                prim_run_context,
+                                frame_context,
+                                &metadata.local_clip_rect
+                            );
 
-                            let world_screen_rect = prim_run_context
-                                .clip_chain.combined_outer_screen_rect
-                                .to_f32() / frame_context.device_pixel_scale;
-                            if let Some(layer_screen_rect) = prim_run_context
-                                .scroll_node
-                                .world_content_transform
-                                .unapply(&world_screen_rect) {
-
-                                visible_rect = visible_rect
-                                    .intersection(&layer_screen_rect)
-                                    .unwrap_or(LayerRect::zero());
-
-                            }
-
-                            // If there is spacing between repetitions we need to consider anti-aliasing
-                            // along the border of the segments accordingly.
-                            let mut base_edge_flags = EdgeAaSegmentMask::empty();
-                            if tile_spacing.width > 0.0 {
-                                base_edge_flags |= EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::RIGHT;
-                            }
-                            if tile_spacing.height > 0.0 {
-                                base_edge_flags |= EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::BOTTOM;
-                            }
+                            let base_edge_flags = edge_flags_for_tile_spacing(tile_spacing);
 
                             // TODO(review) should this always be true?
                             let may_need_clip_mask = true;
@@ -1450,7 +1430,7 @@ impl PrimitiveStore {
                                 }
                             );
 
-                            // If the number of gpu blocks for the reuqest changes we can't reuse
+                            // If the number of gpu blocks for the request changes we can't reuse
                             // the same gpu location.
                             if previous_segment_count == segments.len() {
                                 frame_state.gpu_cache.invalidate(&metadata.gpu_location);
@@ -1563,30 +1543,13 @@ impl PrimitiveStore {
                 };
 
                 if let Some((tile_spacing, stretch_size)) = repeat_params {
-                    let mut visible_rect = metadata.local_clip_rect;
+                    let visible_rect = compute_conservatrive_visible_rect(
+                        prim_run_context,
+                        frame_context,
+                        &metadata.local_clip_rect
+                    );
 
-                    let world_screen_rect = prim_run_context
-                        .clip_chain.combined_outer_screen_rect
-                        .to_f32() / frame_context.device_pixel_scale;
-                    if let Some(layer_screen_rect) = prim_run_context
-                        .scroll_node
-                        .world_content_transform
-                        .unapply(&world_screen_rect) {
-
-                        visible_rect = visible_rect.intersection(&layer_screen_rect)
-                            .unwrap_or(LayerRect::zero());
-
-                    }
-
-                    // If there is spacing between repetitions we need to consider anti-aliasing
-                    // along the border of the segments accordingly.
-                    let mut base_edge_flags = EdgeAaSegmentMask::empty();
-                    if tile_spacing.width > 0.0 {
-                        base_edge_flags |= EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::RIGHT;
-                    }
-                    if tile_spacing.height > 0.0 {
-                        base_edge_flags |= EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::BOTTOM;
-                    }
+                    let base_edge_flags = edge_flags_for_tile_spacing(tile_spacing);
 
                     let may_need_clip_mask = true;
 
@@ -2304,6 +2267,41 @@ impl PrimitiveStore {
 
         result
     }
+}
+
+fn compute_conservatrive_visible_rect(
+    prim_run_context: &PrimitiveRunContext,
+    frame_context: &FrameBuildingContext,
+    local_clip_rect: &LayerRect,
+) -> LayerRect {
+    let world_screen_rect = prim_run_context
+        .clip_chain.combined_outer_screen_rect
+        .to_f32() / frame_context.device_pixel_scale;
+
+    if let Some(layer_screen_rect) = prim_run_context
+        .scroll_node
+        .world_content_transform
+        .unapply(&world_screen_rect) {
+
+        return local_clip_rect.intersection(&layer_screen_rect).unwrap_or(LayerRect::zero());
+    }
+
+    *local_clip_rect
+}
+
+fn edge_flags_for_tile_spacing(tile_spacing: LayerSize) -> EdgeAaSegmentMask {
+    // If the number of gpu blocks for the request changes we can't reuse
+    // the same gpu location.
+    let mut flags = EdgeAaSegmentMask::empty();
+
+    if tile_spacing.width > 0.0 {
+        flags |= EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::RIGHT;
+    }
+    if tile_spacing.height > 0.0 {
+        flags |= EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::BOTTOM;
+    }
+
+    flags
 }
 
 //Test for one clip region contains another
