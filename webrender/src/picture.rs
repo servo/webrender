@@ -219,10 +219,7 @@ impl PicturePrimitive {
                     let picture_task = RenderTask::new_picture(
                         RenderTaskLocation::Dynamic(None, device_rect.size),
                         prim_index,
-                        RenderTargetKind::Color,
                         device_rect.origin,
-                        PremultipliedColorF::TRANSPARENT,
-                        ClearMode::Transparent,
                         pic_state_for_children.tasks,
                     );
 
@@ -264,10 +261,7 @@ impl PicturePrimitive {
                 let mut picture_task = RenderTask::new_picture(
                     RenderTaskLocation::Dynamic(None, device_rect.size),
                     prim_index,
-                    RenderTargetKind::Color,
                     device_rect.origin,
-                    PremultipliedColorF::TRANSPARENT,
-                    ClearMode::Transparent,
                     pic_state_for_children.tasks,
                 );
                 picture_task.mark_for_saving();
@@ -294,10 +288,7 @@ impl PicturePrimitive {
                 let picture_task = RenderTask::new_picture(
                     RenderTaskLocation::Dynamic(None, prim_screen_rect.clipped.size),
                     prim_index,
-                    RenderTargetKind::Color,
                     prim_screen_rect.clipped.origin,
-                    PremultipliedColorF::TRANSPARENT,
-                    ClearMode::Transparent,
                     pic_state_for_children.tasks,
                 );
 
@@ -344,10 +335,7 @@ impl PicturePrimitive {
                     let picture_task = RenderTask::new_picture(
                         RenderTaskLocation::Dynamic(None, prim_screen_rect.clipped.size),
                         prim_index,
-                        RenderTargetKind::Color,
                         prim_screen_rect.clipped.origin,
-                        PremultipliedColorF::TRANSPARENT,
-                        ClearMode::Transparent,
                         pic_state_for_children.tasks,
                     );
 
@@ -362,10 +350,7 @@ impl PicturePrimitive {
                 let picture_task = RenderTask::new_picture(
                     RenderTaskLocation::Dynamic(None, prim_screen_rect.clipped.size),
                     prim_index,
-                    RenderTargetKind::Color,
                     prim_screen_rect.clipped.origin,
-                    PremultipliedColorF::TRANSPARENT,
-                    ClearMode::Transparent,
                     pic_state_for_children.tasks,
                 );
 

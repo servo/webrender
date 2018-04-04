@@ -4,7 +4,7 @@
 
 use api::{BuiltDisplayList, ColorF, DeviceIntPoint, DeviceIntRect, DevicePixelScale};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentLayer, FontRenderMode};
-use api::{LayerRect, LayerSize, PipelineId, PremultipliedColorF, WorldPoint};
+use api::{LayerRect, LayerSize, PipelineId, WorldPoint};
 use clip::{ClipChain, ClipStore};
 use clip_scroll_node::{ClipScrollNode};
 use clip_scroll_tree::{ClipScrollNodeIndex, ClipScrollTree};
@@ -16,12 +16,12 @@ use internal_types::{FastHashMap};
 use prim_store::{CachedGradient, PrimitiveIndex, PrimitiveRun, PrimitiveStore};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_backend::FrameId;
-use render_task::{ClearMode, RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree};
+use render_task::{RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree};
 use resource_cache::{ResourceCache};
 use scene::{ScenePipeline, SceneProperties};
 use std::{mem, f32};
 use std::sync::Arc;
-use tiling::{Frame, RenderPass, RenderPassKind, RenderTargetContext, RenderTargetKind};
+use tiling::{Frame, RenderPass, RenderPassKind, RenderTargetContext};
 use tiling::{ScrollbarPrimitive, SpecialRenderPasses};
 use util::{self, MaxRect, WorldToLayerFastTransform};
 
@@ -226,10 +226,7 @@ impl FrameBuilder {
         let root_render_task = RenderTask::new_picture(
             RenderTaskLocation::Fixed(frame_context.screen_rect),
             PrimitiveIndex(0),
-            RenderTargetKind::Color,
             DeviceIntPoint::zero(),
-            PremultipliedColorF::TRANSPARENT,
-            ClearMode::Transparent,
             pic_state.tasks,
         );
 
