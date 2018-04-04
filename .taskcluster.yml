@@ -49,6 +49,8 @@ tasks:
           - pull_request.opened
           - pull_request.synchronize
           - push
+        excludeBranches:
+          - master
     payload:
       maxRunTime: 3600
       image: 'staktrace/webrender-test:latest'
@@ -81,6 +83,8 @@ tasks:
           - pull_request.opened
           - pull_request.synchronize
           - push
+        excludeBranches:
+          - master
     payload:
       maxRunTime: 3600
       image: 'staktrace/webrender-test:latest'
@@ -127,6 +131,8 @@ tasks:
           - pull_request.opened
           - pull_request.synchronize
           - push
+        excludeBranches:
+          - master
     payload:
       maxRunTime: 3600
       command:
@@ -159,6 +165,8 @@ tasks:
           - pull_request.opened
           - pull_request.synchronize
           - push
+        excludeBranches:
+          - master
     payload:
       maxRunTime: 3600
       command:
