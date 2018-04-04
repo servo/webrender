@@ -5,8 +5,8 @@
 use api::{AlphaType, BorderRadius, BoxShadowClipMode, BuiltDisplayList, ClipMode, ColorF, ComplexClipRegion};
 use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, FontRenderMode};
 use api::{FilterOp, GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
-use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D};
-use api::{PipelineId, PremultipliedColorF, Shadow, YuvColorSpace, YuvFormat};
+use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D, DeviceUintSize};
+use api::{PipelineId, PremultipliedColorF, Shadow, YuvColorSpace, YuvFormat, TileOffset};
 use batch::BrushImageSourceKind;
 use border::{BorderCornerInstance, BorderEdgeKind};
 use box_shadow::BLUR_SAMPLE_SCALE;
@@ -20,6 +20,7 @@ use glyph_rasterizer::{FontInstance, FontTransform};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
 use gpu_types::{ClipChainRectIndex};
+use image::{for_each_repetition, for_each_tile};
 use picture::{PictureCompositeMode, PicturePrimitive};
 use render_task::{BlitSource, RenderTask, RenderTaskCacheKey};
 use render_task::{RenderTaskCacheKeyKind, RenderTaskId};
@@ -213,6 +214,9 @@ pub enum BrushKind {
         request: ImageRequest,
         current_epoch: Epoch,
         alpha_type: AlphaType,
+        stretch_size: LayerSize,
+        tile_spacing: LayerSize,
+        visible_tiles: Vec<TileOffset>,
     },
     YuvImage {
         yuv_key: [ImageKey; 3],
@@ -228,6 +232,8 @@ pub enum BrushKind {
         start_radius: f32,
         end_radius: f32,
         ratio_xy: f32,
+        tile_spacing: LayerSize,
+        stretch_size: LayerSize
     },
     LinearGradient {
         gradient_index: CachedGradientIndex,
@@ -237,6 +243,8 @@ pub enum BrushKind {
         reverse_stops: bool,
         start_point: LayerPoint,
         end_point: LayerPoint,
+        tile_spacing: LayerSize,
+        stretch_size: LayerSize
     }
 }
 
@@ -304,10 +312,26 @@ pub enum BrushClipMaskKind {
     Global,
 }
 
+#[repr(i32)]
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum SegmentSrc {
+    /// Segments sample their corresponding part of the source pattern.
+    ///
+    /// This is the common case, useful when using segments for clipping.
+    /// This must correspond to SEGMENT_SOURCE_AUTO in brush.glsl.
+    Auto = 0,
+    /// All segments sample from the entire source pattern.
+    ///
+    /// Useful when segments are used to decompose a repeated pattern.
+    /// This must correspond to SEGMENT_SOURCE_FULL in brush.glsl.
+    Full = 1,
+}
+
 #[derive(Debug)]
 pub struct BrushSegmentDescriptor {
     pub segments: Vec<BrushSegment>,
     pub clip_mask_kind: BrushClipMaskKind,
+    pub src: SegmentSrc,
 }
 
 #[derive(Debug)]
@@ -1173,6 +1197,7 @@ impl PrimitiveStore {
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
     ) {
+        let mut tight_local_clip = false;
         let metadata = &mut self.cpu_metadata[prim_index.0];
         match metadata.prim_kind {
             PrimitiveKind::Border => {}
@@ -1301,11 +1326,13 @@ impl PrimitiveStore {
                 let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
 
                 match brush.kind {
-                    BrushKind::Image { request, ref mut current_epoch, .. } => {
+                    BrushKind::Image { request, ref mut current_epoch, stretch_size, tile_spacing, ref mut visible_tiles, .. } => {
                         let image_properties = frame_state
                             .resource_cache
                             .get_image_properties(request.key);
 
+
+                        let mut tiling = None;
                         if let Some(image_properties) = image_properties {
                             // See if this image has been updated since we last hit this code path.
                             // If so, we need to update the opacity.
@@ -1313,12 +1340,112 @@ impl PrimitiveStore {
                                 *current_epoch = image_properties.epoch;
                                 metadata.opacity.is_opaque = image_properties.descriptor.is_opaque;
                             }
+
+                            tiling = image_properties.tiling.map(|tile_size| {
+                                (
+                                    tile_size,
+                                    DeviceUintSize::new(
+                                        image_properties.descriptor.width,
+                                        image_properties.descriptor.height,
+                                    ),
+                                )
+                            });
                         }
 
-                        frame_state.resource_cache.request_image(
-                            request,
-                            frame_state.gpu_cache,
-                        );
+                        if tiling.is_none() {
+                            frame_state.resource_cache.request_image(
+                                request,
+                                frame_state.gpu_cache,
+                            );
+                        }
+
+                        if tiling.is_some() || tile_spacing != LayerSize::zero() || stretch_size != metadata.local_rect.size {
+                            let visible_rect = compute_conservatrive_visible_rect(
+                                prim_run_context,
+                                frame_context,
+                                &metadata.local_clip_rect
+                            );
+
+                            let base_edge_flags = edge_flags_for_tile_spacing(tile_spacing);
+
+                            // TODO(review) should this always be true?
+                            let may_need_clip_mask = true;
+                            tight_local_clip = true;
+
+                            let mut segments = brush.segment_desc.take().map_or(Vec::new(), |desc| desc.segments);
+                            let previous_segment_count = segments.len();
+                            segments.clear();
+
+                            let stride = stretch_size + tile_spacing;
+
+                            visible_tiles.clear();
+
+                            for_each_repetition(
+                                &metadata.local_rect,
+                                &visible_rect,
+                                &stride,
+                                &mut |origin, edge_flags| {
+                                    let edge_flags = base_edge_flags | edge_flags;
+
+                                    match tiling {
+                                        Some((tile_size, device_image_size)) => {
+                                            let image_rect = LayerRect {
+                                                origin: *origin,
+                                                size: stretch_size,
+                                            };
+
+                                            for_each_tile(
+                                                &image_rect,
+                                                &visible_rect,
+                                                &device_image_size,
+                                                tile_size as u32,
+                                                &mut |segment_rect, tile_offset, tile_flags| {
+
+                                                    frame_state.resource_cache.request_image(
+                                                        request.with_tile(tile_offset),
+                                                        frame_state.gpu_cache,
+                                                    );
+                                                    visible_tiles.push(tile_offset);
+
+                                                    segments.push(
+                                                        BrushSegment::new(
+                                                            segment_rect.origin,
+                                                            segment_rect.size,
+                                                            may_need_clip_mask,
+                                                            tile_flags & edge_flags,
+                                                        ),
+                                                    );
+                                                }
+                                            );
+                                        }
+                                        None => {
+                                            segments.push(
+                                                BrushSegment::new(
+                                                    *origin,
+                                                    stretch_size,
+                                                    may_need_clip_mask,
+                                                    edge_flags,
+                                                ),
+                                            );
+                                        }
+                                    }
+                                }
+                            );
+
+                            // If the number of gpu blocks for the request changes we can't reuse
+                            // the same gpu location.
+                            if previous_segment_count == segments.len() {
+                                frame_state.gpu_cache.invalidate(&metadata.gpu_location);
+                            } else {
+                                metadata.gpu_location = GpuCacheHandle::new();
+                            }
+
+                            brush.segment_desc = Some(BrushSegmentDescriptor {
+                                segments,
+                                clip_mask_kind: BrushClipMaskKind::Unknown,
+                                src: SegmentSrc::Full,
+                            });
+                        }
                     }
                     BrushKind::YuvImage { format, yuv_key, image_rendering, .. } => {
                         let channel_num = format.get_plane_num();
@@ -1400,6 +1527,71 @@ impl PrimitiveStore {
                     BrushKind::Solid { .. } |
                     BrushKind::Clear => {}
                 }
+
+                // Handle repeated linear a radial gradients decomposition here since it is exactly
+                // the same code.
+                let repeat_params = match brush.kind {
+                    BrushKind::LinearGradient { tile_spacing, stretch_size, .. } |
+                    BrushKind::RadialGradient { tile_spacing, stretch_size, .. } => {
+                        if tile_spacing != LayerSize::zero() || stretch_size != metadata.local_rect.size {
+                            Some((tile_spacing, stretch_size))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => {
+                        None
+                    }
+                };
+
+                if let Some((tile_spacing, stretch_size)) = repeat_params {
+                    tight_local_clip = true;
+
+                    let visible_rect = compute_conservatrive_visible_rect(
+                        prim_run_context,
+                        frame_context,
+                        &metadata.local_clip_rect
+                    );
+
+                    let base_edge_flags = edge_flags_for_tile_spacing(tile_spacing);
+
+                    let may_need_clip_mask = true;
+
+                    let mut segments = brush.segment_desc.take().map_or(Vec::new(), |desc| desc.segments);
+                    let previous_segment_count = segments.len();
+                    segments.clear();
+
+                    let stride = stretch_size + tile_spacing;
+                    for_each_repetition(
+                        &metadata.local_rect,
+                        &visible_rect,
+                        &stride,
+                        &mut |origin, edge_flags| {
+                            segments.push(
+                                BrushSegment::new(
+                                    *origin,
+                                    stretch_size,
+                                    may_need_clip_mask,
+                                    base_edge_flags | edge_flags,
+                                ),
+                            );
+                        }
+                    );
+
+                    // If the number of gpu blocks for the reuqest changes we can't reuse
+                    // the same gpu location.
+                    if previous_segment_count == segments.len() {
+                        frame_state.gpu_cache.invalidate(&metadata.gpu_location);
+                    } else {
+                        metadata.gpu_location = GpuCacheHandle::new();
+                    }
+
+                    brush.segment_desc = Some(BrushSegmentDescriptor {
+                        segments,
+                        clip_mask_kind: BrushClipMaskKind::Unknown,
+                        src: SegmentSrc::Full,
+                    });
+                }
             }
         }
 
@@ -1407,7 +1599,11 @@ impl PrimitiveStore {
         if let Some(mut request) = frame_state.gpu_cache.request(&mut metadata.gpu_location) {
             // has to match VECS_PER_BRUSH_PRIM
             request.push(metadata.local_rect);
-            request.push(metadata.local_clip_rect);
+            if tight_local_clip {
+                request.push(metadata.local_clip_rect.intersection(&metadata.local_rect).unwrap());
+            } else {
+                request.push(metadata.local_clip_rect);
+            }
 
             match metadata.prim_kind {
                 PrimitiveKind::Border => {
@@ -1582,6 +1778,7 @@ impl PrimitiveStore {
                 brush.segment_desc = Some(BrushSegmentDescriptor {
                     segments,
                     clip_mask_kind,
+                    src: SegmentSrc::Auto,
                 });
             }
         }
@@ -2080,6 +2277,41 @@ impl PrimitiveStore {
     }
 }
 
+fn compute_conservatrive_visible_rect(
+    prim_run_context: &PrimitiveRunContext,
+    frame_context: &FrameBuildingContext,
+    local_clip_rect: &LayerRect,
+) -> LayerRect {
+    let world_screen_rect = prim_run_context
+        .clip_chain.combined_outer_screen_rect
+        .to_f32() / frame_context.device_pixel_scale;
+
+    if let Some(layer_screen_rect) = prim_run_context
+        .scroll_node
+        .world_content_transform
+        .unapply(&world_screen_rect) {
+
+        return local_clip_rect.intersection(&layer_screen_rect).unwrap_or(LayerRect::zero());
+    }
+
+    *local_clip_rect
+}
+
+fn edge_flags_for_tile_spacing(tile_spacing: LayerSize) -> EdgeAaSegmentMask {
+    // If the number of gpu blocks for the request changes we can't reuse
+    // the same gpu location.
+    let mut flags = EdgeAaSegmentMask::empty();
+
+    if tile_spacing.width > 0.0 {
+        flags |= EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::RIGHT;
+    }
+    if tile_spacing.height > 0.0 {
+        flags |= EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::BOTTOM;
+    }
+
+    flags
+}
+
 //Test for one clip region contains another
 trait InsideTest<T> {
     fn might_contain(&self, clip: &T) -> bool;
@@ -2170,7 +2402,7 @@ impl<'a> GpuDataRequest<'a> {
     //           part of an image.
     fn write_segment(
         &mut self,
-        local_rect: LayerRect,
+        local_rect: LayerRect
     ) {
         self.push(local_rect);
         self.push([

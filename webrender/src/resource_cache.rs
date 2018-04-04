@@ -108,8 +108,6 @@ pub struct ImageTiling {
     pub tile_size: TileSize,
 }
 
-pub type TiledImageMap = FastHashMap<ImageKey, ImageTiling>;
-
 #[derive(Default)]
 struct ImageTemplates {
     images: FastHashMap<ImageKey, ImageResource>,
@@ -211,6 +209,16 @@ pub struct ImageRequest {
     pub key: ImageKey,
     pub rendering: ImageRendering,
     pub tile: Option<TileOffset>,
+}
+
+impl ImageRequest {
+    pub fn with_tile(&self, offset: TileOffset) -> Self {
+        ImageRequest {
+            key: self.key,
+            rendering: self.rendering,
+            tile: Some(offset),
+        }
+    }
 }
 
 impl Into<BlobImageRequest> for ImageRequest {
@@ -830,28 +838,6 @@ impl ResourceCache {
                 epoch: image_template.epoch,
             }
         })
-    }
-
-    pub fn get_tiled_image_map(&self) -> TiledImageMap {
-        self.resources
-            .image_templates
-            .images
-            .iter()
-            .filter_map(|(&key, template)| {
-                template.tiling.map(|tile_size| {
-                    (
-                        key,
-                        ImageTiling {
-                            image_size: DeviceUintSize::new(
-                                template.descriptor.width,
-                                template.descriptor.height,
-                            ),
-                            tile_size,
-                        },
-                    )
-                })
-            })
-            .collect()
     }
 
     pub fn begin_frame(&mut self, frame_id: FrameId) {

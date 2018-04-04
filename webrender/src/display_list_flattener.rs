@@ -8,10 +8,10 @@ use api::{ClipId, ColorF, ComplexClipRegion, DeviceIntPoint, DeviceIntRect, Devi
 use api::{DevicePixelScale, DeviceUintRect, DisplayItemRef, Epoch, ExtendMode, ExternalScrollId};
 use api::{FilterOp, FontInstanceKey, FontRenderMode, GlyphInstance, GlyphOptions, GradientStop};
 use api::{IframeDisplayItem, ImageKey, ImageRendering, ItemRange, LayerPoint, LayerPrimitiveInfo};
-use api::{LayerRect, LayerSize, LayerVector2D, LayoutRect, LayoutSize, LayoutTransform};
+use api::{LayerRect, LayerSize, LayerVector2D, LayoutSize, LayoutTransform};
 use api::{LayoutVector2D, LineOrientation, LineStyle, LocalClip, PipelineId, PropertyBinding};
 use api::{RepeatMode, ScrollFrameDisplayItem, ScrollPolicy, ScrollSensitivity, Shadow};
-use api::{SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect, TileOffset};
+use api::{SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect};
 use api::{TransformStyle, YuvColorSpace, YuvData};
 use app_units::Au;
 use batch::BrushImageSourceKind;
@@ -23,7 +23,6 @@ use euclid::{SideOffsets2D, vec2};
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use glyph_rasterizer::FontInstance;
 use hit_test::{HitTestingItem, HitTestingRun};
-use image::{decompose_image, TiledImageInfo};
 use internal_types::{FastHashMap, FastHashSet};
 use picture::PictureCompositeMode;
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor, CachedGradient};
@@ -31,7 +30,7 @@ use prim_store::{CachedGradientIndex, ImageCacheKey, ImagePrimitiveCpu, ImageSou
 use prim_store::{PictureIndex, PrimitiveContainer, PrimitiveIndex, PrimitiveStore};
 use prim_store::{ScrollNodeAndClipChain, TextRunPrimitiveCpu};
 use render_backend::{DocumentView};
-use resource_cache::{FontInstanceMap, ImageRequest, TiledImageMap};
+use resource_cache::{FontInstanceMap, ImageRequest};
 use scene::{Scene, ScenePipeline, StackingContextHelpers};
 use scene_builder::{BuiltScene, SceneRequest};
 use std::{f32, mem, usize};
@@ -151,9 +150,6 @@ pub struct DisplayListFlattener<'a> {
     /// The map of all font instances.
     font_instances: FontInstanceMap,
 
-    /// The map of tiled images.
-    tiled_image_map: TiledImageMap,
-
     /// Used to track the latest flattened epoch for each pipeline.
     pipeline_epochs: Vec<(PipelineId, Epoch)>,
 
@@ -208,7 +204,6 @@ impl<'a> DisplayListFlattener<'a> {
         scene: &Scene,
         clip_scroll_tree: &mut ClipScrollTree,
         font_instances: FontInstanceMap,
-        tiled_image_map: TiledImageMap,
         view: &DocumentView,
         output_pipelines: &FastHashSet<PipelineId>,
         frame_builder_config: &FrameBuilderConfig,
@@ -228,7 +223,6 @@ impl<'a> DisplayListFlattener<'a> {
             scene,
             clip_scroll_tree,
             font_instances,
-            tiled_image_map,
             config: *frame_builder_config,
             pipeline_epochs: Vec::new(),
             replacements: Vec::new(),
@@ -627,49 +621,16 @@ impl<'a> DisplayListFlattener<'a> {
         let prim_info = item.get_layer_primitive_info(&reference_frame_relative_offset);
         match *item.item() {
             SpecificDisplayItem::Image(ref info) => {
-                match self.tiled_image_map.get(&info.image_key).cloned() {
-                    Some(tiling) => {
-                        // The image resource is tiled. We have to generate an image primitive
-                        // for each tile.
-                        decompose_image(
-                            &TiledImageInfo {
-                                rect: prim_info.rect,
-                                tile_spacing: info.tile_spacing,
-                                stretch_size: info.stretch_size,
-                                device_image_size: tiling.image_size,
-                                device_tile_size: tiling.tile_size as u32,
-                            },
-                            &mut|tile| {
-                                let mut prim_info = prim_info.clone();
-                                prim_info.rect = tile.rect;
-                                self.add_image(
-                                    clip_and_scroll,
-                                    &prim_info,
-                                    tile.stretch_size,
-                                    info.tile_spacing,
-                                    None,
-                                    info.image_key,
-                                    info.image_rendering,
-                                    info.alpha_type,
-                                    Some(tile.tile_offset),
-                                );
-                            }
-                        );
-                    }
-                    None => {
-                        self.add_image(
-                            clip_and_scroll,
-                            &prim_info,
-                            info.stretch_size,
-                            info.tile_spacing,
-                            None,
-                            info.image_key,
-                            info.image_rendering,
-                            info.alpha_type,
-                            None,
-                        );
-                    }
-                }
+                self.add_image(
+                    clip_and_scroll,
+                    &prim_info,
+                    info.stretch_size,
+                    info.tile_spacing,
+                    None,
+                    info.image_key,
+                    info.image_rendering,
+                    info.alpha_type,
+                );
             }
             SpecificDisplayItem::YuvImage(ref info) => {
                 self.add_yuv_image(
@@ -1831,7 +1792,6 @@ impl<'a> DisplayListFlattener<'a> {
                         border.image_key,
                         ImageRendering::Auto,
                         AlphaType::PremultipliedAlpha,
-                        None,
                     );
                 }
             }
@@ -1878,7 +1838,7 @@ impl<'a> DisplayListFlattener<'a> {
         }
     }
 
-    fn add_gradient_impl(
+    pub fn add_gradient(
         &mut self,
         clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayerPrimitiveInfo,
@@ -1887,8 +1847,12 @@ impl<'a> DisplayListFlattener<'a> {
         stops: ItemRange<GradientStop>,
         stops_count: usize,
         extend_mode: ExtendMode,
-        gradient_index: CachedGradientIndex,
+        stretch_size: LayerSize,
+        tile_spacing: LayerSize,
     ) {
+        let gradient_index = CachedGradientIndex(self.cached_gradients.len());
+        self.cached_gradients.push(CachedGradient::new());
+
         // Try to ensure that if the gradient is specified in reverse, then so long as the stops
         // are also supplied in reverse that the rendered result will be equivalent. To do this,
         // a reference orientation for the gradient line must be chosen, somewhat arbitrarily, so
@@ -1916,6 +1880,8 @@ impl<'a> DisplayListFlattener<'a> {
                 start_point: sp,
                 end_point: ep,
                 gradient_index,
+                stretch_size,
+                tile_spacing,
             },
             None,
         );
@@ -1923,54 +1889,6 @@ impl<'a> DisplayListFlattener<'a> {
         let prim = PrimitiveContainer::Brush(prim);
 
         self.add_primitive(clip_and_scroll, info, Vec::new(), prim);
-    }
-
-    pub fn add_gradient(
-        &mut self,
-        clip_and_scroll: ScrollNodeAndClipChain,
-        info: &LayerPrimitiveInfo,
-        start_point: LayerPoint,
-        end_point: LayerPoint,
-        stops: ItemRange<GradientStop>,
-        stops_count: usize,
-        extend_mode: ExtendMode,
-        tile_size: LayerSize,
-        tile_spacing: LayerSize,
-    ) {
-        let gradient_index = CachedGradientIndex(self.cached_gradients.len());
-        self.cached_gradients.push(CachedGradient::new());
-
-        let prim_infos = info.decompose(
-            tile_size,
-            tile_spacing,
-            64 * 64,
-        );
-
-        if prim_infos.is_empty() {
-            self.add_gradient_impl(
-                clip_and_scroll,
-                info,
-                start_point,
-                end_point,
-                stops,
-                stops_count,
-                extend_mode,
-                gradient_index,
-            );
-        } else {
-            for prim_info in prim_infos {
-                self.add_gradient_impl(
-                    clip_and_scroll,
-                    &prim_info,
-                    start_point,
-                    end_point,
-                    stops,
-                    stops_count,
-                    extend_mode,
-                    gradient_index,
-                );
-            }
-        }
     }
 
     fn add_radial_gradient_impl(
@@ -1984,6 +1902,8 @@ impl<'a> DisplayListFlattener<'a> {
         stops: ItemRange<GradientStop>,
         extend_mode: ExtendMode,
         gradient_index: CachedGradientIndex,
+        stretch_size: LayerSize,
+        tile_spacing: LayerSize,
     ) {
         let prim = BrushPrimitive::new(
             BrushKind::RadialGradient {
@@ -1994,6 +1914,8 @@ impl<'a> DisplayListFlattener<'a> {
                 end_radius,
                 ratio_xy,
                 gradient_index,
+                stretch_size,
+                tile_spacing
             },
             None,
         );
@@ -2016,45 +1938,25 @@ impl<'a> DisplayListFlattener<'a> {
         ratio_xy: f32,
         stops: ItemRange<GradientStop>,
         extend_mode: ExtendMode,
-        tile_size: LayerSize,
+        stretch_size: LayerSize,
         tile_spacing: LayerSize,
     ) {
         let gradient_index = CachedGradientIndex(self.cached_gradients.len());
         self.cached_gradients.push(CachedGradient::new());
 
-        let prim_infos = info.decompose(
-            tile_size,
+        self.add_radial_gradient_impl(
+            clip_and_scroll,
+            info,
+            center,
+            start_radius,
+            end_radius,
+            ratio_xy,
+            stops,
+            extend_mode,
+            gradient_index,
+            stretch_size,
             tile_spacing,
-            64 * 64,
         );
-
-        if prim_infos.is_empty() {
-            self.add_radial_gradient_impl(
-                clip_and_scroll,
-                info,
-                center,
-                start_radius,
-                end_radius,
-                ratio_xy,
-                stops,
-                extend_mode,
-                gradient_index,
-            );
-        } else {
-            for prim_info in prim_infos {
-                self.add_radial_gradient_impl(
-                    clip_and_scroll,
-                    &prim_info,
-                    center,
-                    start_radius,
-                    end_radius,
-                    ratio_xy,
-                    stops,
-                    extend_mode,
-                    gradient_index,
-                );
-            }
-        }
     }
 
     pub fn add_text(
@@ -2161,7 +2063,6 @@ impl<'a> DisplayListFlattener<'a> {
         image_key: ImageKey,
         image_rendering: ImageRendering,
         alpha_type: AlphaType,
-        tile_offset: Option<TileOffset>,
     ) {
         // If the tile spacing is the same as the rect size,
         // then it is effectively zero. We use this later on
@@ -2174,20 +2075,25 @@ impl<'a> DisplayListFlattener<'a> {
         let request = ImageRequest {
             key: image_key,
             rendering: image_rendering,
-            tile: tile_offset,
+            tile: None,
         };
+
+        // We don't yet have a good way to deal with images with large amount of repetitions using
+        // brushes, so fallback to the non-brush image shader for now;
+        let many_repetitions = (info.rect.size.width / stretch_size.width) *
+            (info.rect.size.height / stretch_size.height) > 200.0;
 
         // See if conditions are met to run through the new
         // image brush shader, which supports segments.
-        if tile_spacing == LayerSize::zero() &&
-           stretch_size == info.rect.size &&
-           sub_rect.is_none() &&
-           tile_offset.is_none() {
+        if sub_rect.is_none() && !many_repetitions {
             let prim = BrushPrimitive::new(
                 BrushKind::Image {
                     request,
                     current_epoch: Epoch::invalid(),
                     alpha_type,
+                    stretch_size,
+                    tile_spacing,
+                    visible_tiles: Vec::new(),
                 },
                 None,
             );
@@ -2275,7 +2181,6 @@ pub fn build_scene(config: &FrameBuilderConfig, request: SceneRequest) -> BuiltS
         &request.scene,
         &mut clip_scroll_tree,
         request.font_instances,
-        request.tiled_image_map,
         &request.view,
         &request.output_pipelines,
         config,
@@ -2287,72 +2192,6 @@ pub fn build_scene(config: &FrameBuilderConfig, request: SceneRequest) -> BuiltS
         frame_builder,
         clip_scroll_tree,
         removed_pipelines: request.removed_pipelines,
-    }
-}
-
-trait PrimitiveInfoTiler {
-    fn decompose(
-        &self,
-        tile_size: LayerSize,
-        tile_spacing: LayerSize,
-        max_prims: usize,
-    ) -> Vec<LayerPrimitiveInfo>;
-}
-
-impl PrimitiveInfoTiler for LayerPrimitiveInfo {
-    fn decompose(
-        &self,
-        tile_size: LayerSize,
-        tile_spacing: LayerSize,
-        max_prims: usize,
-    ) -> Vec<LayerPrimitiveInfo> {
-        let mut prims = Vec::new();
-        let tile_repeat = tile_size + tile_spacing;
-
-        if tile_repeat.width <= 0.0 ||
-           tile_repeat.height <= 0.0 {
-            return prims;
-        }
-
-        if tile_repeat.width < self.rect.size.width ||
-           tile_repeat.height < self.rect.size.height {
-            let clip_rect = self.clip_rect
-                .intersection(&self.rect)
-                .unwrap_or_else(LayoutRect::zero);
-            let rect_p0 = self.rect.origin;
-            let rect_p1 = self.rect.bottom_right();
-
-            let mut y0 = rect_p0.y;
-            while y0 < rect_p1.y {
-                let mut x0 = rect_p0.x;
-
-                while x0 < rect_p1.x {
-                    prims.push(LayerPrimitiveInfo {
-                        rect: LayerRect::new(
-                            LayerPoint::new(x0, y0),
-                            tile_size,
-                        ),
-                        clip_rect,
-                        is_backface_visible: self.is_backface_visible,
-                        tag: self.tag,
-                    });
-
-                    // Mostly a safety against a crazy number of primitives
-                    // being generated. If we exceed that amount, just bail
-                    // out and only draw the maximum amount.
-                    if prims.len() > max_prims {
-                        warn!("too many prims found due to repeat/tile. dropping extra prims!");
-                        return prims;
-                    }
-
-                    x0 += tile_repeat.width;
-                }
-
-                y0 += tile_repeat.height;
-            }
-        }
-
-        prims
     }
 }
 
