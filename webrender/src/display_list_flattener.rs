@@ -2185,12 +2185,20 @@ impl<'a> DisplayListFlattener<'a> {
             tile: tile_offset,
         };
 
+        //HACK: round up the stretch size when comparing to the layer size,
+        // since the latter is snapped by Gecko before coming here.
+        fn includes(a: f32, b: f32) -> bool {
+            a >= b || (a > 1.0 && a.ceil() >= b)
+        }
+
         // See if conditions are met to run through the new
         // image brush shader, which supports segments.
         if tile_spacing == LayerSize::zero() &&
-           stretch_size == info.rect.size &&
-           sub_rect.is_none() &&
-           tile_offset.is_none() {
+            includes(stretch_size.width, info.rect.size.width) &&
+            includes(stretch_size.height, info.rect.size.height) &&
+            sub_rect.is_none() &&
+            tile_offset.is_none()
+        {
             let prim = BrushPrimitive::new(
                 BrushKind::Image {
                     request,
