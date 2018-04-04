@@ -1197,6 +1197,7 @@ impl PrimitiveStore {
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
     ) {
+        let mut tight_local_clip = false;
         let metadata = &mut self.cpu_metadata[prim_index.0];
         match metadata.prim_kind {
             PrimitiveKind::Border => {}
@@ -1369,6 +1370,7 @@ impl PrimitiveStore {
 
                             // TODO(review) should this always be true?
                             let may_need_clip_mask = true;
+                            tight_local_clip = true;
 
                             let mut segments = brush.segment_desc.take().map_or(Vec::new(), |desc| desc.segments);
                             let previous_segment_count = segments.len();
@@ -1543,6 +1545,8 @@ impl PrimitiveStore {
                 };
 
                 if let Some((tile_spacing, stretch_size)) = repeat_params {
+                    tight_local_clip = true;
+
                     let visible_rect = compute_conservatrive_visible_rect(
                         prim_run_context,
                         frame_context,
@@ -1595,7 +1599,11 @@ impl PrimitiveStore {
         if let Some(mut request) = frame_state.gpu_cache.request(&mut metadata.gpu_location) {
             // has to match VECS_PER_BRUSH_PRIM
             request.push(metadata.local_rect);
-            request.push(metadata.local_clip_rect.intersection(&metadata.local_rect).unwrap());
+            if tight_local_clip {
+                request.push(metadata.local_clip_rect.intersection(&metadata.local_rect).unwrap());
+            } else {
+                request.push(metadata.local_clip_rect);
+            }
 
             match metadata.prim_kind {
                 PrimitiveKind::Border => {
