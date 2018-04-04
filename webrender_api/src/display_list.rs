@@ -195,7 +195,7 @@ impl<'a> BuiltDisplayListIter<'a> {
     pub fn new_with_list_and_data(list: &'a BuiltDisplayList, data: &'a [u8]) -> Self {
         BuiltDisplayListIter {
             list,
-            data: &data,
+            data: data,
             cur_item: DisplayItem {
                 // Dummy data, will be overwritten by `next`
                 item: SpecificDisplayItem::PopStackingContext,
@@ -334,8 +334,8 @@ impl<'a, 'b> DisplayItemRef<'a, 'b> {
     pub fn get_layer_primitive_info(&self, offset: &LayoutVector2D) -> LayerPrimitiveInfo {
         let info = self.iter.cur_item.info;
         LayerPrimitiveInfo {
-            rect: info.rect.translate(&offset),
-            clip_rect: info.clip_rect.translate(&offset),
+            rect: info.rect.translate(offset),
+            clip_rect: info.clip_rect.translate(offset),
             is_backface_visible: info.is_backface_visible,
             tag: info.tag,
         }
