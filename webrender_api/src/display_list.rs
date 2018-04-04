@@ -236,7 +236,7 @@ impl<'a> BuiltDisplayListIter<'a> {
         self.cur_clip_chain_items = ItemRange::default();
 
         loop {
-            if self.data.len() == 0 {
+            if self.data.is_empty() {
                 return None;
             }
 
@@ -389,7 +389,7 @@ impl<'a, 'b> DisplayItemRef<'a, 'b> {
 
 impl<'de, 'a, T: Deserialize<'de>> AuxIter<'a, T> {
     pub fn new(mut data: &'a [u8]) -> Self {
-        let size: usize = if data.len() == 0 {
+        let size: usize = if data.is_empty() {
             0 // Accept empty ItemRanges pointing anywhere
         } else {
             bincode::deserialize_from(&mut UnsafeReader::new(&mut data)).expect("MEH: malicious input?")
@@ -1473,7 +1473,7 @@ impl DisplayListBuilder {
             assert!(self.clip_stack.len() >= save_state.clip_stack_len,
                     "Cannot pop clips that were pushed before the DisplayListBuilder save.");
         }
-        assert!(self.clip_stack.len() > 0);
+        assert!(!self.clip_stack.is_empty());
     }
 
     pub fn push_iframe(&mut self, info: &LayoutPrimitiveInfo, pipeline_id: PipelineId) {
