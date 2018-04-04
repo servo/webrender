@@ -929,7 +929,7 @@ impl RenderBackend {
             );
         }
 
-        if transaction_msg.use_scene_builder_thread && !transaction_msg.is_empty() {
+        if transaction_msg.use_scene_builder_thread {
             let doc = self.documents.get_mut(&document_id).unwrap();
             doc.forward_transaction_to_scene_builder(
                 transaction_msg,
