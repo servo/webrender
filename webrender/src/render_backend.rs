@@ -767,6 +767,9 @@ impl RenderBackend {
     ) -> bool {
         match msg {
             ApiMsg::WakeUp => {}
+            ApiMsg::WakeSceneBuilder => {
+                self.scene_tx.send(SceneBuilderRequest::WakeUp).unwrap();
+            }
             ApiMsg::UpdateResources(updates) => {
                 self.resource_cache
                     .update_resources(updates, &mut profile_counters.resources);
