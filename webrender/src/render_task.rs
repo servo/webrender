@@ -2,8 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, ImageDescriptor, ImageFormat};
-use api::{DeviceSize, PremultipliedColorF};
+use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceSize, ImageDescriptor, ImageFormat};
 #[cfg(feature = "pathfinder")]
 use api::FontRenderMode;
 use box_shadow::{BoxShadowCacheKey};
@@ -182,9 +181,7 @@ pub struct ClipRegionTask {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PictureTask {
     pub prim_index: PrimitiveIndex,
-    pub target_kind: RenderTargetKind,
     pub content_origin: DeviceIntPoint,
-    pub color: PremultipliedColorF,
     pub uv_rect_handle: GpuCacheHandle,
 }
 
@@ -294,10 +291,7 @@ impl RenderTask {
     pub fn new_picture(
         location: RenderTaskLocation,
         prim_index: PrimitiveIndex,
-        target_kind: RenderTargetKind,
         content_origin: DeviceIntPoint,
-        color: PremultipliedColorF,
-        clear_mode: ClearMode,
         children: Vec<RenderTaskId>,
     ) -> Self {
         RenderTask {
@@ -305,12 +299,10 @@ impl RenderTask {
             location,
             kind: RenderTaskKind::Picture(PictureTask {
                 prim_index,
-                target_kind,
                 content_origin,
-                color,
                 uv_rect_handle: GpuCacheHandle::new(),
             }),
-            clear_mode,
+            clear_mode: ClearMode::Transparent,
             saved_index: None,
         }
     }
@@ -721,8 +713,8 @@ impl RenderTask {
                 target_kind
             }
 
-            RenderTaskKind::Picture(ref task_info) => {
-                task_info.target_kind
+            RenderTaskKind::Picture(..) => {
+                RenderTargetKind::Color
             }
 
             RenderTaskKind::Blit(..) => {
@@ -797,7 +789,6 @@ impl RenderTask {
         match self.kind {
             RenderTaskKind::Picture(ref task) => {
                 pt.new_level(format!("Picture of {:?}", task.prim_index));
-                pt.add_item(format!("kind: {:?}", task.target_kind));
             }
             RenderTaskKind::CacheMask(ref task) => {
                 pt.new_level(format!("CacheMask with {} clips", task.clips.len()));
