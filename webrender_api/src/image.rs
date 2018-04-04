@@ -147,8 +147,8 @@ impl ImageData {
 
     #[inline]
     pub fn is_blob(&self) -> bool {
-        match self {
-            &ImageData::Blob(_) => true,
+        match *self {
+            ImageData::Blob(_) => true,
             _ => false,
         }
     }
