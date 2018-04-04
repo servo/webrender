@@ -656,7 +656,7 @@ pub struct Capabilities {
 
 #[derive(Clone, Debug)]
 pub enum ShaderError {
-    Compilation(String, String), // name, error mssage
+    Compilation(String, String), // name, error message
     Link(String, String),        // name, error message
 }
 
@@ -675,7 +675,7 @@ pub struct Device {
     device_pixel_ratio: f32,
     upload_method: UploadMethod,
 
-    // HW or API capabilties
+    // HW or API capabilities
     #[cfg(feature = "debug_renderer")]
     capabilities: Capabilities,
 
@@ -803,7 +803,7 @@ impl Device {
         debug_assert!(!self.inside_frame);
         self.inside_frame = true;
 
-        // Retrive the currently set FBO.
+        // Retrieve the currently set FBO.
         let default_read_fbo = self.gl.get_integer_v(gl::READ_FRAMEBUFFER_BINDING);
         self.default_read_fbo = default_read_fbo as gl::GLuint;
         let default_draw_fbo = self.gl.get_integer_v(gl::DRAW_FRAMEBUFFER_BINDING);

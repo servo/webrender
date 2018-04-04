@@ -307,10 +307,10 @@ pub struct RasterizedGlyph {
 
 pub struct FontContexts {
     // These worker are mostly accessed from their corresponding worker threads.
-    // The goal is that there should be no noticeable contention on the muteces.
+    // The goal is that there should be no noticeable contention on the mutexes.
     worker_contexts: Vec<Mutex<FontContext>>,
 
-    // This worker should be accessed by threads that don't belong to thre thread pool
+    // This worker should be accessed by threads that don't belong to the thread pool
     // (in theory that's only the render backend thread so no contention expected either).
     shared_context: Mutex<FontContext>,
 
@@ -760,7 +760,7 @@ impl GlyphRasterizer {
 
             // Ensure that the glyphs are always processed in the same
             // order for a given text run (since iterating a hash set doesn't
-            // guarantee order). This can show up as very small float inaccuacry
+            // guarantee order). This can show up as very small float inaccuracy
             // differences in rasterizers due to the different coordinates
             // that text runs get associated with by the texture cache allocator.
             jobs.sort_by(|a, b| a.key.cmp(&b.key));
