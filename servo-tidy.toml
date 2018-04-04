@@ -6,16 +6,10 @@ check-alphabetical-order = false
 [ignore]
 # Ignored packages with duplicated versions
 packages = [
-    "core-foundation",
-    "core-foundation-sys",
-    "core-graphics",
-    "gdi32-sys",
-    "gl_generator",
     "lazy_static",
     "log",
     "num-traits",
     "rand",
-    "user32-sys",
     "winapi",
     "yaml-rust",
 ]
