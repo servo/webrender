@@ -10,6 +10,7 @@ use clip_scroll_tree::ClipScrollTree;
 use internal_types::FastHashSet;
 use resource_cache::{FontInstanceMap, TiledImageMap};
 use render_backend::DocumentView;
+use renderer::{PipelineInfo, SceneBuilderHooks};
 use scene::Scene;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
@@ -58,12 +59,14 @@ pub struct SceneBuilder {
     tx: Sender<SceneBuilderResult>,
     api_tx: MsgSender<ApiMsg>,
     config: FrameBuilderConfig,
+    hooks: Option<Box<SceneBuilderHooks + Send>>,
 }
 
 impl SceneBuilder {
     pub fn new(
         config: FrameBuilderConfig,
-        api_tx: MsgSender<ApiMsg>
+        api_tx: MsgSender<ApiMsg>,
+        hooks: Option<Box<SceneBuilderHooks + Send>>,
     ) -> (Self, Sender<SceneBuilderRequest>, Receiver<SceneBuilderResult>) {
         let (in_tx, in_rx) = channel();
         let (out_tx, out_rx) = channel();
@@ -73,6 +76,7 @@ impl SceneBuilder {
                 tx: out_tx,
                 api_tx,
                 config,
+                hooks,
             },
             in_tx,
             out_rx,
@@ -80,17 +84,25 @@ impl SceneBuilder {
     }
 
     pub fn run(&mut self) {
+        if let Some(ref hooks) = self.hooks {
+            hooks.register();
+        }
+
         loop {
             match self.rx.recv() {
                 Ok(msg) => {
                     if !self.process_message(msg) {
-                        return;
+                        break;
                     }
                 }
                 Err(_) => {
-                    return;
+                    break;
                 }
             }
+        }
+
+        if let Some(ref hooks) = self.hooks {
+            hooks.deregister();
         }
     }
 
@@ -106,9 +118,20 @@ impl SceneBuilder {
                 let built_scene = scene.map(|request|{
                     build_scene(&self.config, request)
                 });
+                let pipeline_info = if let Some(ref built) = built_scene {
+                    PipelineInfo {
+                        epochs: built.scene.pipeline_epochs.clone(),
+                        removed_pipelines: built.removed_pipelines.clone(),
+                    }
+                } else {
+                    PipelineInfo::default()
+                };
 
                 // TODO: pre-rasterization.
 
+                if let Some(ref hooks) = self.hooks {
+                    hooks.pre_scene_swap();
+                }
                 self.tx.send(SceneBuilderResult::Transaction {
                     document_id,
                     built_scene,
@@ -118,6 +141,10 @@ impl SceneBuilder {
                 }).unwrap();
 
                 let _ = self.api_tx.send(ApiMsg::WakeUp);
+
+                if let Some(ref hooks) = self.hooks {
+                    hooks.post_scene_swap(pipeline_info);
+                }
             }
             SceneBuilderRequest::Stop => { return false; }
         }

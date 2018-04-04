@@ -1607,12 +1607,15 @@ impl Renderer {
         let blob_image_renderer = options.blob_image_renderer.take();
         let thread_listener_for_render_backend = thread_listener.clone();
         let thread_listener_for_scene_builder = thread_listener.clone();
-        let renderer_id_for_render_backend = options.renderer_id.clone();
+        let scene_builder_hooks = options.scene_builder_hooks;
         let rb_thread_name = format!("WRRenderBackend#{}", options.renderer_id.unwrap_or(0));
         let scene_thread_name = format!("WRSceneBuilder#{}", options.renderer_id.unwrap_or(0));
         let glyph_rasterizer = GlyphRasterizer::new(workers)?;
 
-        let (scene_builder, scene_tx, scene_rx) = SceneBuilder::new(config, api_tx.clone());
+        let (scene_builder, scene_tx, scene_rx) = SceneBuilder::new(
+            config,
+            api_tx.clone(),
+            scene_builder_hooks);
         thread::Builder::new().name(scene_thread_name.clone()).spawn(move || {
             register_thread_with_profiler(scene_thread_name.clone());
             if let Some(ref thread_listener) = *thread_listener_for_scene_builder {
@@ -1630,7 +1633,6 @@ impl Renderer {
         thread::Builder::new().name(rb_thread_name.clone()).spawn(move || {
             register_thread_with_profiler(rb_thread_name.clone());
             if let Some(ref thread_listener) = *thread_listener_for_render_backend {
-                thread_listener.new_render_backend_thread(renderer_id_for_render_backend);
                 thread_listener.thread_started(&rb_thread_name);
             }
 
@@ -3996,7 +3998,23 @@ pub trait OutputImageHandler {
 pub trait ThreadListener {
     fn thread_started(&self, thread_name: &str);
     fn thread_stopped(&self, thread_name: &str);
-    fn new_render_backend_thread(&self, renderer_id: Option<u64>);
+}
+
+/// Allows callers to hook in at certain points of the async scene build. These
+/// functions are all called from the scene builder thread.
+pub trait SceneBuilderHooks {
+    /// This is called exactly once, when the scene builder thread is started
+    /// and before it processes anything.
+    fn register(&self);
+    /// This is called before each scene swap occurs.
+    fn pre_scene_swap(&self);
+    /// This is called after each scene swap occurs. The PipelineInfo contains
+    /// the updated epochs and pipelines removed in the new scene compared to
+    /// the old scene.
+    fn post_scene_swap(&self, info: PipelineInfo);
+    /// This is called exactly once, when the scene builder thread is about to
+    /// terminate.
+    fn deregister(&self);
 }
 
 pub struct RendererOptions {
@@ -4023,6 +4041,7 @@ pub struct RendererOptions {
     pub debug_flags: DebugFlags,
     pub renderer_id: Option<u64>,
     pub disable_dual_source_blending: bool,
+    pub scene_builder_hooks: Option<Box<SceneBuilderHooks + Send>>,
 }
 
 impl Default for RendererOptions {
@@ -4054,6 +4073,7 @@ impl Default for RendererOptions {
             renderer_id: None,
             cached_programs: None,
             disable_dual_source_blending: false,
+            scene_builder_hooks: None,
         }
     }
 }
