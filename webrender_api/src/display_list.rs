@@ -195,7 +195,7 @@ impl<'a> BuiltDisplayListIter<'a> {
     pub fn new_with_list_and_data(list: &'a BuiltDisplayList, data: &'a [u8]) -> Self {
         BuiltDisplayListIter {
             list,
-            data: data,
+            data,
             cur_item: DisplayItem {
                 // Dummy data, will be overwritten by `next`
                 item: SpecificDisplayItem::PopStackingContext,
@@ -742,7 +742,7 @@ impl<'a, 'b> UnsafeReader<'a, 'b> {
         unsafe {
             let end = buf.as_ptr().offset(buf.len() as isize);
             let start = buf.as_ptr();
-            UnsafeReader { start: start, end, slice: buf }
+            UnsafeReader { start, end, slice: buf }
         }
     }
 
@@ -1176,8 +1176,8 @@ impl DisplayListBuilder {
         RadialGradient {
             center,
             radius,
-            start_offset: start_offset,
-            end_offset: end_offset,
+            start_offset,
+            end_offset,
             extend_mode,
         }
     }
@@ -1425,7 +1425,7 @@ impl DisplayListBuilder {
         let id = self.generate_clip_id();
         let item = SpecificDisplayItem::Clip(ClipDisplayItem {
             id,
-            image_mask: image_mask,
+            image_mask,
         });
 
         let info = LayoutPrimitiveInfo::new(clip_rect);

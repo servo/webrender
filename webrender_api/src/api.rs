@@ -697,7 +697,7 @@ unsafe impl Send for ExternalEvent {}
 
 impl ExternalEvent {
     pub fn from_raw(raw: usize) -> Self {
-        ExternalEvent { raw: raw }
+        ExternalEvent { raw }
     }
     /// Consumes self to make it obvious that the event should be forwarded only once.
     pub fn unwrap(self) -> usize {
@@ -746,7 +746,7 @@ impl RenderApiSender {
         RenderApi {
             api_sender: self.api_sender.clone(),
             payload_sender: self.payload_sender.clone(),
-            namespace_id: namespace_id,
+            namespace_id,
             next_id: Cell::new(ResourceId(0)),
         }
     }
