@@ -54,6 +54,11 @@ pub struct PicturePrimitive {
     // in this picture.
     pub apply_local_clip_rect: bool,
 
+    // If true, this picture will always create an intermediate surface and never
+    // use render directly to the parent Picture's surface. This forces the contents
+    // to be clipped by the associated clipping node.
+    pub force_intermediate_surface: bool,
+
     // The current screen-space rect of the rendered
     // portion of this picture.
     task_rect: DeviceIntRect,
@@ -109,6 +114,7 @@ impl PicturePrimitive {
         reference_frame_index: ClipScrollNodeIndex,
         frame_output_pipeline_id: Option<PipelineId>,
         apply_local_clip_rect: bool,
+        force_intermediate_surface: bool,
     ) -> Self {
         PicturePrimitive {
             runs: Vec::new(),
@@ -121,6 +127,7 @@ impl PicturePrimitive {
             real_local_rect: LayerRect::zero(),
             extra_gpu_data_handle: GpuCacheHandle::new(),
             apply_local_clip_rect,
+            force_intermediate_surface,
             pipeline_id,
             task_rect: DeviceIntRect::zero(),
         }
@@ -169,7 +176,21 @@ impl PicturePrimitive {
         }
     }
 
-    pub fn prepare_for_render(
+    pub fn can_draw_directly_to_parent_surface(&self) -> bool {
+        if self.force_intermediate_surface {
+            return false;
+        }
+
+        match self.composite_mode {
+            Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius)))
+                if blur_radius == 0.0 => true,
+            Some(PictureCompositeMode::Filter(filter)) if filter.is_noop() => true,
+            None => true,
+            _ => false,
+        }
+    }
+
+    pub fn prepare_for_render_inner(
         &mut self,
         prim_index: PrimitiveIndex,
         prim_metadata: &mut PrimitiveMetadata,
@@ -177,11 +198,17 @@ impl PicturePrimitive {
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
-    ) {
+    ) -> Option<DeviceIntRect> {
         let prim_screen_rect = prim_metadata
                                 .screen_rect
                                 .as_ref()
                                 .expect("bug: trying to draw an off-screen picture!?");
+        if self.can_draw_directly_to_parent_surface() {
+            pic_state.tasks.extend(pic_state_for_children.tasks);
+            self.surface = None;
+            return None;
+        }
+
 
         // TODO(gw): Almost all of the Picture types below use extra_gpu_cache_data
         //           to store the same type of data. The exception is the filter
@@ -189,56 +216,47 @@ impl PicturePrimitive {
         //           probably worth tidying this code up to be a bit more consistent.
         //           Perhaps store the color matrix after the common data, even though
         //           it's not used by that shader.
-        let device_rect = match self.composite_mode {
+        match self.composite_mode {
             Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
-                // If blur radius is 0, we can skip drawing this on an
-                // intermediate surface.
-                if blur_radius == 0.0 {
-                    pic_state.tasks.extend(pic_state_for_children.tasks);
-                    self.surface = None;
+                let blur_std_deviation = blur_radius * frame_context.device_pixel_scale.0;
+                let blur_range = (blur_std_deviation * BLUR_SAMPLE_SCALE).ceil() as i32;
 
-                    None
-                } else {
-                    let blur_std_deviation = blur_radius * frame_context.device_pixel_scale.0;
-                    let blur_range = (blur_std_deviation * BLUR_SAMPLE_SCALE).ceil() as i32;
+                // The clipped field is the part of the picture that is visible
+                // on screen. The unclipped field is the screen-space rect of
+                // the complete picture, if no screen / clip-chain was applied
+                // (this includes the extra space for blur region). To ensure
+                // that we draw a large enough part of the picture to get correct
+                // blur results, inflate that clipped area by the blur range, and
+                // then intersect with the total screen rect, to minimize the
+                // allocation size.
+                let device_rect = prim_screen_rect
+                    .clipped
+                    .inflate(blur_range, blur_range)
+                    .intersection(&prim_screen_rect.unclipped)
+                    .unwrap();
 
-                    // The clipped field is the part of the picture that is visible
-                    // on screen. The unclipped field is the screen-space rect of
-                    // the complete picture, if no screen / clip-chain was applied
-                    // (this includes the extra space for blur region). To ensure
-                    // that we draw a large enough part of the picture to get correct
-                    // blur results, inflate that clipped area by the blur range, and
-                    // then intersect with the total screen rect, to minimize the
-                    // allocation size.
-                    let device_rect = prim_screen_rect
-                        .clipped
-                        .inflate(blur_range, blur_range)
-                        .intersection(&prim_screen_rect.unclipped)
-                        .unwrap();
+                let picture_task = RenderTask::new_picture(
+                    RenderTaskLocation::Dynamic(None, device_rect.size),
+                    prim_index,
+                    device_rect.origin,
+                    pic_state_for_children.tasks,
+                );
 
-                    let picture_task = RenderTask::new_picture(
-                        RenderTaskLocation::Dynamic(None, device_rect.size),
-                        prim_index,
-                        device_rect.origin,
-                        pic_state_for_children.tasks,
-                    );
+                let picture_task_id = frame_state.render_tasks.add(picture_task);
 
-                    let picture_task_id = frame_state.render_tasks.add(picture_task);
+                let blur_render_task = RenderTask::new_blur(
+                    blur_std_deviation,
+                    picture_task_id,
+                    frame_state.render_tasks,
+                    RenderTargetKind::Color,
+                    ClearMode::Transparent,
+                );
 
-                    let blur_render_task = RenderTask::new_blur(
-                        blur_std_deviation,
-                        picture_task_id,
-                        frame_state.render_tasks,
-                        RenderTargetKind::Color,
-                        ClearMode::Transparent,
-                    );
+                let render_task_id = frame_state.render_tasks.add(blur_render_task);
+                pic_state.tasks.push(render_task_id);
+                self.surface = Some(render_task_id);
 
-                    let render_task_id = frame_state.render_tasks.add(blur_render_task);
-                    pic_state.tasks.push(render_task_id);
-                    self.surface = Some(render_task_id);
-
-                    Some(device_rect)
-                }
+                Some(device_rect)
             }
             Some(PictureCompositeMode::Filter(FilterOp::DropShadow(_, blur_radius, _))) => {
                 let blur_std_deviation = blur_radius * frame_context.device_pixel_scale.0;
@@ -306,47 +324,33 @@ impl PicturePrimitive {
                 Some(prim_screen_rect.clipped)
             }
             Some(PictureCompositeMode::Filter(filter)) => {
-                // If this filter is not currently going to affect
-                // the picture, just collapse this picture into the
-                // current render task. This most commonly occurs
-                // when opacity == 1.0, but can also occur on other
-                // filters and be a significant performance win.
-                if filter.is_noop() {
-                    pic_state.tasks.extend(pic_state_for_children.tasks);
-                    self.surface = None;
-
-                    None
-                } else {
-                    let device_rect = match filter {
-                        FilterOp::ColorMatrix(m) => {
-                            if let Some(mut request) = frame_state.gpu_cache.request(&mut self.extra_gpu_data_handle) {
-                                for i in 0..5 {
-                                    request.push([m[i*4], m[i*4+1], m[i*4+2], m[i*4+3]]);
-                                }
+                let device_rect = match filter {
+                    FilterOp::ColorMatrix(m) => {
+                        if let Some(mut request) = frame_state.gpu_cache.request(&mut self.extra_gpu_data_handle) {
+                            for i in 0..5 {
+                                request.push([m[i*4], m[i*4+1], m[i*4+2], m[i*4+3]]);
                             }
-
-                            None
                         }
-                        _ => {
-                            Some(prim_screen_rect.clipped)
-                        }
-                    };
 
-                    let picture_task = RenderTask::new_picture(
-                        RenderTaskLocation::Dynamic(None, prim_screen_rect.clipped.size),
-                        prim_index,
-                        prim_screen_rect.clipped.origin,
-                        pic_state_for_children.tasks,
-                    );
+                        None
+                    }
+                    _ => Some(prim_screen_rect.clipped),
+                };
 
-                    let render_task_id = frame_state.render_tasks.add(picture_task);
-                    pic_state.tasks.push(render_task_id);
-                    self.surface = Some(render_task_id);
+                let picture_task = RenderTask::new_picture(
+                    RenderTaskLocation::Dynamic(None, prim_screen_rect.clipped.size),
+                    prim_index,
+                    prim_screen_rect.clipped.origin,
+                    pic_state_for_children.tasks,
+                );
 
-                    device_rect
-                }
+                let render_task_id = frame_state.render_tasks.add(picture_task);
+                pic_state.tasks.push(render_task_id);
+                self.surface = Some(render_task_id);
+
+                device_rect
             }
-            Some(PictureCompositeMode::Blit) => {
+            Some(PictureCompositeMode::Blit) | None => {
                 let picture_task = RenderTask::new_picture(
                     RenderTaskLocation::Dynamic(None, prim_screen_rect.clipped.size),
                     prim_index,
@@ -360,13 +364,26 @@ impl PicturePrimitive {
 
                 Some(prim_screen_rect.clipped)
             }
-            None => {
-                pic_state.tasks.extend(pic_state_for_children.tasks);
-                self.surface = None;
+        }
+    }
 
-                None
-            }
-        };
+    pub fn prepare_for_render(
+        &mut self,
+        prim_index: PrimitiveIndex,
+        prim_metadata: &mut PrimitiveMetadata,
+        pic_state_for_children: PictureState,
+        pic_state: &mut PictureState,
+        frame_context: &FrameBuildingContext,
+        frame_state: &mut FrameBuildingState,
+    ) {
+        let device_rect = self.prepare_for_render_inner(
+            prim_index,
+            prim_metadata,
+            pic_state_for_children,
+            pic_state,
+            frame_context,
+            frame_state,
+        );
 
         // If this picture type uses the common / general GPU data
         // format, then write it now.

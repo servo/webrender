@@ -8,3 +8,4 @@
 == custom-clip-chain-node-ancestors.yaml custom-clip-chain-node-ancestors-ref.yaml
 == fixed-position-clipping.yaml fixed-position-clipping-ref.yaml
 == segmentation-with-other-coordinate-system-clip.yaml segmentation-with-other-coordinate-system-clip-ref.yaml
+== stacking-context-clip.yaml stacking-context-clip-ref.yaml
