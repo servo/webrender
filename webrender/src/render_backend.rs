@@ -708,16 +708,19 @@ impl RenderBackend {
                         resource_updates,
                         frame_ops,
                         render,
+                        result_tx,
                     } => {
                         if let Some(doc) = self.documents.get_mut(&document_id) {
                             if let Some(mut built_scene) = built_scene.take() {
                                 doc.new_async_scene_ready(built_scene);
                                 doc.render_on_hittest = true;
                             }
+                            result_tx.send(SceneSwapResult::Complete).unwrap();
                         } else {
                             // The document was removed while we were building it, skip it.
                             // TODO: we might want to just ensure that removed documents are
                             // always forwarded to the scene builder thread to avoid this case.
+                            result_tx.send(SceneSwapResult::Aborted).unwrap();
                             continue;
                         }
 

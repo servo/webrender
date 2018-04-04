@@ -34,7 +34,16 @@ pub enum SceneBuilderResult {
         resource_updates: ResourceUpdates,
         frame_ops: Vec<FrameMsg>,
         render: bool,
+        result_tx: Sender<SceneSwapResult>,
     },
+}
+
+// Message from render backend to scene builder to indicate the
+// scene swap was completed. We need a separate channel for this
+// so that they don't get mixed with SceneBuilderRequest messages.
+pub enum SceneSwapResult {
+    Complete,
+    Aborted,
 }
 
 /// Contains the render backend data needed to build a scene.
@@ -132,16 +141,20 @@ impl SceneBuilder {
                 if let Some(ref hooks) = self.hooks {
                     hooks.pre_scene_swap();
                 }
+                let (result_tx, result_rx) = channel();
                 self.tx.send(SceneBuilderResult::Transaction {
                     document_id,
                     built_scene,
                     resource_updates,
                     frame_ops,
                     render,
+                    result_tx,
                 }).unwrap();
 
                 let _ = self.api_tx.send(ApiMsg::WakeUp);
 
+                // Block until the swap is done, then invoke the hook
+                let _ = result_rx.recv();
                 if let Some(ref hooks) = self.hooks {
                     hooks.post_scene_swap(pipeline_info);
                 }
