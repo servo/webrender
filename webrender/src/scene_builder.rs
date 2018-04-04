@@ -23,6 +23,7 @@ pub enum SceneBuilderRequest {
         frame_ops: Vec<FrameMsg>,
         render: bool,
     },
+    WakeUp,
     Stop
 }
 
@@ -108,6 +109,10 @@ impl SceneBuilder {
                     break;
                 }
             }
+
+            if let Some(ref hooks) = self.hooks {
+                hooks.poke();
+            }
         }
 
         if let Some(ref hooks) = self.hooks {
@@ -117,6 +122,7 @@ impl SceneBuilder {
 
     fn process_message(&mut self, msg: SceneBuilderRequest) -> bool {
         match msg {
+            SceneBuilderRequest::WakeUp => {}
             SceneBuilderRequest::Transaction {
                 document_id,
                 scene,

@@ -4012,6 +4012,11 @@ pub trait SceneBuilderHooks {
     /// the updated epochs and pipelines removed in the new scene compared to
     /// the old scene.
     fn post_scene_swap(&self, info: PipelineInfo);
+    /// This is a generic callback which provides an opportunity to run code
+    /// on the scene builder thread. This is called as part of the main message
+    /// loop of the scene builder thread, but outside of any specific message
+    /// handler.
+    fn poke(&self);
     /// This is called exactly once, when the scene builder thread is about to
     /// terminate.
     fn deregister(&self);

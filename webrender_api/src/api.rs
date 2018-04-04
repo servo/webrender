@@ -622,6 +622,7 @@ pub enum ApiMsg {
     /// Wakes the render backend's event loop up. Needed when an event is communicated
     /// through another channel.
     WakeUp,
+    WakeSceneBuilder,
     ShutDown,
 }
 
@@ -641,6 +642,7 @@ impl fmt::Debug for ApiMsg {
             ApiMsg::DebugCommand(..) => "ApiMsg::DebugCommand",
             ApiMsg::ShutDown => "ApiMsg::ShutDown",
             ApiMsg::WakeUp => "ApiMsg::WakeUp",
+            ApiMsg::WakeSceneBuilder => "ApiMsg::WakeSceneBuilder",
         })
     }
 }
@@ -947,6 +949,10 @@ impl RenderApi {
         let (tx, rx) = channel::msg_channel().unwrap();
         self.send_frame_msg(document_id, FrameMsg::GetScrollNodeState(tx));
         rx.recv().unwrap()
+    }
+
+    pub fn wake_scene_builder(&self) {
+        self.send_message(ApiMsg::WakeSceneBuilder);
     }
 
     /// Save a capture of the current frame state for debugging.
