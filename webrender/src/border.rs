@@ -166,7 +166,7 @@ impl NormalBorderHelpers for NormalBorder {
                 }
             }
 
-            // Inset / outset borders just modtify the color of edges, so can be
+            // Inset / outset borders just modify the color of edges, so can be
             // drawn with the normal border corner shader.
             (BorderStyle::Outset, BorderStyle::Outset) |
             (BorderStyle::Inset, BorderStyle::Inset) |

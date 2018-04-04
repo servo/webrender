@@ -191,7 +191,7 @@ impl PicturePrimitive {
         //           it's not used by that shader.
         let device_rect = match self.composite_mode {
             Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
-                // If blur radius is 0, we can skip drawing this an an
+                // If blur radius is 0, we can skip drawing this on an
                 // intermediate surface.
                 if blur_radius == 0.0 {
                     pic_state.tasks.extend(pic_state_for_children.tasks);

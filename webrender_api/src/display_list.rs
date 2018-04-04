@@ -875,7 +875,7 @@ impl DisplayListBuilder {
         self.next_clip_chain_id = state.next_clip_chain_id;
     }
 
-    /// Discards the builder's save (indicating the attempted operation was sucessful).
+    /// Discards the builder's save (indicating the attempted operation was successful).
     pub fn clear_save(&mut self) {
         self.save_state.take().expect("No save to clear in DisplayListBuilder");
     }
@@ -1223,7 +1223,7 @@ impl DisplayListBuilder {
     /// `gradient` parameter. It is drawn on
     /// a "tile" with the dimensions from `tile_size`.
     /// These tiles are now repeated to the right and
-    /// to the bottom infinitly. If `tile_spacing`
+    /// to the bottom infinitely. If `tile_spacing`
     /// is not zero spacers with the given dimensions
     /// are inserted between the tiles as seams.
     ///
