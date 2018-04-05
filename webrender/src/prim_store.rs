@@ -213,6 +213,10 @@ pub enum BrushKind {
         request: ImageRequest,
         current_epoch: Epoch,
         alpha_type: AlphaType,
+        stretch_size: LayerSize,
+        tile_spacing: LayerSize,
+        source: ImageSource,
+        sub_rect: Option<DeviceIntRect>,
     },
     YuvImage {
         yuv_key: [ImageKey; 3],
@@ -1300,11 +1304,12 @@ impl PrimitiveStore {
                 let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
 
                 match brush.kind {
-                    BrushKind::Image { request, ref mut current_epoch, .. } => {
+                    BrushKind::Image { request, sub_rect, ref mut current_epoch, ref mut source, .. } => {
                         let image_properties = frame_state
                             .resource_cache
                             .get_image_properties(request.key);
 
+                        // Set if we need to request the source image from the cache this frame.
                         if let Some(image_properties) = image_properties {
                             // See if this image has been updated since we last hit this code path.
                             // If so, we need to update the opacity.
@@ -1312,12 +1317,88 @@ impl PrimitiveStore {
                                 *current_epoch = image_properties.epoch;
                                 metadata.opacity.is_opaque = image_properties.descriptor.is_opaque;
                             }
+
+                            // Work out whether this image is a normal / simple type, or if
+                            // we need to pre-render it to the render task cache.
+                            if let Some(rect) = sub_rect {
+                                *source = ImageSource::Cache {
+                                    // Size in device-pixels we need to allocate in render task cache.
+                                    size: rect.size,
+                                    item: CacheItem::invalid(),
+                                };
+                            }
+
+                            let mut request_source_image = false;
+
+                            // Every frame, for cached items, we need to request the render
+                            // task cache item. The closure will be invoked on the first
+                            // time through, and any time the render task output has been
+                            // evicted from the texture cache.
+                            match *source {
+                                ImageSource::Cache { size, ref mut item } => {
+                                    let image_cache_key = ImageCacheKey {
+                                        request,
+                                        texel_rect: sub_rect,
+                                    };
+
+                                    // Request a pre-rendered image task.
+                                    *item = frame_state.resource_cache.request_render_task(
+                                        RenderTaskCacheKey {
+                                            size,
+                                            kind: RenderTaskCacheKeyKind::Image(image_cache_key),
+                                        },
+                                        frame_state.gpu_cache,
+                                        frame_state.render_tasks,
+                                        None,
+                                        |render_tasks| {
+                                            // We need to render the image cache this frame,
+                                            // so will need access to the source texture.
+                                            request_source_image = true;
+
+                                            // Create a task to blit from the texture cache to
+                                            // a normal transient render task surface. This will
+                                            // copy only the sub-rect, if specified.
+                                            let cache_to_target_task = RenderTask::new_blit(
+                                                size,
+                                                BlitSource::Image { key: image_cache_key },
+                                            );
+                                            let cache_to_target_task_id = render_tasks.add(cache_to_target_task);
+
+                                            // Create a task to blit the rect from the child render
+                                            // task above back into the right spot in the persistent
+                                            // render target cache.
+                                            let target_to_cache_task = RenderTask::new_blit(
+                                                size,
+                                                BlitSource::RenderTask {
+                                                    task_id: cache_to_target_task_id,
+                                                },
+                                            );
+                                            let target_to_cache_task_id = render_tasks.add(target_to_cache_task);
+
+                                            // Hook this into the render task tree at the right spot.
+                                            pic_state.tasks.push(target_to_cache_task_id);
+
+                                            // Pass the image opacity, so that the cached render task
+                                            // item inherits the same opacity properties.
+                                            (target_to_cache_task_id, image_properties.descriptor.is_opaque)
+                                        }
+                                    );
+
+                                }
+                                ImageSource::Default => {
+                                    // Normal images just reference the source texture each frame.
+                                    request_source_image = true;
+                                }
+                            }
+
+                            if request_source_image {
+                                frame_state.resource_cache.request_image(
+                                    request,
+                                    frame_state.gpu_cache,
+                                );
+                            }
                         }
 
-                        frame_state.resource_cache.request_image(
-                            request,
-                            frame_state.gpu_cache,
-                        );
                     }
                     BrushKind::YuvImage { format, yuv_key, image_rendering, .. } => {
                         let channel_num = format.get_plane_num();
