@@ -2,12 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{DocumentId, PipelineId, ApiMsg, FrameMsg, ResourceUpdates};
+use api::{DocumentId, Epoch, PipelineId, ApiMsg, FrameMsg, ResourceUpdates};
 use api::channel::MsgSender;
 use display_list_flattener::build_scene;
 use frame_builder::{FrameBuilderConfig, FrameBuilder};
 use clip_scroll_tree::ClipScrollTree;
-use internal_types::FastHashSet;
+use internal_types::{FastHashMap, FastHashSet};
 use resource_cache::{FontInstanceMap, TiledImageMap};
 use render_backend::DocumentView;
 use renderer::{PipelineInfo, SceneBuilderHooks};
@@ -22,6 +22,7 @@ pub enum SceneBuilderRequest {
         resource_updates: ResourceUpdates,
         frame_ops: Vec<FrameMsg>,
         render: bool,
+        current_epochs: FastHashMap<PipelineId, Epoch>,
     },
     WakeUp,
     Stop
@@ -129,6 +130,7 @@ impl SceneBuilder {
                 resource_updates,
                 frame_ops,
                 render,
+                current_epochs,
             } => {
                 let built_scene = scene.map(|request|{
                     build_scene(&self.config, request)
@@ -139,7 +141,10 @@ impl SceneBuilder {
                         removed_pipelines: built.removed_pipelines.clone(),
                     }
                 } else {
-                    PipelineInfo::default()
+                    PipelineInfo {
+                        epochs: current_epochs,
+                        removed_pipelines: vec![],
+                    }
                 };
 
                 // TODO: pre-rasterization.
