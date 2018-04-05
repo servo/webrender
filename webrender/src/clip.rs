@@ -335,14 +335,16 @@ impl ClipSources {
             }
         }
 
-        let outer = match can_calculate_outer_rect {
-            true => Some(local_outer.unwrap_or_else(LayerRect::zero)),
-            false => None,
+        let outer = if can_calculate_outer_rect {
+            Some(local_outer.unwrap_or_else(LayerRect::zero))
+        } else {
+            None
         };
 
-        let inner = match can_calculate_inner_rect {
-            true => local_inner.unwrap_or_else(LayerRect::zero),
-            false => LayerRect::zero(),
+        let inner = if can_calculate_inner_rect {
+            local_inner.unwrap_or_else(LayerRect::zero)
+        } else {
+            LayerRect::zero()
         };
 
         (inner, outer)

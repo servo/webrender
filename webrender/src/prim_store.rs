@@ -1479,9 +1479,10 @@ impl PrimitiveStore {
 
         // If this primitive is clipped by clips from a different coordinate system, then we
         // need to apply a clip mask for the entire primitive.
-        let mut clip_mask_kind = match has_clips_from_other_coordinate_systems {
-            true => BrushClipMaskKind::Global,
-            false => BrushClipMaskKind::Individual,
+        let mut clip_mask_kind = if has_clips_from_other_coordinate_systems {
+            BrushClipMaskKind::Global
+        } else {
+            BrushClipMaskKind::Individual
         };
 
         // Segment the primitive on all the local-space clip sources that we can.
