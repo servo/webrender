@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include rect,clip_scroll,render_task,resource_cache,snap,transform
+
 #ifdef WR_VERTEX_SHADER
 
 #define SEGMENT_ALL         0
@@ -88,10 +90,20 @@ ClipVertexInfo write_clip_tile_vertex(RectWithSize local_clip_rect,
 
     gl_Position = uTransform * vec4(vertex_pos, 0.0, 1);
 
-    vLocalBounds = vec4(local_clip_rect.p0, local_clip_rect.p0 + local_clip_rect.size);
+    init_transform_vs(vec4(local_clip_rect.p0, local_clip_rect.p0 + local_clip_rect.size));
 
     ClipVertexInfo vi = ClipVertexInfo(node_pos.xyw, actual_pos, local_clip_rect);
     return vi;
 }
 
 #endif //WR_VERTEX_SHADER
+
+#ifdef WR_FRAGMENT_SHADER
+
+//Note: identical to prim_shared
+float distance_to_line(vec2 p0, vec2 perp_dir, vec2 p) {
+    vec2 dir_to_p0 = p0 - p;
+    return dot(normalize(perp_dir), dir_to_p0);
+}
+
+#endif //WR_FRAGMENT_SHADER
