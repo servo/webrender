@@ -283,7 +283,7 @@ pub fn recycle_vec<T>(mut old_vec: Vec<T>) -> Vec<T> {
 
     old_vec.clear();
 
-    return old_vec;
+    old_vec
 }
 
 
@@ -414,7 +414,7 @@ impl<Src, Dst> FastTransform<Src, Dst> {
     pub fn pre_translate(&self, other_offset: &TypedVector2D<f32, Src>) -> Self {
         match self {
             &FastTransform::Offset(ref offset) =>
-                return FastTransform::Offset(*offset + *other_offset),
+                FastTransform::Offset(*offset + *other_offset),
             &FastTransform::Transform { transform, .. } =>
                 FastTransform::with_transform(transform.pre_translate(other_offset.to_3d()))
         }
