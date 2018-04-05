@@ -23,7 +23,8 @@ void brush_vs(
     RectWithSize local_rect,
     ivec3 user_data,
     mat4 transform,
-    PictureTask pic_task
+    PictureTask pic_task,
+    vec4 unused
 ) {
     PictureTask src_task = fetch_picture_task(user_data.x);
     vec2 texture_size = vec2(textureSize(sColor0, 0).xy);
