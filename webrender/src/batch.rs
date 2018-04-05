@@ -664,12 +664,6 @@ impl AlphaBatchBuilder {
                             return;
                         }
 
-                        //assert!(
-                        //    picture.composite_mode.is_some() ||
-                        //    picture.force_intermediate_surface
-                        //);
-
-
                         let add_to_parent_pic = match picture.composite_mode {
                             Some(PictureCompositeMode::Filter(filter)) => {
                                 match filter {
@@ -889,50 +883,48 @@ impl AlphaBatchBuilder {
                                 batch.push(PrimitiveInstance::from(instance));
                                 false
                             }
-                            Some(PictureCompositeMode::Blit) | None => {
-                                if picture.composite_mode.is_none() &&
-                                    !picture.force_intermediate_surface {
-                                    true
-                                } else {
-                                    let cache_task_id =
-                                        picture.surface.expect("bug: no surface allocated");
-                                    let kind = BatchKind::Brush(
-                                        BrushBatchKind::Image(ImageBufferKind::Texture2DArray)
-                                    );
-                                    let key = BatchKey::new(
-                                        kind,
-                                        non_segmented_blend_mode,
-                                        BatchTextures::render_target_cache(),
-                                    );
-                                    let batch = self.batch_list.get_suitable_batch(
-                                        key,
-                                        &task_relative_bounding_rect
-                                    );
+                            Some(PictureCompositeMode::Blit) => {
+                                let cache_task_id =
+                                    picture.surface.expect("bug: no surface allocated");
+                                let kind = BatchKind::Brush(
+                                    BrushBatchKind::Image(ImageBufferKind::Texture2DArray)
+                                );
+                                let key = BatchKey::new(
+                                    kind,
+                                    non_segmented_blend_mode,
+                                    BatchTextures::render_target_cache(),
+                                );
+                                let batch = self.batch_list.get_suitable_batch(
+                                    key,
+                                    &task_relative_bounding_rect
+                                );
 
-                                    let uv_rect_address = render_tasks[cache_task_id]
-                                        .get_texture_handle()
-                                        .as_int(gpu_cache);
+                                let uv_rect_address = render_tasks[cache_task_id]
+                                    .get_texture_handle()
+                                    .as_int(gpu_cache);
 
-                                    let instance = BrushInstance {
-                                        picture_address: task_address,
-                                        prim_address: prim_cache_address,
-                                        clip_chain_rect_index,
-                                        scroll_id,
-                                        clip_task_address,
-                                        z,
-                                        segment_index: 0,
-                                        edge_flags: EdgeAaSegmentMask::empty(),
-                                        brush_flags: BrushFlags::empty(),
-                                        user_data: [
-                                            uv_rect_address,
-                                            (BrushImageSourceKind::Color as i32) << 16 |
-                                            RasterizationSpace::Screen as i32,
-                                            picture.extra_gpu_data_handle.as_int(gpu_cache),
-                                        ],
-                                    };
-                                    batch.push(PrimitiveInstance::from(instance));
-                                    false
-                                }
+                                let instance = BrushInstance {
+                                    picture_address: task_address,
+                                    prim_address: prim_cache_address,
+                                    clip_chain_rect_index,
+                                    scroll_id,
+                                    clip_task_address,
+                                    z,
+                                    segment_index: 0,
+                                    edge_flags: EdgeAaSegmentMask::empty(),
+                                    brush_flags: BrushFlags::empty(),
+                                    user_data: [
+                                        uv_rect_address,
+                                        (BrushImageSourceKind::Color as i32) << 16 |
+                                        RasterizationSpace::Screen as i32,
+                                        picture.extra_gpu_data_handle.as_int(gpu_cache),
+                                    ],
+                                };
+                                batch.push(PrimitiveInstance::from(instance));
+                                false
+                            }
+                            None => {
+                                true
                             }
                         };
 
