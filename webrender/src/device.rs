@@ -174,7 +174,7 @@ fn parse_shader_source(source: String, base_path: &Option<PathBuf>, output: &mut
 
     for (line_num, line) in source.lines().enumerate() {
         if line.starts_with(SHADER_IMPORT) {
-            let imports = line[SHADER_IMPORT.len() ..].split(",");
+            let imports = line[SHADER_IMPORT.len() ..].split(',');
 
             // For each import, get the source, and recurse.
             for import in imports {
