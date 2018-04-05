@@ -1465,11 +1465,20 @@ impl PrimitiveStore {
                 if !brush.kind.supports_segments() {
                     return;
                 }
-                if metadata.local_rect.size.area() <= MIN_BRUSH_SPLIT_AREA {
-                    return;
-                }
             }
         }
+
+        // If the brush is small, we generally want to skip building segments
+        // and just draw it as a single primitive with clip mask. However,
+        // if the clips are purely rectangles that have no per-fragment
+        // clip masks, we will segment anyway. This allows us to completely
+        // skip allocating a clip mask in these cases.
+        let is_large = metadata.local_rect.size.area() > MIN_BRUSH_SPLIT_AREA;
+
+        // TODO(gw): We should probably detect and store this on each
+        //           ClipSources instance, to avoid having to iterate
+        //           the clip sources here.
+        let mut rect_clips_only = true;
 
         let mut segment_builder = SegmentBuilder::new(
             metadata.local_rect,
@@ -1494,12 +1503,16 @@ impl PrimitiveStore {
             for &(ref clip, _) in &local_clips.clips {
                 let (local_clip_rect, radius, mode) = match *clip {
                     ClipSource::RoundedRectangle(rect, radii, clip_mode) => {
+                        rect_clips_only = false;
+
                         (rect, Some(radii), clip_mode)
                     }
-                    ClipSource::Rectangle(rect) => {
-                        (rect, None, ClipMode::Clip)
+                    ClipSource::Rectangle(rect, mode) => {
+                        (rect, None, mode)
                     }
                     ClipSource::BoxShadow(ref info) => {
+                        rect_clips_only = false;
+
                         // For inset box shadows, we can clip out any
                         // pixels that are inside the shadow region
                         // and are beyond the inner rect, as they can't
@@ -1527,6 +1540,8 @@ impl PrimitiveStore {
                     ClipSource::BorderCorner(..) |
                     ClipSource::LineDecoration(..) |
                     ClipSource::Image(..) => {
+                        rect_clips_only = false;
+
                         // TODO(gw): We can easily extend the segment builder
                         //           to support these clip sources in the
                         //           future, but they are rarely used.
@@ -1558,32 +1573,34 @@ impl PrimitiveStore {
             }
         }
 
-        match brush.segment_desc {
-            Some(ref mut segment_desc) => {
-                segment_desc.clip_mask_kind = clip_mask_kind;
-            }
-            None => {
-                // TODO(gw): We can probably make the allocation
-                //           patterns of this and the segment
-                //           builder significantly better, by
-                //           retaining it across primitives.
-                let mut segments = Vec::new();
+        if is_large || rect_clips_only {
+            match brush.segment_desc {
+                Some(ref mut segment_desc) => {
+                    segment_desc.clip_mask_kind = clip_mask_kind;
+                }
+                None => {
+                    // TODO(gw): We can probably make the allocation
+                    //           patterns of this and the segment
+                    //           builder significantly better, by
+                    //           retaining it across primitives.
+                    let mut segments = Vec::new();
 
-                segment_builder.build(|segment| {
-                    segments.push(
-                        BrushSegment::new(
-                            segment.rect.origin,
-                            segment.rect.size,
-                            segment.has_mask,
-                            segment.edge_flags,
-                        ),
-                    );
-                });
+                    segment_builder.build(|segment| {
+                        segments.push(
+                            BrushSegment::new(
+                                segment.rect.origin,
+                                segment.rect.size,
+                                segment.has_mask,
+                                segment.edge_flags,
+                            ),
+                        );
+                    });
 
-                brush.segment_desc = Some(BrushSegmentDescriptor {
-                    segments,
-                    clip_mask_kind,
-                });
+                    brush.segment_desc = Some(BrushSegmentDescriptor {
+                        segments,
+                        clip_mask_kind,
+                    });
+                }
             }
         }
     }

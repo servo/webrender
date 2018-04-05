@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AlphaType, DeviceIntRect, DeviceIntSize};
+use api::{AlphaType, ClipMode, DeviceIntRect, DeviceIntSize};
 use api::{DeviceUintRect, DeviceUintPoint, DeviceUintSize, ExternalImageType, FilterOp, ImageRendering, LayerRect};
 use api::{DeviceIntPoint, SubpixelDirection, YuvColorSpace, YuvFormat};
 use api::{LayerToWorldTransform, WorldPixel};
@@ -1627,8 +1627,9 @@ impl ClipBatcher {
                                 ..instance
                             });
                     }
-                    ClipSource::Rectangle(..) => {
-                        if work_item.coordinate_system_id != coordinate_system_id {
+                    ClipSource::Rectangle(_, mode) => {
+                        if work_item.coordinate_system_id != coordinate_system_id ||
+                           mode == ClipMode::ClipOut {
                             self.rectangles.push(ClipMaskInstance {
                                 clip_data_address: gpu_address,
                                 ..instance

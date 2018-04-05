@@ -75,14 +75,17 @@ impl HitTestingItem {
 pub struct HitTestingRun(pub Vec<HitTestingItem>, pub ScrollNodeAndClipChain);
 
 enum HitTestRegion {
-    Rectangle(LayerRect),
+    Rectangle(LayerRect, ClipMode),
     RoundedRectangle(LayerRect, BorderRadius, ClipMode),
 }
 
 impl HitTestRegion {
     pub fn contains(&self, point: &LayerPoint) -> bool {
         match self {
-            &HitTestRegion::Rectangle(ref rectangle) => rectangle.contains(point),
+            &HitTestRegion::Rectangle(ref rectangle, ClipMode::Clip) =>
+                rectangle.contains(point),
+            &HitTestRegion::Rectangle(ref rectangle, ClipMode::ClipOut) =>
+                !rectangle.contains(point),
             &HitTestRegion::RoundedRectangle(rect, radii, ClipMode::Clip) =>
                 rounded_rectangle_contains_point(point, &rect, &radii),
             &HitTestRegion::RoundedRectangle(rect, radii, ClipMode::ClipOut) =>
@@ -307,10 +310,10 @@ fn get_regions_for_clip_scroll_node(
 
     clips.iter().map(|ref source| {
         match source.0 {
-            ClipSource::Rectangle(ref rect) => HitTestRegion::Rectangle(*rect),
+            ClipSource::Rectangle(ref rect, mode) => HitTestRegion::Rectangle(*rect, mode),
             ClipSource::RoundedRectangle(ref rect, ref radii, ref mode) =>
                 HitTestRegion::RoundedRectangle(*rect, *radii, *mode),
-            ClipSource::Image(ref mask) => HitTestRegion::Rectangle(mask.rect),
+            ClipSource::Image(ref mask) => HitTestRegion::Rectangle(mask.rect, ClipMode::Clip),
             ClipSource::BorderCorner(_) |
             ClipSource::LineDecoration(_) |
             ClipSource::BoxShadow(_) => {
