@@ -1009,7 +1009,6 @@ impl<'a> DisplayListFlattener<'a> {
                 current_reference_frame_index,
                 None,
                 true,
-                false,
             );
 
             self.picture_stack.push(pic_index);
@@ -1066,7 +1065,6 @@ impl<'a> DisplayListFlattener<'a> {
                 current_reference_frame_index,
                 None,
                 true,
-                false,
             );
 
             let prim = BrushPrimitive::new_picture(
@@ -1121,7 +1119,6 @@ impl<'a> DisplayListFlattener<'a> {
                 current_reference_frame_index,
                 None,
                 true,
-                false,
             );
 
             // For drop shadows, add an extra brush::picture primitive
@@ -1185,7 +1182,6 @@ impl<'a> DisplayListFlattener<'a> {
                 current_reference_frame_index,
                 None,
                 true,
-                false,
             );
 
             let src_prim = BrushPrimitive::new_picture(
@@ -1222,7 +1218,11 @@ impl<'a> DisplayListFlattener<'a> {
             frame_output_pipeline_id = Some(pipeline_id);
         }
 
-        if participating_in_3d_context {
+        // Force an intermediate surface if the stacking context
+        // has a clip node. In the future, we may decide during
+        // prepare step to skip the intermediate surface if the
+        // clip node doesn't affect the stacking context rect.
+        if participating_in_3d_context || clipping_node.is_some() {
             // TODO(gw): For now, as soon as this picture is in
             //           a 3D context, we draw it to an intermediate
             //           surface and apply plane splitting. However,
@@ -1241,7 +1241,6 @@ impl<'a> DisplayListFlattener<'a> {
             current_reference_frame_index,
             frame_output_pipeline_id,
             true,
-            clipping_node.is_some(),
         );
 
         // Create a brush primitive that draws this picture.
@@ -1481,7 +1480,6 @@ impl<'a> DisplayListFlattener<'a> {
             current_reference_frame_index,
             None,
             apply_local_clip_rect,
-            false,
         );
 
         // Create the primitive to draw the shadow picture into the scene.

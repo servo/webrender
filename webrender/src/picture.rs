@@ -54,11 +54,6 @@ pub struct PicturePrimitive {
     // in this picture.
     pub apply_local_clip_rect: bool,
 
-    // If true, this picture will always create an intermediate surface and never
-    // use render directly to the parent Picture's surface. This forces the contents
-    // to be clipped by the associated clipping node.
-    pub force_intermediate_surface: bool,
-
     // The current screen-space rect of the rendered
     // portion of this picture.
     task_rect: DeviceIntRect,
@@ -114,7 +109,6 @@ impl PicturePrimitive {
         reference_frame_index: ClipScrollNodeIndex,
         frame_output_pipeline_id: Option<PipelineId>,
         apply_local_clip_rect: bool,
-        force_intermediate_surface: bool,
     ) -> Self {
         PicturePrimitive {
             runs: Vec::new(),
@@ -127,7 +121,6 @@ impl PicturePrimitive {
             real_local_rect: LayerRect::zero(),
             extra_gpu_data_handle: GpuCacheHandle::new(),
             apply_local_clip_rect,
-            force_intermediate_surface,
             pipeline_id,
             task_rect: DeviceIntRect::zero(),
         }
@@ -177,16 +170,17 @@ impl PicturePrimitive {
     }
 
     pub fn can_draw_directly_to_parent_surface(&self) -> bool {
-        if self.force_intermediate_surface {
-            return false;
-        }
-
         match self.composite_mode {
-            Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius)))
-                if blur_radius == 0.0 => true,
-            Some(PictureCompositeMode::Filter(filter)) if filter.is_noop() => true,
-            None => true,
-            _ => false,
+            Some(PictureCompositeMode::Filter(filter)) => {
+                filter.is_noop()
+            }
+            Some(PictureCompositeMode::Blit) |
+            Some(PictureCompositeMode::MixBlend(..)) => {
+                false
+            }
+            None => {
+                true
+            }
         }
     }
 
