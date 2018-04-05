@@ -10,12 +10,16 @@
 varying vec2 vLocalPos;
 #endif
 
+// Interpolated uv coordinates in xy, and layer in z.
 varying vec3 vUv;
+// Normalized bounds of the source image in the texture.
 flat varying vec4 vUvBounds;
+// Normalized bounds of the source image in the texture, adjusted to avoid
+// sampling artifacts.
+flat varying vec4 vUvSampleBounds;
 
 #ifdef WR_FEATURE_ALPHA_PASS
 flat varying vec2 vSelect;
-flat varying vec4 vUvClipBounds;
 flat varying vec4 vColor;
 #endif
 
@@ -60,7 +64,8 @@ void brush_vs(
     RectWithSize local_rect,
     ivec3 user_data,
     mat4 transform,
-    PictureTask pic_task
+    PictureTask pic_task,
+    vec4 repeat
 ) {
     // If this is in WR_FEATURE_TEXTURE_RECT mode, the rect and size use
     // non-normalized texture coordinates.
@@ -81,7 +86,7 @@ void brush_vs(
     vec2 min_uv = min(uv0, uv1);
     vec2 max_uv = max(uv0, uv1);
 
-    vUvBounds = vec4(
+    vUvSampleBounds = vec4(
         min_uv + vec2(0.5),
         max_uv - vec2(0.5)
     ) / texture_size.xyxy;
@@ -125,24 +130,12 @@ void brush_vs(
 
             f = (snapped_device_pos - image.rendered_task_rect.p0) / image.rendered_task_rect.size;
 
-            vUvClipBounds = vec4(
-                min_uv,
-                max_uv
-            ) / texture_size.xyxy;
             break;
         }
         case RASTER_LOCAL:
         default: {
             vColor = vec4(1.0);
             f = (vi.local_pos - local_rect.p0) / local_rect.size;
-
-            // Set the clip bounds to a value that won't have any
-            // effect for local space images.
-#ifdef WR_FEATURE_TEXTURE_RECT
-            vUvClipBounds = vec4(0.0, 0.0, vec2(textureSize(sColor0)));
-#else
-            vUvClipBounds = vec4(0.0, 0.0, 1.0, 1.0);
-#endif
             break;
         }
     }
@@ -150,8 +143,16 @@ void brush_vs(
     f = (vi.local_pos - local_rect.p0) / local_rect.size;
 #endif
 
-    vUv.xy = mix(uv0, uv1, f);
+    // Offset and scale vUv here to avoid doing it in the fragment shader.
+    vUv.xy = mix(uv0, uv1, f) - min_uv;
     vUv.xy /= texture_size;
+    vUv.xy *= repeat.xy;
+
+#ifdef WR_FEATURE_TEXTURE_RECT
+    vUvBounds = vec4(0.0, 0.0, vec2(textureSize(sColor0)));
+#else
+    vUvBounds = vec4(min_uv, max_uv) / texture_size.xyxy;
+#endif
 
 #ifdef WR_FEATURE_ALPHA_PASS
     switch (image_source) {
@@ -174,7 +175,10 @@ void brush_vs(
 
 #ifdef WR_FRAGMENT_SHADER
 vec4 brush_fs() {
-    vec2 uv = clamp(vUv.xy, vUvBounds.xy, vUvBounds.zw);
+    // vUv was pre-translated and scaled in the vertex shader to account for repetitions.
+    vec2 repeated_uv = mod(vUv.xy, vUvBounds.zw - vUvBounds.xy) + vUvBounds.xy;
+
+    vec2 uv = clamp(repeated_uv, vUvSampleBounds.xy, vUvSampleBounds.zw);
 
     vec4 texel = TEX_SAMPLE(sColor0, vec3(uv, vUv.z));
 
@@ -184,7 +188,7 @@ vec4 brush_fs() {
 
     // Fail-safe to ensure that we don't sample outside the rendered
     // portion of a picture source.
-    color.a *= point_inside_rect(vUv.xy, vUvClipBounds.xy, vUvClipBounds.zw);
+    color.a *= point_inside_rect(uv, vUvBounds.xy, vUvBounds.zw);
 #else
     vec4 color = texel;
 #endif

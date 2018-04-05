@@ -2173,8 +2173,8 @@ impl<'a> GpuDataRequest<'a> {
     ) {
         self.push(local_rect);
         self.push([
-            0.0,
-            0.0,
+            1.0, // x repetitions
+            1.0, // y repetitions
             0.0,
             0.0
         ]);
