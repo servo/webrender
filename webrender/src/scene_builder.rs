@@ -10,6 +10,7 @@ use clip_scroll_tree::ClipScrollTree;
 use internal_types::FastHashSet;
 use resource_cache::{FontInstanceMap, TiledImageMap};
 use render_backend::DocumentView;
+use renderer::{PipelineInfo, SceneBuilderHooks};
 use scene::Scene;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
@@ -22,6 +23,7 @@ pub enum SceneBuilderRequest {
         frame_ops: Vec<FrameMsg>,
         render: bool,
     },
+    WakeUp,
     Stop
 }
 
@@ -33,7 +35,16 @@ pub enum SceneBuilderResult {
         resource_updates: ResourceUpdates,
         frame_ops: Vec<FrameMsg>,
         render: bool,
+        result_tx: Sender<SceneSwapResult>,
     },
+}
+
+// Message from render backend to scene builder to indicate the
+// scene swap was completed. We need a separate channel for this
+// so that they don't get mixed with SceneBuilderRequest messages.
+pub enum SceneSwapResult {
+    Complete,
+    Aborted,
 }
 
 /// Contains the render backend data needed to build a scene.
@@ -58,12 +69,14 @@ pub struct SceneBuilder {
     tx: Sender<SceneBuilderResult>,
     api_tx: MsgSender<ApiMsg>,
     config: FrameBuilderConfig,
+    hooks: Option<Box<SceneBuilderHooks + Send>>,
 }
 
 impl SceneBuilder {
     pub fn new(
         config: FrameBuilderConfig,
-        api_tx: MsgSender<ApiMsg>
+        api_tx: MsgSender<ApiMsg>,
+        hooks: Option<Box<SceneBuilderHooks + Send>>,
     ) -> (Self, Sender<SceneBuilderRequest>, Receiver<SceneBuilderResult>) {
         let (in_tx, in_rx) = channel();
         let (out_tx, out_rx) = channel();
@@ -73,6 +86,7 @@ impl SceneBuilder {
                 tx: out_tx,
                 api_tx,
                 config,
+                hooks,
             },
             in_tx,
             out_rx,
@@ -80,22 +94,35 @@ impl SceneBuilder {
     }
 
     pub fn run(&mut self) {
+        if let Some(ref hooks) = self.hooks {
+            hooks.register();
+        }
+
         loop {
             match self.rx.recv() {
                 Ok(msg) => {
                     if !self.process_message(msg) {
-                        return;
+                        break;
                     }
                 }
                 Err(_) => {
-                    return;
+                    break;
                 }
             }
+
+            if let Some(ref hooks) = self.hooks {
+                hooks.poke();
+            }
+        }
+
+        if let Some(ref hooks) = self.hooks {
+            hooks.deregister();
         }
     }
 
     fn process_message(&mut self, msg: SceneBuilderRequest) -> bool {
         match msg {
+            SceneBuilderRequest::WakeUp => {}
             SceneBuilderRequest::Transaction {
                 document_id,
                 scene,
@@ -106,18 +133,37 @@ impl SceneBuilder {
                 let built_scene = scene.map(|request|{
                     build_scene(&self.config, request)
                 });
+                let pipeline_info = if let Some(ref built) = built_scene {
+                    PipelineInfo {
+                        epochs: built.scene.pipeline_epochs.clone(),
+                        removed_pipelines: built.removed_pipelines.clone(),
+                    }
+                } else {
+                    PipelineInfo::default()
+                };
 
                 // TODO: pre-rasterization.
 
+                if let Some(ref hooks) = self.hooks {
+                    hooks.pre_scene_swap();
+                }
+                let (result_tx, result_rx) = channel();
                 self.tx.send(SceneBuilderResult::Transaction {
                     document_id,
                     built_scene,
                     resource_updates,
                     frame_ops,
                     render,
+                    result_tx,
                 }).unwrap();
 
                 let _ = self.api_tx.send(ApiMsg::WakeUp);
+
+                // Block until the swap is done, then invoke the hook
+                let _ = result_rx.recv();
+                if let Some(ref hooks) = self.hooks {
+                    hooks.post_scene_swap(pipeline_info);
+                }
             }
             SceneBuilderRequest::Stop => { return false; }
         }
