@@ -932,7 +932,7 @@ impl RenderTaskCache {
                               });
 
         // Check if this texture cache handle is valid.
-        if texture_cache.request(&mut cache_entry.handle, gpu_cache) {
+        if texture_cache.request(&cache_entry.handle, gpu_cache) {
             // Invoke user closure to get render task chain
             // to draw this into the texture cache.
             let (render_task_id, is_opaque) = try!(f(render_tasks));
