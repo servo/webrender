@@ -264,6 +264,7 @@ impl Document {
             frame_ops: transaction_msg.frame_ops,
             render: transaction_msg.generate_frame,
             document_id,
+            current_epochs: self.current.scene.pipeline_epochs.clone(),
         }).unwrap();
     }
 
