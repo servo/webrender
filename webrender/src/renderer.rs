@@ -2849,7 +2849,7 @@ impl Renderer {
                     self.submit_batch(
                         &batch.key,
                         &batch.instances,
-                        &projection,
+                        projection,
                         render_tasks,
                         render_target,
                         target_size,
@@ -3034,7 +3034,7 @@ impl Renderer {
                         self.submit_batch(
                             &batch.key,
                             &batch.instances,
-                            &projection,
+                            projection,
                             render_tasks,
                             render_target,
                             target_size,

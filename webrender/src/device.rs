@@ -349,11 +349,11 @@ impl VertexDescriptor {
     }
 
     fn bind(&self, gl: &gl::Gl, main: VBOId, instance: VBOId) {
-        Self::bind_attributes(&self.vertex_attributes, 0, 0, gl, main);
+        Self::bind_attributes(self.vertex_attributes, 0, 0, gl, main);
 
         if !self.instance_attributes.is_empty() {
             Self::bind_attributes(
-                &self.instance_attributes,
+                self.instance_attributes,
                 self.vertex_attributes.len(),
                 1, gl, instance,
             );

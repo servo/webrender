@@ -550,7 +550,7 @@ impl ClipScrollTree {
                 pt.new_level("Clip".to_owned());
 
                 pt.add_item(format!("index: {:?}", index));
-                let clips = clip_store.get(&handle).clips();
+                let clips = clip_store.get(handle).clips();
                 pt.new_level(format!("Clip Sources [{}]", clips.len()));
                 for source in clips {
                     pt.add_item(format!("{:?}", source));

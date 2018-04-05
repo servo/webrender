@@ -479,7 +479,7 @@ impl<Src, Dst> FastTransform<Src, Dst> {
             FastTransform::Offset(offset) =>
                 Some(TypedRect::from_untyped(&rect.to_untyped().translate(&-offset.to_untyped()))),
             FastTransform::Transform { inverse: Some(ref inverse), is_2d: true, .. }  =>
-                Some(inverse.transform_rect(&rect)),
+                Some(inverse.transform_rect(rect)),
             FastTransform::Transform { ref transform, is_2d: false, .. } =>
                 Some(transform.inverse_rect_footprint(rect)),
             FastTransform::Transform { inverse: None, .. }  => None,

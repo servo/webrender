@@ -240,7 +240,7 @@ impl OpaqueBatchList {
         // case we just see if it can be added to the existing batch or
         // create a new one.
         if item_area > self.pixel_area_threshold_for_new_batch {
-            if let Some(ref batch) = self.batches.last() {
+            if let Some(batch) = self.batches.last() {
                 if batch.key.is_compatible_with(&key) {
                     selected_batch_index = Some(self.batches.len() - 1);
                 }
@@ -655,7 +655,7 @@ impl AlphaBatchBuilder {
                                 .into();
                             let polygon = make_polygon(
                                 picture.real_local_rect,
-                                &real_xf,
+                                real_xf,
                                 prim_index.0,
                             );
 
@@ -955,7 +955,7 @@ impl AlphaBatchBuilder {
                                 ctx.resource_cache,
                                 gpu_cache,
                                 deferred_resolves,
-                                &ctx.cached_gradients,
+                                ctx.cached_gradients,
                         ) {
                             self.add_brush_to_batch(
                                 brush,
