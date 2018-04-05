@@ -845,11 +845,11 @@ trait AddFont {
 
 impl AddFont for FontContext {
     fn add_font(&mut self, font_key: &FontKey, template: &FontTemplate) {
-        match template {
-            &FontTemplate::Raw(ref bytes, index) => {
+        match *template {
+            FontTemplate::Raw(ref bytes, index) => {
                 self.add_raw_font(font_key, bytes.clone(), index);
             }
-            &FontTemplate::Native(ref native_font_handle) => {
+            FontTemplate::Native(ref native_font_handle) => {
                 self.add_native_font(font_key, (*native_font_handle).clone());
             }
         }
@@ -859,11 +859,11 @@ impl AddFont for FontContext {
 #[cfg(feature = "pathfinder")]
 impl AddFont for PathfinderFontContext {
     fn add_font(&mut self, font_key: &FontKey, template: &FontTemplate) {
-        match template {
-            &FontTemplate::Raw(ref bytes, index) => {
+        match *template {
+            FontTemplate::Raw(ref bytes, index) => {
                 drop(self.add_font_from_memory(font_key, bytes.clone(), index));
             }
-            &FontTemplate::Native(ref native_font_handle) => {
+            FontTemplate::Native(ref native_font_handle) => {
                 drop(self.add_native_font(font_key, (*native_font_handle).clone().0));
             }
         }

@@ -412,10 +412,10 @@ impl<Src, Dst> FastTransform<Src, Dst> {
 
     #[inline(always)]
     pub fn pre_translate(&self, other_offset: &TypedVector2D<f32, Src>) -> Self {
-        match self {
-            &FastTransform::Offset(ref offset) =>
+        match *self {
+            FastTransform::Offset(ref offset) =>
                 FastTransform::Offset(*offset + *other_offset),
-            &FastTransform::Transform { transform, .. } =>
+            FastTransform::Transform { transform, .. } =>
                 FastTransform::with_transform(transform.pre_translate(other_offset.to_3d()))
         }
     }

@@ -66,9 +66,9 @@ impl ClipRegion {
         local_clip: &LocalClip,
         reference_frame_relative_offset: &LayoutVector2D
     ) -> ClipRegion {
-        let complex_clips = match local_clip {
-            &LocalClip::Rect(_) => Vec::new(),
-            &LocalClip::RoundedRect(_, ref region) => vec![region.clone()],
+        let complex_clips = match *local_clip {
+            LocalClip::Rect(_) => Vec::new(),
+            LocalClip::RoundedRect(_, ref region) => vec![region.clone()],
         };
         ClipRegion::create_for_clip_node(
             *local_clip.clip_rect(),

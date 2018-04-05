@@ -81,11 +81,11 @@ enum HitTestRegion {
 
 impl HitTestRegion {
     pub fn contains(&self, point: &LayerPoint) -> bool {
-        match self {
-            &HitTestRegion::Rectangle(ref rectangle) => rectangle.contains(point),
-            &HitTestRegion::RoundedRectangle(rect, radii, ClipMode::Clip) =>
+        match *self {
+            HitTestRegion::Rectangle(ref rectangle) => rectangle.contains(point),
+            HitTestRegion::RoundedRectangle(rect, radii, ClipMode::Clip) =>
                 rounded_rectangle_contains_point(point, &rect, &radii),
-            &HitTestRegion::RoundedRectangle(rect, radii, ClipMode::ClipOut) =>
+            HitTestRegion::RoundedRectangle(rect, radii, ClipMode::ClipOut) =>
                 !rounded_rectangle_contains_point(point, &rect, &radii),
         }
     }

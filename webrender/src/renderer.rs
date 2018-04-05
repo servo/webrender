@@ -1022,8 +1022,8 @@ impl CacheTexture {
         match self.bus {
             CacheBus::PixelBuffer { ref mut rows, ref mut cpu_blocks, .. } => {
                 for update in &updates.updates {
-                    match update {
-                        &GpuCacheUpdate::Copy {
+                    match *update {
+                        GpuCacheUpdate::Copy {
                             block_index,
                             block_count,
                             address,
@@ -1066,8 +1066,8 @@ impl CacheTexture {
                 let size = self.texture.get_dimensions().to_usize();
 
                 for update in &updates.updates {
-                    match update {
-                        &GpuCacheUpdate::Copy {
+                    match *update {
+                        GpuCacheUpdate::Copy {
                             block_index,
                             block_count,
                             address,
