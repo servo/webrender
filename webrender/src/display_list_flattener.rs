@@ -870,16 +870,14 @@ impl<'a> DisplayListFlattener<'a> {
             Some(self.clip_store.insert(ClipSources::new(clip_sources)))
         };
 
-        let prim_index = self.prim_store.add_primitive(
+        self.prim_store.add_primitive(
             &info.rect,
             &info.clip_rect,
             info.is_backface_visible && stacking_context.is_backface_visible,
             clip_sources,
             info.tag,
             container,
-        );
-
-        prim_index
+        )
     }
 
     pub fn add_primitive_to_hit_testing_list(

@@ -251,14 +251,13 @@ impl ClipScrollTree {
                 scroll_node_at_point_index
             }
             (_, scroll_node_at_point_index, Some(cached_node_index)) => {
-                let node_index = match self.nodes.get(cached_node_index.0) {
+                match self.nodes.get(cached_node_index.0) {
                     Some(_) => cached_node_index,
                     None => {
                         self.currently_scrolling_node_index = Some(scroll_node_at_point_index);
                         scroll_node_at_point_index
                     }
-                };
-                node_index
+                }
             }
             (_, _, None) => return false,
         };

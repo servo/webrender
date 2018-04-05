@@ -508,7 +508,7 @@ impl RenderTask {
 
         let blur_task_v_id = render_tasks.add(blur_task_v);
 
-        let blur_task_h = RenderTask {
+        RenderTask {
             children: vec![blur_task_v_id],
             location: RenderTaskLocation::Dynamic(None, adjusted_blur_target_size),
             kind: RenderTaskKind::HorizontalBlur(BlurTask {
@@ -518,9 +518,7 @@ impl RenderTask {
             }),
             clear_mode,
             saved_index: None,
-        };
-
-        blur_task_h
+        }
     }
 
     pub fn new_scaling(

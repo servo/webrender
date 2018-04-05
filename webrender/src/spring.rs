@@ -100,8 +100,7 @@ fn next(cur: f32, prev: f32, dest: f32, stiffness: f32, damping: f32) -> f32 {
     let nextv = vel + acc;
 
     // Calculate next position by integrating velocity. Scale to framerate.
-    let next = cur + nextv;
-    next
+    cur + nextv
 }
 
 /// Given numbers, calculate if a spring is at rest.
