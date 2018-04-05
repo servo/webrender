@@ -2183,17 +2183,33 @@ impl<'a> DisplayListFlattener<'a> {
             tile: tile_offset,
         };
 
+        let sub_rect = sub_rect.map(|texel_rect| {
+            DeviceIntRect::new(
+                DeviceIntPoint::new(
+                    texel_rect.uv0.x as i32,
+                    texel_rect.uv0.y as i32,
+                ),
+                DeviceIntSize::new(
+                    (texel_rect.uv1.x - texel_rect.uv0.x) as i32,
+                    (texel_rect.uv1.y - texel_rect.uv0.y) as i32,
+                ),
+            )
+        });
+
         // See if conditions are met to run through the new
         // image brush shader, which supports segments.
         if tile_spacing == LayerSize::zero() &&
            stretch_size == info.rect.size &&
-           sub_rect.is_none() &&
            tile_offset.is_none() {
             let prim = BrushPrimitive::new(
                 BrushKind::Image {
                     request,
                     current_epoch: Epoch::invalid(),
                     alpha_type,
+                    stretch_size,
+                    tile_spacing,
+                    source: ImageSource::Default,
+                    sub_rect,
                 },
                 None,
             );
@@ -2213,18 +2229,7 @@ impl<'a> DisplayListFlattener<'a> {
                 source: ImageSource::Default,
                 key: ImageCacheKey {
                     request,
-                    texel_rect: sub_rect.map(|texel_rect| {
-                        DeviceIntRect::new(
-                            DeviceIntPoint::new(
-                                texel_rect.uv0.x as i32,
-                                texel_rect.uv0.y as i32,
-                            ),
-                            DeviceIntSize::new(
-                                (texel_rect.uv1.x - texel_rect.uv0.x) as i32,
-                                (texel_rect.uv1.y - texel_rect.uv0.y) as i32,
-                            ),
-                        )
-                    }),
+                    texel_rect: sub_rect,
                 },
             };
 

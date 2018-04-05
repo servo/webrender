@@ -1258,13 +1258,21 @@ impl BrushPrimitive {
         cached_gradients: &[CachedGradient],
     ) -> Option<(BrushBatchKind, BatchTextures, [i32; 3])> {
         match self.kind {
-            BrushKind::Image { request, .. } => {
-                let cache_item = resolve_image(
-                    request,
-                    resource_cache,
-                    gpu_cache,
-                    deferred_resolves,
-                );
+            BrushKind::Image { request, ref source, .. } => {
+
+                let cache_item = match *source {
+                    ImageSource::Default => {
+                        resolve_image(
+                            request,
+                            resource_cache,
+                            gpu_cache,
+                            deferred_resolves,
+                        )
+                    }
+                    ImageSource::Cache { ref item, .. } => {
+                        item.clone()
+                    }
+                };
 
                 if cache_item.texture_id == SourceTexture::Invalid {
                     None
