@@ -462,7 +462,7 @@ impl<'a> DisplayListFlattener<'a> {
 
                 self.add_solid_rectangle(
                     clip_and_scroll,
-                    &info,
+                    info,
                     border.top.color,
                     Some(descriptor),
                 );
@@ -478,7 +478,7 @@ impl<'a> DisplayListFlattener<'a> {
 
                 self.add_solid_rectangle(
                     clip_and_scroll,
-                    &info,
+                    info,
                     border.left.color,
                     Some(descriptor),
                 );
@@ -494,7 +494,7 @@ impl<'a> DisplayListFlattener<'a> {
 
                 self.add_solid_rectangle(
                     clip_and_scroll,
-                    &info,
+                    info,
                     border.right.color,
                     Some(descriptor),
                 );
@@ -512,7 +512,7 @@ impl<'a> DisplayListFlattener<'a> {
 
                 self.add_solid_rectangle(
                     clip_and_scroll,
-                    &info,
+                    info,
                     border.bottom.color,
                     Some(descriptor),
                 );

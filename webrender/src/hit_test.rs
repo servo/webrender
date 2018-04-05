@@ -81,11 +81,11 @@ enum HitTestRegion {
 
 impl HitTestRegion {
     pub fn contains(&self, point: &LayerPoint) -> bool {
-        match self {
-            &HitTestRegion::Rectangle(ref rectangle) => rectangle.contains(point),
-            &HitTestRegion::RoundedRectangle(rect, radii, ClipMode::Clip) =>
+        match *self {
+            HitTestRegion::Rectangle(ref rectangle) => rectangle.contains(point),
+            HitTestRegion::RoundedRectangle(rect, radii, ClipMode::Clip) =>
                 rounded_rectangle_contains_point(point, &rect, &radii),
-            &HitTestRegion::RoundedRectangle(rect, radii, ClipMode::ClipOut) =>
+            HitTestRegion::RoundedRectangle(rect, radii, ClipMode::ClipOut) =>
                 !rounded_rectangle_contains_point(point, &rect, &radii),
         }
     }
@@ -305,7 +305,7 @@ fn get_regions_for_clip_scroll_node(
         _ => return Vec::new(),
     };
 
-    clips.iter().map(|ref source| {
+    clips.iter().map(|source| {
         match source.0 {
             ClipSource::Rectangle(ref rect) => HitTestRegion::Rectangle(*rect),
             ClipSource::RoundedRectangle(ref rect, ref radii, ref mode) =>
@@ -365,7 +365,7 @@ impl HitTest {
 
         let point =  &LayerPoint::new(self.point.x, self.point.y);
         self.pipeline_id.map(|id|
-            hit_tester.get_pipeline_root(id).world_viewport_transform.transform_point2d(&point)
+            hit_tester.get_pipeline_root(id).world_viewport_transform.transform_point2d(point)
         ).unwrap_or_else(|| WorldPoint::new(self.point.x, self.point.y))
     }
 }

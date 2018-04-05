@@ -171,7 +171,7 @@ fn get_shader_source(shader_name: &str, base_path: &Option<PathBuf>) -> Option<S
 fn parse_shader_source(source: String, base_path: &Option<PathBuf>, output: &mut String) {
     for line in source.lines() {
         if line.starts_with(SHADER_IMPORT) {
-            let imports = line[SHADER_IMPORT.len() ..].split(",");
+            let imports = line[SHADER_IMPORT.len() ..].split(',');
 
             // For each import, get the source, and recurse.
             for import in imports {
@@ -344,11 +344,11 @@ impl VertexDescriptor {
     }
 
     fn bind(&self, gl: &gl::Gl, main: VBOId, instance: VBOId) {
-        Self::bind_attributes(&self.vertex_attributes, 0, 0, gl, main);
+        Self::bind_attributes(self.vertex_attributes, 0, 0, gl, main);
 
         if !self.instance_attributes.is_empty() {
             Self::bind_attributes(
-                &self.instance_attributes,
+                self.instance_attributes,
                 self.vertex_attributes.len(),
                 1, gl, instance,
             );

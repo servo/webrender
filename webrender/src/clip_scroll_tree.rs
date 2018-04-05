@@ -251,14 +251,13 @@ impl ClipScrollTree {
                 scroll_node_at_point_index
             }
             (_, scroll_node_at_point_index, Some(cached_node_index)) => {
-                let node_index = match self.nodes.get(cached_node_index.0) {
+                match self.nodes.get(cached_node_index.0) {
                     Some(_) => cached_node_index,
                     None => {
                         self.currently_scrolling_node_index = Some(scroll_node_at_point_index);
                         scroll_node_at_point_index
                     }
-                };
-                node_index
+                }
             }
             (_, _, None) => return false,
         };
@@ -550,7 +549,7 @@ impl ClipScrollTree {
                 pt.new_level("Clip".to_owned());
 
                 pt.add_item(format!("index: {:?}", index));
-                let clips = clip_store.get(&handle).clips();
+                let clips = clip_store.get(handle).clips();
                 pt.new_level(format!("Clip Sources [{}]", clips.len()));
                 for source in clips {
                     pt.add_item(format!("{:?}", source));

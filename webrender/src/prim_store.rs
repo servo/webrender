@@ -1558,9 +1558,10 @@ impl PrimitiveStore {
 
         // If this primitive is clipped by clips from a different coordinate system, then we
         // need to apply a clip mask for the entire primitive.
-        let mut clip_mask_kind = match has_clips_from_other_coordinate_systems {
-            true => BrushClipMaskKind::Global,
-            false => BrushClipMaskKind::Individual,
+        let mut clip_mask_kind = if has_clips_from_other_coordinate_systems {
+            BrushClipMaskKind::Global
+        } else {
+            BrushClipMaskKind::Individual
         };
 
         // Segment the primitive on all the local-space clip sources that we can.
@@ -1778,7 +1779,7 @@ impl PrimitiveStore {
         let transform = &prim_run_context.scroll_node.world_content_transform;
         let extra_clip =  {
             let metadata = &self.cpu_metadata[prim_index.0];
-            metadata.clip_sources.as_ref().map(|ref clip_sources| {
+            metadata.clip_sources.as_ref().map(|clip_sources| {
                 let prim_clips = frame_state.clip_store.get_mut(clip_sources);
                 prim_clips.update(
                     frame_state.gpu_cache,
@@ -2203,7 +2204,7 @@ fn convert_clip_chain_to_clip_vector(
             *combined_inner_rect = if !node.screen_inner_rect.is_empty() {
                 // If this clip's inner area contains the area of the primitive clipped
                 // by previous clips, then it's not going to affect rendering in any way.
-                if node.screen_inner_rect.contains_rect(&combined_outer_rect) {
+                if node.screen_inner_rect.contains_rect(combined_outer_rect) {
                     return None;
                 }
                 combined_inner_rect.intersection(&node.screen_inner_rect)

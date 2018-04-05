@@ -410,7 +410,7 @@ impl<'a> DisplayListFlattener<'a> {
         parent_id: &ClipId,
         reference_frame_relative_offset: &LayerVector2D,
     ) {
-        let frame_rect = item.rect().translate(&reference_frame_relative_offset);
+        let frame_rect = item.rect().translate(reference_frame_relative_offset);
         let sticky_frame_info = StickyFrameInfo::new(
             info.margins,
             info.vertical_offset_bounds,
@@ -426,7 +426,7 @@ impl<'a> DisplayListFlattener<'a> {
             sticky_frame_info,
             info.id.pipeline_id(),
         );
-        self.id_to_index_mapper.map_to_parent_clip_chain(info.id, &parent_id);
+        self.id_to_index_mapper.map_to_parent_clip_chain(info.id, parent_id);
     }
 
     fn flatten_scroll_frame(
@@ -442,14 +442,14 @@ impl<'a> DisplayListFlattener<'a> {
             *item.clip_rect(),
             complex_clips,
             info.image_mask,
-            &reference_frame_relative_offset,
+            reference_frame_relative_offset,
         );
         // Just use clip rectangle as the frame rect for this scroll frame.
         // This is useful when calculating scroll extents for the
         // ClipScrollNode::scroll(..) API as well as for properly setting sticky
         // positioning offsets.
-        let frame_rect = item.clip_rect().translate(&reference_frame_relative_offset);
-        let content_rect = item.rect().translate(&reference_frame_relative_offset);
+        let frame_rect = item.clip_rect().translate(reference_frame_relative_offset);
+        let content_rect = item.rect().translate(reference_frame_relative_offset);
 
         debug_assert!(info.clip_id != info.scroll_frame_id);
 
@@ -579,7 +579,7 @@ impl<'a> DisplayListFlattener<'a> {
             clip_and_scroll_ids.scroll_node_id,
             ClipRegion::create_for_clip_node_with_local_clip(
                 &LocalClip::from(*item.clip_rect()),
-                &reference_frame_relative_offset
+                reference_frame_relative_offset
             ),
         );
 
@@ -870,16 +870,14 @@ impl<'a> DisplayListFlattener<'a> {
             Some(self.clip_store.insert(ClipSources::new(clip_sources)))
         };
 
-        let prim_index = self.prim_store.add_primitive(
+        self.prim_store.add_primitive(
             &info.rect,
             &info.clip_rect,
             info.is_backface_visible && stacking_context.is_backface_visible,
             clip_sources,
             info.tag,
             container,
-        );
-
-        prim_index
+        )
     }
 
     pub fn add_primitive_to_hit_testing_list(
@@ -2076,7 +2074,7 @@ impl<'a> DisplayListFlattener<'a> {
     ) {
         let prim = {
             let instance_map = self.font_instances.read().unwrap();
-            let font_instance = match instance_map.get(&font_instance_key) {
+            let font_instance = match instance_map.get(font_instance_key) {
                 Some(instance) => instance,
                 None => {
                     warn!("Unknown font instance key");
@@ -2120,7 +2118,7 @@ impl<'a> DisplayListFlattener<'a> {
                 // TODO(gw): It's possible we can relax this in
                 //           the future, if we modify the way
                 //           we handle subpixel blending.
-                if let Some(ref stacking_context) = self.sc_stack.last() {
+                if let Some(stacking_context) = self.sc_stack.last() {
                     if !stacking_context.allow_subpixel_aa {
                         render_mode = FontRenderMode::Alpha;
                     }

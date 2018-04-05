@@ -89,8 +89,8 @@ impl PicturePrimitive {
     pub fn resolve_scene_properties(&mut self, properties: &SceneProperties) -> bool {
         match self.composite_mode {
             Some(PictureCompositeMode::Filter(ref mut filter)) => {
-                match filter {
-                    &mut FilterOp::Opacity(ref binding, ref mut value) => {
+                match *filter {
+                    FilterOp::Opacity(ref binding, ref mut value) => {
                         *value = properties.resolve_float(binding, *value);
                     }
                     _ => {}
