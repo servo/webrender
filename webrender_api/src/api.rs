@@ -22,7 +22,7 @@ pub type TileSize = u16;
 pub type DocumentLayer = i8;
 
 /// The resource updates for a given transaction (they must be applied in the same frame).
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 pub struct ResourceUpdates {
     pub updates: Vec<ResourceUpdate>,
 }
@@ -40,9 +40,7 @@ pub enum ResourceUpdate {
 
 impl ResourceUpdates {
     pub fn new() -> Self {
-        ResourceUpdates {
-            updates: Vec::new(),
-        }
+        Self::default()
     }
 
     pub fn add_image(
