@@ -2321,12 +2321,6 @@ impl Renderer {
         }
     }
 
-    pub fn layers_are_bouncing_back(&self) -> bool {
-        self.active_documents
-            .iter()
-            .any(|&(_, ref render_doc)| !render_doc.layers_bouncing_back.is_empty())
-    }
-
     fn update_gpu_cache(&mut self) {
         let _gm = self.gpu_profile.start_marker("gpu cache update");
 

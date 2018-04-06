@@ -165,7 +165,6 @@ impl Example for App {
                 txn.scroll(
                     ScrollLocation::Delta(LayoutVector2D::new(offset.0, offset.1)),
                     self.cursor_position,
-                    ScrollEventPhase::Start,
                 );
             }
             glutin::WindowEvent::CursorMoved { position: (x, y), .. } => {
@@ -181,7 +180,6 @@ impl Example for App {
                 txn.scroll(
                     ScrollLocation::Delta(LayoutVector2D::new(dx, dy)),
                     self.cursor_position,
-                    ScrollEventPhase::Start,
                 );
             }
             glutin::WindowEvent::MouseInput { .. } => {
