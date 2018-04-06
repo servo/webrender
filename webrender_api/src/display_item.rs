@@ -667,12 +667,12 @@ impl LocalClip {
         match *self {
             LocalClip::Rect(clip_rect) => {
                 LocalClip::Rect(
-                    clip_rect.intersection(rect).unwrap_or(LayoutRect::zero())
+                    clip_rect.intersection(rect).unwrap_or_else(LayoutRect::zero)
                 )
             }
             LocalClip::RoundedRect(clip_rect, complex) => {
                 LocalClip::RoundedRect(
-                    clip_rect.intersection(rect).unwrap_or(LayoutRect::zero()),
+                    clip_rect.intersection(rect).unwrap_or_else(LayoutRect::zero),
                     complex,
                 )
             }
