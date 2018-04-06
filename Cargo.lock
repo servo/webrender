@@ -380,16 +380,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "freetype-sys"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "libc 0.2.20 (registry+https://github.com/rust-lang/crates.io-index)",
- "libz-sys 1.0.18 (registry+https://github.com/rust-lang/crates.io-index)",
- "pkg-config 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "fuchsia-zircon"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -603,17 +593,6 @@ dependencies = [
  "kernel32-sys 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "winapi 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "libz-sys"
-version = "1.0.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "cc 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "libc 0.2.20 (registry+https://github.com/rust-lang/crates.io-index)",
- "pkg-config 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
- "vcpkg 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -831,15 +810,15 @@ dependencies = [
 
 [[package]]
 name = "pathfinder_font_renderer"
-version = "0.1.0"
-source = "git+https://github.com/pcwalton/pathfinder#d66a5b6c547570b5d244baf58581918fb21cca80"
+version = "0.3.0"
+source = "git+https://github.com/pcwalton/pathfinder#f755002983a9db3313b2799c5f026706f87a314d"
 dependencies = [
  "app_units 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "core-graphics 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "core-text 9.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "dwrite-sys 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "freetype-sys 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "freetype 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "kernel32-sys 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.20 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -854,7 +833,7 @@ dependencies = [
 [[package]]
 name = "pathfinder_gfx_utils"
 version = "0.1.0"
-source = "git+https://github.com/pcwalton/pathfinder#d66a5b6c547570b5d244baf58581918fb21cca80"
+source = "git+https://github.com/pcwalton/pathfinder#f755002983a9db3313b2799c5f026706f87a314d"
 dependencies = [
  "euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -862,7 +841,7 @@ dependencies = [
 [[package]]
 name = "pathfinder_partitioner"
 version = "0.1.0"
-source = "git+https://github.com/pcwalton/pathfinder#d66a5b6c547570b5d244baf58581918fb21cca80"
+source = "git+https://github.com/pcwalton/pathfinder#f755002983a9db3313b2799c5f026706f87a314d"
 dependencies = [
  "arrayvec 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "bincode 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -882,7 +861,7 @@ dependencies = [
 [[package]]
 name = "pathfinder_path_utils"
 version = "0.1.0"
-source = "git+https://github.com/pcwalton/pathfinder#d66a5b6c547570b5d244baf58581918fb21cca80"
+source = "git+https://github.com/pcwalton/pathfinder#f755002983a9db3313b2799c5f026706f87a314d"
 dependencies = [
  "arrayvec 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1283,11 +1262,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vcpkg"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
 name = "vec_map"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1385,7 +1359,7 @@ dependencies = [
  "log 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "mozangle 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "num-traits 0.1.43 (registry+https://github.com/rust-lang/crates.io-index)",
- "pathfinder_font_renderer 0.1.0 (git+https://github.com/pcwalton/pathfinder)",
+ "pathfinder_font_renderer 0.3.0 (git+https://github.com/pcwalton/pathfinder)",
  "pathfinder_gfx_utils 0.1.0 (git+https://github.com/pcwalton/pathfinder)",
  "pathfinder_partitioner 0.1.0 (git+https://github.com/pcwalton/pathfinder)",
  "pathfinder_path_utils 0.1.0 (git+https://github.com/pcwalton/pathfinder)",
@@ -1615,7 +1589,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum font-loader 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "2fbd86bafc9e14ab7076e084d31eed4633120f910d0c42a017e5382aac89937f"
 "checksum foreign-types 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "5ebc04f19019fff1f2d627b5581574ead502f80c48c88900575a46e0840fe5d0"
 "checksum freetype 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b659e75b7a7338fe75afd7f909fc2b71937845cffb6ebe54ba2e50f13d8e903d"
-"checksum freetype-sys 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "4f858c54592103d59f7008c2dd438f7aab72fb587def60453c74f708531b832b"
 "checksum fuchsia-zircon 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "2e9763c69ebaae630ba35f74888db465e49e259ba1bc0eda7d06f4a067615d82"
 "checksum fuchsia-zircon-sys 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "3dcaa9ae7725d12cdb85b3ad99a434db70b468c09ded17e012d86b5c1010f7a7"
 "checksum fxhash 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
@@ -1642,7 +1615,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum lazycell 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "a6f08839bc70ef4a3fe1d566d5350f519c5912ea86be0df1740a7d247c7fc0ef"
 "checksum libc 0.2.20 (registry+https://github.com/rust-lang/crates.io-index)" = "684f330624d8c3784fb9558ca46c4ce488073a8d22450415c5eb4f4cfb0d11b5"
 "checksum libloading 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)" = "fd38073de8f7965d0c17d30546d4bb6da311ab428d1c7a3fc71dff7f9d4979b9"
-"checksum libz-sys 1.0.18 (registry+https://github.com/rust-lang/crates.io-index)" = "87f737ad6cc6fd6eefe3d9dc5412f1573865bded441300904d2f42269e140f16"
 "checksum linked-hash-map 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "6d262045c5b87c0861b3f004610afd0e2c851e2908d08b6c870cbb9d5f494ecd"
 "checksum log 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)" = "e19e8d5c34a3e0e2223db8e060f9e8264aeeb5c5fc64a4ee9965c062211c024b"
 "checksum log 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)" = "89f010e843f2b1a31dbd316b3b8d443758bc634bed37aabade59c686d644e0a2"
@@ -1669,7 +1641,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum objc 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "877f30f37acef6749b1841cceab289707f211aecfc756553cd63976190e6cc2e"
 "checksum osmesa-src 17.4.0-devel (git+https://github.com/servo/osmesa-src)" = "<none>"
 "checksum osmesa-sys 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "88cfece6e95d2e717e0872a7f53a8684712ad13822a7979bc760b9c77ec0013b"
-"checksum pathfinder_font_renderer 0.1.0 (git+https://github.com/pcwalton/pathfinder)" = "<none>"
+"checksum pathfinder_font_renderer 0.3.0 (git+https://github.com/pcwalton/pathfinder)" = "<none>"
 "checksum pathfinder_gfx_utils 0.1.0 (git+https://github.com/pcwalton/pathfinder)" = "<none>"
 "checksum pathfinder_partitioner 0.1.0 (git+https://github.com/pcwalton/pathfinder)" = "<none>"
 "checksum pathfinder_path_utils 0.1.0 (git+https://github.com/pcwalton/pathfinder)" = "<none>"
@@ -1722,7 +1694,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum utf8-ranges 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "662fab6525a98beff2921d7f61a39e7d59e0b425ebc7d0d9e66d316e55124122"
 "checksum uuid 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)" = "990fb49481275abe3c8e2a91339c009cd6146d9f38fc3413e4163d892cbaffbb"
 "checksum uuid-sys 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)" = "383cea1fd3b68c33bbdd25af09bc50e70f4c9f1d9b18e39e514e4acf760ec5d2"
-"checksum vcpkg 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "9e0a7d8bed3178a8fb112199d466eeca9ed09a14ba8ad67718179b4fd5487d0b"
 "checksum vec_map 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)" = "887b5b631c2ad01628bbbaa7dd4c869f80d3186688f8d0b6f58774fbe324988c"
 "checksum void 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)" = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 "checksum wayland-client 0.12.5 (registry+https://github.com/rust-lang/crates.io-index)" = "2b90adf943117ee4930d7944fe103dcb6f36ba05421f46521cb5adbf6bf0fbc8"
