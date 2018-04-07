@@ -1,11 +1,10 @@
 environment:
-  PATH: 'C:\msys64\mingw64\bin;C:\msys64\usr\bin;%PATH%;C:\Rust\bin'
+  PATH: '%PATH%;C:\Users\appveyor\.cargo\bin'
   RUST_BACKTRACE: 1
-  TARGET: x86_64-pc-windows-msvc
 
 install:
-  - ps: Start-FileDownload "https://static.rust-lang.org/dist/rust-1.23.0-${env:TARGET}.msi"
-  - msiexec /passive /i "rust-1.23.0-%TARGET%.msi" ADDLOCAL=Rustc,Cargo,Std INSTALLDIR=C:\Rust
+  - appveyor-retry appveyor DownloadFile https://win.rustup.rs/ -FileName rustup-init.exe
+  - rustup-init.exe -y --default-host=x86_64-pc-windows-msvc
   - rustc -V
   - cargo -V
 
