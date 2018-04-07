@@ -1147,7 +1147,7 @@ impl PrimitiveStore {
             local_rect: *local_rect,
             local_clip_rect: *local_clip_rect,
             clip_chain_rect_index: ClipChainRectIndex(0),
-            is_backface_visible: is_backface_visible,
+            is_backface_visible,
             screen_rect: None,
             tag,
             opacity: PrimitiveOpacity::translucent(),

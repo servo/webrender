@@ -65,7 +65,7 @@ impl HitTestingItem {
         HitTestingItem {
             rect: info.rect,
             clip_rect: info.clip_rect,
-            tag: tag,
+            tag,
             is_backface_visible: info.is_backface_visible,
         }
     }
