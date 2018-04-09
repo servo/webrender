@@ -819,7 +819,7 @@ dependencies = [
 [[package]]
 name = "osmesa-src"
 version = "17.4.0-devel"
-source = "git+https://github.com/servo/osmesa-src#1cf8c2f21c7e9047c3bd5a2f1accbc08e5636cf7"
+source = "git+https://github.com/jrmuizel/osmesa-src?branch=verbose#c649080b2b4d762d4ddb949c47d35147445c6cc7"
 
 [[package]]
 name = "osmesa-sys"
@@ -1502,7 +1502,7 @@ dependencies = [
  "lazy_static 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "mozangle 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "osmesa-src 17.4.0-devel (git+https://github.com/servo/osmesa-src)",
+ "osmesa-src 17.4.0-devel (git+https://github.com/jrmuizel/osmesa-src?branch=verbose)",
  "osmesa-sys 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "ron 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.35 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1667,7 +1667,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum num-traits 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "dee092fcdf725aee04dd7da1d21debff559237d49ef1cb3e69bcb8ece44c7364"
 "checksum num_cpus 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "a225d1e2717567599c24f88e49f00856c6e825a12125181ee42c4257e3688d39"
 "checksum objc 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "877f30f37acef6749b1841cceab289707f211aecfc756553cd63976190e6cc2e"
-"checksum osmesa-src 17.4.0-devel (git+https://github.com/servo/osmesa-src)" = "<none>"
+"checksum osmesa-src 17.4.0-devel (git+https://github.com/jrmuizel/osmesa-src?branch=verbose)" = "<none>"
 "checksum osmesa-sys 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "88cfece6e95d2e717e0872a7f53a8684712ad13822a7979bc760b9c77ec0013b"
 "checksum pathfinder_font_renderer 0.1.0 (git+https://github.com/pcwalton/pathfinder)" = "<none>"
 "checksum pathfinder_gfx_utils 0.1.0 (git+https://github.com/pcwalton/pathfinder)" = "<none>"
