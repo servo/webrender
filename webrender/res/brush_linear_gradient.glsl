@@ -11,6 +11,10 @@ flat varying float vGradientRepeat;
 
 flat varying vec2 vScaledDir;
 flat varying vec2 vStartPoint;
+// Size of the gradient pattern's rectangle, used to compute horizontal and vertical
+// repetitions. Not to be confused with another kind of repetition of the pattern
+// which happens along the gradient stops.
+flat varying vec2 vGradientRect;
 
 varying vec2 vPos;
 
@@ -37,11 +41,15 @@ void brush_vs(
     ivec3 user_data,
     mat4 transform,
     PictureTask pic_task,
-    vec4 repeat
+    vec4 tile_repeat
 ) {
     Gradient gradient = fetch_gradient(prim_address);
 
     vPos = vi.local_pos - local_rect.p0;
+    // Pre-scale the coordinates here to avoid doing it in the fragment shader.
+    vPos *= tile_repeat.xy;
+
+    vGradientRect = local_rect.size;
 
     vec2 start_point = gradient.start_end_point.xy;
     vec2 end_point = gradient.start_end_point.zw;
@@ -52,7 +60,7 @@ void brush_vs(
 
     vGradientAddress = user_data.x;
 
-    // Whether to repeat the gradient instead of clamping.
+    // Whether to repeat the gradient along the line instead of clamping.
     vGradientRepeat = float(int(gradient.extend_mode.x) != EXTEND_MODE_CLAMP);
 
 #ifdef WR_FEATURE_ALPHA_PASS
@@ -63,7 +71,9 @@ void brush_vs(
 
 #ifdef WR_FRAGMENT_SHADER
 vec4 brush_fs() {
-    float offset = dot(vPos - vStartPoint, vScaledDir);
+    // Apply potential horizontal and vertical repetitions.
+    vec2 pos = mod(vPos, vGradientRect);
+    float offset = dot(pos - vStartPoint, vScaledDir);
 
     vec4 color = sample_gradient(vGradientAddress,
                                  offset,

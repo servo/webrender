@@ -14,6 +14,7 @@ flat varying float vStartRadius;
 flat varying float vEndRadius;
 
 varying vec2 vPos;
+flat varying vec2 vGradientRect;
 
 #ifdef WR_FEATURE_ALPHA_PASS
 varying vec2 vLocalPos;
@@ -38,7 +39,7 @@ void brush_vs(
     ivec3 user_data,
     mat4 transform,
     PictureTask pic_task,
-    vec4 repeat
+    vec4 tile_repeat
 ) {
     RadialGradient gradient = fetch_radial_gradient(prim_address);
 
@@ -53,6 +54,10 @@ void brush_vs(
     float ratio_xy = gradient.ratio_xy_extend_mode.x;
     vPos.y *= ratio_xy;
     vCenter.y *= ratio_xy;
+    vGradientRect = local_rect.size * ratio_xy;
+
+    // Pre-scale the coordinates here to avoid doing it in the fragment shader.
+    vPos *= tile_repeat.xy;
 
     vGradientAddress = user_data.x;
 
@@ -67,7 +72,10 @@ void brush_vs(
 
 #ifdef WR_FRAGMENT_SHADER
 vec4 brush_fs() {
-    vec2 pd = vPos - vCenter;
+    // Apply potential horizontal and vertical repetitions.
+    vec2 pos = mod(vPos, vGradientRect);
+
+    vec2 pd = pos - vCenter;
     float rd = vEndRadius - vStartRadius;
 
     // Solve for t in length(t - pd) = vStartRadius + t * rd
