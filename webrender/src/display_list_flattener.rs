@@ -691,7 +691,6 @@ impl<'a> DisplayListFlattener<'a> {
                     &text_info.font_key,
                     &text_info.color,
                     item.glyphs(),
-                    item.display_list().get(item.glyphs()).count(),
                     text_info.glyph_options,
                 );
             }
@@ -2072,7 +2071,6 @@ impl<'a> DisplayListFlattener<'a> {
         font_instance_key: &FontInstanceKey,
         text_color: &ColorF,
         glyph_range: ItemRange<GlyphInstance>,
-        glyph_count: usize,
         glyph_options: Option<GlyphOptions>,
     ) {
         let prim = {
@@ -2142,7 +2140,6 @@ impl<'a> DisplayListFlattener<'a> {
             TextRunPrimitiveCpu {
                 font: prim_font,
                 glyph_range,
-                glyph_count,
                 glyph_gpu_blocks: Vec::new(),
                 glyph_keys: Vec::new(),
                 offset: run_offset,
