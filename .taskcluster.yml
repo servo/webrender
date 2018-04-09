@@ -148,46 +148,8 @@ tasks:
           export RUSTFLAGS='--deny warnings' &&
           export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH" &&
           export RUSTC_WRAPPER=sccache &&
-          (cd wrench && python script/headless.py reftest) &&
-          (cd wrench && cargo build --release)
+          (cd wrench && NUM_JOBS=1 python script/headless.py reftest) &&
+          (cd wrench && cargo build --release) &&
+          (cd wrench && cargo run --release rawtest)
     routes:
       - "index.garbage.webrender.ci.{{event.head.user.login}}.{{event.head.repo.branch}}.osx-release"
-  - metadata:
-      name: OS X debug tests
-      description: Runs debug-mode WebRender CI stuff on a OS X TC worker
-      owner: '{{ event.head.user.email }}'
-      source: '{{ event.head.repo.url }}'
-    provisionerId: 'localprovisioner'
-    workerType: 'kats-webrender-ci-osx'
-    extra:
-      github:
-        events:
-          - pull_request.opened
-          - pull_request.synchronize
-          - push
-        excludeBranches:
-          - master
-    payload:
-      maxRunTime: 3600
-      command:
-        - /bin/bash
-        - '--login'
-        - '-c'
-        - >-
-          rm -rf webrender &&
-          git clone {{event.head.repo.url}} webrender && cd webrender &&
-          git checkout {{event.head.sha}} &&
-          source ../servotidy-venv/bin/activate && servo-tidy &&
-          export RUST_BACKTRACE=1 &&
-          export RUSTFLAGS='--deny warnings' &&
-          export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH" &&
-          export RUSTC_WRAPPER=sccache &&
-          (cd webrender_api && cargo test --verbose --features "ipc") &&
-          (cd webrender && cargo build --verbose --no-default-features) &&
-          (cd webrender && cargo build --verbose --no-default-features --features capture) &&
-          (cd webrender && cargo build --verbose --features capture,profiler) &&
-          (cd webrender && cargo build --verbose --features replay) &&
-          (cd wrench && cargo build --verbose --features env_logger) &&
-          (cargo test --all --verbose)
-    routes:
-      - "index.garbage.webrender.ci.{{event.head.user.login}}.{{event.head.repo.branch}}.osx-debug"
