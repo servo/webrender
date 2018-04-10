@@ -147,7 +147,6 @@ tasks:
           export RUST_BACKTRACE=1 &&
           export RUSTFLAGS='--deny warnings' &&
           export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH" &&
-          export RUSTC_WRAPPER=sccache &&
           (cd wrench && python script/headless.py reftest) &&
           (cd wrench && cargo build --release) &&
           (cd wrench && cargo run --release rawtest)
