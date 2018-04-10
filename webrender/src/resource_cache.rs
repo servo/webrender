@@ -256,7 +256,7 @@ pub struct ResourceCache {
     cached_glyphs: GlyphCache,
     cached_images: ImageCache,
     cached_render_tasks: RenderTaskCache,
-
+    dpi: Option<u32>,
     resources: Resources,
     state: State,
     current_frame_id: FrameId,
@@ -280,6 +280,7 @@ impl ResourceCache {
         texture_cache: TextureCache,
         glyph_rasterizer: GlyphRasterizer,
         blob_image_renderer: Option<Box<BlobImageRenderer>>,
+        dpi: Option<u32>,
     ) -> Self {
         ResourceCache {
             cached_glyphs: GlyphCache::new(),
@@ -293,6 +294,7 @@ impl ResourceCache {
             pending_image_requests: FastHashSet::default(),
             glyph_rasterizer,
             blob_image_renderer,
+            dpi,
         }
     }
 
@@ -430,6 +432,7 @@ impl ResourceCache {
             flags,
             platform_options,
             variations,
+            self.dpi,
         );
         self.resources.font_instances
             .write()

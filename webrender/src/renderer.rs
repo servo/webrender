@@ -1630,6 +1630,7 @@ impl Renderer {
             }
         })?;
 
+        let dpi = options.dpi;
         thread::Builder::new().name(rb_thread_name.clone()).spawn(move || {
             register_thread_with_profiler(rb_thread_name.clone());
             if let Some(ref thread_listener) = *thread_listener_for_render_backend {
@@ -1641,6 +1642,7 @@ impl Renderer {
                 texture_cache,
                 glyph_rasterizer,
                 blob_image_renderer,
+                dpi,
             );
 
             let mut backend = RenderBackend::new(
@@ -4018,6 +4020,8 @@ pub trait SceneBuilderHooks {
 
 pub struct RendererOptions {
     pub device_pixel_ratio: f32,
+    /// DPI of the monitor
+    pub dpi: Option<u32>,
     pub resource_override_path: Option<PathBuf>,
     pub enable_aa: bool,
     pub enable_dithering: bool,
@@ -4047,6 +4051,7 @@ impl Default for RendererOptions {
     fn default() -> Self {
         RendererOptions {
             device_pixel_ratio: 1.0,
+            dpi: None,
             resource_override_path: None,
             enable_aa: true,
             enable_dithering: true,

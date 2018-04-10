@@ -202,6 +202,9 @@ pub struct FontInstance {
     //           or something similar to that.
     pub size: Au,
     pub color: ColorU,
+    /// DPI of the monitor that this font will be rendered with. 
+    /// Used by `FT_Set_Char_Size`. If set to `None`, will be 72 DPI
+    pub dpi: Option<u32>,
     pub bg_color: ColorU,
     pub render_mode: FontRenderMode,
     pub subpx_dir: SubpixelDirection,
@@ -222,11 +225,13 @@ impl FontInstance {
         flags: FontInstanceFlags,
         platform_options: Option<FontInstancePlatformOptions>,
         variations: Vec<FontVariation>,
+        dpi: Option<u32>,
     ) -> Self {
         FontInstance {
             font_key,
             size,
             color: color.into(),
+            dpi,
             bg_color,
             render_mode,
             subpx_dir,
