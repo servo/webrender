@@ -5,3 +5,4 @@
 == mask-transformed-to-empty-rect.yaml mask-transformed-to-empty-rect-ref.yaml
 == rounded-corners.yaml rounded-corners.png
 != mask.yaml out-of-bounds.yaml
+fuzzy(1,8750) == mask-atomicity.yaml mask-atomicity-ref.yaml
