@@ -455,7 +455,7 @@ impl GlyphRasterizer {
     #[cfg(feature = "pathfinder")]
     fn add_font_to_pathfinder(&mut self, font_key: &FontKey, template: &FontTemplate) {
         let font_contexts = Arc::clone(&self.font_contexts);
-        eprintln!("add_font_to_pathfinder({:?})", font_key);
+        debug!("add_font_to_pathfinder({:?})", font_key);
         font_contexts.lock_pathfinder_context().add_font(&font_key, &template);
     }
 

@@ -787,7 +787,7 @@ impl Device {
             _ => return,
         };
         for (line, prefix) in source.lines().skip(base_line_number).zip(&["|",">","|"]) {
-            println!("{}\t{}", prefix, line);
+            error!("{}\t{}", prefix, line);
         }
     }
 
@@ -803,13 +803,13 @@ impl Device {
         gl.compile_shader(id);
         let log = gl.get_shader_info_log(id);
         if gl.get_shader_iv(id, gl::COMPILE_STATUS) == (0 as gl::GLint) {
-            println!("Failed to compile shader: {}\n{}", name, log);
+            error!("Failed to compile shader: {}\n{}", name, log);
             #[cfg(debug_assertions)]
             Self::print_shader_errors(source, &log);
             Err(ShaderError::Compilation(name.to_string(), log))
         } else {
             if !log.is_empty() {
-                println!("Warnings detected on shader: {}\n{}", name, log);
+                warn!("Warnings detected on shader: {}\n{}", name, log);
             }
             Ok(id)
         }
@@ -1380,7 +1380,7 @@ impl Device {
 
                 if self.gl.get_program_iv(pid, gl::LINK_STATUS) == (0 as gl::GLint) {
                     let error_log = self.gl.get_program_info_log(pid);
-                    println!(
+                    error!(
                       "Failed to load a program object with a program binary: {} renderer {}\n{}",
                       base_filename,
                       self.renderer_name,
@@ -1442,7 +1442,7 @@ impl Device {
 
             if self.gl.get_program_iv(pid, gl::LINK_STATUS) == (0 as gl::GLint) {
                 let error_log = self.gl.get_program_info_log(pid);
-                println!(
+                error!(
                     "Failed to link shader program: {}\n{}",
                     base_filename,
                     error_log
