@@ -276,6 +276,7 @@ pub enum BrushKind {
         start_radius: f32,
         end_radius: f32,
         ratio_xy: f32,
+        stretch_size: LayoutSize,
     },
     LinearGradient {
         gradient_index: CachedGradientIndex,
@@ -1687,7 +1688,8 @@ impl PrimitiveStore {
                     brush.write_gpu_blocks(&mut request);
 
                     let repeat = match brush.kind {
-                        BrushKind::LinearGradient { stretch_size, .. } => {
+                        BrushKind::LinearGradient { stretch_size, .. } |
+                        BrushKind::RadialGradient { stretch_size, .. } => {
                             [
                                 metadata.local_rect.size.width / stretch_size.width,
                                 metadata.local_rect.size.height / stretch_size.height,

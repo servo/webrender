@@ -1947,6 +1947,7 @@ impl<'a> DisplayListFlattener<'a> {
         stops: ItemRange<GradientStop>,
         extend_mode: ExtendMode,
         gradient_index: CachedGradientIndex,
+        stretch_size: LayoutSize,
     ) {
         let prim = BrushPrimitive::new(
             BrushKind::RadialGradient {
@@ -1957,6 +1958,7 @@ impl<'a> DisplayListFlattener<'a> {
                 end_radius,
                 ratio_xy,
                 gradient_index,
+                stretch_size,
             },
             None,
         );
@@ -1979,45 +1981,51 @@ impl<'a> DisplayListFlattener<'a> {
         ratio_xy: f32,
         stops: ItemRange<GradientStop>,
         extend_mode: ExtendMode,
-        tile_size: LayoutSize,
+        stretch_size: LayoutSize,
         tile_spacing: LayoutSize,
     ) {
         let gradient_index = CachedGradientIndex(self.cached_gradients.len());
         self.cached_gradients.push(CachedGradient::new());
 
-        let prim_infos = info.decompose(
-            tile_size,
-            tile_spacing,
-            64 * 64,
-        );
-
-        if prim_infos.is_empty() {
-            self.add_radial_gradient_impl(
-                clip_and_scroll,
-                info,
-                center,
-                start_radius,
-                end_radius,
-                ratio_xy,
-                stops,
-                extend_mode,
-                gradient_index,
+        if tile_spacing != LayoutSize::zero() {
+            let prim_infos = info.decompose(
+                stretch_size,
+                tile_spacing,
+                64 * 64,
             );
-        } else {
-            for prim_info in prim_infos {
-                self.add_radial_gradient_impl(
-                    clip_and_scroll,
-                    &prim_info,
-                    center,
-                    start_radius,
-                    end_radius,
-                    ratio_xy,
-                    stops,
-                    extend_mode,
-                    gradient_index,
-                );
+
+            if !prim_infos.is_empty() {
+                for prim_info in prim_infos {
+                    self.add_radial_gradient_impl(
+                        clip_and_scroll,
+                        &prim_info,
+                        center,
+                        start_radius,
+                        end_radius,
+                        ratio_xy,
+                        stops,
+                        extend_mode,
+                        gradient_index,
+                        stretch_size,
+                    );
+                }
+
+                return;
             }
         }
+
+        self.add_radial_gradient_impl(
+            clip_and_scroll,
+            info,
+            center,
+            start_radius,
+            end_radius,
+            ratio_xy,
+            stops,
+            extend_mode,
+            gradient_index,
+            stretch_size,
+        );
     }
 
     pub fn add_text(
