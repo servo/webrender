@@ -1474,6 +1474,7 @@ impl PrimitiveStore {
                     brush.write_gpu_blocks(&mut request);
 
                     let repeat = match brush.kind {
+                        BrushKind::Image { stretch_size, .. } |
                         BrushKind::LinearGradient { stretch_size, .. } |
                         BrushKind::RadialGradient { stretch_size, .. } => {
                             [

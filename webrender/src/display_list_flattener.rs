@@ -2167,7 +2167,6 @@ impl<'a> DisplayListFlattener<'a> {
         // See if conditions are met to run through the new
         // image brush shader, which supports segments.
         if tile_spacing == LayerSize::zero() &&
-           stretch_size == info.rect.size &&
            tile_offset.is_none() {
             let prim = BrushPrimitive::new(
                 BrushKind::Image {
