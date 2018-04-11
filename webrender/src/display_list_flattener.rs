@@ -1848,6 +1848,7 @@ impl<'a> DisplayListFlattener<'a> {
         stops_count: usize,
         extend_mode: ExtendMode,
         gradient_index: CachedGradientIndex,
+        stretch_size: LayerSize,
     ) {
         // Try to ensure that if the gradient is specified in reverse, then so long as the stops
         // are also supplied in reverse that the rendered result will be equivalent. To do this,
@@ -1876,6 +1877,7 @@ impl<'a> DisplayListFlattener<'a> {
                 start_point: sp,
                 end_point: ep,
                 gradient_index,
+                stretch_size,
             },
             None,
         );
@@ -1894,43 +1896,49 @@ impl<'a> DisplayListFlattener<'a> {
         stops: ItemRange<GradientStop>,
         stops_count: usize,
         extend_mode: ExtendMode,
-        tile_size: LayerSize,
+        stretch_size: LayerSize,
         tile_spacing: LayerSize,
     ) {
         let gradient_index = CachedGradientIndex(self.cached_gradients.len());
         self.cached_gradients.push(CachedGradient::new());
 
-        let prim_infos = info.decompose(
-            tile_size,
-            tile_spacing,
-            64 * 64,
-        );
-
-        if prim_infos.is_empty() {
-            self.add_gradient_impl(
-                clip_and_scroll,
-                info,
-                start_point,
-                end_point,
-                stops,
-                stops_count,
-                extend_mode,
-                gradient_index,
+        if tile_spacing != LayerSize::zero() {
+            let prim_infos = info.decompose(
+                stretch_size,
+                tile_spacing,
+                64 * 64,
             );
-        } else {
-            for prim_info in prim_infos {
-                self.add_gradient_impl(
-                    clip_and_scroll,
-                    &prim_info,
-                    start_point,
-                    end_point,
-                    stops,
-                    stops_count,
-                    extend_mode,
-                    gradient_index,
-                );
+
+            if !prim_infos.is_empty() {
+                for prim_info in prim_infos {
+                    self.add_gradient_impl(
+                        clip_and_scroll,
+                        &prim_info,
+                        start_point,
+                        end_point,
+                        stops,
+                        stops_count,
+                        extend_mode,
+                        gradient_index,
+                        prim_info.rect.size,
+                    );
+                }
+
+                return;
             }
         }
+
+        self.add_gradient_impl(
+            clip_and_scroll,
+            info,
+            start_point,
+            end_point,
+            stops,
+            stops_count,
+            extend_mode,
+            gradient_index,
+            stretch_size,
+        );
     }
 
     fn add_radial_gradient_impl(
