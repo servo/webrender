@@ -285,6 +285,7 @@ pub enum BrushKind {
         reverse_stops: bool,
         start_point: LayoutPoint,
         end_point: LayoutPoint,
+        stretch_size: LayoutSize,
     }
 }
 
@@ -1684,15 +1685,30 @@ impl PrimitiveStore {
                 PrimitiveKind::Brush => {
                     let brush = &self.cpu_brushes[metadata.cpu_prim_index.0];
                     brush.write_gpu_blocks(&mut request);
+
+                    let repeat = match brush.kind {
+                        BrushKind::LinearGradient { stretch_size, .. } => {
+                            [
+                                metadata.local_rect.size.width / stretch_size.width,
+                                metadata.local_rect.size.height / stretch_size.height,
+                                0.0,
+                                0.0,
+                            ]
+                        }
+                        _ => {
+                            [1.0, 1.0, 0.0, 0.0]
+                        }
+                    };
+
                     match brush.segment_desc {
                         Some(ref segment_desc) => {
                             for segment in &segment_desc.segments {
                                 // has to match VECS_PER_SEGMENT
-                                request.write_segment(segment.local_rect);
+                                request.write_segment(segment.local_rect, repeat);
                             }
                         }
                         None => {
-                            request.write_segment(metadata.local_rect);
+                            request.write_segment(metadata.local_rect, repeat);
                         }
                     }
                 }
@@ -2462,13 +2478,9 @@ impl<'a> GpuDataRequest<'a> {
     fn write_segment(
         &mut self,
         local_rect: LayoutRect,
+        extra_params: [f32; 4],
     ) {
         self.push(local_rect);
-        self.push([
-            1.0,
-            1.0,
-            0.0,
-            0.0
-        ]);
+        self.push(extra_params);
     }
 }
