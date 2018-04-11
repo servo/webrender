@@ -1416,7 +1416,7 @@ impl Renderer {
         // gracefully fail now than panic as soon as a texture is allocated.
         let min_texture_size = 512;
         if device_max_size < min_texture_size {
-            println!(
+            error!(
                 "Device reporting insufficient max texture size ({})",
                 device_max_size
             );
