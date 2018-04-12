@@ -13,6 +13,7 @@ use gpu_cache::GpuCache;
 use gpu_types::{ClipChainRectIndex, ClipScrollNodeData};
 use hit_test::{HitTester, HitTestingRun};
 use internal_types::{FastHashMap};
+use picture::PictureSurface;
 use prim_store::{CachedGradient, PrimitiveIndex, PrimitiveRun, PrimitiveStore};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_backend::FrameId;
@@ -80,12 +81,14 @@ pub struct PictureContext<'a> {
 
 pub struct PictureState {
     pub tasks: Vec<RenderTaskId>,
+    pub has_non_root_coord_system: bool,
 }
 
 impl PictureState {
     pub fn new() -> PictureState {
         PictureState {
             tasks: Vec::new(),
+            has_non_root_coord_system: false,
         }
     }
 }
@@ -231,7 +234,7 @@ impl FrameBuilder {
         );
 
         let render_task_id = frame_state.render_tasks.add(root_render_task);
-        pic.surface = Some(render_task_id);
+        pic.surface = Some(PictureSurface::RenderTask(render_task_id));
         Some(render_task_id)
     }
 

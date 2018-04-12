@@ -19,7 +19,7 @@ use glyph_rasterizer::{FontInstance, FontTransform};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
 use gpu_types::{ClipChainRectIndex};
-use picture::{PictureCompositeMode, PicturePrimitive};
+use picture::{PictureCompositeMode, PictureId, PicturePrimitive};
 use render_task::{BlitSource, RenderTask, RenderTaskCacheKey};
 use render_task::{RenderTaskCacheKeyKind, RenderTaskId};
 use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
@@ -1004,6 +1004,7 @@ pub struct PrimitiveStore {
     pub cpu_borders: Vec<BorderPrimitiveCpu>,
 
     pub pictures: Vec<PicturePrimitive>,
+    next_picture_id: u64,
 }
 
 impl PrimitiveStore {
@@ -1016,6 +1017,7 @@ impl PrimitiveStore {
             cpu_borders: Vec::new(),
 
             pictures: Vec::new(),
+            next_picture_id: 0,
         }
     }
 
@@ -1028,6 +1030,7 @@ impl PrimitiveStore {
             cpu_borders: recycle_vec(self.cpu_borders),
 
             pictures: recycle_vec(self.pictures),
+            next_picture_id: self.next_picture_id,
         }
     }
 
@@ -1041,6 +1044,7 @@ impl PrimitiveStore {
         apply_local_clip_rect: bool,
     ) -> PictureIndex {
         let picture = PicturePrimitive::new_image(
+            PictureId(self.next_picture_id),
             composite_mode,
             is_in_3d_context,
             pipeline_id,
@@ -1051,6 +1055,7 @@ impl PrimitiveStore {
 
         let picture_index = PictureIndex(self.pictures.len());
         self.pictures.push(picture);
+        self.next_picture_id += 1;
         picture_index
     }
 
@@ -1925,6 +1930,10 @@ impl PrimitiveStore {
                         .world_content_transform
                         .inverse();
 
+                    // Mark whether this picture has a complex coordinate system.
+                    pic_state_for_children.has_non_root_coord_system |=
+                        prim_run_context.scroll_node.coordinate_system_id != CoordinateSystemId::root();
+
                     PictureContext {
                         pipeline_id: pic.pipeline_id,
                         prim_runs: mem::replace(&mut pic.runs, Vec::new()),
@@ -2051,6 +2060,12 @@ impl PrimitiveStore {
             let clip_chain = frame_context
                 .clip_scroll_tree
                 .get_clip_chain(run.clip_and_scroll.clip_chain_index);
+
+            // Mark whether this picture contains any complex coordinate
+            // systems, due to either the scroll node or the clip-chain.
+            pic_state.has_non_root_coord_system |=
+                scroll_node.coordinate_system_id != CoordinateSystemId::root();
+            pic_state.has_non_root_coord_system |= clip_chain.has_non_root_coord_system;
 
             if !scroll_node.invertible {
                 debug!("{:?} {:?}: position not invertible", run.base_prim_index, pic_context.pipeline_id);
