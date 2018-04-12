@@ -3,7 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{FilterOp, MixBlendMode, PipelineId, PremultipliedColorF};
-use api::{DeviceIntRect, LayerRect};
+use api::{DeviceIntRect, DeviceIntSize, LayerRect};
+use api::{PictureIntPoint, PictureIntRect, PictureIntSize};
 use box_shadow::{BLUR_SAMPLE_SCALE};
 use clip_scroll_tree::ClipScrollNodeIndex;
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState};
@@ -11,8 +12,10 @@ use gpu_cache::{GpuCacheHandle};
 use prim_store::{PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
 use prim_store::{PrimitiveMetadata, ScrollNodeAndClipChain};
 use render_task::{ClearMode, RenderTask};
-use render_task::{RenderTaskId, RenderTaskLocation};
+use render_task::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId, RenderTaskLocation};
+use resource_cache::CacheItem;
 use scene::{FilterOpHelpers, SceneProperties};
+use std::mem;
 use tiling::RenderTargetKind;
 
 /*
@@ -38,11 +41,79 @@ pub enum PictureCompositeMode {
     Blit,
 }
 
+// Stores the location of the picture if it is drawn to
+// an intermediate surface. This can be a render task if
+// it is not persisted, or a texture cache item if the
+// picture is cached in the texture cache.
+#[derive(Debug)]
+pub enum PictureSurface {
+    RenderTask(RenderTaskId),
+    TextureCache(CacheItem),
+}
+
+// A unique identifier for a Picture. Once we start
+// doing deep compares of picture content, these
+// may be the same across display lists, but that's
+// not currently supported.
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct PictureId(pub u64);
+
+// Cache key that determines whether a pre-existing
+// picture in the texture cache matches the content
+// of the current picture.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct PictureCacheKey {
+    // NOTE: We specifically want to ensure that we
+    //       don't include the device space origin
+    //       of this picture in the cache key, because
+    //       we want the cache to remain valid as it
+    //       is scrolled and/or translated by animation.
+    //       This is valid while we have the restriction
+    //       in place that only pictures that use the
+    //       root coordinate system are cached - once
+    //       we relax that, we'll need to consider some
+    //       extra parameters, depending on transform.
+
+    // The unique identifier for this picture.
+    // TODO(gw): Currently, these will not be
+    //           shared across new display lists,
+    //           so will only remain valid during
+    //           scrolling. Next step will be to
+    //           allow deep comparisons on pictures
+    //           between display lists, allowing
+    //           pictures that are the same to be
+    //           cached across display lists!
+    picture_id: PictureId,
+
+    // Store the rect within the unclipped device
+    // rect that we are actually rendering. This ensures
+    // that if the 'clipped' rect changes, we will see
+    // that the cache is invalid and re-draw the picture.
+    // TODO(gw): To reduce the number of invalidations that
+    //           happen as a cached picture scrolls off-screen,
+    //           we could round up the size of the off-screen
+    //           targets we draw (e.g. 512 pixels). This may
+    //           also simplify other parts of the code that
+    //           deal with clipped/unclipped rects, such as
+    //           the code to inflate the device rect for blurs.
+    pic_relative_render_rect: PictureIntRect,
+
+    // Ensure that if the overall size of the picture
+    // changes, the cache key will not match. This can
+    // happen, for example, during zooming or changes
+    // in device-pixel-ratio.
+    unclipped_size: DeviceIntSize,
+}
+
 #[derive(Debug)]
 pub struct PicturePrimitive {
     // If this picture is drawn to an intermediate surface,
     // the associated target information.
-    pub surface: Option<RenderTaskId>,
+    pub surface: Option<PictureSurface>,
 
     // List of primitive runs that make up this picture.
     pub runs: Vec<PrimitiveRun>,
@@ -83,6 +154,9 @@ pub struct PicturePrimitive {
     // in the GPU cache, depending on the type of
     // picture.
     pub extra_gpu_data_handle: GpuCacheHandle,
+
+    // Unique identifier for this picture.
+    pub id: PictureId,
 }
 
 impl PicturePrimitive {
@@ -103,6 +177,7 @@ impl PicturePrimitive {
     }
 
     pub fn new_image(
+        id: PictureId,
         composite_mode: Option<PictureCompositeMode>,
         is_in_3d_context: bool,
         pipeline_id: PipelineId,
@@ -123,6 +198,7 @@ impl PicturePrimitive {
             apply_local_clip_rect,
             pipeline_id,
             task_rect: DeviceIntRect::zero(),
+            id,
         }
     }
 
@@ -198,7 +274,7 @@ impl PicturePrimitive {
         &mut self,
         prim_index: PrimitiveIndex,
         prim_metadata: &mut PrimitiveMetadata,
-        pic_state_for_children: PictureState,
+        mut pic_state_for_children: PictureState,
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
@@ -239,26 +315,95 @@ impl PicturePrimitive {
                     .intersection(&prim_screen_rect.unclipped)
                     .unwrap();
 
-                let picture_task = RenderTask::new_picture(
-                    RenderTaskLocation::Dynamic(None, device_rect.size),
-                    prim_index,
-                    device_rect.origin,
-                    pic_state_for_children.tasks,
-                );
+                // If we are drawing a blur that has primitives or clips that contain
+                // a complex coordinate system, don't bother caching them (for now).
+                // It's likely that they are animating and caching may not help here
+                // anyway. In the future we should relax this a bit, so that we can
+                // cache tasks with complex coordinate systems if we detect the
+                // relevant transforms haven't changed from frame to frame.
+                let surface = if pic_state_for_children.has_non_root_coord_system {
+                    let picture_task = RenderTask::new_picture(
+                        RenderTaskLocation::Dynamic(None, device_rect.size),
+                        prim_index,
+                        device_rect.origin,
+                        pic_state_for_children.tasks,
+                    );
 
-                let picture_task_id = frame_state.render_tasks.add(picture_task);
+                    let picture_task_id = frame_state.render_tasks.add(picture_task);
 
-                let blur_render_task = RenderTask::new_blur(
-                    blur_std_deviation,
-                    picture_task_id,
-                    frame_state.render_tasks,
-                    RenderTargetKind::Color,
-                    ClearMode::Transparent,
-                );
+                    let blur_render_task = RenderTask::new_blur(
+                        blur_std_deviation,
+                        picture_task_id,
+                        frame_state.render_tasks,
+                        RenderTargetKind::Color,
+                        ClearMode::Transparent,
+                    );
 
-                let render_task_id = frame_state.render_tasks.add(blur_render_task);
-                pic_state.tasks.push(render_task_id);
-                self.surface = Some(render_task_id);
+                    let render_task_id = frame_state.render_tasks.add(blur_render_task);
+
+                    pic_state.tasks.push(render_task_id);
+
+                    PictureSurface::RenderTask(render_task_id)
+                } else {
+                    // Get the relative clipped rect within the overall prim rect, that
+                    // forms part of the cache key.
+                    let pic_relative_render_rect = PictureIntRect::new(
+                        PictureIntPoint::new(
+                            device_rect.origin.x - prim_screen_rect.unclipped.origin.x,
+                            device_rect.origin.y - prim_screen_rect.unclipped.origin.y,
+                        ),
+                        PictureIntSize::new(
+                            device_rect.size.width,
+                            device_rect.size.height,
+                        ),
+                    );
+
+                    // Request a render task that will cache the output in the
+                    // texture cache.
+                    let cache_item = frame_state.resource_cache.request_render_task(
+                        RenderTaskCacheKey {
+                            size: device_rect.size,
+                            kind: RenderTaskCacheKeyKind::Picture(PictureCacheKey {
+                                picture_id: self.id,
+                                unclipped_size: prim_screen_rect.unclipped.size,
+                                pic_relative_render_rect,
+                            }),
+                        },
+                        frame_state.gpu_cache,
+                        frame_state.render_tasks,
+                        None,
+                        |render_tasks| {
+                            let child_tasks = mem::replace(&mut pic_state_for_children.tasks, Vec::new());
+
+                            let picture_task = RenderTask::new_picture(
+                                RenderTaskLocation::Dynamic(None, device_rect.size),
+                                prim_index,
+                                device_rect.origin,
+                                child_tasks,
+                            );
+
+                            let picture_task_id = render_tasks.add(picture_task);
+
+                            let blur_render_task = RenderTask::new_blur(
+                                blur_std_deviation,
+                                picture_task_id,
+                                render_tasks,
+                                RenderTargetKind::Color,
+                                ClearMode::Transparent,
+                            );
+
+                            let render_task_id = render_tasks.add(blur_render_task);
+
+                            pic_state.tasks.push(render_task_id);
+
+                            (render_task_id, false)
+                        }
+                    );
+
+                    PictureSurface::TextureCache(cache_item)
+                };
+
+                self.surface = Some(surface);
 
                 Some(device_rect)
             }
@@ -302,7 +447,7 @@ impl PicturePrimitive {
 
                 let render_task_id = frame_state.render_tasks.add(blur_render_task);
                 pic_state.tasks.push(render_task_id);
-                self.surface = Some(render_task_id);
+                self.surface = Some(PictureSurface::RenderTask(render_task_id));
 
                 Some(device_rect)
             }
@@ -323,7 +468,7 @@ impl PicturePrimitive {
 
                 let render_task_id = frame_state.render_tasks.add(picture_task);
                 pic_state.tasks.push(render_task_id);
-                self.surface = Some(render_task_id);
+                self.surface = Some(PictureSurface::RenderTask(render_task_id));
 
                 Some(prim_screen_rect.clipped)
             }
@@ -350,7 +495,7 @@ impl PicturePrimitive {
 
                 let render_task_id = frame_state.render_tasks.add(picture_task);
                 pic_state.tasks.push(render_task_id);
-                self.surface = Some(render_task_id);
+                self.surface = Some(PictureSurface::RenderTask(render_task_id));
 
                 device_rect
             }
@@ -364,7 +509,7 @@ impl PicturePrimitive {
 
                 let render_task_id = frame_state.render_tasks.add(picture_task);
                 pic_state.tasks.push(render_task_id);
-                self.surface = Some(render_task_id);
+                self.surface = Some(PictureSurface::RenderTask(render_task_id));
 
                 Some(prim_screen_rect.clipped)
             }

@@ -558,6 +558,7 @@ pub struct ClipChain {
     pub combined_outer_screen_rect: DeviceIntRect,
     pub combined_inner_screen_rect: DeviceIntRect,
     pub nodes: ClipChainNodeRef,
+    pub has_non_root_coord_system: bool,
 }
 
 impl ClipChain {
@@ -567,6 +568,7 @@ impl ClipChain {
             combined_inner_screen_rect: *screen_rect,
             combined_outer_screen_rect: *screen_rect,
             nodes: None,
+            has_non_root_coord_system: false,
         }
     }
 
@@ -598,6 +600,8 @@ impl ClipChain {
         self.combined_inner_screen_rect =
             self.combined_inner_screen_rect.intersection(&new_node.screen_inner_rect)
             .unwrap_or_else(DeviceIntRect::zero);
+
+        self.has_non_root_coord_system |= new_node.work_item.coordinate_system_id != CoordinateSystemId::root();
 
         self.nodes = Some(Arc::new(new_node));
     }
