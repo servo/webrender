@@ -2920,7 +2920,12 @@ impl Renderer {
                     }
                 };
                 let (src_rect, _) = render_tasks[output.task_id].get_target_rect();
-                let dest_rect = DeviceIntRect::new(DeviceIntPoint::zero(), output_size);
+                let mut dest_rect = DeviceIntRect::new(DeviceIntPoint::zero(), output_size);
+
+                // Invert Y coordinates, to correctly convert between coordinate systems.
+                dest_rect.origin.y += dest_rect.size.height;
+                dest_rect.size.height *= -1;
+
                 self.device.bind_read_target(render_target);
                 self.device.bind_external_draw_target(fbo_id);
                 self.device.blit_render_target(src_rect, dest_rect);
