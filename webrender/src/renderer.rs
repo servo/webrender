@@ -64,7 +64,7 @@ use texture_cache::TextureCache;
 use thread_profiler::{register_thread_with_profiler, write_profile};
 use tiling::{AlphaRenderTarget, ColorRenderTarget};
 use tiling::{BlitJob, BlitJobSource, RenderPass, RenderPassKind, RenderTargetList};
-use tiling::{Frame, RenderTarget, ScalingInfo, TextureCacheRenderTarget};
+use tiling::{Frame, RenderTarget, RenderTargetKind, ScalingInfo, TextureCacheRenderTarget};
 #[cfg(not(feature = "pathfinder"))]
 use tiling::GlyphJob;
 use time::precise_time_ns;
@@ -3335,8 +3335,10 @@ impl Renderer {
         if !target.horizontal_blurs.is_empty() {
             let _timer = self.gpu_profile.start_timer(GPU_TAG_BLUR);
 
-            self.shaders.cs_blur_a8
-                .bind(&mut self.device, &projection, &mut self.renderer_errors);
+            match target.target_kind {
+                RenderTargetKind::Alpha => &mut self.shaders.cs_blur_a8,
+                RenderTargetKind::Color => &mut self.shaders.cs_blur_rgba8,
+            }.bind(&mut self.device, &projection, &mut self.renderer_errors);
 
             self.draw_instanced_batch(
                 &target.horizontal_blurs,
