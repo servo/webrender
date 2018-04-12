@@ -12,9 +12,10 @@ use clip_scroll_tree::{CoordinateSystemId};
 use euclid::{TypedTransform3D, vec3};
 use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheAddress};
-use gpu_types::{BrushFlags, BrushInstance, ClipChainRectIndex, ZBufferId, ZBufferIdGenerator};
-use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex, RasterizationSpace};
-use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
+use gpu_types::{BrushFlags, BrushInstance, ClipChainRectIndex, ClipMaskBorderCornerDotDash};
+use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex, CompositePrimitiveInstance};
+use gpu_types::{PrimitiveInstance, RasterizationSpace, SimplePrimitiveInstance, ZBufferId};
+use gpu_types::ZBufferIdGenerator;
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::{PictureCompositeMode, PicturePrimitive, PictureSurface};
 use picture::{IMAGE_BRUSH_BLOCKS, IMAGE_BRUSH_EXTRA_BLOCKS};
@@ -1645,8 +1646,8 @@ pub struct ClipBatcher {
     pub rectangles: Vec<ClipMaskInstance>,
     /// Image draws apply the image masking.
     pub images: FastHashMap<SourceTexture, Vec<ClipMaskInstance>>,
-    pub border_clears: Vec<ClipMaskInstance>,
-    pub borders: Vec<ClipMaskInstance>,
+    pub border_clears: Vec<ClipMaskBorderCornerDotDash>,
+    pub borders: Vec<ClipMaskBorderCornerDotDash>,
     pub box_shadows: FastHashMap<SourceTexture, Vec<ClipMaskInstance>>,
     pub line_decorations: Vec<ClipMaskInstance>,
 }
@@ -1770,16 +1771,24 @@ impl ClipBatcher {
                         });
                     }
                     ClipSource::BorderCorner(ref source) => {
-                        self.border_clears.push(ClipMaskInstance {
-                            clip_data_address: gpu_address,
-                            segment: 0,
-                            ..instance
-                        });
-                        for clip_index in 0 .. source.actual_clip_count {
-                            self.borders.push(ClipMaskInstance {
+                        let instance = ClipMaskBorderCornerDotDash {
+                            clip_mask_instance: ClipMaskInstance {
                                 clip_data_address: gpu_address,
-                                segment: 1 + clip_index as i32,
+                                segment: 0,
                                 ..instance
+                            },
+                            dot_dash_data: [0.; 8],
+                        };
+
+                        self.border_clears.push(instance);
+
+                        for data in source.dot_dash_data.iter() {
+                            self.borders.push(ClipMaskBorderCornerDotDash {
+                                clip_mask_instance: ClipMaskInstance {
+                                    segment: 1,
+                                    ..instance.clip_mask_instance
+                                },
+                                dot_dash_data: *data,
                             })
                         }
                     }

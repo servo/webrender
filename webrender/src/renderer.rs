@@ -433,6 +433,48 @@ pub(crate) mod desc {
         ],
     };
 
+    pub const BORDER_CORNER_DASH_AND_DOT: VertexDescriptor = VertexDescriptor {
+        vertex_attributes: &[
+            VertexAttribute {
+                name: "aPosition",
+                count: 2,
+                kind: VertexAttributeKind::F32,
+            },
+        ],
+        instance_attributes: &[
+            VertexAttribute {
+                name: "aClipRenderTaskAddress",
+                count: 1,
+                kind: VertexAttributeKind::I32,
+            },
+            VertexAttribute {
+                name: "aScrollNodeId",
+                count: 1,
+                kind: VertexAttributeKind::I32,
+            },
+            VertexAttribute {
+                name: "aClipSegment",
+                count: 1,
+                kind: VertexAttributeKind::I32,
+            },
+            VertexAttribute {
+                name: "aClipDataResourceAddress",
+                count: 4,
+                kind: VertexAttributeKind::U16,
+            },
+            VertexAttribute {
+                name: "aDashOrDot0",
+                count: 4,
+                kind: VertexAttributeKind::F32,
+            },
+            VertexAttribute {
+                name: "aDashOrDot1",
+                count: 4,
+                kind: VertexAttributeKind::F32,
+            },
+        ],
+    };
+
     pub const GPU_CACHE_UPDATE: VertexDescriptor = VertexDescriptor {
         vertex_attributes: &[
             VertexAttribute {
@@ -539,6 +581,7 @@ pub(crate) enum VertexArrayKind {
     Primitive,
     Blur,
     Clip,
+    DashAndDot,
     VectorStencil,
     VectorCover,
 }
@@ -1260,6 +1303,7 @@ pub struct RendererVAOs {
     prim_vao: VAO,
     blur_vao: VAO,
     clip_vao: VAO,
+    dash_and_dot_vao: VAO,
 }
 
 /// The renderer is responsible for submitting to the GPU the work prepared by the
@@ -1546,6 +1590,8 @@ impl Renderer {
 
         let blur_vao = device.create_vao_with_new_instances(&desc::BLUR, &prim_vao);
         let clip_vao = device.create_vao_with_new_instances(&desc::CLIP, &prim_vao);
+        let dash_and_dot_vao =
+            device.create_vao_with_new_instances(&desc::BORDER_CORNER_DASH_AND_DOT, &prim_vao);
         let texture_cache_upload_pbo = device.create_pbo();
 
         let texture_resolver = SourceTextureResolver::new(&mut device);
@@ -1698,6 +1744,7 @@ impl Renderer {
                 prim_vao,
                 blur_vao,
                 clip_vao,
+                dash_and_dot_vao,
             },
             node_data_texture,
             local_clip_rects_texture,
@@ -3065,7 +3112,7 @@ impl Renderer {
                     .bind(&mut self.device, projection, &mut self.renderer_errors);
                 self.draw_instanced_batch(
                     &target.clip_batcher.border_clears,
-                    VertexArrayKind::Clip,
+                    VertexArrayKind::DashAndDot,
                     &BatchTextures::no_texture(),
                     stats,
                 );
@@ -3084,7 +3131,7 @@ impl Renderer {
                     .bind(&mut self.device, projection, &mut self.renderer_errors);
                 self.draw_instanced_batch(
                     &target.clip_batcher.borders,
-                    VertexArrayKind::Clip,
+                    VertexArrayKind::DashAndDot,
                     &BatchTextures::no_texture(),
                     stats,
                 );
@@ -3817,6 +3864,7 @@ impl Renderer {
         self.device.delete_vao(self.vaos.prim_vao);
         self.device.delete_vao(self.vaos.clip_vao);
         self.device.delete_vao(self.vaos.blur_vao);
+        self.device.delete_vao(self.vaos.dash_and_dot_vao);
 
         #[cfg(feature = "debug_renderer")]
         {
@@ -4409,6 +4457,7 @@ fn get_vao<'a>(vertex_array_kind: VertexArrayKind,
         VertexArrayKind::Primitive => &vaos.prim_vao,
         VertexArrayKind::Clip => &vaos.clip_vao,
         VertexArrayKind::Blur => &vaos.blur_vao,
+        VertexArrayKind::DashAndDot => &vaos.dash_and_dot_vao,
         VertexArrayKind::VectorStencil => &gpu_glyph_renderer.vector_stencil_vao,
         VertexArrayKind::VectorCover => &gpu_glyph_renderer.vector_cover_vao,
     }
@@ -4423,6 +4472,7 @@ fn get_vao<'a>(vertex_array_kind: VertexArrayKind,
         VertexArrayKind::Primitive => &vaos.prim_vao,
         VertexArrayKind::Clip => &vaos.clip_vao,
         VertexArrayKind::Blur => &vaos.blur_vao,
+        VertexArrayKind::DashAndDot => &vaos.dash_and_dot_vao,
         VertexArrayKind::VectorStencil | VertexArrayKind::VectorCover => unreachable!(),
     }
 }
