@@ -118,7 +118,7 @@ name = "cgl"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "gleam 0.4.23 (registry+https://github.com/rust-lang/crates.io-index)",
+ "gleam 0.4.32 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.20 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -260,7 +260,7 @@ name = "direct-composition"
 version = "0.1.0"
 dependencies = [
  "euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "gleam 0.4.23 (registry+https://github.com/rust-lang/crates.io-index)",
+ "gleam 0.4.32 (registry+https://github.com/rust-lang/crates.io-index)",
  "mozangle 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "webrender 0.57.2",
  "winapi 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -436,7 +436,7 @@ dependencies = [
 
 [[package]]
 name = "gleam"
-version = "0.4.23"
+version = "0.4.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "gl_generator 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1352,7 +1352,7 @@ dependencies = [
  "euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "freetype 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fxhash 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "gleam 0.4.23 (registry+https://github.com/rust-lang/crates.io-index)",
+ "gleam 0.4.32 (registry+https://github.com/rust-lang/crates.io-index)",
  "glutin 0.13.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "image 0.18.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1470,7 +1470,7 @@ dependencies = [
  "env_logger 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "font-loader 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "gleam 0.4.23 (registry+https://github.com/rust-lang/crates.io-index)",
+ "gleam 0.4.32 (registry+https://github.com/rust-lang/crates.io-index)",
  "glutin 0.13.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "image 0.18.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1596,7 +1596,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum gdi32-sys 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "0912515a8ff24ba900422ecda800b52f4016a56251922d397c576bf92c690518"
 "checksum gif 0.9.2 (registry+https://github.com/rust-lang/crates.io-index)" = "e2e41945ba23db3bf51b24756d73d81acb4f28d85c3dccc32c6fae904438c25f"
 "checksum gl_generator 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "7a795170cbd85b5a7baa58d6d7525cae6a03e486859860c220f7ebbbdd379d0a"
-"checksum gleam 0.4.23 (registry+https://github.com/rust-lang/crates.io-index)" = "76e3a7f5351837630a7dd0cd6d7976de547929f9fabd381b9d5ac35f82e90be2"
+"checksum gleam 0.4.32 (registry+https://github.com/rust-lang/crates.io-index)" = "70363479f033b72dbd558fd3b6f153dd824bf4f9dcd05dfcff6cd29a3eb9a63d"
 "checksum glutin 0.13.1 (registry+https://github.com/rust-lang/crates.io-index)" = "90de8e0391e57098acfbfe693b23065e9186255d370ebae12c933b7d77df8424"
 "checksum half 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "1d5c5f71a723d10dfc58927cbed37c3071a50afc7f073d86fd7d3e5727db890f"
 "checksum httparse 1.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "af2f2dd97457e8fb1ae7c5a420db346af389926e36f43768b96f101546b04a07"

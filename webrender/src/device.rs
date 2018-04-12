@@ -11,6 +11,7 @@ use api::ImageDescriptor;
 use euclid::Transform3D;
 use gleam::gl;
 use internal_types::{FastHashMap, RenderTargetInfo};
+use log::Level;
 use smallvec::SmallVec;
 use std::cell::RefCell;
 use std::fs::File;
@@ -2102,6 +2103,31 @@ impl Device {
 
     pub fn supports_extension(&self, extension: &str) -> bool {
         self.extensions.iter().any(|s| s == extension)
+    }
+
+    pub fn echo_driver_messages(&self) {
+        for msg in self.gl.get_debug_messages() {
+            let level = match msg.severity {
+                gl::DEBUG_SEVERITY_HIGH => Level::Error,
+                gl::DEBUG_SEVERITY_MEDIUM => Level::Warn,
+                gl::DEBUG_SEVERITY_LOW => Level::Info,
+                gl::DEBUG_SEVERITY_NOTIFICATION => Level::Debug,
+                _ => Level::Trace,
+            };
+            let ty = match msg.ty {
+                gl::DEBUG_TYPE_ERROR => "error",
+                gl::DEBUG_TYPE_DEPRECATED_BEHAVIOR => "deprecated",
+                gl::DEBUG_TYPE_UNDEFINED_BEHAVIOR => "undefined",
+                gl::DEBUG_TYPE_PORTABILITY => "portability",
+                gl::DEBUG_TYPE_PERFORMANCE => "perf",
+                gl::DEBUG_TYPE_MARKER => "marker",
+                gl::DEBUG_TYPE_PUSH_GROUP => "group push",
+                gl::DEBUG_TYPE_POP_GROUP => "group pop",
+                gl::DEBUG_TYPE_OTHER => "other",
+                _ => "?",
+            };
+            log!(level, "({}) {}", ty, msg.message);
+        }
     }
 }
 
