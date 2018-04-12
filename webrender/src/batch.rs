@@ -12,9 +12,10 @@ use clip_scroll_tree::{CoordinateSystemId};
 use euclid::{TypedTransform3D, vec3};
 use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheAddress};
-use gpu_types::{BrushFlags, BrushInstance, ClipChainRectIndex, ZBufferId, ZBufferIdGenerator};
-use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex, RasterizationSpace};
-use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
+use gpu_types::{BrushFlags, BrushInstance, ClipChainRectIndex, ClipMaskBorderCornerDotDash};
+use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex, CommonClipMaskData};
+use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, RasterizationSpace};
+use gpu_types::{SimplePrimitiveInstance, ZBufferId, ZBufferIdGenerator};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::{PictureCompositeMode, PicturePrimitive, PictureSurface};
 use plane_split::{BspSplitter, Polygon, Splitter};
@@ -1628,8 +1629,8 @@ pub struct ClipBatcher {
     pub rectangles: Vec<ClipMaskInstance>,
     /// Image draws apply the image masking.
     pub images: FastHashMap<SourceTexture, Vec<ClipMaskInstance>>,
-    pub border_clears: Vec<ClipMaskInstance>,
-    pub borders: Vec<ClipMaskInstance>,
+    pub border_clears: Vec<ClipMaskBorderCornerDotDash>,
+    pub borders: Vec<ClipMaskBorderCornerDotDash>,
     pub box_shadows: FastHashMap<SourceTexture, Vec<ClipMaskInstance>>,
     pub line_decorations: Vec<ClipMaskInstance>,
 }
@@ -1652,10 +1653,12 @@ impl ClipBatcher {
         clip_data_address: GpuCacheAddress,
     ) {
         let instance = ClipMaskInstance {
-            render_task_address: task_address,
-            scroll_node_data_index: ClipScrollNodeIndex(0),
-            segment: 0,
-            clip_data_address,
+            common_data: CommonClipMaskData {
+                render_task_address: task_address,
+                scroll_node_data_index: ClipScrollNodeIndex(0),
+                segment: 0,
+                clip_data_address,
+            },
             resource_address: GpuCacheAddress::invalid(),
         };
 
@@ -1674,10 +1677,12 @@ impl ClipBatcher {
         let mut coordinate_system_id = coordinate_system_id;
         for work_item in clips.iter() {
             let instance = ClipMaskInstance {
-                render_task_address: task_address,
-                scroll_node_data_index: work_item.scroll_node_data_index,
-                segment: 0,
-                clip_data_address: GpuCacheAddress::invalid(),
+                common_data: CommonClipMaskData {
+                    render_task_address: task_address,
+                    scroll_node_data_index: work_item.scroll_node_data_index,
+                    segment: 0,
+                    clip_data_address: GpuCacheAddress::invalid(),
+                },
                 resource_address: GpuCacheAddress::invalid(),
             };
             let info = clip_store
@@ -1700,9 +1705,11 @@ impl ClipBatcher {
                                 .entry(cache_item.texture_id)
                                 .or_insert(Vec::new())
                                 .push(ClipMaskInstance {
-                                    clip_data_address: gpu_address,
+                                    common_data: CommonClipMaskData {
+                                        clip_data_address: gpu_address,
+                                        ..instance.common_data
+                                    },
                                     resource_address: gpu_cache.get_address(&cache_item.uv_rect_handle),
-                                    ..instance
                                 });
                         } else {
                             warn!("Warnings: skip a image mask");
@@ -1712,7 +1719,10 @@ impl ClipBatcher {
                     }
                     ClipSource::LineDecoration(..) => {
                         self.line_decorations.push(ClipMaskInstance {
-                            clip_data_address: gpu_address,
+                            common_data: CommonClipMaskData {
+                                clip_data_address: gpu_address,
+                                ..instance.common_data
+                            },
                             ..instance
                         });
                     }
@@ -1731,16 +1741,21 @@ impl ClipBatcher {
                             .entry(cache_item.texture_id)
                             .or_insert(Vec::new())
                             .push(ClipMaskInstance {
-                                clip_data_address: gpu_address,
+                                common_data: CommonClipMaskData {
+                                    clip_data_address: gpu_address,
+                                    ..instance.common_data
+                                },
                                 resource_address: gpu_cache.get_address(&cache_item.uv_rect_handle),
-                                ..instance
                             });
                     }
                     ClipSource::Rectangle(_, mode) => {
                         if work_item.coordinate_system_id != coordinate_system_id ||
                            mode == ClipMode::ClipOut {
                             self.rectangles.push(ClipMaskInstance {
-                                clip_data_address: gpu_address,
+                                common_data: CommonClipMaskData {
+                                    clip_data_address: gpu_address,
+                                    ..instance.common_data
+                                },
                                 ..instance
                             });
                             coordinate_system_id = work_item.coordinate_system_id;
@@ -1748,21 +1763,32 @@ impl ClipBatcher {
                     }
                     ClipSource::RoundedRectangle(..) => {
                         self.rectangles.push(ClipMaskInstance {
-                            clip_data_address: gpu_address,
+                            common_data: CommonClipMaskData {
+                                clip_data_address: gpu_address,
+                                ..instance.common_data
+                            },
                             ..instance
                         });
                     }
                     ClipSource::BorderCorner(ref source) => {
-                        self.border_clears.push(ClipMaskInstance {
-                            clip_data_address: gpu_address,
-                            segment: 0,
-                            ..instance
-                        });
-                        for clip_index in 0 .. source.actual_clip_count {
-                            self.borders.push(ClipMaskInstance {
+                        let instance = ClipMaskBorderCornerDotDash {
+                            common_data: CommonClipMaskData {
                                 clip_data_address: gpu_address,
-                                segment: 1 + clip_index as i32,
-                                ..instance
+                                segment: 0,
+                                ..instance.common_data
+                            },
+                            dot_dash_data: [0.; 8],
+                        };
+
+                        self.border_clears.push(instance);
+
+                        for data in source.dot_dash_data.iter() {
+                            self.borders.push(ClipMaskBorderCornerDotDash {
+                                common_data: CommonClipMaskData {
+                                    segment: 1,
+                                    ..instance.common_data
+                                },
+                                dot_dash_data: *data,
                             })
                         }
                     }

@@ -68,6 +68,19 @@ pub struct BlurInstance {
     pub blur_direction: BlurDirection,
 }
 
+/// Clipping data shared among all types of clipping primitives that have their own
+/// vertex format.
+#[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[repr(C)]
+pub struct CommonClipMaskData {
+    pub render_task_address: RenderTaskAddress,
+    pub scroll_node_data_index: ClipScrollNodeIndex,
+    pub segment: i32,
+    pub clip_data_address: GpuCacheAddress,
+}
+
 /// A clipping primitive drawn into the clipping mask.
 /// Could be an image or a rectangle, which defines the
 /// way `address` is treated.
@@ -76,11 +89,18 @@ pub struct BlurInstance {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(C)]
 pub struct ClipMaskInstance {
-    pub render_task_address: RenderTaskAddress,
-    pub scroll_node_data_index: ClipScrollNodeIndex,
-    pub segment: i32,
-    pub clip_data_address: GpuCacheAddress,
+    pub common_data: CommonClipMaskData,
     pub resource_address: GpuCacheAddress,
+}
+
+/// A border corner dot or dash drawn into the clipping mask.
+#[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[repr(C)]
+pub struct ClipMaskBorderCornerDotDash {
+    pub common_data: CommonClipMaskData,
+    pub dot_dash_data: [f32; 8],
 }
 
 // 32 bytes per instance should be enough for anyone!

@@ -15,14 +15,21 @@
 in int aClipRenderTaskAddress;
 in int aScrollNodeId;
 in int aClipSegment;
-in ivec4 aClipDataResourceAddress;
+in ivec2 aClipDataAddress;
+
+#ifndef SPECIALIZED_CLIP_VERTEX_FORMAT
+in ivec2 aClipResourceAddress;
+#endif
 
 struct ClipMaskInstance {
     int render_task_address;
     int scroll_node_id;
     int segment;
     ivec2 clip_data_address;
+
+#ifndef SPECIALIZED_CLIP_VERTEX_FORMAT
     ivec2 resource_address;
+#endif
 };
 
 ClipMaskInstance fetch_clip_item() {
@@ -31,8 +38,11 @@ ClipMaskInstance fetch_clip_item() {
     cmi.render_task_address = aClipRenderTaskAddress;
     cmi.scroll_node_id = aScrollNodeId;
     cmi.segment = aClipSegment;
-    cmi.clip_data_address = aClipDataResourceAddress.xy;
-    cmi.resource_address = aClipDataResourceAddress.zw;
+    cmi.clip_data_address = aClipDataAddress;
+
+#ifndef SPECIALIZED_CLIP_VERTEX_FORMAT
+    cmi.resource_address = aClipResourceAddress;
+#endif
 
     return cmi;
 }

@@ -2,7 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#define CUSTOM_CLIP_VERTEX_FORMAT
+
 #include shared,clip_shared
+
+in vec4 aDashOrDot0;
+in vec4 aDashOrDot1;
 
 varying vec3 vPos;
 
@@ -47,8 +52,7 @@ struct BorderClipDash {
 };
 
 BorderClipDash fetch_border_clip_dash(ivec2 address, int segment) {
-    vec4 data[2] = fetch_from_resource_cache_2_direct(address + ivec2(2 + 2 * (segment - 1), 0));
-    return BorderClipDash(data[0], data[1]);
+    return BorderClipDash(aDashOrDot0, aDashOrDot1);
 }
 
 // Per-dot clip information.
@@ -57,8 +61,7 @@ struct BorderClipDot {
 };
 
 BorderClipDot fetch_border_clip_dot(ivec2 address, int segment) {
-    vec4 data = fetch_from_resource_cache_1_direct(address + ivec2(2 + (segment - 1), 0));
-    return BorderClipDot(data.xyz);
+    return BorderClipDot(aDashOrDot0.xyz);
 }
 
 void main(void) {

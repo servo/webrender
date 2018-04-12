@@ -677,10 +677,10 @@ pub enum BorderCornerClipKind {
 pub struct BorderCornerClipSource {
     pub corner_data: BorderCornerClipData,
     pub max_clip_count: usize,
-    pub actual_clip_count: usize,
     kind: BorderCornerClipKind,
     widths: LayerSize,
     ellipse: Ellipse,
+    pub dot_dash_data: Vec<[f32; 8]>,
 }
 
 impl BorderCornerClipSource {
@@ -753,45 +753,49 @@ impl BorderCornerClipSource {
             kind,
             corner_data,
             max_clip_count,
-            actual_clip_count: 0,
             ellipse,
             widths,
+            dot_dash_data: Vec::new(),
         }
     }
 
     pub fn write(&mut self, mut request: GpuDataRequest) {
         self.corner_data.write(&mut request);
+        assert_eq!(request.close(), 2);
 
         match self.kind {
             BorderCornerClipKind::Dash => {
                 // Get the correct dash arc length.
-                self.actual_clip_count = self.max_clip_count;
                 let dash_arc_length =
-                    0.5 * self.ellipse.total_arc_length / (self.actual_clip_count - 1) as f32;
+                    0.5 * self.ellipse.total_arc_length / (self.max_clip_count - 1) as f32;
+                self.dot_dash_data.clear();
                 let mut current_arc_length = -0.5 * dash_arc_length;
-                for _ in 0 .. self.actual_clip_count {
+                for _ in 0 .. self.max_clip_count {
                     let arc_length0 = current_arc_length;
                     current_arc_length += dash_arc_length;
 
                     let arc_length1 = current_arc_length;
                     current_arc_length += dash_arc_length;
 
-                    let dash_data =
-                        BorderCornerDashClipData::new(arc_length0, arc_length1, &self.ellipse);
-                    dash_data.write(&mut request);
-                }
+                    let alpha = self.ellipse.find_angle_for_arc_length(arc_length0);
+                    let beta =  self.ellipse.find_angle_for_arc_length(arc_length1);
 
-                assert_eq!(request.close(), 2 + 2 * self.actual_clip_count);
+                    let (point0, tangent0) =  self.ellipse.get_point_and_tangent(alpha);
+                    let (point1, tangent1) =  self.ellipse.get_point_and_tangent(beta);
+
+                    self.dot_dash_data.push([
+                        point0.x, point0.y, tangent0.x, tangent0.y,
+                        point1.x, point1.y, tangent1.x, tangent1.y
+                    ]);
+                }
             }
             BorderCornerClipKind::Dot if self.max_clip_count == 1 => {
                 let dot_diameter = lerp(self.widths.width, self.widths.height, 0.5);
-                let dot = BorderCornerDotClipData {
-                    center: LayerPoint::new(self.widths.width / 2.0, self.widths.height / 2.0),
-                    radius: 0.5 * dot_diameter,
-                };
-                self.actual_clip_count = 1;
-                dot.write(&mut request);
-                assert_eq!(request.close(), 3);
+                self.dot_dash_data.clear();
+                self.dot_dash_data.push([
+                    self.widths.width / 2.0, self.widths.height / 2.0, 0.5 * dot_diameter, 0.,
+                    0., 0., 0., 0.,
+                ]);
             }
             BorderCornerClipKind::Dot => {
                 let mut forward_dots = Vec::new();
@@ -852,30 +856,31 @@ impl BorderCornerClipSource {
                 // leftover space on the arc between them evenly. Once
                 // the final arc position is determined, generate the correct
                 // arc positions and angles that get passed to the clip shader.
-                self.actual_clip_count = forward_dots.len() + back_dots.len();
-                let extra_space_per_dot = leftover_arc_length / (self.actual_clip_count - 1) as f32;
+                let number_of_dots = forward_dots.len() + back_dots.len();
+                let extra_space_per_dot = leftover_arc_length / (number_of_dots - 1) as f32;
+
+                self.dot_dash_data.clear();
+
+                let create_dot_data = |ellipse: &Ellipse, arc_length: f32, radius: f32| -> [f32; 8] {
+                    // Represents the GPU data for drawing a single dot to a clip mask. The order
+                    // these are specified must stay in sync with the way this data is read in the
+                    // dot clip shader.
+                    let theta = ellipse.find_angle_for_arc_length(arc_length);
+                    let (center, _) = ellipse.get_point_and_tangent(theta);
+                    [center.x, center.y, radius, 0., 0., 0., 0., 0.,]
+                };
 
                 for (i, dot) in forward_dots.iter().enumerate() {
                     let extra_dist = i as f32 * extra_space_per_dot;
-                    let dot = BorderCornerDotClipData::new(
-                        dot.arc_pos + extra_dist,
-                        0.5 * dot.diameter,
-                        &self.ellipse,
-                    );
-                    dot.write(&mut request);
+                    let dot_data = create_dot_data(&self.ellipse, dot.arc_pos + extra_dist, 0.5 * dot.diameter);
+                    self.dot_dash_data.push(dot_data);
                 }
 
                 for (i, dot) in back_dots.iter().enumerate() {
                     let extra_dist = i as f32 * extra_space_per_dot;
-                    let dot = BorderCornerDotClipData::new(
-                        dot.arc_pos - extra_dist,
-                        0.5 * dot.diameter,
-                        &self.ellipse,
-                    );
-                    dot.write(&mut request);
+                    let dot_data = create_dot_data(&self.ellipse, dot.arc_pos - extra_dist, 0.5 * dot.diameter);
+                    self.dot_dash_data.push(dot_data);
                 }
-
-                assert_eq!(request.close(), 2 + self.actual_clip_count);
             }
         }
     }
@@ -907,74 +912,6 @@ impl BorderCornerClipData {
             self.corner,
             self.kind,
         ]);
-    }
-}
-
-/// Represents the GPU data for drawing a single dash
-/// to a clip mask. A dash clip is defined by two lines.
-/// We store a point on the ellipse curve, and a tangent
-/// to that point, which allows for efficient line-distance
-/// calculations in the fragment shader.
-#[derive(Debug, Clone)]
-#[repr(C)]
-pub struct BorderCornerDashClipData {
-    pub point0: LayerPoint,
-    pub tangent0: LayerPoint,
-    pub point1: LayerPoint,
-    pub tangent1: LayerPoint,
-}
-
-impl BorderCornerDashClipData {
-    pub fn new(arc_length0: f32, arc_length1: f32, ellipse: &Ellipse) -> BorderCornerDashClipData {
-        let alpha = ellipse.find_angle_for_arc_length(arc_length0);
-        let beta = ellipse.find_angle_for_arc_length(arc_length1);
-
-        let (p0, t0) = ellipse.get_point_and_tangent(alpha);
-        let (p1, t1) = ellipse.get_point_and_tangent(beta);
-
-        BorderCornerDashClipData {
-            point0: p0,
-            tangent0: t0,
-            point1: p1,
-            tangent1: t1,
-        }
-    }
-
-    fn write(&self, request: &mut GpuDataRequest) {
-        request.push([
-            self.point0.x,
-            self.point0.y,
-            self.tangent0.x,
-            self.tangent0.y,
-        ]);
-        request.push([
-            self.point1.x,
-            self.point1.y,
-            self.tangent1.x,
-            self.tangent1.y,
-        ]);
-    }
-}
-
-/// Represents the GPU data for drawing a single dot
-/// to a clip mask.
-#[derive(Debug, Clone)]
-#[repr(C)]
-pub struct BorderCornerDotClipData {
-    pub center: LayerPoint,
-    pub radius: f32,
-}
-
-impl BorderCornerDotClipData {
-    pub fn new(arc_length: f32, radius: f32, ellipse: &Ellipse) -> BorderCornerDotClipData {
-        let theta = ellipse.find_angle_for_arc_length(arc_length);
-        let (center, _) = ellipse.get_point_and_tangent(theta);
-
-        BorderCornerDotClipData { center, radius }
-    }
-
-    fn write(&self, request: &mut GpuDataRequest) {
-        request.push([self.center.x, self.center.y, self.radius, 0.0]);
     }
 }
 
