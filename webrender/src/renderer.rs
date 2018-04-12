@@ -11,7 +11,7 @@
 
 use api::{BlobImageRenderer, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentId, Epoch, ExternalImageId};
-use api::{ExternalImageType, FontRenderMode, ImageFormat, PipelineId};
+use api::{ExternalImageType, FontRenderMode, FrameMsg, ImageFormat, PipelineId};
 use api::{RenderApiSender, RenderNotifier, TexelRect, TextureTarget};
 use api::{channel};
 use api::DebugCommand;
@@ -1607,6 +1607,7 @@ impl Renderer {
                     .build();
                 Arc::new(worker.unwrap())
             });
+        let sampler = options.sampler;
         let enable_render_on_scroll = options.enable_render_on_scroll;
 
         let blob_image_renderer = options.blob_image_renderer.take();
@@ -1659,6 +1660,7 @@ impl Renderer {
                 backend_notifier,
                 config,
                 recorder,
+                sampler,
                 enable_render_on_scroll,
             );
             backend.run(backend_profile_counters);
@@ -4023,6 +4025,22 @@ pub trait SceneBuilderHooks {
     fn deregister(&self);
 }
 
+/// Allows callers to hook into the main render_backend loop and provide
+/// additional frame ops for generate_frame transactions. These functions
+/// are all called from the render backend thread.
+pub trait AsyncPropertySampler {
+    /// This is called exactly once, when the render backend thread is started
+    /// and before it processes anything.
+    fn register(&self);
+    /// This is called for each transaction with the generate_frame flag set
+    /// (i.e. that will trigger a render). The list of frame messages returned
+    /// are processed as though they were part of the original transaction.
+    fn sample(&self) -> Vec<FrameMsg>;
+    /// This is called exactly once, when the render backend thread is about to
+    /// terminate.
+    fn deregister(&self);
+}
+
 pub struct RendererOptions {
     pub device_pixel_ratio: f32,
     pub resource_override_path: Option<PathBuf>,
@@ -4048,6 +4066,7 @@ pub struct RendererOptions {
     pub renderer_id: Option<u64>,
     pub disable_dual_source_blending: bool,
     pub scene_builder_hooks: Option<Box<SceneBuilderHooks + Send>>,
+    pub sampler: Option<Box<AsyncPropertySampler + Send>>,
 }
 
 impl Default for RendererOptions {
@@ -4080,6 +4099,7 @@ impl Default for RendererOptions {
             cached_programs: None,
             disable_dual_source_blending: false,
             scene_builder_hooks: None,
+            sampler: None,
         }
     }
 }
