@@ -893,6 +893,7 @@ impl ResourceCache {
         for request in self.pending_image_requests.drain() {
             let image_template = self.resources.image_templates.get_mut(request.key).unwrap();
             debug_assert!(image_template.data.uses_texture_cache());
+            let mut dirty_rect = image_template.dirty_rect;
 
             let image_data = match image_template.data {
                 ImageData::Raw(..) | ImageData::External(..) => {
@@ -934,6 +935,24 @@ impl ResourceCache {
 
                 let (actual_width, actual_height) =
                     compute_tile_size(image_descriptor, tile_size, tile);
+
+                if let Some(ref mut dirty) = dirty_rect {
+                    *dirty = match dirty.intersection(&DeviceUintRect::new(
+                            DeviceUintPoint::new(
+                                tile.x as u32 * tile_size as u32,
+                                tile.y as u32 * tile_size as u32
+                            ),
+                            DeviceUintSize::new(actual_width, actual_height),
+                    )) {
+                        Some(mut r) => {
+                            // we can't translate by a negative size so do it manually
+                            r.origin.x -= tile.x as u32 * tile_size as u32;
+                            r.origin.y -= tile.y as u32 * tile_size as u32;
+                            r
+                        }
+                        None => continue,
+                    }
+                }
 
                 // The tiled image could be stored on the CPU as one large image or be
                 // already broken up into tiles. This affects the way we compute the stride
@@ -995,7 +1014,7 @@ impl ResourceCache {
                 filter,
                 Some(image_data),
                 [0.0; 3],
-                image_template.dirty_rect,
+                dirty_rect,
                 gpu_cache,
                 None,
             );
