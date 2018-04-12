@@ -4,6 +4,9 @@
 
 #include shared,clip_shared
 
+in vec4 aDashOrDot0;
+in vec4 aDashOrDot1;
+
 varying vec3 vPos;
 
 flat varying vec2 vClipCenter;
@@ -46,9 +49,8 @@ struct BorderClipDash {
     vec4 point_tangent_1;
 };
 
-BorderClipDash fetch_border_clip_dash(ivec2 address, int segment) {
-    vec4 data[2] = fetch_from_resource_cache_2_direct(address + ivec2(2 + 2 * (segment - 1), 0));
-    return BorderClipDash(data[0], data[1]);
+BorderClipDash fetch_border_clip_dash(ivec2 address) {
+    return BorderClipDash(aDashOrDot0, aDashOrDot1);
 }
 
 // Per-dot clip information.
@@ -56,9 +58,8 @@ struct BorderClipDot {
     vec3 center_radius;
 };
 
-BorderClipDot fetch_border_clip_dot(ivec2 address, int segment) {
-    vec4 data = fetch_from_resource_cache_1_direct(address + ivec2(2 + (segment - 1), 0));
-    return BorderClipDot(data.xyz);
+BorderClipDot fetch_border_clip_dot(ivec2 address) {
+    return BorderClipDot(aDashOrDot0.xyz);
 }
 
 void main(void) {
@@ -98,7 +99,7 @@ void main(void) {
         switch (corner.clip_mode) {
             case CLIP_MODE_DASH: {
                 // Fetch the information about this particular dash.
-                BorderClipDash dash = fetch_border_clip_dash(cmi.clip_data_address, cmi.segment);
+                BorderClipDash dash = fetch_border_clip_dash(cmi.clip_data_address);
                 vPoint_Tangent0 = dash.point_tangent_0 * sign_modifier.xyxy;
                 vPoint_Tangent1 = dash.point_tangent_1 * sign_modifier.xyxy;
                 vDotParams = vec3(0.0);
@@ -106,7 +107,7 @@ void main(void) {
                 break;
             }
             case CLIP_MODE_DOT: {
-                BorderClipDot cdot = fetch_border_clip_dot(cmi.clip_data_address, cmi.segment);
+                BorderClipDot cdot = fetch_border_clip_dot(cmi.clip_data_address);
                 vPoint_Tangent0 = vec4(1.0);
                 vPoint_Tangent1 = vec4(1.0);
                 vDotParams = vec3(cdot.center_radius.xy * sign_modifier, cdot.center_radius.z);
