@@ -147,6 +147,29 @@ pub struct ResourceClassCache<K: Hash + Eq, V, U: Default> {
     pub user_data: U,
 }
 
+fn intersect_for_tile(
+    dirty: DeviceUintRect,
+    width: u32,
+    height: u32,
+    tile_size: TileSize,
+    tile_offset: TileOffset,
+
+) -> Option<DeviceUintRect> {
+        dirty.intersection(&DeviceUintRect::new(
+            DeviceUintPoint::new(
+                tile_offset.x as u32 * tile_size as u32,
+                tile_offset.y as u32 * tile_size as u32
+            ),
+            DeviceUintSize::new(width, height),
+        )).map(|mut r| {
+                // we can't translate by a negative size so do it manually
+                r.origin.x -= tile_offset.x as u32 * tile_size as u32;
+                r.origin.y -= tile_offset.y as u32 * tile_size as u32;
+                r
+            })
+}
+
+
 impl<K, V, U> ResourceClassCache<K, V, U>
 where
     K: Clone + Hash + Eq + Debug,
@@ -609,6 +632,7 @@ impl ResourceCache {
         //  - The blob hasn't already been requested this frame.
         if self.pending_image_requests.insert(request) && template.data.is_blob() {
             if let Some(ref mut renderer) = self.blob_image_renderer {
+                let mut dirty_rect = template.dirty_rect;
                 let (offset, w, h) = match template.tiling {
                     Some(tile_size) => {
                         let tile_offset = request.tile.unwrap();
@@ -621,6 +645,13 @@ impl ResourceCache {
                             tile_offset.x as f32 * tile_size as f32,
                             tile_offset.y as f32 * tile_size as f32,
                         );
+
+                        if let Some(dirty) = dirty_rect {
+                            dirty_rect = intersect_for_tile(dirty, w, h, tile_size, tile_offset);
+                            if dirty_rect.is_none() {
+                                return
+                            }
+                        }
 
                         (offset, w, h)
                     }
@@ -640,7 +671,7 @@ impl ResourceCache {
                         offset,
                         format: template.descriptor.format,
                     },
-                    template.dirty_rect,
+                    dirty_rect,
                 );
             }
         }
@@ -893,6 +924,7 @@ impl ResourceCache {
         for request in self.pending_image_requests.drain() {
             let image_template = self.resources.image_templates.get_mut(request.key).unwrap();
             debug_assert!(image_template.data.uses_texture_cache());
+            let mut dirty_rect = image_template.dirty_rect;
 
             let image_data = match image_template.data {
                 ImageData::Raw(..) | ImageData::External(..) => {
@@ -934,6 +966,13 @@ impl ResourceCache {
 
                 let (actual_width, actual_height) =
                     compute_tile_size(image_descriptor, tile_size, tile);
+
+                if let Some(dirty) = dirty_rect {
+                    dirty_rect = intersect_for_tile(dirty, actual_width, actual_height, tile_size, tile);
+                    if dirty_rect.is_none() {
+                        continue
+                    }
+                }
 
                 // The tiled image could be stored on the CPU as one large image or be
                 // already broken up into tiles. This affects the way we compute the stride
@@ -995,7 +1034,7 @@ impl ResourceCache {
                 filter,
                 Some(image_data),
                 [0.0; 3],
-                image_template.dirty_rect,
+                dirty_rect,
                 gpu_cache,
                 None,
             );
