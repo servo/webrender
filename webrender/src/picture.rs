@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{FilterOp, LayerVector2D, MixBlendMode, PipelineId, PremultipliedColorF};
+use api::{FilterOp, MixBlendMode, PipelineId, PremultipliedColorF};
 use api::{DeviceIntRect, LayerRect};
 use box_shadow::{BLUR_SAMPLE_SCALE};
 use clip_scroll_tree::ClipScrollNodeIndex;
@@ -162,6 +162,16 @@ impl PicturePrimitive {
             Some(PictureCompositeMode::Filter(FilterOp::DropShadow(_, blur_radius, _))) => {
                 let inflate_size = (blur_radius * BLUR_SAMPLE_SCALE).ceil();
                 local_content_rect.inflate(inflate_size, inflate_size)
+
+                // TODO(gw): When we support culling rect being separate from
+                //           the task/screen rect, we should include both the
+                //           content and shadow rect here, which will prevent
+                //           drop-shadows from disappearing if the main content
+                //           rect is not visible. Something like:
+                // let shadow_rect = local_content_rect
+                //     .inflate(inflate_size, inflate_size)
+                //     .translate(&offset);
+                // shadow_rect.union(&local_content_rect)
             }
             _ => {
                 local_content_rect
@@ -392,22 +402,38 @@ impl PicturePrimitive {
             }
 
             if let Some(mut request) = frame_state.gpu_cache.request(&mut self.extra_gpu_data_handle) {
+                // [GLSL ImageBrush: task_rect, offset, color]
                 request.push(self.task_rect.to_f32());
+                request.push([0.0; 4]);
+                request.push(PremultipliedColorF::WHITE);
 
                 // TODO(gw): It would make the shaders a bit simpler if the offset
                 //           was provided as part of the brush::picture instance,
                 //           rather than in the Picture data itself.
-                let (offset, color) = match self.composite_mode {
-                    Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, _, color))) => {
-                        (offset, color.premultiplied())
-                    }
-                    _ => {
-                        (LayerVector2D::zero(), PremultipliedColorF::WHITE)
-                    }
-                };
+                if let Some(PictureCompositeMode::Filter(FilterOp::DropShadow(offset, _, color))) = self.composite_mode {
+                    // TODO(gw): This is very hacky code below! It stores an extra
+                    //           brush primitive below for the special case of a
+                    //           drop-shadow where we need a different local
+                    //           rect for the shadow. To tidy this up in future,
+                    //           we could consider abstracting the code in prim_store.rs
+                    //           that writes a brush primitive header.
 
-                request.push([offset.x, offset.y, 0.0, 0.0]);
-                request.push(color);
+                    // Basic brush primitive header is (see end of prepare_prim_for_render_inner in prim_store.rs)
+                    //  local_rect
+                    //  clip_rect
+                    //  [segment_rects]
+                    let shadow_rect = prim_metadata.local_rect.translate(&offset);
+                    let shadow_clip_rect = prim_metadata.local_clip_rect.translate(&offset);
+
+                    request.push(shadow_rect);
+                    request.push(shadow_clip_rect);
+                    request.push(shadow_rect);
+
+                    // Now write another GLSL ImageBrush struct, for the shadow to reference.
+                    request.push(self.task_rect.to_f32());
+                    request.push([offset.x, offset.y, 0.0, 0.0]);
+                    request.push(color.premultiplied());
+                }
             }
         }
     }

@@ -7,7 +7,6 @@ use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, Fon
 use api::{FilterOp, GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D};
 use api::{PipelineId, PremultipliedColorF, Shadow, YuvColorSpace, YuvFormat};
-use batch::BrushImageSourceKind;
 use border::{BorderCornerInstance, BorderEdgeKind};
 use box_shadow::BLUR_SAMPLE_SCALE;
 use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, CoordinateSystemId};
@@ -202,12 +201,6 @@ pub enum BrushKind {
     Clear,
     Picture {
         pic_index: PictureIndex,
-        // What kind of texels to sample from the
-        // picture (e.g color or alpha mask).
-        source_kind: BrushImageSourceKind,
-        // A local space offset to apply when drawing
-        // this picture.
-        local_offset: LayerVector2D,
     },
     Image {
         request: ImageRequest,
@@ -331,16 +324,10 @@ impl BrushPrimitive {
         }
     }
 
-    pub fn new_picture(
-        pic_index: PictureIndex,
-        source_kind: BrushImageSourceKind,
-        local_offset: LayerVector2D,
-    ) -> BrushPrimitive {
+    pub fn new_picture(pic_index: PictureIndex) -> BrushPrimitive {
         BrushPrimitive {
             kind: BrushKind::Picture {
                 pic_index,
-                source_kind,
-                local_offset,
             },
             segment_desc: None,
         }
@@ -1438,42 +1425,16 @@ impl PrimitiveStore {
                             );
                         }
                     }
-                    BrushKind::Picture { pic_index, source_kind, .. } => {
+                    BrushKind::Picture { pic_index, .. } => {
                         let pic = &mut self.pictures[pic_index.0];
-                        // If this picture is referenced by multiple brushes,
-                        // we only want to prepare it once per frame. It
-                        // should be prepared for the main color pass.
-                        // TODO(gw): Make this a bit more explicit - perhaps
-                        //           we could mark which brush::picture is
-                        //           the owner of the picture, vs the shadow
-                        //           which is just referencing it.
-                        match source_kind {
-                            BrushImageSourceKind::Color => {
-                                pic.prepare_for_render(
-                                    prim_index,
-                                    metadata,
-                                    pic_state_for_children,
-                                    pic_state,
-                                    frame_context,
-                                    frame_state,
-                                );
-                            }
-                            BrushImageSourceKind::ColorAlphaMask => {
-                                // Since we will always visit the shadow
-                                // brush first, use this to clear out the
-                                // render tasks from the previous frame.
-                                // This ensures that if the primary brush
-                                // is found to be non-visible, then we
-                                // won't try to draw the drop-shadow either.
-                                // This isn't quite correct - it can result
-                                // in clipping artifacts if the image is
-                                // off-screen, but the drop-shadow is
-                                // partially visible - we can fix this edge
-                                // case as a follow up.
-                                pic.surface = None;
-                                pic.secondary_render_task_id = None;
-                            }
-                        }
+                        pic.prepare_for_render(
+                            prim_index,
+                            metadata,
+                            pic_state_for_children,
+                            pic_state,
+                            frame_context,
+                            frame_state,
+                        );
                     }
                     BrushKind::Solid { .. } |
                     BrushKind::Clear => {}
@@ -1932,7 +1893,7 @@ impl PrimitiveStore {
         // local space, which may force us to render this item on a larger
         // picture target, if being composited.
         if let PrimitiveKind::Brush = prim_kind {
-            if let BrushKind::Picture { pic_index, local_offset, .. } = self.cpu_brushes[cpu_prim_index.0].kind {
+            if let BrushKind::Picture { pic_index, .. } = self.cpu_brushes[cpu_prim_index.0].kind {
                 let pic_context_for_children = {
                     let pic = &mut self.pictures[pic_index.0];
 
@@ -1987,11 +1948,7 @@ impl PrimitiveStore {
                 pic.runs = pic_context_for_children.prim_runs;
 
                 let metadata = &mut self.cpu_metadata[prim_index.0];
-                // Store local rect of the picture for this brush,
-                // also applying any local offset for the instance.
-                metadata.local_rect = pic
-                    .update_local_rect(result)
-                    .translate(&local_offset);
+                metadata.local_rect = pic.update_local_rect(result);
             }
         }
 
