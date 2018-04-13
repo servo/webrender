@@ -22,7 +22,7 @@ use euclid::{SideOffsets2D, vec2};
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use glyph_rasterizer::FontInstance;
 use hit_test::{HitTestingItem, HitTestingRun};
-use image::{decompose_image, TiledImageInfo};
+use image::{decompose_image, TiledImageInfo, simplify_repeated_primitive};
 use internal_types::{FastHashMap, FastHashSet};
 use picture::PictureCompositeMode;
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor, CachedGradient};
@@ -1892,10 +1892,17 @@ impl<'a> DisplayListFlattener<'a> {
         stops_count: usize,
         extend_mode: ExtendMode,
         stretch_size: LayoutSize,
-        tile_spacing: LayoutSize,
+        mut tile_spacing: LayoutSize,
     ) {
         let gradient_index = CachedGradientIndex(self.cached_gradients.len());
         self.cached_gradients.push(CachedGradient::new());
+
+        let mut prim_rect = info.rect;
+        simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
+        let info = LayoutPrimitiveInfo {
+            rect: prim_rect,
+            .. *info
+        };
 
         if tile_spacing != LayoutSize::zero() {
             let prim_infos = info.decompose(
@@ -1925,7 +1932,7 @@ impl<'a> DisplayListFlattener<'a> {
 
         self.add_gradient_impl(
             clip_and_scroll,
-            info,
+            &info,
             start_point,
             end_point,
             stops,
@@ -1982,10 +1989,17 @@ impl<'a> DisplayListFlattener<'a> {
         stops: ItemRange<GradientStop>,
         extend_mode: ExtendMode,
         stretch_size: LayoutSize,
-        tile_spacing: LayoutSize,
+        mut tile_spacing: LayoutSize,
     ) {
         let gradient_index = CachedGradientIndex(self.cached_gradients.len());
         self.cached_gradients.push(CachedGradient::new());
+
+        let mut prim_rect = info.rect;
+        simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
+        let info = LayoutPrimitiveInfo {
+            rect: prim_rect,
+            .. *info
+        };
 
         if tile_spacing != LayoutSize::zero() {
             let prim_infos = info.decompose(
@@ -2016,7 +2030,7 @@ impl<'a> DisplayListFlattener<'a> {
 
         self.add_radial_gradient_impl(
             clip_and_scroll,
-            info,
+            &info,
             center,
             start_radius,
             end_radius,
@@ -2123,13 +2137,12 @@ impl<'a> DisplayListFlattener<'a> {
         alpha_type: AlphaType,
         tile_offset: Option<TileOffset>,
     ) {
-        // If the tile spacing is the same as the rect size,
-        // then it is effectively zero. We use this later on
-        // in prim_store to detect if an image can be considered
-        // opaque.
-        if tile_spacing == info.rect.size {
-            tile_spacing = LayoutSize::zero();
-        }
+        let mut prim_rect = info.rect;
+        simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
+        let info = LayoutPrimitiveInfo {
+            rect: prim_rect,
+            .. *info
+        };
 
         let request = ImageRequest {
             key: image_key,
@@ -2170,7 +2183,7 @@ impl<'a> DisplayListFlattener<'a> {
 
             self.add_primitive(
                 clip_and_scroll,
-                info,
+                &info,
                 Vec::new(),
                 PrimitiveContainer::Brush(prim),
             );
@@ -2189,7 +2202,7 @@ impl<'a> DisplayListFlattener<'a> {
 
             self.add_primitive(
                 clip_and_scroll,
-                info,
+                &info,
                 Vec::new(),
                 PrimitiveContainer::Image(prim_cpu),
             );
