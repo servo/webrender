@@ -1225,7 +1225,8 @@ impl<'a> DisplayListFlattener<'a> {
         // TODO(gw): This is super conservative. We can expand on this a lot
         //           once all the picture code is in place and landed.
         let allow_subpixel_aa = composite_ops.count() == 0 &&
-                                transform_style == TransformStyle::Flat;
+                                transform_style == TransformStyle::Flat &&
+                                composite_mode.is_none();
 
         // Push the SC onto the stack, so we know how to handle things in
         // pop_stacking_context.
