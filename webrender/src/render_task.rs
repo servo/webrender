@@ -18,6 +18,7 @@ use gpu_types::{ImageSource, RasterizationSpace};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 #[cfg(feature = "pathfinder")]
 use pathfinder_partitioner::mesh::Mesh;
+use picture::PictureCacheKey;
 use prim_store::{PrimitiveIndex, ImageCacheKey};
 #[cfg(feature = "debugger")]
 use print_tree::{PrintTreePrinter};
@@ -855,6 +856,7 @@ pub enum RenderTaskCacheKeyKind {
     Image(ImageCacheKey),
     #[allow(dead_code)]
     Glyph(GpuGlyphCacheKey),
+    Picture(PictureCacheKey),
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
