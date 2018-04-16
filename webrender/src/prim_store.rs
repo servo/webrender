@@ -21,9 +21,9 @@ use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuData
 use gpu_types::{ClipChainRectIndex};
 use picture::{PictureCompositeMode, PictureId, PicturePrimitive};
 use render_task::{BlitSource, RenderTask, RenderTaskCacheKey};
-use render_task::{RenderTaskCacheKeyKind, RenderTaskId};
+use render_task::{RenderTaskCacheKeyKind, RenderTaskId, RenderTaskCacheEntryHandle};
 use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
-use resource_cache::{CacheItem, ImageProperties, ImageRequest};
+use resource_cache::{ImageProperties, ImageRequest};
 use segment::SegmentBuilder;
 use std::{mem, usize};
 use std::sync::Arc;
@@ -400,7 +400,7 @@ pub enum ImageSource {
     // via a render task.
     Cache {
         size: DeviceIntSize,
-        item: CacheItem,
+        handle: Option<RenderTaskCacheEntryHandle>,
     },
 }
 
@@ -1209,7 +1209,7 @@ impl PrimitiveStore {
                                 ImageSource::Cache {
                                     // Size in device-pixels we need to allocate in render task cache.
                                     size: texel_rect.size,
-                                    item: CacheItem::invalid(),
+                                    handle: None,
                                 }
                             }
                             None => {
@@ -1227,11 +1227,11 @@ impl PrimitiveStore {
                     // time through, and any time the render task output has been
                     // evicted from the texture cache.
                     match image_cpu.source {
-                        ImageSource::Cache { size, ref mut item } => {
+                        ImageSource::Cache { size, ref mut handle } => {
                             let key = image_cpu.key;
 
                             // Request a pre-rendered image task.
-                            *item = frame_state.resource_cache.request_render_task(
+                            *handle = Some(frame_state.resource_cache.request_render_task(
                                 RenderTaskCacheKey {
                                     size,
                                     kind: RenderTaskCacheKeyKind::Image(key),
@@ -1239,6 +1239,7 @@ impl PrimitiveStore {
                                 frame_state.gpu_cache,
                                 frame_state.render_tasks,
                                 None,
+                                image_properties.descriptor.is_opaque,
                                 |render_tasks| {
                                     // We need to render the image cache this frame,
                                     // so will need access to the source texture.
@@ -1271,9 +1272,9 @@ impl PrimitiveStore {
 
                                     // Pass the image opacity, so that the cached render task
                                     // item inherits the same opacity properties.
-                                    (target_to_cache_task_id, image_properties.descriptor.is_opaque)
+                                    target_to_cache_task_id
                                 }
-                            );
+                            ));
                         }
                         ImageSource::Default => {
                             // Normal images just reference the source texture each frame.
@@ -1314,7 +1315,7 @@ impl PrimitiveStore {
                                 *source = ImageSource::Cache {
                                     // Size in device-pixels we need to allocate in render task cache.
                                     size: rect.size,
-                                    item: CacheItem::invalid(),
+                                    handle: None,
                                 };
                             }
 
@@ -1325,14 +1326,14 @@ impl PrimitiveStore {
                             // time through, and any time the render task output has been
                             // evicted from the texture cache.
                             match *source {
-                                ImageSource::Cache { size, ref mut item } => {
+                                ImageSource::Cache { size, ref mut handle } => {
                                     let image_cache_key = ImageCacheKey {
                                         request,
                                         texel_rect: sub_rect,
                                     };
 
                                     // Request a pre-rendered image task.
-                                    *item = frame_state.resource_cache.request_render_task(
+                                    *handle = Some(frame_state.resource_cache.request_render_task(
                                         RenderTaskCacheKey {
                                             size,
                                             kind: RenderTaskCacheKeyKind::Image(image_cache_key),
@@ -1340,6 +1341,7 @@ impl PrimitiveStore {
                                         frame_state.gpu_cache,
                                         frame_state.render_tasks,
                                         None,
+                                        image_properties.descriptor.is_opaque,
                                         |render_tasks| {
                                             // We need to render the image cache this frame,
                                             // so will need access to the source texture.
@@ -1370,10 +1372,9 @@ impl PrimitiveStore {
 
                                             // Pass the image opacity, so that the cached render task
                                             // item inherits the same opacity properties.
-                                            (target_to_cache_task_id, image_properties.descriptor.is_opaque)
+                                            target_to_cache_task_id
                                         }
-                                    );
-
+                                    ));
                                 }
                                 ImageSource::Default => {
                                     // Normal images just reference the source texture each frame.

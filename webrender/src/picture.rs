@@ -11,9 +11,8 @@ use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState};
 use gpu_cache::{GpuCacheHandle};
 use prim_store::{PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
 use prim_store::{PrimitiveMetadata, ScrollNodeAndClipChain};
-use render_task::{ClearMode, RenderTask};
+use render_task::{ClearMode, RenderTask, RenderTaskCacheEntryHandle};
 use render_task::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId, RenderTaskLocation};
-use resource_cache::CacheItem;
 use scene::{FilterOpHelpers, SceneProperties};
 use std::mem;
 use tiling::RenderTargetKind;
@@ -48,7 +47,7 @@ pub enum PictureCompositeMode {
 #[derive(Debug)]
 pub enum PictureSurface {
     RenderTask(RenderTaskId),
-    TextureCache(CacheItem),
+    TextureCache(RenderTaskCacheEntryHandle),
 }
 
 // A unique identifier for a Picture. Once we start
@@ -323,7 +322,7 @@ impl PicturePrimitive {
                 // relevant transforms haven't changed from frame to frame.
                 let surface = if pic_state_for_children.has_non_root_coord_system {
                     let picture_task = RenderTask::new_picture(
-                        RenderTaskLocation::Dynamic(None, device_rect.size),
+                        RenderTaskLocation::Dynamic(None, Some(device_rect.size)),
                         prim_index,
                         device_rect.origin,
                         pic_state_for_children.tasks,
@@ -372,11 +371,12 @@ impl PicturePrimitive {
                         frame_state.gpu_cache,
                         frame_state.render_tasks,
                         None,
+                        false,
                         |render_tasks| {
                             let child_tasks = mem::replace(&mut pic_state_for_children.tasks, Vec::new());
 
                             let picture_task = RenderTask::new_picture(
-                                RenderTaskLocation::Dynamic(None, device_rect.size),
+                                RenderTaskLocation::Dynamic(None, Some(device_rect.size)),
                                 prim_index,
                                 device_rect.origin,
                                 child_tasks,
@@ -396,7 +396,7 @@ impl PicturePrimitive {
 
                             pic_state.tasks.push(render_task_id);
 
-                            (render_task_id, false)
+                            render_task_id
                         }
                     );
 
@@ -426,7 +426,7 @@ impl PicturePrimitive {
                     .unwrap();
 
                 let mut picture_task = RenderTask::new_picture(
-                    RenderTaskLocation::Dynamic(None, device_rect.size),
+                    RenderTaskLocation::Dynamic(None, Some(device_rect.size)),
                     prim_index,
                     device_rect.origin,
                     pic_state_for_children.tasks,
@@ -453,7 +453,7 @@ impl PicturePrimitive {
             }
             Some(PictureCompositeMode::MixBlend(..)) => {
                 let picture_task = RenderTask::new_picture(
-                    RenderTaskLocation::Dynamic(None, prim_screen_rect.clipped.size),
+                    RenderTaskLocation::Dynamic(None, Some(prim_screen_rect.clipped.size)),
                     prim_index,
                     prim_screen_rect.clipped.origin,
                     pic_state_for_children.tasks,
@@ -487,7 +487,7 @@ impl PicturePrimitive {
                 };
 
                 let picture_task = RenderTask::new_picture(
-                    RenderTaskLocation::Dynamic(None, prim_screen_rect.clipped.size),
+                    RenderTaskLocation::Dynamic(None, Some(prim_screen_rect.clipped.size)),
                     prim_index,
                     prim_screen_rect.clipped.origin,
                     pic_state_for_children.tasks,
@@ -501,7 +501,7 @@ impl PicturePrimitive {
             }
             Some(PictureCompositeMode::Blit) | None => {
                 let picture_task = RenderTask::new_picture(
-                    RenderTaskLocation::Dynamic(None, prim_screen_rect.clipped.size),
+                    RenderTaskLocation::Dynamic(None, Some(prim_screen_rect.clipped.size)),
                     prim_index,
                     prim_screen_rect.clipped.origin,
                     pic_state_for_children.tasks,
