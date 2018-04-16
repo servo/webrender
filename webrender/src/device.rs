@@ -1250,8 +1250,8 @@ impl Device {
             src_rect.origin.y + src_rect.size.height,
             dest_rect.origin.x,
             dest_rect.origin.y,
-            dest_rect.origin.x + dest_rect.size.width,
-            dest_rect.origin.y + dest_rect.size.height,
+            dest_rect.origin.x + src_rect.size.width,
+            dest_rect.origin.y + src_rect.size.height,
             gl::COLOR_BUFFER_BIT,
             gl::LINEAR,
         );

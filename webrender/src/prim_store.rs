@@ -1297,7 +1297,7 @@ impl PrimitiveStore {
                 let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
 
                 match brush.kind {
-                    BrushKind::Image { request, sub_rect, ref mut current_epoch, ref mut source, .. } => {
+                    BrushKind::Image { request, sub_rect, stretch_size, ref mut tile_spacing, ref mut current_epoch, ref mut source, .. } => {
                         let image_properties = frame_state
                             .resource_cache
                             .get_image_properties(request.key);
@@ -1309,6 +1309,17 @@ impl PrimitiveStore {
                             if image_properties.epoch != *current_epoch {
                                 *current_epoch = image_properties.epoch;
                                 metadata.opacity.is_opaque = image_properties.descriptor.is_opaque;
+                            }
+
+                            if *tile_spacing != LayerSize::zero() {
+                                *source = ImageSource::Cache {
+                                    // Size in device-pixels we need to allocate in render task cache.
+                                    size: DeviceIntSize::new(
+                                        image_properties.descriptor.width as i32,
+                                        image_properties.descriptor.height as i32
+                                    ),
+                                    handle: None,
+                                };
                             }
 
                             // Work out whether this image is a normal / simple type, or if
@@ -1328,7 +1339,21 @@ impl PrimitiveStore {
                             // time through, and any time the render task output has been
                             // evicted from the texture cache.
                             match *source {
-                                ImageSource::Cache { size, ref mut handle } => {
+                                ImageSource::Cache { ref mut size, ref mut handle } => {
+                                    let padding_x = (tile_spacing.width * size.width as f32 /
+                                        stretch_size.width) as i32;
+                                    let padding_y = (tile_spacing.height * size.height as f32 /
+                                        stretch_size.height) as i32;
+
+                                    if padding_x > 0 {
+                                        metadata.opacity.is_opaque = false;
+                                        size.width += padding_x;
+                                    }
+                                    if padding_y > 0 {
+                                        metadata.opacity.is_opaque = false;
+                                        size.height += padding_y;
+                                    }
+
                                     let image_cache_key = ImageCacheKey {
                                         request,
                                         texel_rect: sub_rect,
@@ -1337,7 +1362,7 @@ impl PrimitiveStore {
                                     // Request a pre-rendered image task.
                                     *handle = Some(frame_state.resource_cache.request_render_task(
                                         RenderTaskCacheKey {
-                                            size,
+                                            size: *size,
                                             kind: RenderTaskCacheKeyKind::Image(image_cache_key),
                                         },
                                         frame_state.gpu_cache,
@@ -1353,7 +1378,7 @@ impl PrimitiveStore {
                                             // a normal transient render task surface. This will
                                             // copy only the sub-rect, if specified.
                                             let cache_to_target_task = RenderTask::new_blit(
-                                                size,
+                                                *size,
                                                 BlitSource::Image { key: image_cache_key },
                                             );
                                             let cache_to_target_task_id = render_tasks.add(cache_to_target_task);
@@ -1362,7 +1387,7 @@ impl PrimitiveStore {
                                             // task above back into the right spot in the persistent
                                             // render target cache.
                                             let target_to_cache_task = RenderTask::new_blit(
-                                                size,
+                                                *size,
                                                 BlitSource::RenderTask {
                                                     task_id: cache_to_target_task_id,
                                                 },
