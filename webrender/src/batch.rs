@@ -11,7 +11,7 @@ use clip::{ClipSource, ClipStore, ClipWorkItem};
 use clip_scroll_tree::{CoordinateSystemId};
 use euclid::{TypedTransform3D, vec3};
 use glyph_rasterizer::GlyphFormat;
-use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
+use gpu_cache::{GpuCache, GpuCacheAddress};
 use gpu_types::{BrushFlags, BrushInstance, ClipChainRectIndex, ZBufferId, ZBufferIdGenerator};
 use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex, RasterizationSpace};
 use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
@@ -677,7 +677,12 @@ impl AlphaBatchBuilder {
                                                 let kind = BatchKind::Brush(
                                                     BrushBatchKind::Image(ImageBufferKind::Texture2DArray)
                                                 );
-                                                let (uv_rect_address, textures) = surface.resolve(render_tasks);
+                                                let (uv_rect_address, textures) = surface
+                                                    .resolve(
+                                                        render_tasks,
+                                                        ctx.resource_cache,
+                                                        gpu_cache,
+                                                    );
                                                 let key = BatchKey::new(
                                                     kind,
                                                     non_segmented_blend_mode,
@@ -696,7 +701,7 @@ impl AlphaBatchBuilder {
                                                     edge_flags: EdgeAaSegmentMask::empty(),
                                                     brush_flags: BrushFlags::empty(),
                                                     user_data: [
-                                                        uv_rect_address.as_int(gpu_cache),
+                                                        uv_rect_address.as_int(),
                                                         (BrushImageSourceKind::Color as i32) << 16 |
                                                         RasterizationSpace::Screen as i32,
                                                         picture.extra_gpu_data_handle.as_int(gpu_cache),
@@ -742,11 +747,11 @@ impl AlphaBatchBuilder {
                                             // Retrieve the UV rect addresses for shadow/content.
                                             let cache_task_id = surface.resolve_render_task_id();
                                             let shadow_uv_rect_address = render_tasks[cache_task_id]
-                                                .get_texture_handle()
-                                                .as_int(gpu_cache);
+                                                .get_texture_address(gpu_cache)
+                                                .as_int();
                                             let content_uv_rect_address = render_tasks[secondary_id]
-                                                .get_texture_handle()
-                                                .as_int(gpu_cache);
+                                                .get_texture_address(gpu_cache)
+                                                .as_int();
 
                                             // Get the GPU cache address of the extra data handle.
                                             let extra_data_address = gpu_cache.get_address(&picture.extra_gpu_data_handle);
@@ -933,8 +938,8 @@ impl AlphaBatchBuilder {
                                 );
 
                                 let uv_rect_address = render_tasks[cache_task_id]
-                                    .get_texture_handle()
-                                    .as_int(gpu_cache);
+                                    .get_texture_address(gpu_cache)
+                                    .as_int();
 
                                 let instance = BrushInstance {
                                     picture_address: task_address,
@@ -1077,8 +1082,14 @@ impl AlphaBatchBuilder {
                             deferred_resolves,
                         )
                     }
-                    ImageSource::Cache { ref item, .. } => {
-                        item.clone()
+                    ImageSource::Cache { ref handle, .. } => {
+                        let rt_handle = handle
+                            .as_ref()
+                            .expect("bug: render task handle not allocated");
+                        let rt_cache_entry = ctx
+                            .resource_cache
+                            .get_cached_render_task(rt_handle);
+                        ctx.resource_cache.get_texture_cache_item(&rt_cache_entry.handle)
                     }
                 };
 
@@ -1296,7 +1307,6 @@ impl BrushPrimitive {
     ) -> Option<(BrushBatchKind, BatchTextures, [i32; 3])> {
         match self.kind {
             BrushKind::Image { request, ref source, .. } => {
-
                 let cache_item = match *source {
                     ImageSource::Default => {
                         resolve_image(
@@ -1306,8 +1316,13 @@ impl BrushPrimitive {
                             deferred_resolves,
                         )
                     }
-                    ImageSource::Cache { ref item, .. } => {
-                        item.clone()
+                    ImageSource::Cache { ref handle, .. } => {
+                        let rt_handle = handle
+                            .as_ref()
+                            .expect("bug: render task handle not allocated");
+                        let rt_cache_entry = resource_cache
+                            .get_cached_render_task(rt_handle);
+                        resource_cache.get_texture_cache_item(&rt_cache_entry.handle)
                     }
                 };
 
@@ -1477,20 +1492,27 @@ impl AlphaBatchHelpers for PrimitiveStore {
 
 impl PictureSurface {
     // Retrieve the uv rect handle, and texture for a picture surface.
-    fn resolve<'a>(
-        &'a self,
-        render_tasks: &'a RenderTaskTree,
-    ) -> (&'a GpuCacheHandle, BatchTextures) {
+    fn resolve(
+        &self,
+        render_tasks: &RenderTaskTree,
+        resource_cache: &ResourceCache,
+        gpu_cache: &GpuCache,
+    ) -> (GpuCacheAddress, BatchTextures) {
         match *self {
-            PictureSurface::TextureCache(ref cache_item) => {
+            PictureSurface::TextureCache(ref handle) => {
+                let rt_cache_entry = resource_cache
+                    .get_cached_render_task(handle);
+                let cache_item = resource_cache
+                    .get_texture_cache_item(&rt_cache_entry.handle);
+
                 (
-                    &cache_item.uv_rect_handle,
+                    gpu_cache.get_address(&cache_item.uv_rect_handle),
                     BatchTextures::color(cache_item.texture_id),
                 )
             }
             PictureSurface::RenderTask(task_id) => {
                 (
-                    render_tasks[task_id].get_texture_handle(),
+                    render_tasks[task_id].get_texture_address(gpu_cache),
                     BatchTextures::render_target_cache(),
                 )
             }
@@ -1690,14 +1712,22 @@ impl ClipBatcher {
                         });
                     }
                     ClipSource::BoxShadow(ref info) => {
-                        debug_assert_ne!(info.cache_item.texture_id, SourceTexture::Invalid);
+                        let rt_handle = info
+                            .cache_handle
+                            .as_ref()
+                            .expect("bug: render task handle not allocated");
+                        let rt_cache_entry = resource_cache
+                            .get_cached_render_task(rt_handle);
+                        let cache_item = resource_cache
+                            .get_texture_cache_item(&rt_cache_entry.handle);
+                        debug_assert_ne!(cache_item.texture_id, SourceTexture::Invalid);
 
                         self.box_shadows
-                            .entry(info.cache_item.texture_id)
+                            .entry(cache_item.texture_id)
                             .or_insert(Vec::new())
                             .push(ClipMaskInstance {
                                 clip_data_address: gpu_address,
-                                resource_address: gpu_cache.get_address(&info.cache_item.uv_rect_handle),
+                                resource_address: gpu_cache.get_address(&cache_item.uv_rect_handle),
                                 ..instance
                             });
                     }

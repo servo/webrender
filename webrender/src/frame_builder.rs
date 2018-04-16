@@ -392,7 +392,7 @@ impl FrameBuilder {
 
         let gpu_cache_frame_id = gpu_cache.end_frame(gpu_cache_profile);
 
-        render_tasks.build();
+        render_tasks.write_task_data();
 
         resource_cache.end_frame();
 
