@@ -566,13 +566,14 @@ impl PicturePrimitive {
                     // Basic brush primitive header is (see end of prepare_prim_for_render_inner in prim_store.rs)
                     //  local_rect
                     //  clip_rect
-                    //  [segment_rects]
+                    //  [segment_rect, segment_data]
                     let shadow_rect = prim_metadata.local_rect.translate(&offset);
                     let shadow_clip_rect = prim_metadata.local_clip_rect.translate(&offset);
 
                     request.push(shadow_rect);
                     request.push(shadow_clip_rect);
                     request.push(shadow_rect);
+                    request.push([0.0; 4]);
 
                     // Now write another GLSL ImageBrush struct, for the shadow to reference.
                     request.push(self.task_rect.to_f32());
