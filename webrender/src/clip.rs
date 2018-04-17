@@ -14,14 +14,17 @@ use gpu_cache::{GpuCache, GpuCacheHandle, ToGpuBlocks};
 use gpu_types::{BoxShadowStretchMode, ClipScrollNodeIndex};
 use prim_store::{ClipData, ImageMaskData};
 use render_task::to_cache_size;
-use resource_cache::{CacheItem, ImageRequest, ResourceCache};
+use resource_cache::{ImageRequest, ResourceCache};
 use util::{LayerToWorldFastTransform, MaxRect, calculate_screen_bounding_rect};
 use util::{extract_inner_rect_safe, pack_as_float};
 use std::sync::Arc;
 
-pub type ClipStore = FreeList<ClipSources>;
-pub type ClipSourcesHandle = FreeListHandle<ClipSources>;
-pub type ClipSourcesWeakHandle = WeakFreeListHandle<ClipSources>;
+#[derive(Debug)]
+pub enum ClipStoreMarker {}
+
+pub type ClipStore = FreeList<ClipSources, ClipStoreMarker>;
+pub type ClipSourcesHandle = FreeListHandle<ClipStoreMarker>;
+pub type ClipSourcesWeakHandle = WeakFreeListHandle<ClipStoreMarker>;
 
 #[derive(Debug)]
 pub struct LineDecorationClipSource {
@@ -237,7 +240,7 @@ impl ClipSource {
             clip_mode,
             stretch_mode_x,
             stretch_mode_y,
-            cache_item: CacheItem::invalid(),
+            cache_handle: None,
             cache_key: None,
             clip_data_handle: GpuCacheHandle::new(),
             minimal_shadow_rect,

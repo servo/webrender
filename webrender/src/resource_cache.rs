@@ -27,7 +27,8 @@ use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use internal_types::{FastHashMap, FastHashSet, SourceTexture, TextureUpdateList};
 use profiler::{ResourceProfileCounters, TextureCacheProfileCounters};
 use render_backend::FrameId;
-use render_task::{RenderTaskCache, RenderTaskCacheKey, RenderTaskId, RenderTaskTree};
+use render_task::{RenderTaskCache, RenderTaskCacheKey, RenderTaskId};
+use render_task::{RenderTaskCacheEntry, RenderTaskCacheEntryHandle, RenderTaskTree};
 use std::collections::hash_map::Entry::{self, Occupied, Vacant};
 use std::cmp;
 use std::fmt::Debug;
@@ -346,14 +347,16 @@ impl ResourceCache {
         gpu_cache: &mut GpuCache,
         render_tasks: &mut RenderTaskTree,
         user_data: Option<[f32; 3]>,
+        is_opaque: bool,
         mut f: F,
-    ) -> CacheItem where F: FnMut(&mut RenderTaskTree) -> (RenderTaskId, bool) {
+    ) -> RenderTaskCacheEntryHandle where F: FnMut(&mut RenderTaskTree) -> RenderTaskId {
         self.cached_render_tasks.request_render_task(
             key,
             &mut self.texture_cache,
             gpu_cache,
             render_tasks,
             user_data,
+            is_opaque,
             |render_task_tree| Ok(f(render_task_tree))
         ).expect("Failed to request a render task from the resource cache!")
     }
@@ -841,6 +844,17 @@ impl ResourceCache {
         }
     }
 
+    pub fn get_cached_render_task(
+        &self,
+        handle: &RenderTaskCacheEntryHandle,
+    ) -> &RenderTaskCacheEntry {
+        self.cached_render_tasks.get_cache_entry(handle)
+    }
+
+    pub fn get_texture_cache_item(&self, handle: &TextureCacheHandle) -> CacheItem {
+        self.texture_cache.get(handle)
+    }
+
     pub fn get_image_properties(&self, image_key: ImageKey) -> Option<ImageProperties> {
         let image_template = &self.resources.image_templates.get(image_key);
 
@@ -917,6 +931,12 @@ impl ResourceCache {
 
         // Apply any updates of new / updated images (incl. blobs) to the texture cache.
         self.update_texture_cache(gpu_cache);
+        render_tasks.prepare_for_render();
+        self.cached_render_tasks.update(
+            gpu_cache,
+            &mut self.texture_cache,
+            render_tasks,
+        );
         self.texture_cache.end_frame(texture_cache_profile);
     }
 
