@@ -8,10 +8,6 @@
 
 flat varying vec4 vColor;
 
-#ifdef WR_FEATURE_ALPHA_PASS
-varying vec2 vLocalPos;
-#endif
-
 #ifdef WR_VERTEX_SHADER
 
 struct SolidBrush {
@@ -33,19 +29,12 @@ void brush_vs(
 ) {
     SolidBrush prim = fetch_solid_primitive(prim_address);
     vColor = prim.color;
-
-#ifdef WR_FEATURE_ALPHA_PASS
-    vLocalPos = vi.local_pos;
-#endif
 }
 #endif
 
 #ifdef WR_FRAGMENT_SHADER
 vec4 brush_fs() {
     vec4 color = vColor;
-#ifdef WR_FEATURE_ALPHA_PASS
-    color *= init_transform_fs(vLocalPos);
-#endif
     return color;
 }
 #endif
