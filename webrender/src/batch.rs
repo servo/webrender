@@ -598,6 +598,9 @@ impl AlphaBatchBuilder {
     ) {
         let z = z_generator.next();
         let prim_metadata = ctx.prim_store.get_metadata(prim_index);
+        #[cfg(debug_assertions)] //TODO: why is this needed?
+        debug_assert_eq!(prim_metadata.prepared_frame_id, render_tasks.frame_id());
+
         let scroll_node = &ctx.node_data[scroll_id.0 as usize];
         // TODO(gw): Calculating this for every primitive is a bit
         //           wasteful. We should probably cache this in
