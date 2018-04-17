@@ -18,7 +18,8 @@ void brush_vs(
     RectWithSize local_rect,
     ivec3 user_data,
     mat4 transform,
-    PictureTask pic_task
+    PictureTask pic_task,
+    vec4 unused
 ) {
     vec2 texture_size = vec2(textureSize(sCacheRGBA8, 0));
     vOp = user_data.x;
