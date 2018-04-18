@@ -24,6 +24,7 @@ use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKind, RenderTaskTre
 use renderer::{BlendMode, ImageBufferKind};
 use renderer::BLOCKS_PER_UV_RECT;
 use resource_cache::{CacheItem, GlyphFetchResult, ImageRequest, ResourceCache};
+use scene::FilterOpHelpers;
 use std::{usize, f32, i32};
 use tiling::{RenderTargetContext};
 use util::{MatrixHelpers, TransformedRectKind};
@@ -673,6 +674,7 @@ impl AlphaBatchBuilder {
 
                         let add_to_parent_pic = match picture.composite_mode {
                             Some(PictureCompositeMode::Filter(filter)) => {
+                                assert!(filter.is_visible());
                                 match filter {
                                     FilterOp::Blur(..) => {
                                         match picture.surface {
