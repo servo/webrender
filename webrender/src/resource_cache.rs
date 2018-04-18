@@ -237,6 +237,16 @@ pub struct ImageRequest {
     pub tile: Option<TileOffset>,
 }
 
+impl ImageRequest {
+    pub fn with_tile(&self, offset: TileOffset) -> Self {
+        ImageRequest {
+            key: self.key,
+            rendering: self.rendering,
+            tile: Some(offset),
+        }
+    }
+}
+
 impl Into<BlobImageRequest> for ImageRequest {
     fn into(self) -> BlobImageRequest {
         BlobImageRequest {

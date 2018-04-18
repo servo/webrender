@@ -5,7 +5,7 @@ root:
     # applied so that when an image is split into several primitives, so that the latter
     # all get snapped the same way rather than independently.
     #- image: xy-gradient(300, 300)
-    - image: solid-color(255, 0, 0, 255, 300, 300)
+    - image: xy-gradient(800, 800)
       bounds: 0 0 800 800
       stretch-size: 200 200
       tile-spacing: 10 10

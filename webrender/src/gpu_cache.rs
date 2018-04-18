@@ -654,4 +654,14 @@ impl GpuCache {
         debug_assert_eq!(block.last_access_time, self.frame_id);
         block.address
     }
+
+    /// Similar to get_address except that it accepts invalid cache handles in which case it
+    /// returns an invalid cache address.
+    pub fn try_get_address(&self, id: &GpuCacheHandle) -> GpuCacheAddress {
+        if id.location.is_none() {
+            return GpuCacheAddress::invalid();
+        }
+
+        self.get_address(id)
+    }
 }

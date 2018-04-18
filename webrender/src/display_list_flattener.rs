@@ -22,11 +22,11 @@ use euclid::{SideOffsets2D, vec2};
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use glyph_rasterizer::FontInstance;
 use hit_test::{HitTestingItem, HitTestingRun};
-use image::{decompose_image, TiledImageInfo, simplify_repeated_primitive};
+use image::simplify_repeated_primitive;
 use internal_types::{FastHashMap, FastHashSet};
 use picture::PictureCompositeMode;
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor, CachedGradient};
-use prim_store::{CachedGradientIndex, ImageCacheKey, ImagePrimitiveCpu, ImageSource};
+use prim_store::{CachedGradientIndex, ImageSource};
 use prim_store::{PictureIndex, PrimitiveContainer, PrimitiveIndex, PrimitiveStore};
 use prim_store::{ScrollNodeAndClipChain, TextRunPrimitiveCpu};
 use render_backend::{DocumentView};
@@ -633,49 +633,16 @@ impl<'a> DisplayListFlattener<'a> {
         let prim_info = item.get_layer_primitive_info(&reference_frame_relative_offset);
         match *item.item() {
             SpecificDisplayItem::Image(ref info) => {
-                match self.tiled_image_map.get(&info.image_key).cloned() {
-                    Some(tiling) => {
-                        // The image resource is tiled. We have to generate an image primitive
-                        // for each tile.
-                        decompose_image(
-                            &TiledImageInfo {
-                                rect: prim_info.rect,
-                                tile_spacing: info.tile_spacing,
-                                stretch_size: info.stretch_size,
-                                device_image_size: tiling.image_size,
-                                device_tile_size: tiling.tile_size as u32,
-                            },
-                            &mut|tile| {
-                                let mut prim_info = prim_info.clone();
-                                prim_info.rect = tile.rect;
-                                self.add_image(
-                                    clip_and_scroll,
-                                    &prim_info,
-                                    tile.stretch_size,
-                                    info.tile_spacing,
-                                    None,
-                                    info.image_key,
-                                    info.image_rendering,
-                                    info.alpha_type,
-                                    Some(tile.tile_offset),
-                                );
-                            }
-                        );
-                    }
-                    None => {
-                        self.add_image(
-                            clip_and_scroll,
-                            &prim_info,
-                            info.stretch_size,
-                            info.tile_spacing,
-                            None,
-                            info.image_key,
-                            info.image_rendering,
-                            info.alpha_type,
-                            None,
-                        );
-                    }
-                }
+                self.add_image(
+                    clip_and_scroll,
+                    &prim_info,
+                    info.stretch_size,
+                    info.tile_spacing,
+                    None,
+                    info.image_key,
+                    info.image_rendering,
+                    info.alpha_type,
+                );
             }
             SpecificDisplayItem::YuvImage(ref info) => {
                 self.add_yuv_image(
@@ -1791,7 +1758,6 @@ impl<'a> DisplayListFlattener<'a> {
                         border.image_key,
                         ImageRendering::Auto,
                         AlphaType::PremultipliedAlpha,
-                        None,
                     );
                 }
             }
@@ -2149,19 +2115,12 @@ impl<'a> DisplayListFlattener<'a> {
         image_key: ImageKey,
         image_rendering: ImageRendering,
         alpha_type: AlphaType,
-        tile_offset: Option<TileOffset>,
     ) {
         let mut prim_rect = info.rect;
         simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
         let info = LayerPrimitiveInfo {
             rect: prim_rect,
             .. *info
-        };
-
-        let request = ImageRequest {
-            key: image_key,
-            rendering: image_rendering,
-            tile: tile_offset,
         };
 
         let sub_rect = sub_rect.map(|texel_rect| {
@@ -2177,48 +2136,30 @@ impl<'a> DisplayListFlattener<'a> {
             )
         });
 
-        // See if conditions are met to run through the new
-        // image brush shader, which supports segments.
-        if tile_offset.is_none() {
-            let prim = BrushPrimitive::new(
-                BrushKind::Image {
-                    request,
-                    current_epoch: Epoch::invalid(),
-                    alpha_type,
-                    stretch_size,
-                    tile_spacing,
-                    source: ImageSource::Default,
-                    sub_rect,
+        let prim = BrushPrimitive::new(
+            BrushKind::Image {
+                request: ImageRequest {
+                    key: image_key,
+                    rendering: image_rendering,
+                    tile: None,
                 },
-                None,
-            );
-
-            self.add_primitive(
-                clip_and_scroll,
-                &info,
-                Vec::new(),
-                PrimitiveContainer::Brush(prim),
-            );
-        } else {
-            let prim_cpu = ImagePrimitiveCpu {
-                tile_spacing,
+                current_epoch: Epoch::invalid(),
                 alpha_type,
                 stretch_size,
-                current_epoch: Epoch::invalid(),
+                tile_spacing,
                 source: ImageSource::Default,
-                key: ImageCacheKey {
-                    request,
-                    texel_rect: sub_rect,
-                },
-            };
+                sub_rect,
+                visible_tiles: Vec::new(),
+            },
+            None,
+        );
 
-            self.add_primitive(
-                clip_and_scroll,
-                &info,
-                Vec::new(),
-                PrimitiveContainer::Image(prim_cpu),
-            );
-        }
+        self.add_primitive(
+            clip_and_scroll,
+            &info,
+            Vec::new(),
+            PrimitiveContainer::Brush(prim),
+        );
     }
 
     pub fn add_yuv_image(
