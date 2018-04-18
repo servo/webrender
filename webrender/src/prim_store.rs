@@ -20,6 +20,8 @@ use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuData
                 ToGpuBlocks};
 use gpu_types::{ClipChainRectIndex};
 use picture::{PictureCompositeMode, PictureId, PicturePrimitive};
+#[cfg(debug_assertions)]
+use render_backend::FrameId;
 use render_task::{BlitSource, RenderTask, RenderTaskCacheKey};
 use render_task::{RenderTaskCacheKeyKind, RenderTaskId, RenderTaskCacheEntryHandle};
 use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
@@ -191,6 +193,11 @@ pub struct PrimitiveMetadata {
     /// A tag used to identify this primitive outside of WebRender. This is
     /// used for returning useful data during hit testing.
     pub tag: Option<ItemTag>,
+
+    /// The last frame ID (of the `RenderTaskTree`) this primitive
+    /// was prepared for rendering in.
+    #[cfg(debug_assertions)]
+    pub prepared_frame_id: FrameId,
 }
 
 #[derive(Debug)]
@@ -1083,6 +1090,8 @@ impl PrimitiveStore {
             opacity: PrimitiveOpacity::translucent(),
             prim_kind: PrimitiveKind::Brush,
             cpu_prim_index: SpecificPrimitiveIndex(0),
+            #[cfg(debug_assertions)]
+            prepared_frame_id: FrameId(0),
         };
 
         let metadata = match container {
@@ -1167,6 +1176,11 @@ impl PrimitiveStore {
         frame_state: &mut FrameBuildingState,
     ) {
         let metadata = &mut self.cpu_metadata[prim_index.0];
+        #[cfg(debug_assertions)]
+        {
+            metadata.prepared_frame_id = frame_state.render_tasks.frame_id();
+        }
+
         match metadata.prim_kind {
             PrimitiveKind::Border => {}
             PrimitiveKind::TextRun => {
