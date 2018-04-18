@@ -3,8 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AlphaType, BorderRadius, BoxShadowClipMode, BuiltDisplayList, ClipMode, ColorF, ComplexClipRegion};
-use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, FontRenderMode};
-use api::{FilterOp, GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
+use api::{DeviceIntRect, DeviceIntSize, DeviceUintSize, DevicePixelScale, Epoch, ExtendMode, FontRenderMode};
+use api::{FilterOp, GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, TileOffset};
 use api::{GlyphRasterSpace, LayoutPoint, LayoutRect, LayoutSize, LayoutToWorldTransform, LayoutVector2D};
 use api::{PipelineId, PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat, DeviceIntSideOffsets};
 use border::{BorderCornerInstance, BorderEdgeKind};
@@ -19,6 +19,7 @@ use glyph_rasterizer::{FontInstance, FontTransform};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
 use gpu_types::{BrushFlags, ClipChainRectIndex};
+use image::{for_each_tile, for_each_repetition};
 use picture::{PictureCompositeMode, PictureId, PicturePrimitive};
 #[cfg(debug_assertions)]
 use render_backend::FrameId;
@@ -243,6 +244,13 @@ impl OpacityBinding {
 }
 
 #[derive(Debug)]
+pub struct VisibleImageTile {
+    pub tile_offset: TileOffset,
+    pub handle: GpuCacheHandle,
+    pub edge_flags: EdgeAaSegmentMask,
+}
+
+#[derive(Debug)]
 pub enum BrushKind {
     Solid {
         color: ColorF,
@@ -261,6 +269,7 @@ pub enum BrushKind {
         source: ImageSource,
         sub_rect: Option<DeviceIntRect>,
         opacity_binding: OpacityBinding,
+        visible_tiles: Vec<VisibleImageTile>,
     },
     YuvImage {
         yuv_key: [ImageKey; 3],
@@ -1431,6 +1440,7 @@ impl PrimitiveStore {
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
     ) {
+        let mut is_tiled_image = false;
         let metadata = &mut self.cpu_metadata[prim_index.0];
         #[cfg(debug_assertions)]
         {
@@ -1574,15 +1584,18 @@ impl PrimitiveStore {
                         ref mut current_epoch,
                         ref mut source,
                         ref mut opacity_binding,
+                        ref mut visible_tiles,
                         ..
                     } => {
                         let image_properties = frame_state
                             .resource_cache
                             .get_image_properties(request.key);
 
+
                         // Set if we need to request the source image from the cache this frame.
                         if let Some(image_properties) = image_properties {
                             *current_epoch = image_properties.epoch;
+                            is_tiled_image = image_properties.tiling.is_some();
 
                             // If the opacity changed, invalidate the GPU cache so that
                             // the new color for this primitive gets uploaded.
@@ -1596,7 +1609,7 @@ impl PrimitiveStore {
                                 image_properties.descriptor.is_opaque &&
                                 opacity_binding.current == 1.0;
 
-                            if *tile_spacing != LayoutSize::zero() {
+                            if *tile_spacing != LayoutSize::zero() && !is_tiled_image {
                                 *source = ImageSource::Cache {
                                     // Size in device-pixels we need to allocate in render task cache.
                                     size: DeviceIntSize::new(
@@ -1610,6 +1623,8 @@ impl PrimitiveStore {
                             // Work out whether this image is a normal / simple type, or if
                             // we need to pre-render it to the render task cache.
                             if let Some(rect) = sub_rect {
+                                // We don't properly support this right now.
+                                debug_assert!(!is_tiled_image);
                                 *source = ImageSource::Cache {
                                     // Size in device-pixels we need to allocate in render task cache.
                                     size: rect.size,
@@ -1696,14 +1711,80 @@ impl PrimitiveStore {
                                 }
                             }
 
-                            if request_source_image {
+                            if let Some(tile_size) = image_properties.tiling {
+
+                                let device_image_size = DeviceUintSize::new(
+                                    image_properties.descriptor.width,
+                                    image_properties.descriptor.height,
+                                );
+
+                                // Tighten the clip rect because decomposing the repeated image can
+                                // produce primitives that are partially covering the original image
+                                // rect and we want to clip these extra parts out.
+                                let tight_clip_rect = metadata.local_clip_rect.intersection(&metadata.local_rect).unwrap();
+
+                                let visible_rect = compute_conservative_visible_rect(
+                                    prim_run_context,
+                                    frame_context,
+                                    &tight_clip_rect
+                                );
+
+                                let base_edge_flags = edge_flags_for_tile_spacing(tile_spacing);
+
+                                let stride = stretch_size + *tile_spacing;
+
+                                visible_tiles.clear();
+
+                                for_each_repetition(
+                                    &metadata.local_rect,
+                                    &visible_rect,
+                                    &stride,
+                                    &mut |origin, edge_flags| {
+                                        let edge_flags = base_edge_flags | edge_flags;
+
+                                        let image_rect = LayoutRect {
+                                            origin: *origin,
+                                            size: stretch_size,
+                                        };
+
+                                        for_each_tile(
+                                            &image_rect,
+                                            &visible_rect,
+                                            &device_image_size,
+                                            tile_size as u32,
+                                            &mut |tile_rect, tile_offset, tile_flags| {
+
+                                                frame_state.resource_cache.request_image(
+                                                    request.with_tile(tile_offset),
+                                                    frame_state.gpu_cache,
+                                                );
+
+                                                let mut handle = GpuCacheHandle::new();
+                                                if let Some(mut request) = frame_state.gpu_cache.request(&mut handle) {
+                                                    request.push(*tile_rect);
+                                                    request.push(tight_clip_rect);
+                                                    request.push(ColorF::new(1.0, 1.0, 1.0, opacity_binding.current).premultiplied());
+                                                    request.push(PremultipliedColorF::WHITE);
+                                                    request.push([tile_rect.size.width, tile_rect.size.height, 0.0, 0.0]);
+                                                    request.write_segment(*tile_rect, [0.0; 4]);
+                                                }
+
+                                                visible_tiles.push(VisibleImageTile {
+                                                    tile_offset,
+                                                    handle,
+                                                    edge_flags: tile_flags & edge_flags,
+                                                });
+                                            }
+                                        );
+                                    }
+                                );
+                            } else if request_source_image {
                                 frame_state.resource_cache.request_image(
                                     request,
                                     frame_state.gpu_cache,
                                 );
                             }
                         }
-
                     }
                     BrushKind::YuvImage { format, yuv_key, image_rendering, .. } => {
                         let channel_num = format.get_plane_num();
@@ -1787,6 +1868,11 @@ impl PrimitiveStore {
                     BrushKind::Clear => {}
                 }
             }
+        }
+
+        if is_tiled_image {
+            // we already requested each tile's gpu data.
+            return;
         }
 
         // Mark this GPU resource as required for this frame.
@@ -2515,6 +2601,39 @@ impl PrimitiveStore {
 
         result
     }
+}
+
+fn compute_conservative_visible_rect(
+    prim_run_context: &PrimitiveRunContext,
+    frame_context: &FrameBuildingContext,
+    local_clip_rect: &LayoutRect,
+) -> LayoutRect {
+    let world_screen_rect = prim_run_context
+        .clip_chain.combined_outer_screen_rect
+        .to_f32() / frame_context.device_pixel_scale;
+
+    if let Some(layer_screen_rect) = prim_run_context
+        .scroll_node
+        .world_content_transform
+        .unapply(&world_screen_rect) {
+
+        return local_clip_rect.intersection(&layer_screen_rect).unwrap_or(LayoutRect::zero());
+    }
+
+    *local_clip_rect
+}
+
+fn edge_flags_for_tile_spacing(tile_spacing: &LayoutSize) -> EdgeAaSegmentMask {
+    let mut flags = EdgeAaSegmentMask::empty();
+
+    if tile_spacing.width > 0.0 {
+        flags |= EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::RIGHT;
+    }
+    if tile_spacing.height > 0.0 {
+        flags |= EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::BOTTOM;
+    }
+
+    flags
 }
 
 //Test for one clip region contains another
