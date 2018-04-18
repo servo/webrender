@@ -1958,7 +1958,13 @@ impl PrimitiveStore {
                 pic.runs = pic_context_for_children.prim_runs;
 
                 let metadata = &mut self.cpu_metadata[prim_index.0];
-                metadata.local_rect = pic.update_local_rect(result);
+
+                let new_local_rect = pic.update_local_rect(result);
+
+                if new_local_rect != metadata.local_rect {
+                    metadata.local_rect = new_local_rect;
+                    frame_state.gpu_cache.invalidate(&mut metadata.gpu_location);
+                }
             }
         }
 
