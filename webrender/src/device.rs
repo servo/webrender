@@ -12,6 +12,7 @@ use euclid::Transform3D;
 use gleam::gl;
 use internal_types::{FastHashMap, RenderTargetInfo};
 use log::Level;
+use ref_slice::ref_slice_mut;
 use smallvec::SmallVec;
 use std::cell::RefCell;
 use std::fs::File;
@@ -701,11 +702,19 @@ impl Device {
         _file_changed_handler: Box<FileWatcherHandler>,
         cached_programs: Option<Rc<ProgramCache>>,
     ) -> Device {
-        let max_texture_size = gl.get_integer_v(gl::MAX_TEXTURE_SIZE) as u32;
+        let mut max_texture_size = 0;
+        unsafe {
+            gl.get_integer_v(gl::MAX_TEXTURE_SIZE, ref_slice_mut(&mut max_texture_size));
+        }
+        let max_texture_size = max_texture_size as u32;
         let renderer_name = gl.get_string(gl::RENDERER);
 
+        let mut extension_count = 0;
+        unsafe {
+            gl.get_integer_v(gl::MAX_TEXTURE_SIZE, ref_slice_mut(&mut extension_count));
+        }
+        let extension_count = max_texture_size as gl::GLuint;
         let mut extensions = Vec::new();
-        let extension_count = gl.get_integer_v(gl::NUM_EXTENSIONS) as gl::GLuint;
         for i in 0 .. extension_count {
             extensions.push(gl.get_string_i(gl::EXTENSIONS, i));
         }
@@ -803,7 +812,11 @@ impl Device {
         gl.shader_source(id, &[source.as_bytes()]);
         gl.compile_shader(id);
         let log = gl.get_shader_info_log(id);
-        if gl.get_shader_iv(id, gl::COMPILE_STATUS) == (0 as gl::GLint) {
+        let mut status = 0;
+        unsafe {
+            gl.get_shader_iv(id, gl::COMPILE_STATUS, ref_slice_mut(&mut status));
+        }
+        if status == 0 {
             error!("Failed to compile shader: {}\n{}", name, log);
             #[cfg(debug_assertions)]
             Self::print_shader_errors(source, &log);
@@ -821,9 +834,15 @@ impl Device {
         self.inside_frame = true;
 
         // Retrieve the currently set FBO.
-        let default_read_fbo = self.gl.get_integer_v(gl::READ_FRAMEBUFFER_BINDING);
+        let mut default_read_fbo = 0;
+        unsafe {
+            self.gl.get_integer_v(gl::READ_FRAMEBUFFER_BINDING, ref_slice_mut(&mut default_read_fbo));
+        }
         self.default_read_fbo = default_read_fbo as gl::GLuint;
-        let default_draw_fbo = self.gl.get_integer_v(gl::DRAW_FRAMEBUFFER_BINDING);
+        let mut default_draw_fbo = 0;
+        unsafe {
+            self.gl.get_integer_v(gl::DRAW_FRAMEBUFFER_BINDING, ref_slice_mut(&mut default_draw_fbo));
+        }
         self.default_draw_fbo = default_draw_fbo as gl::GLuint;
 
         // Texture state
@@ -1379,7 +1398,11 @@ impl Device {
             {
                 self.gl.program_binary(pid, binary.format, &binary.binary);
 
-                if self.gl.get_program_iv(pid, gl::LINK_STATUS) == (0 as gl::GLint) {
+                let mut link_status = 0;
+                unsafe {
+                    self.gl.get_program_iv(pid, gl::LINK_STATUS, ref_slice_mut(&mut link_status));
+                }
+                if link_status == 0 {
                     let error_log = self.gl.get_program_info_log(pid);
                     error!(
                       "Failed to load a program object with a program binary: {} renderer {}\n{}",
@@ -1441,7 +1464,11 @@ impl Device {
             self.gl.delete_shader(vs_id);
             self.gl.delete_shader(fs_id);
 
-            if self.gl.get_program_iv(pid, gl::LINK_STATUS) == (0 as gl::GLint) {
+            let mut link_status = 0;
+            unsafe {
+                self.gl.get_program_iv(pid, gl::LINK_STATUS, ref_slice_mut(&mut link_status));
+            }
+            if link_status == 0 {
                 let error_log = self.gl.get_program_info_log(pid);
                 error!(
                     "Failed to link shader program: {}\n{}",
@@ -1963,7 +1990,13 @@ impl Device {
         }
 
         if let Some(depth) = depth {
-            debug_assert_ne!(self.gl.get_boolean_v(gl::DEPTH_WRITEMASK), 0);
+            if cfg!(debug_assertions) {
+                let mut mask = 0;
+                unsafe {
+                    self.gl.get_boolean_v(gl::DEPTH_WRITEMASK, ref_slice_mut(&mut mask));
+                }
+                assert_ne!(mask, 0);
+            }
             self.gl.clear_depth(depth as f64);
             clear_bits |= gl::DEPTH_BUFFER_BIT;
         }

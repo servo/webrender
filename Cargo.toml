@@ -13,3 +13,6 @@ panic = "abort"
 
 [patch.crates-io]
 serde_derive = { git = "https://github.com/servo/serde", branch = "deserialize_from_enums6", feature="deserialize_in_place" }
+
+cgl = {git = "https://github.com/servo/cgl-rs.git", branch = "gleam"}
+gleam = {git = "https://github.com/servo/gleam.git", branch = "safety"}

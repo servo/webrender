@@ -43,16 +43,17 @@ they're nestable.
 #[macro_use]
 extern crate bitflags;
 #[macro_use]
+extern crate cfg_if;
+#[macro_use]
 extern crate lazy_static;
 #[macro_use]
 extern crate log;
-#[macro_use]
-extern crate thread_profiler;
-#[macro_use]
-extern crate cfg_if;
+extern crate ref_slice;
 #[cfg(any(feature = "debugger", feature = "capture", feature = "replay"))]
 #[macro_use]
 extern crate serde;
+#[macro_use]
+extern crate thread_profiler;
 
 mod batch;
 mod border;
