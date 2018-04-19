@@ -129,14 +129,12 @@ void main(void) {
             vMaskSwizzle = vec2(0.0, 1.0);
             vColor = text.color;
             break;
-        case COLOR_MODE_SUBPX_PASS1:
         case COLOR_MODE_SUBPX_BG_PASS2:
         case COLOR_MODE_SUBPX_DUAL_SOURCE:
             vMaskSwizzle = vec2(1.0, 0.0);
             vColor = text.color;
             break;
         case COLOR_MODE_SUBPX_CONST_COLOR:
-        case COLOR_MODE_SUBPX_PASS0:
         case COLOR_MODE_SUBPX_BG_PASS0:
         case COLOR_MODE_COLOR_BITMAP:
             vMaskSwizzle = vec2(1.0, 0.0);

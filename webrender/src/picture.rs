@@ -27,6 +27,9 @@ use tiling::RenderTargetKind;
    this picture (e.g. in screen space or local space).
  */
 
+pub const IMAGE_BRUSH_EXTRA_BLOCKS: usize = 2;
+pub const IMAGE_BRUSH_BLOCKS: usize = 6;
+
 /// Specifies how this Picture should be composited
 /// onto the target it belongs to.
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -561,6 +564,9 @@ impl PicturePrimitive {
                     //           rect for the shadow. To tidy this up in future,
                     //           we could consider abstracting the code in prim_store.rs
                     //           that writes a brush primitive header.
+
+                    // NOTE: If any of the layout below changes, the IMAGE_BRUSH_EXTRA_BLOCKS and
+                    //       IMAGE_BRUSH_BLOCKS fields above *must* be updated.
 
                     // Basic brush primitive header is (see end of prepare_prim_for_render_inner in prim_store.rs)
                     //  local_rect

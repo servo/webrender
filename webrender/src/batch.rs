@@ -17,6 +17,7 @@ use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex, RasterizationSpace};
 use gpu_types::{CompositePrimitiveInstance, PrimitiveInstance, SimplePrimitiveInstance};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::{PictureCompositeMode, PicturePrimitive, PictureSurface};
+use picture::{IMAGE_BRUSH_BLOCKS, IMAGE_BRUSH_EXTRA_BLOCKS};
 use plane_split::{BspSplitter, Polygon, Splitter};
 use prim_store::{CachedGradient, ImageSource, PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
 use prim_store::{BrushPrimitive, BrushKind, DeferredResolve, EdgeAaSegmentMask, PictureIndex, PrimitiveRun};
@@ -154,10 +155,9 @@ impl AlphaBatchList {
         let mut selected_batch_index = None;
 
         match key.blend_mode {
-            BlendMode::SubpixelWithBgColor |
-            BlendMode::SubpixelVariableTextColor => {
+            BlendMode::SubpixelWithBgColor => {
                 'outer_multipass: for (batch_index, batch) in self.batches.iter().enumerate().rev().take(10) {
-                    // Some subpixel batches is drawn in two passes. Because of this, we need
+                    // Some subpixel batches are drawn in two passes. Because of this, we need
                     // to check for overlaps with every batch (which is a bit different
                     // than the normal batching below).
                     for item_rect in &self.item_rects[batch_index] {
@@ -313,7 +313,6 @@ impl BatchList {
             BlendMode::PremultipliedAlpha |
             BlendMode::PremultipliedDestOut |
             BlendMode::SubpixelConstantTextColor(..) |
-            BlendMode::SubpixelVariableTextColor |
             BlendMode::SubpixelWithBgColor |
             BlendMode::SubpixelDualSource => {
                 self.alpha_batch_list
@@ -751,8 +750,10 @@ impl AlphaBatchBuilder {
 
                                             // Get the GPU cache address of the extra data handle.
                                             let extra_data_address = gpu_cache.get_address(&picture.extra_gpu_data_handle);
-                                            let shadow_prim_address = extra_data_address.offset(2);
-                                            let shadow_data_address = extra_data_address.offset(8);
+                                            let shadow_prim_address = extra_data_address
+                                                .offset(IMAGE_BRUSH_EXTRA_BLOCKS);
+                                            let shadow_data_address = extra_data_address
+                                                .offset(IMAGE_BRUSH_EXTRA_BLOCKS + IMAGE_BRUSH_BLOCKS);
 
                                             let shadow_instance = BrushInstance {
                                                 picture_address: task_address,
