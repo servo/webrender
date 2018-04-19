@@ -19,18 +19,12 @@ flat varying vec4 vUvBounds;
 flat varying vec4 vUvSampleBounds;
 
 #ifdef WR_FEATURE_ALPHA_PASS
-flat varying vec2 vSelect;
 flat varying vec4 vColor;
+flat varying vec2 vMaskSwizzle;
 flat varying vec2 vTileRepeat;
 #endif
 
 #ifdef WR_VERTEX_SHADER
-
-#ifdef WR_FEATURE_ALPHA_PASS
-    #define IMAGE_SOURCE_COLOR              0
-    #define IMAGE_SOURCE_ALPHA              1
-    #define IMAGE_SOURCE_MASK_FROM_COLOR    2
-#endif
 
 struct ImageBrushData {
     vec4 color;
@@ -114,11 +108,9 @@ void brush_vs(
     vec2 f;
 
 #ifdef WR_FEATURE_ALPHA_PASS
-    int image_source = user_data.y >> 16;
+    int color_mode = user_data.y >> 16;
     int raster_space = user_data.y & 0xffff;
-
     ImageBrushData image_data = fetch_image_data(prim_address);
-    vColor = image_data.color;
 
     // Derive the texture coordinates for this image, based on
     // whether the source image is a local-space or screen-space
@@ -133,8 +125,8 @@ void brush_vs(
             // in order to generate the correct screen-space UV.
             // For other effects, we can use the 1:1 mapping of
             // the vertex device position for the UV generation.
-            switch (image_source) {
-                case IMAGE_SOURCE_MASK_FROM_COLOR: {
+            switch (color_mode) {
+                case COLOR_MODE_ALPHA: {
                     vec2 local_pos = vi.local_pos - extra_data.offset;
                     snapped_device_pos = transform_point_snapped(
                         local_pos,
@@ -143,8 +135,6 @@ void brush_vs(
                     );
                     break;
                 }
-                case IMAGE_SOURCE_COLOR:
-                case IMAGE_SOURCE_ALPHA:
                 default:
                     snapped_device_pos = vi.snapped_device_pos;
                     break;
@@ -178,17 +168,32 @@ void brush_vs(
 #ifdef WR_FEATURE_ALPHA_PASS
     vTileRepeat = repeat.xy;
 
-    switch (image_source) {
-        case IMAGE_SOURCE_ALPHA:
-            vSelect = vec2(0.0, 1.0);
+    switch (color_mode) {
+        case COLOR_MODE_ALPHA:
+        case COLOR_MODE_BITMAP:
+            vMaskSwizzle = vec2(0.0, 1.0);
+            vColor = image_data.color;
             break;
-        case IMAGE_SOURCE_MASK_FROM_COLOR:
-            vSelect = vec2(1.0, 1.0);
+        case COLOR_MODE_SUBPX_PASS1:
+        case COLOR_MODE_SUBPX_BG_PASS2:
+        case COLOR_MODE_SUBPX_DUAL_SOURCE:
+            vMaskSwizzle = vec2(1.0, 0.0);
+            vColor = image_data.color;
             break;
-        case IMAGE_SOURCE_COLOR:
+        case COLOR_MODE_SUBPX_CONST_COLOR:
+        case COLOR_MODE_SUBPX_PASS0:
+        case COLOR_MODE_SUBPX_BG_PASS0:
+        case COLOR_MODE_COLOR_BITMAP:
+            vMaskSwizzle = vec2(1.0, 0.0);
+            vColor = vec4(image_data.color.a);
+            break;
+        case COLOR_MODE_SUBPX_BG_PASS1:
+            vMaskSwizzle = vec2(-1.0, 1.0);
+            vColor = vec4(image_data.color.a) * image_data.background_color;
+            break;
         default:
-            vSelect = vec2(0.0, 0.0);
-            break;
+            vMaskSwizzle = vec2(0.0);
+            vColor = vec4(1.0);
     }
 
     vLocalPos = vi.local_pos;
@@ -230,8 +235,9 @@ vec4 brush_fs() {
     vec4 texel = TEX_SAMPLE(sColor0, vec3(uv, vUv.z));
 
 #ifdef WR_FEATURE_ALPHA_PASS
-    vec4 mask = mix(texel.rrrr, texel.aaaa, vSelect.x);
-    vec4 color = mix(texel, vColor * mask, vSelect.y) * init_transform_fs(vLocalPos);
+    float alpha = init_transform_fs(vLocalPos);
+    texel.rgb = texel.rgb * vMaskSwizzle.x + texel.aaa * vMaskSwizzle.y;
+    vec4 color = vColor * texel * alpha;
 #else
     vec4 color = texel;
 #endif

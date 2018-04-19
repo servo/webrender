@@ -22,7 +22,7 @@ use prim_store::{CachedGradient, ImageSource, PrimitiveIndex, PrimitiveKind, Pri
 use prim_store::{BrushPrimitive, BrushKind, DeferredResolve, EdgeAaSegmentMask, PictureIndex, PrimitiveRun};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKind, RenderTaskTree};
 use renderer::{BlendMode, ImageBufferKind};
-use renderer::BLOCKS_PER_UV_RECT;
+use renderer::{BLOCKS_PER_UV_RECT, ShaderColorMode};
 use resource_cache::{CacheItem, GlyphFetchResult, ImageRequest, ResourceCache};
 use scene::FilterOpHelpers;
 use std::{usize, f32, i32};
@@ -41,15 +41,6 @@ pub enum TransformBatchKind {
     Image(ImageBufferKind),
     BorderCorner,
     BorderEdge,
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub enum BrushImageSourceKind {
-    Color = 0,
-    //Alpha = 1,            // Unused for now, but left here as shaders need to match.
-    ColorAlphaMask = 2,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -707,7 +698,7 @@ impl AlphaBatchBuilder {
                                                     brush_flags: BrushFlags::empty(),
                                                     user_data: [
                                                         uv_rect_address.as_int(),
-                                                        (BrushImageSourceKind::Color as i32) << 16 |
+                                                        (ShaderColorMode::ColorBitmap as i32) << 16 |
                                                         RasterizationSpace::Screen as i32,
                                                         picture.extra_gpu_data_handle.as_int(gpu_cache),
                                                     ],
@@ -775,7 +766,7 @@ impl AlphaBatchBuilder {
                                                 brush_flags: BrushFlags::empty(),
                                                 user_data: [
                                                     shadow_uv_rect_address,
-                                                    (BrushImageSourceKind::ColorAlphaMask as i32) << 16 |
+                                                    (ShaderColorMode::Alpha as i32) << 16 |
                                                     RasterizationSpace::Screen as i32,
                                                     shadow_data_address.as_int(),
                                                 ],
@@ -785,7 +776,7 @@ impl AlphaBatchBuilder {
                                                 prim_address: prim_cache_address,
                                                 user_data: [
                                                     content_uv_rect_address,
-                                                    (BrushImageSourceKind::Color as i32) << 16 |
+                                                    (ShaderColorMode::ColorBitmap as i32) << 16 |
                                                     RasterizationSpace::Screen as i32,
                                                     extra_data_address.as_int(),
                                                 ],
@@ -958,7 +949,7 @@ impl AlphaBatchBuilder {
                                     brush_flags: BrushFlags::empty(),
                                     user_data: [
                                         uv_rect_address,
-                                        (BrushImageSourceKind::Color as i32) << 16 |
+                                        (ShaderColorMode::ColorBitmap as i32) << 16 |
                                         RasterizationSpace::Screen as i32,
                                         picture.extra_gpu_data_handle.as_int(gpu_cache),
                                     ],
@@ -1341,7 +1332,7 @@ impl BrushPrimitive {
                         textures,
                         [
                             cache_item.uv_rect_handle.as_int(gpu_cache),
-                            (BrushImageSourceKind::Color as i32) << 16|
+                            (ShaderColorMode::ColorBitmap as i32) << 16|
                              RasterizationSpace::Local as i32,
                             0,
                         ],

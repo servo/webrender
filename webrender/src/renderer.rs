@@ -268,7 +268,7 @@ fn flag_changed(before: DebugFlags, after: DebugFlags, select: DebugFlags) -> Op
 }
 
 #[repr(C)]
-enum ShaderColorMode {
+pub enum ShaderColorMode {
     Alpha = 1,
     SubpixelConstantTextColor = 2,
     SubpixelPass0 = 3,
