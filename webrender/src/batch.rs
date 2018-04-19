@@ -760,8 +760,8 @@ impl AlphaBatchBuilder {
 
                                             // Get the GPU cache address of the extra data handle.
                                             let extra_data_address = gpu_cache.get_address(&picture.extra_gpu_data_handle);
-                                            let shadow_prim_address = extra_data_address.offset(3);
-                                            let shadow_data_address = extra_data_address.offset(7);
+                                            let shadow_prim_address = extra_data_address.offset(2);
+                                            let shadow_data_address = extra_data_address.offset(8);
 
                                             let shadow_instance = BrushInstance {
                                                 picture_address: task_address,

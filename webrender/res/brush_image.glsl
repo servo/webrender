@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#define VECS_PER_SPECIFIC_BRUSH 0
+#define VECS_PER_SPECIFIC_BRUSH 2
 
 #include shared,prim_shared,brush
 
@@ -32,17 +32,36 @@ flat varying vec2 vTileRepeat;
     #define IMAGE_SOURCE_MASK_FROM_COLOR    2
 #endif
 
-struct ImageBrush {
-    RectWithSize rendered_task_rect;
-    vec2 offset;
+struct ImageBrushData {
     vec4 color;
+    vec4 background_color;
 };
 
-ImageBrush fetch_image_primitive(int address) {
-    vec4[3] data = fetch_from_resource_cache_3(address);
-    RectWithSize rendered_task_rect = RectWithSize(data[0].xy, data[0].zw);
-    ImageBrush brush = ImageBrush(rendered_task_rect, data[1].xy, data[2]);
-    return brush;
+ImageBrushData fetch_image_data(int address) {
+    vec4[2] raw_data = fetch_from_resource_cache_2(address);
+    ImageBrushData data = ImageBrushData(
+        raw_data[0],
+        raw_data[1]
+    );
+    return data;
+}
+
+struct ImageBrushExtraData {
+    RectWithSize rendered_task_rect;
+    vec2 offset;
+};
+
+ImageBrushExtraData fetch_image_extra_data(int address) {
+    vec4[2] raw_data = fetch_from_resource_cache_2(address);
+    RectWithSize rendered_task_rect = RectWithSize(
+        raw_data[0].xy,
+        raw_data[0].zw
+    );
+    ImageBrushExtraData data = ImageBrushExtraData(
+        rendered_task_rect,
+        raw_data[1].xy
+    );
+    return data;
 }
 
 #ifdef WR_FEATURE_ALPHA_PASS
@@ -98,13 +117,15 @@ void brush_vs(
     int image_source = user_data.y >> 16;
     int raster_space = user_data.y & 0xffff;
 
+    ImageBrushData image_data = fetch_image_data(prim_address);
+    vColor = image_data.color;
+
     // Derive the texture coordinates for this image, based on
     // whether the source image is a local-space or screen-space
     // image.
     switch (raster_space) {
         case RASTER_SCREEN: {
-            ImageBrush image = fetch_image_primitive(user_data.z);
-            vColor = image.color;
+            ImageBrushExtraData extra_data = fetch_image_extra_data(user_data.z);
 
             vec2 snapped_device_pos;
 
@@ -114,7 +135,7 @@ void brush_vs(
             // the vertex device position for the UV generation.
             switch (image_source) {
                 case IMAGE_SOURCE_MASK_FROM_COLOR: {
-                    vec2 local_pos = vi.local_pos - image.offset;
+                    vec2 local_pos = vi.local_pos - extra_data.offset;
                     snapped_device_pos = transform_point_snapped(
                         local_pos,
                         local_rect,
@@ -129,13 +150,12 @@ void brush_vs(
                     break;
             }
 
-            f = (snapped_device_pos - image.rendered_task_rect.p0) / image.rendered_task_rect.size;
+            f = (snapped_device_pos - extra_data.rendered_task_rect.p0) / extra_data.rendered_task_rect.size;
 
             break;
         }
         case RASTER_LOCAL:
         default: {
-            vColor = vec4(1.0);
             f = (vi.local_pos - local_rect.p0) / local_rect.size;
             break;
         }
