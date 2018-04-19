@@ -5,7 +5,7 @@
 use api::{AlphaType, BorderRadius, BoxShadowClipMode, BuiltDisplayList, ClipMode, ColorF, ComplexClipRegion};
 use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, FontRenderMode};
 use api::{FilterOp, GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
-use api::{LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D};
+use api::{GlyphRasterSpace, LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D};
 use api::{PipelineId, PremultipliedColorF, Shadow, YuvColorSpace, YuvFormat};
 use border::{BorderCornerInstance, BorderEdgeKind};
 use box_shadow::BLUR_SAMPLE_SCALE;
@@ -634,6 +634,7 @@ pub struct TextRunPrimitiveCpu {
     pub glyph_keys: Vec<GlyphKey>,
     pub glyph_gpu_blocks: Vec<GpuBlockData>,
     pub shadow: bool,
+    pub glyph_raster_space: GlyphRasterSpace,
 }
 
 impl TextRunPrimitiveCpu {
@@ -645,7 +646,9 @@ impl TextRunPrimitiveCpu {
         let mut font = self.font.clone();
         font.size = font.size.scale_by(device_pixel_scale.0);
         if let Some(transform) = transform {
-            if transform.has_perspective_component() || !transform.has_2d_inverse() {
+            if transform.has_perspective_component() ||
+               !transform.has_2d_inverse() ||
+               self.glyph_raster_space != GlyphRasterSpace::Screen {
                 font.render_mode = font.render_mode.limit_by(FontRenderMode::Alpha);
             } else {
                 font.transform = FontTransform::from(&transform).quantize();
@@ -972,6 +975,7 @@ impl PrimitiveContainer {
                     glyph_keys: info.glyph_keys.clone(),
                     glyph_gpu_blocks: Vec::new(),
                     shadow: true,
+                    glyph_raster_space: info.glyph_raster_space,
                 })
             }
             PrimitiveContainer::Brush(ref brush) => {

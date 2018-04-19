@@ -256,6 +256,7 @@ impl Example for App {
             None,
             api::MixBlendMode::Normal,
             Vec::new(),
+            api::GlyphRasterSpace::Screen,
         );
 
         let info = api::LayoutPrimitiveInfo::new((30, 30).by(500, 500));
