@@ -271,14 +271,12 @@ fn flag_changed(before: DebugFlags, after: DebugFlags, select: DebugFlags) -> Op
 pub enum ShaderColorMode {
     Alpha = 1,
     SubpixelConstantTextColor = 2,
-    SubpixelPass0 = 3,
-    SubpixelPass1 = 4,
-    SubpixelWithBgColorPass0 = 5,
-    SubpixelWithBgColorPass1 = 6,
-    SubpixelWithBgColorPass2 = 7,
-    SubpixelDualSource = 8,
-    Bitmap = 9,
-    ColorBitmap = 10,
+    SubpixelWithBgColorPass0 = 3,
+    SubpixelWithBgColorPass1 = 4,
+    SubpixelWithBgColorPass2 = 5,
+    SubpixelDualSource = 6,
+    Bitmap = 7,
+    ColorBitmap = 8,
 }
 
 impl From<GlyphFormat> for ShaderColorMode {
@@ -839,7 +837,6 @@ impl SourceTextureResolver {
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-#[allow(dead_code)] // SubpixelVariableTextColor is not used at the moment.
 pub enum BlendMode {
     None,
     Alpha,
@@ -848,7 +845,6 @@ pub enum BlendMode {
     SubpixelDualSource,
     SubpixelConstantTextColor(ColorF),
     SubpixelWithBgColor,
-    SubpixelVariableTextColor,
 }
 
 // Tracks the state of each row in the GPU cache texture.
@@ -2943,31 +2939,6 @@ impl Renderer {
                                     stats,
                                 );
                             }
-                            BlendMode::SubpixelVariableTextColor => {
-                                // Using the two pass component alpha rendering technique:
-                                //
-                                // http://anholt.livejournal.com/32058.html
-                                //
-                                self.device.set_blend_mode_subpixel_pass0();
-                                self.device.switch_mode(ShaderColorMode::SubpixelPass0 as _);
-
-                                self.draw_instanced_batch(
-                                    &batch.instances,
-                                    VertexArrayKind::Primitive,
-                                    &batch.key.textures,
-                                    stats,
-                                );
-
-                                self.device.set_blend_mode_subpixel_pass1();
-                                self.device.switch_mode(ShaderColorMode::SubpixelPass1 as _);
-
-                                // When drawing the 2nd pass, we know that the VAO, textures etc
-                                // are all set up from the previous draw_instanced_batch call,
-                                // so just issue a draw call here to avoid re-uploading the
-                                // instances and re-binding textures etc.
-                                self.device
-                                    .draw_indexed_triangles_instanced_u16(6, batch.instances.len() as i32);
-                            }
                             BlendMode::SubpixelWithBgColor => {
                                 // Using the three pass "component alpha with font smoothing
                                 // background color" rendering technique:
@@ -3027,7 +2998,6 @@ impl Renderer {
                                     self.device.set_blend_mode_premultiplied_dest_out();
                                 }
                                 BlendMode::SubpixelConstantTextColor(..) |
-                                BlendMode::SubpixelVariableTextColor |
                                 BlendMode::SubpixelWithBgColor |
                                 BlendMode::SubpixelDualSource => {
                                     unreachable!("bug: subpx text handled earlier");

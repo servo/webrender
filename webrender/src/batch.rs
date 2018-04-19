@@ -154,10 +154,9 @@ impl AlphaBatchList {
         let mut selected_batch_index = None;
 
         match key.blend_mode {
-            BlendMode::SubpixelWithBgColor |
-            BlendMode::SubpixelVariableTextColor => {
+            BlendMode::SubpixelWithBgColor => {
                 'outer_multipass: for (batch_index, batch) in self.batches.iter().enumerate().rev().take(10) {
-                    // Some subpixel batches is drawn in two passes. Because of this, we need
+                    // Some subpixel batches are drawn in two passes. Because of this, we need
                     // to check for overlaps with every batch (which is a bit different
                     // than the normal batching below).
                     for item_rect in &self.item_rects[batch_index] {
@@ -313,7 +312,6 @@ impl BatchList {
             BlendMode::PremultipliedAlpha |
             BlendMode::PremultipliedDestOut |
             BlendMode::SubpixelConstantTextColor(..) |
-            BlendMode::SubpixelVariableTextColor |
             BlendMode::SubpixelWithBgColor |
             BlendMode::SubpixelDualSource => {
                 self.alpha_batch_list

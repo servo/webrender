@@ -45,14 +45,12 @@ varying vec3 vClipMaskUv;
 
 #define COLOR_MODE_ALPHA              1
 #define COLOR_MODE_SUBPX_CONST_COLOR  2
-#define COLOR_MODE_SUBPX_PASS0        3
-#define COLOR_MODE_SUBPX_PASS1        4
-#define COLOR_MODE_SUBPX_BG_PASS0     5
-#define COLOR_MODE_SUBPX_BG_PASS1     6
-#define COLOR_MODE_SUBPX_BG_PASS2     7
-#define COLOR_MODE_SUBPX_DUAL_SOURCE  8
-#define COLOR_MODE_BITMAP             9
-#define COLOR_MODE_COLOR_BITMAP       10
+#define COLOR_MODE_SUBPX_BG_PASS0     3
+#define COLOR_MODE_SUBPX_BG_PASS1     4
+#define COLOR_MODE_SUBPX_BG_PASS2     5
+#define COLOR_MODE_SUBPX_DUAL_SOURCE  6
+#define COLOR_MODE_BITMAP             7
+#define COLOR_MODE_COLOR_BITMAP       8
 
 uniform HIGHP_SAMPLER_FLOAT sampler2D sLocalClipRects;
 
