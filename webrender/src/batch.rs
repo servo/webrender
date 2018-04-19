@@ -162,16 +162,16 @@ impl AlphaBatchList {
     ) -> &mut Vec<PrimitiveInstance> {
         let mut selected_batch_index = None;
 
-        match (key.kind, key.blend_mode) {
-            (BatchKind::Transformable(_, TransformBatchKind::TextRun(_)), BlendMode::SubpixelWithBgColor) |
-            (BatchKind::Transformable(_, TransformBatchKind::TextRun(_)), BlendMode::SubpixelVariableTextColor) => {
-                'outer_text: for (batch_index, batch) in self.batches.iter().enumerate().rev().take(10) {
-                    // Subpixel text is drawn in two passes. Because of this, we need
+        match key.blend_mode {
+            BlendMode::SubpixelWithBgColor |
+            BlendMode::SubpixelVariableTextColor => {
+                'outer_multipass: for (batch_index, batch) in self.batches.iter().enumerate().rev().take(10) {
+                    // Some subpixel batches is drawn in two passes. Because of this, we need
                     // to check for overlaps with every batch (which is a bit different
                     // than the normal batching below).
                     for item_rect in &self.item_rects[batch_index] {
                         if item_rect.intersects(task_relative_bounding_rect) {
-                            break 'outer_text;
+                            break 'outer_multipass;
                         }
                     }
 
