@@ -157,15 +157,33 @@ void main(void) {
 
 #ifdef WR_FRAGMENT_SHADER
 
+#ifdef WR_FEATURE_DUAL_SOURCE_BLENDING
+vec4 brush_fs(out vec4);
+#else
 vec4 brush_fs();
+#endif
 
 void main(void) {
+    vec4 color;
+
     // Run the specific brush FS code to output the color.
-    vec4 color = brush_fs();
+#ifdef WR_FEATURE_DUAL_SOURCE_BLENDING
+    vec4 blend;
+    color = brush_fs(blend);
+#else
+    color = brush_fs();
+#endif
 
 #ifdef WR_FEATURE_ALPHA_PASS
     // Apply the clip mask
-    color *= do_clip();
+    float clip_alpha = do_clip();
+
+    color *= clip_alpha;
+
+    #ifdef WR_FEATURE_DUAL_SOURCE_BLENDING
+        blend *= clip_alpha;
+        oFragBlend = blend;
+    #endif
 #endif
 
     // TODO(gw): Handle pre-multiply common code here as required.
