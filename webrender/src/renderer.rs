@@ -2870,7 +2870,7 @@ impl Renderer {
 
         let _gl = self.gpu_profile.start_marker("alpha batches");
         let transparent_sampler = self.gpu_profile.start_sampler(GPU_SAMPLER_TAG_TRANSPARENT);
-        self.device.set_blend(false);
+        self.device.set_blend(true);
         let mut prev_blend_mode = BlendMode::None;
 
         for alpha_batch_container in &target.alpha_batch_containers {
@@ -2891,7 +2891,6 @@ impl Renderer {
                         // 3) Consider the old constant color blend method where no clip is applied.
                         let _timer = self.gpu_profile.start_timer(GPU_TAG_PRIM_TEXT_RUN);
 
-                        self.device.set_blend(true);
                         // bind the proper shader first
                         match batch.key.blend_mode {
                             BlendMode::SubpixelDualSource => &mut self.shaders.ps_text_run_dual_source,
@@ -2977,24 +2976,20 @@ impl Renderer {
                         }
 
                         prev_blend_mode = BlendMode::None;
-                        self.device.set_blend(false);
                     }
                     _ => {
                         if batch.key.blend_mode != prev_blend_mode {
                             match batch.key.blend_mode {
                                 BlendMode::None => {
-                                    self.device.set_blend(false);
+                                    unreachable!("bug: opaque blend in alpha pass");
                                 }
                                 BlendMode::Alpha => {
-                                    self.device.set_blend(true);
                                     self.device.set_blend_mode_alpha();
                                 }
                                 BlendMode::PremultipliedAlpha => {
-                                    self.device.set_blend(true);
                                     self.device.set_blend_mode_premultiplied_alpha();
                                 }
                                 BlendMode::PremultipliedDestOut => {
-                                    self.device.set_blend(true);
                                     self.device.set_blend_mode_premultiplied_dest_out();
                                 }
                                 BlendMode::SubpixelConstantTextColor(..) |
