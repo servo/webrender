@@ -16,7 +16,7 @@ use api::{RenderApiSender, RenderNotifier, TexelRect, TextureTarget};
 use api::{channel};
 use api::DebugCommand;
 use api::channel::PayloadReceiverHelperMethods;
-use batch::{BatchKey, BatchKind, BatchTextures, BrushBatchKind, TransformBatchKind};
+use batch::{BatchKind, BatchTextures, BrushBatchKind, TransformBatchKind};
 #[cfg(any(feature = "capture", feature = "replay"))]
 use capture::{CaptureConfig, ExternalCaptureImage, PlainExternalImage};
 use debug_colors;
@@ -32,7 +32,6 @@ use glyph_rasterizer::{GlyphFormat, GlyphRasterizer};
 use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
 #[cfg(feature = "pathfinder")]
 use gpu_glyph_renderer::GpuGlyphRenderer;
-use gpu_types::PrimitiveInstance;
 use internal_types::{SourceTexture, ORTHO_FAR_PLANE, ORTHO_NEAR_PLANE, ResourceCacheError};
 use internal_types::{CacheTextureId, DebugOutput, FastHashMap, RenderedDocument, ResultMsg};
 use internal_types::{TextureUpdateList, TextureUpdateOp, TextureUpdateSource};
@@ -268,7 +267,10 @@ fn flag_changed(before: DebugFlags, after: DebugFlags, select: DebugFlags) -> Op
 }
 
 #[repr(C)]
+#[derive(Copy, Clone, Debug)]
 pub enum ShaderColorMode {
+    FromRenderPassMode = 0,
+
     Alpha = 1,
     SubpixelConstantTextColor = 2,
     SubpixelWithBgColorPass0 = 3,
@@ -2611,48 +2613,6 @@ impl Renderer {
         }
     }
 
-    fn submit_batch(
-        &mut self,
-        key: &BatchKey,
-        instances: &[PrimitiveInstance],
-        projection: &Transform3D<f32>,
-        render_tasks: &RenderTaskTree,
-        render_target: Option<(&Texture, i32)>,
-        framebuffer_size: DeviceUintSize,
-        stats: &mut RendererStats,
-        scissor_rect: Option<DeviceIntRect>,
-    ) {
-        self.shaders
-            .get(key)
-            .bind(
-                &mut self.device, projection,
-                &mut self.renderer_errors,
-            );
-
-        // Handle special case readback for composites.
-        if let BatchKind::Brush(BrushBatchKind::MixBlend { task_id, source_id, backdrop_id }) = key.kind {
-            // composites can't be grouped together because
-            // they may overlap and affect each other.
-            debug_assert_eq!(instances.len(), 1);
-            self.handle_readback_composite(
-                render_target,
-                framebuffer_size,
-                scissor_rect,
-                &render_tasks[source_id],
-                &render_tasks[task_id],
-                &render_tasks[backdrop_id],
-            );
-        }
-
-        let _timer = self.gpu_profile.start_timer(key.kind.sampler_tag());
-        self.draw_instanced_batch(
-            instances,
-            VertexArrayKind::Primitive,
-            &key.textures,
-            stats
-        );
-    }
-
     fn handle_blits(
         &mut self,
         blits: &[BlitJob],
@@ -2847,15 +2807,19 @@ impl Renderer {
                     .iter()
                     .rev()
                 {
-                    self.submit_batch(
-                        &batch.key,
+                    self.shaders
+                        .get(&batch.key)
+                        .bind(
+                            &mut self.device, projection,
+                            &mut self.renderer_errors,
+                        );
+
+                    let _timer = self.gpu_profile.start_timer(batch.key.kind.sampler_tag());
+                    self.draw_instanced_batch(
                         &batch.instances,
-                        projection,
-                        render_tasks,
-                        render_target,
-                        target_size,
-                        stats,
-                        alpha_batch_container.target_rect,
+                        VertexArrayKind::Primitive,
+                        &batch.key.textures,
+                        stats
                     );
                 }
 
@@ -2880,138 +2844,87 @@ impl Renderer {
             }
 
             for batch in &alpha_batch_container.alpha_batches {
-                match batch.key.kind {
-                    BatchKind::Transformable(transform_kind, TransformBatchKind::TextRun(glyph_format)) => {
-                        // Text run batches are handled by this special case branch.
-                        // In the case of subpixel text, we draw it as a two pass
-                        // effect, to ensure we can apply clip masks correctly.
-                        // In the future, there are several optimizations available:
-                        // 1) Use dual source blending where available (almost all recent hardware).
-                        // 2) Use frame buffer fetch where available (most modern hardware).
-                        // 3) Consider the old constant color blend method where no clip is applied.
-                        let _timer = self.gpu_profile.start_timer(GPU_TAG_PRIM_TEXT_RUN);
-
-                        // bind the proper shader first
-                        match batch.key.blend_mode {
-                            BlendMode::SubpixelDualSource => &mut self.shaders.ps_text_run_dual_source,
-                            _ => &mut self.shaders.ps_text_run,
+                if batch.key.blend_mode != prev_blend_mode {
+                    match batch.key.blend_mode {
+                        BlendMode::None => {
+                            unreachable!("bug: opaque blend in alpha pass");
                         }
-                            .get(glyph_format, transform_kind)
-                            .bind(
-                                &mut self.device,
-                                projection,
-                                &mut self.renderer_errors,
-                            );
-
-                        match batch.key.blend_mode {
-                            BlendMode::Alpha => panic!("Attempt to composite non-premultiplied text primitives."),
-                            BlendMode::PremultipliedAlpha => {
-                                self.device.set_blend_mode_premultiplied_alpha();
-                                self.device.switch_mode(ShaderColorMode::from(glyph_format) as _);
-
-                                self.draw_instanced_batch(
-                                    &batch.instances,
-                                    VertexArrayKind::Primitive,
-                                    &batch.key.textures,
-                                    stats,
-                                );
-                            }
-                            BlendMode::SubpixelDualSource => {
-                                self.device.set_blend_mode_subpixel_dual_source();
-                                self.device.switch_mode(ShaderColorMode::SubpixelDualSource as _);
-
-                                self.draw_instanced_batch(
-                                    &batch.instances,
-                                    VertexArrayKind::Primitive,
-                                    &batch.key.textures,
-                                    stats,
-                                );
-                            }
-                            BlendMode::SubpixelConstantTextColor(color) => {
-                                self.device.set_blend_mode_subpixel_constant_text_color(color);
-                                self.device.switch_mode(ShaderColorMode::SubpixelConstantTextColor as _);
-
-                                self.draw_instanced_batch(
-                                    &batch.instances,
-                                    VertexArrayKind::Primitive,
-                                    &batch.key.textures,
-                                    stats,
-                                );
-                            }
-                            BlendMode::SubpixelWithBgColor => {
-                                // Using the three pass "component alpha with font smoothing
-                                // background color" rendering technique:
-                                //
-                                // /webrender/doc/text-rendering.md
-                                //
-                                self.device.set_blend_mode_subpixel_with_bg_color_pass0();
-                                self.device.switch_mode(ShaderColorMode::SubpixelWithBgColorPass0 as _);
-
-                                self.draw_instanced_batch(
-                                    &batch.instances,
-                                    VertexArrayKind::Primitive,
-                                    &batch.key.textures,
-                                    stats,
-                                );
-
-                                self.device.set_blend_mode_subpixel_with_bg_color_pass1();
-                                self.device.switch_mode(ShaderColorMode::SubpixelWithBgColorPass1 as _);
-
-                                // When drawing the 2nd and 3rd passes, we know that the VAO, textures etc
-                                // are all set up from the previous draw_instanced_batch call,
-                                // so just issue a draw call here to avoid re-uploading the
-                                // instances and re-binding textures etc.
-                                self.device
-                                    .draw_indexed_triangles_instanced_u16(6, batch.instances.len() as i32);
-
-                                self.device.set_blend_mode_subpixel_with_bg_color_pass2();
-                                self.device.switch_mode(ShaderColorMode::SubpixelWithBgColorPass2 as _);
-
-                                self.device
-                                    .draw_indexed_triangles_instanced_u16(6, batch.instances.len() as i32);
-                            }
-                            BlendMode::PremultipliedDestOut | BlendMode::None => {
-                                unreachable!("bug: bad blend mode for text");
-                            }
+                        BlendMode::Alpha => {
+                            self.device.set_blend_mode_alpha();
                         }
-
-                        prev_blend_mode = BlendMode::None;
+                        BlendMode::PremultipliedAlpha => {
+                            self.device.set_blend_mode_premultiplied_alpha();
+                        }
+                        BlendMode::PremultipliedDestOut => {
+                            self.device.set_blend_mode_premultiplied_dest_out();
+                        }
+                        BlendMode::SubpixelDualSource => {
+                            self.device.set_blend_mode_subpixel_dual_source();
+                        }
+                        BlendMode::SubpixelConstantTextColor(color) => {
+                            self.device.set_blend_mode_subpixel_constant_text_color(color);
+                        }
+                        BlendMode::SubpixelWithBgColor => {
+                            // Using the three pass "component alpha with font smoothing
+                            // background color" rendering technique:
+                            //
+                            // /webrender/doc/text-rendering.md
+                            //
+                            self.device.set_blend_mode_subpixel_with_bg_color_pass0();
+                            self.device.switch_mode(ShaderColorMode::SubpixelWithBgColorPass0 as _);
+                        }
                     }
-                    _ => {
-                        if batch.key.blend_mode != prev_blend_mode {
-                            match batch.key.blend_mode {
-                                BlendMode::None => {
-                                    unreachable!("bug: opaque blend in alpha pass");
-                                }
-                                BlendMode::Alpha => {
-                                    self.device.set_blend_mode_alpha();
-                                }
-                                BlendMode::PremultipliedAlpha => {
-                                    self.device.set_blend_mode_premultiplied_alpha();
-                                }
-                                BlendMode::PremultipliedDestOut => {
-                                    self.device.set_blend_mode_premultiplied_dest_out();
-                                }
-                                BlendMode::SubpixelConstantTextColor(..) |
-                                BlendMode::SubpixelWithBgColor |
-                                BlendMode::SubpixelDualSource => {
-                                    unreachable!("bug: subpx text handled earlier");
-                                }
-                            }
-                            prev_blend_mode = batch.key.blend_mode;
-                        }
+                    prev_blend_mode = batch.key.blend_mode;
+                }
 
-                        self.submit_batch(
-                            &batch.key,
-                            &batch.instances,
-                            projection,
-                            render_tasks,
-                            render_target,
-                            target_size,
-                            stats,
-                            alpha_batch_container.target_rect,
-                        );
-                    }
+                self.shaders
+                    .get(&batch.key)
+                    .bind(
+                        &mut self.device, projection,
+                        &mut self.renderer_errors,
+                    );
+
+                // Handle special case readback for composites.
+                if let BatchKind::Brush(BrushBatchKind::MixBlend { task_id, source_id, backdrop_id }) = batch.key.kind {
+                    // composites can't be grouped together because
+                    // they may overlap and affect each other.
+                    debug_assert_eq!(batch.instances.len(), 1);
+                    self.handle_readback_composite(
+                        render_target,
+                        target_size,
+                        alpha_batch_container.target_rect,
+                        &render_tasks[source_id],
+                        &render_tasks[task_id],
+                        &render_tasks[backdrop_id],
+                    );
+                }
+
+                let _timer = self.gpu_profile.start_timer(batch.key.kind.sampler_tag());
+                self.draw_instanced_batch(
+                    &batch.instances,
+                    VertexArrayKind::Primitive,
+                    &batch.key.textures,
+                    stats
+                );
+
+                if batch.key.blend_mode == BlendMode::SubpixelWithBgColor {
+                    self.device.set_blend_mode_subpixel_with_bg_color_pass1();
+                    self.device.switch_mode(ShaderColorMode::SubpixelWithBgColorPass1 as _);
+
+                    // When drawing the 2nd and 3rd passes, we know that the VAO, textures etc
+                    // are all set up from the previous draw_instanced_batch call,
+                    // so just issue a draw call here to avoid re-uploading the
+                    // instances and re-binding textures etc.
+                    self.device
+                        .draw_indexed_triangles_instanced_u16(6, batch.instances.len() as i32);
+
+                    self.device.set_blend_mode_subpixel_with_bg_color_pass2();
+                    self.device.switch_mode(ShaderColorMode::SubpixelWithBgColorPass2 as _);
+
+                    self.device
+                        .draw_indexed_triangles_instanced_u16(6, batch.instances.len() as i32);
+
+                    prev_blend_mode = BlendMode::None;
                 }
             }
 

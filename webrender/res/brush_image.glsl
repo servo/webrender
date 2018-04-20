@@ -112,6 +112,10 @@ void brush_vs(
     int raster_space = user_data.y & 0xffff;
     ImageBrushData image_data = fetch_image_data(prim_address);
 
+    if (color_mode == COLOR_MODE_FROM_PASS) {
+        color_mode = uMode;
+    }
+
     // Derive the texture coordinates for this image, based on
     // whether the source image is a local-space or screen-space
     // image.

@@ -803,8 +803,16 @@ impl Shaders {
             }
             BatchKind::Transformable(transform_kind, batch_kind) => {
                 let prim_shader = match batch_kind {
-                    TransformBatchKind::TextRun(..) => {
-                        unreachable!("bug: text batches are special cased");
+                    TransformBatchKind::TextRun(glyph_format) => {
+                        let text_shader = match key.blend_mode {
+                            BlendMode::SubpixelDualSource => {
+                                &mut self.ps_text_run_dual_source
+                            }
+                            _ => {
+                                &mut self.ps_text_run
+                            }
+                        };
+                        return text_shader.get(glyph_format, transform_kind);
                     }
                     TransformBatchKind::Image(image_buffer_kind) => {
                         self.ps_image[image_buffer_kind as usize]
