@@ -205,12 +205,7 @@ void brush_vs(
 
 #ifdef WR_FRAGMENT_SHADER
 
-vec4 brush_fs(
-#ifdef WR_FEATURE_DUAL_SOURCE_BLENDING
-    out vec4 blend
-#endif
-) {
-
+Fragment brush_fs() {
     vec2 uv_size = vUvBounds.zw - vUvBounds.xy;
 
 #ifdef WR_FEATURE_ALPHA_PASS
@@ -240,7 +235,8 @@ vec4 brush_fs(
     vec2 uv = clamp(repeated_uv, vUvSampleBounds.xy, vUvSampleBounds.zw);
 
     vec4 texel = TEX_SAMPLE(sColor0, vec3(uv, vUv.z));
-    vec4 color;
+
+    Fragment frag;
 
 #ifdef WR_FEATURE_ALPHA_PASS
     float alpha = init_transform_fs(vLocalPos);
@@ -248,15 +244,15 @@ vec4 brush_fs(
 
     #ifdef WR_FEATURE_DUAL_SOURCE_BLENDING
         vec4 alpha_mask = texel * alpha;
-        color = vColor * alpha_mask;
-        blend = alpha_mask * vColor.a;
+        frag.color = vColor * alpha_mask;
+        frag.blend = alpha_mask * vColor.a;
     #else
-        color = vColor * texel * alpha;
+        frag.color = vColor * texel * alpha;
     #endif
 #else
-    color = texel;
+    frag.color = texel;
 #endif
 
-    return color;
+    return frag;
 }
 #endif
