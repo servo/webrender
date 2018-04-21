@@ -5,7 +5,7 @@
 use api::{AlphaType, BorderRadius, BoxShadowClipMode, BuiltDisplayList, ClipMode, ColorF, ComplexClipRegion};
 use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, FontRenderMode};
 use api::{FilterOp, GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
-use api::{GlyphRasterSpace, LayerPoint, LayerRect, LayerSize, LayerToWorldTransform, LayerVector2D};
+use api::{GlyphRasterSpace, LayoutPoint, LayoutRect, LayoutSize, LayoutToWorldTransform, LayoutVector2D};
 use api::{PipelineId, PremultipliedColorF, Shadow, YuvColorSpace, YuvFormat};
 use border::{BorderCornerInstance, BorderEdgeKind};
 use box_shadow::BLUR_SAMPLE_SCALE;
@@ -29,7 +29,7 @@ use resource_cache::{ImageProperties, ImageRequest};
 use segment::SegmentBuilder;
 use std::{mem, usize};
 use std::sync::Arc;
-use util::{MatrixHelpers, WorldToLayerFastTransform, calculate_screen_bounding_rect};
+use util::{MatrixHelpers, WorldToLayoutFastTransform, calculate_screen_bounding_rect};
 use util::{pack_as_float, recycle_vec};
 
 
@@ -110,8 +110,8 @@ impl CachedGradient {
 //          in the picture structure.
 #[derive(Debug)]
 pub struct PrimitiveRunLocalRect {
-    pub local_rect_in_actual_parent_space: LayerRect,
-    pub local_rect_in_original_parent_space: LayerRect,
+    pub local_rect_in_actual_parent_space: LayoutRect,
+    pub local_rect_in_original_parent_space: LayoutRect,
 }
 
 /// For external images, it's not possible to know the
@@ -184,8 +184,8 @@ pub struct PrimitiveMetadata {
     // TODO(gw): In the future, we should just pull these
     //           directly from the DL item, instead of
     //           storing them here.
-    pub local_rect: LayerRect,
-    pub local_clip_rect: LayerRect,
+    pub local_rect: LayoutRect,
+    pub local_clip_rect: LayoutRect,
     pub clip_chain_rect_index: ClipChainRectIndex,
     pub is_backface_visible: bool,
     pub screen_rect: Option<ScreenRect>,
@@ -213,8 +213,8 @@ pub enum BrushKind {
         request: ImageRequest,
         current_epoch: Epoch,
         alpha_type: AlphaType,
-        stretch_size: LayerSize,
-        tile_spacing: LayerSize,
+        stretch_size: LayoutSize,
+        tile_spacing: LayoutSize,
         source: ImageSource,
         sub_rect: Option<DeviceIntRect>,
     },
@@ -228,7 +228,7 @@ pub enum BrushKind {
         gradient_index: CachedGradientIndex,
         stops_range: ItemRange<GradientStop>,
         extend_mode: ExtendMode,
-        center: LayerPoint,
+        center: LayoutPoint,
         start_radius: f32,
         end_radius: f32,
         ratio_xy: f32,
@@ -239,8 +239,8 @@ pub enum BrushKind {
         stops_count: usize,
         extend_mode: ExtendMode,
         reverse_stops: bool,
-        start_point: LayerPoint,
-        end_point: LayerPoint,
+        start_point: LayoutPoint,
+        end_point: LayoutPoint,
     }
 }
 
@@ -279,7 +279,7 @@ bitflags! {
 
 #[derive(Debug)]
 pub struct BrushSegment {
-    pub local_rect: LayerRect,
+    pub local_rect: LayoutRect,
     pub clip_task_id: Option<RenderTaskId>,
     pub may_need_clip_mask: bool,
     pub edge_flags: EdgeAaSegmentMask,
@@ -287,13 +287,13 @@ pub struct BrushSegment {
 
 impl BrushSegment {
     pub fn new(
-        origin: LayerPoint,
-        size: LayerSize,
+        origin: LayoutPoint,
+        size: LayoutSize,
         may_need_clip_mask: bool,
         edge_flags: EdgeAaSegmentMask,
     ) -> BrushSegment {
         BrushSegment {
-            local_rect: LayerRect::new(origin, size),
+            local_rect: LayoutRect::new(origin, size),
             clip_task_id: None,
             may_need_clip_mask,
             edge_flags,
@@ -418,9 +418,9 @@ pub enum ImageSource {
 
 #[derive(Debug)]
 pub struct ImagePrimitiveCpu {
-    pub tile_spacing: LayerSize,
+    pub tile_spacing: LayoutSize,
     pub alpha_type: AlphaType,
-    pub stretch_size: LayerSize,
+    pub stretch_size: LayoutSize,
     pub current_epoch: Epoch,
     pub source: ImageSource,
     pub key: ImageCacheKey,
@@ -634,7 +634,7 @@ impl<'a> GradientGpuBlockBuilder<'a> {
 #[derive(Debug, Clone)]
 pub struct TextRunPrimitiveCpu {
     pub font: FontInstance,
-    pub offset: LayerVector2D,
+    pub offset: LayoutVector2D,
     pub glyph_range: ItemRange<GlyphInstance>,
     pub glyph_keys: Vec<GlyphKey>,
     pub glyph_gpu_blocks: Vec<GpuBlockData>,
@@ -646,7 +646,7 @@ impl TextRunPrimitiveCpu {
     pub fn get_font(
         &self,
         device_pixel_scale: DevicePixelScale,
-        transform: Option<LayerToWorldTransform>,
+        transform: Option<LayoutToWorldTransform>,
     ) -> FontInstance {
         let mut font = self.font.clone();
         font.size = font.size.scale_by(device_pixel_scale.0);
@@ -665,7 +665,7 @@ impl TextRunPrimitiveCpu {
     fn prepare_for_render(
         &mut self,
         device_pixel_scale: DevicePixelScale,
-        transform: Option<LayerToWorldTransform>,
+        transform: Option<LayoutToWorldTransform>,
         display_list: &BuiltDisplayList,
         frame_building_state: &mut FrameBuildingState,
     ) {
@@ -734,14 +734,14 @@ impl TextRunPrimitiveCpu {
 #[derive(Debug)]
 #[repr(C)]
 struct ClipRect {
-    rect: LayerRect,
+    rect: LayoutRect,
     mode: f32,
 }
 
 #[derive(Debug)]
 #[repr(C)]
 struct ClipCorner {
-    rect: LayerRect,
+    rect: LayoutRect,
     outer_radius_x: f32,
     outer_radius_y: f32,
     inner_radius_x: f32,
@@ -765,7 +765,7 @@ impl ClipCorner {
         ]);
     }
 
-    fn uniform(rect: LayerRect, outer_radius: f32, inner_radius: f32) -> ClipCorner {
+    fn uniform(rect: LayoutRect, outer_radius: f32, inner_radius: f32) -> ClipCorner {
         ClipCorner {
             rect,
             outer_radius_x: outer_radius,
@@ -779,7 +779,7 @@ impl ClipCorner {
 #[derive(Debug)]
 #[repr(C)]
 pub struct ImageMaskData {
-    pub local_rect: LayerRect,
+    pub local_rect: LayoutRect,
 }
 
 impl ToGpuBlocks for ImageMaskData {
@@ -798,16 +798,16 @@ pub struct ClipData {
 }
 
 impl ClipData {
-    pub fn rounded_rect(rect: &LayerRect, radii: &BorderRadius, mode: ClipMode) -> ClipData {
+    pub fn rounded_rect(rect: &LayoutRect, radii: &BorderRadius, mode: ClipMode) -> ClipData {
         ClipData {
             rect: ClipRect {
                 rect: *rect,
                 mode: mode as u32 as f32,
             },
             top_left: ClipCorner {
-                rect: LayerRect::new(
-                    LayerPoint::new(rect.origin.x, rect.origin.y),
-                    LayerSize::new(radii.top_left.width, radii.top_left.height),
+                rect: LayoutRect::new(
+                    LayoutPoint::new(rect.origin.x, rect.origin.y),
+                    LayoutSize::new(radii.top_left.width, radii.top_left.height),
                 ),
                 outer_radius_x: radii.top_left.width,
                 outer_radius_y: radii.top_left.height,
@@ -815,12 +815,12 @@ impl ClipData {
                 inner_radius_y: 0.0,
             },
             top_right: ClipCorner {
-                rect: LayerRect::new(
-                    LayerPoint::new(
+                rect: LayoutRect::new(
+                    LayoutPoint::new(
                         rect.origin.x + rect.size.width - radii.top_right.width,
                         rect.origin.y,
                     ),
-                    LayerSize::new(radii.top_right.width, radii.top_right.height),
+                    LayoutSize::new(radii.top_right.width, radii.top_right.height),
                 ),
                 outer_radius_x: radii.top_right.width,
                 outer_radius_y: radii.top_right.height,
@@ -828,12 +828,12 @@ impl ClipData {
                 inner_radius_y: 0.0,
             },
             bottom_left: ClipCorner {
-                rect: LayerRect::new(
-                    LayerPoint::new(
+                rect: LayoutRect::new(
+                    LayoutPoint::new(
                         rect.origin.x,
                         rect.origin.y + rect.size.height - radii.bottom_left.height,
                     ),
-                    LayerSize::new(radii.bottom_left.width, radii.bottom_left.height),
+                    LayoutSize::new(radii.bottom_left.width, radii.bottom_left.height),
                 ),
                 outer_radius_x: radii.bottom_left.width,
                 outer_radius_y: radii.bottom_left.height,
@@ -841,12 +841,12 @@ impl ClipData {
                 inner_radius_y: 0.0,
             },
             bottom_right: ClipCorner {
-                rect: LayerRect::new(
-                    LayerPoint::new(
+                rect: LayoutRect::new(
+                    LayoutPoint::new(
                         rect.origin.x + rect.size.width - radii.bottom_right.width,
                         rect.origin.y + rect.size.height - radii.bottom_right.height,
                     ),
-                    LayerSize::new(radii.bottom_right.width, radii.bottom_right.height),
+                    LayoutSize::new(radii.bottom_right.width, radii.bottom_right.height),
                 ),
                 outer_radius_x: radii.bottom_right.width,
                 outer_radius_y: radii.bottom_right.height,
@@ -856,43 +856,43 @@ impl ClipData {
         }
     }
 
-    pub fn uniform(rect: LayerRect, radius: f32, mode: ClipMode) -> ClipData {
+    pub fn uniform(rect: LayoutRect, radius: f32, mode: ClipMode) -> ClipData {
         ClipData {
             rect: ClipRect {
                 rect,
                 mode: mode as u32 as f32,
             },
             top_left: ClipCorner::uniform(
-                LayerRect::new(
-                    LayerPoint::new(rect.origin.x, rect.origin.y),
-                    LayerSize::new(radius, radius),
+                LayoutRect::new(
+                    LayoutPoint::new(rect.origin.x, rect.origin.y),
+                    LayoutSize::new(radius, radius),
                 ),
                 radius,
                 0.0,
             ),
             top_right: ClipCorner::uniform(
-                LayerRect::new(
-                    LayerPoint::new(rect.origin.x + rect.size.width - radius, rect.origin.y),
-                    LayerSize::new(radius, radius),
+                LayoutRect::new(
+                    LayoutPoint::new(rect.origin.x + rect.size.width - radius, rect.origin.y),
+                    LayoutSize::new(radius, radius),
                 ),
                 radius,
                 0.0,
             ),
             bottom_left: ClipCorner::uniform(
-                LayerRect::new(
-                    LayerPoint::new(rect.origin.x, rect.origin.y + rect.size.height - radius),
-                    LayerSize::new(radius, radius),
+                LayoutRect::new(
+                    LayoutPoint::new(rect.origin.x, rect.origin.y + rect.size.height - radius),
+                    LayoutSize::new(radius, radius),
                 ),
                 radius,
                 0.0,
             ),
             bottom_right: ClipCorner::uniform(
-                LayerRect::new(
-                    LayerPoint::new(
+                LayoutRect::new(
+                    LayoutPoint::new(
                         rect.origin.x + rect.size.width - radius,
                         rect.origin.y + rect.size.height - radius,
                     ),
-                    LayerSize::new(radius, radius),
+                    LayoutSize::new(radius, radius),
                 ),
                 radius,
                 0.0,
@@ -1077,8 +1077,8 @@ impl PrimitiveStore {
 
     pub fn add_primitive(
         &mut self,
-        local_rect: &LayerRect,
-        local_clip_rect: &LayerRect,
+        local_rect: &LayoutRect,
+        local_clip_rect: &LayoutRect,
         is_backface_visible: bool,
         clip_sources: Option<ClipSourcesHandle>,
         tag: Option<ItemTag>,
@@ -1631,7 +1631,7 @@ impl PrimitiveStore {
                     let prim_transform = &prim_run_context.scroll_node.world_content_transform;
                     let relative_transform = prim_transform
                         .inverse()
-                        .unwrap_or(WorldToLayerFastTransform::identity())
+                        .unwrap_or(WorldToLayoutFastTransform::identity())
                         .pre_mul(&clip_transform.into());
 
                     relative_transform.transform_rect(&local_clip_rect)
@@ -1808,7 +1808,7 @@ impl PrimitiveStore {
                     // It's used to calculate a local clipping rectangle before we reach this
                     // point, so we can set it to zero here. It should be unused from this point
                     // on.
-                    local_clip_rect: LayerRect::zero(),
+                    local_clip_rect: LayoutRect::zero(),
                     screen_inner_rect,
                     screen_outer_rect: screen_outer_rect.unwrap_or(prim_screen_rect),
                     prev: None,
@@ -1899,7 +1899,7 @@ impl PrimitiveStore {
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
-    ) -> Option<LayerRect> {
+    ) -> Option<LayoutRect> {
         let mut may_need_clip_mask = true;
         let mut pic_state_for_children = PictureState::new();
 
@@ -2076,8 +2076,8 @@ impl PrimitiveStore {
         frame_state: &mut FrameBuildingState,
     ) -> PrimitiveRunLocalRect {
         let mut result = PrimitiveRunLocalRect {
-            local_rect_in_actual_parent_space: LayerRect::zero(),
-            local_rect_in_original_parent_space: LayerRect::zero(),
+            local_rect_in_actual_parent_space: LayoutRect::zero(),
+            local_rect_in_original_parent_space: LayoutRect::zero(),
         };
 
         for run in &pic_context.prim_runs {
@@ -2238,17 +2238,17 @@ fn convert_clip_chain_to_clip_vector(
 fn get_local_clip_rect_for_nodes(
     scroll_node: &ClipScrollNode,
     clip_chain: &ClipChain,
-) -> Option<LayerRect> {
+) -> Option<LayoutRect> {
     let local_rect = ClipChainNodeIter { current: clip_chain.nodes.clone() }.fold(
         None,
-        |combined_local_clip_rect: Option<LayerRect>, node| {
+        |combined_local_clip_rect: Option<LayoutRect>, node| {
             if node.work_item.coordinate_system_id != scroll_node.coordinate_system_id {
                 return combined_local_clip_rect;
             }
 
             Some(match combined_local_clip_rect {
                 Some(combined_rect) =>
-                    combined_rect.intersection(&node.local_clip_rect).unwrap_or_else(LayerRect::zero),
+                    combined_rect.intersection(&node.local_clip_rect).unwrap_or_else(LayoutRect::zero),
                 None => node.local_clip_rect,
             })
         }
@@ -2268,7 +2268,7 @@ impl<'a> GpuDataRequest<'a> {
     //           part of an image.
     fn write_segment(
         &mut self,
-        local_rect: LayerRect,
+        local_rect: LayoutRect,
     ) {
         self.push(local_rect);
         self.push([
