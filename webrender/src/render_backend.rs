@@ -7,7 +7,7 @@ use api::{ApiMsg, BuiltDisplayList, ClearCache, DebugCommand};
 use api::{BuiltDisplayListIter, SpecificDisplayItem};
 use api::{DeviceIntPoint, DevicePixelScale, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{DocumentId, DocumentLayer, ExternalScrollId, FrameMsg, HitTestResult};
-use api::{IdNamespace, LayerPoint, PipelineId, RenderNotifier, SceneMsg, ScrollClamping};
+use api::{IdNamespace, LayoutPoint, PipelineId, RenderNotifier, SceneMsg, ScrollClamping};
 use api::{ScrollLocation, ScrollNodeState, TransactionMsg, WorldPoint};
 use api::channel::{MsgReceiver, Payload};
 #[cfg(feature = "capture")]
@@ -327,7 +327,7 @@ impl Document {
     /// Returns true if the node actually changed position or false otherwise.
     pub fn scroll_node(
         &mut self,
-        origin: LayerPoint,
+        origin: LayoutPoint,
         id: ExternalScrollId,
         clamp: ScrollClamping
     ) -> bool {

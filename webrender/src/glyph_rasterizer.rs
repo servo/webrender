@@ -7,7 +7,7 @@ use api::{IdNamespace, LayoutPoint};
 use api::{ColorF, ColorU};
 use api::{FontInstanceFlags, FontInstancePlatformOptions};
 use api::{FontKey, FontRenderMode, FontTemplate, FontVariation};
-use api::{GlyphDimensions, GlyphKey, LayerToWorldTransform, SubpixelDirection};
+use api::{GlyphDimensions, GlyphKey, LayoutToWorldTransform, SubpixelDirection};
 #[cfg(feature = "pathfinder")]
 use api::NativeFontHandle;
 #[cfg(any(test, feature = "pathfinder"))]
@@ -184,8 +184,8 @@ impl FontTransform {
     }
 }
 
-impl<'a> From<&'a LayerToWorldTransform> for FontTransform {
-    fn from(xform: &'a LayerToWorldTransform) -> Self {
+impl<'a> From<&'a LayoutToWorldTransform> for FontTransform {
+    fn from(xform: &'a LayoutToWorldTransform) -> Self {
         FontTransform::new(xform.m11, xform.m21, xform.m12, xform.m22)
     }
 }

@@ -3,9 +3,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AlphaType, ClipMode, DeviceIntRect, DeviceIntSize};
-use api::{DeviceUintRect, DeviceUintPoint, DeviceUintSize, ExternalImageType, FilterOp, ImageRendering, LayerRect};
+use api::{DeviceUintRect, DeviceUintPoint, DeviceUintSize, ExternalImageType, FilterOp, ImageRendering, LayoutRect};
 use api::{DeviceIntPoint, SubpixelDirection, YuvColorSpace, YuvFormat};
-use api::{LayerToWorldTransform, WorldPixel};
+use api::{LayoutToWorldTransform, WorldPixel};
 use border::{BorderCornerInstance, BorderCornerSide, BorderEdgeKind};
 use clip::{ClipSource, ClipStore, ClipWorkItem};
 use clip_scroll_tree::{CoordinateSystemId};
@@ -1612,8 +1612,8 @@ pub fn resolve_image(
 /// `anchor` here is an index that's going to be preserved in all the
 /// splits of the polygon.
 fn make_polygon(
-    rect: LayerRect,
-    transform: &LayerToWorldTransform,
+    rect: LayoutRect,
+    transform: &LayoutToWorldTransform,
     anchor: usize,
 ) -> Polygon<f64, WorldPixel> {
     let mat = TypedTransform3D::row_major(

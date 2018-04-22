@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderRadius, BorderSide, BorderStyle, BorderWidths, ClipMode, ColorF, LayerPoint};
-use api::{LayerPrimitiveInfo, LayerRect, LayerSize, NormalBorder, RepeatMode, TexelRect};
+use api::{BorderRadius, BorderSide, BorderStyle, BorderWidths, ClipMode, ColorF, LayoutPoint};
+use api::{LayoutPrimitiveInfo, LayoutRect, LayoutSize, NormalBorder, RepeatMode, TexelRect};
 use clip::ClipSource;
 use ellipse::Ellipse;
 use display_list_flattener::DisplayListFlattener;
@@ -42,8 +42,8 @@ pub enum BorderCornerKind {
     Clip(BorderCornerInstance),
     Mask(
         BorderCornerClipData,
-        LayerSize,
-        LayerSize,
+        LayoutSize,
+        LayoutSize,
         BorderCornerClipKind,
     ),
 }
@@ -54,10 +54,10 @@ impl BorderCornerKind {
         width0: f32,
         width1: f32,
         corner: BorderCorner,
-        radius: LayerSize,
-        border_rect: LayerRect,
+        radius: LayoutSize,
+        border_rect: LayoutRect,
     ) -> BorderCornerKind {
-        let size = LayerSize::new(width0.max(radius.width), width1.max(radius.height));
+        let size = LayoutSize::new(width0.max(radius.width), width1.max(radius.height));
         let (origin, clip_center) = match corner {
             BorderCorner::TopLeft => {
                 let origin = border_rect.origin;
@@ -65,11 +65,11 @@ impl BorderCornerKind {
                 (origin, clip_center)
             }
             BorderCorner::TopRight => {
-                let origin = LayerPoint::new(
+                let origin = LayoutPoint::new(
                     border_rect.origin.x + border_rect.size.width - size.width,
                     border_rect.origin.y,
                 );
-                let clip_center = origin + LayerSize::new(0.0, size.height);
+                let clip_center = origin + LayoutSize::new(0.0, size.height);
                 (origin, clip_center)
             }
             BorderCorner::BottomRight => {
@@ -78,24 +78,24 @@ impl BorderCornerKind {
                 (origin, clip_center)
             }
             BorderCorner::BottomLeft => {
-                let origin = LayerPoint::new(
+                let origin = LayoutPoint::new(
                     border_rect.origin.x,
                     border_rect.origin.y + border_rect.size.height - size.height,
                 );
-                let clip_center = origin + LayerSize::new(size.width, 0.0);
+                let clip_center = origin + LayoutSize::new(size.width, 0.0);
                 (origin, clip_center)
             }
         };
         let clip_data = BorderCornerClipData {
-            corner_rect: LayerRect::new(origin, size),
+            corner_rect: LayoutRect::new(origin, size),
             clip_center,
             corner: pack_as_float(corner as u32),
             kind: pack_as_float(kind as u32),
         };
-        BorderCornerKind::Mask(clip_data, radius, LayerSize::new(width0, width1), kind)
+        BorderCornerKind::Mask(clip_data, radius, LayoutSize::new(width0, width1), kind)
     }
 
-    fn get_radius(&self, original_radius: &LayerSize) -> LayerSize {
+    fn get_radius(&self, original_radius: &LayoutSize) -> LayoutSize {
         match *self {
             BorderCornerKind::Solid => *original_radius,
             BorderCornerKind::Clip(..) => *original_radius,
@@ -117,9 +117,9 @@ fn get_corner(
     width0: f32,
     edge1: &BorderSide,
     width1: f32,
-    radius: &LayerSize,
+    radius: &LayoutSize,
     corner: BorderCorner,
-    border_rect: &LayerRect,
+    border_rect: &LayoutRect,
 ) -> BorderCornerKind {
     // If both widths are zero, a corner isn't formed.
     if width0 == 0.0 && width1 == 0.0 {
@@ -236,7 +236,7 @@ fn get_edge(edge: &BorderSide, width: f32, height: f32) -> (BorderEdgeKind, f32)
 
 pub fn ensure_no_corner_overlap(
     radius: &mut BorderRadius,
-    rect: &LayerRect,
+    rect: &LayoutRect,
 ) {
     let mut ratio = 1.0;
     let top_left_radius = &mut radius.top_left;
@@ -282,7 +282,7 @@ pub fn ensure_no_corner_overlap(
 impl<'a> DisplayListFlattener<'a> {
     fn add_normal_border_primitive(
         &mut self,
-        info: &LayerPrimitiveInfo,
+        info: &LayoutPrimitiveInfo,
         border: &NormalBorder,
         radius: &BorderRadius,
         widths: &BorderWidths,
@@ -350,7 +350,7 @@ impl<'a> DisplayListFlattener<'a> {
     // border code path.
     pub fn add_normal_border(
         &mut self,
-        info: &LayerPrimitiveInfo,
+        info: &LayoutPrimitiveInfo,
         border: &NormalBorder,
         widths: &BorderWidths,
         clip_and_scroll: ScrollNodeAndClipChain,
@@ -387,30 +387,30 @@ impl<'a> DisplayListFlattener<'a> {
                     ClipMode::Clip,
                 ),
                 ClipSource::new_rounded_rect(
-                    LayerRect::new(
-                        LayerPoint::new(
+                    LayoutRect::new(
+                        LayoutPoint::new(
                             info.rect.origin.x + widths.left,
                             info.rect.origin.y + widths.top,
                         ),
-                        LayerSize::new(
+                        LayoutSize::new(
                             info.rect.size.width - widths.left - widths.right,
                             info.rect.size.height - widths.top - widths.bottom,
                         ),
                     ),
                     BorderRadius {
-                        top_left: LayerSize::new(
+                        top_left: LayoutSize::new(
                             (border.radius.top_left.width - widths.left).max(0.0),
                             (border.radius.top_left.height - widths.top).max(0.0),
                         ),
-                        top_right: LayerSize::new(
+                        top_right: LayoutSize::new(
                             (border.radius.top_right.width - widths.right).max(0.0),
                             (border.radius.top_right.height - widths.top).max(0.0),
                         ),
-                        bottom_left: LayerSize::new(
+                        bottom_left: LayoutSize::new(
                             (border.radius.bottom_left.width - widths.left).max(0.0),
                             (border.radius.bottom_left.height - widths.bottom).max(0.0),
                         ),
-                        bottom_right: LayerSize::new(
+                        bottom_right: LayoutSize::new(
                             (border.radius.bottom_right.width - widths.right).max(0.0),
                             (border.radius.bottom_right.height - widths.bottom).max(0.0),
                         ),
@@ -493,19 +493,19 @@ impl<'a> DisplayListFlattener<'a> {
 
         if has_no_curve && all_corners_simple && all_edges_simple {
             let p0 = info.rect.origin;
-            let p1 = LayerPoint::new(
+            let p1 = LayoutPoint::new(
                 info.rect.origin.x + left_len,
                 info.rect.origin.y + top_len,
             );
-            let p2 = LayerPoint::new(
+            let p2 = LayoutPoint::new(
                 info.rect.origin.x + info.rect.size.width - right_len,
                 info.rect.origin.y + info.rect.size.height - bottom_len,
             );
             let p3 = info.rect.bottom_right();
 
             let segment = |x0, y0, x1, y1| BrushSegment::new(
-                LayerPoint::new(x0, y0),
-                LayerSize::new(x1-x0, y1-y0),
+                LayoutPoint::new(x0, y0),
+                LayoutSize::new(x1-x0, y1-y0),
                 true,
                 EdgeAaSegmentMask::all() // Note: this doesn't seem right, needs revision
             );
@@ -679,15 +679,15 @@ pub struct BorderCornerClipSource {
     pub max_clip_count: usize,
     pub actual_clip_count: usize,
     kind: BorderCornerClipKind,
-    widths: LayerSize,
+    widths: LayoutSize,
     ellipse: Ellipse,
 }
 
 impl BorderCornerClipSource {
     pub fn new(
         corner_data: BorderCornerClipData,
-        corner_radius: LayerSize,
-        widths: LayerSize,
+        corner_radius: LayoutSize,
+        widths: LayoutSize,
         kind: BorderCornerClipKind,
     ) -> BorderCornerClipSource {
         // Work out a dash length (and therefore dash count)
@@ -786,7 +786,7 @@ impl BorderCornerClipSource {
             BorderCornerClipKind::Dot if self.max_clip_count == 1 => {
                 let dot_diameter = lerp(self.widths.width, self.widths.height, 0.5);
                 let dot = BorderCornerDotClipData {
-                    center: LayerPoint::new(self.widths.width / 2.0, self.widths.height / 2.0),
+                    center: LayoutPoint::new(self.widths.width / 2.0, self.widths.height / 2.0),
                     radius: 0.5 * dot_diameter,
                 };
                 self.actual_clip_count = 1;
@@ -887,10 +887,10 @@ impl BorderCornerClipSource {
 #[repr(C)]
 pub struct BorderCornerClipData {
     /// Local space rect of the border corner.
-    corner_rect: LayerRect,
+    corner_rect: LayoutRect,
     /// Local space point that is the center of the
     /// circle or ellipse that we are clipping against.
-    clip_center: LayerPoint,
+    clip_center: LayoutPoint,
     /// The shader needs to know which corner, to
     /// be able to flip the dash tangents to the
     /// right orientation.
@@ -918,10 +918,10 @@ impl BorderCornerClipData {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct BorderCornerDashClipData {
-    pub point0: LayerPoint,
-    pub tangent0: LayerPoint,
-    pub point1: LayerPoint,
-    pub tangent1: LayerPoint,
+    pub point0: LayoutPoint,
+    pub tangent0: LayoutPoint,
+    pub point1: LayoutPoint,
+    pub tangent1: LayoutPoint,
 }
 
 impl BorderCornerDashClipData {
@@ -961,7 +961,7 @@ impl BorderCornerDashClipData {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct BorderCornerDotClipData {
-    pub center: LayerPoint,
+    pub center: LayoutPoint,
     pub radius: f32,
 }
 
@@ -992,25 +992,25 @@ impl DotInfo {
 
 #[derive(Debug, Clone)]
 pub struct ImageBorderSegment {
-    pub geom_rect: LayerRect,
+    pub geom_rect: LayoutRect,
     pub sub_rect: TexelRect,
-    pub stretch_size: LayerSize,
-    pub tile_spacing: LayerSize,
+    pub stretch_size: LayoutSize,
+    pub tile_spacing: LayoutSize,
 }
 
 impl ImageBorderSegment {
     pub fn new(
-        rect: LayerRect,
+        rect: LayoutRect,
         sub_rect: TexelRect,
         repeat_horizontal: RepeatMode,
         repeat_vertical: RepeatMode,
     ) -> ImageBorderSegment {
-        let tile_spacing = LayerSize::zero();
+        let tile_spacing = LayoutSize::zero();
 
         debug_assert!(sub_rect.uv1.x >= sub_rect.uv0.x);
         debug_assert!(sub_rect.uv1.y >= sub_rect.uv0.y);
 
-        let image_size = LayerSize::new(
+        let image_size = LayoutSize::new(
             sub_rect.uv1.x - sub_rect.uv0.x,
             sub_rect.uv1.y - sub_rect.uv0.y,
         );
@@ -1036,7 +1036,7 @@ impl ImageBorderSegment {
         ImageBorderSegment {
             geom_rect: rect,
             sub_rect,
-            stretch_size: LayerSize::new(stretch_size_x, stretch_size_y),
+            stretch_size: LayoutSize::new(stretch_size_x, stretch_size_y),
             tile_spacing,
         }
     }
