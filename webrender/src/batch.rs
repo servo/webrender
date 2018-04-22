@@ -1155,21 +1155,45 @@ impl AlphaBatchBuilder {
                             TransformBatchKind::TextRun(glyph_format),
                         );
 
-                        let blend_mode = match glyph_format {
+                        let (blend_mode, color_mode) = match glyph_format {
                             GlyphFormat::Subpixel |
                             GlyphFormat::TransformedSubpixel => {
                                 if text_cpu.font.bg_color.a != 0 {
-                                    BlendMode::SubpixelWithBgColor
+                                    (
+                                        BlendMode::SubpixelWithBgColor,
+                                        ShaderColorMode::FromRenderPassMode,
+                                    )
                                 } else if ctx.use_dual_source_blending {
-                                    BlendMode::SubpixelDualSource
+                                    (
+                                        BlendMode::SubpixelDualSource,
+                                        ShaderColorMode::SubpixelDualSource,
+                                    )
                                 } else {
-                                    BlendMode::SubpixelConstantTextColor(text_cpu.font.color.into())
+                                    (
+                                        BlendMode::SubpixelConstantTextColor(text_cpu.font.color.into()),
+                                        ShaderColorMode::SubpixelConstantTextColor,
+                                    )
                                 }
                             }
                             GlyphFormat::Alpha |
-                            GlyphFormat::TransformedAlpha |
-                            GlyphFormat::Bitmap |
-                            GlyphFormat::ColorBitmap => BlendMode::PremultipliedAlpha,
+                            GlyphFormat::TransformedAlpha => {
+                                (
+                                    BlendMode::PremultipliedAlpha,
+                                    ShaderColorMode::Alpha,
+                                )
+                            }
+                            GlyphFormat::Bitmap => {
+                                (
+                                    BlendMode::PremultipliedAlpha,
+                                    ShaderColorMode::Bitmap,
+                                )
+                            }
+                            GlyphFormat::ColorBitmap => {
+                                (
+                                    BlendMode::PremultipliedAlpha,
+                                    ShaderColorMode::ColorBitmap,
+                                )
+                            }
                         };
 
                         let key = BatchKey::new(kind, blend_mode, textures);
@@ -1179,7 +1203,8 @@ impl AlphaBatchBuilder {
                             batch.push(base_instance.build(
                                 glyph.index_in_text_run,
                                 glyph.uv_rect_address.as_int(),
-                                subpx_dir as u32 as i32,
+                                (subpx_dir as u32 as i32) << 16 |
+                                (color_mode as u32 as i32),
                             ));
                         }
                     },
