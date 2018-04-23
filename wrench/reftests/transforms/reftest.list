@@ -13,7 +13,7 @@ fuzzy(1,156) == prim-suite.yaml prim-suite.png
 == coord-system.yaml coord-system.png
 zoom(4) == border-zoom.yaml border-zoom.png
 platform(linux) fuzzy(1,520) == perspective-origin.yaml perspective-origin.png
-fuzzy(1,180) == screen-space-blit.yaml screen-space-blit.png
+color_targets(1) alpha_targets(0) fuzzy(1,180) == screen-space-blit.yaml screen-space-blit.png
 platform(linux) fuzzy(11,4592) == screen-space-blur.yaml screen-space-blur.png
 == nested-rotate-x.yaml nested-rotate-x.png
 == nested-preserve-3d.yaml nested-preserve-3d.png
