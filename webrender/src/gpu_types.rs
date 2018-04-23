@@ -83,6 +83,16 @@ pub struct ClipMaskInstance {
     pub resource_address: GpuCacheAddress,
 }
 
+/// A border corner dot or dash drawn into the clipping mask.
+#[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[repr(C)]
+pub struct ClipMaskBorderCornerDotDash {
+    pub clip_mask_instance: ClipMaskInstance,
+    pub dot_dash_data: [f32; 8],
+}
+
 // 32 bytes per instance should be enough for anyone!
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
