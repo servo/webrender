@@ -6,7 +6,7 @@ use api::{AlphaType, BorderRadius, BoxShadowClipMode, BuiltDisplayList, ClipMode
 use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, FontRenderMode};
 use api::{FilterOp, GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{GlyphRasterSpace, LayoutPoint, LayoutRect, LayoutSize, LayoutToWorldTransform, LayoutVector2D};
-use api::{PipelineId, PremultipliedColorF, Shadow, YuvColorSpace, YuvFormat};
+use api::{PipelineId, PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat};
 use border::{BorderCornerInstance, BorderEdgeKind};
 use box_shadow::BLUR_SAMPLE_SCALE;
 use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, CoordinateSystemId};
@@ -26,6 +26,7 @@ use render_task::{BlitSource, RenderTask, RenderTaskCacheKey};
 use render_task::{RenderTaskCacheKeyKind, RenderTaskId, RenderTaskCacheEntryHandle};
 use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
 use resource_cache::{ImageProperties, ImageRequest};
+use scene::SceneProperties;
 use segment::SegmentBuilder;
 use std::{mem, usize};
 use std::sync::Arc;
@@ -200,10 +201,52 @@ pub struct PrimitiveMetadata {
     pub prepared_frame_id: FrameId,
 }
 
+// Maintains a list of opacity bindings that have been collapsed into
+// the color of a single primitive. This is an important optimization
+// that avoids allocating an intermediate surface for most common
+// uses of opacity filters.
+#[derive(Debug)]
+pub struct OpacityBinding {
+    bindings: Vec<PropertyBinding<f32>>,
+    current: f32,
+}
+
+impl OpacityBinding {
+    pub fn new() -> OpacityBinding {
+        OpacityBinding {
+            bindings: Vec::new(),
+            current: 1.0,
+        }
+    }
+
+    // Add a new opacity value / binding to the list
+    pub fn push(&mut self, binding: PropertyBinding<f32>) {
+        self.bindings.push(binding);
+    }
+
+    // Resolve the current value of each opacity binding, and
+    // store that as a single combined opacity. Returns true
+    // if the opacity value changed from last time.
+    pub fn update(&mut self, scene_properties: &SceneProperties) -> bool {
+        let mut new_opacity = 1.0;
+
+        for binding in &self.bindings {
+            let opacity = scene_properties.resolve_float(binding, 1.0);
+            new_opacity = new_opacity * opacity;
+        }
+
+        let changed = new_opacity != self.current;
+        self.current = new_opacity;
+
+        changed
+    }
+}
+
 #[derive(Debug)]
 pub enum BrushKind {
     Solid {
         color: ColorF,
+        opacity_binding: OpacityBinding,
     },
     Clear,
     Picture {
@@ -217,6 +260,7 @@ pub enum BrushKind {
         tile_spacing: LayoutSize,
         source: ImageSource,
         sub_rect: Option<DeviceIntRect>,
+        opacity_binding: OpacityBinding,
     },
     YuvImage {
         yuv_key: [ImageKey; 3],
@@ -258,6 +302,14 @@ impl BrushKind {
             BrushKind::Picture { .. } => false,
 
             BrushKind::Clear => false,
+        }
+    }
+
+    // Construct a brush that is a solid color rectangle.
+    pub fn new_solid(color: ColorF) -> BrushKind {
+        BrushKind::Solid {
+            color,
+            opacity_binding: OpacityBinding::new(),
         }
     }
 }
@@ -347,15 +399,19 @@ impl BrushPrimitive {
         // has to match VECS_PER_SPECIFIC_BRUSH
         match self.kind {
             BrushKind::YuvImage { .. } => {}
-
-            BrushKind::Picture { .. } |
-            BrushKind::Image { .. } => {
+            BrushKind::Picture { .. } => {
                 request.push(PremultipliedColorF::WHITE);
                 request.push(PremultipliedColorF::WHITE);
             }
-
-            BrushKind::Solid { color } => {
-                request.push(color.premultiplied());
+            // Images are drawn as a white color, modulated by the total
+            // opacity coming from any collapsed property bindings.
+            BrushKind::Image { ref opacity_binding, .. } => {
+                request.push(ColorF::new(1.0, 1.0, 1.0, opacity_binding.current).premultiplied());
+                request.push(PremultipliedColorF::WHITE);
+            }
+            // Solid rects also support opacity collapsing.
+            BrushKind::Solid { color, ref opacity_binding, .. } => {
+                request.push(color.scale_alpha(opacity_binding.current).premultiplied());
             }
             BrushKind::Clear => {
                 // Opaque black with operator dest out
@@ -937,7 +993,7 @@ impl PrimitiveContainer {
             }
             PrimitiveContainer::Brush(ref brush) => {
                 match brush.kind {
-                    BrushKind::Solid { ref color } => {
+                    BrushKind::Solid { ref color, .. } => {
                         color.a > 0.0
                     }
                     BrushKind::Clear |
@@ -987,9 +1043,7 @@ impl PrimitiveContainer {
                 match brush.kind {
                     BrushKind::Solid { .. } => {
                         PrimitiveContainer::Brush(BrushPrimitive::new(
-                            BrushKind::Solid {
-                                color: shadow.color,
-                            },
+                            BrushKind::new_solid(shadow.color),
                             None,
                         ))
                     }
@@ -1107,7 +1161,7 @@ impl PrimitiveStore {
             PrimitiveContainer::Brush(brush) => {
                 let opacity = match brush.kind {
                     BrushKind::Clear => PrimitiveOpacity::translucent(),
-                    BrushKind::Solid { ref color } => PrimitiveOpacity::from_alpha(color.a),
+                    BrushKind::Solid { ref color, .. } => PrimitiveOpacity::from_alpha(color.a),
                     BrushKind::Image { .. } => PrimitiveOpacity::translucent(),
                     BrushKind::YuvImage { .. } => PrimitiveOpacity::opaque(),
                     BrushKind::RadialGradient { .. } => PrimitiveOpacity::translucent(),
@@ -1164,6 +1218,118 @@ impl PrimitiveStore {
         self.cpu_metadata.push(metadata);
 
         PrimitiveIndex(prim_index)
+    }
+
+    // Internal method that retrieves the primitive index of a primitive
+    // that can be the target for collapsing parent opacity filters into.
+    fn get_opacity_collapse_prim(
+        &self,
+        pic_index: PictureIndex,
+    ) -> Option<PrimitiveIndex> {
+        let pic = &self.pictures[pic_index.0];
+
+        // We can only collapse opacity if there is a single primitive, otherwise
+        // the opacity needs to be applied to the primitives as a group.
+        if pic.runs.len() == 1 {
+            let run = &pic.runs[0];
+
+            if run.count == 1 {
+                let prim_metadata = &self.cpu_metadata[run.base_prim_index.0];
+
+                // For now, we only support opacity collapse on solid rects and images.
+                // This covers the most common types of opacity filters that can be
+                // handled by this optimization. In the future, we can easily extend
+                // this to other primitives, such as text runs and gradients.
+                match prim_metadata.prim_kind {
+                    PrimitiveKind::Brush => {
+                        let brush = &self.cpu_brushes[prim_metadata.cpu_prim_index.0];
+                        match brush.kind {
+                            BrushKind::Picture { pic_index, .. } => {
+                                let pic = &self.pictures[pic_index.0];
+                                // If we encounter a picture that is a pass-through
+                                // (i.e. no composite mode), then we can recurse into
+                                // that to try and find a primitive to collapse to.
+                                if pic.composite_mode.is_none() {
+                                    return self.get_opacity_collapse_prim(pic_index);
+                                }
+                            }
+                            // If we find a single rect or image, we can use that
+                            // as the primitive to collapse the opacity into.
+                            BrushKind::Solid { .. } | BrushKind::Image { .. } => {
+                                return Some(run.base_prim_index)
+                            }
+                            BrushKind::YuvImage { .. } |
+                            BrushKind::LinearGradient { .. } |
+                            BrushKind::RadialGradient { .. } |
+                            BrushKind::Clear => {}
+                        }
+                    }
+                    PrimitiveKind::TextRun |
+                    PrimitiveKind::Image |
+                    PrimitiveKind::Border => {}
+                }
+            }
+        }
+
+        None
+    }
+
+    // Apply any optimizations to drawing this picture. Currently,
+    // we just support collapsing pictures with an opacity filter
+    // by pushing that opacity value into the color of a primitive
+    // if that picture contains one compatible primitive.
+    pub fn optimize_picture_if_possible(
+        &mut self,
+        pic_index: PictureIndex,
+    ) {
+        // Only handle opacity filters for now.
+        let binding = match self.pictures[pic_index.0].composite_mode {
+            Some(PictureCompositeMode::Filter(FilterOp::Opacity(binding, _))) => {
+                binding
+            }
+            _ => {
+                return;
+            }
+        };
+
+        // See if this picture contains a single primitive that supports
+        // opacity collapse.
+        if let Some(prim_index) = self.get_opacity_collapse_prim(pic_index) {
+            let prim_metadata = &self.cpu_metadata[prim_index.0];
+            match prim_metadata.prim_kind {
+                PrimitiveKind::Brush => {
+                    let brush = &mut self.cpu_brushes[prim_metadata.cpu_prim_index.0];
+
+                    // By this point, we know we should only have found a primitive
+                    // that supports opacity collapse.
+                    match brush.kind {
+                        BrushKind::Solid { ref mut opacity_binding, .. } |
+                        BrushKind::Image { ref mut opacity_binding, .. } => {
+                            opacity_binding.push(binding);
+                        }
+                        BrushKind::Clear { .. } |
+                        BrushKind::Picture { .. } |
+                        BrushKind::YuvImage { .. } |
+                        BrushKind::LinearGradient { .. } |
+                        BrushKind::RadialGradient { .. } => {
+                            unreachable!("bug: invalid prim type for opacity collapse");
+                        }
+                    };
+                }
+                PrimitiveKind::TextRun |
+                PrimitiveKind::Image |
+                PrimitiveKind::Border => {
+                    unreachable!("bug: invalid prim type for opacity collapse");
+                }
+            }
+
+            // The opacity filter has been collapsed, so mark this picture
+            // as a pass though. This means it will no longer allocate an
+            // intermediate surface or incur an extra blend / blit. Instead,
+            // the collapsed primitive will be drawn directly into the
+            // parent picture.
+            self.pictures[pic_index.0].composite_mode = None;
+        }
     }
 
     pub fn get_metadata(&self, index: PrimitiveIndex) -> &PrimitiveMetadata {
@@ -1318,19 +1484,26 @@ impl PrimitiveStore {
                 let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
 
                 match brush.kind {
-                    BrushKind::Image { request, sub_rect, ref mut current_epoch, ref mut source, .. } => {
+                    BrushKind::Image { request, sub_rect, ref mut current_epoch, ref mut source, ref mut opacity_binding, .. } => {
                         let image_properties = frame_state
                             .resource_cache
                             .get_image_properties(request.key);
 
                         // Set if we need to request the source image from the cache this frame.
                         if let Some(image_properties) = image_properties {
-                            // See if this image has been updated since we last hit this code path.
-                            // If so, we need to update the opacity.
-                            if image_properties.epoch != *current_epoch {
-                                *current_epoch = image_properties.epoch;
-                                metadata.opacity.is_opaque = image_properties.descriptor.is_opaque;
+                            *current_epoch = image_properties.epoch;
+
+                            // If the opacity changed, invalidate the GPU cache so that
+                            // the new color for this primitive gets uploaded.
+                            if opacity_binding.update(frame_context.scene_properties) {
+                                frame_state.gpu_cache.invalidate(&mut metadata.gpu_location);
                             }
+
+                            // Update opacity for this primitive to ensure the correct
+                            // batching parameters are used.
+                            metadata.opacity.is_opaque =
+                                image_properties.descriptor.is_opaque &&
+                                opacity_binding.current == 1.0;
 
                             // Work out whether this image is a normal / simple type, or if
                             // we need to pre-render it to the render task cache.
@@ -1465,7 +1638,16 @@ impl PrimitiveStore {
                             frame_state,
                         );
                     }
-                    BrushKind::Solid { .. } |
+                    BrushKind::Solid { ref color, ref mut opacity_binding, .. } => {
+                        // If the opacity changed, invalidate the GPU cache so that
+                        // the new color for this primitive gets uploaded. Also update
+                        // the opacity field that controls which batches this primitive
+                        // will be added to.
+                        if opacity_binding.update(frame_context.scene_properties) {
+                            metadata.opacity = PrimitiveOpacity::from_alpha(opacity_binding.current * color.a);
+                            frame_state.gpu_cache.invalidate(&mut metadata.gpu_location);
+                        }
+                    }
                     BrushKind::Clear => {}
                 }
             }

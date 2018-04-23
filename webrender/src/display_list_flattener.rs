@@ -28,7 +28,7 @@ use picture::PictureCompositeMode;
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor, CachedGradient};
 use prim_store::{CachedGradientIndex, ImageCacheKey, ImagePrimitiveCpu, ImageSource};
 use prim_store::{PictureIndex, PrimitiveContainer, PrimitiveIndex, PrimitiveStore};
-use prim_store::{ScrollNodeAndClipChain, TextRunPrimitiveCpu};
+use prim_store::{OpacityBinding, ScrollNodeAndClipChain, TextRunPrimitiveCpu};
 use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest, TiledImageMap};
 use scene::{Scene, ScenePipeline, StackingContextHelpers};
@@ -1261,7 +1261,11 @@ impl<'a> DisplayListFlattener<'a> {
         }
 
         for _ in 0 .. pop_count {
-            self.picture_stack.pop().expect("bug: mismatched picture stack");
+            let pic_index = self
+                .picture_stack
+                .pop()
+                .expect("bug: mismatched picture stack");
+            self.prim_store.optimize_picture_if_possible(pic_index);
         }
 
         // By the time the stacking context stack is empty, we should
@@ -1481,9 +1485,7 @@ impl<'a> DisplayListFlattener<'a> {
         }
 
         let prim = BrushPrimitive::new(
-            BrushKind::Solid {
-                color,
-            },
+            BrushKind::new_solid(color),
             segments,
         );
 
@@ -1525,9 +1527,7 @@ impl<'a> DisplayListFlattener<'a> {
         }
 
         let prim = BrushPrimitive::new(
-            BrushKind::Solid {
-                color,
-            },
+            BrushKind::new_solid(color),
             None,
         );
 
@@ -1559,9 +1559,7 @@ impl<'a> DisplayListFlattener<'a> {
         style: LineStyle,
     ) {
         let prim = BrushPrimitive::new(
-            BrushKind::Solid {
-                color: *line_color,
-            },
+            BrushKind::new_solid(*line_color),
             None,
         );
 
@@ -2172,6 +2170,7 @@ impl<'a> DisplayListFlattener<'a> {
                     tile_spacing,
                     source: ImageSource::Default,
                     sub_rect,
+                    opacity_binding: OpacityBinding::new(),
                 },
                 None,
             );
