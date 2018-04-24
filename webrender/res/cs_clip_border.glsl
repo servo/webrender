@@ -134,9 +134,16 @@ void main(void) {
     vec2 device_pos = world_pos.xy * uDevicePixelRatio;
 
     // Position vertex within the render task area.
-    vec2 final_pos = device_pos -
-                     area.screen_origin +
-                     area.common_data.task_rect.p0;
+    vec2 task_rect_origin = area.common_data.task_rect.p0;
+    vec2 final_pos = device_pos - area.screen_origin + task_rect_origin;
+
+    // Clamp the mask rectangle to the render task area.
+    final_pos = clamp(final_pos,
+                      task_rect_origin,
+                      task_rect_origin + area.common_data.task_rect.size);
+
+    // Now move the clamped rectangle back to world space and use it for world_pos.
+    world_pos.xy = (final_pos - task_rect_origin + area.screen_origin) / uDevicePixelRatio;
 
     // Calculate the local space position for this vertex.
     vec4 node_pos = get_node_pos(world_pos.xy, scroll_node);
