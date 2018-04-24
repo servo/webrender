@@ -71,6 +71,11 @@ void main(void) {
     BorderCorner corner = fetch_border_corner(cmi.clip_data_address);
     vClipCenter = corner.clip_center;
 
+    // Get local vertex position for the corner rect.
+    // TODO(gw): We could reduce the number of pixels written here by calculating a tight
+    // fitting bounding box of the dash itself like we do for dots below.
+    vec2 pos = corner.rect.p0 + aPosition.xy * corner.rect.size;
+
     if (cmi.segment == 0) {
         // The first segment is used to zero out the border corner.
         vAlphaMask = vec2(0.0);
@@ -112,6 +117,17 @@ void main(void) {
                 vPoint_Tangent1 = vec4(1.0);
                 vDotParams = vec3(cdot.center_radius.xy * sign_modifier, cdot.center_radius.z);
                 vAlphaMask = vec2(1.0, 1.0);
+
+                // Generate a tighter bounding rect for dots based on their position. Dot
+                // centers are given relative to clip center, so we need to move the dot
+                // rectangle into the clip space with an origin at the top left. First,
+                // we expand the radius slightly to ensure we get full coverage on all the pixels
+                // of the dots.
+                float expanded_radius = cdot.center_radius.z + 2.0;
+                pos = (vClipCenter + vDotParams.xy - vec2(expanded_radius));
+                pos += (aPosition.xy * vec2(expanded_radius * 2.0));
+                pos = clamp(pos, corner.rect.p0, corner.rect.p0 + corner.rect.size);
+
                 break;
             }
             default:
@@ -120,11 +136,6 @@ void main(void) {
                 vAlphaMask = vec2(0.0);
         }
     }
-
-    // Get local vertex position for the corner rect.
-    // TODO(gw): We could reduce the number of pixels written here
-    // by calculating a tight fitting bounding box of the dash itself.
-    vec2 pos = corner.rect.p0 + aPosition.xy * corner.rect.size;
 
     // Transform to world pos
     vec4 world_pos = scroll_node.transform * vec4(pos, 0.0, 1.0);
