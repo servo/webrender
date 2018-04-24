@@ -150,9 +150,8 @@ impl<'a> DisplayListFlattener<'a> {
                 &LayoutPrimitiveInfo::with_clip_rect(final_prim_rect, prim_info.clip_rect),
                 clips,
                 PrimitiveContainer::Brush(
-                    BrushPrimitive::new(BrushKind::Solid {
-                            color: *color,
-                        },
+                    BrushPrimitive::new(
+                        BrushKind::new_solid(*color),
                         None,
                     )
                 ),
@@ -177,9 +176,7 @@ impl<'a> DisplayListFlattener<'a> {
             // Draw the box-shadow as a solid rect, using a box-shadow
             // clip mask source.
             let prim = BrushPrimitive::new(
-                BrushKind::Solid {
-                    color: *color,
-                },
+                BrushKind::new_solid(*color),
                 None,
             );
 
