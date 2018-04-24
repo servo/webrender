@@ -4,17 +4,17 @@
 == border-radii.yaml border-radii.png
 == border-none.yaml border-none-ref.yaml
 == border-invisible.yaml border-invisible-ref.yaml
-== border-suite.yaml border-suite.png
-== border-suite-2.yaml border-suite-2.png
-== border-suite-3.yaml border-suite-3.png
+platform(linux,mac) == border-suite.yaml border-suite.png
+platform(linux,mac) == border-suite-2.yaml border-suite-2.png
+platform(linux,mac) == border-suite-3.yaml border-suite-3.png
 == border-double-simple.yaml border-double-simple-ref.yaml
 == border-double-simple-2.yaml border-double-simple-2-ref.yaml
 == border-groove-simple.yaml border-groove-simple-ref.yaml
 == border-ridge-simple.yaml border-ridge-simple-ref.yaml
-== degenerate-curve.yaml degenerate-curve.png
-== border-image.yaml border-image-ref.png
+platform(linux,mac) == degenerate-curve.yaml degenerate-curve.png
+platform(linux,mac) == border-image.yaml border-image-ref.png
 == border-image-crash.yaml border-image-crash-ref.yaml
 == border-image-fill.yaml border-image-fill-ref.png
 == border-no-bogus-line.yaml border-no-bogus-line-ref.png
-== dotted-corner-small-radius.yaml dotted-corner-small-radius.png
+platform(linux,mac) == dotted-corner-small-radius.yaml dotted-corner-small-radius.png
 == overlapping.yaml overlapping.png
