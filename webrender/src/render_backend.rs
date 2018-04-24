@@ -731,6 +731,9 @@ impl RenderBackend {
                                 &mut profile_counters
                             );
                         }
+                    },
+                    SceneBuilderResult::Stopped => {
+                        panic!("We haven't sent a Stop yet, how did we get a Stopped back?");
                     }
                 }
             }
@@ -747,6 +750,15 @@ impl RenderBackend {
         }
 
         let _ = self.scene_tx.send(SceneBuilderRequest::Stop);
+        // Ensure we read everything the scene builder is sending us from
+        // inflight messages, otherwise the scene builder might panic.
+        while let Ok(msg) = self.scene_rx.recv() {
+            match msg {
+                SceneBuilderResult::Stopped => break,
+                _ => continue,
+            }
+        }
+
         self.notifier.shut_down();
 
         if let Some(ref sampler) = self.sampler {
