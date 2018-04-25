@@ -145,7 +145,7 @@ impl ClipScrollNode {
             parent: parent_index,
             children: Vec::new(),
             pipeline_id,
-            node_type: node_type,
+            node_type,
             invertible: true,
             coordinate_system_id: CoordinateSystemId(0),
             coordinate_system_relative_transform: LayoutFastTransform::identity(),
@@ -191,7 +191,7 @@ impl ClipScrollNode {
         let info = ReferenceFrameInfo {
             resolved_transform: LayoutFastTransform::identity(),
             source_transform: source_transform.unwrap_or(PropertyBinding::Value(identity)),
-            source_perspective: source_perspective,
+            source_perspective,
             origin_in_parent_reference_frame,
             invertible: true,
         };

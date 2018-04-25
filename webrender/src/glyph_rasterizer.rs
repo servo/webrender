@@ -417,7 +417,7 @@ impl GlyphRasterizer {
             font_contexts: Arc::new(FontContexts {
                 worker_contexts: contexts,
                 shared_context: Mutex::new(shared_context),
-                pathfinder_context: pathfinder_context,
+                pathfinder_context,
                 workers: Arc::clone(&workers),
             }),
             pending_glyphs: 0,
