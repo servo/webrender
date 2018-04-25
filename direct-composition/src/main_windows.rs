@@ -186,7 +186,7 @@ impl api::RenderNotifier for Notifier {
         let _ = self.events_proxy.wakeup();
     }
 
-    fn new_document_ready(&self, _: api::DocumentId, _: bool, _: bool) {
+    fn new_frame_ready(&self, _: api::DocumentId, _: bool, _: bool) {
         self.wake_up();
     }
 }
