@@ -1046,8 +1046,8 @@ impl RenderBackend {
             doc.render_on_hittest = false;
         }
 
-        if op.render || op.scroll {
-            self.notifier.new_document_ready(document_id, op.scroll, op.composite);
+        if transaction_msg.generate_frame {
+            self.notifier.new_frame_ready(document_id, op.scroll, op.composite);
         }
     }
 
@@ -1340,7 +1340,7 @@ impl RenderBackend {
             self.result_tx.send(msg_publish).unwrap();
             profile_counters.reset();
 
-            self.notifier.new_document_ready(id, false, true);
+            self.notifier.new_frame_ready(id, false, true);
             self.documents.insert(id, doc);
         }
     }
