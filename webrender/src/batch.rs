@@ -40,7 +40,6 @@ const OPAQUE_TASK_ADDRESS: RenderTaskAddress = RenderTaskAddress(0x7fff);
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum TransformBatchKind {
     TextRun(GlyphFormat),
-    Image(ImageBufferKind),
     BorderCorner,
     BorderEdge,
 }
@@ -1109,50 +1108,6 @@ impl AlphaBatchBuilder {
                     }
                 }
             }
-            PrimitiveKind::Image => {
-                let image_cpu = &ctx.prim_store.cpu_images[prim_metadata.cpu_prim_index.0];
-
-                let cache_item = match image_cpu.source {
-                    ImageSource::Default => {
-                        resolve_image(
-                            image_cpu.key.request,
-                            ctx.resource_cache,
-                            gpu_cache,
-                            deferred_resolves,
-                        )
-                    }
-                    ImageSource::Cache { ref handle, .. } => {
-                        let rt_handle = handle
-                            .as_ref()
-                            .expect("bug: render task handle not allocated");
-                        let rt_cache_entry = ctx
-                            .resource_cache
-                            .get_cached_render_task(rt_handle);
-                        ctx.resource_cache.get_texture_cache_item(&rt_cache_entry.handle)
-                    }
-                };
-
-                if cache_item.texture_id == SourceTexture::Invalid {
-                    warn!("Warnings: skip a PrimitiveKind::Image");
-                    debug!("at {:?}.", task_relative_bounding_rect);
-                    return;
-                }
-
-                let batch_kind = TransformBatchKind::Image(get_buffer_kind(cache_item.texture_id));
-                let key = BatchKey::new(
-                    BatchKind::Transformable(transform_kind, batch_kind),
-                    non_segmented_blend_mode,
-                    BatchTextures {
-                        colors: [
-                            cache_item.texture_id,
-                            SourceTexture::Invalid,
-                            SourceTexture::Invalid,
-                        ],
-                    },
-                );
-                let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
-                batch.push(base_instance.build(cache_item.uv_rect_handle.as_int(gpu_cache), 0, 0));
-            }
             PrimitiveKind::TextRun => {
                 let text_cpu =
                     &ctx.prim_store.cpu_text_runs[prim_metadata.cpu_prim_index.0];
@@ -1614,13 +1569,6 @@ impl AlphaBatchHelpers for PrimitiveStore {
                     BrushKind::Picture { .. } => {
                         BlendMode::PremultipliedAlpha
                     }
-                }
-            }
-            PrimitiveKind::Image => {
-                let image_cpu = &self.cpu_images[metadata.cpu_prim_index.0];
-                match image_cpu.alpha_type {
-                    AlphaType::PremultipliedAlpha => BlendMode::PremultipliedAlpha,
-                    AlphaType::Alpha => BlendMode::Alpha,
                 }
             }
         }

@@ -30,7 +30,7 @@ use prim_store::{CachedGradientIndex, ImageSource};
 use prim_store::{PictureIndex, PrimitiveContainer, PrimitiveIndex, PrimitiveStore};
 use prim_store::{OpacityBinding, ScrollNodeAndClipChain, TextRunPrimitiveCpu};
 use render_backend::{DocumentView};
-use resource_cache::{FontInstanceMap, ImageRequest, TiledImageMap};
+use resource_cache::{FontInstanceMap, ImageRequest};
 use scene::{Scene, ScenePipeline, StackingContextHelpers};
 use scene_builder::{BuiltScene, SceneRequest};
 use std::{f32, mem, usize};
@@ -150,9 +150,6 @@ pub struct DisplayListFlattener<'a> {
     /// The map of all font instances.
     font_instances: FontInstanceMap,
 
-    /// The map of tiled images.
-    tiled_image_map: TiledImageMap,
-
     /// Used to track the latest flattened epoch for each pipeline.
     pipeline_epochs: Vec<(PipelineId, Epoch)>,
 
@@ -207,7 +204,6 @@ impl<'a> DisplayListFlattener<'a> {
         scene: &Scene,
         clip_scroll_tree: &mut ClipScrollTree,
         font_instances: FontInstanceMap,
-        tiled_image_map: TiledImageMap,
         view: &DocumentView,
         output_pipelines: &FastHashSet<PipelineId>,
         frame_builder_config: &FrameBuilderConfig,
@@ -227,7 +223,6 @@ impl<'a> DisplayListFlattener<'a> {
             scene,
             clip_scroll_tree,
             font_instances,
-            tiled_image_map,
             config: *frame_builder_config,
             pipeline_epochs: Vec::new(),
             replacements: Vec::new(),
@@ -2193,7 +2188,6 @@ pub fn build_scene(config: &FrameBuilderConfig, request: SceneRequest) -> BuiltS
         &request.scene,
         &mut clip_scroll_tree,
         request.font_instances,
-        request.tiled_image_map,
         &request.view,
         &request.output_pipelines,
         config,

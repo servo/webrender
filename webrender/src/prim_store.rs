@@ -147,7 +147,6 @@ pub struct PictureIndex(pub usize);
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum PrimitiveKind {
     TextRun,
-    Image,
     Border,
     Brush,
 }
@@ -1018,7 +1017,6 @@ impl ClipData {
 #[derive(Debug)]
 pub enum PrimitiveContainer {
     TextRun(TextRunPrimitiveCpu),
-    Image(ImagePrimitiveCpu),
     Border(BorderPrimitiveCpu),
     Brush(BrushPrimitive),
 }
@@ -1051,7 +1049,6 @@ impl PrimitiveContainer {
                     }
                 }
             }
-            PrimitiveContainer::Image(..) |
             PrimitiveContainer::Border(..) => {
                 true
             }
@@ -1102,7 +1099,6 @@ impl PrimitiveContainer {
                     }
                 }
             }
-            PrimitiveContainer::Image(..) |
             PrimitiveContainer::Border(..) => {
                 panic!("bug: other primitive containers not expected here");
             }
@@ -1236,17 +1232,6 @@ impl PrimitiveStore {
                 self.cpu_text_runs.push(text_cpu);
                 metadata
             }
-            PrimitiveContainer::Image(image_cpu) => {
-                let metadata = PrimitiveMetadata {
-                    opacity: PrimitiveOpacity::translucent(),
-                    prim_kind: PrimitiveKind::Image,
-                    cpu_prim_index: SpecificPrimitiveIndex(self.cpu_images.len()),
-                    ..base_metadata
-                };
-
-                self.cpu_images.push(image_cpu);
-                metadata
-            }
             PrimitiveContainer::Border(border_cpu) => {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
@@ -1315,7 +1300,6 @@ impl PrimitiveStore {
                 }
             }
             PrimitiveKind::TextRun |
-            PrimitiveKind::Image |
             PrimitiveKind::Border => {}
         }
 
@@ -1365,7 +1349,6 @@ impl PrimitiveStore {
                     };
                 }
                 PrimitiveKind::TextRun |
-                PrimitiveKind::Image |
                 PrimitiveKind::Border => {
                     unreachable!("bug: invalid prim type for opacity collapse");
                 }
@@ -1418,117 +1401,6 @@ impl PrimitiveStore {
                     pic_context.display_list,
                     frame_state,
                 );
-            }
-            PrimitiveKind::Image => {
-                let image_cpu = &mut self.cpu_images[metadata.cpu_prim_index.0];
-                let image_properties = frame_state
-                    .resource_cache
-                    .get_image_properties(image_cpu.key.request.key);
-
-                // TODO(gw): Add image.rs and move this code out to a separate
-                //           source file as it gets more complicated, and we
-                //           start pre-rendering images for other reasons.
-
-                if let Some(image_properties) = image_properties {
-                    // See if this image has been updated since we last hit this code path.
-                    // If so, we need to (at least) update the opacity, and also rebuild
-                    // and render task cached portions of this image.
-                    if image_properties.epoch != image_cpu.current_epoch {
-                        image_cpu.current_epoch = image_properties.epoch;
-
-                        // Update the opacity.
-                        metadata.opacity.is_opaque = image_properties.descriptor.is_opaque &&
-                            image_cpu.tile_spacing.width == 0.0 &&
-                            image_cpu.tile_spacing.height == 0.0;
-
-                        // Work out whether this image is a normal / simple type, or if
-                        // we need to pre-render it to the render task cache.
-                        image_cpu.source = match image_cpu.key.texel_rect {
-                            Some(texel_rect) => {
-                                ImageSource::Cache {
-                                    // Size in device-pixels we need to allocate in render task cache.
-                                    size: texel_rect.size,
-                                    handle: None,
-                                }
-                            }
-                            None => {
-                                // Simple image - just use a normal texture cache entry.
-                                ImageSource::Default
-                            }
-                        };
-                    }
-
-                    // Set if we need to request the source image from the cache this frame.
-                    let mut request_source_image = false;
-
-                    // Every frame, for cached items, we need to request the render
-                    // task cache item. The closure will be invoked on the first
-                    // time through, and any time the render task output has been
-                    // evicted from the texture cache.
-                    match image_cpu.source {
-                        ImageSource::Cache { size, ref mut handle } => {
-                            let key = image_cpu.key;
-
-                            // Request a pre-rendered image task.
-                            *handle = Some(frame_state.resource_cache.request_render_task(
-                                RenderTaskCacheKey {
-                                    size,
-                                    kind: RenderTaskCacheKeyKind::Image(key),
-                                },
-                                frame_state.gpu_cache,
-                                frame_state.render_tasks,
-                                None,
-                                image_properties.descriptor.is_opaque,
-                                |render_tasks| {
-                                    // We need to render the image cache this frame,
-                                    // so will need access to the source texture.
-                                    request_source_image = true;
-
-                                    // Create a task to blit from the texture cache to
-                                    // a normal transient render task surface. This will
-                                    // copy only the sub-rect, if specified.
-                                    let cache_to_target_task = RenderTask::new_blit(
-                                        size,
-                                        BlitSource::Image {
-                                            key,
-                                        },
-                                    );
-                                    let cache_to_target_task_id = render_tasks.add(cache_to_target_task);
-
-                                    // Create a task to blit the rect from the child render
-                                    // task above back into the right spot in the persistent
-                                    // render target cache.
-                                    let target_to_cache_task = RenderTask::new_blit(
-                                        size,
-                                        BlitSource::RenderTask {
-                                            task_id: cache_to_target_task_id,
-                                        },
-                                    );
-                                    let target_to_cache_task_id = render_tasks.add(target_to_cache_task);
-
-                                    // Hook this into the render task tree at the right spot.
-                                    pic_state.tasks.push(target_to_cache_task_id);
-
-                                    // Pass the image opacity, so that the cached render task
-                                    // item inherits the same opacity properties.
-                                    target_to_cache_task_id
-                                }
-                            ));
-                        }
-                        ImageSource::Default => {
-                            // Normal images just reference the source texture each frame.
-                            request_source_image = true;
-                        }
-                    }
-
-                    // Request source image from the texture cache, if required.
-                    if request_source_image {
-                        frame_state.resource_cache.request_image(
-                            image_cpu.key.request,
-                            frame_state.gpu_cache,
-                        );
-                    }
-                }
             }
             PrimitiveKind::Brush => {
                 let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
@@ -1835,10 +1707,6 @@ impl PrimitiveStore {
                 PrimitiveKind::Border => {
                     let border = &self.cpu_borders[metadata.cpu_prim_index.0];
                     border.write_gpu_blocks(request);
-                }
-                PrimitiveKind::Image => {
-                    let image = &self.cpu_images[metadata.cpu_prim_index.0];
-                    image.write_gpu_blocks(request);
                 }
                 PrimitiveKind::TextRun => {
                     let text = &self.cpu_text_runs[metadata.cpu_prim_index.0];
