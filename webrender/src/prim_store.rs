@@ -1641,6 +1641,7 @@ impl PrimitiveStore {
                         pic.prepare_for_render(
                             prim_index,
                             metadata,
+                            prim_run_context,
                             pic_state_for_children,
                             pic_state,
                             frame_context,
