@@ -6,7 +6,7 @@
 use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayListIter, ClipAndScrollInfo};
 use api::{ClipId, ColorF, ComplexClipRegion, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::{DevicePixelScale, DeviceUintRect, DisplayItemRef, Epoch, ExtendMode, ExternalScrollId};
-use api::{FilterOp, FontInstanceKey, FontRenderMode, GlyphInstance, GlyphOptions, GlyphRasterSpace, GradientStop};
+use api::{FilterOp, FontInstanceKey, GlyphInstance, GlyphOptions, GlyphRasterSpace, GradientStop};
 use api::{IframeDisplayItem, ImageKey, ImageRendering, ItemRange, LayoutPoint, LayoutPrimitiveInfo};
 use api::{LayoutRect, LayoutVector2D, LayoutSize, LayoutTransform};
 use api::{LineOrientation, LineStyle, LocalClip, PipelineId, PropertyBinding};
@@ -1225,19 +1225,12 @@ impl<'a> DisplayListFlattener<'a> {
         // Add this as the top-most picture for primitives to be added to.
         self.picture_stack.push(pic_index);
 
-        // TODO(gw): This is super conservative. We can expand on this a lot
-        //           once all the picture code is in place and landed.
-        let allow_subpixel_aa = composite_ops.count() == 0 &&
-                                transform_style == TransformStyle::Flat &&
-                                composite_mode.is_none();
-
         // Push the SC onto the stack, so we know how to handle things in
         // pop_stacking_context.
         let sc = FlattenedStackingContext {
             composite_ops,
             is_backface_visible,
             pipeline_id,
-            allow_subpixel_aa,
             transform_style,
             rendering_context_3d_pic_index,
             glyph_raster_space,
@@ -2067,25 +2060,10 @@ impl<'a> DisplayListFlattener<'a> {
                 flags |= options.flags;
             }
 
-            let (allow_subpixel_aa, glyph_raster_space) = match self.sc_stack.last() {
-                Some(stacking_context) => {
-                    (stacking_context.allow_subpixel_aa, stacking_context.glyph_raster_space)
-                }
-                None => {
-                    (true, GlyphRasterSpace::Screen)
-                }
+            let glyph_raster_space = match self.sc_stack.last() {
+                Some(stacking_context) => stacking_context.glyph_raster_space,
+                None => GlyphRasterSpace::Screen,
             };
-
-            // There are some conditions under which we can't use
-            // subpixel text rendering, even if enabled.
-            if !allow_subpixel_aa {
-                // text on a picture that has filters
-                // (e.g. opacity) can't use sub-pixel.
-                // TODO(gw): It's possible we can relax this in
-                //           the future, if we modify the way
-                //           we handle subpixel blending.
-                render_mode = render_mode.limit_by(FontRenderMode::Alpha);
-            }
 
             let prim_font = FontInstance::new(
                 font_instance.font_key,
@@ -2340,11 +2318,6 @@ struct FlattenedStackingContext {
 
     /// If true, visible when backface is visible.
     is_backface_visible: bool,
-
-    /// Allow subpixel AA for text runs on this stacking context.
-    /// This is a temporary hack while we don't support subpixel AA
-    /// on transparent stacking contexts.
-    allow_subpixel_aa: bool,
 
     /// The rasterization mode for any text runs that are part
     /// of this stacking context.

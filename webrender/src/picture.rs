@@ -272,6 +272,11 @@ impl PicturePrimitive {
         }
     }
 
+    // Disallow subpixel AA if an intermediate surface is needed.
+    pub fn allow_subpixel_aa(&self) -> bool {
+        self.can_draw_directly_to_parent_surface()
+    }
+
     pub fn prepare_for_render_inner(
         &mut self,
         prim_index: PrimitiveIndex,

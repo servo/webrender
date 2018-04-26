@@ -77,6 +77,7 @@ pub struct PictureContext<'a> {
     pub inv_world_transform: Option<WorldToLayoutFastTransform>,
     pub apply_local_clip_rect: bool,
     pub inflation_factor: f32,
+    pub allow_subpixel_aa: bool,
 }
 
 pub struct PictureState {
@@ -211,6 +212,7 @@ impl FrameBuilder {
             inv_world_transform: None,
             apply_local_clip_rect: true,
             inflation_factor: 0.0,
+            allow_subpixel_aa: true,
         };
 
         let mut pic_state = PictureState::new();

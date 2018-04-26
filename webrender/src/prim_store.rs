@@ -722,9 +722,14 @@ impl TextRunPrimitiveCpu {
         &mut self,
         device_pixel_scale: DevicePixelScale,
         transform: Option<LayoutToWorldTransform>,
+        allow_subpixel_aa: bool,
         display_list: &BuiltDisplayList,
         frame_building_state: &mut FrameBuildingState,
     ) {
+        if !allow_subpixel_aa {
+            self.font.render_mode = self.font.render_mode.limit_by(FontRenderMode::Alpha);
+        }
+
         let font = self.get_font(device_pixel_scale, transform);
 
         // Cache the glyph positions, if not in the cache already.
@@ -1368,6 +1373,7 @@ impl PrimitiveStore {
                 text.prepare_for_render(
                     frame_context.device_pixel_scale,
                     transform,
+                    pic_context.allow_subpixel_aa,
                     pic_context.display_list,
                     frame_state,
                 );
@@ -2151,6 +2157,8 @@ impl PrimitiveStore {
                         inv_world_transform,
                         apply_local_clip_rect: pic.apply_local_clip_rect,
                         inflation_factor,
+                        // TODO(lsalzman): allow overriding parent if intermediate surface is opaque
+                        allow_subpixel_aa: pic_context.allow_subpixel_aa && pic.allow_subpixel_aa(),
                     }
                 };
 
