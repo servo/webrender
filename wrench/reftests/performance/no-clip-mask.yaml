@@ -9,8 +9,8 @@ root:
       type: "stacking-context"
       items:
         -
-          bounds: [0, 111, 1887, 1365]
-          "clip-rect": [0, 111, 1887, 1365]
+          bounds: [0, 111, 1087, 565]
+          "clip-rect": [0, 111, 1087, 565]
           type: iframe
           id: [1, 2]
 pipelines:
@@ -18,6 +18,6 @@ pipelines:
     id: [1, 2]
     items:
       -
-        bounds: [1875, -1, 12, 999]
-        "clip-rect": [1875, -1, 12, 999]
+        bounds: [1075, -1, 12, 199]
+        "clip-rect": [1075, -1, 12, 199]
         image: checkerboard(4, 8, 8)

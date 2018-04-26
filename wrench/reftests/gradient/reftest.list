@@ -1,14 +1,14 @@
-== premultiplied-aligned.yaml premultiplied-aligned.png
-== premultiplied-angle.yaml premultiplied-angle.png
-== premultiplied-radial.yaml premultiplied-radial.png
+platform(linux,mac) == premultiplied-aligned.yaml premultiplied-aligned.png
+platform(linux,mac) == premultiplied-angle.yaml premultiplied-angle.png
+platform(linux,mac) == premultiplied-radial.yaml premultiplied-radial.png
 
-== premultiplied-aligned-2.yaml premultiplied-aligned-2.png
-== premultiplied-angle-2.yaml premultiplied-angle-2.png
-== premultiplied-radial-2.yaml premultiplied-radial-2.png
+platform(linux,mac) == premultiplied-aligned-2.yaml premultiplied-aligned-2.png
+platform(linux,mac) == premultiplied-angle-2.yaml premultiplied-angle-2.png
+platform(linux,mac) == premultiplied-radial-2.yaml premultiplied-radial-2.png
 
 == linear.yaml linear-ref.png
 == linear-reverse.yaml linear-ref.png
-fuzzy(1,35000) == linear-stops.yaml linear-stops-ref.png
+platform(linux,mac) fuzzy(1,35000) == linear-stops.yaml linear-stops-ref.png
 
 == linear-clamp-1a.yaml linear-clamp-1-ref.yaml
 == linear-clamp-1b.yaml linear-clamp-1-ref.yaml
@@ -20,8 +20,8 @@ fuzzy(1,20000) == linear-reverse.yaml linear-ref.yaml
 
 == linear-aligned-clip.yaml linear-aligned-clip-ref.yaml
 
-fuzzy(1,80000) == radial-circle.yaml radial-circle-ref.png
-fuzzy(1,80000) == radial-ellipse.yaml radial-ellipse-ref.png
+platform(linux,mac) fuzzy(1,80000) == radial-circle.yaml radial-circle-ref.png
+platform(linux,mac) fuzzy(1,80000) == radial-ellipse.yaml radial-ellipse-ref.png
 
 != radial-circle.yaml radial-ellipse.yaml
 
@@ -57,6 +57,6 @@ fuzzy(1,17) == tiling-radial-4.yaml tiling-radial-4-ref.yaml
 == radial-zero-size-2.yaml radial-zero-size-ref.yaml
 == radial-zero-size-3.yaml radial-zero-size-ref.yaml
 
-== linear-aligned-border-radius.yaml linear-aligned-border-radius.png
-== repeat-border-radius.yaml repeat-border-radius.png
+platform(linux,mac) == linear-aligned-border-radius.yaml linear-aligned-border-radius.png
+platform(linux,mac) == repeat-border-radius.yaml repeat-border-radius.png
 
