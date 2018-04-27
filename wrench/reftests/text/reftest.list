@@ -58,3 +58,4 @@ platform(linux) == two-shadows.yaml two-shadows.png
 fuzzy(1,68) platform(linux) == shadow-transforms.yaml shadow-transforms.png
 fuzzy(1,71) platform(linux) == raster-space.yaml raster-space.png
 != allow-subpixel.yaml allow-subpixel-ref.yaml
+== bg-color.yaml bg-color-ref.yaml
