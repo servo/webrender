@@ -8,7 +8,7 @@ use api::ImageDescriptor;
 use device::TextureFilter;
 use freelist::{FreeList, FreeListHandle, UpsertResult, WeakFreeListHandle};
 use gpu_cache::{GpuCache, GpuCacheHandle};
-use gpu_types::ImageSource;
+use gpu_types::{ImageSource, UvRectKind};
 use internal_types::{CacheTextureId, FastHashMap, TextureUpdateList, TextureUpdateSource};
 use internal_types::{RenderTargetInfo, SourceTexture, TextureUpdate, TextureUpdateOp};
 use profiler::{ResourceProfileCounter, TextureCacheProfileCounters};
@@ -110,6 +110,8 @@ struct CacheEntry {
     texture_id: CacheTextureId,
     // Optional notice when the entry is evicted from the cache.
     eviction_notice: Option<EvictionNotice>,
+    // The type of UV rect this entry specifies.
+    uv_rect_kind: UvRectKind,
 }
 
 impl CacheEntry {
@@ -121,6 +123,7 @@ impl CacheEntry {
         filter: TextureFilter,
         user_data: [f32; 3],
         last_access: FrameId,
+        uv_rect_kind: UvRectKind,
     ) -> Self {
         CacheEntry {
             size,
@@ -132,6 +135,7 @@ impl CacheEntry {
             filter,
             uv_rect_handle: GpuCacheHandle::new(),
             eviction_notice: None,
+            uv_rect_kind,
         }
     }
 
@@ -154,6 +158,7 @@ impl CacheEntry {
                 p1: (origin + self.size).to_f32(),
                 texture_layer: layer_index,
                 user_data: self.user_data,
+                uv_rect_kind: self.uv_rect_kind,
             };
             image_source.write_gpu_blocks(&mut request);
         }
@@ -394,6 +399,7 @@ impl TextureCache {
         mut dirty_rect: Option<DeviceUintRect>,
         gpu_cache: &mut GpuCache,
         eviction_notice: Option<&EvictionNotice>,
+        uv_rect_kind: UvRectKind,
     ) {
         // Determine if we need to allocate texture cache memory
         // for this item. We need to reallocate if any of the following
@@ -422,7 +428,13 @@ impl TextureCache {
         };
 
         if realloc {
-            self.allocate(handle, descriptor, filter, user_data);
+            self.allocate(
+                handle,
+                descriptor,
+                filter,
+                user_data,
+                uv_rect_kind,
+            );
 
             // If we reallocated, we need to upload the whole item again.
             dirty_rect = None;
@@ -698,6 +710,7 @@ impl TextureCache {
         descriptor: &ImageDescriptor,
         filter: TextureFilter,
         user_data: [f32; 3],
+        uv_rect_kind: UvRectKind,
     ) -> Option<CacheEntry> {
         // Work out which cache it goes in, based on format.
         let texture_array = match (descriptor.format, filter) {
@@ -745,6 +758,7 @@ impl TextureCache {
             descriptor.height,
             user_data,
             self.frame_id,
+            uv_rect_kind,
         )
     }
 
@@ -786,6 +800,7 @@ impl TextureCache {
         descriptor: ImageDescriptor,
         filter: TextureFilter,
         user_data: [f32; 3],
+        uv_rect_kind: UvRectKind,
     ) {
         assert!(descriptor.width > 0 && descriptor.height > 0);
 
@@ -804,7 +819,8 @@ impl TextureCache {
             new_cache_entry = self.allocate_from_shared_cache(
                 &descriptor,
                 filter,
-                user_data
+                user_data,
+                uv_rect_kind,
             );
 
             // If we failed to allocate in the shared cache, run an
@@ -815,7 +831,8 @@ impl TextureCache {
                 new_cache_entry = self.allocate_from_shared_cache(
                     &descriptor,
                     filter,
-                    user_data
+                    user_data,
+                    uv_rect_kind,
                 );
             }
         }
@@ -848,6 +865,7 @@ impl TextureCache {
                 filter,
                 user_data,
                 frame_id,
+                uv_rect_kind,
             ));
 
             allocated_in_shared_cache = false;
@@ -1095,6 +1113,7 @@ impl TextureArray {
         height: u32,
         user_data: [f32; 3],
         frame_id: FrameId,
+        uv_rect_kind: UvRectKind,
     ) -> Option<CacheEntry> {
         // Lazily allocate the regions if not already created.
         // This means that very rarely used image formats can be
@@ -1179,6 +1198,7 @@ impl TextureArray {
                 filter: self.filter,
                 texture_id: self.texture_id.unwrap(),
                 eviction_notice: None,
+                uv_rect_kind,
             }
         })
     }
