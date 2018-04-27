@@ -6,7 +6,7 @@ use api::{AlphaType, BorderRadius, BoxShadowClipMode, BuiltDisplayList, ClipMode
 use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, FontRenderMode};
 use api::{FilterOp, GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag};
 use api::{GlyphRasterSpace, LayoutPoint, LayoutRect, LayoutSize, LayoutToWorldTransform, LayoutVector2D};
-use api::{PipelineId, PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat};
+use api::{PipelineId, PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat, DeviceIntSideOffsets};
 use border::{BorderCornerInstance, BorderEdgeKind};
 use box_shadow::BLUR_SAMPLE_SCALE;
 use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, CoordinateSystemId};
@@ -1583,18 +1583,19 @@ impl PrimitiveStore {
                             // evicted from the texture cache.
                             match *source {
                                 ImageSource::Cache { ref mut size, ref mut handle } => {
-                                    let padding_x = (tile_spacing.width * size.width as f32 /
-                                        stretch_size.width) as i32;
-                                    let padding_y = (tile_spacing.height * size.height as f32 /
-                                        stretch_size.height) as i32;
+                                    let padding = DeviceIntSideOffsets::new(
+                                        0,
+                                        (tile_spacing.width * size.width as f32 / stretch_size.width) as i32,
+                                        (tile_spacing.height * size.height as f32 / stretch_size.height) as i32,
+                                        0,
+                                    );
 
-                                    if padding_x > 0 {
+                                    let inner_size = *size;
+                                    size.width += padding.horizontal();
+                                    size.height += padding.vertical();
+
+                                    if padding != DeviceIntSideOffsets::zero() {
                                         metadata.opacity.is_opaque = false;
-                                        size.width += padding_x;
-                                    }
-                                    if padding_y > 0 {
-                                        metadata.opacity.is_opaque = false;
-                                        size.height += padding_y;
                                     }
 
                                     let image_cache_key = ImageCacheKey {
@@ -1621,7 +1622,7 @@ impl PrimitiveStore {
                                             // a normal transient render task surface. This will
                                             // copy only the sub-rect, if specified.
                                             let cache_to_target_task = RenderTask::new_blit(
-                                                *size,
+                                                inner_size,
                                                 BlitSource::Image { key: image_cache_key },
                                             );
                                             let cache_to_target_task_id = render_tasks.add(cache_to_target_task);
@@ -1629,8 +1630,9 @@ impl PrimitiveStore {
                                             // Create a task to blit the rect from the child render
                                             // task above back into the right spot in the persistent
                                             // render target cache.
-                                            let target_to_cache_task = RenderTask::new_blit(
-                                                *size,
+                                            let target_to_cache_task = RenderTask::new_blit_with_padding(
+                                                inner_size,
+                                                &padding,
                                                 BlitSource::RenderTask {
                                                     task_id: cache_to_target_task_id,
                                                 },
