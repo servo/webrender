@@ -726,7 +726,7 @@ impl TextRunPrimitiveCpu {
         display_list: &BuiltDisplayList,
         frame_building_state: &mut FrameBuildingState,
     ) {
-        if !allow_subpixel_aa {
+        if !allow_subpixel_aa && self.font.bg_color.a == 0 {
             self.font.render_mode = self.font.render_mode.limit_by(FontRenderMode::Alpha);
         }
 
