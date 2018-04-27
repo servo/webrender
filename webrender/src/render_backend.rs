@@ -264,7 +264,6 @@ impl Document {
             frame_ops: transaction_msg.frame_ops,
             render: transaction_msg.generate_frame,
             document_id,
-            current_epochs: self.current.scene.pipeline_epochs.clone(),
         }).unwrap();
     }
 
@@ -706,12 +705,16 @@ impl RenderBackend {
                                 doc.new_async_scene_ready(built_scene);
                                 doc.render_on_hittest = true;
                             }
-                            result_tx.send(SceneSwapResult::Complete).unwrap();
+                            if let Some(tx) = result_tx {
+                                tx.send(SceneSwapResult::Complete).unwrap();
+                            }
                         } else {
                             // The document was removed while we were building it, skip it.
                             // TODO: we might want to just ensure that removed documents are
                             // always forwarded to the scene builder thread to avoid this case.
-                            result_tx.send(SceneSwapResult::Aborted).unwrap();
+                            if let Some(tx) = result_tx {
+                                tx.send(SceneSwapResult::Aborted).unwrap();
+                            }
                             continue;
                         }
 
