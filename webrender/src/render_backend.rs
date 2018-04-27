@@ -40,7 +40,7 @@ use serde_json;
 use std::path::PathBuf;
 use std::sync::atomic::{ATOMIC_USIZE_INIT, AtomicUsize, Ordering};
 use std::mem::replace;
-use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc::{channel, Sender, Receiver};
 use std::u32;
 use tiling::Frame;
 use time::precise_time_ns;
@@ -706,7 +706,13 @@ impl RenderBackend {
                                 doc.render_on_hittest = true;
                             }
                             if let Some(tx) = result_tx {
-                                tx.send(SceneSwapResult::Complete).unwrap();
+                                let (resume_tx, resume_rx) = channel();
+                                tx.send(SceneSwapResult::Complete(resume_tx)).unwrap();
+                                // Block until the post-swap hook has completed on
+                                // the scene builder thread. We need to do this before
+                                // we can sample from the sampler hook which might happen
+                                // in the update_document call below.
+                                resume_rx.recv().ok();
                             }
                         } else {
                             // The document was removed while we were building it, skip it.

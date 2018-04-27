@@ -46,7 +46,7 @@ pub enum SceneBuilderResult {
 // scene swap was completed. We need a separate channel for this
 // so that they don't get mixed with SceneBuilderRequest messages.
 pub enum SceneSwapResult {
-    Complete,
+    Complete(Sender<()>),
     Aborted,
 }
 
@@ -176,8 +176,15 @@ impl SceneBuilder {
 
                 if let Some(pipeline_info) = pipeline_info {
                     // Block until the swap is done, then invoke the hook.
-                    let _ = result_rx.unwrap().recv();
+                    let swap_result = result_rx.unwrap().recv();
                     self.hooks.as_ref().unwrap().post_scene_swap(pipeline_info);
+                    // Once the hook is done, allow the RB thread to resume
+                    match swap_result {
+                        Ok(SceneSwapResult::Complete(resume_tx)) => {
+                            resume_tx.send(()).ok();
+                        },
+                        _ => (),
+                    };
                 }
             }
             SceneBuilderRequest::Stop => {
