@@ -2696,8 +2696,7 @@ impl Renderer {
                     source_rect
                 }
             };
-            debug_assert!(source_rect.size.width <= blit.target_rect.size.width);
-            debug_assert!(source_rect.size.height <= blit.target_rect.size.height);
+            debug_assert_eq!(source_rect.size, blit.target_rect.size);
             self.device.blit_render_target(
                 source_rect,
                 blit.target_rect,
