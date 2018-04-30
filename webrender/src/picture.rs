@@ -202,20 +202,31 @@ impl PicturePrimitive {
     pub fn add_primitive(
         &mut self,
         prim_index: PrimitiveIndex,
-        clip_and_scroll: ScrollNodeAndClipChain
+        clip_and_scroll: ScrollNodeAndClipChain,
+        is_tracked_for_debug: bool,
     ) {
         if let Some(ref mut run) = self.runs.last_mut() {
             if run.clip_and_scroll == clip_and_scroll &&
                run.base_prim_index.0 + run.count == prim_index.0 {
                 run.count += 1;
+                #[cfg(debug_assertions)]
+                {
+                    run.is_tracked_for_debug |= is_tracked_for_debug;
+                }
                 return;
             }
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            let _ = is_tracked_for_debug;
         }
 
         self.runs.push(PrimitiveRun {
             base_prim_index: prim_index,
             count: 1,
             clip_and_scroll,
+            #[cfg(debug_assertions)]
+            is_tracked_for_debug,
         });
     }
 
