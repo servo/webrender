@@ -8,5 +8,6 @@ platform(linux,mac) == clip-45-degree-rotation.yaml clip-45-degree-rotation-ref.
 == custom-clip-chain-node-ancestors.yaml custom-clip-chain-node-ancestors-ref.yaml
 == fixed-position-clipping.yaml fixed-position-clipping-ref.yaml
 == segmentation-with-other-coordinate-system-clip.yaml segmentation-with-other-coordinate-system-clip-ref.yaml
+== segmentation-across-rotation.yaml segmentation-across-rotation-ref.yaml
 == stacking-context-clip.yaml stacking-context-clip-ref.yaml
 == snapping.yaml snapping-ref.yaml

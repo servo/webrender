@@ -332,9 +332,25 @@ bitflags! {
 }
 
 #[derive(Debug)]
+pub enum BrushSegmentTaskId {
+    RenderTaskId(RenderTaskId),
+    Opaque,
+    Empty,
+}
+
+impl BrushSegmentTaskId {
+    pub fn needs_blending(&self) -> bool {
+        match *self {
+            BrushSegmentTaskId::RenderTaskId(..) => true,
+            BrushSegmentTaskId::Opaque | BrushSegmentTaskId::Empty => false,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct BrushSegment {
     pub local_rect: LayoutRect,
-    pub clip_task_id: Option<RenderTaskId>,
+    pub clip_task_id: BrushSegmentTaskId,
     pub may_need_clip_mask: bool,
     pub edge_flags: EdgeAaSegmentMask,
 }
@@ -348,7 +364,7 @@ impl BrushSegment {
     ) -> BrushSegment {
         BrushSegment {
             local_rect: LayoutRect::new(origin, size),
-            clip_task_id: None,
+            clip_task_id: BrushSegmentTaskId::Opaque,
             may_need_clip_mask,
             edge_flags,
         }
@@ -1923,7 +1939,7 @@ impl PrimitiveStore {
 
         for segment in &mut segment_desc.segments {
             if !segment.may_need_clip_mask && clip_mask_kind != BrushClipMaskKind::Global {
-                segment.clip_task_id = None;
+                segment.clip_task_id = BrushSegmentTaskId::Opaque;
                 continue;
             }
 
@@ -1933,23 +1949,27 @@ impl PrimitiveStore {
                 frame_context.device_pixel_scale,
             );
 
-            let intersected_rect = combined_outer_rect.intersection(&segment_screen_rect);
-            segment.clip_task_id = intersected_rect.map(|bounds| {
-                let clip_task = RenderTask::new_mask(
-                    bounds,
-                    clips.clone(),
-                    prim_run_context.scroll_node.coordinate_system_id,
-                    frame_state.clip_store,
-                    frame_state.gpu_cache,
-                    frame_state.resource_cache,
-                    frame_state.render_tasks,
-                );
+            let bounds = match combined_outer_rect.intersection(&segment_screen_rect) {
+                Some(bounds) => bounds,
+                None => {
+                    segment.clip_task_id = BrushSegmentTaskId::Empty;
+                    continue;
+                }
+            };
 
-                let clip_task_id = frame_state.render_tasks.add(clip_task);
-                pic_state.tasks.push(clip_task_id);
+            let clip_task = RenderTask::new_mask(
+                bounds,
+                clips.clone(),
+                prim_run_context.scroll_node.coordinate_system_id,
+                frame_state.clip_store,
+                frame_state.gpu_cache,
+                frame_state.resource_cache,
+                frame_state.render_tasks,
+            );
 
-                clip_task_id
-            })
+            let clip_task_id = frame_state.render_tasks.add(clip_task);
+            pic_state.tasks.push(clip_task_id);
+            segment.clip_task_id = BrushSegmentTaskId::RenderTaskId(clip_task_id);
         }
 
         true
@@ -1961,7 +1981,7 @@ impl PrimitiveStore {
         if metadata.prim_kind == PrimitiveKind::Brush {
             if let Some(ref mut desc) = self.cpu_brushes[metadata.cpu_prim_index.0].segment_desc {
                 for segment in &mut desc.segments {
-                    segment.clip_task_id = None;
+                    segment.clip_task_id = BrushSegmentTaskId::Opaque;
                 }
             }
         }
