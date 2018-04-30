@@ -1778,6 +1778,15 @@ impl PrimitiveStore {
                                         );
                                     }
                                 );
+
+                                if visible_tiles.is_empty() {
+                                    // At this point if we don't have tiles to show it means we could probably
+                                    // have done a better a job at culling during an earlier stage.
+                                    // Clearing the screen rect has the effect of "culling out" the primitive
+                                    // from the point of view of the batch builder, and ensures we don't hit
+                                    // assertions later on because we didn't request any image.
+                                    metadata.screen_rect = None;
+                                }
                             } else if request_source_image {
                                 frame_state.resource_cache.request_image(
                                     request,
