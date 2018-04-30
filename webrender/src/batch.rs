@@ -19,8 +19,9 @@ use gpu_types::ZBufferIdGenerator;
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::{PictureCompositeMode, PicturePrimitive, PictureSurface};
 use plane_split::{BspSplitter, Polygon, Splitter};
-use prim_store::{CachedGradient, ImageSource, PrimitiveIndex, PrimitiveKind, PrimitiveMetadata, PrimitiveStore};
-use prim_store::{BrushPrimitive, BrushKind, DeferredResolve, EdgeAaSegmentMask, PictureIndex, PrimitiveRun};
+use prim_store::{BrushKind, BrushPrimitive, BrushSegmentTaskId, CachedGradient, DeferredResolve};
+use prim_store::{EdgeAaSegmentMask, ImageSource, PictureIndex, PrimitiveIndex, PrimitiveKind};
+use prim_store::{PrimitiveMetadata, PrimitiveRun, PrimitiveStore};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKind, RenderTaskTree};
 use renderer::{BlendMode, ImageBufferKind};
 use renderer::{BLOCKS_PER_UV_RECT, ShaderColorMode};
@@ -1270,12 +1271,15 @@ impl AlphaBatchBuilder {
                 for (i, segment) in segment_desc.segments.iter().enumerate() {
                     let is_inner = segment.edge_flags.is_empty();
                     let needs_blending = !prim_metadata.opacity.is_opaque ||
-                                         segment.clip_task_id.is_some() ||
+                                         segment.clip_task_id.needs_blending() ||
                                          (!is_inner && transform_kind == TransformedRectKind::Complex);
 
-                    let clip_task_address = segment
-                        .clip_task_id
-                        .map_or(OPAQUE_TASK_ADDRESS, |id| render_tasks.get_task_address(id));
+                    let clip_task_address = match segment.clip_task_id {
+                        BrushSegmentTaskId::RenderTaskId(id) =>
+                            render_tasks.get_task_address(id),
+                        BrushSegmentTaskId::Opaque => OPAQUE_TASK_ADDRESS,
+                        BrushSegmentTaskId::Empty => continue,
+                    };
 
                     let instance = PrimitiveInstance::from(BrushInstance {
                         segment_index: i as i32,
