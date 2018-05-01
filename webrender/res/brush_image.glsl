@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#define VECS_PER_SPECIFIC_BRUSH 2
+#define VECS_PER_SPECIFIC_BRUSH 3
 
 #include shared,prim_shared,brush
 
@@ -29,13 +29,15 @@ flat varying vec2 vTileRepeat;
 struct ImageBrushData {
     vec4 color;
     vec4 background_color;
+    vec2 stretch_size;
 };
 
 ImageBrushData fetch_image_data(int address) {
-    vec4[2] raw_data = fetch_from_resource_cache_2(address);
+    vec4[3] raw_data = fetch_from_resource_cache_3(address);
     ImageBrushData data = ImageBrushData(
         raw_data[0],
-        raw_data[1]
+        raw_data[1],
+        raw_data[2].xy
     );
     return data;
 }
@@ -61,8 +63,10 @@ void brush_vs(
     ivec3 user_data,
     mat4 transform,
     PictureTask pic_task,
-    vec4 repeat
+    vec4 unused
 ) {
+    ImageBrushData image_data = fetch_image_data(prim_address);
+
     // If this is in WR_FEATURE_TEXTURE_RECT mode, the rect and size use
     // non-normalized texture coordinates.
 #ifdef WR_FEATURE_TEXTURE_RECT
@@ -92,7 +96,6 @@ void brush_vs(
 #ifdef WR_FEATURE_ALPHA_PASS
     int color_mode = user_data.y >> 16;
     int raster_space = user_data.y & 0xffff;
-    ImageBrushData image_data = fetch_image_data(prim_address);
 
     if (color_mode == COLOR_MODE_FROM_PASS) {
         color_mode = uMode;
@@ -118,6 +121,7 @@ void brush_vs(
 #endif
 
     // Offset and scale vUv here to avoid doing it in the fragment shader.
+    vec2 repeat = local_rect.size / image_data.stretch_size;
     vUv.xy = mix(uv0, uv1, f) - min_uv;
     vUv.xy /= texture_size;
     vUv.xy *= repeat.xy;
