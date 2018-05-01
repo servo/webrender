@@ -413,6 +413,7 @@ impl BrushPrimitive {
     fn write_gpu_blocks(
         &self,
         request: &mut GpuDataRequest,
+        local_rect: LayoutRect,
     ) {
         // has to match VECS_PER_SPECIFIC_BRUSH
         match self.kind {
@@ -420,12 +421,19 @@ impl BrushPrimitive {
             BrushKind::Picture { .. } => {
                 request.push(PremultipliedColorF::WHITE);
                 request.push(PremultipliedColorF::WHITE);
+                request.push([
+                    local_rect.size.width,
+                    local_rect.size.height,
+                    0.0,
+                    0.0,
+                ]);
             }
             // Images are drawn as a white color, modulated by the total
             // opacity coming from any collapsed property bindings.
-            BrushKind::Image { ref opacity_binding, .. } => {
+            BrushKind::Image { stretch_size, ref opacity_binding, .. } => {
                 request.push(ColorF::new(1.0, 1.0, 1.0, opacity_binding.current).premultiplied());
                 request.push(PremultipliedColorF::WHITE);
+                request.push([stretch_size.width, stretch_size.height, 0.0, 0.0]);
             }
             // Solid rects also support opacity collapsing.
             BrushKind::Solid { color, ref opacity_binding, .. } => {
@@ -435,7 +443,7 @@ impl BrushPrimitive {
                 // Opaque black with operator dest out
                 request.push(PremultipliedColorF::BLACK);
             }
-            BrushKind::LinearGradient { start_point, end_point, extend_mode, .. } => {
+            BrushKind::LinearGradient { stretch_size, start_point, end_point, extend_mode, .. } => {
                 request.push([
                     start_point.x,
                     start_point.y,
@@ -444,12 +452,12 @@ impl BrushPrimitive {
                 ]);
                 request.push([
                     pack_as_float(extend_mode as u32),
-                    0.0,
-                    0.0,
+                    stretch_size.width,
+                    stretch_size.height,
                     0.0,
                 ]);
             }
-            BrushKind::RadialGradient { center, start_radius, end_radius, ratio_xy, extend_mode, .. } => {
+            BrushKind::RadialGradient { stretch_size, center, start_radius, end_radius, ratio_xy, extend_mode, .. } => {
                 request.push([
                     center.x,
                     center.y,
@@ -459,8 +467,8 @@ impl BrushPrimitive {
                 request.push([
                     ratio_xy,
                     pack_as_float(extend_mode as u32),
-                    0.,
-                    0.,
+                    stretch_size.width,
+                    stretch_size.height,
                 ]);
             }
         }
@@ -1702,33 +1710,17 @@ impl PrimitiveStore {
                 }
                 PrimitiveKind::Brush => {
                     let brush = &self.cpu_brushes[metadata.cpu_prim_index.0];
-                    brush.write_gpu_blocks(&mut request);
-
-                    let repeat = match brush.kind {
-                        BrushKind::Image { stretch_size, .. } |
-                        BrushKind::LinearGradient { stretch_size, .. } |
-                        BrushKind::RadialGradient { stretch_size, .. } => {
-                            [
-                                metadata.local_rect.size.width / stretch_size.width,
-                                metadata.local_rect.size.height / stretch_size.height,
-                                0.0,
-                                0.0,
-                            ]
-                        }
-                        _ => {
-                            [1.0, 1.0, 0.0, 0.0]
-                        }
-                    };
+                    brush.write_gpu_blocks(&mut request, metadata.local_rect);
 
                     match brush.segment_desc {
                         Some(ref segment_desc) => {
                             for segment in &segment_desc.segments {
                                 // has to match VECS_PER_SEGMENT
-                                request.write_segment(segment.local_rect, repeat);
+                                request.write_segment(segment.local_rect);
                             }
                         }
                         None => {
-                            request.write_segment(metadata.local_rect, repeat);
+                            request.write_segment(metadata.local_rect);
                         }
                     }
                 }
@@ -2502,9 +2494,8 @@ impl<'a> GpuDataRequest<'a> {
     fn write_segment(
         &mut self,
         local_rect: LayoutRect,
-        extra_params: [f32; 4],
     ) {
         self.push(local_rect);
-        self.push(extra_params);
+        self.push([0.0; 4]);
     }
 }
