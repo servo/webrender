@@ -1288,7 +1288,7 @@ impl DisplayListBuilder {
         mix_blend_mode: MixBlendMode,
         filters: Vec<FilterOp>,
         glyph_raster_space: GlyphRasterSpace,
-    ) {
+    ) -> Option<ClipId> {
         let reference_frame_id = if transform.is_some() || perspective.is_some() {
             Some(self.generate_clip_id())
         } else {
@@ -1310,6 +1310,8 @@ impl DisplayListBuilder {
 
         self.push_item(item, info);
         self.push_iter(&filters);
+
+        reference_frame_id
     }
 
     pub fn pop_stacking_context(&mut self) {
