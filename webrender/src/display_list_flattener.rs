@@ -1800,7 +1800,7 @@ impl<'a> DisplayListFlattener<'a> {
         }
     }
 
-    fn add_gradient_impl(
+    pub fn add_gradient(
         &mut self,
         clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayoutPrimitiveInfo,
@@ -1809,9 +1809,19 @@ impl<'a> DisplayListFlattener<'a> {
         stops: ItemRange<GradientStop>,
         stops_count: usize,
         extend_mode: ExtendMode,
-        gradient_index: CachedGradientIndex,
         stretch_size: LayoutSize,
+        mut tile_spacing: LayoutSize,
     ) {
+        let gradient_index = CachedGradientIndex(self.cached_gradients.len());
+        self.cached_gradients.push(CachedGradient::new());
+
+        let mut prim_rect = info.rect;
+        simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
+        let info = LayoutPrimitiveInfo {
+            rect: prim_rect,
+            .. *info
+        };
+
         // Try to ensure that if the gradient is specified in reverse, then so long as the stops
         // are also supplied in reverse that the rendered result will be equivalent. To do this,
         // a reference orientation for the gradient line must be chosen, somewhat arbitrarily, so
@@ -1840,109 +1850,15 @@ impl<'a> DisplayListFlattener<'a> {
                 end_point: ep,
                 gradient_index,
                 stretch_size,
+                tile_spacing,
+                visible_tiles: Vec::new(),
             },
             None,
         );
 
         let prim = PrimitiveContainer::Brush(prim);
 
-        self.add_primitive(clip_and_scroll, info, Vec::new(), prim);
-    }
-
-    pub fn add_gradient(
-        &mut self,
-        clip_and_scroll: ScrollNodeAndClipChain,
-        info: &LayoutPrimitiveInfo,
-        start_point: LayoutPoint,
-        end_point: LayoutPoint,
-        stops: ItemRange<GradientStop>,
-        stops_count: usize,
-        extend_mode: ExtendMode,
-        stretch_size: LayoutSize,
-        mut tile_spacing: LayoutSize,
-    ) {
-        let gradient_index = CachedGradientIndex(self.cached_gradients.len());
-        self.cached_gradients.push(CachedGradient::new());
-
-        let mut prim_rect = info.rect;
-        simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
-        let info = LayoutPrimitiveInfo {
-            rect: prim_rect,
-            .. *info
-        };
-
-        if tile_spacing != LayoutSize::zero() {
-            let prim_infos = info.decompose(
-                stretch_size,
-                tile_spacing,
-                64 * 64,
-            );
-
-            if !prim_infos.is_empty() {
-                for prim_info in prim_infos {
-                    self.add_gradient_impl(
-                        clip_and_scroll,
-                        &prim_info,
-                        start_point,
-                        end_point,
-                        stops,
-                        stops_count,
-                        extend_mode,
-                        gradient_index,
-                        prim_info.rect.size,
-                    );
-                }
-
-                return;
-            }
-        }
-
-        self.add_gradient_impl(
-            clip_and_scroll,
-            &info,
-            start_point,
-            end_point,
-            stops,
-            stops_count,
-            extend_mode,
-            gradient_index,
-            stretch_size,
-        );
-    }
-
-    fn add_radial_gradient_impl(
-        &mut self,
-        clip_and_scroll: ScrollNodeAndClipChain,
-        info: &LayoutPrimitiveInfo,
-        center: LayoutPoint,
-        start_radius: f32,
-        end_radius: f32,
-        ratio_xy: f32,
-        stops: ItemRange<GradientStop>,
-        extend_mode: ExtendMode,
-        gradient_index: CachedGradientIndex,
-        stretch_size: LayoutSize,
-    ) {
-        let prim = BrushPrimitive::new(
-            BrushKind::RadialGradient {
-                stops_range: stops,
-                extend_mode,
-                center,
-                start_radius,
-                end_radius,
-                ratio_xy,
-                gradient_index,
-                stretch_size,
-            },
-            None,
-        );
-
-        self.add_primitive(
-            clip_and_scroll,
-            info,
-            Vec::new(),
-            PrimitiveContainer::Brush(prim),
-        );
+        self.add_primitive(clip_and_scroll, &info, Vec::new(), prim);
     }
 
     pub fn add_radial_gradient(
@@ -1968,44 +1884,27 @@ impl<'a> DisplayListFlattener<'a> {
             .. *info
         };
 
-        if tile_spacing != LayoutSize::zero() {
-            let prim_infos = info.decompose(
+        let prim = BrushPrimitive::new(
+            BrushKind::RadialGradient {
+                stops_range: stops,
+                extend_mode,
+                center,
+                start_radius,
+                end_radius,
+                ratio_xy,
+                gradient_index,
                 stretch_size,
                 tile_spacing,
-                64 * 64,
-            );
+                visible_tiles: Vec::new(),
+            },
+            None,
+        );
 
-            if !prim_infos.is_empty() {
-                for prim_info in prim_infos {
-                    self.add_radial_gradient_impl(
-                        clip_and_scroll,
-                        &prim_info,
-                        center,
-                        start_radius,
-                        end_radius,
-                        ratio_xy,
-                        stops,
-                        extend_mode,
-                        gradient_index,
-                        stretch_size,
-                    );
-                }
-
-                return;
-            }
-        }
-
-        self.add_radial_gradient_impl(
+        self.add_primitive(
             clip_and_scroll,
             &info,
-            center,
-            start_radius,
-            end_radius,
-            ratio_xy,
-            stops,
-            extend_mode,
-            gradient_index,
-            stretch_size,
+            Vec::new(),
+            PrimitiveContainer::Brush(prim),
         );
     }
 
