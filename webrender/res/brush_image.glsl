@@ -59,11 +59,13 @@ vec2 transform_point_snapped(
 void brush_vs(
     VertexInfo vi,
     int prim_address,
-    RectWithSize local_rect,
+    RectWithSize prim_rect,
+    RectWithSize segment_rect,
     ivec3 user_data,
     mat4 transform,
     PictureTask pic_task,
-    vec4 unused
+    int brush_flags,
+    vec4 texel_rect
 ) {
     ImageBrushData image_data = fetch_image_data(prim_address);
 
@@ -78,6 +80,30 @@ void brush_vs(
     ImageResource res = fetch_image_resource(user_data.x);
     vec2 uv0 = res.uv_rect.p0;
     vec2 uv1 = res.uv_rect.p1;
+
+    RectWithSize local_rect = prim_rect;
+    vec2 stretch_size = image_data.stretch_size;
+
+    // If this segment should interpolate relative to the
+    // segment, modify the parameters for that.
+    if ((brush_flags & BRUSH_FLAG_SEGMENT_RELATIVE) != 0) {
+        local_rect = segment_rect;
+        stretch_size = local_rect.size;
+
+        // Note: Here we can assume that texels in device
+        //       space map to local space, due to how border-image
+        //       works. That assumption may not hold if this
+        //       is used for other purposes in the future.
+        if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_X) != 0) {
+            stretch_size.x = texel_rect.z - texel_rect.x;
+        }
+        if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_Y) != 0) {
+            stretch_size.y = texel_rect.w - texel_rect.y;
+        }
+
+        uv0 = res.uv_rect.p0 + texel_rect.xy;
+        uv1 = res.uv_rect.p0 + texel_rect.zw;
+    }
 
     vUv.z = res.layer;
 
@@ -121,7 +147,7 @@ void brush_vs(
 #endif
 
     // Offset and scale vUv here to avoid doing it in the fragment shader.
-    vec2 repeat = local_rect.size / image_data.stretch_size;
+    vec2 repeat = local_rect.size / stretch_size;
     vUv.xy = mix(uv0, uv1, f) - min_uv;
     vUv.xy /= texture_size;
     vUv.xy *= repeat.xy;
