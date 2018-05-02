@@ -18,7 +18,7 @@ use frame_builder::PrimitiveRunContext;
 use glyph_rasterizer::{FontInstance, FontTransform};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
-use gpu_types::{ClipChainRectIndex};
+use gpu_types::{BrushFlags, ClipChainRectIndex};
 use picture::{PictureCompositeMode, PictureId, PicturePrimitive};
 #[cfg(debug_assertions)]
 use render_backend::FrameId;
@@ -287,7 +287,10 @@ pub enum BrushKind {
         start_point: LayoutPoint,
         end_point: LayoutPoint,
         stretch_size: LayoutSize,
-    }
+    },
+    Border {
+        request: ImageRequest,
+    },
 }
 
 impl BrushKind {
@@ -297,6 +300,7 @@ impl BrushKind {
             BrushKind::Image { .. } |
             BrushKind::YuvImage { .. } |
             BrushKind::RadialGradient { .. } |
+            BrushKind::Border { .. } |
             BrushKind::LinearGradient { .. } => true,
 
             // TODO(gw): Allow batch.rs to add segment instances
@@ -353,6 +357,8 @@ pub struct BrushSegment {
     pub clip_task_id: BrushSegmentTaskId,
     pub may_need_clip_mask: bool,
     pub edge_flags: EdgeAaSegmentMask,
+    pub extra_data: [f32; 4],
+    pub brush_flags: BrushFlags,
 }
 
 impl BrushSegment {
@@ -361,12 +367,16 @@ impl BrushSegment {
         size: LayoutSize,
         may_need_clip_mask: bool,
         edge_flags: EdgeAaSegmentMask,
+        extra_data: [f32; 4],
+        brush_flags: BrushFlags,
     ) -> BrushSegment {
         BrushSegment {
             local_rect: LayoutRect::new(origin, size),
             clip_task_id: BrushSegmentTaskId::Opaque,
             may_need_clip_mask,
             edge_flags,
+            extra_data,
+            brush_flags,
         }
     }
 }
@@ -417,6 +427,19 @@ impl BrushPrimitive {
     ) {
         // has to match VECS_PER_SPECIFIC_BRUSH
         match self.kind {
+            BrushKind::Border { .. } => {
+                // Border primitives currently used for
+                // image borders, and run through the
+                // normal brush_image shader.
+                request.push(PremultipliedColorF::WHITE);
+                request.push(PremultipliedColorF::WHITE);
+                request.push([
+                    local_rect.size.width,
+                    local_rect.size.height,
+                    0.0,
+                    0.0,
+                ]);
+            }
             BrushKind::YuvImage { .. } => {}
             BrushKind::Picture { .. } => {
                 request.push(PremultipliedColorF::WHITE);
@@ -1032,6 +1055,7 @@ impl PrimitiveContainer {
                     BrushKind::Image { .. } |
                     BrushKind::YuvImage { .. } |
                     BrushKind::RadialGradient { .. } |
+                    BrushKind::Border { .. } |
                     BrushKind::LinearGradient { .. } => {
                         true
                     }
@@ -1082,6 +1106,7 @@ impl PrimitiveContainer {
                     BrushKind::Picture { .. } |
                     BrushKind::Image { .. } |
                     BrushKind::YuvImage { .. } |
+                    BrushKind::Border { .. } |
                     BrushKind::RadialGradient { .. } |
                     BrushKind::LinearGradient { .. } => {
                         panic!("bug: other brush kinds not expected here yet");
@@ -1198,6 +1223,7 @@ impl PrimitiveStore {
                     BrushKind::RadialGradient { .. } => PrimitiveOpacity::translucent(),
                     BrushKind::LinearGradient { .. } => PrimitiveOpacity::translucent(),
                     BrushKind::Picture { .. } => PrimitiveOpacity::translucent(),
+                    BrushKind::Border { .. } => PrimitiveOpacity::translucent(),
                 };
 
                 let metadata = PrimitiveMetadata {
@@ -1294,6 +1320,7 @@ impl PrimitiveStore {
                     BrushKind::Solid { .. } | BrushKind::Image { .. } => {
                         return Some(run.base_prim_index)
                     }
+                    BrushKind::Border { .. } |
                     BrushKind::YuvImage { .. } |
                     BrushKind::LinearGradient { .. } |
                     BrushKind::RadialGradient { .. } |
@@ -1344,6 +1371,7 @@ impl PrimitiveStore {
                         BrushKind::Clear { .. } |
                         BrushKind::Picture { .. } |
                         BrushKind::YuvImage { .. } |
+                        BrushKind::Border { .. } |
                         BrushKind::LinearGradient { .. } |
                         BrushKind::RadialGradient { .. } => {
                             unreachable!("bug: invalid prim type for opacity collapse");
@@ -1636,6 +1664,23 @@ impl PrimitiveStore {
                             );
                         }
                     }
+                    BrushKind::Border { request, .. } => {
+                        let image_properties = frame_state
+                            .resource_cache
+                            .get_image_properties(request.key);
+
+                        if let Some(image_properties) = image_properties {
+                            // Update opacity for this primitive to ensure the correct
+                            // batching parameters are used.
+                            metadata.opacity.is_opaque =
+                                image_properties.descriptor.is_opaque;
+
+                            frame_state.resource_cache.request_image(
+                                request,
+                                frame_state.gpu_cache,
+                            );
+                        }
+                    }
                     BrushKind::RadialGradient { gradient_index, stops_range, .. } => {
                         let stops_handle = &mut frame_state.cached_gradients[gradient_index.0].handle;
                         if let Some(mut request) = frame_state.gpu_cache.request(stops_handle) {
@@ -1716,11 +1761,17 @@ impl PrimitiveStore {
                         Some(ref segment_desc) => {
                             for segment in &segment_desc.segments {
                                 // has to match VECS_PER_SEGMENT
-                                request.write_segment(segment.local_rect);
+                                request.write_segment(
+                                    segment.local_rect,
+                                    segment.extra_data,
+                                );
                             }
                         }
                         None => {
-                            request.write_segment(metadata.local_rect);
+                            request.write_segment(
+                                metadata.local_rect,
+                                [0.0; 4],
+                            );
                         }
                     }
                 }
@@ -1879,6 +1930,8 @@ impl PrimitiveStore {
                                 segment.rect.size,
                                 segment.has_mask,
                                 segment.edge_flags,
+                                [0.0; 4],
+                                BrushFlags::empty(),
                             ),
                         );
                     });
@@ -2487,15 +2540,12 @@ fn get_local_clip_rect_for_nodes(
 
 impl<'a> GpuDataRequest<'a> {
     // Write the GPU cache data for an individual segment.
-    // TODO(gw): The second block is currently unused. In
-    //           the future, it will be used to store a
-    //           UV rect, allowing segments to reference
-    //           part of an image.
     fn write_segment(
         &mut self,
         local_rect: LayoutRect,
+        extra_data: [f32; 4],
     ) {
         self.push(local_rect);
-        self.push([0.0; 4]);
+        self.push(extra_data);
     }
 }

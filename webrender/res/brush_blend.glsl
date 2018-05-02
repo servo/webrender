@@ -20,9 +20,11 @@ void brush_vs(
     VertexInfo vi,
     int prim_address,
     RectWithSize local_rect,
+    RectWithSize segment_rect,
     ivec3 user_data,
     mat4 transform,
     PictureTask pic_task,
+    int brush_flags,
     vec4 unused
 ) {
     PictureTask src_task = fetch_picture_task(user_data.x);

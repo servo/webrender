@@ -44,9 +44,11 @@ void brush_vs(
     VertexInfo vi,
     int prim_address,
     RectWithSize local_rect,
+    RectWithSize segment_rect,
     ivec3 user_data,
     mat4 transform,
     PictureTask pic_task,
+    int brush_flags,
     vec4 unused
 ) {
     RadialGradient gradient = fetch_radial_gradient(prim_address);
