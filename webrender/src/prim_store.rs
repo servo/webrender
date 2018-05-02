@@ -619,9 +619,16 @@ impl<'a> GradientGpuBlockBuilder<'a> {
         // * last stop has offset 1.0
 
         let mut src_stops = src_stops.into_iter();
-        let first = src_stops.next().unwrap();
-        let mut cur_color = first.color.premultiplied();
-        debug_assert_eq!(first.offset, 0.0);
+        let mut cur_color = match src_stops.next() {
+            Some(stop) => {
+                debug_assert_eq!(stop.offset, 0.0);
+                stop.color.premultiplied()
+            }
+            None => {
+                error!("Zero gradient stops found!");
+                PremultipliedColorF::BLACK
+            }
+        };
 
         // A table of gradient entries, with two colors per entry, that specify the start and end color
         // within the segment of the gradient space represented by that entry. To lookup a gradient result,
@@ -659,7 +666,10 @@ impl<'a> GradientGpuBlockBuilder<'a> {
 
                 cur_color = next_color;
             }
-            debug_assert_eq!(cur_idx, GRADIENT_DATA_TABLE_BEGIN);
+            if cur_idx != GRADIENT_DATA_TABLE_BEGIN {
+                error!("Gradient stops abruptly at {}, auto-completing to white", cur_idx);
+                self.fill_colors(GRADIENT_DATA_TABLE_BEGIN, cur_idx, &PremultipliedColorF::WHITE, &cur_color, &mut entries);
+            }
 
             // Fill in the last entry (for reversed stops) with the last color stop
             self.fill_colors(
@@ -694,7 +704,11 @@ impl<'a> GradientGpuBlockBuilder<'a> {
 
                 cur_color = next_color;
             }
-            debug_assert_eq!(cur_idx, GRADIENT_DATA_TABLE_END);
+            if cur_idx != GRADIENT_DATA_TABLE_END {
+                error!("Gradient stops abruptly at {}, auto-completing to white", cur_idx);
+                self.fill_colors(cur_idx, GRADIENT_DATA_TABLE_END, &PremultipliedColorF::WHITE, &cur_color, &mut entries);
+            }
+
 
             // Fill in the last entry with the last color stop
             self.fill_colors(
