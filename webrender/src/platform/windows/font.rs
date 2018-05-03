@@ -453,6 +453,6 @@ impl<'a> From<NativeFontHandleWrapper<'a>> for PathfinderComPtr<IDWriteFontFace>
             None => panic!("missing descriptor {:?}", font_handle.0),
         };
         let face = font.create_font_face();
-        PathfinderComPtr::new(face.as_ptr())
+        unsafe { PathfinderComPtr::new(face.as_ptr()) }
     }
 }

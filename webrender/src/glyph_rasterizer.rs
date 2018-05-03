@@ -48,6 +48,8 @@ use std::collections::hash_map::Entry;
 use std::f32;
 use std::hash::{Hash, Hasher};
 use std::mem;
+#[cfg(feature = "pathfinder")]
+use std::ops::Deref;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use texture_cache::TextureCache;
@@ -312,6 +314,26 @@ pub struct RasterizedGlyph {
     pub bytes: Vec<u8>,
 }
 
+#[cfg(feature = "pathfinder")]
+pub struct ThreadSafePathfinderFontContext(Mutex<PathfinderFontContext>);
+
+#[cfg(feature = "pathfinder")]
+impl Deref for ThreadSafePathfinderFontContext {
+    type Target = Mutex<PathfinderFontContext>;
+
+    fn deref(&self) -> &Mutex<PathfinderFontContext> {
+        &self.0
+    }
+}
+
+/// PathfinderFontContext can contain a *mut IDWriteFactory. 
+/// However, since we know that it is wrapped in a Mutex, it is safe 
+/// to assume that this struct is thread-safe
+#[cfg(feature = "pathfinder")]
+unsafe impl Send for ThreadSafePathfinderFontContext {}
+#[cfg(feature = "pathfinder")]
+unsafe impl Sync for ThreadSafePathfinderFontContext { }
+
 pub struct FontContexts {
     // These worker are mostly accessed from their corresponding worker threads.
     // The goal is that there should be no noticeable contention on the mutexes.
@@ -322,7 +344,7 @@ pub struct FontContexts {
     shared_context: Mutex<FontContext>,
 
     #[cfg(feature = "pathfinder")]
-    pathfinder_context: Box<Mutex<PathfinderFontContext>>,
+    pathfinder_context: Box<ThreadSafePathfinderFontContext>,
     #[cfg(not(feature = "pathfinder"))]
     #[allow(dead_code)]
     pathfinder_context: (),
@@ -829,6 +851,7 @@ impl GlyphRasterizer {
 
         let font_contexts = Arc::clone(&self.font_contexts);
         let fonts_to_remove = mem::replace(&mut self.fonts_to_remove, Vec::new());
+
         self.workers.spawn(move || {
             for font_key in &fonts_to_remove {
                 font_contexts.lock_shared_context().delete_font(font_key);
@@ -916,10 +939,10 @@ pub enum GlyphRasterResult {
 pub struct GpuGlyphCacheKey(pub u32);
 
 #[cfg(feature = "pathfinder")]
-fn create_pathfinder_font_context() -> Result<Box<Mutex<PathfinderFontContext>>,
+fn create_pathfinder_font_context() -> Result<Box<ThreadSafePathfinderFontContext>,
                                               ResourceCacheError> {
     match PathfinderFontContext::new() {
-        Ok(context) => Ok(Box::new(Mutex::new(context))),
+        Ok(context) => Ok(Box::new(ThreadSafePathfinderFontContext(Mutex::new(context)))),
         Err(_) => {
             let msg = "Failed to create the Pathfinder font context!".to_owned();
             Err(ResourceCacheError::new(msg))
