@@ -8,79 +8,68 @@ use api::{ColorF, ColorU};
 use api::{FontInstanceFlags, FontInstancePlatformOptions};
 use api::{FontKey, FontRenderMode, FontTemplate, FontVariation};
 use api::{GlyphDimensions, GlyphKey, LayoutToWorldTransform, SubpixelDirection};
-#[cfg(feature = "pathfinder")]
-use api::NativeFontHandle;
 #[cfg(any(test, feature = "pathfinder"))]
 use api::DeviceIntSize;
-#[cfg(not(feature = "pathfinder"))]
-use api::{ImageData, ImageDescriptor, ImageFormat};
 use app_units::Au;
-#[cfg(not(feature = "pathfinder"))]
-use device::TextureFilter;
-#[cfg(feature = "pathfinder")]
-use euclid::{TypedPoint2D, TypedSize2D, TypedVector2D};
 use glyph_cache::{CachedGlyphInfo, GlyphCache, GlyphCacheEntry};
 use gpu_cache::GpuCache;
-use gpu_types::UvRectKind;
 use internal_types::ResourceCacheError;
-#[cfg(feature = "pathfinder")]
-use pathfinder_font_renderer;
-#[cfg(feature = "pathfinder")]
-use pathfinder_partitioner::mesh::Mesh as PathfinderMesh;
-#[cfg(feature = "pathfinder")]
-use pathfinder_path_utils::cubic_to_quadratic::CubicToQuadraticTransformer;
 use platform::font::FontContext;
 use profiler::TextureCacheProfileCounters;
 use rayon::ThreadPool;
-#[cfg(not(feature = "pathfinder"))]
-use rayon::prelude::*;
 #[cfg(test)]
 use render_backend::FrameId;
 use render_task::{RenderTaskCache, RenderTaskTree};
-#[cfg(feature = "pathfinder")]
-use render_task::{RenderTask, RenderTaskCacheKey, RenderTaskCacheEntryHandle};
-#[cfg(feature = "pathfinder")]
-use render_task::{RenderTaskCacheKeyKind, RenderTaskId, RenderTaskLocation};
-#[cfg(feature = "pathfinder")]
-use resource_cache::CacheItem;
 use std::cmp;
 use std::collections::hash_map::Entry;
 use std::f32;
 use std::hash::{Hash, Hasher};
 use std::mem;
-#[cfg(feature = "pathfinder")]
-use std::ops::Deref;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use texture_cache::TextureCache;
-#[cfg(not(feature = "pathfinder"))]
-use texture_cache::TextureCacheHandle;
 #[cfg(test)]
 use thread_profiler::register_thread_with_profiler;
-#[cfg(feature = "pathfinder")]
-use tiling::RenderTargetKind;
 use tiling::SpecialRenderPasses;
-#[cfg(feature = "pathfinder")]
-use webrender_api::{DeviceIntPoint, DevicePixel};
+cfg_if! {
+    if #[cfg(feature = "pathfinder")] {
+        use api::NativeFontHandle;
+        use euclid::{TypedPoint2D, TypedSize2D, TypedVector2D};
+        use pathfinder_font_renderer;
+        use pathfinder_partitioner::mesh::Mesh as PathfinderMesh;
+        use pathfinder_path_utils::cubic_to_quadratic::CubicToQuadraticTransformer;
+        use render_task::{RenderTask, RenderTaskCacheKey, RenderTaskCacheEntryHandle};
+        use render_task::{RenderTaskCacheKeyKind, RenderTaskId, RenderTaskLocation};
+        use resource_cache::CacheItem;
+        use std::ops::Deref;
+        use tiling::RenderTargetKind;
+        use webrender_api::{DeviceIntPoint, DevicePixel};
+    } else if #[cfg(not(feature = "pathfinder"))] {
+        use api::{ImageData, ImageDescriptor, ImageFormat};
+        use device::TextureFilter;
+        use gpu_types::UvRectKind;
+        use rayon::prelude::*;
+        use texture_cache::TextureCacheHandle;
+    }
+}
 
-/// Should match macOS 10.13 High Sierra.
-///
-/// We multiply by sqrt(2) to compensate for the fact that dilation amounts are relative to the
-/// pixel square on macOS and relative to the vertex normal in Pathfinder.
-#[cfg(feature = "pathfinder")]
-const STEM_DARKENING_FACTOR_X: f32 = 0.0121 * f32::consts::SQRT_2;
-#[cfg(feature = "pathfinder")]
-const STEM_DARKENING_FACTOR_Y: f32 = 0.0121 * 1.25 * f32::consts::SQRT_2;
+cfg_if! {
+    if #[cfg(feature = "pathfinder")] {
+        /// Should match macOS 10.13 High Sierra.
+        ///
+        /// We multiply by sqrt(2) to compensate for the fact that dilation amounts are relative to the
+        /// pixel square on macOS and relative to the vertex normal in Pathfinder.
+        const STEM_DARKENING_FACTOR_X: f32 = 0.0121 * f32::consts::SQRT_2;
+        const STEM_DARKENING_FACTOR_Y: f32 = 0.0121 * 1.25 * f32::consts::SQRT_2;
 
-/// Likewise, should match macOS 10.13 High Sierra.
-#[cfg(feature = "pathfinder")]
-const MAX_STEM_DARKENING_AMOUNT: f32 = 0.3 * f32::consts::SQRT_2;
+        /// Likewise, should match macOS 10.13 High Sierra.
+        const MAX_STEM_DARKENING_AMOUNT: f32 = 0.3 * f32::consts::SQRT_2;
 
-#[cfg(feature = "pathfinder")]
-const CUBIC_TO_QUADRATIC_APPROX_TOLERANCE: f32 = 0.01;
+        const CUBIC_TO_QUADRATIC_APPROX_TOLERANCE: f32 = 0.01;
 
-#[cfg(feature = "pathfinder")]
-type PathfinderFontContext = pathfinder_font_renderer::FontContext<FontKey>;
+        type PathfinderFontContext = pathfinder_font_renderer::FontContext<FontKey>;
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -244,6 +233,7 @@ impl FontInstance {
         }
     }
 
+    #[cfg(not(feature = "pathfinder"))]
     pub fn get_subpx_offset(&self, glyph: &GlyphKey) -> (f64, f64) {
         match self.subpx_dir {
             SubpixelDirection::None => (0.0, 0.0),
@@ -314,25 +304,25 @@ pub struct RasterizedGlyph {
     pub bytes: Vec<u8>,
 }
 
-#[cfg(feature = "pathfinder")]
-pub struct ThreadSafePathfinderFontContext(Mutex<PathfinderFontContext>);
+cfg_if! {
+    if #[cfg(feature = "pathfinder")] {
+        pub struct ThreadSafePathfinderFontContext(Mutex<PathfinderFontContext>);
 
-#[cfg(feature = "pathfinder")]
-impl Deref for ThreadSafePathfinderFontContext {
-    type Target = Mutex<PathfinderFontContext>;
+        impl Deref for ThreadSafePathfinderFontContext {
+            type Target = Mutex<PathfinderFontContext>;
 
-    fn deref(&self) -> &Mutex<PathfinderFontContext> {
-        &self.0
+            fn deref(&self) -> &Mutex<PathfinderFontContext> {
+                &self.0
+            }
+        }
+
+        /// PathfinderFontContext can contain a *mut IDWriteFactory.
+        /// However, since we know that it is wrapped in a Mutex, it is safe
+        /// to assume that this struct is thread-safe
+        unsafe impl Send for ThreadSafePathfinderFontContext {}
+        unsafe impl Sync for ThreadSafePathfinderFontContext { }
     }
 }
-
-/// PathfinderFontContext can contain a *mut IDWriteFactory. 
-/// However, since we know that it is wrapped in a Mutex, it is safe 
-/// to assume that this struct is thread-safe
-#[cfg(feature = "pathfinder")]
-unsafe impl Send for ThreadSafePathfinderFontContext {}
-#[cfg(feature = "pathfinder")]
-unsafe impl Sync for ThreadSafePathfinderFontContext { }
 
 pub struct FontContexts {
     // These worker are mostly accessed from their corresponding worker threads.

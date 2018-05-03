@@ -811,7 +811,7 @@ dependencies = [
 [[package]]
 name = "pathfinder_font_renderer"
 version = "0.3.0"
-source = "git+https://github.com/pcwalton/pathfinder#f755002983a9db3313b2799c5f026706f87a314d"
+source = "git+https://github.com/pcwalton/pathfinder#2701757e29edff169d52779d054fca5247fd95f9"
 dependencies = [
  "app_units 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "core-graphics 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -833,7 +833,7 @@ dependencies = [
 [[package]]
 name = "pathfinder_gfx_utils"
 version = "0.1.0"
-source = "git+https://github.com/pcwalton/pathfinder#f755002983a9db3313b2799c5f026706f87a314d"
+source = "git+https://github.com/pcwalton/pathfinder#2701757e29edff169d52779d054fca5247fd95f9"
 dependencies = [
  "euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -841,7 +841,7 @@ dependencies = [
 [[package]]
 name = "pathfinder_partitioner"
 version = "0.1.0"
-source = "git+https://github.com/pcwalton/pathfinder#f755002983a9db3313b2799c5f026706f87a314d"
+source = "git+https://github.com/pcwalton/pathfinder#2701757e29edff169d52779d054fca5247fd95f9"
 dependencies = [
  "arrayvec 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "bincode 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -861,7 +861,7 @@ dependencies = [
 [[package]]
 name = "pathfinder_path_utils"
 version = "0.1.0"
-source = "git+https://github.com/pcwalton/pathfinder#f755002983a9db3313b2799c5f026706f87a314d"
+source = "git+https://github.com/pcwalton/pathfinder#2701757e29edff169d52779d054fca5247fd95f9"
 dependencies = [
  "arrayvec 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "euclid 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
