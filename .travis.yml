@@ -50,6 +50,7 @@ script:
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo build --verbose --no-default-features --features capture); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo build --verbose --features profiler,capture); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo build --verbose --features replay); fi
+  - if [ $BUILD_KIND = DEBUG ]; then (cd webrender && cargo build --verbose --no-default-features --features pathfinder); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cd wrench && cargo build --verbose --features env_logger); fi
   - if [ $BUILD_KIND = DEBUG ]; then (cargo test --all --verbose); fi
   - if [ $BUILD_KIND = RELEASE ]; then (cd wrench && python script/headless.py reftest); fi

@@ -189,6 +189,7 @@ tasks:
           (cd webrender && cargo build --verbose --no-default-features --features capture) &&
           (cd webrender && cargo build --verbose --features capture,profiler) &&
           (cd webrender && cargo build --verbose --features replay) &&
+          (cd webrender && cargo build --verbose --no-default-features --features pathfinder) &&
           (cd wrench && cargo build --verbose --features env_logger) &&
           (cargo test --all --verbose)
     routes:
