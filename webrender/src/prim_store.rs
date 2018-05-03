@@ -2295,14 +2295,9 @@ impl PrimitiveStore {
             // the picture context. This ensures that even if the primitive itself
             // is not visible, any effects from the blur radius will be correctly
             // taken into account.
-            let local_rect = metadata
-                .local_rect
+            let local_rect = metadata.local_rect
                 .inflate(pic_context.inflation_factor, pic_context.inflation_factor)
-                .intersection(&metadata.local_clip_rect);
-            let local_rect = match local_rect {
-                Some(local_rect) => local_rect,
-                None => return None,
-            };
+                .intersection(&metadata.local_clip_rect)?;
 
             let screen_bounding_rect = calculate_screen_bounding_rect(
                 &prim_run_context.scroll_node.world_content_transform,
@@ -2405,16 +2400,17 @@ impl PrimitiveStore {
                     inv_parent.pre_mul(&scroll_node.world_content_transform)
                 });
 
-            let original_relative_transform = pic_context.original_reference_frame_index
+            let original_relative_transform = pic_context
+                .original_reference_frame_index
                 .and_then(|original_reference_frame_index| {
-                    let parent = frame_context
+                    frame_context
                         .clip_scroll_tree
                         .nodes[original_reference_frame_index.0]
-                        .world_content_transform;
-                    parent.inverse()
-                        .map(|inv_parent| {
-                            inv_parent.pre_mul(&scroll_node.world_content_transform)
-                        })
+                        .world_content_transform
+                        .inverse()
+                })
+                .map(|inv_parent| {
+                    inv_parent.pre_mul(&scroll_node.world_content_transform)
                 });
 
             let clip_chain_rect = if pic_context.apply_local_clip_rect {
@@ -2451,16 +2447,23 @@ impl PrimitiveStore {
                 ) {
                     frame_state.profile_counters.visible_primitives.inc();
 
-                    if let Some(ref matrix) = original_relative_transform {
-                        let bounds = matrix.transform_rect(&prim_local_rect);
-                        result.local_rect_in_original_parent_space =
-                            result.local_rect_in_original_parent_space.union(&bounds);
-                    }
+                    let clipped_rect = match clip_chain_rect {
+                        Some(ref chain_rect) => match prim_local_rect.intersection(chain_rect) {
+                            Some(rect) => rect,
+                            None => continue,
+                        },
+                        None => prim_local_rect,
+                    };
 
                     if let Some(ref matrix) = parent_relative_transform {
-                        let bounds = matrix.transform_rect(&prim_local_rect);
+                        let bounds = matrix.transform_rect(&clipped_rect);
                         result.local_rect_in_actual_parent_space =
                             result.local_rect_in_actual_parent_space.union(&bounds);
+                    }
+                    if let Some(ref matrix) = original_relative_transform {
+                        let bounds = matrix.transform_rect(&clipped_rect);
+                        result.local_rect_in_original_parent_space =
+                            result.local_rect_in_original_parent_space.union(&bounds);
                     }
                 }
             }
@@ -2531,25 +2534,26 @@ fn get_local_clip_rect_for_nodes(
     scroll_node: &ClipScrollNode,
     clip_chain: &ClipChain,
 ) -> Option<LayoutRect> {
-    let local_rect = ClipChainNodeIter { current: clip_chain.nodes.clone() }.fold(
-        None,
-        |combined_local_clip_rect: Option<LayoutRect>, node| {
-            if node.work_item.coordinate_system_id != scroll_node.coordinate_system_id {
-                return combined_local_clip_rect;
+    ClipChainNodeIter { current: clip_chain.nodes.clone() }
+        .fold(
+            None,
+            |combined_local_clip_rect: Option<LayoutRect>, node| {
+                if node.work_item.coordinate_system_id != scroll_node.coordinate_system_id {
+                    return combined_local_clip_rect;
+                }
+
+                Some(match combined_local_clip_rect {
+                    Some(combined_rect) =>
+                        combined_rect
+                            .intersection(&node.local_clip_rect)
+                            .unwrap_or_else(LayoutRect::zero),
+                    None => node.local_clip_rect,
+                })
             }
-
-            Some(match combined_local_clip_rect {
-                Some(combined_rect) =>
-                    combined_rect.intersection(&node.local_clip_rect).unwrap_or_else(LayoutRect::zero),
-                None => node.local_clip_rect,
-            })
-        }
-    );
-
-    match local_rect {
-        Some(local_rect) => scroll_node.coordinate_system_relative_transform.unapply(&local_rect),
-        None => None,
-    }
+        )
+        .and_then(|local_rect| {
+            scroll_node.coordinate_system_relative_transform.unapply(&local_rect)
+        })
 }
 
 impl<'a> GpuDataRequest<'a> {
