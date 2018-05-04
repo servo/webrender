@@ -47,12 +47,19 @@ impl Example for App {
         ];
 
         let info = LayoutPrimitiveInfo::new(bounds);
+        let reference_frame_id = builder.push_reference_frame(
+            &info,
+            Some(PropertyBinding::Binding(self.property_key, LayoutTransform::identity())),
+            None,
+        );
+
+        builder.push_clip_id(reference_frame_id);
+
+        let info = LayoutPrimitiveInfo::new(bounds);
         builder.push_stacking_context(
             &info,
             None,
-            Some(PropertyBinding::Binding(self.property_key, LayoutTransform::identity())),
             TransformStyle::Flat,
-            None,
             MixBlendMode::Normal,
             filters,
             GlyphRasterSpace::Screen,
@@ -72,6 +79,9 @@ impl Example for App {
         builder.pop_clip_id();
 
         builder.pop_stacking_context();
+
+        builder.pop_clip_id();
+        builder.pop_reference_frame();
     }
 
     fn on_event(&mut self, win_event: glutin::WindowEvent, api: &RenderApi, document_id: DocumentId) -> bool {

@@ -113,9 +113,7 @@ impl Example for App {
             builder.push_stacking_context(
                 &LayoutPrimitiveInfo::new(doc.content_rect),
                 None,
-                None,
                 TransformStyle::Flat,
-                None,
                 MixBlendMode::Normal,
                 Vec::new(),
                 GlyphRasterSpace::Screen,
