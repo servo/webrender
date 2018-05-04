@@ -5,12 +5,10 @@
 use api::{DevicePixelScale, ExternalScrollId, LayoutPixel, LayoutPoint, LayoutRect, LayoutSize};
 use api::{LayoutVector2D, LayoutTransform, PipelineId, PropertyBinding};
 use api::{ScrollClamping, ScrollLocation, ScrollSensitivity, StickyOffsetBounds};
-use api::WorldPoint;
 use clip::{ClipChain, ClipChainNode, ClipSourcesHandle, ClipStore, ClipWorkItem};
 use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, CoordinateSystemId};
 use clip_scroll_tree::TransformUpdateState;
 use euclid::SideOffsets2D;
-use geometry::ray_intersects_rect;
 use gpu_cache::GpuCache;
 use gpu_types::{ClipScrollNodeIndex as GPUClipScrollNodeIndex, ClipScrollNodeData};
 use resource_cache::ResourceCache;
@@ -710,29 +708,6 @@ impl ClipScrollNode {
         }
 
         scrolling.offset != original_layer_scroll_offset
-    }
-
-    pub fn ray_intersects_node(&self, cursor: &WorldPoint) -> bool {
-        let inv = match self.world_viewport_transform.inverse() {
-            Some(inv) => inv,
-            None => return false,
-        };
-
-        let z0 = -10000.0;
-        let z1 = 10000.0;
-
-        let p0 = inv.transform_point3d(&cursor.extend(z0));
-        let p1 = inv.transform_point3d(&cursor.extend(z1));
-
-        if self.scrollable_size() == LayoutSize::zero() {
-            return false;
-        }
-
-        ray_intersects_rect(
-            p0.to_untyped(),
-            p1.to_untyped(),
-            self.local_viewport_rect.to_untyped(),
-        )
     }
 
     pub fn scroll_offset(&self) -> LayoutVector2D {
