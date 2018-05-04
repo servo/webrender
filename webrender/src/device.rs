@@ -44,6 +44,8 @@ impl Add<usize> for FrameId {
     }
 }
 
+const GL_FORMAT_RGBA: gl::GLuint = gl::RGBA;
+
 const GL_FORMAT_BGRA_GL: gl::GLuint = gl::BGRA;
 
 const GL_FORMAT_BGRA_GLES: gl::GLuint = gl::BGRA_EXT;
@@ -133,11 +135,8 @@ pub fn get_gl_target(target: TextureTarget) -> gl::GLuint {
     }
 }
 
-pub fn get_gl_format_bgra(gl: &gl::Gl) -> gl::GLuint {
-    match gl.get_type() {
-        gl::GlType::Gl => GL_FORMAT_BGRA_GL,
-        gl::GlType::Gles => GL_FORMAT_BGRA_GLES,
-    }
+fn supports_extension(extensions: &[String], extension: &str) -> bool {
+    extensions.iter().any(|s| s == extension)
 }
 
 fn get_shader_version(gl: &gl::Gl) -> &'static str {
@@ -675,6 +674,8 @@ pub struct Device {
     #[cfg(feature = "debug_renderer")]
     capabilities: Capabilities,
 
+    bgra_format: gl::GLuint,
+
     // debug
     inside_frame: bool,
 
@@ -710,6 +711,16 @@ impl Device {
             extensions.push(gl.get_string_i(gl::EXTENSIONS, i));
         }
 
+        let supports_bgra = supports_extension(&extensions, "GL_EXT_texture_format_BGRA8888");
+        let bgra_format = match gl.get_type() {
+            gl::GlType::Gl => GL_FORMAT_BGRA_GL,
+            gl::GlType::Gles => if supports_bgra {
+                GL_FORMAT_BGRA_GLES
+            } else {
+                GL_FORMAT_RGBA
+            }
+        };
+
         Device {
             gl,
             resource_override_path,
@@ -723,6 +734,8 @@ impl Device {
             capabilities: Capabilities {
                 supports_multisampling: false, //TODO
             },
+
+            bgra_format,
 
             bound_textures: [0; 16],
             bound_program: 0,
@@ -1096,7 +1109,7 @@ impl Device {
         let allocate_color = needed_layer_count != 0 || is_resized || pixels.is_some();
 
         if allocate_color {
-            let desc = gl_describe_format(self.gl(), texture.format);
+            let desc = self.gl_describe_format(texture.format);
             match texture.target {
                 gl::TEXTURE_2D_ARRAY => {
                     self.gl.tex_image_3d(
@@ -1207,7 +1220,7 @@ impl Device {
     }
 
     fn update_texture_storage<T: Texel>(&mut self, texture: &Texture, pixels: Option<&[T]>) {
-        let desc = gl_describe_format(self.gl(), texture.format);
+        let desc = self.gl_describe_format(texture.format);
         match texture.target {
             gl::TEXTURE_2D_ARRAY => {
                 self.gl.tex_image_3d(
@@ -1297,7 +1310,7 @@ impl Device {
         }
 
         self.bind_texture(DEFAULT_TEXTURE, texture);
-        let desc = gl_describe_format(self.gl(), texture.format);
+        let desc = self.gl_describe_format(texture.format);
 
         self.free_texture_storage_impl(texture.target, desc);
 
@@ -1553,6 +1566,7 @@ impl Device {
         TextureUploader {
             target: UploadTarget {
                 gl: &*self.gl,
+                bgra_format: self.bgra_format,
                 texture,
             },
             buffer,
@@ -1562,7 +1576,7 @@ impl Device {
 
     #[cfg(any(feature = "debug_renderer", feature = "capture"))]
     pub fn read_pixels(&mut self, img_desc: &ImageDescriptor) -> Vec<u8> {
-        let desc = gl_describe_format(self.gl(), img_desc.format);
+        let desc = self.gl_describe_format(img_desc.format);
         self.gl.read_pixels(
             0, 0,
             img_desc.width as i32,
@@ -1581,7 +1595,7 @@ impl Device {
     ) {
         let (bytes_per_pixel, desc) = match format {
             ReadPixelsFormat::Standard(imf) => {
-                (imf.bytes_per_pixel(), gl_describe_format(self.gl(), imf))
+                (imf.bytes_per_pixel(), self.gl_describe_format(imf))
             }
             ReadPixelsFormat::Rgba8 => {
                 (4, FormatDesc {
@@ -1615,7 +1629,7 @@ impl Device {
         output: &mut [u8],
     ) {
         self.bind_texture(DEFAULT_TEXTURE, texture);
-        let desc = gl_describe_format(self.gl(), format);
+        let desc = self.gl_describe_format(format);
         self.gl.get_tex_image_into_buffer(
             texture.target,
             0,
@@ -2102,7 +2116,7 @@ impl Device {
     }
 
     pub fn supports_extension(&self, extension: &str) -> bool {
-        self.extensions.iter().any(|s| s == extension)
+        supports_extension(&self.extensions, extension)
     }
 
     pub fn echo_driver_messages(&self) {
@@ -2129,43 +2143,43 @@ impl Device {
             log!(level, "({}) {}", ty, msg.message);
         }
     }
+
+    fn gl_describe_format(&self, format: ImageFormat) -> FormatDesc {
+        match format {
+            ImageFormat::R8 => FormatDesc {
+                internal: gl::RED as _,
+                external: gl::RED,
+                pixel_type: gl::UNSIGNED_BYTE,
+            },
+            ImageFormat::BGRA8 => {
+                let external = self.bgra_format;
+                FormatDesc {
+                    internal: match self.gl.get_type() {
+                        gl::GlType::Gl => gl::RGBA as _,
+                        gl::GlType::Gles => external as _,
+                    },
+                    external,
+                    pixel_type: gl::UNSIGNED_BYTE,
+                }
+            },
+            ImageFormat::RGBAF32 => FormatDesc {
+                internal: gl::RGBA32F as _,
+                external: gl::RGBA,
+                pixel_type: gl::FLOAT,
+            },
+            ImageFormat::RG8 => FormatDesc {
+                internal: gl::RG8 as _,
+                external: gl::RG,
+                pixel_type: gl::UNSIGNED_BYTE,
+            },
+        }
+    }
 }
 
 struct FormatDesc {
     internal: gl::GLint,
     external: gl::GLuint,
     pixel_type: gl::GLuint,
-}
-
-fn gl_describe_format(gl: &gl::Gl, format: ImageFormat) -> FormatDesc {
-    match format {
-        ImageFormat::R8 => FormatDesc {
-            internal: gl::RED as _,
-            external: gl::RED,
-            pixel_type: gl::UNSIGNED_BYTE,
-        },
-        ImageFormat::BGRA8 => {
-            let external = get_gl_format_bgra(gl);
-            FormatDesc {
-                internal: match gl.get_type() {
-                    gl::GlType::Gl => gl::RGBA as _,
-                    gl::GlType::Gles => external as _,
-                },
-                external,
-                pixel_type: gl::UNSIGNED_BYTE,
-            }
-        },
-        ImageFormat::RGBAF32 => FormatDesc {
-            internal: gl::RGBA32F as _,
-            external: gl::RGBA,
-            pixel_type: gl::FLOAT,
-        },
-        ImageFormat::RG8 => FormatDesc {
-            internal: gl::RG8 as _,
-            external: gl::RG,
-            pixel_type: gl::UNSIGNED_BYTE,
-        },
-    }
 }
 
 struct UploadChunk {
@@ -2199,6 +2213,7 @@ impl PixelBuffer {
 
 struct UploadTarget<'a> {
     gl: &'a gl::Gl,
+    bgra_format: gl::GLuint,
     texture: &'a Texture,
 }
 
@@ -2275,7 +2290,7 @@ impl<'a> UploadTarget<'a> {
     fn update_impl(&mut self, chunk: UploadChunk) {
         let (gl_format, bpp, data_type) = match self.texture.format {
             ImageFormat::R8 => (gl::RED, 1, gl::UNSIGNED_BYTE),
-            ImageFormat::BGRA8 => (get_gl_format_bgra(self.gl), 4, gl::UNSIGNED_BYTE),
+            ImageFormat::BGRA8 => (self.bgra_format, 4, gl::UNSIGNED_BYTE),
             ImageFormat::RG8 => (gl::RG, 2, gl::UNSIGNED_BYTE),
             ImageFormat::RGBAF32 => (gl::RGBA, 16, gl::FLOAT),
         };
