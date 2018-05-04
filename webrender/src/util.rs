@@ -5,8 +5,8 @@
 use api::{BorderRadius, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixelScale};
 use api::{DevicePoint, DeviceRect, DeviceSize, LayoutPixel, LayoutPoint, LayoutRect, LayoutSize};
 use api::{WorldPixel, WorldRect};
-use euclid::{Point2D, Rect, Size2D, TypedPoint2D, TypedPoint3D, TypedRect, TypedSize2D};
-use euclid::{TypedTransform2D, TypedTransform3D, TypedVector2D};
+use euclid::{Point2D, Rect, Size2D, TypedPoint2D, TypedRect, TypedSize2D, TypedTransform2D};
+use euclid::{TypedTransform3D, TypedVector2D};
 use num_traits::Zero;
 use std::{i32, f32};
 
@@ -453,15 +453,6 @@ impl<Src, Dst> FastTransform<Src, Dst> {
                 TypedPoint2D::from_untyped(&new_point.to_untyped())
             }
             FastTransform::Transform { ref transform, .. } => transform.transform_point2d(point),
-        }
-    }
-
-    #[inline(always)]
-    pub fn transform_point3d(&self, point: &TypedPoint3D<f32, Src>) -> TypedPoint3D<f32, Dst> {
-        match *self {
-            FastTransform::Offset(offset) =>
-                TypedPoint3D::new(point.x + offset.x, point.y + offset.y, point.z),
-            FastTransform::Transform { ref transform, .. } => transform.transform_point3d(point),
         }
     }
 
