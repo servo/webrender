@@ -69,6 +69,7 @@ tasks:
           git checkout {{event.head.sha}} &&
           servo-tidy &&
           (cd wrench && python script/headless.py reftest) &&
+          (cd wrench && python script/headless.py rawtest) &&
           (cd wrench && cargo build --release)
     routes:
       - "index.garbage.webrender.ci.{{event.head.user.login}}.{{event.head.repo.branch}}.linux-release"
