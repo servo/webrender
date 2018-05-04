@@ -236,7 +236,7 @@ impl<'a> BuiltDisplayListIter<'a> {
         self.cur_clip_chain_items = ItemRange::default();
 
         loop {
-            self.next_raw();
+            self.next_raw()?;
             if let SetGradientStops = self.cur_item.item {
                 // SetGradientStops is a dummy item that most consumers should ignore
                 continue;
