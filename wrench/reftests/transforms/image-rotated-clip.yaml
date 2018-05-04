@@ -16,5 +16,4 @@ root:
         -
           bounds: [0, 0, 400, 400]
           "clip-rect": [0, 0, 400, 400]
-          "clip-and-scroll": 2
           image: solid-color(255, 0, 0, 255, 400, 400)

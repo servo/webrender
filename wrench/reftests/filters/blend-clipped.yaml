@@ -73,7 +73,6 @@ pipelines:
                 transform: [1, 0, 0, 0, -0.57735026, 1, 0, 0, 0, 0, 1, 0, 68.849, 0, 0, 1]
                 items:
                   -
-                    "clip-and-scroll": 4
                     type: "stacking-context"
                     filters:
                       - opacity(0.8)
@@ -81,7 +80,6 @@ pipelines:
                       -
                         bounds: [0, 0, 1887, 239]
                         "clip-rect": [0, 0, 1887, 239]
-                        "clip-and-scroll": 4
                         type: clip
                         id: 5
                         "content-size": [1887, 239]

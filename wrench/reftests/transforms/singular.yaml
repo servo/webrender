@@ -16,7 +16,6 @@ root:
         -
           bounds: [0, 0, 80, 80]
           "clip-rect": [0, 0, 80, 80]
-          clip-and-scroll: 2
           type: rect
           color: black
     -

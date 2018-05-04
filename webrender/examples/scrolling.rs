@@ -34,9 +34,7 @@ impl Example for App {
         builder.push_stacking_context(
             &info,
             None,
-            None,
             TransformStyle::Flat,
-            None,
             MixBlendMode::Normal,
             Vec::new(),
             GlyphRasterSpace::Screen,
@@ -49,9 +47,7 @@ impl Example for App {
             builder.push_stacking_context(
                 &LayoutPrimitiveInfo::new((10, 10).by(0, 0)),
                 None,
-                None,
                 TransformStyle::Flat,
-                None,
                 MixBlendMode::Normal,
                 Vec::new(),
                 GlyphRasterSpace::Screen,

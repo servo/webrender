@@ -23,6 +23,5 @@ root:
           items:
             -
               bounds: [0, 0, 130, 130]
-              "clip-and-scroll": 4
               type: rect
               color: 0 128 0 1.0000
