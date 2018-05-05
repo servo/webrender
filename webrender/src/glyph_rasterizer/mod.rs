@@ -25,8 +25,6 @@ pub use self::pathfinder::{ThreadSafePathfinderFontContext, NativeFontHandleWrap
 
 #[cfg(not(feature = "pathfinder"))]
 mod no_pathfinder;
-#[cfg(not(feature = "pathfinder"))]
-use self::no_pathfinder::create_pathfinder_font_context;
 
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -265,17 +263,11 @@ pub struct FontContexts {
     // These worker are mostly accessed from their corresponding worker threads.
     // The goal is that there should be no noticeable contention on the mutexes.
     worker_contexts: Vec<Mutex<FontContext>>,
-
     // This worker should be accessed by threads that don't belong to the thread pool
     // (in theory that's only the render backend thread so no contention expected either).
     shared_context: Mutex<FontContext>,
-
     #[cfg(feature = "pathfinder")]
     pathfinder_context: Box<ThreadSafePathfinderFontContext>,
-    #[cfg(not(feature = "pathfinder"))]
-    #[allow(dead_code)]
-    pathfinder_context: (),
-
     // Stored here as a convenience to get the current thread index.
     #[allow(dead_code)]
     workers: Arc<ThreadPool>,
@@ -349,15 +341,23 @@ impl GlyphRasterizer {
             contexts.push(Mutex::new(FontContext::new()?));
         }
 
-        let pathfinder_context = create_pathfinder_font_context()?;
-
-        Ok(GlyphRasterizer {
-            font_contexts: Arc::new(FontContexts {
+        #[cfg(not(feature = "pathfinder"))]
+        let font_context = FontContexts {
                 worker_contexts: contexts,
                 shared_context: Mutex::new(shared_context),
-                pathfinder_context,
                 workers: Arc::clone(&workers),
-            }),
+        };
+
+        #[cfg(feature = "pathfinder")]
+        let font_context = FontContexts {
+                worker_contexts: contexts,
+                shared_context: Mutex::new(shared_context),
+                pathfinder_context: create_pathfinder_font_context()?,
+                workers: Arc::clone(&workers),
+        };
+
+        Ok(GlyphRasterizer {
+            font_contexts: Arc::new(font_context),
             pending_glyphs: 0,
             glyph_rx,
             glyph_tx,
@@ -387,6 +387,7 @@ impl GlyphRasterizer {
                 .add_font(&font_key, &template);
         }
 
+        #[cfg(feature = "pathfinder")]
         self.add_font_to_pathfinder(&font_key, &template);
     }
 
