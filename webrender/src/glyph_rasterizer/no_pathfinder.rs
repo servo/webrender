@@ -5,7 +5,7 @@
 //! Module only available when pathfinder is deactivated when webrender is
 //! compiled regularly (i.e. any configuration without feature = "pathfinder")
 
-use api::{FontKey, FontTemplate, GlyphKey, ImageData, ImageDescriptor, ImageFormat};
+use api::{GlyphKey, ImageData, ImageDescriptor, ImageFormat};
 use device::TextureFilter;
 use gpu_types::UvRectKind;
 use rayon::prelude::*;
@@ -17,13 +17,8 @@ use texture_cache::{TextureCache, TextureCacheHandle};
 use gpu_cache::GpuCache;
 use render_task::{RenderTaskTree, RenderTaskCache};
 use tiling::SpecialRenderPasses;
-use internal_types::ResourceCacheError;
 use profiler::TextureCacheProfileCounters;
 use std::collections::hash_map::Entry;
-
-pub(in super) fn create_pathfinder_font_context() -> Result<(), ResourceCacheError> {
-    Ok(())
-}
 
 impl FontContexts {
     /// Get access to the font context associated to the current thread.
@@ -38,7 +33,6 @@ impl FontContexts {
 }
 
 impl GlyphRasterizer {
-    pub(in super) fn add_font_to_pathfinder(&mut self, _: &FontKey, _: &FontTemplate) {}
 
     pub fn request_glyphs(
         &mut self,
