@@ -24,11 +24,31 @@ fn deserialize_blob(blob: &[u8]) -> Result<ColorU, ()> {
     };
 }
 
+fn intersect_for_tile(
+    dirty: DeviceUintRect,
+    tile_size: TileSize,
+    tile_offset: TileOffset,
+) -> Option<DeviceUintRect> {
+        dirty.intersection(&DeviceUintRect::new(
+            DeviceUintPoint::new(
+                tile_offset.x as u32 * tile_size as u32,
+                tile_offset.y as u32 * tile_size as u32
+            ),
+            DeviceUintSize::new(tile_size as u32, tile_size as u32),
+        )).map(|mut r| {
+                // we can't translate by a negative size so do it manually
+                r.origin.x -= tile_offset.x as u32 * tile_size as u32;
+                r.origin.y -= tile_offset.y as u32 * tile_size as u32;
+                r
+            })
+}
+
 // This is the function that applies the deserialized drawing commands and generates
 // actual image data.
 fn render_blob(
     color: ColorU,
     descriptor: &BlobImageDescriptor,
+    tile_size: Option<TileSize>,
     tile: Option<TileOffset>,
     dirty_rect: Option<DeviceUintRect>,
 ) -> BlobImageResult {
@@ -43,9 +63,16 @@ fn render_blob(
         None => true,
     };
 
-    let dirty_rect = dirty_rect.unwrap_or(DeviceUintRect::new(
+    let mut dirty_rect = dirty_rect.unwrap_or(DeviceUintRect::new(
         DeviceUintPoint::new(0, 0),
         DeviceUintSize::new(descriptor.width, descriptor.height)));
+
+    if let Some(tile) = tile {
+        let tile_size = tile_size.unwrap();
+        dirty_rect = intersect_for_tile(dirty_rect, tile_size, tile)
+            .expect("empty rects should be culled by webrender");
+    }
+
 
     for y in dirty_rect.min_y() .. dirty_rect.max_y() {
         for x in dirty_rect.min_x() .. dirty_rect.max_x() {
@@ -101,7 +128,7 @@ impl BlobCallbacks {
 }
 
 pub struct CheckerboardRenderer {
-    image_cmds: HashMap<ImageKey, ColorU>,
+    image_cmds: HashMap<ImageKey, (ColorU, Option<TileSize>)>,
     callbacks: Arc<Mutex<BlobCallbacks>>,
 
     // The images rendered in the current frame (not kept here between frames).
@@ -119,16 +146,15 @@ impl CheckerboardRenderer {
 }
 
 impl BlobImageRenderer for CheckerboardRenderer {
-    fn add(&mut self, key: ImageKey, cmds: BlobImageData, _: Option<TileSize>) {
+    fn add(&mut self, key: ImageKey, cmds: BlobImageData, tile_size: Option<TileSize>) {
         self.image_cmds
-            .insert(key, deserialize_blob(&cmds[..]).unwrap());
+            .insert(key, (deserialize_blob(&cmds[..]).unwrap(), tile_size));
     }
 
     fn update(&mut self, key: ImageKey, cmds: BlobImageData, _dirty_rect: Option<DeviceUintRect>) {
         // Here, updating is just replacing the current version of the commands with
         // the new one (no incremental updates).
-        self.image_cmds
-            .insert(key, deserialize_blob(&cmds[..]).unwrap());
+        self.image_cmds.get_mut(&key).unwrap().0 = deserialize_blob(&cmds[..]).unwrap();
     }
 
     fn delete(&mut self, key: ImageKey) {
@@ -151,7 +177,7 @@ impl BlobImageRenderer for CheckerboardRenderer {
         // Gather the input data to send to a worker thread.
         let cmds = self.image_cmds.get(&request.key).unwrap();
 
-        let result = render_blob(*cmds, descriptor, request.tile, dirty_rect);
+        let result = render_blob(cmds.0, descriptor, cmds.1, request.tile, dirty_rect);
 
         self.rendered_images.insert(request, result);
     }
