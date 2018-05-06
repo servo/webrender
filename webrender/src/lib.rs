@@ -188,3 +188,4 @@ pub use renderer::{GraphicsApi, GraphicsApiInfo, PipelineInfo, Renderer, Rendere
 pub use renderer::{RendererStats, SceneBuilderHooks, ThreadListener};
 pub use renderer::MAX_VERTEX_TEXTURE_WIDTH;
 pub use webrender_api as api;
+pub use resource_cache::intersect_for_tile;
