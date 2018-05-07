@@ -365,12 +365,11 @@ impl ClipScrollTree {
         index: ClipScrollNodeIndex,
         parent_index: ClipScrollNodeIndex,
         handle: ClipSourcesHandle,
-        clip_rect: LayoutRect,
         pipeline_id: PipelineId,
     )  -> ClipChainIndex {
         let clip_chain_index = self.allocate_clip_chain();
         let node_type = NodeType::Clip { handle, clip_chain_index, clip_chain_node: None };
-        let node = ClipScrollNode::new(pipeline_id, Some(parent_index), &clip_rect, node_type);
+        let node = ClipScrollNode::new(pipeline_id, Some(parent_index), node_type);
         self.add_node(node, index);
         clip_chain_index
     }
@@ -379,16 +378,10 @@ impl ClipScrollTree {
         &mut self,
         index: ClipScrollNodeIndex,
         parent_index: ClipScrollNodeIndex,
-        frame_rect: LayoutRect,
         sticky_frame_info: StickyFrameInfo,
         pipeline_id: PipelineId,
     ) {
-        let node = ClipScrollNode::new_sticky_frame(
-            parent_index,
-            frame_rect,
-            sticky_frame_info,
-            pipeline_id,
-        );
+        let node = ClipScrollNode::new_sticky_frame(parent_index, sticky_frame_info, pipeline_id);
         self.add_node(node, index);
     }
 
@@ -461,8 +454,9 @@ impl ClipScrollTree {
             NodeType::ScrollFrame(scrolling_info) => {
                 pt.new_level(format!("ScrollFrame"));
                 pt.add_item(format!("index: {:?}", index));
+                pt.add_item(format!("viewport: {:?}", scrolling_info.viewport_rect));
                 pt.add_item(format!("scrollable_size: {:?}", scrolling_info.scrollable_size));
-                pt.add_item(format!("scroll.offset: {:?}", scrolling_info.offset));
+                pt.add_item(format!("scroll offset: {:?}", scrolling_info.offset));
             }
             NodeType::StickyFrame(ref sticky_frame_info) => {
                 pt.new_level(format!("StickyFrame"));
@@ -472,7 +466,6 @@ impl ClipScrollTree {
             NodeType::Empty => unreachable!("Empty node remaining in ClipScrollTree."),
         }
 
-        pt.add_item(format!("local_viewport_rect: {:?}", node.local_viewport_rect));
         pt.add_item(format!("world_viewport_transform: {:?}", node.world_viewport_transform));
         pt.add_item(format!("world_content_transform: {:?}", node.world_content_transform));
         pt.add_item(format!("coordinate_system_id: {:?}", node.coordinate_system_id));
