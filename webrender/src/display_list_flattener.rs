@@ -413,6 +413,7 @@ impl<'a> DisplayListFlattener<'a> {
     ) {
         let frame_rect = item.rect().translate(reference_frame_relative_offset);
         let sticky_frame_info = StickyFrameInfo::new(
+            frame_rect,
             info.margins,
             info.vertical_offset_bounds,
             info.horizontal_offset_bounds,
@@ -423,7 +424,6 @@ impl<'a> DisplayListFlattener<'a> {
         self.clip_scroll_tree.add_sticky_frame(
             index,
             clip_and_scroll.scroll_node_id, /* parent id */
-            frame_rect,
             sticky_frame_info,
             info.id.pipeline_id(),
         );
@@ -515,12 +515,10 @@ impl<'a> DisplayListFlattener<'a> {
                 stacking_context.perspective.is_some()
             );
 
-            let reference_frame_bounds = LayoutRect::new(LayoutPoint::zero(), bounds.size);
             self.push_reference_frame(
                 reference_frame_id,
                 Some(scroll_node_id),
                 pipeline_id,
-                &reference_frame_bounds,
                 stacking_context.transform,
                 stacking_context.perspective,
                 reference_frame_relative_offset,
@@ -593,18 +591,17 @@ impl<'a> DisplayListFlattener<'a> {
         self.pipeline_epochs.push((iframe_pipeline_id, epoch));
 
         let bounds = item.rect();
-        let iframe_rect = LayoutRect::new(LayoutPoint::zero(), bounds.size);
         let origin = *reference_frame_relative_offset + bounds.origin.to_vector();
         self.push_reference_frame(
             ClipId::root_reference_frame(iframe_pipeline_id),
             Some(info.clip_id),
             iframe_pipeline_id,
-            &iframe_rect,
             None,
             None,
             origin,
         );
 
+        let iframe_rect = LayoutRect::new(LayoutPoint::zero(), bounds.size);
         self.add_scroll_frame(
             ClipId::root_scroll_node(iframe_pipeline_id),
             ClipId::root_reference_frame(iframe_pipeline_id),
@@ -1279,7 +1276,6 @@ impl<'a> DisplayListFlattener<'a> {
         reference_frame_id: ClipId,
         parent_id: Option<ClipId>,
         pipeline_id: PipelineId,
-        rect: &LayoutRect,
         source_transform: Option<PropertyBinding<LayoutTransform>>,
         source_perspective: Option<LayoutTransform>,
         origin_in_parent_reference_frame: LayoutVector2D,
@@ -1287,7 +1283,6 @@ impl<'a> DisplayListFlattener<'a> {
         let index = self.id_to_index_mapper.get_node_index(reference_frame_id);
         let node = ClipScrollNode::new_reference_frame(
             parent_id.map(|id| self.id_to_index_mapper.get_node_index(id)),
-            rect,
             source_transform,
             source_perspective,
             origin_in_parent_reference_frame,
@@ -1332,13 +1327,10 @@ impl<'a> DisplayListFlattener<'a> {
         viewport_size: &LayoutSize,
         content_size: &LayoutSize,
     ) {
-        let viewport_rect = LayoutRect::new(LayoutPoint::zero(), *viewport_size);
-
         self.push_reference_frame(
             ClipId::root_reference_frame(pipeline_id),
             None,
             pipeline_id,
-            &viewport_rect,
             None,
             None,
             LayoutVector2D::zero(),
@@ -1349,7 +1341,7 @@ impl<'a> DisplayListFlattener<'a> {
             ClipId::root_reference_frame(pipeline_id),
             Some(ExternalScrollId(0, pipeline_id)),
             pipeline_id,
-            &viewport_rect,
+            &LayoutRect::new(LayoutPoint::zero(), *viewport_size),
             content_size,
             ScrollSensitivity::ScriptAndInputEvents,
         );
@@ -1361,7 +1353,6 @@ impl<'a> DisplayListFlattener<'a> {
         parent_id: ClipId,
         clip_region: ClipRegion,
     ) -> ClipScrollNodeIndex {
-        let clip_rect = clip_region.main;
         let clip_sources = ClipSources::from(clip_region);
         let handle = self.clip_store.insert(clip_sources);
 
@@ -1370,7 +1361,6 @@ impl<'a> DisplayListFlattener<'a> {
             node_index,
             self.id_to_index_mapper.get_node_index(parent_id),
             handle,
-            clip_rect,
             new_node_id.pipeline_id(),
         );
         self.id_to_index_mapper.add_clip_chain(new_node_id, clip_chain_index);

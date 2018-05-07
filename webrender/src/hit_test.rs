@@ -27,9 +27,6 @@ pub struct HitTestClipScrollNode {
 
     /// World viewport transform for content transformed by this node.
     world_viewport_transform: LayoutToWorldFastTransform,
-
-    /// Origin of the viewport of the node, used to calculate node-relative positions.
-    node_origin: LayoutPoint,
 }
 
 /// A description of a clip chain in the HitTester. This is used to describe
@@ -141,7 +138,6 @@ impl HitTester {
                 regions: get_regions_for_clip_scroll_node(node, clip_store),
                 world_content_transform: node.world_content_transform,
                 world_viewport_transform: node.world_viewport_transform,
-                node_origin: node.local_viewport_rect.origin,
             });
 
             if let NodeType::Clip { clip_chain_index, .. } = node.node_type {
@@ -197,8 +193,8 @@ impl HitTester {
         node_index: ClipScrollNodeIndex,
         test: &mut HitTest
     ) -> bool {
-        if let Some(point) = test.node_cache.get(&node_index) {
-            return point.is_some();
+        if let Some(clipped_in) = test.node_cache.get(&node_index) {
+            return *clipped_in;
         }
 
         let node = &self.nodes[node_index.0];
@@ -206,20 +202,19 @@ impl HitTester {
         let transformed_point = match transform.inverse() {
             Some(inverted) => inverted.transform_point2d(&point),
             None => {
-                test.node_cache.insert(node_index, None);
+                test.node_cache.insert(node_index, false);
                 return false;
             }
         };
 
-        let point_in_layer = transformed_point - node.node_origin.to_vector();
         for region in &node.regions {
             if !region.contains(&transformed_point) {
-                test.node_cache.insert(node_index, None);
+                test.node_cache.insert(node_index, false);
                 return false;
             }
         }
 
-        test.node_cache.insert(node_index, Some(point_in_layer));
+        test.node_cache.insert(node_index, true);
         true
     }
 
@@ -290,26 +285,22 @@ impl HitTester {
                     break;
                 }
 
-                // We need to trigger a lookup against the root reference frame here, because
-                // items that are clipped by clip chains won't test against that part of the
-                // hierarchy. If we don't have a valid point for this test, we are likely
-                // in a situation where the reference frame has an univertible transform, but the
-                // item's clip does not.
-                let root_node_index = self.pipeline_root_nodes[&pipeline_id];
-                if !self.is_point_clipped_in_for_node(point, root_node_index, &mut test) {
-                    continue;
-                }
-                let point_in_viewport = match test.node_cache[&root_node_index] {
-                    Some(point) => point,
-                    None => continue,
-                };
-
                 // Don't hit items with backface-visibility:hidden if they are facing the back.
                 if !item.is_backface_visible {
                     if *facing_backwards.get_or_insert_with(|| transform.is_backface_visible()) {
                         continue;
                     }
                 }
+
+                // We need to calculate the position of the test point relative to the origin of
+                // the pipeline of the hit item. If we cannot get a transformed point, we are
+                // in a situation with an uninvertible transformation so we should just skip this
+                // result.
+                let root_node = &self.nodes[self.pipeline_root_nodes[&pipeline_id].0];
+                let point_in_viewport = match root_node.world_viewport_transform.inverse() {
+                    Some(inverted) => inverted.transform_point2d(&point),
+                    None => continue,
+                };
 
                 result.items.push(HitTestItem {
                     pipeline: pipeline_id,
@@ -360,7 +351,7 @@ pub struct HitTest {
     pipeline_id: Option<PipelineId>,
     point: WorldPoint,
     flags: HitTestFlags,
-    node_cache: FastHashMap<ClipScrollNodeIndex, Option<LayoutPoint>>,
+    node_cache: FastHashMap<ClipScrollNodeIndex, bool>,
     clip_chain_cache: Vec<Option<bool>>,
 }
 
