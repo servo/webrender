@@ -186,11 +186,12 @@ tasks:
           export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH" &&
           export RUSTC_WRAPPER=sccache &&
           (cd webrender_api && cargo test --verbose --features "ipc") &&
-          (cd webrender && cargo build --verbose --no-default-features) &&
-          (cd webrender && cargo build --verbose --no-default-features --features capture) &&
-          (cd webrender && cargo build --verbose --features capture,profiler) &&
-          (cd webrender && cargo build --verbose --features replay) &&
-          (cd wrench && cargo build --verbose --features env_logger) &&
+          (cd webrender && cargo check --verbose --no-default-features) &&
+          (cd webrender && cargo check --verbose --no-default-features --features capture) &&
+          (cd webrender && cargo check --verbose --features capture,profiler) &&
+          (cd webrender && cargo check --verbose --features replay) &&
+          (cd webrender && cargo check --verbose --no-default-features --features pathfinder) &&
+          (cd wrench && cargo check --verbose --features env_logger) &&
           (cargo test --all --verbose)
     routes:
       - "index.garbage.webrender.ci.{{event.head.user.login}}.{{event.head.repo.branch}}.osx-debug"
