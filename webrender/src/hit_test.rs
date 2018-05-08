@@ -223,6 +223,39 @@ impl HitTester {
         true
     }
 
+    pub fn find_node_under_point(&self, mut test: HitTest) -> Option<ClipScrollNodeIndex> {
+        let point = test.get_absolute_point(self);
+
+        for &HitTestingRun(ref items, ref clip_and_scroll) in self.runs.iter().rev() {
+            let scroll_node_id = clip_and_scroll.scroll_node_id;
+            let scroll_node = &self.nodes[scroll_node_id.0];
+            let transform = scroll_node.world_content_transform;
+            let point_in_layer = match transform.inverse() {
+                Some(inverted) => inverted.transform_point2d(&point),
+                None => continue,
+            };
+
+            let mut clipped_in = false;
+            for item in items.iter().rev() {
+                if !item.rect.contains(&point_in_layer) ||
+                    !item.clip_rect.contains(&point_in_layer) {
+                    continue;
+                }
+
+                let clip_chain_index = clip_and_scroll.clip_chain_index;
+                clipped_in |=
+                    self.is_point_clipped_in_for_clip_chain(point, clip_chain_index, &mut test);
+                if !clipped_in {
+                    break;
+                }
+
+                return Some(scroll_node_id);
+            }
+        }
+
+        None
+    }
+
     pub fn hit_test(&self, mut test: HitTest) -> HitTestResult {
         let point = test.get_absolute_point(self);
 
