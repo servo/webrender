@@ -202,8 +202,8 @@ pub fn for_each_tile(
 
             let mut segment_rect = LayoutRect {
                 origin: LayoutPoint::new(
-                    x0 + tile_offset.x as f32 * layer_tile_size.width,
-                    y0 + tile_offset.y as f32 * layer_tile_size.height,
+                    prim_rect.origin.x + tile_offset.x as f32 * layer_tile_size.width,
+                    prim_rect.origin.y + tile_offset.y as f32 * layer_tile_size.height,
                 ),
                 size: layer_tile_size,
             };
