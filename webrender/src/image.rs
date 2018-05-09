@@ -179,12 +179,8 @@ pub fn for_each_tile(
         },
     );
 
-    // Position of the first visible tile (top-left) in layer space.
-    let x0 = prim_rect.origin.x + t0.x as f32 * layer_tile_size.width;
-    let y0 = prim_rect.origin.y + t0.y as f32 * layer_tile_size.height;
-
-    let x_count = f32::ceil((visible_rect.max_x() - x0) / layer_tile_size.width) as u16;
-    let y_count = f32::ceil((visible_rect.max_y() - y0) / layer_tile_size.height) as u16;
+    let x_count = f32::ceil((visible_rect.max_x() - prim_rect.origin.x) / layer_tile_size.width) as u16 - t0.x;
+    let y_count = f32::ceil((visible_rect.max_y() - prim_rect.origin.y) / layer_tile_size.height) as u16 - t0.y;
 
     for y in 0..y_count {
 
