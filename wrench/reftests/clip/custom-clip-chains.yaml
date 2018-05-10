@@ -12,7 +12,7 @@ root:
       transform: rotate(180)
       items:
        - type: clip
-         id: 1
+         id: 10
          bounds: [0, 0, 200, 200]
          complex:
            - rect: [0, 0, 200, 200]
@@ -51,7 +51,7 @@ root:
 
     - type: clip-chain
       id: 5
-      clips: [1, 2]
+      clips: [10, 2]
     - type: clip-chain
       id: 6
       parent: 5
@@ -59,4 +59,4 @@ root:
     - type: rect
       bounds: [0, 0, 200, 200]
       color: green
-      clip-and-scroll: [0, 6]
+      clip-and-scroll: [root-scroll-node, 6]

@@ -19,12 +19,12 @@ root:
           "clip-rect": [0, 0, 800, 400]
           "backface-visible": true
           type: clip
-          id: 1
+          id: 2
           "content-size": [800, 400]
         -
           bounds: [0, 0, 400, 200]
           "clip-rect": [0, 0, 400, 200]
           "backface-visible": true
           type: rect
-          "clip-and-scroll": 1
+          clip-and-scroll: 2
           color: green

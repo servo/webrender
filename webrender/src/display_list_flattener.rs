@@ -10,9 +10,9 @@ use api::{FilterOp, FontInstanceKey, GlyphInstance, GlyphOptions, GlyphRasterSpa
 use api::{IframeDisplayItem, ImageKey, ImageRendering, ItemRange, LayoutPoint};
 use api::{LayoutPrimitiveInfo, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D};
 use api::{LineOrientation, LineStyle, LocalClip, NinePatchBorderSource, PipelineId};
-use api::{PropertyBinding, RepeatMode, ScrollFrameDisplayItem, ScrollPolicy, ScrollSensitivity};
-use api::{Shadow, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect};
-use api::{TileOffset, TransformStyle, YuvColorSpace, YuvData};
+use api::{PropertyBinding, RepeatMode, ScrollFrameDisplayItem, ScrollSensitivity, Shadow};
+use api::{SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect, TileOffset};
+use api::{TransformStyle, YuvColorSpace, YuvData};
 use app_units::Au;
 use clip::{ClipRegion, ClipSource, ClipSources, ClipStore};
 use clip_scroll_node::{ClipScrollNode, NodeType, StickyFrameInfo};
@@ -474,7 +474,7 @@ impl<'a> DisplayListFlattener<'a> {
         item: &DisplayItemRef,
         stacking_context: &StackingContext,
         unreplaced_scroll_id: ClipId,
-        mut scroll_node_id: ClipId,
+        scroll_node_id: ClipId,
         mut reference_frame_relative_offset: LayoutVector2D,
         is_backface_visible: bool,
     ) {
@@ -497,11 +497,6 @@ impl<'a> DisplayListFlattener<'a> {
                 stacking_context.mix_blend_mode_for_compositing(),
             )
         };
-
-        if stacking_context.scroll_policy == ScrollPolicy::Fixed {
-            scroll_node_id = self.current_reference_frame_id();
-            self.replacements.push((unreplaced_scroll_id, scroll_node_id));
-        }
 
         let bounds = item.rect();
         reference_frame_relative_offset += bounds.origin.to_vector();
@@ -546,10 +541,6 @@ impl<'a> DisplayListFlattener<'a> {
             pipeline_id,
             reference_frame_relative_offset,
         );
-
-        if stacking_context.scroll_policy == ScrollPolicy::Fixed {
-            self.replacements.pop();
-        }
 
         if stacking_context.reference_frame_id.is_some() {
             self.replacements.pop();
@@ -1301,10 +1292,6 @@ impl<'a> DisplayListFlattener<'a> {
 
     pub fn current_reference_frame_index(&self) -> ClipScrollNodeIndex {
         self.reference_frame_stack.last().unwrap().1
-    }
-
-    pub fn current_reference_frame_id(&self) -> ClipId{
-        self.reference_frame_stack.last().unwrap().0
     }
 
     pub fn setup_viewport_offset(
