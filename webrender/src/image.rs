@@ -224,3 +224,77 @@ pub fn for_each_tile(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+    use api::{LayoutRect, DeviceUintSize};
+    use euclid::{TypedRect, TypedSize2D, TypedPoint2D};
+
+    fn point<T: Copy, U>(x: T, y: T) -> TypedPoint2D<T, U> {
+        TypedPoint2D::new(x, y)
+    }
+
+    fn size<T: Copy, U>(x: T, y: T) -> TypedSize2D<T, U> {
+        TypedSize2D::new(x, y)
+    }
+
+    fn rect<T: Copy, U>(x: T, y: T, width: T, height: T) -> TypedRect<T, U> {
+        TypedRect::new(point(x, y), size(width, height))
+    }
+
+    // this checks some additional invariants
+    fn checked_for_each_tile(
+        prim_rect: &LayoutRect,
+        visible_rect: &LayoutRect,
+        device_image_size: &DeviceUintSize,
+        device_tile_size: u32,
+        callback: &mut FnMut(&LayoutRect, TileOffset, EdgeAaSegmentMask),
+    ) {
+        let mut coverage = LayoutRect::zero();
+        let mut tiles = HashSet::new();
+        for_each_tile(prim_rect,
+                      visible_rect,
+                      device_image_size,
+                      device_tile_size,
+                      &mut |tile_rect, tile_offset, tile_flags| {
+                          // make sure we don't get sent duplicate tiles
+                          assert!(!tiles.contains(&tile_offset));
+                          tiles.insert(tile_offset);
+                          coverage = coverage.union(tile_rect);
+                          callback(tile_rect, tile_offset, tile_flags);
+                      },
+        );
+        assert!(prim_rect.contains_rect(&coverage));
+        assert!(coverage.contains_rect(&visible_rect.intersection(&prim_rect).unwrap_or(LayoutRect::zero())));
+    }
+
+    #[test]
+    fn basic() {
+        let mut count = 0;
+        checked_for_each_tile(&rect(0., 0., 1000., 1000.),
+            &rect(75., 75., 400., 400.),
+            &size(400, 400),
+            36,
+            &mut |_tile_rect, _tile_offset, _tile_flags| {
+                count += 1;
+            },
+        );
+        assert_eq!(count, 36);
+    }
+
+    #[test]
+    fn empty() {
+        let mut count = 0;
+        checked_for_each_tile(&rect(0., 0., 74., 74.),
+                              &rect(75., 75., 400., 400.),
+                              &size(400, 400),
+                              36,
+                              &mut |_tile_rect, _tile_offset, _tile_flags| {
+                                  count += 1;
+                              },
+        );
+        assert_eq!(count, 0);
+    }
+}
