@@ -600,7 +600,6 @@ impl RenderTask {
     fn uv_rect_kind(&self) -> UvRectKind {
         match self.kind {
             RenderTaskKind::CacheMask(..) |
-            RenderTaskKind::Glyph(_) |
             RenderTaskKind::Readback(..) |
             RenderTaskKind::Scaling(..) => {
                 unreachable!("bug: unexpected render task");
@@ -616,6 +615,7 @@ impl RenderTask {
             }
 
             RenderTaskKind::ClipRegion(..) |
+            RenderTaskKind::Glyph(_) |
             RenderTaskKind::Blit(..) => {
                 UvRectKind::Rect
             }
