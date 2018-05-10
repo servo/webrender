@@ -3414,7 +3414,7 @@ impl Renderer {
                     size: texture.get_dimensions(),
                     num_layers: texture.get_render_target_layer_count(),
                     format: texture.get_format(),
-                }
+                } && !texture.used_in_frame(frame_id)
             });
 
         // Next, try at least finding a matching format
