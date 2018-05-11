@@ -63,6 +63,7 @@ impl<'a> RawtestHarness<'a> {
     ) {
         let mut txn = Transaction::new();
         let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
+        txn.use_scene_builder_thread();
         if let Some(resources) = resources {
             txn.update_resources(resources);
         }
