@@ -1078,10 +1078,13 @@ impl<T> PropertyBindingKey<T> {
 /// A binding property can either be a specific value
 /// (the normal, non-animated case) or point to a binding location
 /// to fetch the current value from.
+/// Note that Binding has also a non-animated value, the value is
+/// used for the case where the animation is still in-delay phase
+/// (i.e. the animation doesn't produce any animation values).
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub enum PropertyBinding<T> {
     Value(T),
-    Binding(PropertyBindingKey<T>),
+    Binding(PropertyBindingKey<T>, T),
 }
 
 impl<T> From<T> for PropertyBinding<T> {

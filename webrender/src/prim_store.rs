@@ -231,7 +231,7 @@ impl OpacityBinding {
         let mut new_opacity = 1.0;
 
         for binding in &self.bindings {
-            let opacity = scene_properties.resolve_float(binding, 1.0);
+            let opacity = scene_properties.resolve_float(binding);
             new_opacity = new_opacity * opacity;
         }
 
