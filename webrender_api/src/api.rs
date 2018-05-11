@@ -1090,12 +1090,6 @@ impl<T> From<T> for PropertyBinding<T> {
     }
 }
 
-impl<T> From<PropertyBindingKey<T>> for PropertyBinding<T> {
-    fn from(key: PropertyBindingKey<T>) -> PropertyBinding<T> {
-        PropertyBinding::Binding(key)
-    }
-}
-
 /// The current value of an animated property. This is
 /// supplied by the calling code.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
