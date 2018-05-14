@@ -456,9 +456,9 @@ impl Wrench {
 
     pub fn font_key_from_bytes(&mut self, bytes: Vec<u8>, index: u32) -> FontKey {
         let key = self.api.generate_font_key();
-        let mut update = ResourceUpdates::new();
-        update.add_raw_font(key, bytes, index);
-        self.api.update_resources(update);
+        let mut txn = Transaction::new();
+        txn.add_raw_font(key, bytes, index);
+        self.api.update_resources(txn.resource_updates);
         key
     }
 
@@ -470,7 +470,7 @@ impl Wrench {
         bg_color: Option<ColorU>,
     ) -> FontInstanceKey {
         let key = self.api.generate_font_instance_key();
-        let mut update = ResourceUpdates::new();
+        let mut txn = Transaction::new();
         let mut options: FontInstanceOptions = Default::default();
         options.flags |= flags;
         if let Some(render_mode) = render_mode {
@@ -479,16 +479,16 @@ impl Wrench {
         if let Some(bg_color) = bg_color {
             options.bg_color = bg_color;
         }
-        update.add_font_instance(key, font_key, size, Some(options), None, Vec::new());
-        self.api.update_resources(update);
+        txn.add_font_instance(key, font_key, size, Some(options), None, Vec::new());
+        self.api.update_resources(txn.resource_updates);
         key
     }
 
     #[allow(dead_code)]
     pub fn delete_font_instance(&mut self, key: FontInstanceKey) {
-        let mut update = ResourceUpdates::new();
-        update.delete_font_instance(key);
-        self.api.update_resources(update);
+        let mut txn = Transaction::new();
+        txn.delete_font_instance(key);
+        self.api.update_resources(txn.resource_updates);
     }
 
     pub fn update(&mut self, dim: DeviceUintSize) {
