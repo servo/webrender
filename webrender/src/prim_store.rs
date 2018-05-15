@@ -544,25 +544,6 @@ pub enum ImageSource {
 }
 
 #[derive(Debug)]
-pub struct ImagePrimitiveCpu {
-    pub tile_spacing: LayoutSize,
-    pub alpha_type: AlphaType,
-    pub stretch_size: LayoutSize,
-    pub current_epoch: Epoch,
-    pub source: ImageSource,
-    pub key: ImageCacheKey,
-}
-
-impl ToGpuBlocks for ImagePrimitiveCpu {
-    fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        request.push([
-            self.stretch_size.width, self.stretch_size.height,
-            self.tile_spacing.width, self.tile_spacing.height,
-        ]);
-    }
-}
-
-#[derive(Debug)]
 pub struct BorderPrimitiveCpu {
     pub corner_instances: [BorderCornerInstance; 4],
     pub edges: [BorderEdgeKind; 4],
@@ -1158,7 +1139,6 @@ pub struct PrimitiveStore {
     /// CPU side information only.
     pub cpu_brushes: Vec<BrushPrimitive>,
     pub cpu_text_runs: Vec<TextRunPrimitiveCpu>,
-    pub cpu_images: Vec<ImagePrimitiveCpu>,
     pub cpu_metadata: Vec<PrimitiveMetadata>,
     pub cpu_borders: Vec<BorderPrimitiveCpu>,
 
@@ -1172,7 +1152,6 @@ impl PrimitiveStore {
             cpu_metadata: Vec::new(),
             cpu_brushes: Vec::new(),
             cpu_text_runs: Vec::new(),
-            cpu_images: Vec::new(),
             cpu_borders: Vec::new(),
 
             pictures: Vec::new(),
@@ -1185,7 +1164,6 @@ impl PrimitiveStore {
             cpu_metadata: recycle_vec(self.cpu_metadata),
             cpu_brushes: recycle_vec(self.cpu_brushes),
             cpu_text_runs: recycle_vec(self.cpu_text_runs),
-            cpu_images: recycle_vec(self.cpu_images),
             cpu_borders: recycle_vec(self.cpu_borders),
 
             pictures: recycle_vec(self.pictures),
