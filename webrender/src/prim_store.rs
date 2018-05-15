@@ -36,6 +36,7 @@ use util::{pack_as_float, recycle_vec};
 
 
 const MIN_BRUSH_SPLIT_AREA: f32 = 256.0 * 256.0;
+pub const VECS_PER_SEGMENT: usize = 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ScrollNodeAndClipChain {
@@ -2764,6 +2765,7 @@ impl<'a> GpuDataRequest<'a> {
         local_rect: LayoutRect,
         extra_data: [f32; 4],
     ) {
+        let _ = VECS_PER_SEGMENT;
         self.push(local_rect);
         self.push(extra_data);
     }
