@@ -1013,6 +1013,7 @@ impl YamlFrameWriter {
                 Iframe(item) => {
                     str_node(&mut v, "type", "iframe");
                     u32_vec_node(&mut v, "id", &[item.pipeline_id.0, item.pipeline_id.1]);
+                    bool_node(&mut v, "ignore_missing_pipeline", item.ignore_missing_pipeline);
                 }
                 PushStackingContext(item) => {
                     str_node(&mut v, "type", "stacking-context");
