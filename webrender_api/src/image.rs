@@ -6,7 +6,8 @@ extern crate serde_bytes;
 
 use font::{FontInstanceKey, FontKey, FontTemplate};
 use std::sync::Arc;
-use {DevicePoint, DeviceUintRect, IdNamespace, TileOffset, TileSize};
+use {DevicePoint, DeviceUintRect, DeviceUintSize, IdNamespace, TileOffset, TileSize};
+use euclid::size2;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -73,8 +74,7 @@ impl ImageFormat {
 #[derive(Copy, Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ImageDescriptor {
     pub format: ImageFormat,
-    pub width: u32,
-    pub height: u32,
+    pub size: DeviceUintSize,
     pub stride: Option<u32>,
     pub offset: u32,
     pub is_opaque: bool,
@@ -90,8 +90,7 @@ impl ImageDescriptor {
         allow_mipmaps: bool,
     ) -> Self {
         ImageDescriptor {
-            width,
-            height,
+            size: size2(width, height),
             format,
             stride: None,
             offset: 0,
@@ -101,12 +100,11 @@ impl ImageDescriptor {
     }
 
     pub fn compute_stride(&self) -> u32 {
-        self.stride
-            .unwrap_or(self.width * self.format.bytes_per_pixel())
+        self.stride.unwrap_or(self.size.width * self.format.bytes_per_pixel())
     }
 
     pub fn compute_total_size(&self) -> u32 {
-        self.compute_stride() * self.height
+        self.compute_stride() * self.size.height
     }
 }
 
@@ -202,15 +200,13 @@ pub type BlobImageResult = Result<RasterizedBlobImage, BlobImageError>;
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct BlobImageDescriptor {
-    pub width: u32,
-    pub height: u32,
+    pub size: DeviceUintSize,
     pub offset: DevicePoint,
     pub format: ImageFormat,
 }
 
 pub struct RasterizedBlobImage {
-    pub width: u32,
-    pub height: u32,
+    pub size: DeviceUintSize,
     pub data: Vec<u8>,
 }
 
