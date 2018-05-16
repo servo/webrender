@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AddFont, BlobImageResources, ResourceUpdate};
+use api::{AddFont, BlobImageResources, BlobSceneBuilderRequest, ResourceUpdate};
 use api::{BlobImageDescriptor, BlobImageError, BlobImageRenderer, BlobImageRequest};
 use api::{ClearCache, ColorF, DevicePoint, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{Epoch, FontInstanceKey, FontKey, FontTemplate, GlyphIndex};
@@ -35,6 +35,7 @@ use std::collections::hash_map::Entry::{self, Occupied, Vacant};
 use std::cmp;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::mem;
 #[cfg(any(feature = "capture", feature = "replay"))]
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -269,6 +270,9 @@ struct Resources {
     font_templates: FastHashMap<FontKey, FontTemplate>,
     font_instances: FontInstanceMap,
     image_templates: ImageTemplates,
+    // The state of blob images including updates of the current transaction. The rest of the
+    // resource cache is typically updated at the end of teh transaction (after scene building).
+    post_transaction_blob_images: FastHashMap<ImageKey, ImageResource>,
 }
 
 impl BlobImageResources for Resources {
@@ -278,6 +282,14 @@ impl BlobImageResources for Resources {
     fn get_image(&self, key: ImageKey) -> Option<(&ImageData, &ImageDescriptor)> {
         self.image_templates
             .get(key)
+            .map(|resource| (&resource.data, &resource.descriptor))
+    }
+    fn get_blob_image_for_scene_building(
+        &self,
+        key: ImageKey,
+    ) -> Option<(&ImageData, &ImageDescriptor)> {
+        self.post_transaction_blob_images
+            .get(&key)
             .map(|resource| (&resource.data, &resource.descriptor))
     }
 }
@@ -369,7 +381,7 @@ impl ResourceCache {
         ).expect("Failed to request a render task from the resource cache!")
     }
 
-    pub fn update_resources(
+    pub fn post_scene_building_update(
         &mut self,
         updates: Vec<ResourceUpdate>,
         profile_counters: &mut ResourceProfileCounters,
@@ -392,19 +404,84 @@ impl ResourceCache {
                 ResourceUpdate::DeleteImage(img) => {
                     self.delete_image_template(img);
                 }
-                ResourceUpdate::AddFont(font) => match font {
-                    AddFont::Raw(id, bytes, index) => {
-                        profile_counters.font_templates.inc(bytes.len());
-                        self.add_font_template(id, FontTemplate::Raw(Arc::new(bytes), index));
-                    }
-                    AddFont::Native(id, native_font_handle) => {
-                        self.add_font_template(id, FontTemplate::Native(native_font_handle));
-                    }
-                },
                 ResourceUpdate::DeleteFont(font) => {
                     self.delete_font_template(font);
                 }
-                ResourceUpdate::AddFontInstance(instance) => {
+                ResourceUpdate::DeleteFontInstance(font) => {
+                    self.delete_font_instance(font);
+                }
+                ResourceUpdate::AddFont(_) |
+                ResourceUpdate::AddFontInstance(_) => {
+                    // Handled in update_resources_pre_scene_building
+                }
+            }
+        }
+    }
+
+    pub fn pre_scene_building_update(
+        &mut self,
+        updates: &mut Vec<ResourceUpdate>,
+        profile_counters: &mut ResourceProfileCounters,
+    ) {
+        let mut new_updates = Vec::with_capacity(updates.len());
+        for update in mem::replace(updates, Vec::new()) {
+            match update {
+                ResourceUpdate::AddImage(ref img) => {
+                    if let ImageData::Blob(ref blob_data) = img.data {
+                        let tiling = None; // TODO: tiled blob images.
+                        self.resources.post_transaction_blob_images.insert(
+                            img.key,
+                            ImageResource {
+                                descriptor: img.descriptor,
+                                data: ImageData::Blob(Arc::clone(&blob_data)),
+                                epoch: Epoch(0),
+                                tiling,
+                                dirty_rect: Some(
+                                    DeviceUintRect::new(
+                                        DeviceUintPoint::zero(),
+                                        img.descriptor.size,
+                                    )
+                                ),
+                            },
+                        );
+                    }
+                }
+                ResourceUpdate::UpdateImage(ref img) => {
+                    if let ImageData::Blob(ref blob_data) = img.data {
+                        let image = self.resources.post_transaction_blob_images.get_mut(&img.key).unwrap();
+                        let tiling = None; // TODO: tiled blob images.
+                        *image = ImageResource {
+                            descriptor: img.descriptor,
+                            data: ImageData::Blob(Arc::clone(&blob_data)),
+                            epoch: Epoch(image.epoch.0 + 1),
+                            tiling,
+                            dirty_rect: match (img.dirty_rect, image.dirty_rect) {
+                                (Some(rect), Some(prev_rect)) => Some(rect.union(&prev_rect)),
+                                (Some(rect), None) => Some(rect),
+                                (None, _) => None,
+                            },
+                        };
+                    }
+                }
+                ResourceUpdate::DeleteImage(key) => {
+                    self.resources.post_transaction_blob_images.remove(&key);
+                }
+                _ => {}
+            }
+
+            match update {
+                ResourceUpdate::AddFont(font) => {
+                    match font {
+                        AddFont::Raw(id, bytes, index) => {
+                            profile_counters.font_templates.inc(bytes.len());
+                            self.add_font_template(id, FontTemplate::Raw(Arc::new(bytes), index));
+                        }
+                        AddFont::Native(id, native_font_handle) => {
+                            self.add_font_template(id, FontTemplate::Native(native_font_handle));
+                        }
+                    }
+                }
+                ResourceUpdate::AddFontInstance(mut instance) => {
                     self.add_font_instance(
                         instance.key,
                         instance.font_key,
@@ -414,11 +491,13 @@ impl ResourceCache {
                         instance.variations,
                     );
                 }
-                ResourceUpdate::DeleteFontInstance(instance) => {
-                    self.delete_font_instance(instance);
+                update => {
+                    new_updates.push(update);
                 }
             }
         }
+
+        *updates = new_updates;
     }
 
     pub fn add_font_template(&mut self, font_key: FontKey, template: FontTemplate) {
@@ -683,6 +762,50 @@ impl ResourceCache {
                 );
             }
         }
+    }
+
+    pub fn create_blob_scene_builder_request(&mut self, requests: &[BlobImageRequest]) -> Option<Box<BlobSceneBuilderRequest>> {
+        if requests.is_empty() || self.blob_image_renderer.is_none() {
+            return None;
+        }
+
+        let mut blob_request_params = Vec::new();
+        for request in requests {
+            let template = self.resources.post_transaction_blob_images.get(&request.key).unwrap();
+
+            let (offset, size) = match template.tiling {
+                Some(tile_size) => {
+                    let tile_offset = request.tile.unwrap();
+                    let actual_size = compute_tile_size(
+                        &template.descriptor,
+                        tile_size,
+                        tile_offset,
+                    );
+                    let offset = DevicePoint::new(
+                        tile_offset.x as f32 * tile_size as f32,
+                        tile_offset.y as f32 * tile_size as f32,
+                    );
+
+                    (offset, actual_size)
+                }
+                None => (DevicePoint::zero(), template.descriptor.size),
+            };
+
+            let descriptor = BlobImageDescriptor {
+                size,
+                offset,
+                format: template.descriptor.format,
+            };
+
+            blob_request_params.push((*request, descriptor, template.dirty_rect));
+        }
+
+        Some(
+            self.blob_image_renderer.as_mut().unwrap().create_scene_builder_request(
+                &self.resources,
+                blob_request_params
+            )
+        )
     }
 
     pub fn request_glyphs(

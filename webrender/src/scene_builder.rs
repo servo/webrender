@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use api::{BlobSceneBuilderRequest, BlobImageRequest, BlobImageResult};
 use api::{DocumentId, PipelineId, ApiMsg, FrameMsg, ResourceUpdate};
 use api::channel::MsgSender;
 use display_list_flattener::build_scene;
@@ -19,6 +20,7 @@ pub enum SceneBuilderRequest {
     Transaction {
         document_id: DocumentId,
         scene: Option<SceneRequest>,
+        blob_request: Option<Box<BlobSceneBuilderRequest>>,
         resource_updates: Vec<ResourceUpdate>,
         frame_ops: Vec<FrameMsg>,
         render: bool,
@@ -34,6 +36,7 @@ pub enum SceneBuilderResult {
         document_id: DocumentId,
         built_scene: Option<BuiltScene>,
         resource_updates: Vec<ResourceUpdate>,
+        rasterized_blobs: Vec<(BlobImageRequest, BlobImageResult)>,
         frame_ops: Vec<FrameMsg>,
         render: bool,
         result_tx: Option<Sender<SceneSwapResult>>,
@@ -132,6 +135,7 @@ impl SceneBuilder {
             SceneBuilderRequest::Transaction {
                 document_id,
                 scene,
+                blob_request,
                 resource_updates,
                 frame_ops,
                 render,
@@ -140,7 +144,10 @@ impl SceneBuilder {
                     build_scene(&self.config, request)
                 });
 
-                // TODO: pre-rasterization.
+                let rasterized_blobs = match blob_request {
+                    Some(mut request) => request.run(),
+                    None => Vec::new(),
+                };
 
                 // We only need the pipeline info and the result channel if we
                 // have a hook callback *and* if this transaction actually built
@@ -167,6 +174,7 @@ impl SceneBuilder {
                     document_id,
                     built_scene,
                     resource_updates,
+                    rasterized_blobs,
                     frame_ops,
                     render,
                     result_tx,

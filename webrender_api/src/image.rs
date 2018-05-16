@@ -172,9 +172,15 @@ impl ImageData {
     }
 }
 
+// A group of rasterization requests to execute synchronously on the scene builder thread.
+pub trait BlobSceneBuilderRequest : Send {
+    fn run(&mut self) -> Vec<(BlobImageRequest, BlobImageResult)>;
+}
+
 pub trait BlobImageResources {
     fn get_font_data(&self, key: FontKey) -> &FontTemplate;
     fn get_image(&self, key: ImageKey) -> Option<(&ImageData, &ImageDescriptor)>;
+    fn get_blob_image_for_scene_building(&self, key: ImageKey) -> Option<(&ImageData, &ImageDescriptor)>;
 }
 
 pub trait BlobImageRenderer: Send {
@@ -193,6 +199,12 @@ pub trait BlobImageRenderer: Send {
     );
 
     fn resolve(&mut self, key: BlobImageRequest) -> BlobImageResult;
+
+    fn create_scene_builder_request(
+        &mut self,
+        services: &BlobImageResources,
+        requests: Vec<(BlobImageRequest, BlobImageDescriptor, Option<DeviceUintRect>)>,
+    ) -> Box<BlobSceneBuilderRequest>;
 
     fn delete_font(&mut self, key: FontKey);
 
@@ -226,7 +238,7 @@ pub enum BlobImageError {
     Other(String),
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BlobImageRequest {
     pub key: ImageKey,
     pub tile: Option<TileOffset>,

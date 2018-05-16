@@ -233,7 +233,7 @@ impl Document {
         transaction_msg: TransactionMsg,
         document_ops: &DocumentOps,
         document_id: DocumentId,
-        resource_cache: &ResourceCache,
+        resource_cache: &mut ResourceCache,
         scene_tx: &Sender<SceneBuilderRequest>,
     ) {
         // Do as much of the error handling as possible here before dispatching to
@@ -255,8 +255,13 @@ impl Document {
             None
         };
 
+        let blob_request = resource_cache.create_blob_scene_builder_request(
+            &transaction_msg.blobs_to_rasterize_during_scene_building
+        );
+
         scene_tx.send(SceneBuilderRequest::Transaction {
             scene: scene_request,
+            blob_request,
             resource_updates: transaction_msg.resource_updates,
             frame_ops: transaction_msg.frame_ops,
             render: transaction_msg.generate_frame,
@@ -708,6 +713,7 @@ impl RenderBackend {
                         frame_ops,
                         render,
                         result_tx,
+                        rasterized_blobs,
                     } => {
                         if let Some(doc) = self.documents.get_mut(&document_id) {
                             if let Some(mut built_scene) = built_scene.take() {
@@ -739,6 +745,7 @@ impl RenderBackend {
                             resource_updates,
                             generate_frame: render,
                             use_scene_builder_thread: false,
+                            blobs_to_rasterize_during_scene_building: Vec::new(),
                         };
 
                         if !transaction_msg.is_empty() {
@@ -809,9 +816,15 @@ impl RenderBackend {
             ApiMsg::FlushSceneBuilder(tx) => {
                 self.scene_tx.send(SceneBuilderRequest::Flush(tx)).unwrap();
             }
-            ApiMsg::UpdateResources(updates) => {
-                self.resource_cache
-                    .update_resources(updates, &mut profile_counters.resources);
+            ApiMsg::UpdateResources(mut updates) => {
+                self.resource_cache.pre_scene_building_update(
+                    &mut updates,
+                    &mut profile_counters.resources
+                );
+                self.resource_cache.post_scene_building_update(
+                    updates,
+                    &mut profile_counters.resources
+                );
             }
             ApiMsg::GetGlyphDimensions(instance_key, glyph_indices, tx) => {
                 let mut glyph_dimensions = Vec::with_capacity(glyph_indices.len());
@@ -940,7 +953,12 @@ impl RenderBackend {
             ApiMsg::ShutDown => {
                 return false;
             }
-            ApiMsg::UpdateDocument(document_id, doc_msgs) => {
+            ApiMsg::UpdateDocument(document_id, mut doc_msgs) => {
+                self.resource_cache.pre_scene_building_update(
+                    &mut doc_msgs.resource_updates,
+                    &mut profile_counters.resources,
+                );
+
                 self.update_document(
                     document_id,
                     doc_msgs,
@@ -980,14 +998,14 @@ impl RenderBackend {
                 transaction_msg,
                 &op,
                 document_id,
-                &self.resource_cache,
+                &mut self.resource_cache,
                 &self.scene_tx,
             );
 
             return;
         }
 
-        self.resource_cache.update_resources(
+        self.resource_cache.post_scene_building_update(
             transaction_msg.resource_updates,
             &mut profile_counters.resources,
         );

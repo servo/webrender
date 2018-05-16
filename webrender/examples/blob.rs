@@ -13,6 +13,7 @@ mod boilerplate;
 
 use boilerplate::{Example, HandyDandyRectBuilder};
 use rayon::{ThreadPool, ThreadPoolBuilder};
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
@@ -216,6 +217,37 @@ impl api::BlobImageRenderer for CheckerboardRenderer {
     fn delete_font(&mut self, _font: api::FontKey) {}
     fn delete_font_instance(&mut self, _instance: api::FontInstanceKey) {}
     fn clear_namespace(&mut self, _namespace: api::IdNamespace) {}
+    fn create_scene_builder_request(
+        &mut self,
+        _services: &api::BlobImageResources,
+        requests: Vec<(api::BlobImageRequest, api::BlobImageDescriptor, Option<api::DeviceUintRect>)>,
+    ) -> Box<api::BlobSceneBuilderRequest> {
+        Box::new(SceneBuilderRequest {
+            workers: Arc::clone(&self.workers),
+            requests: requests.into_iter().map(
+                |(req, desc, _dirty_rect)| {
+                    (req, desc, Arc::clone(&self.image_cmds[&req.key]))
+                }
+            ).collect(),
+        })
+    }
+}
+
+struct SceneBuilderRequest {
+    workers: Arc<ThreadPool>,
+    requests: Vec<(api::BlobImageRequest, api::BlobImageDescriptor, Arc<ImageRenderingCommands>)>,
+}
+
+impl api::BlobSceneBuilderRequest for SceneBuilderRequest {
+    fn run(&mut self) -> Vec<(api::BlobImageRequest, api::BlobImageResult)> {
+        let requests = mem::replace(&self.requests, Vec::new());
+        let workers = Arc::clone(&self.workers);
+        workers.install(||{
+            requests.into_par_iter().map(|(request, descriptor, commands)| {
+                (request, render_blob(commands, &descriptor, request.tile))
+            }).collect()
+        })
+    }
 }
 
 struct App {}

@@ -12,7 +12,7 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::u32;
 use {BuiltDisplayList, BuiltDisplayListDescriptor, ColorF, DeviceIntPoint, DeviceUintRect};
-use {DeviceUintSize, ExternalScrollId, FontInstanceKey, FontInstanceOptions};
+use {DeviceUintSize, ExternalScrollId, FontInstanceKey, FontInstanceOptions, BlobImageRequest};
 use {FontInstancePlatformOptions, FontKey, FontVariation, GlyphDimensions, GlyphIndex, ImageData};
 use {ImageDescriptor, ImageKey, ItemTag, LayoutPoint, LayoutSize, LayoutTransform, LayoutVector2D};
 use {NativeFontHandle, WorldPoint};
@@ -255,6 +255,7 @@ impl Transaction {
                 resource_updates: self.resource_updates,
                 use_scene_builder_thread: self.use_scene_builder_thread,
                 generate_frame: self.generate_frame,
+                blobs_to_rasterize_during_scene_building: Vec::new(),
             },
             self.payloads,
         )
@@ -347,6 +348,7 @@ pub struct TransactionMsg {
     pub scene_ops: Vec<SceneMsg>,
     pub frame_ops: Vec<FrameMsg>,
     pub resource_updates: Vec<ResourceUpdate>,
+    pub blobs_to_rasterize_during_scene_building: Vec<BlobImageRequest>,
     pub generate_frame: bool,
     pub use_scene_builder_thread: bool,
 }
@@ -367,6 +369,7 @@ impl TransactionMsg {
             resource_updates: Vec::new(),
             generate_frame: false,
             use_scene_builder_thread: false,
+            blobs_to_rasterize_during_scene_building: Vec::new(),
         }
     }
 
@@ -377,6 +380,7 @@ impl TransactionMsg {
             resource_updates: Vec::new(),
             generate_frame: false,
             use_scene_builder_thread: false,
+            blobs_to_rasterize_during_scene_building: Vec::new(),
         }
     }
 }

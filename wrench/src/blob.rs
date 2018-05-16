@@ -185,4 +185,48 @@ impl BlobImageRenderer for CheckerboardRenderer {
     fn delete_font_instance(&mut self, _key: FontInstanceKey) {}
 
     fn clear_namespace(&mut self, _namespace: IdNamespace) {}
+
+    fn create_scene_builder_request(
+        &mut self,
+        _services: &BlobImageResources,
+        requests: Vec<(BlobImageRequest, BlobImageDescriptor, Option<DeviceUintRect>)>,
+    ) -> Box<BlobSceneBuilderRequest> {
+        Box::new(SceneBuilderRequest {
+            requests: requests.into_iter().map(
+                |(request, descriptor, dirty_rect)| {
+                    let &(color, tile_size) = self.image_cmds.get(&request.key).unwrap();
+
+                    let tile = request.tile.map(|tile| (tile_size.unwrap(), tile));
+
+                    Command {
+                        request,
+                        color,
+                        descriptor,
+                        tile,
+                        dirty_rect,
+                    }
+                }
+            ).collect(),
+        })
+    }
+}
+
+struct Command {
+    request: BlobImageRequest,
+    color: ColorU,
+    descriptor: BlobImageDescriptor,
+    tile: Option<(TileSize, TileOffset)>,
+    dirty_rect: Option<DeviceUintRect>
+}
+
+struct SceneBuilderRequest {
+    requests: Vec<Command>,
+}
+
+impl BlobSceneBuilderRequest for SceneBuilderRequest {
+    fn run(&mut self) -> Vec<(BlobImageRequest, BlobImageResult)> {
+        self.requests.iter().map(|cmd| {
+            (cmd.request, render_blob(cmd.color, &cmd.descriptor, cmd.tile, cmd.dirty_rect))
+        }).collect()
+    }
 }
