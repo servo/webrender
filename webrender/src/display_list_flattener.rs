@@ -1967,20 +1967,18 @@ impl<'a> DisplayListFlattener<'a> {
                 *text_color,
                 font_instance.bg_color,
                 render_mode,
-                font_instance.subpx_dir,
                 flags,
                 font_instance.platform_options,
                 font_instance.variations.clone(),
             );
-            TextRunPrimitiveCpu {
-                font: prim_font,
+            TextRunPrimitiveCpu::new(
+                prim_font,
+                run_offset,
                 glyph_range,
-                glyph_gpu_blocks: Vec::new(),
-                glyph_keys: Vec::new(),
-                offset: run_offset,
-                shadow: false,
+                Vec::new(),
+                false,
                 glyph_raster_space,
-            }
+            )
         };
 
         self.add_primitive(
