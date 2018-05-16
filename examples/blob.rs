@@ -13,13 +13,12 @@ mod boilerplate;
 
 use boilerplate::{Example, HandyDandyRectBuilder};
 use rayon::{ThreadPool, ThreadPoolBuilder};
+use rayon::prelude::*;
 use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, Sender, channel};
 use webrender::api::{self, DisplayListBuilder, DocumentId, PipelineId, RenderApi, Transaction};
 
-// This example shows how to implement a very basic BlobImageRenderer that can only render
+// This example shows how to implement a very basic BlobImageHandler that can only render
 // a checkerboard pattern.
 
 // The deserialized command list internally used by this example is just a color.
@@ -97,7 +96,7 @@ fn render_blob(
     }
 
     Ok(api::RasterizedBlobImage {
-        data: texels,
+        data: Arc::new(texels),
         size: descriptor.size,
     })
 }
@@ -109,35 +108,24 @@ struct CheckerboardRenderer {
     // want to).
     workers: Arc<ThreadPool>,
 
-    // the workers will use an mpsc channel to communicate the result.
-    tx: Sender<(api::BlobImageRequest, api::BlobImageResult)>,
-    rx: Receiver<(api::BlobImageRequest, api::BlobImageResult)>,
-
     // The deserialized drawing commands.
     // In this example we store them in Arcs. This isn't necessary since in this simplified
     // case the command list is a simple 32 bits value and would be cheap to clone before sending
     // to the workers. But in a more realistic scenario the commands would typically be bigger
     // and more expensive to clone, so let's pretend it is also the case here.
     image_cmds: HashMap<api::ImageKey, Arc<ImageRenderingCommands>>,
-
-    // The images rendered in the current frame (not kept here between frames).
-    rendered_images: HashMap<api::BlobImageRequest, Option<api::BlobImageResult>>,
 }
 
 impl CheckerboardRenderer {
     fn new(workers: Arc<ThreadPool>) -> Self {
-        let (tx, rx) = channel();
         CheckerboardRenderer {
             image_cmds: HashMap::new(),
-            rendered_images: HashMap::new(),
             workers,
-            tx,
-            rx,
         }
     }
 }
 
-impl api::BlobImageRenderer for CheckerboardRenderer {
+impl api::BlobImageHandler for CheckerboardRenderer {
     fn add(&mut self, key: api::ImageKey, cmds: Arc<api::BlobImageData>, _: Option<api::TileSize>) {
         self.image_cmds
             .insert(key, Arc::new(deserialize_blob(&cmds[..]).unwrap()));
@@ -154,68 +142,40 @@ impl api::BlobImageRenderer for CheckerboardRenderer {
         self.image_cmds.remove(&key);
     }
 
-    fn request(
+    fn prepare_resources(
         &mut self,
-        _resources: &api::BlobImageResources,
-        request: api::BlobImageRequest,
-        descriptor: &api::BlobImageDescriptor,
-        _dirty_rect: Option<api::DeviceUintRect>,
-    ) {
-        // This method is where we kick off our rendering jobs.
-        // It should avoid doing work on the calling thread as much as possible.
-        // In this example we will use the thread pool to render individual tiles.
+        _services: &api::BlobImageResources,
+        _requests: &[api::BlobImageParams],
+    ) {}
 
-        // Gather the input data to send to a worker thread.
-        let cmds = Arc::clone(&self.image_cmds.get(&request.key).unwrap());
-        let tx = self.tx.clone();
-        let descriptor = descriptor.clone();
-
-        self.workers.spawn(move || {
-            let result = render_blob(cmds, &descriptor, request.tile);
-            tx.send((request, result)).unwrap();
-        });
-
-        // Add None in the map of rendered images. This makes it possible to differentiate
-        // between commands that aren't finished yet (entry in the map is equal to None) and
-        // keys that have never been requested (entry not in the map), which would cause deadlocks
-        // if we were to block upon receiving their result in resolve!
-        self.rendered_images.insert(request, None);
-    }
-
-    fn resolve(&mut self, request: api::BlobImageRequest) -> api::BlobImageResult {
-        // In this method we wait until the work is complete on the worker threads and
-        // gather the results.
-
-        // First look at whether we have already received the rendered image
-        // that we are looking for.
-        match self.rendered_images.entry(request) {
-            Entry::Vacant(_) => {
-                return Err(api::BlobImageError::InvalidKey);
-            }
-            Entry::Occupied(entry) => {
-                // None means we haven't yet received the result.
-                if entry.get().is_some() {
-                    let result = entry.remove();
-                    return result.unwrap();
-                }
-            }
-        }
-
-        // We haven't received it yet, pull from the channel until we receive it.
-        while let Ok((req, result)) = self.rx.recv() {
-            if req == request {
-                // There it is!
-                return result;
-            }
-            self.rendered_images.insert(req, Some(result));
-        }
-
-        // If we break out of the loop above it means the channel closed unexpectedly.
-        Err(api::BlobImageError::Other("Channel closed".into()))
-    }
     fn delete_font(&mut self, _font: api::FontKey) {}
     fn delete_font_instance(&mut self, _instance: api::FontInstanceKey) {}
     fn clear_namespace(&mut self, _namespace: api::IdNamespace) {}
+    fn create_blob_rasterizer(&mut self) -> Box<api::AsyncBlobImageRasterizer> {
+        Box::new(Rasterizer {
+            workers: Arc::clone(&self.workers),
+            image_cmds: self.image_cmds.clone(),
+        })
+    }
+}
+
+struct Rasterizer {
+    workers: Arc<ThreadPool>,
+    image_cmds: HashMap<api::ImageKey, Arc<ImageRenderingCommands>>,
+}
+
+impl api::AsyncBlobImageRasterizer for Rasterizer {
+    fn rasterize(&mut self, requests: &[api::BlobImageParams]) -> Vec<(api::BlobImageRequest, api::BlobImageResult)> {
+        let requests: Vec<(&api::BlobImageParams, Arc<ImageRenderingCommands>)> = requests.into_iter().map(|params| {
+            (params, Arc::clone(&self.image_cmds[&params.request.key]))
+        }).collect();
+
+        self.workers.install(|| {
+            requests.into_par_iter().map(|(params, commands)| {
+                (params.request, render_blob(commands, &params.descriptor, params.request.tile))
+            }).collect()
+        })
+    }
 }
 
 struct App {}
@@ -292,7 +252,7 @@ fn main() {
         workers: Some(Arc::clone(&workers)),
         // Register our blob renderer, so that WebRender integrates it in the resource cache..
         // Share the same pool of worker threads between WebRender and our blob renderer.
-        blob_image_renderer: Some(Box::new(CheckerboardRenderer::new(Arc::clone(&workers)))),
+        blob_image_handler: Some(Box::new(CheckerboardRenderer::new(Arc::clone(&workers)))),
         ..Default::default()
     };
 
