@@ -4,7 +4,7 @@
 
 use {WindowWrapper, NotifierEvent};
 use blob;
-use euclid::{TypedRect, TypedSize2D, TypedPoint2D};
+use euclid::{TypedRect, TypedSize2D, TypedPoint2D, point2, size2};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::mpsc::Receiver;
@@ -180,6 +180,14 @@ impl<'a> RawtestHarness<'a> {
             AlphaType::PremultipliedAlpha,
             blob_img,
         );
+        txn.set_image_visible_area(
+            blob_img,
+            NormalizedRect {
+                origin: point2(0.0, 0.03),
+                size: size2(1.0, 0.03),
+            }
+        );
+
         builder.pop_clip_id();
 
         let mut epoch = Epoch(0);
@@ -189,7 +197,7 @@ impl<'a> RawtestHarness<'a> {
         let pixels = self.render_and_get_pixels(window_rect);
 
         // make sure we didn't request too many blobs
-        assert_eq!(called.load(Ordering::SeqCst), 16);
+        assert!(called.load(Ordering::SeqCst) < 20);
 
         // make sure things are in the right spot
         assert!(
@@ -466,12 +474,14 @@ impl<'a> RawtestHarness<'a> {
         let img2_requested_inner = Arc::clone(&img2_requested);
 
         // track the number of times that the second image has been requested
-        self.wrench.callbacks.lock().unwrap().request = Box::new(move |&desc| {
-            if desc.key == blob_img {
-                img1_requested_inner.fetch_add(1, Ordering::SeqCst);
-            }
-            if desc.key == blob_img2 {
-                img2_requested_inner.fetch_add(1, Ordering::SeqCst);
+        self.wrench.callbacks.lock().unwrap().request = Box::new(move |requests| {
+            for item in requests {
+                if item.request.key == blob_img {
+                    img1_requested_inner.fetch_add(1, Ordering::SeqCst);
+                }
+                if item.request.key == blob_img2 {
+                    img2_requested_inner.fetch_add(1, Ordering::SeqCst);
+                }
             }
         });
 

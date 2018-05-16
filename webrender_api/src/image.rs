@@ -174,33 +174,48 @@ impl ImageData {
     }
 }
 
+/// The resources exposed by the resource cache available for use by the blob rasterizer.
 pub trait BlobImageResources {
     fn get_font_data(&self, key: FontKey) -> &FontTemplate;
     fn get_image(&self, key: ImageKey) -> Option<(&ImageData, &ImageDescriptor)>;
 }
 
-pub trait BlobImageRenderer: Send {
+/// A handler on the render backend that can create rasterizer objects which will
+/// be sent to the scene builder thread to execute teh rasterization.
+///
+/// The handler is responsible for collecting resources, managing/updating blob commands
+/// and creating the rasterizer objects, but isn't expected to do any rasterization itself.
+pub trait BlobImageHandler: Send {
+    fn create_blob_rasterizer(
+        &mut self,
+        services: &BlobImageResources,
+        requests: Vec<BlobImageParams>,
+    ) -> Option<Box<AsyncBlobImageRasterizer>>;
+
     fn add(&mut self, key: ImageKey, data: Arc<BlobImageData>, tiling: Option<TileSize>);
 
     fn update(&mut self, key: ImageKey, data: Arc<BlobImageData>, dirty_rect: Option<DeviceUintRect>);
 
     fn delete(&mut self, key: ImageKey);
 
-    fn request(
-        &mut self,
-        resources: &BlobImageResources,
-        key: BlobImageRequest,
-        descriptor: &BlobImageDescriptor,
-        dirty_rect: Option<DeviceUintRect>,
-    );
-
-    fn resolve(&mut self, key: BlobImageRequest) -> BlobImageResult;
-
     fn delete_font(&mut self, key: FontKey);
 
     fn delete_font_instance(&mut self, key: FontInstanceKey);
 
     fn clear_namespace(&mut self, namespace: IdNamespace);
+}
+
+// A group of rasterization requests to execute synchronously on the scene builder thread.
+pub trait AsyncBlobImageRasterizer : Send {
+    fn run(&mut self) -> Vec<(BlobImageRequest, BlobImageResult)>;
+}
+
+
+#[derive(Copy, Clone, Debug)]
+pub struct BlobImageParams {
+    pub request: BlobImageRequest,
+    pub descriptor: BlobImageDescriptor,
+    pub dirty_rect: Option<DeviceUintRect>,
 }
 
 pub type BlobImageData = Vec<u8>;
@@ -217,7 +232,7 @@ pub struct BlobImageDescriptor {
 
 pub struct RasterizedBlobImage {
     pub size: DeviceUintSize,
-    pub data: Vec<u8>,
+    pub data: Arc<Vec<u8>>,
 }
 
 #[derive(Clone, Debug)]
@@ -228,7 +243,7 @@ pub enum BlobImageError {
     Other(String),
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BlobImageRequest {
     pub key: ImageKey,
     pub tile: Option<TileOffset>,
