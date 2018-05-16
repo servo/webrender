@@ -134,12 +134,12 @@ impl CheckerboardRenderer {
 }
 
 impl BlobImageRenderer for CheckerboardRenderer {
-    fn add(&mut self, key: ImageKey, cmds: BlobImageData, tile_size: Option<TileSize>) {
+    fn add(&mut self, key: ImageKey, cmds: Arc<BlobImageData>, tile_size: Option<TileSize>) {
         self.image_cmds
             .insert(key, (deserialize_blob(&cmds[..]).unwrap(), tile_size));
     }
 
-    fn update(&mut self, key: ImageKey, cmds: BlobImageData, _dirty_rect: Option<DeviceUintRect>) {
+    fn update(&mut self, key: ImageKey, cmds: Arc<BlobImageData>, _dirty_rect: Option<DeviceUintRect>) {
         // Here, updating is just replacing the current version of the commands with
         // the new one (no incremental updates).
         self.image_cmds.get_mut(&key).unwrap().0 = deserialize_blob(&cmds[..]).unwrap();

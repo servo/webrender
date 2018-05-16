@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AddFont, BlobImageData, BlobImageResources, ResourceUpdate, ResourceUpdates};
+use api::{AddFont, BlobImageResources, ResourceUpdate, ResourceUpdates};
 use api::{BlobImageDescriptor, BlobImageError, BlobImageRenderer, BlobImageRequest};
 use api::{ClearCache, ColorF, DevicePoint, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{Epoch, FontInstanceKey, FontKey, FontTemplate};
@@ -34,7 +34,6 @@ use std::collections::hash_map::Entry::{self, Occupied, Vacant};
 use std::cmp;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::mem;
 #[cfg(any(feature = "capture", feature = "replay"))]
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -495,7 +494,7 @@ impl ResourceCache {
         &mut self,
         image_key: ImageKey,
         descriptor: ImageDescriptor,
-        mut data: ImageData,
+        data: ImageData,
         mut tiling: Option<TileSize>,
     ) {
         if tiling.is_none() && Self::should_tile(self.max_texture_size(), &descriptor, &data) {
@@ -504,10 +503,10 @@ impl ResourceCache {
             tiling = Some(DEFAULT_TILE_SIZE);
         }
 
-        if let ImageData::Blob(ref mut blob) = data {
+        if let ImageData::Blob(ref blob) = data {
             self.blob_image_renderer.as_mut().unwrap().add(
                 image_key,
-                mem::replace(blob, BlobImageData::new()),
+                Arc::clone(&blob),
                 tiling,
             );
         }
@@ -546,7 +545,7 @@ impl ResourceCache {
             self.blob_image_renderer
                 .as_mut()
                 .unwrap()
-                .update(image_key, mem::replace(blob, BlobImageData::new()), dirty_rect);
+                .update(image_key, Arc::clone(&blob), dirty_rect);
         }
 
         *image = ImageResource {

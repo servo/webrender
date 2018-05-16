@@ -113,7 +113,7 @@ impl ImageDescriptor {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ImageData {
     Raw(#[serde(with = "serde_image_data_raw")] Arc<Vec<u8>>),
-    Blob(#[serde(with = "serde_bytes")] BlobImageData),
+    Blob(#[serde(with = "serde_image_data_raw")] Arc<BlobImageData>),
     External(ExternalImageData),
 }
 
@@ -141,8 +141,8 @@ impl ImageData {
         ImageData::Raw(bytes)
     }
 
-    pub fn new_blob_image(commands: Vec<u8>) -> Self {
-        ImageData::Blob(commands)
+    pub fn new_blob_image(commands: BlobImageData) -> Self {
+        ImageData::Blob(Arc::new(commands))
     }
 
     #[inline]
@@ -172,9 +172,9 @@ pub trait BlobImageResources {
 }
 
 pub trait BlobImageRenderer: Send {
-    fn add(&mut self, key: ImageKey, data: BlobImageData, tiling: Option<TileSize>);
+    fn add(&mut self, key: ImageKey, data: Arc<BlobImageData>, tiling: Option<TileSize>);
 
-    fn update(&mut self, key: ImageKey, data: BlobImageData, dirty_rect: Option<DeviceUintRect>);
+    fn update(&mut self, key: ImageKey, data: Arc<BlobImageData>, dirty_rect: Option<DeviceUintRect>);
 
     fn delete(&mut self, key: ImageKey);
 
