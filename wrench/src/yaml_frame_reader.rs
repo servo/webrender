@@ -1243,7 +1243,8 @@ impl YamlFrameReader {
     ) {
         info.rect = item["bounds"].as_rect().expect("iframe must have bounds");
         let pipeline_id = item["id"].as_pipeline_id().unwrap();
-        dl.push_iframe(&info, pipeline_id);
+        let ignore = item["ignore_missing_pipeline"].as_bool().unwrap_or(true);
+        dl.push_iframe(&info, pipeline_id, ignore);
     }
 
     pub fn get_complex_clip_for_item(&mut self, yaml: &Yaml) -> Option<ComplexClipRegion> {
