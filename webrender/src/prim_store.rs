@@ -3,8 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AlphaType, BorderRadius, BoxShadowClipMode, BuiltDisplayList, ClipMode, ColorF, ComplexClipRegion};
-use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, FontRenderMode};
-use api::{FilterOp, GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, TileOffset};
+use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode};
+use api::{FilterOp, GlyphInstance, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, TileOffset};
 use api::{GlyphRasterSpace, LayoutPoint, LayoutRect, LayoutSize, LayoutToWorldTransform, LayoutVector2D};
 use api::{PipelineId, PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat, DeviceIntSideOffsets};
 use border::{BorderCornerInstance, BorderEdgeKind};
@@ -15,7 +15,7 @@ use clip::{ClipChain, ClipChainNode, ClipChainNodeIter, ClipChainNodeRef, ClipSo
 use clip::{ClipSourcesHandle, ClipWorkItem};
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
 use frame_builder::PrimitiveRunContext;
-use glyph_rasterizer::{FontInstance, FontTransform};
+use glyph_rasterizer::{FontInstance, FontTransform, GlyphKey};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
 use gpu_types::{BrushFlags, ClipChainRectIndex};
@@ -777,7 +777,8 @@ impl TextRunPrimitiveCpu {
             if transform.has_perspective_component() ||
                !transform.has_2d_inverse() ||
                self.glyph_raster_space != GlyphRasterSpace::Screen {
-                font.render_mode = font.render_mode.limit_by(FontRenderMode::Alpha);
+                font.disable_subpixel_aa();
+                font.disable_subpixel_position();
             } else {
                 font.transform = FontTransform::from(&transform).quantize();
             }
@@ -794,7 +795,7 @@ impl TextRunPrimitiveCpu {
         frame_building_state: &mut FrameBuildingState,
     ) {
         if !allow_subpixel_aa && self.font.bg_color.a == 0 {
-            self.font.render_mode = self.font.render_mode.limit_by(FontRenderMode::Alpha);
+            self.font.disable_subpixel_aa();
         }
 
         let font = self.get_font(device_pixel_scale, transform);
@@ -804,7 +805,7 @@ impl TextRunPrimitiveCpu {
         //           completely, and just reference the glyphs
         //           directly from the display list.
         if self.glyph_keys.is_empty() {
-            let subpx_dir = font.subpx_dir.limit_by(font.render_mode);
+            let subpx_dir = font.get_subpx_dir();
             let src_glyphs = display_list.get(self.glyph_range);
 
             // TODO(gw): If we support chunks() on AuxIter
@@ -812,7 +813,10 @@ impl TextRunPrimitiveCpu {
             //           be much simpler...
             let mut gpu_block = [0.0; 4];
             for (i, src) in src_glyphs.enumerate() {
-                let key = GlyphKey::new(src.index, src.point, font.render_mode, subpx_dir);
+                let layout_offset = src.point + self.offset;
+                let world_offset = font.transform.transform(&layout_offset);
+                let device_offset = device_pixel_scale.transform_point(&world_offset);
+                let key = GlyphKey::new(src.index, device_offset, subpx_dir);
                 self.glyph_keys.push(key);
 
                 // Two glyphs are packed per GPU block.
@@ -1090,18 +1094,16 @@ impl PrimitiveContainer {
     pub fn create_shadow(&self, shadow: &Shadow) -> PrimitiveContainer {
         match *self {
             PrimitiveContainer::TextRun(ref info) => {
-                let mut render_mode = info.font.render_mode;
-
+                let mut font = FontInstance {
+                    color: shadow.color.into(),
+                    ..info.font.clone()
+                };
                 if shadow.blur_radius > 0.0 {
-                    render_mode = render_mode.limit_by(FontRenderMode::Alpha);
+                    font.disable_subpixel_aa();
                 }
 
                 PrimitiveContainer::TextRun(TextRunPrimitiveCpu {
-                    font: FontInstance {
-                        color: shadow.color.into(),
-                        render_mode,
-                        ..info.font.clone()
-                    },
+                    font,
                     offset: info.offset + shadow.offset,
                     glyph_range: info.glyph_range,
                     glyph_keys: info.glyph_keys.clone(),

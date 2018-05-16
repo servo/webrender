@@ -280,7 +280,6 @@ impl Wrench {
         &mut self,
         font_key: FontKey,
         instance_key: FontInstanceKey,
-        render_mode: Option<FontRenderMode>,
         text: &str,
         size: Au,
         origin: LayoutPoint,
@@ -294,20 +293,8 @@ impl Wrench {
             .filter_map(|idx| *idx)
             .collect();
 
-        let render_mode = render_mode.unwrap_or(<FontInstanceOptions as Default>::default().render_mode);
-        let subpx_dir = SubpixelDirection::Horizontal.limit_by(render_mode);
-
         // Retrieve the metrics for each glyph.
-        let mut keys = Vec::new();
-        for glyph_index in &indices {
-            keys.push(GlyphKey::new(
-                *glyph_index,
-                LayoutPoint::zero(),
-                render_mode,
-                subpx_dir,
-            ));
-        }
-        let metrics = self.api.get_glyph_dimensions(instance_key, keys);
+        let metrics = self.api.get_glyph_dimensions(instance_key, indices.clone());
 
         let mut bounding_rect = LayoutRect::zero();
         let mut positions = Vec::new();

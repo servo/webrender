@@ -1966,7 +1966,6 @@ impl<'a> DisplayListFlattener<'a> {
                 *text_color,
                 font_instance.bg_color,
                 render_mode,
-                font_instance.subpx_dir,
                 flags,
                 font_instance.platform_options,
                 font_instance.variations.clone(),
