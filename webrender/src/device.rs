@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use std::ptr;
 use std::rc::Rc;
 use std::slice;
+use std::sync::Arc;
 use std::thread;
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, Eq, PartialOrd)]
@@ -575,7 +576,8 @@ pub struct VBOId(gl::GLuint);
 #[derive(PartialEq, Eq, Hash, Debug, Copy, Clone)]
 struct IBOId(gl::GLuint);
 
-#[derive(PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "serialize_program", derive(Deserialize, Serialize))]
 pub struct ProgramSources {
     renderer_name: String,
     vs_source: String,
@@ -592,31 +594,49 @@ impl ProgramSources {
     }
 }
 
+#[cfg_attr(feature = "serialize_program", derive(Deserialize, Serialize))]
 pub struct ProgramBinary {
+    sources: ProgramSources,
     binary: Vec<u8>,
     format: gl::GLenum,
 }
 
 impl ProgramBinary {
-    fn new(binary: Vec<u8>, format: gl::GLenum) -> Self {
+    fn new(sources: &ProgramSources, binary: Vec<u8>, format: gl::GLenum) -> Self {
         ProgramBinary {
+            sources: sources.clone(),
             binary,
             format
         }
     }
 }
 
+/// The interfaces that an application can implement to handle ProgramCache update
+pub trait ProgramCacheObserver {
+    fn notify_binary_added(&self, program_binary: &Arc<ProgramBinary>);
+    fn notify_program_binary_failed(&self, program_binary: &Arc<ProgramBinary>);
+}
+
 pub struct ProgramCache {
-    pub binaries: RefCell<FastHashMap<ProgramSources, ProgramBinary>>,
+    binaries: RefCell<FastHashMap<ProgramSources, Arc<ProgramBinary>>>,
+
+    /// Optional trait object that allows the client
+    /// application to handle ProgramCache updating
+    program_cache_handler: Option<Box<ProgramCacheObserver>>,
 }
 
 impl ProgramCache {
-    pub fn new() -> Rc<Self> {
+    pub fn new(program_cache_observer: Option<Box<ProgramCacheObserver>>) -> Rc<Self> {
         Rc::new(
             ProgramCache {
                 binaries: RefCell::new(FastHashMap::default()),
+                program_cache_handler: program_cache_observer,
             }
         )
+    }
+    pub fn load_program_binary(&self, program_binary: Arc<ProgramBinary>) {
+        let sources = program_binary.sources.clone();
+        self.binaries.borrow_mut().insert(sources, program_binary);
     }
 }
 
@@ -1422,6 +1442,9 @@ impl Device {
                       self.renderer_name,
                       error_log
                     );
+                    if let Some(ref program_cache_handler) = cached_programs.program_cache_handler {
+                        program_cache_handler.notify_program_binary_failed(&binary);
+                    }
                 } else {
                     loaded = true;
                 }
@@ -1496,7 +1519,11 @@ impl Device {
             if !cached_programs.binaries.borrow().contains_key(&sources) {
                 let (buffer, format) = self.gl.get_program_binary(pid);
                 if buffer.len() > 0 {
-                  cached_programs.binaries.borrow_mut().insert(sources, ProgramBinary::new(buffer, format));
+                    let program_binary = Arc::new(ProgramBinary::new(&sources, buffer, format));
+                    if let Some(ref program_cache_handler) = cached_programs.program_cache_handler {
+                        program_cache_handler.notify_binary_added(&program_binary);
+                    }
+                    cached_programs.binaries.borrow_mut().insert(sources, program_binary);
                 }
             }
         }
