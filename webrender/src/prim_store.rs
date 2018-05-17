@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AlphaType, BorderRadius, BoxShadowClipMode, BuiltDisplayList, ClipMode, ColorF, ComplexClipRegion};
-use api::{DeviceIntRect, DeviceIntSize, DeviceUintSize, DevicePixelScale, Epoch, ExtendMode, FontRenderMode};
+use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, FontRenderMode};
 use api::{FilterOp, GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, TileOffset};
 use api::{GlyphRasterSpace, LayoutPoint, LayoutRect, LayoutSize, LayoutToWorldTransform, LayoutVector2D};
 use api::{PipelineId, PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat, DeviceIntSideOffsets};
@@ -1472,10 +1472,7 @@ impl PrimitiveStore {
                             if *tile_spacing != LayoutSize::zero() && !is_tiled {
                                 *source = ImageSource::Cache {
                                     // Size in device-pixels we need to allocate in render task cache.
-                                    size: DeviceIntSize::new(
-                                        image_properties.descriptor.width as i32,
-                                        image_properties.descriptor.height as i32
-                                    ),
+                                    size: image_properties.descriptor.size.to_i32(),
                                     handle: None,
                                 };
                             }
@@ -1573,10 +1570,7 @@ impl PrimitiveStore {
 
                             if let Some(tile_size) = image_properties.tiling {
 
-                                let device_image_size = DeviceUintSize::new(
-                                    image_properties.descriptor.width,
-                                    image_properties.descriptor.height,
-                                );
+                                let device_image_size = image_properties.descriptor.size;
 
                                 // Tighten the clip rect because decomposing the repeated image can
                                 // produce primitives that are partially covering the original image

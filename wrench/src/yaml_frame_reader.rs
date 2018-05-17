@@ -516,7 +516,7 @@ impl YamlFrameReader {
         wrench.api.update_resources(resources);
         let val = (
             image_key,
-            LayoutSize::new(descriptor.width as f32, descriptor.height as f32),
+            LayoutSize::new(descriptor.size.width as f32, descriptor.size.height as f32),
         );
         self.image_map.insert(key, val);
         val
