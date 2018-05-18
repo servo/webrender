@@ -170,13 +170,15 @@ impl Document {
 
     fn can_render(&self) -> bool { self.frame_builder.is_some() }
 
+    fn has_pixels(&self) -> bool {
+        self.view.window_size.width > 0 || self.view.window_size.height > 0
+    }
+
     // TODO: We will probably get rid of this soon and always forward to the scene building thread.
     fn build_scene(&mut self, resource_cache: &mut ResourceCache) {
         let max_texture_size = resource_cache.max_texture_size();
 
-        if self.view.window_size.width == 0 ||
-           self.view.window_size.height == 0 ||
-           self.view.window_size.width > max_texture_size ||
+        if self.view.window_size.width > max_texture_size ||
            self.view.window_size.height > max_texture_size {
             error!("ERROR: Invalid window dimensions {}x{}. Please call api.set_window_size()",
                 self.view.window_size.width,
@@ -241,10 +243,6 @@ impl Document {
             ).unwrap_or(false);
 
         let scene_request = if build_scene {
-            if self.view.window_size.width == 0 || self.view.window_size.height == 0 {
-                error!("ERROR: Invalid window dimensions! Please call api.set_window_size()");
-            }
-
             Some(SceneRequest {
                 scene: self.pending.scene.clone(),
                 removed_pipelines: replace(&mut self.pending.removed_pipelines, Vec::new()),
@@ -305,6 +303,14 @@ impl Document {
             },
             frame
         )
+    }
+
+    pub fn get_updated_pipeline_info(&mut self) -> PipelineInfo {
+        let removed_pipelines = replace(&mut self.current.removed_pipelines, Vec::new());
+        PipelineInfo {
+            epochs: self.current.scene.pipeline_epochs.clone(),
+            removed_pipelines,
+        }
     }
 
     pub fn discard_frame_state_for_pipeline(&mut self, pipeline_id: PipelineId) {
@@ -1044,7 +1050,7 @@ impl RenderBackend {
 
         debug_assert!(op.render || !op.composite);
 
-        if op.render {
+        if op.render && doc.has_pixels() {
             profile_scope!("generate frame");
 
             *frame_counter += 1;
@@ -1079,6 +1085,13 @@ impl RenderBackend {
             self.result_tx.send(msg).unwrap();
             profile_counters.reset();
             doc.render_on_hittest = false;
+        } else if op.render {
+            // WR-internal optimization to avoid doing a bunch of render work if
+            // there's no pixels. We still want to pretend to render and request
+            // a composite to make sure that the callbacks (particularly the
+            // new_frame_ready callback below) has the right flags.
+            let msg = ResultMsg::PublishPipelineInfo(doc.get_updated_pipeline_info());
+            self.result_tx.send(msg).unwrap();
         }
 
         if transaction_msg.generate_frame {

@@ -171,6 +171,7 @@ pub enum ResultMsg {
         updates: TextureUpdateList,
         cancel_rendering: bool,
     },
+    PublishPipelineInfo(PipelineInfo),
     PublishDocument(
         DocumentId,
         RenderedDocument,

@@ -1798,6 +1798,12 @@ impl Renderer {
         // Pull any pending results and return the most recent.
         while let Ok(msg) = self.result_rx.try_recv() {
             match msg {
+                ResultMsg::PublishPipelineInfo(mut pipeline_info) => {
+                    for (pipeline_id, epoch) in pipeline_info.epochs {
+                        self.pipeline_info.epochs.insert(pipeline_id, epoch);
+                    }
+                    self.pipeline_info.removed_pipelines.extend(pipeline_info.removed_pipelines.drain(..));
+                }
                 ResultMsg::PublishDocument(
                     document_id,
                     mut doc,
