@@ -30,7 +30,9 @@ fn rect<T: Copy, U>(x: T, y: T, width: T, height: T) -> TypedRect<T, U> {
 }
 
 impl<'a> RawtestHarness<'a> {
-    pub fn new(wrench: &'a mut Wrench, window: &'a mut WindowWrapper, rx: &'a Receiver<NotifierEvent>) -> Self {
+    pub fn new(wrench: &'a mut Wrench,
+               window: &'a mut WindowWrapper,
+               rx: &'a Receiver<NotifierEvent>) -> Self {
         RawtestHarness {
             wrench,
             rx,
@@ -61,13 +63,13 @@ impl<'a> RawtestHarness<'a> {
         epoch: &mut Epoch,
         layout_size: LayoutSize,
         builder: DisplayListBuilder,
-        resources: &Vec<ResourceUpdate>
+        resources: &[ResourceUpdate]
     ) {
         let mut txn = Transaction::new();
         let root_background_color = Some(ColorF::new(1.0, 1.0, 1.0, 1.0));
         txn.use_scene_builder_thread();
         if !resources.is_empty() {
-            txn.resource_updates = resources.clone();
+            txn.resource_updates = resources.to_vec();
         }
         txn.set_display_list(
             *epoch,
@@ -189,16 +191,32 @@ impl<'a> RawtestHarness<'a> {
 
         // make sure things are in the right spot
         assert!(
-            pixels[(148 + (window_rect.size.height as usize - 148) * window_rect.size.width as usize) * 4] == 255 &&
-                pixels[(148 + (window_rect.size.height as usize - 148) * window_rect.size.width as usize) * 4 + 1] == 255 &&
-                pixels[(148 + (window_rect.size.height as usize - 148) * window_rect.size.width as usize) * 4 + 2] == 255 &&
-                pixels[(148 + (window_rect.size.height as usize - 148) * window_rect.size.width as usize) * 4 + 3] == 255
+            pixels[(148 +
+                (window_rect.size.height as usize - 148) *
+                    window_rect.size.width as usize) * 4] == 255 &&
+                pixels[(148 +
+                    (window_rect.size.height as usize - 148) *
+                        window_rect.size.width as usize) * 4 + 1] == 255 &&
+                pixels[(148 +
+                    (window_rect.size.height as usize - 148) *
+                        window_rect.size.width as usize) * 4 + 2] == 255 &&
+                pixels[(148 +
+                    (window_rect.size.height as usize - 148) *
+                        window_rect.size.width as usize) * 4 + 3] == 255
         );
         assert!(
-            pixels[(132 + (window_rect.size.height as usize - 148) * window_rect.size.width as usize) * 4] == 50 &&
-                pixels[(132 + (window_rect.size.height as usize - 148) * window_rect.size.width as usize) * 4 + 1] == 50 &&
-                pixels[(132 + (window_rect.size.height as usize - 148) * window_rect.size.width as usize) * 4 + 2] == 150 &&
-                pixels[(132 + (window_rect.size.height as usize - 148) * window_rect.size.width as usize) * 4 + 3] == 255
+            pixels[(132 +
+                (window_rect.size.height as usize - 148) *
+                    window_rect.size.width as usize) * 4] == 50 &&
+                pixels[(132 +
+                    (window_rect.size.height as usize - 148) *
+                        window_rect.size.width as usize) * 4 + 1] == 50 &&
+                pixels[(132 +
+                    (window_rect.size.height as usize - 148) *
+                        window_rect.size.width as usize) * 4 + 2] == 150 &&
+                pixels[(132 +
+                    (window_rect.size.height as usize - 148) *
+                        window_rect.size.width as usize) * 4 + 3] == 255
         );
 
         // Leaving a tiled blob image in the resource cache
@@ -673,7 +691,8 @@ impl<'a> RawtestHarness<'a> {
         let doc_id = self.wrench.api.add_document(window_size, 1);
 
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
-        let info = LayoutPrimitiveInfo::new(LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(100.0, 100.0)));
+        let info = LayoutPrimitiveInfo::new(LayoutRect::new(LayoutPoint::zero(),
+                                                            LayoutSize::new(100.0, 100.0)));
         builder.push_rect(&info, ColorF::new(0.0, 1.0, 0.0, 1.0));
 
         let mut txn = Transaction::new();

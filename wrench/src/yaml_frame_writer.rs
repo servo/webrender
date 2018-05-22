@@ -503,7 +503,7 @@ impl YamlFrameWriter {
         scene.finish_display_list(self.pipeline_id.unwrap(), dl);
     }
 
-    fn update_resources(&mut self, updates: &Vec<ResourceUpdate>) {
+    fn update_resources(&mut self, updates: &[ResourceUpdate]) {
         for update in updates {
             match *update {
                 ResourceUpdate::AddImage(ref img) => {
@@ -545,7 +545,8 @@ impl YamlFrameWriter {
                             data.path = None;
                             data.bytes = Some((**bytes).clone());
                         } else {
-                            // Other existing image types only make sense within the gecko integration.
+                            // Other existing image types only make sense
+                            // within the gecko integration.
                             println!(
                                 "Wrench only supports updating buffer images ({}).",
                                 "ignoring update command"

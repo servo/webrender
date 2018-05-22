@@ -111,7 +111,7 @@ impl JsonFrameWriter {
         file.write_all(b"\n").unwrap();
     }
 
-    fn update_resources(&mut self, updates: &Vec<ResourceUpdate>) {
+    fn update_resources(&mut self, updates: &[ResourceUpdate]) {
         for update in updates {
             match *update {
                 ResourceUpdate::AddImage(ref img) => {
