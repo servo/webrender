@@ -47,6 +47,7 @@ impl<'a> RawtestHarness<'a> {
         self.test_blob_update_epoch_test();
         self.test_tile_decomposition();
         self.test_very_large_blob();
+        self.test_offscreen_blob();
         self.test_save_restore();
         self.test_capture();
         self.test_zero_height_window();
@@ -218,6 +219,116 @@ impl<'a> RawtestHarness<'a> {
                     (window_rect.size.height as usize - 148) *
                         window_rect.size.width as usize) * 4 + 3] == 255
         );
+
+        // Leaving a tiled blob image in the resource cache
+        // confuses the `test_capture`. TODO: remove this
+        txn = Transaction::new();
+        txn.delete_image(blob_img);
+        self.wrench.api.update_resources(txn.resource_updates);
+    }
+
+    fn test_offscreen_blob(&mut self) {
+        println!("\toffscreen blob update.");
+
+        assert_eq!(self.wrench.device_pixel_ratio, 1.);
+
+        let window_size = self.window.get_inner_size();
+
+        let test_size = DeviceUintSize::new(800, 800);
+
+        let window_rect = DeviceUintRect::new(
+            DeviceUintPoint::new(0, window_size.height - test_size.height),
+            test_size,
+        );
+
+        // This exposes a crash in tile decomposition
+        let mut txn = Transaction::new();
+        let layout_size = LayoutSize::new(800., 800.);
+
+        let blob_img = self.wrench.api.generate_image_key();
+        txn.add_image(
+            blob_img,
+            ImageDescriptor::new(1510, 1510, ImageFormat::BGRA8, false, false),
+            ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
+            None,
+        );
+
+        let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
+
+        let info = LayoutPrimitiveInfo::new(rect(0., 0.0, 1510., 1510.));
+
+        let image_size = size(1510., 1510.);
+
+        // setup some malicious image size parameters
+        builder.push_image(
+            &info,
+            image_size,
+            image_size,
+            ImageRendering::Auto,
+            AlphaType::PremultipliedAlpha,
+            blob_img,
+        );
+
+        let mut epoch = Epoch(0);
+
+        self.submit_dl(&mut epoch, layout_size, builder, &txn.resource_updates);
+
+        let original_pixels = self.render_and_get_pixels(window_rect);
+
+        let mut epoch = Epoch(1);
+
+        let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
+
+        let info = LayoutPrimitiveInfo::new(rect(-10000., 0.0, 1510., 1510.));
+
+        let image_size = size(1510., 1510.);
+
+        // setup some malicious image size parameters
+        builder.push_image(
+            &info,
+            image_size,
+            image_size,
+            ImageRendering::Auto,
+            AlphaType::PremultipliedAlpha,
+            blob_img,
+        );
+
+        self.submit_dl(&mut epoch, layout_size, builder, &[]);
+
+        let _offscreen_pixels = self.render_and_get_pixels(window_rect);
+
+        let mut txn = Transaction::new();
+
+        txn.update_image(
+            blob_img,
+            ImageDescriptor::new(1510, 1510, ImageFormat::BGRA8, false, false),
+            ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
+            Some(rect(10, 10, 100, 100)),
+        );
+
+        let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
+
+        let info = LayoutPrimitiveInfo::new(rect(0., 0.0, 1510., 1510.));
+
+        let image_size = size(1510., 1510.);
+
+        // setup some malicious image size parameters
+        builder.push_image(
+            &info,
+            image_size,
+            image_size,
+            ImageRendering::Auto,
+            AlphaType::PremultipliedAlpha,
+            blob_img,
+        );
+
+        let mut epoch = Epoch(2);
+
+        self.submit_dl(&mut epoch, layout_size, builder, &txn.resource_updates);
+
+        let pixels = self.render_and_get_pixels(window_rect);
+
+        assert!(pixels == original_pixels);
 
         // Leaving a tiled blob image in the resource cache
         // confuses the `test_capture`. TODO: remove this
