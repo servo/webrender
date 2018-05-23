@@ -9,8 +9,8 @@ platform(linux,mac) == border-suite-2.yaml border-suite-2.png
 platform(linux,mac) == border-suite-3.yaml border-suite-3.png
 == border-double-simple.yaml border-double-simple-ref.yaml
 == border-double-simple-2.yaml border-double-simple-2-ref.yaml
-== border-groove-simple.yaml border-groove-simple-ref.yaml
-== border-ridge-simple.yaml border-ridge-simple-ref.yaml
+fuzzy(64,24) == border-groove-simple.yaml border-groove-simple-ref.yaml
+fuzzy(64,24) == border-ridge-simple.yaml border-ridge-simple-ref.yaml
 platform(linux,mac) == degenerate-curve.yaml degenerate-curve.png
 platform(linux,mac) == border-image.yaml border-image-ref.png
 == border-image-crash.yaml border-image-crash-ref.yaml
