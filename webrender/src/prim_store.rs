@@ -7,7 +7,9 @@ use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, Fon
 use api::{FilterOp, GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, TileOffset};
 use api::{GlyphRasterSpace, LayoutPoint, LayoutRect, LayoutSize, LayoutToWorldTransform, LayoutVector2D};
 use api::{PipelineId, PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat, DeviceIntSideOffsets};
-use border::{BorderCornerInstance, BorderEdgeKind};
+use api::{BorderWidths, NormalBorder};
+use app_units::Au;
+use border::{BorderCacheKey, BorderCornerInstance, BorderRenderTaskInfo, BorderEdgeKind};
 use box_shadow::BLUR_SAMPLE_SCALE;
 use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, CoordinateSystemId};
 use clip_scroll_node::ClipScrollNode;
@@ -256,6 +258,18 @@ pub struct VisibleGradientTile {
 }
 
 #[derive(Debug)]
+pub enum BorderSource {
+    Image(ImageRequest),
+    Border {
+        handle: Option<RenderTaskCacheEntryHandle>,
+        cache_key: BorderCacheKey,
+        task_info: Option<BorderRenderTaskInfo>,
+        border: NormalBorder,
+        widths: BorderWidths,
+    },
+}
+
+#[derive(Debug)]
 pub enum BrushKind {
     Solid {
         color: ColorF,
@@ -307,7 +321,7 @@ pub enum BrushKind {
         visible_tiles: Vec<VisibleGradientTile>,
     },
     Border {
-        request: ImageRequest,
+        source: BorderSource,
     },
 }
 
@@ -353,7 +367,7 @@ bitflags! {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BrushSegmentTaskId {
     RenderTaskId(RenderTaskId),
     Opaque,
@@ -369,7 +383,7 @@ impl BrushSegmentTaskId {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BrushSegment {
     pub local_rect: LayoutRect,
     pub clip_task_id: BrushSegmentTaskId,
@@ -381,15 +395,14 @@ pub struct BrushSegment {
 
 impl BrushSegment {
     pub fn new(
-        origin: LayoutPoint,
-        size: LayoutSize,
+        rect: LayoutRect,
         may_need_clip_mask: bool,
         edge_flags: EdgeAaSegmentMask,
         extra_data: [f32; 4],
         brush_flags: BrushFlags,
     ) -> BrushSegment {
         BrushSegment {
-            local_rect: LayoutRect::new(origin, size),
+            local_rect: rect,
             clip_task_id: BrushSegmentTaskId::Opaque,
             may_need_clip_mask,
             edge_flags,
@@ -1401,6 +1414,82 @@ impl PrimitiveStore {
         self.cpu_metadata.len()
     }
 
+    fn build_prim_segments_if_needed(
+        &mut self,
+        prim_index: PrimitiveIndex,
+        pic_state: &mut PictureState,
+        frame_state: &mut FrameBuildingState,
+        frame_context: &FrameBuildingContext,
+    ) {
+        let metadata = &self.cpu_metadata[prim_index.0];
+
+        if metadata.prim_kind != PrimitiveKind::Brush {
+            return;
+        }
+
+        let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
+
+        if let BrushKind::Border { ref mut source, .. } = brush.kind {
+            if let BorderSource::Border {
+                ref border,
+                ref mut cache_key,
+                ref widths,
+                ref mut handle,
+                ref mut task_info,
+                ..
+            } = *source {
+                // TODO(gw): When drawing in screen raster mode, we should also incorporate a
+                //           scale factor from the world transform to get an appropriately
+                //           sized border task.
+                let scale = Au::from_f32_px(frame_context.device_pixel_scale.0);
+                let needs_update = scale != cache_key.scale;
+
+                if needs_update {
+                    cache_key.scale = scale;
+
+                    *task_info = Some(BorderRenderTaskInfo::new(
+                        &metadata.local_rect,
+                        border,
+                        widths,
+                        scale.to_f32_px(),
+                    ));
+                }
+
+                let task_info = task_info.as_ref().unwrap();
+
+                *handle = Some(frame_state.resource_cache.request_render_task(
+                    RenderTaskCacheKey {
+                        size: DeviceIntSize::zero(),
+                        kind: RenderTaskCacheKeyKind::Border(cache_key.clone()),
+                    },
+                    frame_state.gpu_cache,
+                    frame_state.render_tasks,
+                    None,
+                    false,          // todo
+                    |render_tasks| {
+                        let task = RenderTask::new_border(
+                            task_info.size,
+                            task_info.instances.clone(),
+                        );
+
+                        let task_id = render_tasks.add(task);
+
+                        pic_state.tasks.push(task_id);
+
+                        task_id
+                    }
+                ));
+
+                if needs_update {
+                    brush.segment_desc = Some(BrushSegmentDescriptor {
+                        segments: task_info.segments.clone(),
+                        clip_mask_kind: BrushClipMaskKind::Unknown,
+                    });
+                }
+            }
+        }
+    }
+
     fn prepare_prim_for_render_inner(
         &mut self,
         prim_index: PrimitiveIndex,
@@ -1663,21 +1752,28 @@ impl PrimitiveStore {
                             );
                         }
                     }
-                    BrushKind::Border { request, .. } => {
-                        let image_properties = frame_state
-                            .resource_cache
-                            .get_image_properties(request.key);
+                    BrushKind::Border { ref mut source, .. } => {
+                        match *source {
+                            BorderSource::Image(request) => {
+                                let image_properties = frame_state
+                                    .resource_cache
+                                    .get_image_properties(request.key);
 
-                        if let Some(image_properties) = image_properties {
-                            // Update opacity for this primitive to ensure the correct
-                            // batching parameters are used.
-                            metadata.opacity.is_opaque =
-                                image_properties.descriptor.is_opaque;
+                                if let Some(image_properties) = image_properties {
+                                    // Update opacity for this primitive to ensure the correct
+                                    // batching parameters are used.
+                                    metadata.opacity.is_opaque =
+                                        image_properties.descriptor.is_opaque;
 
-                            frame_state.resource_cache.request_image(
-                                request,
-                                frame_state.gpu_cache,
-                            );
+                                    frame_state.resource_cache.request_image(
+                                        request,
+                                        frame_state.gpu_cache,
+                                    );
+                                }
+                            }
+                            BorderSource::Border { .. } => {
+                                // Handled earlier
+                            }
                         }
                     }
                     BrushKind::RadialGradient {
@@ -2004,8 +2100,7 @@ impl PrimitiveStore {
                     segment_builder.build(|segment| {
                         segments.push(
                             BrushSegment::new(
-                                segment.rect.origin,
-                                segment.rect.size,
+                                segment.rect,
                                 segment.has_mask,
                                 segment.edge_flags,
                                 [0.0; 4],
@@ -2389,6 +2484,13 @@ impl PrimitiveStore {
 
             (local_rect, unclipped)
         };
+
+        self.build_prim_segments_if_needed(
+            prim_index,
+            pic_state,
+            frame_state,
+            frame_context,
+        );
 
         if may_need_clip_mask && !self.update_clip_task(
             prim_index,
