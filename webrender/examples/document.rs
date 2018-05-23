@@ -69,7 +69,7 @@ impl App {
 
             let document_id = api.add_document(size, layer);
             let mut txn = Transaction::new();
-            txn.set_window_parameters(framebuffer_size, bounds, 1.0);
+            txn.set_window_parameters(framebuffer_size, bounds, device_pixel_ratio);
             txn.set_root_pipeline(pipeline_id);
             api.send_transaction(document_id, txn);
 
