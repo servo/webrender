@@ -725,7 +725,10 @@ impl RenderTask {
     pub fn get_target_rect(&self) -> (DeviceIntRect, RenderTargetIndex) {
         match self.location {
             RenderTaskLocation::Fixed(rect) => {
-                (rect, RenderTargetIndex(0))
+                // The primitives inside a fixed-location render task
+                // are already placed to their corresponding positions,
+                // so the shader doesn't need to shift by the origin.
+                (DeviceIntRect::new(DeviceIntPoint::origin(), rect.size), RenderTargetIndex(0))
             }
             // Previously, we only added render tasks after the entire
             // primitive chain was determined visible. This meant that
