@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderRadius, BorderSide, BorderStyle, BorderWidths, ColorF, LayoutPoint};
-use api::{ColorU, DeviceRect, DeviceSize, LayoutSizeAu, LayoutPrimitiveInfo};
+use api::{ColorU, DeviceRect, DeviceSize, LayoutSizeAu, LayoutPrimitiveInfo, LayoutToDeviceScale};
 use api::{DevicePoint, DeviceIntSize, LayoutRect, LayoutSize, NormalBorder};
 use app_units::Au;
 use clip::ClipSource;
@@ -38,6 +38,19 @@ enum BorderCorner {
     BottomRight,
 }
 
+trait AuSizeConverter {
+    fn to_au(&self) -> LayoutSizeAu;
+}
+
+impl AuSizeConverter for LayoutSize {
+    fn to_au(&self) -> LayoutSizeAu {
+        LayoutSizeAu::new(
+            Au::from_f32_px(self.width),
+            Au::from_f32_px(self.height),
+        )
+    }
+}
+
 // TODO(gw): Perhaps there is a better way to store
 //           the border cache key than duplicating
 //           all the border structs with hashable
@@ -56,22 +69,10 @@ pub struct BorderRadiusAu {
 impl From<BorderRadius> for BorderRadiusAu {
     fn from(radius: BorderRadius) -> BorderRadiusAu {
         BorderRadiusAu {
-            top_left: LayoutSizeAu::new(
-                Au::from_f32_px(radius.top_left.width),
-                Au::from_f32_px(radius.top_left.height),
-            ),
-            top_right: LayoutSizeAu::new(
-                Au::from_f32_px(radius.top_right.width),
-                Au::from_f32_px(radius.top_right.height),
-            ),
-            bottom_right: LayoutSizeAu::new(
-                Au::from_f32_px(radius.bottom_right.width),
-                Au::from_f32_px(radius.bottom_right.height),
-            ),
-            bottom_left: LayoutSizeAu::new(
-                Au::from_f32_px(radius.bottom_left.width),
-                Au::from_f32_px(radius.bottom_left.height),
-            ),
+            top_left: radius.top_left.to_au(),
+            top_right: radius.top_right.to_au(),
+            bottom_right: radius.bottom_right.to_au(),
+            bottom_left: radius.bottom_left.to_au(),
         }
     }
 }
@@ -465,7 +466,7 @@ impl<'a> DisplayListFlattener<'a> {
         let top = &border.top;
         let bottom = &border.bottom;
 
-        let is_simple_border = [left, top, right, bottom].iter().all(|edge| {
+        let brush_border_supported = [left, top, right, bottom].iter().all(|edge| {
             match edge.style {
                 BorderStyle::Solid |
                 BorderStyle::Hidden |
@@ -485,7 +486,7 @@ impl<'a> DisplayListFlattener<'a> {
             }
         });
 
-        if is_simple_border {
+        if brush_border_supported {
             let prim = BrushPrimitive::new(
                 BrushKind::Border {
                     source: BorderSource::Border {
@@ -1018,7 +1019,6 @@ impl DotInfo {
 pub struct BorderRenderTaskInfo {
     pub instances: Vec<BorderInstance>,
     pub segments: Vec<BrushSegment>,
-    pub scale: f32,
     pub size: DeviceIntSize,
 }
 
@@ -1027,30 +1027,37 @@ impl BorderRenderTaskInfo {
         rect: &LayoutRect,
         border: &NormalBorder,
         widths: &BorderWidths,
-        scale: f32,
+        scale: LayoutToDeviceScale,
     ) -> Self {
         let mut instances = Vec::new();
         let mut segments = Vec::new();
 
-        let dp_width_top = (widths.top * scale).ceil();
-        let dp_width_bottom = (widths.bottom * scale).ceil();
-        let dp_width_left = (widths.left * scale).ceil();
-        let dp_width_right = (widths.right * scale).ceil();
+        let dp_width_top = (widths.top * scale.0).ceil();
+        let dp_width_bottom = (widths.bottom * scale.0).ceil();
+        let dp_width_left = (widths.left * scale.0).ceil();
+        let dp_width_right = (widths.right * scale.0).ceil();
 
-        let dp_height_tl = (border.radius.top_left.height * scale).ceil();
-        let dp_height_tr = (border.radius.top_right.height * scale).ceil();
-        let dp_height_bl = (border.radius.bottom_left.height * scale).ceil();
-        let dp_height_br = (border.radius.bottom_right.height * scale).ceil();
+        let dp_corner_tl = (border.radius.top_left * scale).ceil();
+        let dp_corner_tr = (border.radius.top_right * scale).ceil();
+        let dp_corner_bl = (border.radius.bottom_left * scale).ceil();
+        let dp_corner_br = (border.radius.bottom_right * scale).ceil();
 
-        let dp_width_tl = (border.radius.top_left.width * scale).ceil();
-        let dp_width_bl = (border.radius.bottom_left.width * scale).ceil();
-        let dp_width_tr = (border.radius.top_right.width * scale).ceil();
-        let dp_width_br = (border.radius.bottom_right.width * scale).ceil();
-
-        let dp_size_tl = DeviceSize::new(dp_width_tl.max(dp_width_left), dp_height_tl.max(dp_width_top));
-        let dp_size_tr = DeviceSize::new(dp_width_tr.max(dp_width_right), dp_height_tr.max(dp_width_top));
-        let dp_size_bl = DeviceSize::new(dp_width_bl.max(dp_width_left), dp_height_bl.max(dp_width_bottom));
-        let dp_size_br = DeviceSize::new(dp_width_br.max(dp_width_right), dp_height_br.max(dp_width_bottom));
+        let dp_size_tl = DeviceSize::new(
+            dp_corner_tl.width.max(dp_width_left),
+            dp_corner_tl.height.max(dp_width_top),
+        );
+        let dp_size_tr = DeviceSize::new(
+            dp_corner_tr.width.max(dp_width_right),
+            dp_corner_tr.height.max(dp_width_top),
+        );
+        let dp_size_br = DeviceSize::new(
+            dp_corner_br.width.max(dp_width_right),
+            dp_corner_br.height.max(dp_width_bottom),
+        );
+        let dp_size_bl = DeviceSize::new(
+            dp_corner_bl.width.max(dp_width_left),
+            dp_corner_bl.height.max(dp_width_bottom),
+        );
 
         let local_size_tl = LayoutSize::new(
             border.radius.top_left.width.max(widths.left),
@@ -1081,6 +1088,10 @@ impl BorderRenderTaskInfo {
             dp_size_tl.height.max(dp_size_tr.height) + height_inner + dp_size_bl.height.max(dp_size_br.height),
         );
 
+        // These modulate colors are not part of the specification. They
+        // are derived from the Gecko source code and experimentation, and
+        // used to modulate the colors in order to generate colors for
+        // the inset/outset and groove/ridge border styles.
         let left_color = border.left.border_color(1.0, 2.0 / 3.0, 0.3, 0.7);
         let top_color = border.top.border_color(1.0, 2.0 / 3.0, 0.3, 0.7);
         let right_color = border.right.border_color(2.0 / 3.0, 1.0, 0.7, 0.3);
@@ -1192,7 +1203,7 @@ impl BorderRenderTaskInfo {
             border.top.style,
             top_color,
             DeviceSize::new(dp_width_left, dp_width_top),
-            DeviceSize::new(dp_width_tl, dp_height_tl),
+            dp_corner_tl,
             BorderSegment::TopLeft,
             EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::LEFT,
             &mut instances,
@@ -1217,7 +1228,7 @@ impl BorderRenderTaskInfo {
             border.right.style,
             right_color,
             DeviceSize::new(dp_width_right, dp_width_top),
-            DeviceSize::new(dp_width_tr, dp_height_tr),
+            dp_corner_tr,
             BorderSegment::TopRight,
             EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::RIGHT,
             &mut instances,
@@ -1242,7 +1253,7 @@ impl BorderRenderTaskInfo {
             border.bottom.style,
             bottom_color,
             DeviceSize::new(dp_width_right, dp_width_bottom),
-            DeviceSize::new(dp_width_br, dp_height_br),
+            dp_corner_br,
             BorderSegment::BottomRight,
             EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::RIGHT,
             &mut instances,
@@ -1267,7 +1278,7 @@ impl BorderRenderTaskInfo {
             border.left.style,
             left_color,
             DeviceSize::new(dp_width_left, dp_width_bottom),
-            DeviceSize::new(dp_width_bl, dp_height_bl),
+            dp_corner_bl,
             BorderSegment::BottomLeft,
             EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::LEFT,
             &mut instances,
@@ -1277,7 +1288,6 @@ impl BorderRenderTaskInfo {
         BorderRenderTaskInfo {
             segments,
             instances,
-            scale,
             size: size.to_i32(),
         }
     }

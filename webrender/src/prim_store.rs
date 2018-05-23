@@ -7,7 +7,7 @@ use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode, Fon
 use api::{FilterOp, GlyphInstance, GlyphKey, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, TileOffset};
 use api::{GlyphRasterSpace, LayoutPoint, LayoutRect, LayoutSize, LayoutToWorldTransform, LayoutVector2D};
 use api::{PipelineId, PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat, DeviceIntSideOffsets};
-use api::{BorderWidths, NormalBorder};
+use api::{BorderWidths, LayoutToWorldScale, NormalBorder};
 use app_units::Au;
 use border::{BorderCacheKey, BorderCornerInstance, BorderRenderTaskInfo, BorderEdgeKind};
 use box_shadow::BLUR_SAMPLE_SCALE;
@@ -1441,17 +1441,19 @@ impl PrimitiveStore {
                 // TODO(gw): When drawing in screen raster mode, we should also incorporate a
                 //           scale factor from the world transform to get an appropriately
                 //           sized border task.
-                let scale = Au::from_f32_px(frame_context.device_pixel_scale.0);
-                let needs_update = scale != cache_key.scale;
+                let world_scale = LayoutToWorldScale::new(1.0);
+                let scale = world_scale * frame_context.device_pixel_scale;
+                let scale_au = Au::from_f32_px(scale.0);
+                let needs_update = scale_au != cache_key.scale;
 
                 if needs_update {
-                    cache_key.scale = scale;
+                    cache_key.scale = scale_au;
 
                     *task_info = Some(BorderRenderTaskInfo::new(
                         &metadata.local_rect,
                         border,
                         widths,
-                        scale.to_f32_px(),
+                        scale,
                     ));
                 }
 
@@ -1772,7 +1774,8 @@ impl PrimitiveStore {
                                 }
                             }
                             BorderSource::Border { .. } => {
-                                // Handled earlier
+                                // Handled earlier since we need to update the segment
+                                // descriptor *before* update_clip_task() is called.
                             }
                         }
                     }

@@ -38,46 +38,21 @@ in vec2 aRadii;
 #define SEGMENT_RIGHT           6
 #define SEGMENT_BOTTOM          7
 
-vec2 get_outer_corner(vec4 rect, int segment) {
+vec2 get_outer_corner_scale(int segment) {
     vec2 p;
 
     switch (segment) {
         case SEGMENT_TOP_LEFT:
-            p = rect.xy;
+            p = vec2(0.0, 0.0);
             break;
         case SEGMENT_TOP_RIGHT:
-            p = vec2(rect.x + rect.z, rect.y);
+            p = vec2(1.0, 0.0);
             break;
         case SEGMENT_BOTTOM_RIGHT:
-            p = rect.xy + rect.zw;
-            break;
-        case SEGMENT_BOTTOM_LEFT:
-            p = vec2(rect.x, rect.y + rect.w);
-            break;
-        default:
-            // Should never get hit
-            p = vec2(0.0);
-            break;
-    }
-
-    return p;
-}
-
-vec2 get_clip_sign(int segment) {
-    vec2 p;
-
-    switch (segment) {
-        case SEGMENT_TOP_LEFT:
             p = vec2(1.0, 1.0);
             break;
-        case SEGMENT_TOP_RIGHT:
-            p = vec2(-1.0, 1.0);
-            break;
-        case SEGMENT_BOTTOM_RIGHT:
-            p = vec2(-1.0, -1.0);
-            break;
         case SEGMENT_BOTTOM_LEFT:
-            p = vec2(1.0, -1.0);
+            p = vec2(0.0, 1.0);
             break;
         default:
             // Should never get hit
@@ -95,8 +70,9 @@ void main(void) {
     int style = (aFlags >> 8) & 0xff;
     int side = (aFlags >> 16) & 0xff;
 
-    vec2 clip_sign = get_clip_sign(segment);
-    vec2 outer = get_outer_corner(aRect, segment);
+    vec2 outer_scale = get_outer_corner_scale(segment);
+    vec2 outer = aRect.xy + outer_scale * aRect.zw;
+    vec2 clip_sign = 1.0 - 2.0 * outer_scale;
 
     vColor = aColor;
     vPos = pos;
@@ -133,19 +109,18 @@ void main(void) {
     float d = -1.0;
 
     // Apply clip-lines
-    float d_line = distance_to_line(vClipLine.xy, vClipLine.zw, vPos);
     if ((vClipFlags & CLIP_LINE) != 0) {
+        float d_line = distance_to_line(vClipLine.xy, vClipLine.zw, vPos);
         d = max(d, d_line);
     }
 
     // Apply clip radii
-    vec2 p = vPos - vClipCenter;
-    float d_radii_a = distance_to_ellipse(p, vClipRadii.xy, aa_range);
-    float d_radii_b = distance_to_ellipse(p, vClipRadii.zw, aa_range);
-    float d_radii = max(d_radii_a, -d_radii_b);
-
     if ((vClipFlags & CLIP_RADII) != 0) {
+        vec2 p = vPos - vClipCenter;
         if (vClipSign.x * p.x < 0.0 && vClipSign.y * p.y < 0.0) {
+            float d_radii_a = distance_to_ellipse(p, vClipRadii.xy, aa_range);
+            float d_radii_b = distance_to_ellipse(p, vClipRadii.zw, aa_range);
+            float d_radii = max(d_radii_a, -d_radii_b);
             d = max(d, d_radii);
         }
     }
