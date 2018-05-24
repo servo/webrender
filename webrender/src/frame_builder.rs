@@ -41,6 +41,7 @@ pub struct FrameBuilder {
     screen_rect: DeviceUintRect,
     background_color: Option<ColorF>,
     window_size: DeviceUintSize,
+    scene_id: u64,
     pub prim_store: PrimitiveStore,
     pub clip_store: ClipStore,
     pub hit_testing_runs: Vec<HitTestingRun>,
@@ -50,6 +51,7 @@ pub struct FrameBuilder {
 }
 
 pub struct FrameBuildingContext<'a> {
+    pub scene_id: u64,
     pub device_pixel_scale: DevicePixelScale,
     pub scene_properties: &'a SceneProperties,
     pub pipelines: &'a FastHashMap<PipelineId, Arc<ScenePipeline>>,
@@ -125,6 +127,7 @@ impl FrameBuilder {
             screen_rect: DeviceUintRect::zero(),
             window_size: DeviceUintSize::zero(),
             background_color: None,
+            scene_id: 0,
             config: FrameBuilderConfig {
                 enable_scrollbars: false,
                 default_font_render_mode: FontRenderMode::Mono,
@@ -138,6 +141,7 @@ impl FrameBuilder {
         screen_rect: DeviceUintRect,
         background_color: Option<ColorF>,
         window_size: DeviceUintSize,
+        scene_id: u64,
         flattener: DisplayListFlattener,
     ) -> Self {
         FrameBuilder {
@@ -149,6 +153,7 @@ impl FrameBuilder {
             screen_rect,
             background_color,
             window_size,
+            scene_id,
             config: flattener.config,
         }
     }
@@ -185,6 +190,7 @@ impl FrameBuilder {
             .display_list;
 
         let frame_context = FrameBuildingContext {
+            scene_id: self.scene_id,
             device_pixel_scale,
             scene_properties,
             pipelines,
