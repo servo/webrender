@@ -80,7 +80,12 @@ pub struct PictureCacheKey {
     //       we relax that, we'll need to consider some
     //       extra parameters, depending on transform.
 
-    // The unique identifier for this picture.
+    // If async-scene-building is used, this is a globally
+    // unique id of the scene this picture is associated with,
+    // and 0 otherwise. Used to avoid picture id collisions.
+    scene_id: u64,
+
+    // The unique (for the scene_id) identifier for this picture.
     // TODO(gw): Currently, these will not be
     //           shared across new display lists,
     //           so will only remain valid during
@@ -374,6 +379,7 @@ impl PicturePrimitive {
                         RenderTaskCacheKey {
                             size: device_rect.size,
                             kind: RenderTaskCacheKeyKind::Picture(PictureCacheKey {
+                                scene_id: frame_context.scene_id,
                                 picture_id: self.id,
                                 unclipped_size: prim_screen_rect.unclipped.size,
                                 pic_relative_render_rect,

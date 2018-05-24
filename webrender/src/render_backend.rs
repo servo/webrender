@@ -213,6 +213,7 @@ impl Document {
             &self.output_pipelines,
             &self.frame_builder_config,
             &mut self.current.scene,
+            0,
         );
 
         self.clip_scroll_tree.finalize_and_apply_pending_scroll_offsets(old_scrolling_states);
@@ -233,6 +234,7 @@ impl Document {
         transaction_msg: TransactionMsg,
         document_ops: &DocumentOps,
         document_id: DocumentId,
+        scene_id: u64,
         resource_cache: &ResourceCache,
         scene_tx: &Sender<SceneBuilderRequest>,
     ) {
@@ -250,6 +252,7 @@ impl Document {
                 view: self.view.clone(),
                 font_instances: resource_cache.get_font_instances(),
                 output_pipelines: self.output_pipelines.clone(),
+                scene_id,
             })
         } else {
             None
@@ -424,6 +427,7 @@ pub struct RenderBackend {
     recorder: Option<Box<ApiRecordingReceiver>>,
     sampler: Option<Box<AsyncPropertySampler + Send>>,
 
+    last_scene_id: u64,
     enable_render_on_scroll: bool,
 }
 
@@ -460,6 +464,7 @@ impl RenderBackend {
             notifier,
             recorder,
             sampler,
+            last_scene_id: 0,
             enable_render_on_scroll,
         }
     }
@@ -688,6 +693,12 @@ impl RenderBackend {
         IdNamespace(NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed) as u32)
     }
 
+    pub fn make_unique_scene_id(&mut self) -> u64 {
+        // 2^64 scenes ought to be enough for anybody!
+        self.last_scene_id += 1;
+        self.last_scene_id
+    }
+
     pub fn run(&mut self, mut profile_counters: BackendProfileCounters) {
         let mut frame_counter: u32 = 0;
         let mut keep_going = true;
@@ -746,7 +757,7 @@ impl RenderBackend {
                                 document_id,
                                 transaction_msg,
                                 &mut frame_counter,
-                                &mut profile_counters
+                                &mut profile_counters,
                             );
                         }
                     },
@@ -945,7 +956,7 @@ impl RenderBackend {
                     document_id,
                     doc_msgs,
                     frame_counter,
-                    profile_counters
+                    profile_counters,
                 )
             }
         }
@@ -975,11 +986,14 @@ impl RenderBackend {
         }
 
         if transaction_msg.use_scene_builder_thread {
+            let scene_id = self.make_unique_scene_id();
             let doc = self.documents.get_mut(&document_id).unwrap();
+
             doc.forward_transaction_to_scene_builder(
                 transaction_msg,
                 &op,
                 document_id,
+                scene_id,
                 &self.resource_cache,
                 &self.scene_tx,
             );
