@@ -470,7 +470,9 @@ impl<'a> DisplayListFlattener<'a> {
             match edge.style {
                 BorderStyle::Solid |
                 BorderStyle::Hidden |
-                BorderStyle::None => {
+                BorderStyle::None |
+                BorderStyle::Inset |
+                BorderStyle::Outset => {
                     true
                 }
 
@@ -478,9 +480,7 @@ impl<'a> DisplayListFlattener<'a> {
                 BorderStyle::Dotted |
                 BorderStyle::Dashed |
                 BorderStyle::Groove |
-                BorderStyle::Ridge |
-                BorderStyle::Inset |
-                BorderStyle::Outset => {
+                BorderStyle::Ridge => {
                     false
                 }
             }
@@ -1318,20 +1318,18 @@ fn add_brush_segment(
 
 fn add_segment(
     task_rect: DeviceRect,
-    style: BorderStyle,
+    style0: BorderStyle,
+    style1: BorderStyle,
     color0: ColorF,
     color1: ColorF,
     segment: BorderSegment,
     instances: &mut Vec<BorderInstance>,
     widths: DeviceSize,
     radius: DeviceSize,
-) -> bool {
-    if color0.a <= 0.0 && color1.a <= 0.0 {
-        return false;
-    }
-
+) {
     let flags = (segment as i32) |
-                ((style as i32) << 8);
+                ((style0 as i32) << 8) |
+                ((style1 as i32) << 16);
 
     let base_instance = BorderInstance {
         task_origin: DevicePoint::zero(),
@@ -1343,36 +1341,15 @@ fn add_segment(
         radius,
     };
 
-    match style {
-        BorderStyle::None |
-        BorderStyle::Hidden => {
-            return false;
-        }
-
-        BorderStyle::Inset |
-        BorderStyle::Outset |
-        BorderStyle::Solid => {
-            instances.push(base_instance);
-        }
-
-        BorderStyle::Double |
-        BorderStyle::Groove |
-        BorderStyle::Ridge |
-        BorderStyle::Dashed |
-        BorderStyle::Dotted => {
-            unreachable!("not currently supported as border brushes")
-        }
-    }
-
-    true
+    instances.push(base_instance);
 }
 
 fn add_corner_segment(
     image_rect: LayoutRect,
     task_rect: DeviceRect,
-    style0: BorderStyle,
+    mut style0: BorderStyle,
     color0: ColorF,
-    style1: BorderStyle,
+    mut style1: BorderStyle,
     color1: ColorF,
     widths: DeviceSize,
     radius: DeviceSize,
@@ -1386,35 +1363,32 @@ fn add_corner_segment(
     //           groove / ridge borders will always need to
     //           use two instances.
 
+    if color0.a <= 0.0 && color1.a <= 0.0 {
+        return;
+    }
+
     if widths.width <= 0.0 && widths.height <= 0.0 {
         return;
     }
 
-    let style = match (style0, style1) {
-        (BorderStyle::Hidden, BorderStyle::Hidden) |
-        (BorderStyle::Hidden, BorderStyle::None) |
-        (BorderStyle::None, BorderStyle::Hidden) |
-        (BorderStyle::None, BorderStyle::None) => {
-            // If both parts are hidden / none, nothing to do.
-            return;
-        }
+    let style0_hidden = style0 == BorderStyle::Hidden || style0 == BorderStyle::None;
+    let style1_hidden = style1 == BorderStyle::Hidden || style1 == BorderStyle::None;
 
-        (BorderStyle::Solid, BorderStyle::Hidden) |
-        (BorderStyle::Solid, BorderStyle::None) |
-        (BorderStyle::Solid, BorderStyle::Solid) |
-        (BorderStyle::Hidden, BorderStyle::Solid) |
-        (BorderStyle::None, BorderStyle::Solid) => {
-            BorderStyle::Solid
-        }
+    if style0_hidden && style1_hidden {
+        return;
+    }
 
-        _ => {
-            unreachable!("bug: unexpected border style for border brush");
-        }
-    };
+    if style0_hidden {
+        style0 = style1;
+    }
+    if style1_hidden {
+        style1 = style0;
+    }
 
-    let segment_is_valid = add_segment(
+    add_segment(
         task_rect,
-        style,
+        style0,
+        style1,
         color0,
         color1,
         segment,
@@ -1423,15 +1397,13 @@ fn add_corner_segment(
         radius,
     );
 
-    if segment_is_valid {
-        add_brush_segment(
-            image_rect,
-            task_rect,
-            BrushFlags::SEGMENT_RELATIVE,
-            edge_flags,
-            brush_segments,
-        );
-    }
+    add_brush_segment(
+        image_rect,
+        task_rect,
+        BrushFlags::SEGMENT_RELATIVE,
+        edge_flags,
+        brush_segments,
+    );
 }
 
 fn add_edge_segment(
@@ -1445,8 +1417,17 @@ fn add_edge_segment(
     brush_flags: BrushFlags,
     brush_segments: &mut Vec<BrushSegment>,
 ) {
-    if add_segment(
+    if color.a <= 0.0 {
+        return;
+    }
+
+    if style == BorderStyle::Hidden || style == BorderStyle::None {
+        return;
+    }
+
+    add_segment(
         task_rect,
+        style,
         style,
         color,
         color,
@@ -1454,13 +1435,13 @@ fn add_edge_segment(
         instances,
         DeviceSize::zero(),
         DeviceSize::zero(),
-    ) {
-        add_brush_segment(
-            image_rect,
-            task_rect,
-            brush_flags,
-            edge_flags,
-            brush_segments,
-        );
-    }
+    );
+
+    add_brush_segment(
+        image_rect,
+        task_rect,
+        brush_flags,
+        edge_flags,
+        brush_segments,
+    );
 }
