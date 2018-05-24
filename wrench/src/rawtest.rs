@@ -253,7 +253,8 @@ impl<'a> RawtestHarness<'a> {
         let called_inner = Arc::clone(&called);
 
         self.wrench.callbacks.lock().unwrap().request = Box::new(move |_| {
-            called_inner.fetch_add(1, Ordering::SeqCst);
+            // we want to ensure this is only ever called once
+            assert_eq!(called_inner.fetch_add(1, Ordering::SeqCst), 0);
         });
 
         let pixels_first = self.render_and_get_pixels(window_rect);
