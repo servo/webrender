@@ -525,7 +525,7 @@ fn main() {
                 do_render = true;
             }
             glutin::Event::WindowEvent { event, .. } => match event {
-                glutin::WindowEvent::Closed => {
+                glutin::WindowEvent::CloseRequested => {
                     return glutin::ControlFlow::Break;
                 }
                 glutin::WindowEvent::Refresh |

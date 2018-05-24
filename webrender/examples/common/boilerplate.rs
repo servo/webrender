@@ -196,7 +196,7 @@ pub fn main_wrapper<E: Example>(
         let mut custom_event = true;
 
         match global_event {
-            glutin::Event::WindowEvent { event: glutin::WindowEvent::Closed, .. } => return glutin::ControlFlow::Break,
+            glutin::Event::WindowEvent { event: glutin::WindowEvent::CloseRequested, .. } => return glutin::ControlFlow::Break,
             glutin::Event::WindowEvent {
                 event: glutin::WindowEvent::KeyboardInput {
                     input: glutin::KeyboardInput {

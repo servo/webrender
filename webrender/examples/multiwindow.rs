@@ -136,7 +136,7 @@ impl Window {
 
         self.events_loop.poll_events(|global_event| match global_event {
             glutin::Event::WindowEvent { event, .. } => match event {
-                glutin::WindowEvent::Closed |
+                glutin::WindowEvent::CloseRequested |
                 glutin::WindowEvent::KeyboardInput {
                     input: glutin::KeyboardInput {
                         virtual_keycode: Some(glutin::VirtualKeyCode::Escape),
