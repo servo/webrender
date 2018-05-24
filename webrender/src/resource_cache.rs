@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AddFont, BlobImageResources, ResourceUpdate, ResourceUpdates};
+use api::{AddFont, BlobImageResources, ResourceUpdate};
 use api::{BlobImageDescriptor, BlobImageError, BlobImageRenderer, BlobImageRequest};
 use api::{ClearCache, ColorF, DevicePoint, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{Epoch, FontInstanceKey, FontKey, FontTemplate};
@@ -371,14 +371,14 @@ impl ResourceCache {
 
     pub fn update_resources(
         &mut self,
-        updates: ResourceUpdates,
+        updates: Vec<ResourceUpdate>,
         profile_counters: &mut ResourceProfileCounters,
     ) {
         // TODO, there is potential for optimization here, by processing updates in
         // bulk rather than one by one (for example by sorting allocations by size or
         // in a way that reduces fragmentation in the atlas).
 
-        for update in updates.updates {
+        for update in updates {
             match update {
                 ResourceUpdate::AddImage(img) => {
                     if let ImageData::Raw(ref bytes) = img.data {
