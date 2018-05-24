@@ -174,7 +174,7 @@ where
     K: Clone + Hash + Eq + Debug,
     U: Default,
 {
-    pub fn new() -> ResourceClassCache<K, V, U> {
+    pub fn new() -> Self {
         ResourceClassCache {
             resources: FastHashMap::default(),
             user_data: Default::default(),
@@ -510,16 +510,14 @@ impl ResourceCache {
                 tiling,
             );
         }
+        let dirty_rect = Some(descriptor.full_rect());
 
         let resource = ImageResource {
             descriptor,
             data,
             epoch: Epoch(0),
             tiling,
-            dirty_rect: Some(DeviceUintRect::new(
-                DeviceUintPoint::zero(),
-                descriptor.size,
-            )),
+            dirty_rect,
         };
 
         self.resources.image_templates.insert(image_key, resource);
@@ -636,9 +634,14 @@ impl ResourceCache {
         let needs_upload = self.texture_cache
             .request(&entry.as_ref().unwrap().texture_cache_handle, gpu_cache);
 
-        if !needs_upload && !needs_update {
-            return;
-        }
+        let dirty_rect = if needs_upload {
+            // the texture cache entry has been evicted, treat it as all dirty
+            Some(template.descriptor.full_rect())
+        } else if needs_update {
+            template.dirty_rect
+        } else {
+            return
+        };
 
         // We can start a worker thread rasterizing right now, if:
         //  - The image is a blob.
@@ -658,7 +661,7 @@ impl ResourceCache {
                             tile_offset.y as f32 * tile_size as f32,
                         );
 
-                        if let Some(dirty) = template.dirty_rect {
+                        if let Some(dirty) = dirty_rect {
                             if intersect_for_tile(dirty, actual_size, tile_size, tile_offset).is_none() {
                                 // don't bother requesting unchanged tiles
                                 return
@@ -678,7 +681,7 @@ impl ResourceCache {
                         offset,
                         format: template.descriptor.format,
                     },
-                    template.dirty_rect,
+                    dirty_rect,
                 );
             }
         }
