@@ -4,30 +4,28 @@
 
 #include shared,prim_shared,ellipse,shared_border
 
-flat varying vec4 vColor;
-flat varying vec4 vClipLine;
-flat varying int vClipFlags;
+flat varying vec4 vColor0;
+flat varying vec4 vColor1;
+flat varying vec4 vColorLine;
+flat varying int vFeatures;
 flat varying vec2 vClipCenter;
 flat varying vec4 vClipRadii;
 flat varying vec2 vClipSign;
 
 varying vec2 vPos;
 
-#define CLIP_LINE       1
-#define CLIP_RADII      2
+#define CLIP_RADII      1
+#define MIX_COLOR       2
 
 #ifdef WR_VERTEX_SHADER
 
 in vec2 aTaskOrigin;
 in vec4 aRect;
-in vec4 aColor;
+in vec4 aColor0;
+in vec4 aColor1;
 in int aFlags;
 in vec2 aWidths;
 in vec2 aRadii;
-
-#define SIDE_BOTH       0
-#define SIDE_FIRST      1
-#define SIDE_SECOND     2
 
 #define SEGMENT_TOP_LEFT        0
 #define SEGMENT_TOP_RIGHT       1
@@ -68,34 +66,30 @@ void main(void) {
 
     int segment = aFlags & 0xff;
     int style = (aFlags >> 8) & 0xff;
-    int side = (aFlags >> 16) & 0xff;
 
     vec2 outer_scale = get_outer_corner_scale(segment);
     vec2 outer = aRect.xy + outer_scale * aRect.zw;
     vec2 clip_sign = 1.0 - 2.0 * outer_scale;
 
-    vColor = aColor;
+    vColor0 = aColor0;
+    vColor1 = aColor1;
     vPos = pos;
 
-    vClipFlags = CLIP_RADII;
+    vFeatures = 0;
     vClipSign = clip_sign;
     vClipCenter = outer + clip_sign * aRadii;
     vClipRadii = vec4(aRadii, aRadii - aWidths);
+    vColorLine = vec4(0.0);
 
-    switch (side) {
-        case SIDE_FIRST: {
-            vClipFlags |= CLIP_LINE;
-            vClipLine = vec4(outer, aWidths.y * -clip_sign.y, aWidths.x * clip_sign.x);
+    switch (segment) {
+        case SEGMENT_TOP_LEFT:
+        case SEGMENT_TOP_RIGHT:
+        case SEGMENT_BOTTOM_RIGHT:
+        case SEGMENT_BOTTOM_LEFT:
+            vFeatures |= (CLIP_RADII | MIX_COLOR);
+            vColorLine = vec4(outer, aWidths.y * -clip_sign.y, aWidths.x * clip_sign.x);
             break;
-        }
-        case SIDE_SECOND: {
-            vClipFlags |= CLIP_LINE;
-            vClipLine = vec4(outer, aWidths.y * clip_sign.y, aWidths.x * -clip_sign.x);
-            break;
-        }
-        case SIDE_BOTH:
         default:
-            vClipLine = vec4(0.0);
             break;
     }
 
@@ -108,14 +102,15 @@ void main(void) {
     float aa_range = compute_aa_range(vPos);
     float d = -1.0;
 
-    // Apply clip-lines
-    if ((vClipFlags & CLIP_LINE) != 0) {
-        float d_line = distance_to_line(vClipLine.xy, vClipLine.zw, vPos);
-        d = max(d, d_line);
+    // Apply color mix
+    float mix_factor = 0.0;
+    if ((vFeatures & MIX_COLOR) != 0) {
+        float d_line = distance_to_line(vColorLine.xy, vColorLine.zw, vPos);
+        mix_factor = distance_aa(aa_range, -d_line);
     }
 
     // Apply clip radii
-    if ((vClipFlags & CLIP_RADII) != 0) {
+    if ((vFeatures & CLIP_RADII) != 0) {
         vec2 p = vPos - vClipCenter;
         if (vClipSign.x * p.x < 0.0 && vClipSign.y * p.y < 0.0) {
             float d_radii_a = distance_to_ellipse(p, vClipRadii.xy, aa_range);
@@ -126,6 +121,7 @@ void main(void) {
     }
 
     float alpha = distance_aa(aa_range, d);
-    oFragColor = vColor * alpha;
+    vec4 color = mix(vColor0, vColor1, mix_factor);
+    oFragColor = color * alpha;
 }
 #endif

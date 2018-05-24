@@ -1319,26 +1319,26 @@ fn add_brush_segment(
 fn add_segment(
     task_rect: DeviceRect,
     style: BorderStyle,
-    color: ColorF,
+    color0: ColorF,
+    color1: ColorF,
     segment: BorderSegment,
     instances: &mut Vec<BorderInstance>,
-    side: BorderCornerSide,
     widths: DeviceSize,
     radius: DeviceSize,
 ) -> bool {
-    if color.a <= 0.0 {
+    if color0.a <= 0.0 && color1.a <= 0.0 {
         return false;
     }
 
     let flags = (segment as i32) |
-                ((style as i32) << 8) |
-                ((side as i32) << 16);
+                ((style as i32) << 8);
 
     let base_instance = BorderInstance {
         task_origin: DevicePoint::zero(),
         local_rect: task_rect,
         flags,
-        color: color.premultiplied(),
+        color0: color0.premultiplied(),
+        color1: color1.premultiplied(),
         widths,
         radius,
     };
@@ -1390,7 +1390,7 @@ fn add_corner_segment(
         return;
     }
 
-    let shared = match (style0, style1) {
+    let style = match (style0, style1) {
         (BorderStyle::Hidden, BorderStyle::Hidden) |
         (BorderStyle::Hidden, BorderStyle::None) |
         (BorderStyle::None, BorderStyle::Hidden) |
@@ -1399,68 +1399,29 @@ fn add_corner_segment(
             return;
         }
 
-        (_, BorderStyle::Hidden) |
-        (_, BorderStyle::None) => {
-            Some((style0, color0))
-        }
-
-        (BorderStyle::Hidden, _) |
-        (BorderStyle::None, _) => {
-            Some((style1, color1))
-        }
-
-        (BorderStyle::Solid, BorderStyle::Solid) => {
-            if color0 == color1 {
-                Some((style0, color0))
-            } else {
-                None
-            }
+        (BorderStyle::Solid, BorderStyle::Hidden) |
+        (BorderStyle::Solid, BorderStyle::None) |
+        (BorderStyle::Solid, BorderStyle::Solid) |
+        (BorderStyle::Hidden, BorderStyle::Solid) |
+        (BorderStyle::None, BorderStyle::Solid) => {
+            BorderStyle::Solid
         }
 
         _ => {
-            None
+            unreachable!("bug: unexpected border style for border brush");
         }
     };
 
-    let segment_is_valid = match shared {
-        Some((shared_style, shared_color)) => {
-            add_segment(
-                task_rect,
-                shared_style,
-                shared_color,
-                segment,
-                instances,
-                BorderCornerSide::Both,
-                widths,
-                radius,
-            )
-        }
-        None => {
-            let part0 = add_segment(
-                task_rect,
-                style0,
-                color0,
-                segment,
-                instances,
-                BorderCornerSide::First,
-                widths,
-                radius,
-            );
-
-            let part1 = add_segment(
-                task_rect,
-                style1,
-                color1,
-                segment,
-                instances,
-                BorderCornerSide::Second,
-                widths,
-                radius,
-            );
-
-            part0 || part1
-        }
-    };
+    let segment_is_valid = add_segment(
+        task_rect,
+        style,
+        color0,
+        color1,
+        segment,
+        instances,
+        widths,
+        radius,
+    );
 
     if segment_is_valid {
         add_brush_segment(
@@ -1488,9 +1449,9 @@ fn add_edge_segment(
         task_rect,
         style,
         color,
+        color,
         segment,
         instances,
-        BorderCornerSide::Both,
         DeviceSize::zero(),
         DeviceSize::zero(),
     ) {

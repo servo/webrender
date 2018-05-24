@@ -102,7 +102,8 @@ pub enum BorderSegment {
 pub struct BorderInstance {
     pub task_origin: DevicePoint,
     pub local_rect: DeviceRect,
-    pub color: PremultipliedColorF,
+    pub color0: PremultipliedColorF,
+    pub color1: PremultipliedColorF,
     pub flags: i32,
     pub widths: DeviceSize,
     pub radius: DeviceSize,

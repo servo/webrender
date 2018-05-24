@@ -414,7 +414,12 @@ pub(crate) mod desc {
                 kind: VertexAttributeKind::F32,
             },
             VertexAttribute {
-                name: "aColor",
+                name: "aColor0",
+                count: 4,
+                kind: VertexAttributeKind::F32,
+            },
+            VertexAttribute {
+                name: "aColor1",
                 count: 4,
                 kind: VertexAttributeKind::F32,
             },
@@ -429,7 +434,7 @@ pub(crate) mod desc {
                 kind: VertexAttributeKind::F32,
             },
             VertexAttribute {
-                name: "aRadius",
+                name: "aRadii",
                 count: 2,
                 kind: VertexAttributeKind::F32,
             },
