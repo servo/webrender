@@ -5,10 +5,10 @@
 use api::{AddFont, BlobImageResources, ResourceUpdate};
 use api::{BlobImageDescriptor, BlobImageError, BlobImageRenderer, BlobImageRequest};
 use api::{ClearCache, ColorF, DevicePoint, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
-use api::{Epoch, FontInstanceKey, FontKey, FontTemplate};
+use api::{Epoch, FontInstanceKey, FontKey, FontTemplate, GlyphIndex};
 use api::{ExternalImageData, ExternalImageType};
 use api::{FontInstanceOptions, FontInstancePlatformOptions, FontVariation};
-use api::{GlyphDimensions, GlyphKey, IdNamespace};
+use api::{GlyphDimensions, IdNamespace};
 use api::{ImageData, ImageDescriptor, ImageKey, ImageRendering};
 use api::{TileOffset, TileSize};
 use app_units::Au;
@@ -23,7 +23,7 @@ use euclid::size2;
 use glyph_cache::GlyphCache;
 #[cfg(not(feature = "pathfinder"))]
 use glyph_cache::GlyphCacheEntry;
-use glyph_rasterizer::{FontInstance, GlyphFormat, GlyphRasterizer, GlyphRequest};
+use glyph_rasterizer::{FontInstance, GlyphFormat, GlyphKey, GlyphRasterizer};
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use gpu_types::UvRectKind;
 use internal_types::{FastHashMap, FastHashSet, SourceTexture, TextureUpdateList};
@@ -282,7 +282,7 @@ impl BlobImageResources for Resources {
     }
 }
 
-pub type GlyphDimensionsCache = FastHashMap<GlyphRequest, Option<GlyphDimensions>>;
+pub type GlyphDimensionsCache = FastHashMap<(FontInstance, GlyphIndex), Option<GlyphDimensions>>;
 
 pub struct ResourceCache {
     cached_glyphs: GlyphCache,
@@ -449,7 +449,6 @@ impl ResourceCache {
     ) {
         let FontInstanceOptions {
             render_mode,
-            subpx_dir,
             flags,
             bg_color,
             ..
@@ -460,7 +459,6 @@ impl ResourceCache {
             ColorF::new(0.0, 0.0, 0.0, 1.0),
             bg_color,
             render_mode,
-            subpx_dir,
             flags,
             platform_options,
             variations,
@@ -815,15 +813,13 @@ impl ResourceCache {
     pub fn get_glyph_dimensions(
         &mut self,
         font: &FontInstance,
-        key: &GlyphKey,
+        glyph_index: GlyphIndex,
     ) -> Option<GlyphDimensions> {
-        let key = GlyphRequest::new(font, key);
-
-        match self.cached_glyph_dimensions.entry(key.clone()) {
+        match self.cached_glyph_dimensions.entry((font.clone(), glyph_index)) {
             Occupied(entry) => *entry.get(),
             Vacant(entry) => *entry.insert(
                 self.glyph_rasterizer
-                    .get_glyph_dimensions(&key.font, &key.key),
+                    .get_glyph_dimensions(font, glyph_index),
             ),
         }
     }

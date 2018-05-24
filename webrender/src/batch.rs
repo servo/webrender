@@ -4,7 +4,7 @@
 
 use api::{AlphaType, ClipMode, DeviceIntRect, DeviceIntSize};
 use api::{DeviceUintRect, DeviceUintPoint, ExternalImageType, FilterOp, ImageRendering, LayoutRect};
-use api::{DeviceIntPoint, SubpixelDirection, YuvColorSpace, YuvFormat};
+use api::{DeviceIntPoint, YuvColorSpace, YuvFormat};
 use api::{LayoutToWorldTransform, WorldPixel};
 use border::{BorderCornerInstance, BorderCornerSide, BorderEdgeKind};
 use clip::{ClipSource, ClipStore, ClipWorkItem};
@@ -1153,6 +1153,7 @@ impl AlphaBatchBuilder {
                     ctx.device_pixel_scale,
                     Some(scroll_node.transform),
                 );
+                let subpx_dir = font.get_subpx_dir();
 
                 let glyph_fetch_buffer = &mut self.glyph_fetch_buffer;
                 let batch_list = &mut self.batch_list;
@@ -1170,11 +1171,7 @@ impl AlphaBatchBuilder {
                             glyph_format = glyph_format.ignore_color();
                         }
 
-                        let subpx_dir = match glyph_format {
-                            GlyphFormat::Bitmap |
-                            GlyphFormat::ColorBitmap => SubpixelDirection::None,
-                            _ => text_cpu.font.subpx_dir.limit_by(text_cpu.font.render_mode),
-                        };
+                        let subpx_dir = subpx_dir.limit_by(glyph_format);
 
                         let textures = BatchTextures {
                             colors: [

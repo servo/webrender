@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::u32;
 use {BuiltDisplayList, BuiltDisplayListDescriptor, ColorF, DeviceIntPoint, DeviceUintRect};
 use {DeviceUintSize, ExternalScrollId, FontInstanceKey, FontInstanceOptions};
-use {FontInstancePlatformOptions, FontKey, FontVariation, GlyphDimensions, GlyphKey, ImageData};
+use {FontInstancePlatformOptions, FontKey, FontVariation, GlyphDimensions, GlyphIndex, ImageData};
 use {ImageDescriptor, ImageKey, ItemTag, LayoutPoint, LayoutSize, LayoutTransform, LayoutVector2D};
 use {NativeFontHandle, WorldPoint};
 
@@ -588,7 +588,7 @@ pub enum ApiMsg {
     /// Gets the glyph dimensions
     GetGlyphDimensions(
         FontInstanceKey,
-        Vec<GlyphKey>,
+        Vec<GlyphIndex>,
         MsgSender<Vec<Option<GlyphDimensions>>>,
     ),
     /// Gets the glyph indices from a string
@@ -797,10 +797,10 @@ impl RenderApi {
     pub fn get_glyph_dimensions(
         &self,
         font: FontInstanceKey,
-        glyph_keys: Vec<GlyphKey>,
+        glyph_indices: Vec<GlyphIndex>,
     ) -> Vec<Option<GlyphDimensions>> {
         let (tx, rx) = channel::msg_channel().unwrap();
-        let msg = ApiMsg::GetGlyphDimensions(font, glyph_keys, tx);
+        let msg = ApiMsg::GetGlyphDimensions(font, glyph_indices, tx);
         self.api_sender.send(msg).unwrap();
         rx.recv().unwrap()
     }
