@@ -15,6 +15,7 @@ capture = ["webrender_api/serialize", "ron", "serde", "debug_renderer"]
 replay = ["webrender_api/deserialize", "ron", "serde"]
 debug_renderer = []
 pathfinder = ["pathfinder_font_renderer", "pathfinder_gfx_utils", "pathfinder_partitioner", "pathfinder_path_utils"]
+serialize_program = ["serde"]
 
 [dependencies]
 app_units = "0.6"
