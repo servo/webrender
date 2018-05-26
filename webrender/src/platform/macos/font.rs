@@ -6,9 +6,9 @@ use api::{ColorU, FontKey, FontRenderMode, GlyphDimensions};
 use api::{FontInstanceFlags, FontVariation, NativeFontHandle};
 use app_units::Au;
 use core_foundation::array::{CFArray, CFArrayRef};
-use core_foundation::base::TCFType;
+use core_foundation::base::{CFType, TCFType};
 use core_foundation::dictionary::CFDictionary;
-use core_foundation::number::{CFNumber, CFNumberRef};
+use core_foundation::number::CFNumber;
 use core_foundation::string::{CFString, CFStringRef};
 use core_graphics::base::{kCGImageAlphaNoneSkipFirst, kCGBitmapByteOrder32Little};
 #[cfg(not(feature = "pathfinder"))]
@@ -170,84 +170,57 @@ extern {
 }
 
 fn new_ct_font_with_variations(cg_font: &CGFont, size: f64, variations: &[FontVariation]) -> CTFont {
-    unsafe {
+     {
         let ct_font = core_text::font::new_from_CGFont(cg_font, size);
         if variations.is_empty() {
             return ct_font;
         }
-        let axes_ref = CTFontCopyVariationAxes(ct_font.as_concrete_TypeRef());
-        if axes_ref.is_null() {
-            return ct_font;
-        }
-        let axes: CFArray<CFDictionary> = TCFType::wrap_under_create_rule(axes_ref);
+        let axes = unsafe {
+            let axes_ref = CTFontCopyVariationAxes(ct_font.as_concrete_TypeRef());
+            if axes_ref.is_null() {
+                return ct_font;
+            }
+            CFArray::<CFDictionary<CFString, CFType>>::wrap_under_create_rule(axes_ref)
+        };
         let mut vals: Vec<(CFString, CFNumber)> = Vec::with_capacity(variations.len() as usize);
         for axis in axes.iter() {
             if !axis.instance_of::<CFDictionary>() {
                 return ct_font;
             }
-            let tag_val = match axis.find(kCTFontVariationAxisIdentifierKey as *const _) {
-                Some(tag_ptr) => {
-                    let tag: CFNumber = TCFType::wrap_under_get_rule(tag_ptr as CFNumberRef);
-                    if !tag.instance_of::<CFNumber>() {
-                        return ct_font;
-                    }
-                    match tag.to_i64() {
-                        Some(val) => val,
-                        None => return ct_font,
-                    }
-                }
+            let tag_val = match axis.find(unsafe { kCTFontVariationAxisIdentifierKey })
+                .and_then(|x| x.downcast::<CFNumber>())
+                .and_then(|x| x.to_i64()) {
+                Some(tag_val) => tag_val,
                 None => return ct_font,
             };
+
             let mut val = match variations.iter().find(|variation| (variation.tag as i64) == tag_val) {
                 Some(variation) => variation.value as f64,
                 None => continue,
             };
 
-            let name: CFString = match axis.find(kCTFontVariationAxisNameKey as *const _) {
-                Some(name_ptr) => TCFType::wrap_under_get_rule(name_ptr as CFStringRef),
+            let name: CFString = match axis.find(unsafe { kCTFontVariationAxisNameKey })
+                .and_then(|x| x.downcast::<CFString>()) {
+                Some(name) => name,
                 None => return ct_font,
             };
-            if !name.instance_of::<CFString>() {
-                return ct_font;
-            }
 
-            let min_val = match axis.find(kCTFontVariationAxisMinimumValueKey as *const _) {
-                Some(min_ptr) => {
-                    let min: CFNumber = TCFType::wrap_under_get_rule(min_ptr as CFNumberRef);
-                    if !min.instance_of::<CFNumber>() {
-                        return ct_font;
-                    }
-                    match min.to_f64() {
-                        Some(val) => val,
-                        None => return ct_font,
-                    }
-                }
+            let min_val = match axis.find(unsafe { kCTFontVariationAxisMinimumValueKey })
+                .and_then(|x| x.downcast::<CFNumber>())
+                .and_then(|x| x.to_f64()) {
+                Some(min_val) => min_val,
                 None => return ct_font,
             };
-            let max_val = match axis.find(kCTFontVariationAxisMaximumValueKey as *const _) {
-                Some(max_ptr) => {
-                    let max: CFNumber = TCFType::wrap_under_get_rule(max_ptr as CFNumberRef);
-                    if !max.instance_of::<CFNumber>() {
-                        return ct_font;
-                    }
-                    match max.to_f64() {
-                        Some(val) => val,
-                        None => return ct_font,
-                    }
-                }
+            let max_val = match axis.find(unsafe { kCTFontVariationAxisMaximumValueKey })
+                .and_then(|x| x.downcast::<CFNumber>())
+                .and_then(|x| x.to_f64()) {
+                Some(max_val) => max_val,
                 None => return ct_font,
             };
-            let def_val = match axis.find(kCTFontVariationAxisDefaultValueKey as *const _) {
-                Some(def_ptr) => {
-                    let def: CFNumber = TCFType::wrap_under_get_rule(def_ptr as CFNumberRef);
-                    if !def.instance_of::<CFNumber>() {
-                        return ct_font;
-                    }
-                    match def.to_f64() {
-                        Some(val) => val,
-                        None => return ct_font,
-                    }
-                }
+            let def_val = match axis.find(unsafe { kCTFontVariationAxisDefaultValueKey })
+                .and_then(|x| x.downcast::<CFNumber>())
+                .and_then(|x| x.to_f64()) {
+                Some(def_val) => def_val,
                 None => return ct_font,
             };
 

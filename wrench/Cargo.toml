@@ -30,8 +30,8 @@ webrender_api = {path = "../webrender_api", features=["serialize","deserialize"]
 serde = {version = "1.0", features = ["derive"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-core-graphics = "0.13"
-core-foundation = "0.5"
+core-graphics = "0.14"
+core-foundation = "0.6"
 
 [features]
 headless = [ "osmesa-sys", "osmesa-src" ]
