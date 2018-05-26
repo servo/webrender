@@ -603,7 +603,7 @@ pub struct ProgramBinary {
 }
 
 impl ProgramBinary {
-    #![allow(unused_variables)]
+    #[allow(unused_variables)]
     fn new(binary: Vec<u8>,
            format: gl::GLenum,
            sources: &ProgramSources) -> Self {
