@@ -67,6 +67,9 @@ pub struct PrimitiveInfo<T> {
     pub clip_rect: TypedRect<f32, T>,
     pub is_backface_visible: bool,
     pub tag: Option<ItemTag>,
+    #[cfg(debug_assertions)]
+    #[serde(skip_serializing, default)]
+    pub is_tracked_for_debug: bool,
 }
 
 impl LayoutPrimitiveInfo {
@@ -83,7 +86,20 @@ impl LayoutPrimitiveInfo {
             clip_rect,
             is_backface_visible: true,
             tag: None,
+            #[cfg(debug_assertions)]
+            is_tracked_for_debug: false,
         }
+    }
+
+    #[cfg(debug_assertions)]
+    #[inline]
+    pub fn is_tracked(&self) -> bool {
+        self.is_tracked_for_debug
+    }
+    #[cfg(not(debug_assertions))]
+    #[inline]
+    pub fn is_tracked(&self) -> bool {
+        false
     }
 }
 

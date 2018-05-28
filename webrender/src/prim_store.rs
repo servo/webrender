@@ -50,7 +50,7 @@ impl ScrollNodeAndClipChain {
     pub fn new(
         scroll_node_id: ClipScrollNodeIndex,
         clip_chain_index: ClipChainIndex
-    ) -> ScrollNodeAndClipChain {
+    ) -> Self {
         ScrollNodeAndClipChain { scroll_node_id, clip_chain_index }
     }
 }
@@ -60,6 +60,8 @@ pub struct PrimitiveRun {
     pub base_prim_index: PrimitiveIndex,
     pub count: usize,
     pub clip_and_scroll: ScrollNodeAndClipChain,
+    #[cfg(debug_assertions)]
+    pub is_tracked_for_debug: bool,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -68,15 +70,15 @@ pub struct PrimitiveOpacity {
 }
 
 impl PrimitiveOpacity {
-    pub fn opaque() -> PrimitiveOpacity {
+    pub fn opaque() -> Self {
         PrimitiveOpacity { is_opaque: true }
     }
 
-    pub fn translucent() -> PrimitiveOpacity {
+    pub fn translucent() -> Self {
         PrimitiveOpacity { is_opaque: false }
     }
 
-    pub fn from_alpha(alpha: f32) -> PrimitiveOpacity {
+    pub fn from_alpha(alpha: f32) -> Self {
         PrimitiveOpacity {
             is_opaque: alpha == 1.0,
         }
@@ -91,7 +93,7 @@ pub struct CachedGradient {
 }
 
 impl CachedGradient {
-    pub fn new() -> CachedGradient {
+    pub fn new() -> Self {
         CachedGradient {
             handle: GpuCacheHandle::new(),
         }
@@ -202,6 +204,11 @@ pub struct PrimitiveMetadata {
     /// was prepared for rendering in.
     #[cfg(debug_assertions)]
     pub prepared_frame_id: FrameId,
+
+    /// When true, the frame building will print out all the relevant information
+    /// about this primitive.
+    #[cfg(debug_assertions)]
+    pub is_tracked_for_debug: bool,
 }
 
 // Maintains a list of opacity bindings that have been collapsed into
@@ -215,7 +222,7 @@ pub struct OpacityBinding {
 }
 
 impl OpacityBinding {
-    pub fn new() -> OpacityBinding {
+    pub fn new() -> Self {
         OpacityBinding {
             bindings: Vec::new(),
             current: 1.0,
@@ -435,14 +442,14 @@ impl BrushPrimitive {
     pub fn new(
         kind: BrushKind,
         segment_desc: Option<BrushSegmentDescriptor>,
-    ) -> BrushPrimitive {
+    ) -> Self {
         BrushPrimitive {
             kind,
             segment_desc,
         }
     }
 
-    pub fn new_picture(pic_index: PictureIndex) -> BrushPrimitive {
+    pub fn new_picture(pic_index: PictureIndex) -> Self {
         BrushPrimitive {
             kind: BrushKind::Picture {
                 pic_index,
@@ -748,7 +755,6 @@ impl<'a> GradientGpuBlockBuilder<'a> {
                 error!("Gradient stops abruptly at {}, auto-completing to white", cur_idx);
                 self.fill_colors(cur_idx, GRADIENT_DATA_TABLE_END, &PremultipliedColorF::WHITE, &cur_color, &mut entries);
             }
-
 
             // Fill in the last entry with the last color stop
             self.fill_colors(
@@ -1185,7 +1191,7 @@ pub struct PrimitiveStore {
 }
 
 impl PrimitiveStore {
-    pub fn new() -> PrimitiveStore {
+    pub fn new() -> Self {
         PrimitiveStore {
             cpu_metadata: Vec::new(),
             cpu_brushes: Vec::new(),
@@ -1241,6 +1247,7 @@ impl PrimitiveStore {
         is_backface_visible: bool,
         clip_sources: Option<ClipSourcesHandle>,
         tag: Option<ItemTag>,
+        is_tracked_for_debug: bool,
         container: PrimitiveContainer,
     ) -> PrimitiveIndex {
         let prim_index = self.cpu_metadata.len();
@@ -1260,7 +1267,13 @@ impl PrimitiveStore {
             cpu_prim_index: SpecificPrimitiveIndex(0),
             #[cfg(debug_assertions)]
             prepared_frame_id: FrameId(0),
+            #[cfg(debug_assertions)]
+            is_tracked_for_debug,
         };
+        #[cfg(not(debug_assertions))]
+        {
+            let _ = is_tracked_for_debug;
+        }
 
         let metadata = match container {
             PrimitiveContainer::Brush(brush) => {
@@ -2244,12 +2257,30 @@ impl PrimitiveStore {
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
     ) -> bool {
+        let is_tracked;
+        #[cfg(debug_assertions)]
+        {
+            is_tracked = self.cpu_metadata[prim_index.0].is_tracked_for_debug;
+            if is_tracked {
+                println!("\t{:?} is updating clip task with screen rect {:?}",
+                    prim_index, prim_screen_rect);
+            }
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            is_tracked = false;
+        }
+
         // Reset clips from previous frames since we may clip differently each frame.
         self.reset_clip_task(prim_index);
 
         let prim_screen_rect = match prim_screen_rect.intersection(&frame_context.screen_rect) {
             Some(rect) => rect,
             None => {
+                if is_tracked {
+                    println!("\t{:?} is culled by the intersection with frame rect {:?}",
+                        prim_index, frame_context.screen_rect);
+                }
                 self.cpu_metadata[prim_index.0].screen_rect = None;
                 return false;
             }
@@ -2258,6 +2289,10 @@ impl PrimitiveStore {
         let mut combined_outer_rect =
             prim_screen_rect.intersection(&prim_run_context.clip_chain.combined_outer_screen_rect);
         let clip_chain = prim_run_context.clip_chain.nodes.clone();
+        if is_tracked {
+            println!("\t{:?} has base combined outer rect {:?}",
+                prim_index, combined_outer_rect);
+        }
 
         let prim_coordinate_system_id = prim_run_context.scroll_node.coordinate_system_id;
         let transform = &prim_run_context.scroll_node.world_content_transform;
@@ -2278,6 +2313,10 @@ impl PrimitiveStore {
 
                 if let Some(outer) = screen_outer_rect {
                     combined_outer_rect = combined_outer_rect.and_then(|r| r.intersection(&outer));
+                }
+                if is_tracked {
+                    println!("\t{:?} found extra clip with screen bounds {:?}",
+                        prim_index, screen_outer_rect);
                 }
 
                 Arc::new(ClipChainNode {
@@ -2302,6 +2341,10 @@ impl PrimitiveStore {
         let combined_outer_rect = match combined_outer_rect {
             Some(rect) if !rect.is_empty() => rect,
             _ => {
+                if is_tracked {
+                    println!("\t{:?} is culled by the empty combined screen rect",
+                        prim_index);
+                }
                 self.cpu_metadata[prim_index.0].screen_rect = None;
                 return false;
             }
@@ -2325,12 +2368,20 @@ impl PrimitiveStore {
             // If we don't have any clips from other coordinate systems, the local clip
             // calculated from the clip chain should be sufficient to ensure proper clipping.
             if !has_clips_from_other_coordinate_systems {
+                if is_tracked {
+                    println!("\t{:?} needs no task: all clips are within the coordinate system",
+                        prim_index);
+                }
                 return true;
             }
 
             // If we have filtered all clips and the screen rect isn't any smaller, we can just
             // skip masking entirely.
             if combined_outer_rect == prim_screen_rect {
+                if is_tracked {
+                    println!("\t{:?} needs no task: combined rect is not smaller",
+                        prim_index);
+                }
                 return true;
             }
             // Otherwise we create an empty mask, but with an empty inner rect to avoid further
@@ -2339,7 +2390,11 @@ impl PrimitiveStore {
         }
 
         if combined_inner_rect.contains_rect(&prim_screen_rect) {
-           return true;
+            if is_tracked {
+                println!("\t{:?} needs no task: contained within the clip inner rect",
+                    prim_index);
+            }
+            return true;
         }
 
         // First try to  render this primitive's mask using optimized brush rendering.
@@ -2353,6 +2408,10 @@ impl PrimitiveStore {
             frame_context,
             frame_state,
         ) {
+            if is_tracked {
+                println!("\t{:?} has segment tasks created for clipping",
+                    prim_index);
+            }
             return true;
         }
 
@@ -2367,6 +2426,10 @@ impl PrimitiveStore {
         );
 
         let clip_task_id = frame_state.render_tasks.add(clip_task);
+        if is_tracked {
+            println!("\t{:?} created task {:?} with combined outer rect {:?}",
+                prim_index, clip_task_id, combined_outer_rect);
+        }
         self.cpu_metadata[prim_index.0].clip_task_id = Some(clip_task_id);
         pic_state.tasks.push(clip_task_id);
 
@@ -2384,14 +2447,27 @@ impl PrimitiveStore {
     ) -> Option<LayoutRect> {
         let mut may_need_clip_mask = true;
         let mut pic_state_for_children = PictureState::new();
+        let is_tracked;
 
         // Do some basic checks first, that can early out
         // without even knowing the local rect.
         let (prim_kind, cpu_prim_index) = {
             let metadata = &self.cpu_metadata[prim_index.0];
 
+            #[cfg(debug_assertions)]
+            {
+                is_tracked = metadata.is_tracked_for_debug;
+            }
+            #[cfg(not(debug_assertions))]
+            {
+                is_tracked = false;
+            }
+
             if !metadata.is_backface_visible &&
                prim_run_context.scroll_node.world_content_transform.is_backface_visible() {
+                if is_tracked {
+                    println!("\t{:?} is culled for not having visible back faces", prim_index);
+                }
                 return None;
             }
 
@@ -2409,6 +2485,9 @@ impl PrimitiveStore {
                     let pic = &mut self.pictures[pic_index.0];
 
                     if !pic.resolve_scene_properties(frame_context.scene_properties) {
+                        if is_tracked {
+                            println!("\t{:?} is culled for carrying an invisible composite filter", prim_index);
+                        }
                         return None;
                     }
 
@@ -2477,35 +2556,66 @@ impl PrimitiveStore {
 
         let (local_rect, unclipped_device_rect) = {
             let metadata = &mut self.cpu_metadata[prim_index.0];
+            metadata.screen_rect = None;
+
             if metadata.local_rect.size.width <= 0.0 ||
                metadata.local_rect.size.height <= 0.0 {
-                //warn!("invalid primitive rect {:?}", metadata.local_rect);
+                if is_tracked {
+                    println!("\t{:?} is culled for zero local rectangle", prim_index);
+                }
                 return None;
             }
-
-            metadata.screen_rect = None;
 
             // Inflate the local rect for this primitive by the inflation factor of
             // the picture context. This ensures that even if the primitive itself
             // is not visible, any effects from the blur radius will be correctly
             // taken into account.
-            let local_rect = metadata.local_rect
+            let local_rect = match metadata.local_rect
                 .inflate(pic_context.inflation_factor, pic_context.inflation_factor)
-                .intersection(&metadata.local_clip_rect)?;
+                .intersection(&metadata.local_clip_rect)
+            {
+                Some(rect) => rect,
+                None => {
+                    if is_tracked {
+                        println!("\t{:?} is culled being out of the local clip rectangle: {:?}",
+                            prim_index, metadata.local_clip_rect);
+                    }
+                    return None;
+                }
+            };
 
-            let unclipped = calculate_screen_bounding_rect(
+            let unclipped = match calculate_screen_bounding_rect(
                 &prim_run_context.scroll_node.world_content_transform,
                 &local_rect,
                 frame_context.device_pixel_scale,
                 None, //TODO: inflate `frame_context.screen_rect` appropriately
-            )?;
+            ) {
+                Some(rect) => rect,
+                None => {
+                    if is_tracked {
+                        println!("\t{:?} is unable to build a screen bound for transform: {:?}",
+                            prim_index, prim_run_context.scroll_node.world_content_transform);
+                    }
+                    return None;
+                }
+            };
 
-            let clipped = unclipped
-                .intersection(&prim_run_context.clip_chain.combined_outer_screen_rect)?;
+            let clipped = match unclipped
+                .intersection(&prim_run_context.clip_chain.combined_outer_screen_rect)
+            {
+                Some(rect) => rect,
+                None => {
+                    if is_tracked {
+                        println!("\t{:?} is culled out by the combined clip rect: {:?}",
+                            prim_index, prim_run_context.clip_chain.combined_outer_screen_rect);
+                    }
+                    return None;
+                }
+            };
 
             metadata.screen_rect = Some(ScreenRect {
-                clipped,
                 unclipped,
+                clipped,
             });
             metadata.clip_chain_rect_index = prim_run_context.clip_chain_rect_index;
 
@@ -2528,6 +2638,11 @@ impl PrimitiveStore {
             frame_state,
         ) {
             return None;
+        }
+
+        if is_tracked {
+            println!("\t{:?} is considered visible and ready with local rect {:?}",
+                prim_index, local_rect);
         }
 
         self.prepare_prim_for_render_inner(
@@ -2564,6 +2679,16 @@ impl PrimitiveStore {
         };
 
         for run in &pic_context.prim_runs {
+            let is_tracked = match () {
+                #[cfg(debug_assertions)]
+                () => run.is_tracked_for_debug,
+                #[cfg(not(debug_assertions))]
+                () => false,
+            };
+            if is_tracked {
+                println!("\tpreparing a run of length {} in pipeline {:?}",
+                    run.count, pic_context.pipeline_id);
+            }
             // TODO(gw): Perhaps we can restructure this to not need to create
             //           a new primitive context for every run (if the hash
             //           lookups ever show up in a profile).
@@ -2581,12 +2706,16 @@ impl PrimitiveStore {
             pic_state.has_non_root_coord_system |= clip_chain.has_non_root_coord_system;
 
             if !scroll_node.invertible {
-                debug!("{:?} {:?}: position not invertible", run.base_prim_index, pic_context.pipeline_id);
+                if is_tracked {
+                    println!("\tculled for the scroll node transform not being invertible");
+                }
                 continue;
             }
 
             if clip_chain.combined_outer_screen_rect.is_empty() {
-                debug!("{:?} {:?}: clipped out", run.base_prim_index, pic_context.pipeline_id);
+                if is_tracked {
+                    println!("\tculled for out of screen bounds");
+                }
                 continue;
             }
 
@@ -2616,7 +2745,12 @@ impl PrimitiveStore {
             };
 
             let clip_chain_rect_index = match clip_chain_rect {
-                Some(rect) if rect.is_empty() => continue,
+                Some(rect) if rect.is_empty() => {
+                    if is_tracked {
+                        println!("\tculled by the local clip rect");
+                    }
+                    continue
+                }
                 Some(rect) => {
                     frame_state.local_clip_rects.push(rect);
                     ClipChainRectIndex(frame_state.local_clip_rects.len() - 1)
@@ -2660,6 +2794,12 @@ impl PrimitiveStore {
                         let bounds = matrix.transform_rect(&clipped_rect);
                         result.local_rect_in_original_parent_space =
                             result.local_rect_in_original_parent_space.union(&bounds);
+                    }
+
+                    if let Some(ref matrix) = parent_relative_transform {
+                        let bounds = matrix.transform_rect(&prim_local_rect);
+                        result.local_rect_in_actual_parent_space =
+                            result.local_rect_in_actual_parent_space.union(&bounds);
                     }
                 }
             }
