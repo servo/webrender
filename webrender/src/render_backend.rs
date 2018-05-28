@@ -756,6 +756,8 @@ impl RenderBackend {
                                 &mut profile_counters
                             );
                         }
+
+                        self.resource_cache.add_pre_rasterized_blob_images(rasterized_blobs);
                     },
                     SceneBuilderResult::FlushComplete(tx) => {
                         tx.send(()).ok();

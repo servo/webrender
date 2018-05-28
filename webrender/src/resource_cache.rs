@@ -6,7 +6,7 @@ use api::{AddFont, BlobImageResources, BlobSceneBuilderRequest, ResourceUpdate};
 use api::{BlobImageDescriptor, BlobImageError, BlobImageRenderer, BlobImageRequest};
 use api::{ClearCache, ColorF, DevicePoint, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{Epoch, FontInstanceKey, FontKey, FontTemplate, GlyphIndex};
-use api::{ExternalImageData, ExternalImageType};
+use api::{ExternalImageData, ExternalImageType, BlobImageResult};
 use api::{FontInstanceOptions, FontInstancePlatformOptions, FontVariation};
 use api::{GlyphDimensions, IdNamespace};
 use api::{ImageData, ImageDescriptor, ImageKey, ImageRendering};
@@ -96,13 +96,15 @@ enum State {
     QueryResources,
 }
 
-#[derive(Debug)]
 struct ImageResource {
     data: ImageData,
     descriptor: ImageDescriptor,
     epoch: Epoch,
     tiling: Option<TileSize>,
     dirty_rect: Option<DeviceUintRect>,
+    // Blob Images that were rasterized during scene building and haven't been
+    // requested yet.
+    rasterized_blob_images: FastHashMap<BlobImageRequest, BlobImageResult>,
 }
 
 #[derive(Clone, Debug)]
@@ -442,6 +444,7 @@ impl ResourceCache {
                                         img.descriptor.size,
                                     )
                                 ),
+                                rasterized_blob_images: FastHashMap::default(),
                             },
                         );
                     }
@@ -460,6 +463,7 @@ impl ResourceCache {
                                 (Some(rect), None) => Some(rect),
                                 (None, _) => None,
                             },
+                            rasterized_blob_images: FastHashMap::default(),
                         };
                     }
                 }
@@ -498,6 +502,14 @@ impl ResourceCache {
         }
 
         *updates = new_updates;
+    }
+
+    pub fn add_pre_rasterized_blob_images(&mut self, images: Vec<(BlobImageRequest, BlobImageResult)>) {
+        for (request, result) in images {
+            if let Some(template) = self.resources.image_templates.get_mut(request.key) {
+                template.rasterized_blob_images.insert(request, result);
+            }
+        }
     }
 
     pub fn add_font_template(&mut self, font_key: FontKey, template: FontTemplate) {
@@ -595,6 +607,7 @@ impl ResourceCache {
             epoch: Epoch(0),
             tiling,
             dirty_rect,
+            rasterized_blob_images: FastHashMap::default(),
         };
 
         self.resources.image_templates.insert(image_key, resource);
@@ -635,6 +648,7 @@ impl ResourceCache {
                 (Some(rect), None) => Some(rect),
                 (None, _) => None,
             },
+            rasterized_blob_images: FastHashMap::default(),
         };
     }
 
@@ -724,42 +738,45 @@ impl ResourceCache {
         //  - The image is a blob.
         //  - The blob hasn't already been requested this frame.
         if self.pending_image_requests.insert(request) && template.data.is_blob() {
-            if let Some(ref mut renderer) = self.blob_image_renderer {
-                let (offset, size) = match template.tiling {
-                    Some(tile_size) => {
-                        let tile_offset = request.tile.unwrap();
-                        let actual_size = compute_tile_size(
-                            &template.descriptor,
-                            tile_size,
-                            tile_offset,
-                        );
-                        let offset = DevicePoint::new(
-                            tile_offset.x as f32 * tile_size as f32,
-                            tile_offset.y as f32 * tile_size as f32,
-                        );
+            if !template.rasterized_blob_images.contains_key(&request.into()) {
+                if let Some(ref mut renderer) = self.blob_image_renderer {
+                    let (offset, size) = match template.tiling {
+                        Some(tile_size) => {
+                            let tile_offset = request.tile.unwrap();
+                            let actual_size = compute_tile_size(
+                                &template.descriptor,
+                                tile_size,
+                                tile_offset,
+                            );
+                            let offset = DevicePoint::new(
+                                tile_offset.x as f32 * tile_size as f32,
+                                tile_offset.y as f32 * tile_size as f32,
+                            );
 
-                        if let Some(dirty) = dirty_rect {
-                            if intersect_for_tile(dirty, actual_size, tile_size, tile_offset).is_none() {
-                                // don't bother requesting unchanged tiles
-                                return
+                            if let Some(dirty) = dirty_rect {
+                                if intersect_for_tile(dirty, actual_size, tile_size, tile_offset).is_none() {
+                                    // don't bother requesting unchanged tiles
+                                    return
+                                }
+
                             }
+
+                            (offset, actual_size)
                         }
+                        None => (DevicePoint::zero(), template.descriptor.size),
+                    };
 
-                        (offset, actual_size)
-                    }
-                    None => (DevicePoint::zero(), template.descriptor.size),
-                };
-
-                renderer.request(
-                    &self.resources,
-                    request.into(),
-                    &BlobImageDescriptor {
-                        size,
-                        offset,
-                        format: template.descriptor.format,
-                    },
-                    dirty_rect,
-                );
+                    renderer.request(
+                        &self.resources,
+                        request.into(),
+                        &BlobImageDescriptor {
+                            size,
+                            offset,
+                            format: template.descriptor.format,
+                        },
+                        dirty_rect,
+                    );
+                }
             }
         }
     }
@@ -1057,12 +1074,16 @@ impl ResourceCache {
                     image_template.data.clone()
                 }
                 ImageData::Blob(..) => {
+                    let blob_renderer = self.blob_image_renderer.as_mut().unwrap();
+                    let result = image_template.rasterized_blob_images
+                        .remove(&request.into())
+                        .unwrap_or_else(|| {
+                            blob_renderer.resolve(request.into())
+                        }
+                    );
+
                     // Extract the rasterized image from the blob renderer.
-                    match self.blob_image_renderer
-                        .as_mut()
-                        .unwrap()
-                        .resolve(request.into())
-                    {
+                    match result {
                         Ok(image) => ImageData::new(image.data),
                         // TODO(nical): I think that we should handle these somewhat gracefully,
                         // at least in the out-of-memory scenario.
@@ -1583,6 +1604,7 @@ impl ResourceCache {
                 tiling: template.tiling,
                 epoch: template.epoch,
                 dirty_rect: None,
+                rasterized_blob_images: FastHashMap::default(),
             });
         }
 

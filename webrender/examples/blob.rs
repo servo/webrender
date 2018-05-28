@@ -17,6 +17,7 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
+use std::mem;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use webrender::api::{self, DisplayListBuilder, DocumentId, PipelineId, RenderApi, Transaction};
 
@@ -240,7 +241,7 @@ struct SceneBuilderRequest {
 
 impl api::BlobSceneBuilderRequest for SceneBuilderRequest {
     fn run(&mut self) -> Vec<(api::BlobImageRequest, api::BlobImageResult)> {
-        let requests = mem::replace(&self.requests, Vec::new());
+        let requests = mem::replace(&mut self.requests, Vec::new());
         let workers = Arc::clone(&self.workers);
         workers.install(||{
             requests.into_par_iter().map(|(request, descriptor, commands)| {
