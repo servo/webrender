@@ -386,6 +386,12 @@ pub enum BorderStyle {
     Outset = 9,
 }
 
+impl BorderStyle {
+    pub fn is_hidden(&self) -> bool {
+        *self == BorderStyle::Hidden || *self == BorderStyle::None
+    }
+}
+
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum BoxShadowClipMode {
