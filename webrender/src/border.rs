@@ -471,16 +471,16 @@ impl<'a> DisplayListFlattener<'a> {
                 BorderStyle::Solid |
                 BorderStyle::Hidden |
                 BorderStyle::None |
+                BorderStyle::Double |
                 BorderStyle::Inset |
+                BorderStyle::Groove |
+                BorderStyle::Ridge |
                 BorderStyle::Outset => {
                     true
                 }
 
-                BorderStyle::Double |
                 BorderStyle::Dotted |
-                BorderStyle::Dashed |
-                BorderStyle::Groove |
-                BorderStyle::Ridge => {
+                BorderStyle::Dashed => {
                     false
                 }
             }
@@ -1433,7 +1433,7 @@ fn add_edge_segment(
         color,
         segment,
         instances,
-        DeviceSize::zero(),
+        task_rect.size,
         DeviceSize::zero(),
     );
 
