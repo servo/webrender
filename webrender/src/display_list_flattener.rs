@@ -831,7 +831,6 @@ impl<'a> DisplayListFlattener<'a> {
             info.is_backface_visible && stacking_context.is_backface_visible,
             clip_sources,
             info.tag,
-            info.is_tracked(),
             container,
         )
     }
@@ -864,12 +863,11 @@ impl<'a> DisplayListFlattener<'a> {
         &mut self,
         prim_index: PrimitiveIndex,
         clip_and_scroll: ScrollNodeAndClipChain,
-        is_tracked: bool,
     ) {
         // Add primitive to the top-most Picture on the stack.
         let pic_index = self.picture_stack.last().unwrap();
         let pic = &mut self.prim_store.pictures[pic_index.0];
-        pic.add_primitive(prim_index, clip_and_scroll, is_tracked);
+        pic.add_primitive(prim_index, clip_and_scroll);
     }
 
     /// Convenience interface that creates a primitive entry and adds it
@@ -881,8 +879,6 @@ impl<'a> DisplayListFlattener<'a> {
         clip_sources: Vec<ClipSource>,
         container: PrimitiveContainer,
     ) {
-        let is_tracked = info.is_tracked();
-
         if !self.shadow_stack.is_empty() {
             // TODO(gw): Restructure this so we don't need to move the shadow
             //           stack out (borrowck due to create_primitive below).
@@ -908,7 +904,7 @@ impl<'a> DisplayListFlattener<'a> {
 
                 // Add the new primitive to the shadow picture.
                 let shadow_pic = &mut self.prim_store.pictures[shadow_pic_index.0];
-                shadow_pic.add_primitive(shadow_prim_index, clip_and_scroll, is_tracked);
+                shadow_pic.add_primitive(shadow_prim_index, clip_and_scroll);
             }
             self.shadow_stack = shadow_stack;
         }
@@ -916,7 +912,7 @@ impl<'a> DisplayListFlattener<'a> {
         if container.is_visible() {
             let prim_index = self.create_primitive(info, clip_sources, container);
             self.add_primitive_to_hit_testing_list(info, clip_and_scroll);
-            self.add_primitive_to_draw_list(prim_index, clip_and_scroll, is_tracked);
+            self.add_primitive_to_draw_list(prim_index, clip_and_scroll);
         }
     }
 
@@ -951,9 +947,6 @@ impl<'a> DisplayListFlattener<'a> {
         // to them, as for a normal primitive. This is needed
         // to correctly handle some CSS cases (see #1957).
         let max_clip = LayoutRect::max_rect();
-
-        // No tracking for the stacking context service primitives, for now
-        let is_tracked = false;
 
         // If there is no root picture, create one for the main framebuffer.
         if self.sc_stack.is_empty() {
@@ -1036,14 +1029,13 @@ impl<'a> DisplayListFlattener<'a> {
                 is_backface_visible,
                 None,
                 None,
-                is_tracked,
                 PrimitiveContainer::Brush(prim),
             );
 
             let parent_pic_index = *self.picture_stack.last().unwrap();
 
             let pic = &mut self.prim_store.pictures[parent_pic_index.0];
-            pic.add_primitive(prim_index, clip_and_scroll, is_tracked);
+            pic.add_primitive(prim_index, clip_and_scroll);
 
             self.picture_stack.push(container_index);
 
@@ -1086,14 +1078,13 @@ impl<'a> DisplayListFlattener<'a> {
                 is_backface_visible,
                 None,
                 None,
-                is_tracked,
                 PrimitiveContainer::Brush(src_prim),
             );
 
             let parent_pic = &mut self.prim_store.pictures[parent_pic_index.0];
             parent_pic_index = src_pic_index;
 
-            parent_pic.add_primitive(src_prim_index, clip_and_scroll, is_tracked);
+            parent_pic.add_primitive(src_prim_index, clip_and_scroll);
 
             self.picture_stack.push(src_pic_index);
         }
@@ -1117,13 +1108,12 @@ impl<'a> DisplayListFlattener<'a> {
                 is_backface_visible,
                 None,
                 None,
-                is_tracked,
                 PrimitiveContainer::Brush(src_prim),
             );
 
             let parent_pic = &mut self.prim_store.pictures[parent_pic_index.0];
             parent_pic_index = src_pic_index;
-            parent_pic.add_primitive(src_prim_index, clip_and_scroll, is_tracked);
+            parent_pic.add_primitive(src_prim_index, clip_and_scroll);
 
             self.picture_stack.push(src_pic_index);
         }
@@ -1175,12 +1165,11 @@ impl<'a> DisplayListFlattener<'a> {
             is_backface_visible,
             None,
             None,
-            is_tracked,
             PrimitiveContainer::Brush(sc_prim),
         );
 
         let parent_pic = &mut self.prim_store.pictures[parent_pic_index.0];
-        parent_pic.add_primitive(sc_prim_index, clip_and_scroll, is_tracked);
+        parent_pic.add_primitive(sc_prim_index, clip_and_scroll);
 
         // Add this as the top-most picture for primitives to be added to.
         self.picture_stack.push(pic_index);
@@ -1364,7 +1353,6 @@ impl<'a> DisplayListFlattener<'a> {
         let pipeline_id = self.sc_stack.last().unwrap().pipeline_id;
         let current_reference_frame_index = self.current_reference_frame_index();
         let max_clip = LayoutRect::max_rect();
-        let is_tracked = info.is_tracked();
 
         // Quote from https://drafts.csswg.org/css-backgrounds-3/#shadow-blur
         // "the image that would be generated by applying to the shadow a
@@ -1398,13 +1386,12 @@ impl<'a> DisplayListFlattener<'a> {
             info.is_backface_visible,
             None,
             None,
-            is_tracked,
             PrimitiveContainer::Brush(shadow_prim),
         );
 
         // Add the shadow primitive. This must be done before pushing this
         // picture on to the shadow stack, to avoid infinite recursion!
-        self.add_primitive_to_draw_list(shadow_prim_index, clip_and_scroll, is_tracked);
+        self.add_primitive_to_draw_list(shadow_prim_index, clip_and_scroll);
         self.shadow_stack.push((shadow, shadow_pic_index));
     }
 
@@ -1484,7 +1471,6 @@ impl<'a> DisplayListFlattener<'a> {
         self.add_primitive_to_draw_list(
             prim_index,
             clip_and_scroll,
-            info.is_tracked(),
         );
 
         self.scrollbar_prims.push(ScrollbarPrimitive {
