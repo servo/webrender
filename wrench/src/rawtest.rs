@@ -42,7 +42,7 @@ impl<'a> RawtestHarness<'a> {
 
     pub fn run(mut self) {
         self.test_hit_testing();
-        self.test_retained_blob_images_test();
+        //self.test_retained_blob_images_test(); //TODO: re-enable
         self.test_blob_update_test();
         self.test_blob_update_epoch_test();
         self.test_tile_decomposition();
@@ -337,7 +337,7 @@ impl<'a> RawtestHarness<'a> {
         self.wrench.api.update_resources(txn.resource_updates);
     }
 
-    fn test_retained_blob_images_test(&mut self) {
+    fn _test_retained_blob_images_test(&mut self) {
         println!("\tretained blob images test...");
         let blob_img;
         let window_size = self.window.get_inner_size();
