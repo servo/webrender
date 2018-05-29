@@ -54,7 +54,7 @@ tasks:
         excludeBranches:
           - master
     payload:
-      maxRunTime: 3600
+      maxRunTime: 7200
       image: 'staktrace/webrender-test:freetype28'
       env:
         RUST_BACKTRACE: 1
@@ -89,7 +89,7 @@ tasks:
         excludeBranches:
           - master
     payload:
-      maxRunTime: 3600
+      maxRunTime: 7200
       image: 'staktrace/webrender-test:freetype28'
       env:
         RUST_BACKTRACE: 1
