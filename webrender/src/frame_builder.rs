@@ -26,7 +26,6 @@ use tiling::{Frame, RenderPass, RenderPassKind, RenderTargetContext};
 use tiling::{ScrollbarPrimitive, SpecialRenderPasses};
 use util::{self, MaxRect, WorldToLayoutFastTransform};
 
-
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]

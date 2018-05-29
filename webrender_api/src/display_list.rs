@@ -349,8 +349,6 @@ impl<'a, 'b> DisplayItemRef<'a, 'b> {
             clip_rect: info.clip_rect.translate(offset),
             is_backface_visible: info.is_backface_visible,
             tag: info.tag,
-            #[cfg(debug_assertions)]
-            is_tracked_for_debug: info.is_tracked_for_debug,
         }
     }
 
