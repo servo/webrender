@@ -275,7 +275,7 @@ impl BorderCornerClipSource {
                 // Round that up to the nearest integer, so that the dash length
                 // doesn't exceed the ratio above. Add one extra dash to cover
                 // the last half-dash of the arc.
-                (ellipse, 1 + desired_count.ceil() as usize)
+                (ellipse, desired_count.ceil() as usize)
             }
             BorderCornerClipKind::Dot => {
                 let mut corner_radius = corner_radius;
@@ -349,8 +349,8 @@ impl BorderCornerClipSource {
             BorderCornerClipKind::Dash => {
                 // Get the correct dash arc length.
                 let dash_arc_length =
-                    0.5 * self.ellipse.total_arc_length / (self.max_clip_count - 1) as f32;
-                let mut current_arc_length = -0.5 * dash_arc_length;
+                    0.5 * self.ellipse.total_arc_length / self.max_clip_count as f32;
+                let mut current_arc_length = 0.25 * dash_arc_length;
                 for _ in 0 .. self.max_clip_count {
                     let arc_length0 = current_arc_length;
                     current_arc_length += dash_arc_length;
@@ -532,36 +532,40 @@ fn get_needed_size(
     side_width: f32,
     avail_size: f32,
     scale: f32,
-) -> f32 {
+) -> (f32, f32, f32) {
     // To avoid division by zero below.
     if side_width <= 0.0 {
-        return 0.0;
+        return (0.0, 0.0, 0.0);
     }
 
-    let repeat_count = match style {
+    match style {
         BorderStyle::Dashed => {
-            let ideal_size = 3.0 * side_width;
-            let repeat_count = (0.5 * avail_size) / ideal_size;
-            let repeat_count = repeat_count.max(1.0).ceil();
-            repeat_count
+            let dash_size = 3.0 * side_width;
+            let approx_dash_count = (avail_size - dash_size) / dash_size;
+            let dash_count = 1.0 + 2.0 * (approx_dash_count / 2.0).floor();
+            let used_size = dash_count * dash_size;
+            let extra_space = avail_size - used_size;
+            let device_size = 2.0 * dash_size * scale;
+            let offset = (extra_space * 0.5).round();
+            return (offset, used_size, device_size)
         }
         BorderStyle::Dotted => {
-            let ideal_size = 2.0 * side_width;
-            let repeat_count = avail_size / ideal_size;
-            let repeat_count = repeat_count.max(1.0).floor();
-            repeat_count
+            let dot_and_space_size = 2.0 * side_width;
+            if avail_size < dot_and_space_size * 0.75 {
+                return (0.0, 0.0, 0.0);
+            }
+            let approx_dot_count = avail_size / dot_and_space_size;
+            let dot_count = approx_dot_count.floor().max(1.0);
+            let used_size = dot_count * dot_and_space_size;
+            let extra_space = avail_size - used_size;
+            let device_size = dot_and_space_size * scale;
+            let offset = (extra_space * 0.5).round();
+            return (offset, used_size, device_size)
         }
         _ => {
-            return 16.0;
+            return (0.0, avail_size, 8.0);
         }
-    };
-
-    let used_size = repeat_count * side_width;
-    let avail_space_size = avail_size - used_size;
-    let avail_space_per_repeat = avail_space_size / repeat_count;
-    let device_size = (side_width + avail_space_per_repeat) * scale;
-
-    device_size
+    }
 }
 
 impl BorderRenderTaskInfo {
@@ -618,33 +622,33 @@ impl BorderRenderTaskInfo {
             border.radius.bottom_left.height.max(widths.bottom),
         );
 
-        let inner_width_top = get_needed_size(
+        let (top_offset, top_size, top_device_size) = get_needed_size(
             border.top.style,
             widths.top,
             rect.size.width - local_size_tl.width - local_size_tr.width,
             scale.0,
         );
-        let inner_width_bottom = get_needed_size(
+        let (bottom_offset, bottom_size, bottom_device_size) = get_needed_size(
             border.bottom.style,
             widths.bottom,
             rect.size.width - local_size_bl.width - local_size_br.width,
             scale.0,
         );
-        let inner_width = inner_width_top.max(inner_width_bottom).ceil();
+        let inner_width = top_device_size.max(bottom_device_size).ceil();
 
-        let inner_height_left = get_needed_size(
+        let (left_offset, left_size, left_device_size) = get_needed_size(
             border.left.style,
             widths.left,
             rect.size.height - local_size_tl.height - local_size_bl.height,
             scale.0,
         );
-        let inner_height_right = get_needed_size(
+        let (right_offset, right_size, right_device_size) = get_needed_size(
             border.right.style,
             widths.right,
             rect.size.height - local_size_tr.height - local_size_br.height,
             scale.0,
         );
-        let inner_height = inner_height_left.max(inner_height_right).ceil();
+        let inner_height = left_device_size.max(right_device_size).ceil();
 
         let size = DeviceSize::new(
             dp_size_tl.width.max(dp_size_bl.width) + inner_width + dp_size_tr.width.max(dp_size_br.width),
@@ -654,15 +658,15 @@ impl BorderRenderTaskInfo {
         add_edge_segment(
             LayoutRect::from_floats(
                 rect.origin.x,
-                rect.origin.y + local_size_tl.height,
+                rect.origin.y + local_size_tl.height + left_offset,
                 rect.origin.x + widths.left,
-                rect.origin.y + rect.size.height - local_size_bl.height,
+                rect.origin.y + local_size_tl.height + left_offset + left_size,
             ),
             DeviceRect::from_floats(
                 0.0,
                 dp_size_tl.height,
                 dp_width_left,
-                dp_size_tl.height + inner_height_left,
+                dp_size_tl.height + left_device_size,
             ),
             &border.left,
             BorderSegment::Left,
@@ -674,15 +678,15 @@ impl BorderRenderTaskInfo {
 
         add_edge_segment(
             LayoutRect::from_floats(
-                rect.origin.x + local_size_tl.width,
+                rect.origin.x + local_size_tl.width + top_offset,
                 rect.origin.y,
-                rect.origin.x + rect.size.width - local_size_tr.width,
+                rect.origin.x + local_size_tl.width + top_offset + top_size,
                 rect.origin.y + widths.top,
             ),
             DeviceRect::from_floats(
                 dp_size_tl.width,
                 0.0,
-                dp_size_tl.width + inner_width_top,
+                dp_size_tl.width + top_device_size,
                 dp_width_top,
             ),
             &border.top,
@@ -696,15 +700,15 @@ impl BorderRenderTaskInfo {
         add_edge_segment(
             LayoutRect::from_floats(
                 rect.origin.x + rect.size.width - widths.right,
-                rect.origin.y + local_size_tr.height,
+                rect.origin.y + local_size_tr.height + right_offset,
                 rect.origin.x + rect.size.width,
-                rect.origin.y + rect.size.height - local_size_br.height,
+                rect.origin.y + local_size_tr.height + right_offset + right_size,
             ),
             DeviceRect::from_floats(
                 size.width - dp_width_right,
                 dp_size_tr.height,
                 size.width,
-                dp_size_tr.height + inner_height_right,
+                dp_size_tr.height + right_device_size,
             ),
             &border.right,
             BorderSegment::Right,
@@ -716,15 +720,15 @@ impl BorderRenderTaskInfo {
 
         add_edge_segment(
             LayoutRect::from_floats(
-                rect.origin.x + local_size_bl.width,
+                rect.origin.x + local_size_bl.width + bottom_offset,
                 rect.origin.y + rect.size.height - widths.bottom,
-                rect.origin.x + rect.size.width - local_size_br.width,
+                rect.origin.x + local_size_bl.width + bottom_offset + bottom_size,
                 rect.origin.y + rect.size.height,
             ),
             DeviceRect::from_floats(
                 dp_size_bl.width,
                 size.height - dp_width_bottom,
-                dp_size_bl.width + inner_width_bottom,
+                dp_size_bl.width + bottom_device_size,
                 size.height,
             ),
             &border.bottom,
@@ -990,51 +994,32 @@ fn add_segment(
 
             match style0 {
                 BorderStyle::Dashed => {
-                    let (rect0, rect1) = if is_vertical {
-                        let p0 = (task_rect.size.height * 0.25).ceil();
-                        let p1 = (p0 + task_rect.size.height * 0.5).floor();
+                    let rect = if is_vertical {
+                        let half_dash_size = task_rect.size.height * 0.5;
+                        let y0 = task_rect.origin.y;
+                        let y1 = y0 + half_dash_size.round();
 
-                        (
-                            DeviceRect::from_floats(
-                                task_rect.origin.x,
-                                task_rect.origin.y,
-                                task_rect.origin.x + task_rect.size.width,
-                                task_rect.origin.y + p0,
-                            ),
-                            DeviceRect::from_floats(
-                                task_rect.origin.x,
-                                task_rect.origin.y + p1,
-                                task_rect.origin.x + task_rect.size.width,
-                                task_rect.origin.y + task_rect.size.height,
-                            ),
+                        DeviceRect::from_floats(
+                            task_rect.origin.x,
+                            y0,
+                            task_rect.origin.x + task_rect.size.width,
+                            y1,
                         )
                     } else {
-                        let p0 = (task_rect.size.width * 0.25).ceil();
-                        let p1 = (p0 + task_rect.size.width * 0.5).floor();
+                        let half_dash_size = task_rect.size.width * 0.5;
+                        let x0 = task_rect.origin.x;
+                        let x1 = x0 + half_dash_size.round();
 
-                        (
-                            DeviceRect::from_floats(
-                                task_rect.origin.x,
-                                task_rect.origin.y,
-                                task_rect.origin.x + p0,
-                                task_rect.origin.y + task_rect.size.height,
-                            ),
-                            DeviceRect::from_floats(
-                                task_rect.origin.x + p1,
-                                task_rect.origin.y,
-                                task_rect.origin.x + task_rect.size.width,
-                                task_rect.origin.y + task_rect.size.height,
-                            ),
+                        DeviceRect::from_floats(
+                            x0,
+                            task_rect.origin.y,
+                            x1,
+                            task_rect.origin.y + task_rect.size.height,
                         )
                     };
 
                     instances.push(BorderInstance {
-                        local_rect: rect0,
-                        ..base_instance
-                    });
-
-                    instances.push(BorderInstance {
-                        local_rect: rect1,
+                        local_rect: rect,
                         ..base_instance
                     });
                 }
