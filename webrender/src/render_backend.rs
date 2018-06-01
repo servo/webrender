@@ -266,6 +266,7 @@ impl Document {
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
         resource_profile: &mut ResourceProfileCounters,
+        is_new_scene: bool,
     ) -> RenderedDocument {
         let accumulated_scale_factor = self.view.accumulated_scale_factor();
         let pan = self.view.pan.to_f32() / accumulated_scale_factor;
@@ -289,7 +290,10 @@ impl Document {
             frame
         };
 
-        RenderedDocument::new(frame)
+        RenderedDocument {
+            frame,
+            is_new_scene,
+        }
     }
 
     pub fn updated_pipeline_info(&mut self) -> PipelineInfo {
@@ -1064,6 +1068,7 @@ impl RenderBackend {
                     &mut self.resource_cache,
                     &mut self.gpu_cache,
                     &mut profile_counters.resources,
+                    op.build,
                 );
 
                 debug!("generated frame for document {:?} with {} passes",
@@ -1257,6 +1262,7 @@ impl RenderBackend {
                     &mut self.resource_cache,
                     &mut self.gpu_cache,
                     &mut profile_counters.resources,
+                    true,
                 );
                 //TODO: write down doc's pipeline info?
                 // it has `pipeline_epoch_map`,
@@ -1370,7 +1376,7 @@ impl RenderBackend {
             let render_doc = match CaptureConfig::deserialize::<Frame, _>(root, frame_name) {
                 Some(frame) => {
                     info!("\tloaded a built frame with {} passes", frame.passes.len());
-                    RenderedDocument::new(frame)
+                    RenderedDocument { frame, is_new_scene: true }
                 }
                 None => {
                     last_scene_id += 1;
@@ -1379,6 +1385,7 @@ impl RenderBackend {
                         &mut self.resource_cache,
                         &mut self.gpu_cache,
                         &mut profile_counters.resources,
+                        true,
                     )
                 }
             };
