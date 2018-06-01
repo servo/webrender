@@ -190,8 +190,8 @@ impl BlobImageRenderer for CheckerboardRenderer {
         &mut self,
         _services: &BlobImageResources,
         requests: Vec<(BlobImageRequest, BlobImageDescriptor, Option<DeviceUintRect>)>,
-    ) -> Box<BlobSceneBuilderRequest> {
-        Box::new(SceneBuilderRequest {
+    ) -> Option<Box<BlobSceneBuilderRequest>> {
+        Some(Box::new(SceneBuilderRequest {
             requests: requests.into_iter().map(
                 |(request, descriptor, dirty_rect)| {
                     let &(color, tile_size) = self.image_cmds.get(&request.key).unwrap();
@@ -207,7 +207,7 @@ impl BlobImageRenderer for CheckerboardRenderer {
                     }
                 }
             ).collect(),
-        })
+        }))
     }
 }
 

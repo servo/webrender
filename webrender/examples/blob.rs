@@ -222,15 +222,15 @@ impl api::BlobImageRenderer for CheckerboardRenderer {
         &mut self,
         _services: &api::BlobImageResources,
         requests: Vec<(api::BlobImageRequest, api::BlobImageDescriptor, Option<api::DeviceUintRect>)>,
-    ) -> Box<api::BlobSceneBuilderRequest> {
-        Box::new(SceneBuilderRequest {
+    ) -> Option<Box<api::BlobSceneBuilderRequest>> {
+        Some(Box::new(SceneBuilderRequest {
             workers: Arc::clone(&self.workers),
             requests: requests.into_iter().map(
                 |(req, desc, _dirty_rect)| {
                     (req, desc, Arc::clone(&self.image_cmds[&req.key]))
                 }
             ).collect(),
-        })
+        }))
     }
 }
 

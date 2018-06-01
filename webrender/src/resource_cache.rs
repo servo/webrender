@@ -817,11 +817,9 @@ impl ResourceCache {
             blob_request_params.push((*request, descriptor, template.dirty_rect));
         }
 
-        Some(
-            self.blob_image_renderer.as_mut().unwrap().create_scene_builder_request(
-                &self.resources,
-                blob_request_params
-            )
+        self.blob_image_renderer.as_mut().unwrap().create_scene_builder_request(
+            &self.resources,
+            blob_request_params
         )
     }
 

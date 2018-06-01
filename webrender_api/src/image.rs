@@ -202,9 +202,11 @@ pub trait BlobImageRenderer: Send {
 
     fn create_scene_builder_request(
         &mut self,
-        services: &BlobImageResources,
-        requests: Vec<(BlobImageRequest, BlobImageDescriptor, Option<DeviceUintRect>)>,
-    ) -> Box<BlobSceneBuilderRequest>;
+        _services: &BlobImageResources,
+        _requests: Vec<(BlobImageRequest, BlobImageDescriptor, Option<DeviceUintRect>)>,
+    ) -> Option<Box<BlobSceneBuilderRequest>> {
+        None
+    }
 
     fn delete_font(&mut self, key: FontKey);
 
