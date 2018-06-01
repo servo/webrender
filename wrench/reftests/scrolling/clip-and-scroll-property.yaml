@@ -24,7 +24,6 @@ root:
             -
               bounds: [100, 0, 200, 200]
               clip: [-8947849, -8947849, 17895698, 17895698]
-              clip-and-scroll: 2
               type: rect
               color: green
   id: [0, 0]
