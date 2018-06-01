@@ -169,6 +169,7 @@ pub enum ResultMsg {
         TextureUpdateList,
         BackendProfileCounters,
     ),
+    BuiltScene,
 }
 
 #[derive(Clone, Debug)]

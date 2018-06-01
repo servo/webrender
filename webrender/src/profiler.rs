@@ -2,7 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::ColorF;
+use api::{ColorF, ColorU};
+use debug_render::DebugRenderer;
 use query::{GpuTimer, NamedTag};
 use std::collections::vec_deque::VecDeque;
 use std::f32;
@@ -10,8 +11,6 @@ use time::precise_time_ns;
 
 cfg_if! {
     if #[cfg(feature = "debug_renderer")] {
-        use api::ColorU;
-        use debug_render::DebugRenderer;
         use euclid::{Point2D, Rect, Size2D, vec2};
         use query::GpuSampler;
         use internal_types::FastHashMap;
@@ -1212,5 +1211,50 @@ impl Profiler {
                 debug_renderer,
             );
         }
+    }
+}
+
+pub struct ChangeIndicator {
+    counter: u32,
+}
+
+impl ChangeIndicator {
+    pub fn new() -> Self {
+        ChangeIndicator {
+            counter: 0
+        }
+    }
+
+    pub fn changed(&mut self) {
+        self.counter = (self.counter + 1) % 15;
+    }
+
+    pub fn draw(
+        &self,
+        x: f32, y: f32,
+        color: ColorU,
+        debug_renderer: &mut DebugRenderer
+    ) {
+        let margin = 0.0;
+        let w = 10.0;
+        let h = 5.0;
+        let tx = self.counter as f32 * w;
+        debug_renderer.add_quad(
+            x - margin,
+            y - margin,
+            x + 15.0 * w + margin,
+            y + h + margin,
+            ColorU::new(0, 0, 0, 150),
+            ColorU::new(0, 0, 0, 150),
+        );
+
+        debug_renderer.add_quad(
+            x + tx,
+            y,
+            x + tx + w,
+            y + h,
+            color,
+            ColorU::new(25, 25, 25, 255),
+        );
     }
 }

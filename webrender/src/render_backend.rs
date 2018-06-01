@@ -1040,6 +1040,10 @@ impl RenderBackend {
 
         debug_assert!(op.render || !op.composite);
 
+        if op.build {
+            self.result_tx.send(ResultMsg::BuiltScene).unwrap();
+        }
+
         if op.render && doc.has_pixels() {
             profile_scope!("generate frame");
 
