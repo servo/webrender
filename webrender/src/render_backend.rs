@@ -111,11 +111,6 @@ struct Document {
     // the first frame would produce inconsistent rendering results, because
     // scroll events are not necessarily received in deterministic order.
     render_on_scroll: Option<bool>,
-    // A helper flag to prevent any hit-tests from happening between calls
-    // to build_scene and rendering the document. In between these two calls,
-    // hit-tests produce inconsistent results because the clip_scroll_tree
-    // is out of sync with the display list.
-    render_on_hittest: bool,
 
     /// A data structure to allow hit testing against rendered frames. This is updated
     /// every time we produce a fully rendered frame.
@@ -163,7 +158,6 @@ impl Document {
             frame_builder: None,
             output_pipelines: FastHashSet::default(),
             render_on_scroll,
-            render_on_hittest: false,
             hit_tester: None,
             dynamic_properties: SceneProperties::new(),
         }
@@ -724,7 +718,6 @@ impl RenderBackend {
                         if let Some(doc) = self.documents.get_mut(&document_id) {
                             if let Some(mut built_scene) = built_scene.take() {
                                 doc.new_async_scene_ready(built_scene);
-                                doc.render_on_hittest = true;
                             }
                             if let Some(tx) = result_tx {
                                 let (resume_tx, resume_rx) = channel();
@@ -759,6 +752,7 @@ impl RenderBackend {
                                 transaction_msg,
                                 &mut frame_counter,
                                 &mut profile_counters,
+                                DocumentOps::render(),
                             );
                         }
                     },
@@ -958,6 +952,7 @@ impl RenderBackend {
                     doc_msgs,
                     frame_counter,
                     profile_counters,
+                    DocumentOps::nop(),
                 )
             }
         }
@@ -971,8 +966,9 @@ impl RenderBackend {
         mut transaction_msg: TransactionMsg,
         frame_counter: &mut u32,
         profile_counters: &mut BackendProfileCounters,
+        initial_op: DocumentOps,
     ) {
-        let mut op = DocumentOps::nop();
+        let mut op = initial_op;
 
         for scene_msg in transaction_msg.scene_ops.drain(..) {
             let _timer = profile_counters.total_time.timer();
@@ -1014,7 +1010,6 @@ impl RenderBackend {
             profile_scope!("build scene");
 
             doc.build_scene(&mut self.resource_cache, scene_id);
-            doc.render_on_hittest = true;
         }
 
         // If we have a sampler, get more frame ops from it and add them
@@ -1022,7 +1017,7 @@ impl RenderBackend {
         // fiddle with things after a potentially long scene build, but just
         // before rendering. This is useful for rendering with the latest
         // async transforms.
-        if transaction_msg.generate_frame {
+        if op.render || transaction_msg.generate_frame {
             if let Some(ref sampler) = self.sampler {
                 transaction_msg.frame_ops.append(&mut sampler.sample());
             }
@@ -1093,7 +1088,6 @@ impl RenderBackend {
             );
             self.result_tx.send(msg).unwrap();
             profile_counters.reset();
-            doc.render_on_hittest = false;
         } else if op.render {
             // WR-internal optimization to avoid doing a bunch of render work if
             // there's no pixels. We still want to pretend to render and request
@@ -1368,7 +1362,6 @@ impl RenderBackend {
                 frame_builder: Some(FrameBuilder::empty()),
                 output_pipelines: FastHashSet::default(),
                 render_on_scroll: None,
-                render_on_hittest: false,
                 dynamic_properties: SceneProperties::new(),
                 hit_tester: None,
             };
