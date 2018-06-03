@@ -195,9 +195,10 @@ void main(void) {
     // TODO(gw): We should do something similar in the future for
     //           dash clips!
     if (clip_mode == CLIP_DOT) {
+        // Expand by a small amount to allow room for AA around
+        // the dot.
         float expanded_radius = aClipParams1.z + 2.0;
-        vPos = vClipParams1.xy - vec2(expanded_radius);
-        vPos += (aPosition.xy * vec2(expanded_radius * 2.0));
+        vPos = vClipParams1.xy + expanded_radius * (2.0 * aPosition.xy - 1.0);
         vPos = clamp(vPos, vec2(0.0), aRect.zw);
     }
 
@@ -301,7 +302,6 @@ vec4 evaluate_color_for_style_in_edge(
 
 void main(void) {
     float aa_range = compute_aa_range(vPos);
-    float d = -1.0;
     vec4 color0, color1;
 
     int segment = vConfig.x;
@@ -318,6 +318,7 @@ void main(void) {
     // Check if inside corner clip-region
     vec2 clip_relative_pos = vPos - vClipCenter_Sign.xy;
     bool in_clip_region = all(lessThan(vClipCenter_Sign.zw * clip_relative_pos, vec2(0.0)));
+    float d = -1.0;
 
     switch (clip_mode) {
         case CLIP_DOT: {

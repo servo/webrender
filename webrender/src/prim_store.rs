@@ -1477,6 +1477,8 @@ impl PrimitiveStore {
                         clip_mask_kind: BrushClipMaskKind::Unknown,
                     });
 
+                    // The segments have changed, so force the GPU cache to
+                    // re-upload the primitive information.
                     frame_state.gpu_cache.invalidate(&mut metadata.gpu_location);
                 }
             }
