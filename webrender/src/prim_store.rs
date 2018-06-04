@@ -9,7 +9,7 @@ use api::{GlyphRasterSpace, LayoutPoint, LayoutRect, LayoutSize, LayoutToWorldTr
 use api::{PipelineId, PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat, DeviceIntSideOffsets};
 use api::{BorderWidths, LayoutToWorldScale, NormalBorder};
 use app_units::Au;
-use border::{BorderCacheKey, BorderCornerInstance, BorderRenderTaskInfo, BorderEdgeKind};
+use border::{BorderCacheKey, BorderRenderTaskInfo};
 use box_shadow::BLUR_SAMPLE_SCALE;
 use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, CoordinateSystemId};
 use clip_scroll_node::ClipScrollNode;
@@ -150,7 +150,6 @@ pub struct PictureIndex(pub usize);
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum PrimitiveKind {
     TextRun,
-    Border,
     Brush,
 }
 
@@ -555,19 +554,6 @@ pub enum ImageSource {
         size: DeviceIntSize,
         handle: Option<RenderTaskCacheEntryHandle>,
     },
-}
-
-#[derive(Debug)]
-pub struct BorderPrimitiveCpu {
-    pub corner_instances: [BorderCornerInstance; 4],
-    pub edges: [BorderEdgeKind; 4],
-    pub gpu_blocks: [GpuBlockData; 8],
-}
-
-impl ToGpuBlocks for BorderPrimitiveCpu {
-    fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        request.extend_from_slice(&self.gpu_blocks);
-    }
 }
 
 // The gradient entry index for the first color stop
@@ -1085,7 +1071,6 @@ impl ClipData {
 #[derive(Debug)]
 pub enum PrimitiveContainer {
     TextRun(TextRunPrimitiveCpu),
-    Border(BorderPrimitiveCpu),
     Brush(BrushPrimitive),
 }
 
@@ -1117,9 +1102,6 @@ impl PrimitiveContainer {
                         true
                     }
                 }
-            }
-            PrimitiveContainer::Border(..) => {
-                true
             }
         }
     }
@@ -1166,9 +1148,6 @@ impl PrimitiveContainer {
                     }
                 }
             }
-            PrimitiveContainer::Border(..) => {
-                panic!("bug: other primitive containers not expected here");
-            }
         }
     }
 }
@@ -1178,7 +1157,6 @@ pub struct PrimitiveStore {
     pub cpu_brushes: Vec<BrushPrimitive>,
     pub cpu_text_runs: Vec<TextRunPrimitiveCpu>,
     pub cpu_metadata: Vec<PrimitiveMetadata>,
-    pub cpu_borders: Vec<BorderPrimitiveCpu>,
 
     pub pictures: Vec<PicturePrimitive>,
     next_picture_id: u64,
@@ -1190,7 +1168,6 @@ impl PrimitiveStore {
             cpu_metadata: Vec::new(),
             cpu_brushes: Vec::new(),
             cpu_text_runs: Vec::new(),
-            cpu_borders: Vec::new(),
 
             pictures: Vec::new(),
             next_picture_id: 0,
@@ -1202,7 +1179,6 @@ impl PrimitiveStore {
             cpu_metadata: recycle_vec(self.cpu_metadata),
             cpu_brushes: recycle_vec(self.cpu_brushes),
             cpu_text_runs: recycle_vec(self.cpu_text_runs),
-            cpu_borders: recycle_vec(self.cpu_borders),
 
             pictures: recycle_vec(self.pictures),
             next_picture_id: self.next_picture_id,
@@ -1297,17 +1273,6 @@ impl PrimitiveStore {
                 self.cpu_text_runs.push(text_cpu);
                 metadata
             }
-            PrimitiveContainer::Border(border_cpu) => {
-                let metadata = PrimitiveMetadata {
-                    opacity: PrimitiveOpacity::translucent(),
-                    prim_kind: PrimitiveKind::Border,
-                    cpu_prim_index: SpecificPrimitiveIndex(self.cpu_borders.len()),
-                    ..base_metadata
-                };
-
-                self.cpu_borders.push(border_cpu);
-                metadata
-            }
         };
 
         self.cpu_metadata.push(metadata);
@@ -1365,8 +1330,7 @@ impl PrimitiveStore {
                     BrushKind::Clear => {}
                 }
             }
-            PrimitiveKind::TextRun |
-            PrimitiveKind::Border => {}
+            PrimitiveKind::TextRun => {}
         }
 
         None
@@ -1415,8 +1379,7 @@ impl PrimitiveStore {
                         }
                     };
                 }
-                PrimitiveKind::TextRun |
-                PrimitiveKind::Border => {
+                PrimitiveKind::TextRun => {
                     unreachable!("bug: invalid prim type for opacity collapse");
                 }
             }
@@ -1445,7 +1408,7 @@ impl PrimitiveStore {
         frame_state: &mut FrameBuildingState,
         frame_context: &FrameBuildingContext,
     ) {
-        let metadata = &self.cpu_metadata[prim_index.0];
+        let metadata = &mut self.cpu_metadata[prim_index.0];
 
         if metadata.prim_kind != PrimitiveKind::Brush {
             return;
@@ -1513,6 +1476,10 @@ impl PrimitiveStore {
                         segments: new_segments,
                         clip_mask_kind: BrushClipMaskKind::Unknown,
                     });
+
+                    // The segments have changed, so force the GPU cache to
+                    // re-upload the primitive information.
+                    frame_state.gpu_cache.invalidate(&mut metadata.gpu_location);
                 }
             }
         }
@@ -1536,7 +1503,6 @@ impl PrimitiveStore {
         }
 
         match metadata.prim_kind {
-            PrimitiveKind::Border => {}
             PrimitiveKind::TextRun => {
                 let text = &mut self.cpu_text_runs[metadata.cpu_prim_index.0];
                 // The transform only makes sense for screen space rasterization
@@ -1948,10 +1914,6 @@ impl PrimitiveStore {
             request.push(metadata.local_clip_rect);
 
             match metadata.prim_kind {
-                PrimitiveKind::Border => {
-                    let border = &self.cpu_borders[metadata.cpu_prim_index.0];
-                    border.write_gpu_blocks(request);
-                }
                 PrimitiveKind::TextRun => {
                     let text = &self.cpu_text_runs[metadata.cpu_prim_index.0];
                     text.write_gpu_blocks(&mut request);
@@ -2078,7 +2040,6 @@ impl PrimitiveStore {
 
                         continue;
                     }
-                    ClipSource::BorderCorner(..) |
                     ClipSource::LineDecoration(..) |
                     ClipSource::Image(..) => {
                         rect_clips_only = false;

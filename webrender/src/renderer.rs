@@ -148,14 +148,6 @@ const GPU_TAG_PRIM_TEXT_RUN: GpuProfileTag = GpuProfileTag {
     label: "TextRun",
     color: debug_colors::BLUE,
 };
-const GPU_TAG_PRIM_BORDER_CORNER: GpuProfileTag = GpuProfileTag {
-    label: "BorderCorner",
-    color: debug_colors::DARKSLATEGREY,
-};
-const GPU_TAG_PRIM_BORDER_EDGE: GpuProfileTag = GpuProfileTag {
-    label: "BorderEdge",
-    color: debug_colors::LAVENDER,
-};
 const GPU_TAG_BLUR: GpuProfileTag = GpuProfileTag {
     label: "Blur",
     color: debug_colors::VIOLET,
@@ -183,16 +175,12 @@ impl TransformBatchKind {
     fn debug_name(&self) -> &'static str {
         match *self {
             TransformBatchKind::TextRun(..) => "TextRun",
-            TransformBatchKind::BorderCorner => "BorderCorner",
-            TransformBatchKind::BorderEdge => "BorderEdge",
         }
     }
 
     fn sampler_tag(&self) -> GpuProfileTag {
         match *self {
             TransformBatchKind::TextRun(..) => GPU_TAG_PRIM_TEXT_RUN,
-            TransformBatchKind::BorderCorner => GPU_TAG_PRIM_BORDER_CORNER,
-            TransformBatchKind::BorderEdge => GPU_TAG_PRIM_BORDER_EDGE,
         }
     }
 }
@@ -438,6 +426,16 @@ pub(crate) mod desc {
                 count: 2,
                 kind: VertexAttributeKind::F32,
             },
+            VertexAttribute {
+                name: "aClipParams1",
+                count: 4,
+                kind: VertexAttributeKind::F32,
+            },
+            VertexAttribute {
+                name: "aClipParams2",
+                count: 4,
+                kind: VertexAttributeKind::F32,
+            },
         ],
     };
 
@@ -621,7 +619,6 @@ pub(crate) enum VertexArrayKind {
     Primitive,
     Blur,
     Clip,
-    DashAndDot,
     VectorStencil,
     VectorCover,
     Border,
@@ -1981,16 +1978,6 @@ impl Renderer {
         );
         debug_target.add(
             debug_server::BatchKind::Clip,
-            "Clear",
-            target.clip_batcher.border_clears.len(),
-        );
-        debug_target.add(
-            debug_server::BatchKind::Clip,
-            "Borders",
-            target.clip_batcher.borders.len(),
-        );
-        debug_target.add(
-            debug_server::BatchKind::Clip,
             "BoxShadows",
             target.clip_batcher.box_shadows.len(),
         );
@@ -3165,41 +3152,6 @@ impl Renderer {
         // Draw the clip items into the tiled alpha mask.
         {
             let _timer = self.gpu_profile.start_timer(GPU_TAG_CACHE_CLIP);
-
-            // If we have border corner clips, the first step is to clear out the
-            // area in the clip mask. This allows drawing multiple invididual clip
-            // in regions below.
-            if !target.clip_batcher.border_clears.is_empty() {
-                let _gm2 = self.gpu_profile.start_marker("clip borders [clear]");
-                self.device.set_blend(false);
-                self.shaders.cs_clip_border
-                    .bind(&mut self.device, projection, &mut self.renderer_errors);
-                self.draw_instanced_batch(
-                    &target.clip_batcher.border_clears,
-                    VertexArrayKind::DashAndDot,
-                    &BatchTextures::no_texture(),
-                    stats,
-                );
-            }
-
-            // Draw any dots or dashes for border corners.
-            if !target.clip_batcher.borders.is_empty() {
-                let _gm2 = self.gpu_profile.start_marker("clip borders");
-                // We are masking in parts of the corner (dots or dashes) here.
-                // Blend mode is set to max to allow drawing multiple dots.
-                // The individual dots and dashes in a border never overlap, so using
-                // a max blend mode here is fine.
-                self.device.set_blend(true);
-                self.device.set_blend_mode_max();
-                self.shaders.cs_clip_border
-                    .bind(&mut self.device, projection, &mut self.renderer_errors);
-                self.draw_instanced_batch(
-                    &target.clip_batcher.borders,
-                    VertexArrayKind::DashAndDot,
-                    &BatchTextures::no_texture(),
-                    stats,
-                );
-            }
 
             // switch to multiplicative blending
             self.device.set_blend(true);
@@ -4553,7 +4505,6 @@ fn get_vao<'a>(vertex_array_kind: VertexArrayKind,
         VertexArrayKind::Primitive => &vaos.prim_vao,
         VertexArrayKind::Clip => &vaos.clip_vao,
         VertexArrayKind::Blur => &vaos.blur_vao,
-        VertexArrayKind::DashAndDot => &vaos.dash_and_dot_vao,
         VertexArrayKind::VectorStencil => &gpu_glyph_renderer.vector_stencil_vao,
         VertexArrayKind::VectorCover => &gpu_glyph_renderer.vector_cover_vao,
         VertexArrayKind::Border => &vaos.border_vao,
@@ -4569,7 +4520,6 @@ fn get_vao<'a>(vertex_array_kind: VertexArrayKind,
         VertexArrayKind::Primitive => &vaos.prim_vao,
         VertexArrayKind::Clip => &vaos.clip_vao,
         VertexArrayKind::Blur => &vaos.blur_vao,
-        VertexArrayKind::DashAndDot => &vaos.dash_and_dot_vao,
         VertexArrayKind::VectorStencil | VertexArrayKind::VectorCover => unreachable!(),
         VertexArrayKind::Border => &vaos.border_vao,
     }

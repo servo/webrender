@@ -6,13 +6,12 @@ use api::{AlphaType, ClipMode, DeviceIntRect, DeviceIntSize};
 use api::{DeviceUintRect, DeviceUintPoint, ExternalImageType, FilterOp, ImageRendering, LayoutRect};
 use api::{DeviceIntPoint, YuvColorSpace, YuvFormat};
 use api::{LayoutToWorldTransform, WorldPixel};
-use border::{BorderCornerInstance, BorderCornerSide, BorderEdgeKind};
 use clip::{ClipSource, ClipStore, ClipWorkItem};
 use clip_scroll_tree::{CoordinateSystemId};
 use euclid::{TypedTransform3D, vec3};
 use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheAddress};
-use gpu_types::{BrushFlags, BrushInstance, ClipChainRectIndex, ClipMaskBorderCornerDotDash};
+use gpu_types::{BrushFlags, BrushInstance, ClipChainRectIndex};
 use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex, CompositePrimitiveInstance};
 use gpu_types::{PrimitiveInstance, RasterizationSpace, SimplePrimitiveInstance, ZBufferId};
 use gpu_types::ZBufferIdGenerator;
@@ -41,8 +40,6 @@ const OPAQUE_TASK_ADDRESS: RenderTaskAddress = RenderTaskAddress(0x7fff);
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum TransformBatchKind {
     TextRun(GlyphFormat),
-    BorderCorner,
-    BorderEdge,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -630,7 +627,6 @@ impl AlphaBatchBuilder {
             gpu_cache.get_address(&prim_metadata.gpu_location)
         };
 
-        let no_textures = BatchTextures::no_texture();
         let clip_task_address = prim_metadata
             .clip_task_id
             .map_or(OPAQUE_TASK_ADDRESS, |id| render_tasks.get_task_address(id));
@@ -1080,67 +1076,6 @@ impl AlphaBatchBuilder {
                                 render_tasks,
                                 user_data,
                             );
-                        }
-                    }
-                }
-            }
-            PrimitiveKind::Border => {
-                let border_cpu =
-                    &ctx.prim_store.cpu_borders[prim_metadata.cpu_prim_index.0];
-                // TODO(gw): Select correct blend mode for edges and corners!!
-
-                if border_cpu.corner_instances.iter().any(|&kind| kind != BorderCornerInstance::None) {
-                    let corner_kind = BatchKind::Transformable(
-                        transform_kind,
-                        TransformBatchKind::BorderCorner,
-                    );
-                    let corner_key = BatchKey::new(corner_kind, non_segmented_blend_mode, no_textures);
-                    let batch = self.batch_list
-                        .get_suitable_batch(corner_key, &task_relative_bounding_rect);
-
-                    for (i, instance_kind) in border_cpu.corner_instances.iter().enumerate() {
-                        let sub_index = i as i32;
-                        match *instance_kind {
-                            BorderCornerInstance::None => {}
-                            BorderCornerInstance::Single => {
-                                batch.push(base_instance.build(
-                                    sub_index,
-                                    BorderCornerSide::Both as i32,
-                                    0,
-                                ));
-                            }
-                            BorderCornerInstance::Double => {
-                                batch.push(base_instance.build(
-                                    sub_index,
-                                    BorderCornerSide::First as i32,
-                                    0,
-                                ));
-                                batch.push(base_instance.build(
-                                    sub_index,
-                                    BorderCornerSide::Second as i32,
-                                    0,
-                                ));
-                            }
-                        }
-                    }
-                }
-
-                if border_cpu.edges.iter().any(|&kind| kind != BorderEdgeKind::None) {
-                    let edge_kind = BatchKind::Transformable(
-                        transform_kind,
-                        TransformBatchKind::BorderEdge,
-                    );
-                    let edge_key = BatchKey::new(edge_kind, non_segmented_blend_mode, no_textures);
-                    let batch = self.batch_list
-                        .get_suitable_batch(edge_key, &task_relative_bounding_rect);
-
-                    for (border_segment, instance_kind) in border_cpu.edges.iter().enumerate() {
-                        match *instance_kind {
-                            BorderEdgeKind::None => {},
-                            BorderEdgeKind::Solid |
-                            BorderEdgeKind::Clip => {
-                                batch.push(base_instance.build(border_segment as i32, 0, 0));
-                            }
                         }
                     }
                 }
@@ -1668,7 +1603,6 @@ impl AlphaBatchHelpers for PrimitiveStore {
     fn get_blend_mode(&self, metadata: &PrimitiveMetadata) -> BlendMode {
         match metadata.prim_kind {
             // Can only resolve the TextRun's blend mode once glyphs are fetched.
-            PrimitiveKind::Border |
             PrimitiveKind::TextRun => {
                 BlendMode::PremultipliedAlpha
             }
@@ -1829,8 +1763,6 @@ pub struct ClipBatcher {
     pub rectangles: Vec<ClipMaskInstance>,
     /// Image draws apply the image masking.
     pub images: FastHashMap<SourceTexture, Vec<ClipMaskInstance>>,
-    pub border_clears: Vec<ClipMaskBorderCornerDotDash>,
-    pub borders: Vec<ClipMaskBorderCornerDotDash>,
     pub box_shadows: FastHashMap<SourceTexture, Vec<ClipMaskInstance>>,
     pub line_decorations: Vec<ClipMaskInstance>,
 }
@@ -1840,8 +1772,6 @@ impl ClipBatcher {
         ClipBatcher {
             rectangles: Vec::new(),
             images: FastHashMap::default(),
-            border_clears: Vec::new(),
-            borders: Vec::new(),
             box_shadows: FastHashMap::default(),
             line_decorations: Vec::new(),
         }
@@ -1952,30 +1882,6 @@ impl ClipBatcher {
                             clip_data_address: gpu_address,
                             ..instance
                         });
-                    }
-                    ClipSource::BorderCorner(ref source) => {
-                        let instance = ClipMaskBorderCornerDotDash {
-                            clip_mask_instance: ClipMaskInstance {
-                                clip_data_address: gpu_address,
-                                segment: 0,
-                                ..instance
-                            },
-                            dot_dash_data: [0.; 8],
-                        };
-
-                        self.border_clears.push(instance);
-
-                        for data in source.dot_dash_data.iter() {
-                            self.borders.push(ClipMaskBorderCornerDotDash {
-                                clip_mask_instance: ClipMaskInstance {
-                                    // The shader understands segment=0 as the clear, so the
-                                    // segment here just needs to be non-zero.
-                                    segment: 1,
-                                    ..instance.clip_mask_instance
-                                },
-                                dot_dash_data: *data,
-                            })
-                        }
                     }
                 }
             }
