@@ -204,6 +204,7 @@ impl<'a> DisplayListFlattener<'a> {
         output_pipelines: &FastHashSet<PipelineId>,
         frame_builder_config: &FrameBuilderConfig,
         new_scene: &mut Scene,
+        scene_id: u64,
     ) -> FrameBuilder {
         // We checked that the root pipeline is available on the render backend.
         let root_pipeline_id = scene.root_pipeline_id.unwrap();
@@ -254,7 +255,8 @@ impl<'a> DisplayListFlattener<'a> {
             view.inner_rect,
             background_color,
             view.window_size,
-            flattener
+            scene_id,
+            flattener,
         )
     }
 
@@ -2062,7 +2064,8 @@ pub fn build_scene(config: &FrameBuilderConfig, request: SceneRequest) -> BuiltS
         &request.view,
         &request.output_pipelines,
         config,
-        &mut new_scene
+        &mut new_scene,
+        request.scene_id,
     );
 
     BuiltScene {

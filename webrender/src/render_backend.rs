@@ -176,7 +176,7 @@ impl Document {
     }
 
     // TODO: We will probably get rid of this soon and always forward to the scene building thread.
-    fn build_scene(&mut self, resource_cache: &mut ResourceCache) {
+    fn build_scene(&mut self, resource_cache: &mut ResourceCache, scene_id: u64) {
         let max_texture_size = resource_cache.max_texture_size();
 
         if self.view.window_size.width > max_texture_size ||
@@ -199,7 +199,7 @@ impl Document {
             return;
         }
 
-        // The DisplayListFlattener will re-create the up-to-date current scene's pipeline epoch
+        // The DisplayListFlattener  re-create the up-to-date current scene's pipeline epoch
         // map and clip scroll tree from the information in the pending scene.
         self.current.scene.pipeline_epochs.clear();
         let old_scrolling_states = self.clip_scroll_tree.drain();
@@ -213,6 +213,7 @@ impl Document {
             &self.output_pipelines,
             &self.frame_builder_config,
             &mut self.current.scene,
+            scene_id,
         );
 
         self.clip_scroll_tree.finalize_and_apply_pending_scroll_offsets(old_scrolling_states);
@@ -233,6 +234,7 @@ impl Document {
         transaction_msg: TransactionMsg,
         document_ops: &DocumentOps,
         document_id: DocumentId,
+        scene_id: u64,
         resource_cache: &ResourceCache,
         scene_tx: &Sender<SceneBuilderRequest>,
     ) {
@@ -250,6 +252,7 @@ impl Document {
                 view: self.view.clone(),
                 font_instances: resource_cache.get_font_instances(),
                 output_pipelines: self.output_pipelines.clone(),
+                scene_id,
             })
         } else {
             None
@@ -397,6 +400,7 @@ struct PlainRenderBackend {
     frame_config: FrameBuilderConfig,
     documents: FastHashMap<DocumentId, DocumentView>,
     resources: PlainResources,
+    last_scene_id: u64,
 }
 
 /// The render backend is responsible for transforming high level display lists into
@@ -424,6 +428,7 @@ pub struct RenderBackend {
     recorder: Option<Box<ApiRecordingReceiver>>,
     sampler: Option<Box<AsyncPropertySampler + Send>>,
 
+    last_scene_id: u64,
     enable_render_on_scroll: bool,
 }
 
@@ -460,6 +465,7 @@ impl RenderBackend {
             notifier,
             recorder,
             sampler,
+            last_scene_id: 0,
             enable_render_on_scroll,
         }
     }
@@ -688,6 +694,12 @@ impl RenderBackend {
         IdNamespace(NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed) as u32)
     }
 
+    pub fn make_unique_scene_id(&mut self) -> u64 {
+        // 2^64 scenes ought to be enough for anybody!
+        self.last_scene_id += 1;
+        self.last_scene_id
+    }
+
     pub fn run(&mut self, mut profile_counters: BackendProfileCounters) {
         let mut frame_counter: u32 = 0;
         let mut keep_going = true;
@@ -746,7 +758,7 @@ impl RenderBackend {
                                 document_id,
                                 transaction_msg,
                                 &mut frame_counter,
-                                &mut profile_counters
+                                &mut profile_counters,
                             );
                         }
                     },
@@ -945,7 +957,7 @@ impl RenderBackend {
                     document_id,
                     doc_msgs,
                     frame_counter,
-                    profile_counters
+                    profile_counters,
                 )
             }
         }
@@ -975,11 +987,14 @@ impl RenderBackend {
         }
 
         if transaction_msg.use_scene_builder_thread {
+            let scene_id = self.make_unique_scene_id();
             let doc = self.documents.get_mut(&document_id).unwrap();
+
             doc.forward_transaction_to_scene_builder(
                 transaction_msg,
                 &op,
                 document_id,
+                scene_id,
                 &self.resource_cache,
                 &self.scene_tx,
             );
@@ -993,11 +1008,12 @@ impl RenderBackend {
         );
 
         if op.build {
+            let scene_id = self.make_unique_scene_id();
             let doc = self.documents.get_mut(&document_id).unwrap();
             let _timer = profile_counters.total_time.timer();
             profile_scope!("build scene");
 
-            doc.build_scene(&mut self.resource_cache);
+            doc.build_scene(&mut self.resource_cache, scene_id);
             doc.render_on_hittest = true;
         }
 
@@ -1269,6 +1285,7 @@ impl RenderBackend {
                 .map(|(id, doc)| (*id, doc.view.clone()))
                 .collect(),
             resources,
+            last_scene_id: self.last_scene_id,
         };
 
         config.serialize(&backend, "backend");
@@ -1328,6 +1345,7 @@ impl RenderBackend {
         self.frame_config = backend.frame_config;
         self.enable_render_on_scroll = backend.enable_render_on_scroll;
 
+        let mut last_scene_id = backend.last_scene_id;
         for (id, view) in backend.documents {
             debug!("\tdocument {:?}", id);
             let scene_name = format!("scene-{}-{}", (id.0).0, id.1);
@@ -1362,7 +1380,8 @@ impl RenderBackend {
                     RenderedDocument::new(frame)
                 }
                 None => {
-                    doc.build_scene(&mut self.resource_cache);
+                    last_scene_id += 1;
+                    doc.build_scene(&mut self.resource_cache, last_scene_id);
                     doc.render(
                         &mut self.resource_cache,
                         &mut self.gpu_cache,
