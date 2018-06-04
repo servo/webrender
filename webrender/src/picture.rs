@@ -467,6 +467,14 @@ impl PicturePrimitive {
                 pic_state.tasks.push(render_task_id);
                 self.surface = Some(PictureSurface::RenderTask(render_task_id));
 
+                // If the local rect of the contents changed, force the cache handle
+                // to be invalidated so that the primitive data below will get
+                // uploaded to the GPU this frame. This can occur during property
+                // animation.
+                if pic_state.local_rect_changed {
+                    frame_state.gpu_cache.invalidate(&mut self.extra_gpu_data_handle);
+                }
+
                 if let Some(mut request) = frame_state.gpu_cache.request(&mut self.extra_gpu_data_handle) {
                     // TODO(gw): This is very hacky code below! It stores an extra
                     //           brush primitive below for the special case of a
