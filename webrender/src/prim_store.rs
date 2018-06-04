@@ -2434,6 +2434,7 @@ impl PrimitiveStore {
                 if new_local_rect != metadata.local_rect {
                     metadata.local_rect = new_local_rect;
                     frame_state.gpu_cache.invalidate(&mut metadata.gpu_location);
+                    pic_state.local_rect_changed = true;
                 }
             }
         }

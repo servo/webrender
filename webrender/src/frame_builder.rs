@@ -85,6 +85,7 @@ pub struct PictureContext<'a> {
 pub struct PictureState {
     pub tasks: Vec<RenderTaskId>,
     pub has_non_root_coord_system: bool,
+    pub local_rect_changed: bool,
 }
 
 impl PictureState {
@@ -92,6 +93,7 @@ impl PictureState {
         PictureState {
             tasks: Vec::new(),
             has_non_root_coord_system: false,
+            local_rect_changed: false,
         }
     }
 }
