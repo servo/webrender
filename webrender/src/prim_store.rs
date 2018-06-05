@@ -310,7 +310,6 @@ pub enum BrushKind {
     LinearGradient {
         gradient_index: CachedGradientIndex,
         stops_range: ItemRange<GradientStop>,
-        stops_count: usize,
         extend_mode: ExtendMode,
         reverse_stops: bool,
         start_point: LayoutPoint,

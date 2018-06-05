@@ -638,7 +638,6 @@ impl<'a> DisplayListFlattener<'a> {
                     info.gradient.start_point,
                     info.gradient.end_point,
                     item.gradient_stops(),
-                    item.display_list().get(item.gradient_stops()).count(),
                     info.gradient.extend_mode,
                     info.tile_size,
                     info.tile_spacing,
@@ -681,7 +680,6 @@ impl<'a> DisplayListFlattener<'a> {
                     &prim_info,
                     info,
                     item.gradient_stops(),
-                    item.display_list().get(item.gradient_stops()).count(),
                 );
             }
             SpecificDisplayItem::PushStackingContext(ref info) => {
@@ -1496,7 +1494,6 @@ impl<'a> DisplayListFlattener<'a> {
         info: &LayoutPrimitiveInfo,
         border_item: &BorderDisplayItem,
         gradient_stops: ItemRange<GradientStop>,
-        gradient_stops_count: usize,
     ) {
         let rect = info.rect;
         let create_segments = |outset: SideOffsets2D<f32>| {
@@ -1741,7 +1738,6 @@ impl<'a> DisplayListFlattener<'a> {
                     border.gradient.start_point - segment_rel,
                     border.gradient.end_point - segment_rel,
                     gradient_stops,
-                    gradient_stops_count,
                     border.gradient.extend_mode,
                     segment.size,
                     LayoutSize::zero(),
@@ -1777,7 +1773,6 @@ impl<'a> DisplayListFlattener<'a> {
         start_point: LayoutPoint,
         end_point: LayoutPoint,
         stops: ItemRange<GradientStop>,
-        stops_count: usize,
         extend_mode: ExtendMode,
         stretch_size: LayoutSize,
         mut tile_spacing: LayoutSize,
@@ -1813,7 +1808,6 @@ impl<'a> DisplayListFlattener<'a> {
         let prim = BrushPrimitive::new(
             BrushKind::LinearGradient {
                 stops_range: stops,
-                stops_count,
                 extend_mode,
                 reverse_stops,
                 start_point: sp,
