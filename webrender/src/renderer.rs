@@ -82,7 +82,7 @@ cfg_if! {
     if #[cfg(feature = "debug_renderer")] {
         use api::ColorU;
         use debug_render::DebugRenderer;
-        use profiler::Profiler;
+        use profiler::{Profiler, ChangeIndicator};
         use query::GpuTimer;
     }
 }
@@ -236,6 +236,8 @@ bitflags! {
         const EPOCHS            = 1 << 6;
         const COMPACT_PROFILER  = 1 << 7;
         const ECHO_DRIVER_MESSAGES = 1 << 8;
+        const NEW_FRAME_INDICATOR = 1 << 9;
+        const NEW_SCENE_INDICATOR = 1 << 10;
     }
 }
 
@@ -1372,6 +1374,11 @@ pub struct Renderer {
     profile_counters: RendererProfileCounters,
     #[cfg(feature = "debug_renderer")]
     profiler: Profiler,
+    #[cfg(feature = "debug_renderer")]
+    new_frame_indicator: ChangeIndicator,
+    #[cfg(feature = "debug_renderer")]
+    new_scene_indicator: ChangeIndicator,
+
     last_time: u64,
 
     pub gpu_profile: GpuProfiler<GpuProfileTag>,
@@ -1774,6 +1781,10 @@ impl Renderer {
             profile_counters: RendererProfileCounters::new(),
             #[cfg(feature = "debug_renderer")]
             profiler: Profiler::new(),
+            #[cfg(feature = "debug_renderer")]
+            new_frame_indicator: ChangeIndicator::new(),
+            #[cfg(feature = "debug_renderer")]
+            new_scene_indicator: ChangeIndicator::new(),
             max_texture_size: max_device_size,
             max_recorded_profiles: options.max_recorded_profiles,
             clear_color: options.clear_color,
@@ -1863,6 +1874,11 @@ impl Renderer {
                     texture_update_list,
                     profile_counters,
                 ) => {
+                    if doc.is_new_scene {
+                        #[cfg(feature = "debug_renderer")]
+                        self.new_scene_indicator.changed();
+                    }
+
                     // Add a new document to the active set, expressed as a `Vec` in order
                     // to re-order based on `DocumentLayer` during rendering.
                     match self.active_documents.iter().position(|&(id, _)| id == document_id) {
@@ -2138,6 +2154,12 @@ impl Renderer {
             DebugCommand::EnableGpuSampleQueries(enable) => {
                 self.set_debug_flag(DebugFlags::GPU_SAMPLE_QUERIES, enable);
             }
+            DebugCommand::EnableNewFrameIndicator(enable) => {
+                self.set_debug_flag(DebugFlags::NEW_FRAME_INDICATOR, enable);
+            }
+            DebugCommand::EnableNewSceneIndicator(enable) => {
+                self.set_debug_flag(DebugFlags::NEW_SCENE_INDICATOR, enable);
+            }
             DebugCommand::EnableDualSourceBlending(_) => {
                 panic!("Should be handled by render backend");
             }
@@ -2380,6 +2402,23 @@ impl Renderer {
                         self.debug_flags.contains(DebugFlags::COMPACT_PROFILER),
                     );
                 }
+            }
+
+            if self.debug_flags.contains(DebugFlags::NEW_FRAME_INDICATOR) {
+                self.new_frame_indicator.changed();
+                self.new_frame_indicator.draw(
+                    0.0, 0.0,
+                    ColorU::new(0, 110, 220, 255),
+                    self.debug.get_mut(&mut self.device)
+                );
+            }
+
+            if self.debug_flags.contains(DebugFlags::NEW_SCENE_INDICATOR) {
+                self.new_scene_indicator.draw(
+                    160.0, 0.0,
+                    ColorU::new(220, 30, 10, 255),
+                    self.debug.get_mut(&mut self.device)
+                );
             }
         }
 
