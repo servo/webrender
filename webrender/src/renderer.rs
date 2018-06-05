@@ -2601,6 +2601,12 @@ impl Renderer {
         vertex_array_kind: VertexArrayKind,
         stats: &mut RendererStats,
     ) {
+        // If we end up with an empty draw call here, that means we have
+        // probably introduced unnecessary batch breaks during frame
+        // building - so we should be catching this earlier and removing
+        // the batch.
+        debug_assert!(!data.is_empty());
+
         let vao = get_vao(vertex_array_kind, &self.vaos, &self.gpu_glyph_renderer);
 
         self.device.bind_vao(vao);

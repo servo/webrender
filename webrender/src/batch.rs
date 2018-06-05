@@ -319,6 +319,24 @@ impl BatchList {
         }
     }
 
+    // Remove any batches that were added but didn't get any instances
+    // added to them.
+    fn remove_unused_batches(&mut self) {
+        if self.opaque_batch_list
+               .batches
+               .last()
+               .map_or(false, |batch| batch.instances.is_empty()) {
+            self.opaque_batch_list.batches.pop().unwrap();
+        }
+
+        if self.alpha_batch_list
+               .batches
+               .last()
+               .map_or(false, |batch| batch.instances.is_empty()) {
+            self.alpha_batch_list.batches.pop().unwrap();
+        }
+    }
+
     fn finalize(&mut self) {
         self.opaque_batch_list.finalize()
     }
@@ -1314,6 +1332,8 @@ impl AlphaBatchBuilder {
                 batch.push(PrimitiveInstance::from(base_instance));
             }
         }
+
+        self.batch_list.remove_unused_batches();
     }
 }
 
