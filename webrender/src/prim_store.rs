@@ -83,21 +83,6 @@ impl PrimitiveOpacity {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct CachedGradientIndex(pub usize);
-
-pub struct CachedGradient {
-    pub handle: GpuCacheHandle,
-}
-
-impl CachedGradient {
-    pub fn new() -> CachedGradient {
-        CachedGradient {
-            handle: GpuCacheHandle::new(),
-        }
-    }
-}
-
 // Represents the local space rect of a list of
 // primitive runs. For most primitive runs, the
 // primitive runs are attached to the parent they
@@ -296,7 +281,7 @@ pub enum BrushKind {
         image_rendering: ImageRendering,
     },
     RadialGradient {
-        gradient_index: CachedGradientIndex,
+        stops_handle: GpuCacheHandle,
         stops_range: ItemRange<GradientStop>,
         extend_mode: ExtendMode,
         center: LayoutPoint,
@@ -308,7 +293,7 @@ pub enum BrushKind {
         visible_tiles: Vec<VisibleGradientTile>,
     },
     LinearGradient {
-        gradient_index: CachedGradientIndex,
+        stops_handle: GpuCacheHandle,
         stops_range: ItemRange<GradientStop>,
         stops_count: usize,
         extend_mode: ExtendMode,
@@ -1772,7 +1757,6 @@ impl PrimitiveStore {
                         }
                     }
                     BrushKind::RadialGradient {
-                        gradient_index,
                         stops_range,
                         center,
                         start_radius,
@@ -1781,11 +1765,12 @@ impl PrimitiveStore {
                         extend_mode,
                         stretch_size,
                         tile_spacing,
+                        ref mut stops_handle,
                         ref mut visible_tiles,
                         ..
                     } => {
                         build_gradient_stops_request(
-                            gradient_index,
+                            stops_handle,
                             stops_range,
                             false,
                             frame_state,
@@ -1824,7 +1809,6 @@ impl PrimitiveStore {
                         }
                     }
                     BrushKind::LinearGradient {
-                        gradient_index,
                         stops_range,
                         reverse_stops,
                         start_point,
@@ -1832,12 +1816,13 @@ impl PrimitiveStore {
                         extend_mode,
                         stretch_size,
                         tile_spacing,
+                        ref mut stops_handle,
                         ref mut visible_tiles,
                         ..
                     } => {
 
                         build_gradient_stops_request(
-                            gradient_index,
+                            stops_handle,
                             stops_range,
                             reverse_stops,
                             frame_state,
@@ -2634,13 +2619,12 @@ impl PrimitiveStore {
 }
 
 fn build_gradient_stops_request(
-    gradient_index: CachedGradientIndex,
+    stops_handle: &mut GpuCacheHandle,
     stops_range: ItemRange<GradientStop>,
     reverse_stops: bool,
     frame_state: &mut FrameBuildingState,
     pic_context: &PictureContext
 ) {
-    let stops_handle = &mut frame_state.cached_gradients[gradient_index.0].handle;
     if let Some(mut request) = frame_state.gpu_cache.request(stops_handle) {
         let gradient_builder = GradientGpuBlockBuilder::new(
             stops_range,

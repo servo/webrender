@@ -10,7 +10,7 @@ use clip::{ClipSource, ClipStore, ClipWorkItem};
 use clip_scroll_tree::{CoordinateSystemId};
 use euclid::{TypedTransform3D, vec3};
 use glyph_rasterizer::GlyphFormat;
-use gpu_cache::{GpuCache, GpuCacheAddress};
+use gpu_cache::{GpuCache, GpuCacheHandle, GpuCacheAddress};
 use gpu_types::{BrushFlags, BrushInstance, ClipChainRectIndex};
 use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex, CompositePrimitiveInstance};
 use gpu_types::{PrimitiveInstance, RasterizationSpace, SimplePrimitiveInstance, ZBufferId};
@@ -18,10 +18,10 @@ use gpu_types::ZBufferIdGenerator;
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::{PictureCompositeMode, PicturePrimitive, PictureSurface};
 use plane_split::{BspSplitter, Polygon, Splitter};
-use prim_store::{BrushKind, BrushPrimitive, BrushSegmentTaskId, CachedGradient, DeferredResolve};
+use prim_store::{BrushKind, BrushPrimitive, BrushSegmentTaskId, DeferredResolve};
 use prim_store::{EdgeAaSegmentMask, ImageSource, PictureIndex, PrimitiveIndex, PrimitiveKind};
 use prim_store::{PrimitiveMetadata, PrimitiveRun, PrimitiveStore, VisibleGradientTile};
-use prim_store::{BorderSource, CachedGradientIndex};
+use prim_store::{BorderSource};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKind, RenderTaskTree};
 use renderer::{BlendMode, ImageBufferKind};
 use renderer::{BLOCKS_PER_UV_RECT, ShaderColorMode};
@@ -1017,10 +1017,10 @@ impl AlphaBatchBuilder {
                             }
                         }
                     }
-                    BrushKind::LinearGradient { gradient_index, ref visible_tiles, .. } if !visible_tiles.is_empty() => {
+                    BrushKind::LinearGradient { ref stops_handle, ref visible_tiles, .. } if !visible_tiles.is_empty() => {
                         add_gradient_tiles(
                             visible_tiles,
-                            gradient_index,
+                            stops_handle,
                             BrushBatchKind::LinearGradient,
                             specified_blend_mode,
                             &task_relative_bounding_rect,
@@ -1029,15 +1029,14 @@ impl AlphaBatchBuilder {
                             task_address,
                             clip_task_address,
                             z,
-                            ctx,
                             gpu_cache,
                             &mut self.batch_list,
                         );
                     }
-                    BrushKind::RadialGradient { gradient_index, ref visible_tiles, .. } if !visible_tiles.is_empty() => {
+                    BrushKind::RadialGradient { ref stops_handle, ref visible_tiles, .. } if !visible_tiles.is_empty() => {
                         add_gradient_tiles(
                             visible_tiles,
-                            gradient_index,
+                            stops_handle,
                             BrushBatchKind::RadialGradient,
                             specified_blend_mode,
                             &task_relative_bounding_rect,
@@ -1046,7 +1045,6 @@ impl AlphaBatchBuilder {
                             task_address,
                             clip_task_address,
                             z,
-                            ctx,
                             gpu_cache,
                             &mut self.batch_list,
                         );
@@ -1056,7 +1054,6 @@ impl AlphaBatchBuilder {
                                 ctx.resource_cache,
                                 gpu_cache,
                                 deferred_resolves,
-                                ctx.cached_gradients,
                         ) {
                             self.add_brush_to_batch(
                                 brush,
@@ -1319,7 +1316,7 @@ impl AlphaBatchBuilder {
 
 fn add_gradient_tiles(
     visible_tiles: &[VisibleGradientTile],
-    gradient_index: CachedGradientIndex,
+    stops_handle: &GpuCacheHandle,
     kind: BrushBatchKind,
     blend_mode: BlendMode,
     task_relative_bounding_rect: &DeviceIntRect,
@@ -1328,7 +1325,6 @@ fn add_gradient_tiles(
     task_address: RenderTaskAddress,
     clip_task_address: RenderTaskAddress,
     z: ZBufferId,
-    ctx: &RenderTargetContext,
     gpu_cache: &GpuCache,
     batch_list: &mut BatchList,
 ) {
@@ -1342,7 +1338,6 @@ fn add_gradient_tiles(
         task_relative_bounding_rect
     );
 
-    let stops_handle = &ctx.cached_gradients[gradient_index.0].handle;
     let user_data = [stops_handle.as_int(gpu_cache), 0, 0];
 
     let base_instance = BrushInstance {
@@ -1416,7 +1411,6 @@ impl BrushPrimitive {
         resource_cache: &ResourceCache,
         gpu_cache: &mut GpuCache,
         deferred_resolves: &mut Vec<DeferredResolve>,
-        cached_gradients: &[CachedGradient],
     ) -> Option<(BrushBatchKind, BatchTextures, [i32; 3])> {
         match self.kind {
             BrushKind::Image { request, ref source, .. } => {
@@ -1510,8 +1504,7 @@ impl BrushPrimitive {
                     [0; 3],
                 ))
             }
-            BrushKind::RadialGradient { gradient_index, .. } => {
-                let stops_handle = &cached_gradients[gradient_index.0].handle;
+            BrushKind::RadialGradient { ref stops_handle, .. } => {
                 Some((
                     BrushBatchKind::RadialGradient,
                     BatchTextures::no_texture(),
@@ -1522,8 +1515,7 @@ impl BrushPrimitive {
                     ],
                 ))
             }
-            BrushKind::LinearGradient { gradient_index, .. } => {
-                let stops_handle = &cached_gradients[gradient_index.0].handle;
+            BrushKind::LinearGradient { ref stops_handle, .. } => {
                 Some((
                     BrushBatchKind::LinearGradient,
                     BatchTextures::no_texture(),

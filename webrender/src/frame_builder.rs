@@ -14,7 +14,7 @@ use gpu_types::{ClipChainRectIndex, ClipScrollNodeData, UvRectKind};
 use hit_test::{HitTester, HitTestingRun};
 use internal_types::{FastHashMap};
 use picture::PictureSurface;
-use prim_store::{CachedGradient, PrimitiveIndex, PrimitiveRun, PrimitiveStore};
+use prim_store::{PrimitiveIndex, PrimitiveRun, PrimitiveStore};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_backend::FrameId;
 use render_task::{RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree};
@@ -46,7 +46,6 @@ pub struct FrameBuilder {
     pub clip_store: ClipStore,
     pub hit_testing_runs: Vec<HitTestingRun>,
     pub config: FrameBuilderConfig,
-    pub cached_gradients: Vec<CachedGradient>,
     pub scrollbar_prims: Vec<ScrollbarPrimitive>,
 }
 
@@ -67,7 +66,6 @@ pub struct FrameBuildingState<'a> {
     pub local_clip_rects: &'a mut Vec<LayoutRect>,
     pub resource_cache: &'a mut ResourceCache,
     pub gpu_cache: &'a mut GpuCache,
-    pub cached_gradients: &'a mut [CachedGradient],
     pub special_render_passes: &'a mut SpecialRenderPasses,
 }
 
@@ -122,7 +120,6 @@ impl FrameBuilder {
     pub fn empty() -> Self {
         FrameBuilder {
             hit_testing_runs: Vec::new(),
-            cached_gradients: Vec::new(),
             scrollbar_prims: Vec::new(),
             prim_store: PrimitiveStore::new(),
             clip_store: ClipStore::new(),
@@ -148,7 +145,6 @@ impl FrameBuilder {
     ) -> Self {
         FrameBuilder {
             hit_testing_runs: flattener.hit_testing_runs,
-            cached_gradients: flattener.cached_gradients,
             scrollbar_prims: flattener.scrollbar_prims,
             prim_store: flattener.prim_store,
             clip_store: flattener.clip_store,
@@ -209,7 +205,6 @@ impl FrameBuilder {
             resource_cache,
             gpu_cache,
             special_render_passes,
-            cached_gradients: &mut self.cached_gradients,
         };
 
         let pic_context = PictureContext {
@@ -385,7 +380,6 @@ impl FrameBuilder {
                 clip_scroll_tree,
                 use_dual_source_blending,
                 node_data: &node_data,
-                cached_gradients: &self.cached_gradients,
             };
 
             pass.build(
