@@ -1,0 +1,27 @@
+# for some reason this exact configuration with complex-clips is causing some bad clipping
+---
+root:
+  items:
+    - type: clip
+      bounds: [764, 97, 668, 239]
+      complex:
+        - rect: [764, 97, 668, 239]
+          clip-rect: [764, 97, 668, 239]
+          radius: 3
+      items:
+        # if the width (688) is changed to be <= 650, the top row of pixels stops being cutoff!!
+        - bounds: [779, 134, 688, 11]
+          clip-rect: [778, 133, 690, 13]
+          glyphs: [62]
+          offsets: [779.5, 142]
+          size: 10
+          color: [0.1411764770746231, 0.16078431904315948, 0.18039216101169586, 1]
+          font: "FreeSans.ttf"
+        
+        - bounds: [779, 134, 640, 11]
+          clip-rect: [778, 133, 690, 13]
+          glyphs: [62]
+          offsets: [799.5, 142]
+          size: 10
+          color: [0.1411764770746231, 0.16078431904315948, 0.18039216101169586, 1]
+          font: "FreeSans.ttf"
