@@ -1094,7 +1094,7 @@ impl AlphaBatchBuilder {
 
                 let font = text_cpu.get_font(
                     ctx.device_pixel_scale,
-                    Some(scroll_node.transform),
+                    scroll_node.transform,
                 );
                 let subpx_dir = font.get_subpx_dir();
 
