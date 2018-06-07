@@ -109,6 +109,7 @@ tasks:
           (cd webrender && cargo build --verbose --features capture,profiler) &&
           (cd webrender && cargo build --verbose --features replay) &&
           (cd wrench && cargo build --verbose --features env_logger) &&
+          (cd examples && cargo build --verbose) &&
           (cargo test --all --verbose)
     routes:
       - "index.garbage.webrender.ci.{{event.head.user.login}}.{{event.head.repo.branch}}.linux-debug"
@@ -192,6 +193,7 @@ tasks:
           (cd webrender && cargo check --verbose --features replay) &&
           (cd webrender && cargo check --verbose --no-default-features --features pathfinder) &&
           (cd wrench && cargo check --verbose --features env_logger) &&
+          (cd examples && cargo check --verbose) &&
           (cargo test --all --verbose)
     routes:
       - "index.garbage.webrender.ci.{{event.head.user.login}}.{{event.head.repo.branch}}.osx-debug"

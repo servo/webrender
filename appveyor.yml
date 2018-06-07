@@ -24,5 +24,7 @@ test_script:
   - cd ../wrench
   - cargo test --verbose
   - cargo run --release -- --angle reftest
+  - cd ../examples
+  - cargo check --verbose
   - cd ../direct-composition
   - cargo check --verbose
