@@ -2,6 +2,7 @@
 license = "MPL-2.0"
 members = [
     "direct-composition",
+    "examples",
     "webrender",
     "webrender_api",
     "wrench",
