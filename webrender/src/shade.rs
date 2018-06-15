@@ -6,7 +6,7 @@ use api::{
     YUV_COLOR_SPACES, YUV_FORMATS,
     YuvColorSpace, YuvFormat,
 };
-use batch::{BatchKey, BatchKind, BrushBatchKind, TransformBatchKind};
+use batch::{BatchKey, BatchKind, BrushBatchKind};
 use device::{Device, Program, ShaderError};
 use euclid::{Transform3D};
 use glyph_rasterizer::GlyphFormat;
@@ -16,7 +16,6 @@ use renderer::{
     BlendMode, ImageBufferKind, RendererError, RendererOptions,
     TextureSampler, VertexArrayKind,
 };
-use util::TransformedRectKind;
 
 use gleam::gl::GlType;
 use time::precise_time_ns;
@@ -50,7 +49,6 @@ pub const IMAGE_BUFFER_KINDS: [ImageBufferKind; 4] = [
     ImageBufferKind::Texture2DArray,
 ];
 
-const TRANSFORM_FEATURE: &str = "TRANSFORM";
 const ALPHA_FEATURE: &str = "ALPHA_PASS";
 const DITHERING_FEATURE: &str = "DITHERING";
 const DUAL_SOURCE_FEATURE: &str = "DUAL_SOURCE_BLENDING";
@@ -261,56 +259,8 @@ impl BrushShader {
     }
 }
 
-struct PrimitiveShader {
-    simple: LazilyCompiledShader,
-    transform: LazilyCompiledShader,
-}
-
-impl PrimitiveShader {
-    fn new(
-        name: &'static str,
-        device: &mut Device,
-        features: &[&'static str],
-        precache: bool,
-    ) -> Result<Self, ShaderError> {
-        let simple = LazilyCompiledShader::new(
-            ShaderKind::Primitive,
-            name,
-            features,
-            device,
-            precache,
-        )?;
-
-        let mut transform_features = features.to_vec();
-        transform_features.push(TRANSFORM_FEATURE);
-
-        let transform = LazilyCompiledShader::new(
-            ShaderKind::Primitive,
-            name,
-            &transform_features,
-            device,
-            precache,
-        )?;
-
-        Ok(PrimitiveShader { simple, transform })
-    }
-
-    fn get(&mut self, transform_kind: TransformedRectKind) -> &mut LazilyCompiledShader {
-        match transform_kind {
-            TransformedRectKind::AxisAligned => &mut self.simple,
-            TransformedRectKind::Complex => &mut self.transform,
-        }
-    }
-
-    fn deinit(self, device: &mut Device) {
-        self.simple.deinit(device);
-        self.transform.deinit(device);
-    }
-}
-
 pub struct TextShader {
     simple: LazilyCompiledShader,
-    transform: LazilyCompiledShader,
     glyph_transform: LazilyCompiledShader,
 }
 
@@ -329,17 +279,6 @@ impl TextShader {
             precache,
         )?;
 
-        let mut transform_features = features.to_vec();
-        transform_features.push("TRANSFORM");
-
-        let transform = LazilyCompiledShader::new(
-            ShaderKind::Text,
-            name,
-            &transform_features,
-            device,
-            precache,
-        )?;
-
         let mut glyph_transform_features = features.to_vec();
         glyph_transform_features.push("GLYPH_TRANSFORM");
 
@@ -351,22 +290,18 @@ impl TextShader {
             precache,
         )?;
 
-        Ok(TextShader { simple, transform, glyph_transform })
+        Ok(TextShader { simple, glyph_transform })
     }
 
     pub fn get(
         &mut self,
         glyph_format: GlyphFormat,
-        transform_kind: TransformedRectKind,
     ) -> &mut LazilyCompiledShader {
         match glyph_format {
             GlyphFormat::Alpha |
             GlyphFormat::Subpixel |
             GlyphFormat::Bitmap |
-            GlyphFormat::ColorBitmap => match transform_kind {
-                TransformedRectKind::AxisAligned => &mut self.simple,
-                TransformedRectKind::Complex => &mut self.transform,
-            }
+            GlyphFormat::ColorBitmap => &mut self.simple,
             GlyphFormat::TransformedAlpha |
             GlyphFormat::TransformedSubpixel => &mut self.glyph_transform,
         }
@@ -374,7 +309,6 @@ impl TextShader {
 
     fn deinit(self, device: &mut Device) {
         self.simple.deinit(device);
-        self.transform.deinit(device);
         self.glyph_transform.deinit(device);
     }
 }
@@ -400,9 +334,9 @@ fn create_prim_shader(
         VertexArrayKind::Primitive => desc::PRIM_INSTANCES,
         VertexArrayKind::Blur => desc::BLUR,
         VertexArrayKind::Clip => desc::CLIP,
-        VertexArrayKind::DashAndDot => desc::BORDER_CORNER_DASH_AND_DOT,
         VertexArrayKind::VectorStencil => desc::VECTOR_STENCIL,
         VertexArrayKind::VectorCover => desc::VECTOR_COVER,
+        VertexArrayKind::Border => desc::BORDER,
     };
 
     let program = device.create_program(name, &prefix, &vertex_descriptor);
@@ -464,6 +398,7 @@ pub struct Shaders {
     // of these shaders are then used by the primitive shaders.
     pub cs_blur_a8: LazilyCompiledShader,
     pub cs_blur_rgba8: LazilyCompiledShader,
+    pub cs_border_segment: LazilyCompiledShader,
 
     // Brush shaders
     brush_solid: BrushShader,
@@ -480,7 +415,6 @@ pub struct Shaders {
     pub cs_clip_rectangle: LazilyCompiledShader,
     pub cs_clip_box_shadow: LazilyCompiledShader,
     pub cs_clip_image: LazilyCompiledShader,
-    pub cs_clip_border: LazilyCompiledShader,
     pub cs_clip_line: LazilyCompiledShader,
 
     // The are "primitive shaders". These shaders draw and blend
@@ -492,9 +426,6 @@ pub struct Shaders {
     // a cache shader (e.g. blur) to the screen.
     pub ps_text_run: TextShader,
     pub ps_text_run_dual_source: TextShader,
-    ps_image: Vec<Option<PrimitiveShader>>,
-    ps_border_corner: PrimitiveShader,
-    ps_border_edge: PrimitiveShader,
 
     ps_split_composite: LazilyCompiledShader,
 }
@@ -610,14 +541,6 @@ impl Shaders {
             options.precache_shaders,
         )?;
 
-        let cs_clip_border = LazilyCompiledShader::new(
-            ShaderKind::ClipCache,
-            "cs_clip_border",
-            &[],
-            device,
-            options.precache_shaders,
-        )?;
-
         let ps_text_run = TextShader::new("ps_text_run",
             device,
             &[],
@@ -632,11 +555,9 @@ impl Shaders {
 
         // All image configuration.
         let mut image_features = Vec::new();
-        let mut ps_image = Vec::new();
         let mut brush_image = Vec::new();
         // PrimitiveShader is not clonable. Use push() to initialize the vec.
         for _ in 0 .. IMAGE_BUFFER_KINDS.len() {
-            ps_image.push(None);
             brush_image.push(None);
         }
         for buffer_kind in 0 .. IMAGE_BUFFER_KINDS.len() {
@@ -645,12 +566,6 @@ impl Shaders {
                 if feature_string != "" {
                     image_features.push(feature_string);
                 }
-                ps_image[buffer_kind] = Some(PrimitiveShader::new(
-                    "ps_image",
-                    device,
-                    &image_features,
-                    options.precache_shaders,
-                )?);
                 brush_image[buffer_kind] = Some(BrushShader::new(
                     "brush_image",
                     device,
@@ -706,17 +621,11 @@ impl Shaders {
             }
         }
 
-        let ps_border_corner = PrimitiveShader::new(
-            "ps_border_corner",
-             device,
+        let cs_border_segment = LazilyCompiledShader::new(
+            ShaderKind::Cache(VertexArrayKind::Border),
+            "cs_border_segment",
              &[],
-             options.precache_shaders,
-        )?;
-
-        let ps_border_edge = PrimitiveShader::new(
-            "ps_border_edge",
              device,
-             &[],
              options.precache_shaders,
         )?;
 
@@ -735,6 +644,7 @@ impl Shaders {
         Ok(Shaders {
             cs_blur_a8,
             cs_blur_rgba8,
+            cs_border_segment,
             brush_solid,
             brush_image,
             brush_blend,
@@ -744,14 +654,10 @@ impl Shaders {
             brush_linear_gradient,
             cs_clip_rectangle,
             cs_clip_box_shadow,
-            cs_clip_border,
             cs_clip_image,
             cs_clip_line,
             ps_text_run,
             ps_text_run_dual_source,
-            ps_image,
-            ps_border_corner,
-            ps_border_edge,
             ps_split_composite,
         })
     }
@@ -802,32 +708,12 @@ impl Shaders {
                 };
                 brush_shader.get(key.blend_mode)
             }
-            BatchKind::Transformable(transform_kind, batch_kind) => {
-                let prim_shader = match batch_kind {
-                    TransformBatchKind::TextRun(glyph_format) => {
-                        let text_shader = match key.blend_mode {
-                            BlendMode::SubpixelDualSource => {
-                                &mut self.ps_text_run_dual_source
-                            }
-                            _ => {
-                                &mut self.ps_text_run
-                            }
-                        };
-                        return text_shader.get(glyph_format, transform_kind);
-                    }
-                    TransformBatchKind::Image(image_buffer_kind) => {
-                        self.ps_image[image_buffer_kind as usize]
-                            .as_mut()
-                            .expect("Unsupported image shader kind")
-                    }
-                    TransformBatchKind::BorderCorner => {
-                        &mut self.ps_border_corner
-                    }
-                    TransformBatchKind::BorderEdge => {
-                        &mut self.ps_border_edge
-                    }
+            BatchKind::TextRun(glyph_format) => {
+                let text_shader = match key.blend_mode {
+                    BlendMode::SubpixelDualSource => &mut self.ps_text_run_dual_source,
+                    _ => &mut self.ps_text_run,
                 };
-                prim_shader.get(transform_kind)
+                text_shader.get(glyph_format)
             }
         }
     }
@@ -843,16 +729,10 @@ impl Shaders {
         self.cs_clip_rectangle.deinit(device);
         self.cs_clip_box_shadow.deinit(device);
         self.cs_clip_image.deinit(device);
-        self.cs_clip_border.deinit(device);
         self.cs_clip_line.deinit(device);
         self.ps_text_run.deinit(device);
         self.ps_text_run_dual_source.deinit(device);
         for shader in self.brush_image {
-            if let Some(shader) = shader {
-                shader.deinit(device);
-            }
-        }
-        for shader in self.ps_image {
             if let Some(shader) = shader {
                 shader.deinit(device);
             }
@@ -862,8 +742,7 @@ impl Shaders {
                 shader.deinit(device);
             }
         }
-        self.ps_border_corner.deinit(device);
-        self.ps_border_edge.deinit(device);
+        self.cs_border_segment.deinit(device);
         self.ps_split_composite.deinit(device);
     }
 }

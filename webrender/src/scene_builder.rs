@@ -2,13 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{DocumentId, PipelineId, ApiMsg, FrameMsg, ResourceUpdates};
+use api::{DocumentId, PipelineId, ApiMsg, FrameMsg, ResourceUpdate};
 use api::channel::MsgSender;
 use display_list_flattener::build_scene;
 use frame_builder::{FrameBuilderConfig, FrameBuilder};
 use clip_scroll_tree::ClipScrollTree;
 use internal_types::FastHashSet;
-use resource_cache::{FontInstanceMap, TiledImageMap};
+use resource_cache::FontInstanceMap;
 use render_backend::DocumentView;
 use renderer::{PipelineInfo, SceneBuilderHooks};
 use scene::Scene;
@@ -19,7 +19,7 @@ pub enum SceneBuilderRequest {
     Transaction {
         document_id: DocumentId,
         scene: Option<SceneRequest>,
-        resource_updates: ResourceUpdates,
+        resource_updates: Vec<ResourceUpdate>,
         frame_ops: Vec<FrameMsg>,
         render: bool,
     },
@@ -33,7 +33,7 @@ pub enum SceneBuilderResult {
     Transaction {
         document_id: DocumentId,
         built_scene: Option<BuiltScene>,
-        resource_updates: ResourceUpdates,
+        resource_updates: Vec<ResourceUpdate>,
         frame_ops: Vec<FrameMsg>,
         render: bool,
         result_tx: Option<Sender<SceneSwapResult>>,
@@ -55,9 +55,9 @@ pub struct SceneRequest {
     pub scene: Scene,
     pub view: DocumentView,
     pub font_instances: FontInstanceMap,
-    pub tiled_image_map: TiledImageMap,
     pub output_pipelines: FastHashSet<PipelineId>,
     pub removed_pipelines: Vec<PipelineId>,
+    pub scene_id: u64,
 }
 
 pub struct BuiltScene {
@@ -163,6 +163,7 @@ impl SceneBuilder {
                     _ => (None, None, None),
                 };
 
+                let has_resources_updates = !resource_updates.is_empty();
                 self.tx.send(SceneBuilderResult::Transaction {
                     document_id,
                     built_scene,
@@ -185,6 +186,10 @@ impl SceneBuilder {
                         },
                         _ => (),
                     };
+                } else if has_resources_updates {
+                    if let &Some(ref hooks) = &self.hooks {
+                        hooks.post_resource_update();
+                    }
                 }
             }
             SceneBuilderRequest::Stop => {

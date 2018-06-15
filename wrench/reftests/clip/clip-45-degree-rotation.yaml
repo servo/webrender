@@ -5,26 +5,23 @@ root:
     -
       bounds: [0, 0, 0, 0]
       "clip-rect": [0, 0, 0, 0]
-      "clip-and-scroll": 0
       type: "stacking-context"
       transform: rotate(45) translate(200, 0)
       items:
         -
           bounds: [0, 0, 300, 300]
           "clip-rect": [0, 0, 300, 300]
-          "clip-and-scroll": 0
           type: rect
           color: red
         -
           bounds: [0, 0, 300, 300]
           "clip-rect": [0, 0, 300, 300]
-          "clip-and-scroll": 0
           type: clip
           id: 5
         -
           bounds: [0, 0, 0, 0]
           "clip-rect": [0, 0, 0, 0]
-          "clip-and-scroll": 5
+          clip-and-scroll: 5
           type: "stacking-context"
           transform: rotate(-45) translate(-300, 0)
           items:

@@ -67,7 +67,8 @@ ClipVertexInfo write_clip_tile_vertex(RectWithSize local_clip_rect,
             scroll_node.transform,
             local_clip_rect,
             RectWithSize(snap_positions.xy, snap_positions.zw - snap_positions.xy),
-            snap_positions
+            snap_positions,
+            vec2(0.5)
         );
 
         actual_pos -= snap_offsets;
@@ -97,13 +98,3 @@ ClipVertexInfo write_clip_tile_vertex(RectWithSize local_clip_rect,
 }
 
 #endif //WR_VERTEX_SHADER
-
-#ifdef WR_FRAGMENT_SHADER
-
-//Note: identical to prim_shared
-float distance_to_line(vec2 p0, vec2 perp_dir, vec2 p) {
-    vec2 dir_to_p0 = p0 - p;
-    return dot(normalize(perp_dir), dir_to_p0);
-}
-
-#endif //WR_FRAGMENT_SHADER

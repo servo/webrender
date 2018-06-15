@@ -5,6 +5,7 @@
 extern crate gleam;
 extern crate glutin;
 extern crate webrender;
+extern crate winit;
 
 #[path = "common/boilerplate.rs"]
 mod boilerplate;
@@ -23,7 +24,7 @@ impl Example for App {
         &mut self,
         api: &RenderApi,
         builder: &mut DisplayListBuilder,
-        _resources: &mut ResourceUpdates,
+        _txn: &mut Transaction,
         _framebuffer_size: DeviceUintSize,
         pipeline_id: PipelineId,
         document_id: DocumentId,
@@ -39,10 +40,7 @@ impl Example for App {
         sub_builder.push_stacking_context(
             &info,
             None,
-            ScrollPolicy::Scrollable,
-            None,
             TransformStyle::Flat,
-            None,
             MixBlendMode::Normal,
             Vec::new(),
             GlyphRasterSpace::Screen,
@@ -62,22 +60,31 @@ impl Example for App {
         );
         api.send_transaction(document_id, txn);
 
+        let info = LayoutPrimitiveInfo::new(sub_bounds);
+        let reference_frame_id = builder.push_reference_frame(
+            &info,
+            Some(PropertyBinding::Binding(PropertyBindingKey::new(42), LayoutTransform::identity())),
+            None,
+        );
+        builder.push_clip_id(reference_frame_id);
+
+
         // And this is for the root pipeline
         builder.push_stacking_context(
             &info,
             None,
-            ScrollPolicy::Scrollable,
-            Some(PropertyBinding::Binding(PropertyBindingKey::new(42))),
             TransformStyle::Flat,
-            None,
             MixBlendMode::Normal,
             Vec::new(),
             GlyphRasterSpace::Screen,
         );
         // red rect under the iframe: if this is visible, things have gone wrong
         builder.push_rect(&info, ColorF::new(1.0, 0.0, 0.0, 1.0));
-        builder.push_iframe(&info, sub_pipeline_id);
+        builder.push_iframe(&info, sub_pipeline_id, false);
         builder.pop_stacking_context();
+
+        builder.pop_clip_id();
+        builder.pop_reference_frame();
     }
 }
 

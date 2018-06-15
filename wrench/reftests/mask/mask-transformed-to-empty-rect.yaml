@@ -16,7 +16,7 @@ root:
             image: "tiny-check-mask.png"
             rect: [0, 0, 300, 300]
             repeat: false
-          id: 1
+          id: 2
           items:
             - type: rect
               bounds: [0, 0, 300, 300]

@@ -2,13 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AddFont, BlobImageData, BlobImageResources, ResourceUpdate, ResourceUpdates};
+use api::{AddFont, BlobImageResources, ResourceUpdate};
 use api::{BlobImageDescriptor, BlobImageError, BlobImageRenderer, BlobImageRequest};
 use api::{ClearCache, ColorF, DevicePoint, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
-use api::{Epoch, FontInstanceKey, FontKey, FontTemplate};
+use api::{Epoch, FontInstanceKey, FontKey, FontTemplate, GlyphIndex};
 use api::{ExternalImageData, ExternalImageType};
 use api::{FontInstanceOptions, FontInstancePlatformOptions, FontVariation};
-use api::{GlyphDimensions, GlyphKey, IdNamespace};
+use api::{GlyphDimensions, IdNamespace};
 use api::{ImageData, ImageDescriptor, ImageKey, ImageRendering};
 use api::{TileOffset, TileSize};
 use app_units::Au;
@@ -19,10 +19,11 @@ use capture::PlainExternalImage;
 #[cfg(any(feature = "replay", feature = "png"))]
 use capture::CaptureConfig;
 use device::TextureFilter;
+use euclid::size2;
 use glyph_cache::GlyphCache;
 #[cfg(not(feature = "pathfinder"))]
 use glyph_cache::GlyphCacheEntry;
-use glyph_rasterizer::{FontInstance, GlyphFormat, GlyphRasterizer, GlyphRequest};
+use glyph_rasterizer::{FontInstance, GlyphFormat, GlyphKey, GlyphRasterizer};
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use gpu_types::UvRectKind;
 use internal_types::{FastHashMap, FastHashSet, SourceTexture, TextureUpdateList};
@@ -34,7 +35,6 @@ use std::collections::hash_map::Entry::{self, Occupied, Vacant};
 use std::cmp;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::mem;
 #[cfg(any(feature = "capture", feature = "replay"))]
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -110,8 +110,6 @@ pub struct ImageTiling {
     pub tile_size: TileSize,
 }
 
-pub type TiledImageMap = FastHashMap<ImageKey, ImageTiling>;
-
 #[derive(Default)]
 struct ImageTemplates {
     images: FastHashMap<ImageKey, ImageResource>,
@@ -149,26 +147,25 @@ pub struct ResourceClassCache<K: Hash + Eq, V, U: Default> {
     pub user_data: U,
 }
 
-fn intersect_for_tile(
+pub fn intersect_for_tile(
     dirty: DeviceUintRect,
-    width: u32,
-    height: u32,
+    clipped_tile_size: DeviceUintSize,
     tile_size: TileSize,
     tile_offset: TileOffset,
 
 ) -> Option<DeviceUintRect> {
-        dirty.intersection(&DeviceUintRect::new(
-            DeviceUintPoint::new(
-                tile_offset.x as u32 * tile_size as u32,
-                tile_offset.y as u32 * tile_size as u32
-            ),
-            DeviceUintSize::new(width, height),
-        )).map(|mut r| {
-                // we can't translate by a negative size so do it manually
-                r.origin.x -= tile_offset.x as u32 * tile_size as u32;
-                r.origin.y -= tile_offset.y as u32 * tile_size as u32;
-                r
-            })
+    dirty.intersection(&DeviceUintRect::new(
+        DeviceUintPoint::new(
+            tile_offset.x as u32 * tile_size as u32,
+            tile_offset.y as u32 * tile_size as u32
+        ),
+        clipped_tile_size,
+    )).map(|mut r| {
+        // we can't translate by a negative size so do it manually
+        r.origin.x -= tile_offset.x as u32 * tile_size as u32;
+        r.origin.y -= tile_offset.y as u32 * tile_size as u32;
+        r
+    })
 }
 
 
@@ -177,7 +174,7 @@ where
     K: Clone + Hash + Eq + Debug,
     U: Default,
 {
-    pub fn new() -> ResourceClassCache<K, V, U> {
+    pub fn new() -> Self {
         ResourceClassCache {
             resources: FastHashMap::default(),
             user_data: Default::default(),
@@ -238,6 +235,16 @@ pub struct ImageRequest {
     pub tile: Option<TileOffset>,
 }
 
+impl ImageRequest {
+    pub fn with_tile(&self, offset: TileOffset) -> Self {
+        ImageRequest {
+            key: self.key,
+            rendering: self.rendering,
+            tile: Some(offset),
+        }
+    }
+}
+
 impl Into<BlobImageRequest> for ImageRequest {
     fn into(self) -> BlobImageRequest {
         BlobImageRequest {
@@ -275,7 +282,7 @@ impl BlobImageResources for Resources {
     }
 }
 
-pub type GlyphDimensionsCache = FastHashMap<GlyphRequest, Option<GlyphDimensions>>;
+pub type GlyphDimensionsCache = FastHashMap<(FontInstance, GlyphIndex), Option<GlyphDimensions>>;
 
 pub struct ResourceCache {
     cached_glyphs: GlyphCache,
@@ -326,7 +333,7 @@ impl ResourceCache {
     }
 
     fn should_tile(limit: u32, descriptor: &ImageDescriptor, data: &ImageData) -> bool {
-        let size_check = descriptor.width > limit || descriptor.height > limit;
+        let size_check = descriptor.size.width > limit || descriptor.size.height > limit;
         match *data {
             ImageData::Raw(_) | ImageData::Blob(_) => size_check,
             ImageData::External(info) => {
@@ -364,14 +371,14 @@ impl ResourceCache {
 
     pub fn update_resources(
         &mut self,
-        updates: ResourceUpdates,
+        updates: Vec<ResourceUpdate>,
         profile_counters: &mut ResourceProfileCounters,
     ) {
         // TODO, there is potential for optimization here, by processing updates in
         // bulk rather than one by one (for example by sorting allocations by size or
         // in a way that reduces fragmentation in the atlas).
 
-        for update in updates.updates {
+        for update in updates {
             match update {
                 ResourceUpdate::AddImage(img) => {
                     if let ImageData::Raw(ref bytes) = img.data {
@@ -442,7 +449,6 @@ impl ResourceCache {
     ) {
         let FontInstanceOptions {
             render_mode,
-            subpx_dir,
             flags,
             bg_color,
             ..
@@ -453,7 +459,6 @@ impl ResourceCache {
             ColorF::new(0.0, 0.0, 0.0, 1.0),
             bg_color,
             render_mode,
-            subpx_dir,
             flags,
             platform_options,
             variations,
@@ -487,7 +492,7 @@ impl ResourceCache {
         &mut self,
         image_key: ImageKey,
         descriptor: ImageDescriptor,
-        mut data: ImageData,
+        data: ImageData,
         mut tiling: Option<TileSize>,
     ) {
         if tiling.is_none() && Self::should_tile(self.max_texture_size(), &descriptor, &data) {
@@ -496,21 +501,21 @@ impl ResourceCache {
             tiling = Some(DEFAULT_TILE_SIZE);
         }
 
-        if let ImageData::Blob(ref mut blob) = data {
+        if let ImageData::Blob(ref blob) = data {
             self.blob_image_renderer.as_mut().unwrap().add(
                 image_key,
-                mem::replace(blob, BlobImageData::new()),
+                Arc::clone(&blob),
                 tiling,
             );
         }
+        let dirty_rect = Some(descriptor.full_rect());
 
         let resource = ImageResource {
             descriptor,
             data,
             epoch: Epoch(0),
             tiling,
-            dirty_rect: Some(DeviceUintRect::new(DeviceUintPoint::zero(),
-                                                 DeviceUintSize::new(descriptor.width, descriptor.height))),
+            dirty_rect,
         };
 
         self.resources.image_templates.insert(image_key, resource);
@@ -538,7 +543,7 @@ impl ResourceCache {
             self.blob_image_renderer
                 .as_mut()
                 .unwrap()
-                .update(image_key, mem::replace(blob, BlobImageData::new()), dirty_rect);
+                .update(image_key, Arc::clone(&blob), dirty_rect);
         }
 
         *image = ImageResource {
@@ -593,12 +598,12 @@ impl ResourceCache {
         }
 
         let side_size =
-            template.tiling.map_or(cmp::max(template.descriptor.width, template.descriptor.height),
+            template.tiling.map_or(cmp::max(template.descriptor.size.width, template.descriptor.size.height),
                                    |tile_size| tile_size as u32);
         if side_size > self.texture_cache.max_texture_size() {
             // The image or tiling size is too big for hardware texture size.
             warn!("Dropping image, image:(w:{},h:{}, tile:{}) is too big for hardware!",
-                  template.descriptor.width, template.descriptor.height, template.tiling.unwrap_or(0));
+                  template.descriptor.size.width, template.descriptor.size.height, template.tiling.unwrap_or(0));
             self.cached_images.insert(request, Err(ImageCacheError::OverLimitSize));
             return;
         }
@@ -627,20 +632,24 @@ impl ResourceCache {
         let needs_upload = self.texture_cache
             .request(&entry.as_ref().unwrap().texture_cache_handle, gpu_cache);
 
-        if !needs_upload && !needs_update {
-            return;
-        }
+        let dirty_rect = if needs_upload {
+            // the texture cache entry has been evicted, treat it as all dirty
+            Some(template.descriptor.full_rect())
+        } else if needs_update {
+            template.dirty_rect
+        } else {
+            return
+        };
 
         // We can start a worker thread rasterizing right now, if:
         //  - The image is a blob.
         //  - The blob hasn't already been requested this frame.
         if self.pending_image_requests.insert(request) && template.data.is_blob() {
             if let Some(ref mut renderer) = self.blob_image_renderer {
-                let mut dirty_rect = template.dirty_rect;
-                let (offset, w, h) = match template.tiling {
+                let (offset, size) = match template.tiling {
                     Some(tile_size) => {
                         let tile_offset = request.tile.unwrap();
-                        let (w, h) = compute_tile_size(
+                        let actual_size = compute_tile_size(
                             &template.descriptor,
                             tile_size,
                             tile_offset,
@@ -651,27 +660,23 @@ impl ResourceCache {
                         );
 
                         if let Some(dirty) = dirty_rect {
-                            dirty_rect = intersect_for_tile(dirty, w, h, tile_size, tile_offset);
-                            if dirty_rect.is_none() {
+                            if intersect_for_tile(dirty, actual_size, tile_size, tile_offset).is_none() {
+                                // don't bother requesting unchanged tiles
+                                self.pending_image_requests.remove(&request);
                                 return
                             }
                         }
 
-                        (offset, w, h)
+                        (offset, actual_size)
                     }
-                    None => (
-                        DevicePoint::zero(),
-                        template.descriptor.width,
-                        template.descriptor.height,
-                    ),
+                    None => (DevicePoint::zero(), template.descriptor.size),
                 };
 
                 renderer.request(
                     &self.resources,
                     request.into(),
                     &BlobImageDescriptor {
-                        width: w,
-                        height: h,
+                        size,
                         offset,
                         format: template.descriptor.format,
                     },
@@ -809,15 +814,13 @@ impl ResourceCache {
     pub fn get_glyph_dimensions(
         &mut self,
         font: &FontInstance,
-        key: &GlyphKey,
+        glyph_index: GlyphIndex,
     ) -> Option<GlyphDimensions> {
-        let key = GlyphRequest::new(font, key);
-
-        match self.cached_glyph_dimensions.entry(key.clone()) {
+        match self.cached_glyph_dimensions.entry((font.clone(), glyph_index)) {
             Occupied(entry) => *entry.get(),
             Vacant(entry) => *entry.insert(
                 self.glyph_rasterizer
-                    .get_glyph_dimensions(&key.font, &key.key),
+                    .get_glyph_dimensions(font, glyph_index),
             ),
         }
     }
@@ -877,28 +880,6 @@ impl ResourceCache {
                 epoch: image_template.epoch,
             }
         })
-    }
-
-    pub fn get_tiled_image_map(&self) -> TiledImageMap {
-        self.resources
-            .image_templates
-            .images
-            .iter()
-            .filter_map(|(&key, template)| {
-                template.tiling.map(|tile_size| {
-                    (
-                        key,
-                        ImageTiling {
-                            image_size: DeviceUintSize::new(
-                                template.descriptor.width,
-                                template.descriptor.height,
-                            ),
-                            tile_size,
-                        },
-                    )
-                })
-            })
-            .collect()
     }
 
     pub fn begin_frame(&mut self, frame_id: FrameId) {
@@ -985,11 +966,10 @@ impl ResourceCache {
                 let tile_size = image_template.tiling.unwrap();
                 let image_descriptor = &image_template.descriptor;
 
-                let (actual_width, actual_height) =
-                    compute_tile_size(image_descriptor, tile_size, tile);
+                let clipped_tile_size = compute_tile_size(image_descriptor, tile_size, tile);
 
                 if let Some(dirty) = dirty_rect {
-                    dirty_rect = intersect_for_tile(dirty, actual_width, actual_height, tile_size, tile);
+                    dirty_rect = intersect_for_tile(dirty, clipped_tile_size, tile_size, tile);
                     if dirty_rect.is_none() {
                         continue
                     }
@@ -1012,8 +992,7 @@ impl ResourceCache {
                 };
 
                 ImageDescriptor {
-                    width: actual_width,
-                    height: actual_height,
+                    size: clipped_tile_size,
                     stride,
                     offset,
                     ..*image_descriptor
@@ -1035,8 +1014,8 @@ impl ResourceCache {
                     // the most important use cases. We may want to support
                     // mip-maps on shared cache items in the future.
                     if descriptor.allow_mipmaps &&
-                       descriptor.width > 512 &&
-                       descriptor.height > 512 &&
+                       descriptor.size.width > 512 &&
+                       descriptor.size.height > 512 &&
                        !self.texture_cache.is_allowed_in_shared_cache(
                         TextureFilter::Linear,
                         &descriptor,
@@ -1119,24 +1098,24 @@ pub fn compute_tile_size(
     descriptor: &ImageDescriptor,
     base_size: TileSize,
     tile: TileOffset,
-) -> (u32, u32) {
+) -> DeviceUintSize {
     let base_size = base_size as u32;
     // Most tiles are going to have base_size as width and height,
     // except for tiles around the edges that are shrunk to fit the mage data
     // (See decompose_tiled_image in frame.rs).
-    let actual_width = if (tile.x as u32) < descriptor.width / base_size {
+    let actual_width = if (tile.x as u32) < descriptor.size.width / base_size {
         base_size
     } else {
-        descriptor.width % base_size
+        descriptor.size.width % base_size
     };
 
-    let actual_height = if (tile.y as u32) < descriptor.height / base_size {
+    let actual_height = if (tile.y as u32) < descriptor.size.height / base_size {
         base_size
     } else {
-        descriptor.height % base_size
+        descriptor.size.height % base_size
     };
 
-    (actual_width, actual_height)
+    size2(actual_width, actual_height)
 }
 
 #[cfg(any(feature = "capture", feature = "replay"))]
@@ -1262,7 +1241,7 @@ impl ResourceCache {
                     #[cfg(feature = "png")]
                     CaptureConfig::save_png(
                         root.join(format!("images/{}.png", image_id)),
-                        (desc.width, desc.height),
+                        (desc.size.width, desc.size.height),
                         ReadPixelsFormat::Standard(desc.format),
                         &arc,
                     );
@@ -1287,8 +1266,7 @@ impl ResourceCache {
                         &self.resources,
                         request,
                         &BlobImageDescriptor {
-                            width: desc.width,
-                            height: desc.height,
+                            size: desc.size,
                             offset: DevicePoint::zero(),
                             format: desc.format,
                         },
@@ -1296,14 +1274,14 @@ impl ResourceCache {
                     );
                     let result = renderer.resolve(request)
                         .expect("Blob resolve failed");
-                    assert_eq!((result.width, result.height), (desc.width, desc.height));
+                    assert_eq!(result.size, desc.size);
                     assert_eq!(result.data.len(), desc.compute_total_size() as usize);
 
                     num_blobs += 1;
                     #[cfg(feature = "png")]
                     CaptureConfig::save_png(
                         root.join(format!("blobs/{}.png", num_blobs)),
-                        (desc.width, desc.height),
+                        (desc.size.width, desc.size.height),
                         ReadPixelsFormat::Standard(desc.format),
                         &result.data,
                     );

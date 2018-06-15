@@ -6,6 +6,7 @@ extern crate euclid;
 extern crate gleam;
 extern crate glutin;
 extern crate webrender;
+extern crate winit;
 
 #[path = "common/boilerplate.rs"]
 mod boilerplate;
@@ -23,7 +24,7 @@ impl Example for App {
         &mut self,
         _api: &RenderApi,
         builder: &mut DisplayListBuilder,
-        _resources: &mut ResourceUpdates,
+        _txn: &mut Transaction,
         _framebuffer_size: DeviceUintSize,
         _pipeline_id: PipelineId,
         _document_id: DocumentId,
@@ -34,10 +35,7 @@ impl Example for App {
         builder.push_stacking_context(
             &info,
             None,
-            ScrollPolicy::Scrollable,
-            None,
             TransformStyle::Flat,
-            None,
             MixBlendMode::Normal,
             Vec::new(),
             GlyphRasterSpace::Screen,
@@ -50,10 +48,7 @@ impl Example for App {
             builder.push_stacking_context(
                 &LayoutPrimitiveInfo::new((10, 10).by(0, 0)),
                 None,
-                ScrollPolicy::Scrollable,
-                None,
                 TransformStyle::Flat,
-                None,
                 MixBlendMode::Normal,
                 Vec::new(),
                 GlyphRasterSpace::Screen,
@@ -145,22 +140,22 @@ impl Example for App {
         builder.pop_stacking_context();
     }
 
-    fn on_event(&mut self, event: glutin::WindowEvent, api: &RenderApi, document_id: DocumentId) -> bool {
+    fn on_event(&mut self, event: winit::WindowEvent, api: &RenderApi, document_id: DocumentId) -> bool {
         let mut txn = Transaction::new();
         match event {
-            glutin::WindowEvent::KeyboardInput {
-                input: glutin::KeyboardInput {
-                    state: glutin::ElementState::Pressed,
+            winit::WindowEvent::KeyboardInput {
+                input: winit::KeyboardInput {
+                    state: winit::ElementState::Pressed,
                     virtual_keycode: Some(key),
                     ..
                 },
                 ..
             } => {
                 let offset = match key {
-                    glutin::VirtualKeyCode::Down => (0.0, -10.0),
-                    glutin::VirtualKeyCode::Up => (0.0, 10.0),
-                    glutin::VirtualKeyCode::Right => (-10.0, 0.0),
-                    glutin::VirtualKeyCode::Left => (10.0, 0.0),
+                    winit::VirtualKeyCode::Down => (0.0, -10.0),
+                    winit::VirtualKeyCode::Up => (0.0, 10.0),
+                    winit::VirtualKeyCode::Right => (-10.0, 0.0),
+                    winit::VirtualKeyCode::Left => (10.0, 0.0),
                     _ => return false,
                 };
 
@@ -169,14 +164,14 @@ impl Example for App {
                     self.cursor_position,
                 );
             }
-            glutin::WindowEvent::CursorMoved { position: (x, y), .. } => {
+            winit::WindowEvent::CursorMoved { position: (x, y), .. } => {
                 self.cursor_position = WorldPoint::new(x as f32, y as f32);
             }
-            glutin::WindowEvent::MouseWheel { delta, .. } => {
+            winit::WindowEvent::MouseWheel { delta, .. } => {
                 const LINE_HEIGHT: f32 = 38.0;
                 let (dx, dy) = match delta {
-                    glutin::MouseScrollDelta::LineDelta(dx, dy) => (dx, dy * LINE_HEIGHT),
-                    glutin::MouseScrollDelta::PixelDelta(dx, dy) => (dx, dy),
+                    winit::MouseScrollDelta::LineDelta(dx, dy) => (dx, dy * LINE_HEIGHT),
+                    winit::MouseScrollDelta::PixelDelta(dx, dy) => (dx, dy),
                 };
 
                 txn.scroll(
@@ -184,7 +179,7 @@ impl Example for App {
                     self.cursor_position,
                 );
             }
-            glutin::WindowEvent::MouseInput { .. } => {
+            winit::WindowEvent::MouseInput { .. } => {
                 let results = api.hit_test(
                     document_id,
                     None,

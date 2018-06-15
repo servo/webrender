@@ -5,7 +5,7 @@
 use api::{BorderRadius, ClipMode, ComplexClipRegion, DeviceIntRect, DevicePixelScale, ImageMask};
 use api::{ImageRendering, LayoutRect, LayoutSize, LayoutPoint, LayoutVector2D, LocalClip};
 use api::{BoxShadowClipMode, LayoutToWorldScale, LineOrientation, LineStyle};
-use border::{BorderCornerClipSource, ensure_no_corner_overlap};
+use border::{ensure_no_corner_overlap};
 use box_shadow::{BLUR_SAMPLE_SCALE, BoxShadowClipSource, BoxShadowCacheKey};
 use clip_scroll_tree::{ClipChainIndex, CoordinateSystemId};
 use ellipse::Ellipse;
@@ -87,11 +87,6 @@ pub enum ClipSource {
     Rectangle(LayoutRect, ClipMode),
     RoundedRectangle(LayoutRect, BorderRadius, ClipMode),
     Image(ImageMask),
-    /// TODO(gw): This currently only handles dashed style
-    /// clips, where the border style is dashed for both
-    /// adjacent border edges. Expand to handle dotted style
-    /// and different styles per edge.
-    BorderCorner(BorderCornerClipSource),
     BoxShadow(BoxShadowClipSource),
     LineDecoration(LineDecorationClipSource),
 }
@@ -272,7 +267,7 @@ pub struct ClipSources {
 }
 
 impl ClipSources {
-    pub fn new(clips: Vec<ClipSource>) -> ClipSources {
+    pub fn new(clips: Vec<ClipSource>) -> Self {
         let (local_inner_rect, local_outer_rect) = Self::calculate_inner_and_outer_rects(&clips);
 
         let clips = clips
@@ -341,7 +336,6 @@ impl ClipSources {
                         .and_then(|r| inner_rect.and_then(|ref inner| r.intersection(inner)));
                 }
                 ClipSource::BoxShadow(..) |
-                ClipSource::BorderCorner { .. } |
                 ClipSource::LineDecoration(..) => {
                     can_calculate_inner_rect = false;
                     break;
@@ -399,9 +393,6 @@ impl ClipSources {
                     ClipSource::RoundedRectangle(ref rect, ref radius, mode) => {
                         let data = ClipData::rounded_rect(rect, radius, mode);
                         data.write(&mut request);
-                    }
-                    ClipSource::BorderCorner(ref mut source) => {
-                        source.write(request);
                     }
                     ClipSource::LineDecoration(ref info) => {
                         request.push(info.rect);
@@ -466,6 +457,7 @@ impl ClipSources {
         &self,
         transform: &LayoutToWorldFastTransform,
         device_pixel_scale: DevicePixelScale,
+        screen_rect: Option<&DeviceIntRect>,
     ) -> (DeviceIntRect, Option<DeviceIntRect>) {
         // If this translation isn't axis aligned or has a perspective component, don't try to
         // calculate the inner rectangle. The rectangle that we produce would include potentially
@@ -476,13 +468,15 @@ impl ClipSources {
         let can_calculate_inner_rect =
             transform.preserves_2d_axis_alignment() && !transform.has_perspective_component();
         let screen_inner_rect = if can_calculate_inner_rect {
-            calculate_screen_bounding_rect(transform, &self.local_inner_rect, device_pixel_scale)
+            calculate_screen_bounding_rect(transform, &self.local_inner_rect, device_pixel_scale, screen_rect)
+                .unwrap_or(DeviceIntRect::zero())
         } else {
             DeviceIntRect::zero()
         };
 
         let screen_outer_rect = self.local_outer_rect.map(|outer_rect|
-            calculate_screen_bounding_rect(transform, &outer_rect, device_pixel_scale)
+            calculate_screen_bounding_rect(transform, &outer_rect, device_pixel_scale, screen_rect)
+                .unwrap_or(DeviceIntRect::zero())
         );
 
         (screen_inner_rect, screen_outer_rect)
@@ -565,7 +559,7 @@ pub struct ClipChain {
 }
 
 impl ClipChain {
-    pub fn empty(screen_rect: &DeviceIntRect) -> ClipChain {
+    pub fn empty(screen_rect: &DeviceIntRect) -> Self {
         ClipChain {
             parent_index: None,
             combined_inner_screen_rect: *screen_rect,
@@ -575,7 +569,7 @@ impl ClipChain {
         }
     }
 
-    pub fn new_with_added_node(&self, new_node: &ClipChainNode) -> ClipChain {
+    pub fn new_with_added_node(&self, new_node: &ClipChainNode) -> Self {
         // If the new node's inner rectangle completely surrounds our outer rectangle,
         // we can discard the new node entirely since it isn't going to affect anything.
         if new_node.screen_inner_rect.contains_rect(&self.combined_outer_screen_rect) {

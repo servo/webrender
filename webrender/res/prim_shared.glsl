@@ -10,6 +10,7 @@
 #define SUBPX_DIR_NONE        0
 #define SUBPX_DIR_HORIZONTAL  1
 #define SUBPX_DIR_VERTICAL    2
+#define SUBPX_DIR_MIXED       3
 
 #define RASTER_LOCAL            0
 #define RASTER_SCREEN           1
@@ -20,15 +21,8 @@ uniform sampler2DArray sCacheRGBA8;
 // An A8 target for standalone tasks that is available to all passes.
 uniform sampler2DArray sSharedCacheA8;
 
-uniform sampler2D sGradients;
-
 vec2 clamp_rect(vec2 pt, RectWithSize rect) {
     return clamp(pt, rect.p0, rect.p0 + rect.size);
-}
-
-float distance_to_line(vec2 p0, vec2 perp_dir, vec2 p) {
-    vec2 dir_to_p0 = p0 - p;
-    return dot(normalize(perp_dir), dir_to_p0);
 }
 
 // TODO: convert back to RectWithEndPoint if driver issues are resolved, if ever.
@@ -70,8 +64,7 @@ struct Glyph {
 };
 
 Glyph fetch_glyph(int specific_prim_address,
-                  int glyph_index,
-                  int subpx_dir) {
+                  int glyph_index) {
     // Two glyphs are packed in each texel in the GPU cache.
     int glyph_address = specific_prim_address +
                         VECS_PER_TEXT_RUN +
@@ -81,24 +74,6 @@ Glyph fetch_glyph(int specific_prim_address,
     // We use "!= 0" instead of "== 1" here in order to work around a driver
     // bug with equality comparisons on integers.
     vec2 glyph = mix(data.xy, data.zw, bvec2(glyph_index % 2 != 0));
-
-    // In subpixel mode, the subpixel offset has already been
-    // accounted for while rasterizing the glyph.
-    switch (subpx_dir) {
-        case SUBPX_DIR_NONE:
-            break;
-        case SUBPX_DIR_HORIZONTAL:
-            // Glyphs positioned [-0.125, 0.125] get a
-            // subpx position of zero. So include that
-            // offset in the glyph position to ensure
-            // we round to the correct whole position.
-            glyph.x = floor(glyph.x + 0.125);
-            break;
-        case SUBPX_DIR_VERTICAL:
-            glyph.y = floor(glyph.y + 0.125);
-            break;
-        default: break;
-    }
 
     return Glyph(glyph);
 }
@@ -121,10 +96,10 @@ PrimitiveInstance fetch_prim_instance() {
 
     pi.prim_address = aData0.x;
     pi.specific_prim_address = pi.prim_address + VECS_PER_PRIM_HEADER;
-    pi.render_task_index = aData0.y;
-    pi.clip_task_index = aData0.z;
-    pi.clip_chain_rect_index = aData0.w / 65536;
-    pi.scroll_node_id = aData0.w % 65536;
+    pi.render_task_index = aData0.y % 0x10000;
+    pi.clip_task_index = aData0.y / 0x10000;
+    pi.clip_chain_rect_index = aData0.z;
+    pi.scroll_node_id = aData0.w;
     pi.z = aData1.x;
     pi.user_data0 = aData1.y;
     pi.user_data1 = aData1.z;
@@ -233,7 +208,8 @@ VertexInfo write_vertex(RectWithSize instance_rect,
     vec2 snap_offset = compute_snap_offset(
         clamped_local_pos,
         scroll_node.transform,
-        snap_rect
+        snap_rect,
+        vec2(0.5)
     );
 
     // Transform the current vertex to world space.

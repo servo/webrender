@@ -7,13 +7,14 @@ extern crate euclid;
 extern crate gleam;
 extern crate glutin;
 extern crate webrender;
+extern crate winit;
 
 #[path = "common/boilerplate.rs"]
 mod boilerplate;
 
 use boilerplate::{Example, HandyDandyRectBuilder};
 use euclid::vec2;
-use glutin::TouchPhase;
+use winit::TouchPhase;
 use std::collections::HashMap;
 use webrender::api::*;
 
@@ -85,7 +86,7 @@ impl TouchState {
         }
     }
 
-    fn handle_event(&mut self, touch: glutin::Touch) -> TouchResult {
+    fn handle_event(&mut self, touch: winit::Touch) -> TouchResult {
         match touch.phase {
             TouchPhase::Started => {
                 debug_assert!(!self.active_touches.contains_key(&touch.id));
@@ -182,7 +183,7 @@ impl Example for App {
         &mut self,
         api: &RenderApi,
         builder: &mut DisplayListBuilder,
-        resources: &mut ResourceUpdates,
+        txn: &mut Transaction,
         _: DeviceUintSize,
         _pipeline_id: PipelineId,
         _document_id: DocumentId,
@@ -192,17 +193,14 @@ impl Example for App {
         builder.push_stacking_context(
             &info,
             None,
-            ScrollPolicy::Scrollable,
-            None,
             TransformStyle::Flat,
-            None,
             MixBlendMode::Normal,
             Vec::new(),
             GlyphRasterSpace::Screen,
         );
 
         let image_mask_key = api.generate_image_key();
-        resources.add_image(
+        txn.add_image(
             image_mask_key,
             ImageDescriptor::new(2, 2, ImageFormat::R8, true, false),
             ImageData::new(vec![0, 80, 180, 255]),
@@ -275,10 +273,10 @@ impl Example for App {
         builder.pop_stacking_context();
     }
 
-    fn on_event(&mut self, event: glutin::WindowEvent, api: &RenderApi, document_id: DocumentId) -> bool {
+    fn on_event(&mut self, event: winit::WindowEvent, api: &RenderApi, document_id: DocumentId) -> bool {
         let mut txn = Transaction::new();
         match event {
-            glutin::WindowEvent::Touch(touch) => match self.touch_state.handle_event(touch) {
+            winit::WindowEvent::Touch(touch) => match self.touch_state.handle_event(touch) {
                 TouchResult::Pan(pan) => {
                     txn.set_pan(pan);
                 }

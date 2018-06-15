@@ -5,6 +5,7 @@
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceSize, DeviceIntSideOffsets, ImageDescriptor, ImageFormat};
 #[cfg(feature = "pathfinder")]
 use api::FontRenderMode;
+use border::BorderCacheKey;
 use box_shadow::{BoxShadowCacheKey};
 use clip::{ClipSource, ClipStore, ClipWorkItem};
 use clip_scroll_tree::CoordinateSystemId;
@@ -14,7 +15,7 @@ use euclid::{TypedPoint2D, TypedVector2D};
 use freelist::{FreeList, FreeListHandle, WeakFreeListHandle};
 use glyph_rasterizer::GpuGlyphCacheKey;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
-use gpu_types::{ImageSource, RasterizationSpace, UvRectKind};
+use gpu_types::{BorderInstance, ImageSource, RasterizationSpace, UvRectKind};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 #[cfg(feature = "pathfinder")]
 use pathfinder_partitioner::mesh::Mesh;
@@ -217,8 +218,8 @@ impl BlurTask {
     }
 }
 
-#[cfg(feature = "pathfinder")]
 #[derive(Debug)]
+#[cfg(feature = "pathfinder")]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct GlyphTask {
@@ -252,6 +253,13 @@ pub enum BlitSource {
 #[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct BorderTask {
+    pub instances: Vec<BorderInstance>,
+}
+
+#[derive(Debug)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct BlitTask {
     pub source: BlitSource,
     pub padding: DeviceIntSideOffsets,
@@ -278,6 +286,7 @@ pub enum RenderTaskKind {
     Readback(DeviceIntRect),
     Scaling(RenderTargetKind),
     Blit(BlitTask),
+    Border(BorderTask),
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
@@ -444,8 +453,7 @@ impl RenderTask {
                     ClipSource::Rectangle(..) |
                     ClipSource::RoundedRectangle(..) |
                     ClipSource::Image(..) |
-                    ClipSource::LineDecoration(..) |
-                    ClipSource::BorderCorner(..) => {}
+                    ClipSource::LineDecoration(..) => {}
                 }
             }
         }
@@ -557,6 +565,21 @@ impl RenderTask {
         }
     }
 
+    pub fn new_border(
+        size: DeviceIntSize,
+        instances: Vec<BorderInstance>,
+    ) -> Self {
+        RenderTask {
+            children: Vec::new(),
+            location: RenderTaskLocation::Dynamic(None, Some(size)),
+            kind: RenderTaskKind::Border(BorderTask {
+                instances,
+            }),
+            clear_mode: ClearMode::Transparent,
+            saved_index: None,
+        }
+    }
+
     pub fn new_scaling(
         target_kind: RenderTargetKind,
         src_task_id: RenderTaskId,
@@ -600,7 +623,6 @@ impl RenderTask {
     fn uv_rect_kind(&self) -> UvRectKind {
         match self.kind {
             RenderTaskKind::CacheMask(..) |
-            RenderTaskKind::Glyph(_) |
             RenderTaskKind::Readback(..) |
             RenderTaskKind::Scaling(..) => {
                 unreachable!("bug: unexpected render task");
@@ -616,6 +638,8 @@ impl RenderTask {
             }
 
             RenderTaskKind::ClipRegion(..) |
+            RenderTaskKind::Glyph(_) |
+            RenderTaskKind::Border(..) |
             RenderTaskKind::Blit(..) => {
                 UvRectKind::Rect
             }
@@ -670,12 +694,19 @@ impl RenderTask {
             }
             RenderTaskKind::Readback(..) |
             RenderTaskKind::Scaling(..) |
+            RenderTaskKind::Border(..) |
             RenderTaskKind::Blit(..) => {
                 [0.0; 3]
             }
         };
 
-        let (target_rect, target_index) = self.get_target_rect();
+        let (mut target_rect, target_index) = self.get_target_rect();
+        // The primitives inside a fixed-location render task
+        // are already placed to their corresponding positions,
+        // so the shader doesn't need to shift by the origin.
+        if let RenderTaskLocation::Fixed(_) = self.location {
+            target_rect.origin = DeviceIntPoint::origin();
+        };
 
         RenderTaskData {
             data: [
@@ -704,6 +735,7 @@ impl RenderTask {
             RenderTaskKind::Readback(..) |
             RenderTaskKind::Scaling(..) |
             RenderTaskKind::Blit(..) |
+            RenderTaskKind::Border(..) |
             RenderTaskKind::CacheMask(..) |
             RenderTaskKind::Glyph(..) => {
                 panic!("texture handle not supported for this task kind");
@@ -776,6 +808,7 @@ impl RenderTask {
                 target_kind
             }
 
+            RenderTaskKind::Border(..) |
             RenderTaskKind::Picture(..) => {
                 RenderTargetKind::Color
             }
@@ -801,6 +834,7 @@ impl RenderTask {
             RenderTaskKind::Scaling(..) |
             RenderTaskKind::ClipRegion(..) |
             RenderTaskKind::Blit(..) |
+            RenderTaskKind::Border(..) |
             RenderTaskKind::Glyph(..) => false,
 
             // TODO(gw): For now, we've disabled the shared clip mask
@@ -837,6 +871,7 @@ impl RenderTask {
             RenderTaskKind::Scaling(..) |
             RenderTaskKind::Blit(..) |
             RenderTaskKind::ClipRegion(..) |
+            RenderTaskKind::Border(..) |
             RenderTaskKind::CacheMask(..) |
             RenderTaskKind::Glyph(..) => {
                 return;
@@ -887,6 +922,9 @@ impl RenderTask {
                 pt.new_level("Scaling".to_owned());
                 pt.add_item(format!("kind: {:?}", kind));
             }
+            RenderTaskKind::Border(..) => {
+                pt.new_level("Border".to_owned());
+            }
             RenderTaskKind::Blit(ref task) => {
                 pt.new_level("Blit".to_owned());
                 pt.add_item(format!("source: {:?}", task.source));
@@ -931,6 +969,7 @@ pub enum RenderTaskCacheKeyKind {
     #[allow(dead_code)]
     Glyph(GpuGlyphCacheKey),
     Picture(PictureCacheKey),
+    Border(BorderCacheKey),
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -956,6 +995,7 @@ pub enum RenderTaskCacheMarker {}
 
 // A cache of render tasks that are stored in the texture
 // cache for usage across frames.
+#[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct RenderTaskCache {

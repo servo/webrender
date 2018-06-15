@@ -230,17 +230,17 @@ impl YamlFrameReader {
     }
 
     pub fn deinit(mut self, wrench: &mut Wrench) {
-        let mut updates = ResourceUpdates::new();
+        let mut txn = Transaction::new();
 
         for (_, font_instance) in self.font_instances.drain() {
-            updates.delete_font_instance(font_instance);
+            txn.delete_font_instance(font_instance);
         }
 
         for (_, font) in self.fonts.drain() {
-            updates.delete_font(font);
+            txn.delete_font(font);
         }
 
-        wrench.api.update_resources(updates);
+        wrench.api.update_resources(txn.resource_updates);
     }
 
     pub fn yaml_path(&self) -> &PathBuf {
@@ -342,11 +342,30 @@ impl YamlFrameReader {
         }
     }
 
-    pub fn to_clip_id(&self, id: u64, pipeline_id: PipelineId) -> ClipId {
-        if id == 0 {
-            return ClipId::root_scroll_node(pipeline_id);
+    pub fn u64_to_clip_id(&self, number: u64, pipeline_id: PipelineId) -> ClipId {
+        match number {
+            0 => ClipId::root_reference_frame(pipeline_id),
+            1 => ClipId::root_scroll_node(pipeline_id),
+            _ => self.clip_id_map[&number],
         }
-        self.clip_id_map[&id]
+
+    }
+
+    pub fn to_clip_id(&self, item: &Yaml, pipeline_id: PipelineId) -> Option<ClipId> {
+        match *item {
+            Yaml::Integer(value) => Some(self.u64_to_clip_id(value as u64, pipeline_id)),
+            Yaml::String(ref id_string) if id_string == "root-reference-frame" =>
+                Some(ClipId::root_reference_frame(pipeline_id)),
+            Yaml::String(ref id_string) if id_string == "root-scroll-node" =>
+                Some(ClipId::root_scroll_node(pipeline_id)),
+            _ => None,
+        }
+    }
+
+    pub fn add_clip_id_mapping(&mut self, numeric_id: u64, real_id: ClipId) {
+        assert!(numeric_id != 0, "id=0 is reserved for the root reference frame");
+        assert!(numeric_id != 1, "id=1 is reserved for the root scroll node");
+        self.clip_id_map.insert(numeric_id, real_id);
     }
 
     fn to_clip_and_scroll_info(
@@ -355,21 +374,18 @@ impl YamlFrameReader {
         pipeline_id: PipelineId
     ) -> Option<ClipAndScrollInfo> {
         match *item {
-            Yaml::Integer(value) => {
-                Some(ClipAndScrollInfo::simple(self.to_clip_id(value as u64, pipeline_id)))
-            }
             Yaml::Array(ref array) if array.len() == 2 => {
-                let id_ints = (array[0].as_i64(), array[1].as_i64());
-                if let (Some(scroll_node_numeric_id), Some(clip_node_numeric_id)) = id_ints {
-                    Some(ClipAndScrollInfo::new(
-                        self.to_clip_id(scroll_node_numeric_id as u64, pipeline_id),
-                        self.to_clip_id(clip_node_numeric_id as u64, pipeline_id)
-                    ))
-                } else {
-                    None
-                }
+                let scroll_id = match self.to_clip_id(&array[0], pipeline_id) {
+                    Some(id) => id,
+                    None => return None,
+                };
+                let clip_id = match self.to_clip_id(&array[1], pipeline_id) {
+                    Some(id) => id,
+                    None => return None,
+                };
+                Some(ClipAndScrollInfo::new(scroll_id, clip_id))
             }
-            _ => None,
+            _ => self.to_clip_id(item, pipeline_id).map(|id| ClipAndScrollInfo::simple(id)),
         }
     }
 
@@ -495,12 +511,12 @@ impl YamlFrameReader {
         };
         let tiling = tiling.map(|tile_size| tile_size as u16);
         let image_key = wrench.api.generate_image_key();
-        let mut resources = ResourceUpdates::new();
-        resources.add_image(image_key, descriptor, image_data, tiling);
-        wrench.api.update_resources(resources);
+        let mut txn = Transaction::new();
+        txn.add_image(image_key, descriptor, image_data, tiling);
+        wrench.api.update_resources(txn.resource_updates);
         let val = (
             image_key,
-            LayoutSize::new(descriptor.width as f32, descriptor.height as f32),
+            LayoutSize::new(descriptor.size.width as f32, descriptor.size.height as f32),
         );
         self.image_map.insert(key, val);
         val
@@ -1194,7 +1210,6 @@ impl YamlFrameReader {
             let (glyph_indices, glyph_positions, bounds) = wrench.layout_simple_ascii(
                 font_key,
                 font_instance_key,
-                self.font_render_mode,
                 text,
                 size,
                 origin,
@@ -1227,7 +1242,8 @@ impl YamlFrameReader {
     ) {
         info.rect = item["bounds"].as_rect().expect("iframe must have bounds");
         let pipeline_id = item["id"].as_pipeline_id().unwrap();
-        dl.push_iframe(&info, pipeline_id);
+        let ignore = item["ignore_missing_pipeline"].as_bool().unwrap_or(true);
+        dl.push_iframe(&info, pipeline_id, ignore);
     }
 
     pub fn get_complex_clip_for_item(&mut self, yaml: &Yaml) -> Option<ComplexClipRegion> {
@@ -1236,6 +1252,26 @@ impl YamlFrameReader {
             return None;
         }
         Some(self.to_complex_clip_region(complex_clip))
+    }
+
+    pub fn get_item_type_from_yaml(item: &Yaml) -> &str {
+        let shorthands = [
+            "rect",
+            "image",
+            "text",
+            "glyphs",
+            "box-shadow", // Note: box_shadow shorthand check has to come before border.
+            "border",
+            "gradient",
+            "radial-gradient",
+        ];
+
+        for shorthand in shorthands.iter() {
+            if !item[*shorthand].is_badvalue() {
+                return shorthand;
+            }
+        }
+        item["type"].as_str().unwrap_or("unknown")
     }
 
     pub fn add_display_list_items_from_yaml(
@@ -1252,32 +1288,13 @@ impl YamlFrameReader {
             LayoutSize::new(big_number, big_number));
 
         for item in yaml.as_vec().unwrap() {
-            // an explicit type can be skipped with some shorthand
-            let item_type = if !item["rect"].is_badvalue() {
-                "rect"
-            } else if !item["image"].is_badvalue() {
-                "image"
-            } else if !item["text"].is_badvalue() {
-                "text"
-            } else if !item["glyphs"].is_badvalue() {
-                "glyphs"
-            } else if !item["box-shadow"].is_badvalue() {
-                // Note: box_shadow shorthand check has to come before border.
-                "box-shadow"
-            } else if !item["border"].is_badvalue() {
-                "border"
-            } else if !item["gradient"].is_badvalue() {
-                "gradient"
-            } else if !item["radial-gradient"].is_badvalue() {
-                "radial-gradient"
-            } else {
-                item["type"].as_str().unwrap_or("unknown")
-            };
+            let item_type = Self::get_item_type_from_yaml(item);
 
-            // We never skip stacking contexts because they are structural elements
-            // of the display list.
-            if item_type != "stacking-context" && self.include_only.contains(&item_type.to_owned())
-            {
+            // We never skip stacking contexts and reference frames because
+            // they are structural elements of the display list.
+            if item_type != "stacking-context" &&
+                item_type != "reference-frame" &&
+                self.include_only.contains(&item_type.to_owned()) {
                 continue;
             }
 
@@ -1327,6 +1344,7 @@ impl YamlFrameReader {
                 "stacking-context" => {
                     self.add_stacking_context_from_yaml(dl, wrench, item, false, &mut info)
                 }
+                "reference-frame" => self.handle_reference_frame(dl, wrench, item, &mut info),
                 "shadow" => self.handle_push_shadow(dl, item, &mut info),
                 "pop-all-shadows" => self.handle_pop_all_shadows(dl),
                 _ => println!("Skipping unknown item type: {:?}", item),
@@ -1376,7 +1394,7 @@ impl YamlFrameReader {
             ScrollSensitivity::Script,
         );
         if let Some(numeric_id) = numeric_id {
-            self.clip_id_map.insert(numeric_id, real_id);
+            self.add_clip_id_mapping(numeric_id, real_id);
         }
 
         if !yaml["items"].is_badvalue() {
@@ -1409,7 +1427,7 @@ impl YamlFrameReader {
         );
 
         if let Some(numeric_id) = numeric_id {
-            self.clip_id_map.insert(numeric_id, real_id);
+            self.add_clip_id_mapping(numeric_id, real_id);
         }
 
         if !yaml["items"].is_badvalue() {
@@ -1448,12 +1466,10 @@ impl YamlFrameReader {
         let clip_ids: Vec<ClipId> = yaml["clips"]
             .as_vec_u64()
             .unwrap_or_else(Vec::new)
-            .iter().map(|id| self.to_clip_id(*id, builder.pipeline_id))
+            .iter().map(|id| self.u64_to_clip_id(*id, builder.pipeline_id))
             .collect();
 
-        let parent = yaml["parent"].as_i64().map(|id|
-            self.to_clip_id(id as u64, builder.pipeline_id)
-        );
+        let parent = self.to_clip_id(&yaml["parent"], builder.pipeline_id);
         let parent = match parent {
             Some(ClipId::ClipChain(clip_chain_id)) => Some(clip_chain_id),
             Some(_) => panic!("Tried to create a ClipChain with a non-ClipChain parent"),
@@ -1461,7 +1477,7 @@ impl YamlFrameReader {
         };
 
         let real_id = builder.define_clip_chain(parent, clip_ids);
-        self.clip_id_map.insert(numeric_id as u64, ClipId::ClipChain(real_id));
+        self.add_clip_id_mapping(numeric_id as u64, ClipId::ClipChain(real_id));
     }
 
     pub fn handle_clip(&mut self, dl: &mut DisplayListBuilder, wrench: &mut Wrench, yaml: &Yaml) {
@@ -1472,7 +1488,7 @@ impl YamlFrameReader {
 
         let real_id = dl.define_clip(clip_rect, complex_clips, image_mask);
         if let Some(numeric_id) = numeric_id {
-            self.clip_id_map.insert(numeric_id as u64, real_id);
+            self.add_clip_id_mapping(numeric_id as u64, real_id);
         }
 
         if !yaml["items"].is_badvalue() {
@@ -1489,21 +1505,21 @@ impl YamlFrameReader {
             .unwrap_or(wrench.window_size_f32())
     }
 
-    pub fn add_stacking_context_from_yaml(
+    pub fn push_reference_frame(
         &mut self,
         dl: &mut DisplayListBuilder,
         wrench: &mut Wrench,
         yaml: &Yaml,
-        is_root: bool,
         info: &mut LayoutPrimitiveInfo,
-    ) {
+    ) -> ClipId {
         let default_bounds = LayoutRect::new(LayoutPoint::zero(), wrench.window_size_f32());
         let bounds = yaml["bounds"].as_rect().unwrap_or(default_bounds);
-
         let default_transform_origin = LayoutPoint::new(
             bounds.origin.x + bounds.size.width * 0.5,
             bounds.origin.y + bounds.size.height * 0.5,
         );
+
+        info.rect = bounds;
 
         let transform_origin = yaml["transform-origin"]
             .as_point()
@@ -1517,9 +1533,6 @@ impl YamlFrameReader {
             .as_transform(&transform_origin)
             .map(|transform| transform.into());
 
-        let clip_node_id =
-            yaml["clip-node"].as_i64().map(|id| self.to_clip_id(id as u64, dl.pipeline_id));
-
         let perspective = match yaml["perspective"].as_f32() {
             Some(value) if value != 0.0 => {
                 Some(make_perspective(perspective_origin, value as f32))
@@ -1528,15 +1541,64 @@ impl YamlFrameReader {
             _ => yaml["perspective"].as_matrix4d(),
         };
 
+        let reference_frame_id = dl.push_reference_frame(info, transform.into(), perspective);
+
+        let numeric_id = yaml["reference-frame-id"].as_i64();
+        if let Some(numeric_id) = numeric_id {
+            self.add_clip_id_mapping(numeric_id as u64, reference_frame_id);
+        }
+
+        reference_frame_id
+    }
+
+    pub fn handle_reference_frame(
+        &mut self,
+        dl: &mut DisplayListBuilder,
+        wrench: &mut Wrench,
+        yaml: &Yaml,
+        info: &mut LayoutPrimitiveInfo,
+    ) {
+        let reference_frame_id = self.push_reference_frame(dl, wrench, yaml, info);
+
+        if !yaml["items"].is_badvalue() {
+            dl.push_clip_id(reference_frame_id);
+            self.add_display_list_items_from_yaml(dl, wrench, &yaml["items"]);
+            dl.pop_clip_id();
+        }
+
+        dl.pop_reference_frame();
+    }
+
+    pub fn add_stacking_context_from_yaml(
+        &mut self,
+        dl: &mut DisplayListBuilder,
+        wrench: &mut Wrench,
+        yaml: &Yaml,
+        is_root: bool,
+        info: &mut LayoutPrimitiveInfo,
+    ) {
+        let default_bounds = LayoutRect::new(LayoutPoint::zero(), wrench.window_size_f32());
+        let bounds = yaml["bounds"].as_rect().unwrap_or(default_bounds);
+        info.rect = bounds;
+        info.clip_rect = bounds;
+
+        let reference_frame_id = if !yaml["transform"].is_badvalue() ||
+            !yaml["perspective"].is_badvalue() {
+            let reference_frame_id = self.push_reference_frame(dl, wrench, yaml, info);
+            info.rect.origin = LayoutPoint::zero();
+            info.clip_rect.origin = LayoutPoint::zero();
+            Some(reference_frame_id)
+        } else {
+            None
+        };
+
+        let clip_node_id = self.to_clip_id(&yaml["clip-node"], dl.pipeline_id);
         let transform_style = yaml["transform-style"]
             .as_transform_style()
             .unwrap_or(TransformStyle::Flat);
         let mix_blend_mode = yaml["mix-blend-mode"]
             .as_mix_blend_mode()
             .unwrap_or(MixBlendMode::Normal);
-        let scroll_policy = yaml["scroll-policy"]
-            .as_scroll_policy()
-            .unwrap_or(ScrollPolicy::Scrollable);
         let glyph_raster_space = yaml["glyph-raster-space"]
             .as_glyph_raster_space()
             .unwrap_or(GlyphRasterSpace::Screen);
@@ -1549,16 +1611,15 @@ impl YamlFrameReader {
         }
 
         let filters = yaml["filters"].as_vec_filter_op().unwrap_or(vec![]);
-        info.rect = bounds;
-        info.clip_rect = bounds;
+
+        if let Some(reference_frame_id) = reference_frame_id {
+            dl.push_clip_id(reference_frame_id);
+        }
 
         dl.push_stacking_context(
             &info,
             clip_node_id,
-            scroll_policy,
-            transform.into(),
             transform_style,
-            perspective,
             mix_blend_mode,
             filters,
             glyph_raster_space,
@@ -1569,6 +1630,14 @@ impl YamlFrameReader {
         }
 
         dl.pop_stacking_context();
+
+        if reference_frame_id.is_some() {
+            dl.pop_clip_id();
+        }
+
+        if reference_frame_id.is_some() {
+            dl.pop_reference_frame();
+        }
     }
 }
 

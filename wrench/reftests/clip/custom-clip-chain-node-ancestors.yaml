@@ -9,7 +9,6 @@ root:
     -
       bounds: [25, 25, 50, 50]
       "clip-rect": [25, 25, 50, 50]
-      "clip-and-scroll": 0
       type: clip
       id: 2
     -
@@ -28,6 +27,6 @@ root:
     -
       bounds: [0, 0, 200, 200]
       clip-rect: [0, 0, 200, 200]
-      clip-and-scroll: [0, 10]
+      clip-and-scroll: [root-scroll-node, 10]
       type: rect
       color: 0 255 0 1

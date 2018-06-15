@@ -5,6 +5,7 @@
 extern crate gleam;
 extern crate glutin;
 extern crate webrender;
+extern crate winit;
 
 #[path = "common/boilerplate.rs"]
 mod boilerplate;
@@ -23,13 +24,13 @@ impl Example for App {
         &mut self,
         _api: &RenderApi,
         builder: &mut DisplayListBuilder,
-        resources: &mut ResourceUpdates,
+        txn: &mut Transaction,
         _framebuffer_size: DeviceUintSize,
         _pipeline_id: PipelineId,
         _document_id: DocumentId,
     ) {
         let (image_descriptor, image_data) = image_helper::make_checkerboard(32, 32);
-        resources.add_image(
+        txn.add_image(
             self.image_key,
             image_descriptor,
             image_data,
@@ -41,10 +42,7 @@ impl Example for App {
         builder.push_stacking_context(
             &info,
             None,
-            ScrollPolicy::Scrollable,
-            None,
             TransformStyle::Flat,
-            None,
             MixBlendMode::Normal,
             Vec::new(),
             GlyphRasterSpace::Screen,
@@ -81,12 +79,12 @@ impl Example for App {
         builder.pop_stacking_context();
     }
 
-    fn on_event(&mut self, event: glutin::WindowEvent, api: &RenderApi, document_id: DocumentId) -> bool {
+    fn on_event(&mut self, event: winit::WindowEvent, api: &RenderApi, document_id: DocumentId) -> bool {
         match event {
-            glutin::WindowEvent::KeyboardInput {
-                input: glutin::KeyboardInput {
-                    state: glutin::ElementState::Pressed,
-                    virtual_keycode: Some(glutin::VirtualKeyCode::Space),
+            winit::WindowEvent::KeyboardInput {
+                input: winit::KeyboardInput {
+                    state: winit::ElementState::Pressed,
+                    virtual_keycode: Some(winit::VirtualKeyCode::Space),
                     ..
                 },
                 ..
@@ -100,15 +98,14 @@ impl Example for App {
                     }
                 }
 
-                let mut updates = ResourceUpdates::new();
-                updates.update_image(
+                let mut txn = Transaction::new();
+                txn.update_image(
                     self.image_key,
                     ImageDescriptor::new(64, 64, ImageFormat::BGRA8, true, false),
                     ImageData::new(image_data),
                     None,
                 );
                 let mut txn = Transaction::new();
-                txn.update_resources(updates);
                 txn.generate_frame();
                 api.send_transaction(document_id, txn);
             }

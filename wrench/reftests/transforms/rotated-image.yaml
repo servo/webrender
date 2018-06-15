@@ -4,21 +4,19 @@ root:
     - 
       bounds: [0, 0, 2880, 1482]
       "clip-rect": [0, 0, 2880, 1482]
-      "clip-and-scroll": 0
       "backface-visible": true
       type: rect
       color: white
     - 
       bounds: [0, 0, 2880, 1482]
       "clip-rect": [0, 0, 2880, 1482]
-      "clip-and-scroll": 0
       "backface-visible": true
       type: clip
-      id: 1
+      id: 10
       "content-size": [2880, 1482]
     - 
       "clip-rect": [0, 0, 2880, 1482]
-      "clip-and-scroll": 1
+      "clip-and-scroll": 10
       "backface-visible": true
       type: "scroll-frame"
       id: 2
@@ -52,7 +50,6 @@ root:
         - 
           bounds: [2, 2, 200, 200]
           "clip-rect": [2, 2, 200, 200]
-          "clip-and-scroll": 3
           "backface-visible": true
           type: clip
           id: 4
@@ -68,7 +65,6 @@ root:
         - 
           bounds: [0, 0, 204, 204]
           "clip-rect": [0, 0, 204, 204]
-          "clip-and-scroll": 3
           "backface-visible": true
           type: border
           width: 2

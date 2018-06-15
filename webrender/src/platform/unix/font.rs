@@ -2,9 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorU, GlyphDimensions, GlyphKey, FontKey, FontRenderMode};
+use api::{ColorU, GlyphDimensions, FontKey, FontRenderMode};
 use api::{FontInstancePlatformOptions, FontLCDFilter, FontHinting};
-use api::{FontInstanceFlags, NativeFontHandle, SubpixelDirection};
+use api::{FontInstanceFlags, NativeFontHandle};
 use freetype::freetype::{FT_BBox, FT_Outline_Translate, FT_Pixel_Mode, FT_Render_Mode};
 use freetype::freetype::{FT_Done_Face, FT_Error, FT_Get_Char_Index, FT_Int32};
 use freetype::freetype::{FT_Done_FreeType, FT_Library_SetLcdFilter, FT_Pos};
@@ -18,7 +18,7 @@ use freetype::freetype::{FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH, FT_LOAD_NO_AUTOHIN
 use freetype::freetype::{FT_LOAD_NO_BITMAP, FT_LOAD_NO_HINTING, FT_LOAD_VERTICAL_LAYOUT};
 use freetype::freetype::{FT_FACE_FLAG_SCALABLE, FT_FACE_FLAG_FIXED_SIZES};
 use freetype::succeeded;
-use glyph_rasterizer::{FontInstance, GlyphFormat, GlyphRasterResult, RasterizedGlyph};
+use glyph_rasterizer::{FontInstance, GlyphFormat, GlyphKey, GlyphRasterResult, RasterizedGlyph};
 #[cfg(feature = "pathfinder")]
 use glyph_rasterizer::NativeFontHandleWrapper;
 use internal_types::{FastHashMap, ResourceCacheError};
@@ -236,7 +236,7 @@ impl FontContext {
         }
     }
 
-    fn load_glyph(&self, font: &FontInstance, glyph: &GlyphKey) -> Option<FT_GlyphSlot> {
+    fn load_glyph(&self, font: &FontInstance, glyph: &GlyphKey) -> Option<(FT_GlyphSlot, f32)> {
         debug_assert!(self.faces.contains_key(&font.font_key));
         let face = self.faces.get(&font.font_key).unwrap();
 
@@ -253,9 +253,10 @@ impl FontContext {
             (FontHinting::Mono, _) => load_flags = FT_LOAD_TARGET_MONO,
             (FontHinting::Light, _) => load_flags = FT_LOAD_TARGET_LIGHT,
             (FontHinting::LCD, FontRenderMode::Subpixel) => {
-                load_flags = match font.subpx_dir {
-                    SubpixelDirection::Vertical => FT_LOAD_TARGET_LCD_V,
-                    _ => FT_LOAD_TARGET_LCD,
+                load_flags = if font.flags.contains(FontInstanceFlags::LCD_VERTICAL) {
+                    FT_LOAD_TARGET_LCD_V
+                } else {
+                    FT_LOAD_TARGET_LCD
                 };
                 if font.flags.contains(FontInstanceFlags::FORCE_AUTOHINT) {
                     load_flags |= FT_LOAD_FORCE_AUTOHINT;
@@ -282,13 +283,14 @@ impl FontContext {
         load_flags |= FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH;
 
         let (x_scale, y_scale) = font.transform.compute_scale().unwrap_or((1.0, 1.0));
+        let scale = font.oversized_scale_factor(x_scale, y_scale);
         let req_size = font.size.to_f64_px();
         let face_flags = unsafe { (*face.face).face_flags };
         let mut result = if (face_flags & (FT_FACE_FLAG_FIXED_SIZES as FT_Long)) != 0 &&
                             (face_flags & (FT_FACE_FLAG_SCALABLE as FT_Long)) == 0 &&
                             (load_flags & FT_LOAD_NO_BITMAP) == 0 {
             unsafe { FT_Set_Transform(face.face, ptr::null_mut(), ptr::null_mut()) };
-            self.choose_bitmap_size(face.face, req_size * y_scale)
+            self.choose_bitmap_size(face.face, req_size * y_scale / scale)
         } else {
             let mut shape = font.transform.invert_scale(x_scale, y_scale);
             if font.flags.contains(FontInstanceFlags::FLIP_X) {
@@ -313,8 +315,8 @@ impl FontContext {
                 FT_Set_Transform(face.face, &mut ft_shape, ptr::null_mut());
                 FT_Set_Char_Size(
                     face.face,
-                    (req_size * x_scale * 64.0 + 0.5) as FT_F26Dot6,
-                    (req_size * y_scale * 64.0 + 0.5) as FT_F26Dot6,
+                    (req_size * x_scale / scale * 64.0 + 0.5) as FT_F26Dot6,
+                    (req_size * y_scale / scale * 64.0 + 0.5) as FT_F26Dot6,
                     0,
                     0,
                 )
@@ -335,8 +337,11 @@ impl FontContext {
 
             let format = unsafe { (*slot).format };
             match format {
-                FT_Glyph_Format::FT_GLYPH_FORMAT_OUTLINE |
-                FT_Glyph_Format::FT_GLYPH_FORMAT_BITMAP => Some(slot),
+                FT_Glyph_Format::FT_GLYPH_FORMAT_BITMAP => {
+                    let y_size = unsafe { (*(*(*slot).face).size).metrics.y_ppem };
+                    Some((slot, req_size as f32 / y_size as f32))
+                }
+                FT_Glyph_Format::FT_GLYPH_FORMAT_OUTLINE => Some((slot, scale as f32)),
                 _ => {
                     error!("Unsupported format");
                     debug!("format={:?}", format);
@@ -375,31 +380,29 @@ impl FontContext {
             }
         }
 
-        // Convert the subpixel offset to floats.
-        let (dx, dy) = font.get_subpx_offset(glyph);
-
         // Apply extra pixel of padding for subpixel AA, due to the filter.
-        let padding = match font.render_mode {
-            FontRenderMode::Subpixel => (self.lcd_extra_pixels * 64) as FT_Pos,
-            FontRenderMode::Alpha |
-            FontRenderMode::Mono => 0 as FT_Pos,
-        };
+        if font.render_mode == FontRenderMode::Subpixel {
+            let padding = (self.lcd_extra_pixels * 64) as FT_Pos;
+            if font.flags.contains(FontInstanceFlags::LCD_VERTICAL) {
+                cbox.yMin -= padding;
+                cbox.yMax += padding;
+            } else {
+                cbox.xMin -= padding;
+                cbox.xMax += padding;
+            }
+        }
 
         // Offset the bounding box by subpixel positioning.
         // Convert to 26.6 fixed point format for FT.
-        match font.subpx_dir {
-            SubpixelDirection::None => {}
-            SubpixelDirection::Horizontal => {
-                let dx = (dx * 64.0 + 0.5) as FT_Long;
-                cbox.xMin += dx - padding;
-                cbox.xMax += dx + padding;
-            }
-            SubpixelDirection::Vertical => {
-                let dy = (dy * 64.0 + 0.5) as FT_Long;
-                cbox.yMin += dy - padding;
-                cbox.yMax += dy + padding;
-            }
-        }
+        let (dx, dy) = font.get_subpx_offset(glyph);
+        let (dx, dy) = (
+            (dx * 64.0 + 0.5) as FT_Pos,
+            -(dy * 64.0 + 0.5) as FT_Pos,
+        );
+        cbox.xMin += dx;
+        cbox.xMax += dx;
+        cbox.yMin += dy;
+        cbox.yMax += dy;
 
         // Outset the box to device pixel boundaries
         cbox.xMin &= !63;
@@ -415,67 +418,71 @@ impl FontContext {
         slot: FT_GlyphSlot,
         font: &FontInstance,
         glyph: &GlyphKey,
-        transform_bitmaps: bool,
+        use_transform: Option<f32>,
     ) -> Option<GlyphDimensions> {
-        let metrics = unsafe { &(*slot).metrics };
-
-        let mut advance = metrics.horiAdvance as f32 / 64.0;
-        match unsafe { (*slot).format } {
+        let format = unsafe { (*slot).format };
+        let (mut left, mut top, mut width, mut height) = match format {
             FT_Glyph_Format::FT_GLYPH_FORMAT_BITMAP => {
-                let mut left = unsafe { (*slot).bitmap_left };
-                let mut top = unsafe { (*slot).bitmap_top };
-                let mut width = unsafe { (*slot).bitmap.width };
-                let mut height = unsafe { (*slot).bitmap.rows };
-                if transform_bitmaps {
-                    let y_size = unsafe { (*(*(*slot).face).size).metrics.y_ppem };
-                    let scale = font.size.to_f32_px() / y_size as f32;
-                    let x0 = left as f32 * scale;
-                    let x1 = width as f32 * scale + x0;
-                    let y1 = top as f32 * scale;
-                    let y0 = y1 - height as f32 * scale;
-                    left = x0.round() as i32;
-                    top = y1.round() as i32;
-                    width = (x1.ceil() - x0.floor()) as u32;
-                    height = (y1.ceil() - y0.floor()) as u32;
-                    advance *= scale;
-                    if font.flags.contains(FontInstanceFlags::SYNTHETIC_ITALICS) {
-                        let (skew_min, skew_max) = get_skew_bounds(top - height as i32, top);
-                        left += skew_min as i32;
-                        width += (skew_max - skew_min) as u32;
-                    }
-                    if font.flags.contains(FontInstanceFlags::TRANSPOSE) {
-                        mem::swap(&mut width, &mut height);
-                        mem::swap(&mut left, &mut top);
-                        left -= width as i32;
-                        top += height as i32;
-                    }
-                    if font.flags.contains(FontInstanceFlags::FLIP_X) {
-                        left = -(left + width as i32);
-                    }
-                    if font.flags.contains(FontInstanceFlags::FLIP_Y) {
-                        top = -(top - height as i32);
-                    }
-                }
-                Some(GlyphDimensions {
-                    left,
-                    top,
-                    width,
-                    height,
-                    advance,
-                })
+                unsafe { (
+                    (*slot).bitmap_left,
+                    (*slot).bitmap_top,
+                    (*slot).bitmap.width,
+                    (*slot).bitmap.rows,
+                ) }
             }
             FT_Glyph_Format::FT_GLYPH_FORMAT_OUTLINE => {
                 let cbox = self.get_bounding_box(slot, font, glyph);
-                Some(GlyphDimensions {
-                    left: (cbox.xMin >> 6) as i32,
-                    top: (cbox.yMax >> 6) as i32,
-                    width: ((cbox.xMax - cbox.xMin) >> 6) as u32,
-                    height: ((cbox.yMax - cbox.yMin) >> 6) as u32,
-                    advance,
-                })
+                (
+                    (cbox.xMin >> 6) as i32,
+                    (cbox.yMax >> 6) as i32,
+                    ((cbox.xMax - cbox.xMin) >> 6) as u32,
+                    ((cbox.yMax - cbox.yMin) >> 6) as u32,
+                )
             }
-            _ => None,
+            _ => return None,
+        };
+        let mut advance = unsafe { (*slot).metrics.horiAdvance as f32 / 64.0 };
+        if let Some(scale) = use_transform {
+            if scale != 1.0 {
+                let x0 = left as f32 * scale;
+                let x1 = width as f32 * scale + x0;
+                let y1 = top as f32 * scale;
+                let y0 = y1 - height as f32 * scale;
+                left = x0.round() as i32;
+                top = y1.round() as i32;
+                width = (x1.ceil() - x0.floor()) as u32;
+                height = (y1.ceil() - y0.floor()) as u32;
+                advance *= scale;
+            }
+            // An outline glyph's cbox would have already been transformed inside FT_Load_Glyph,
+            // so only handle bitmap glyphs which are not handled by FT_Load_Glyph.
+            if format == FT_Glyph_Format::FT_GLYPH_FORMAT_BITMAP {
+                if font.flags.contains(FontInstanceFlags::SYNTHETIC_ITALICS) {
+                    let (skew_min, skew_max) = get_skew_bounds(top - height as i32, top);
+                    left += skew_min as i32;
+                    width += (skew_max - skew_min) as u32;
+                }
+                if font.flags.contains(FontInstanceFlags::TRANSPOSE) {
+                    mem::swap(&mut width, &mut height);
+                    mem::swap(&mut left, &mut top);
+                    left -= width as i32;
+                    top += height as i32;
+                }
+                if font.flags.contains(FontInstanceFlags::FLIP_X) {
+                    left = -(left + width as i32);
+                }
+                if font.flags.contains(FontInstanceFlags::FLIP_Y) {
+                    top = -(top - height as i32);
+                }
+            }
         }
+        Some(GlyphDimensions {
+            left,
+            top,
+            width,
+            height,
+            advance,
+        })
     }
 
     pub fn get_glyph_index(&mut self, font_key: FontKey, ch: char) -> Option<u32> {
@@ -496,7 +503,7 @@ impl FontContext {
         key: &GlyphKey,
     ) -> Option<GlyphDimensions> {
         let slot = self.load_glyph(font, key);
-        slot.and_then(|slot| self.get_glyph_dimensions_impl(slot, font, key, true))
+        slot.and_then(|(slot, scale)| self.get_glyph_dimensions_impl(slot, font, key, Some(scale)))
     }
 
     fn choose_bitmap_size(&self, face: FT_Face, requested_size: f64) -> FT_Error {
@@ -522,7 +529,7 @@ impl FontContext {
                 // In mono mode the color of the font is irrelevant.
                 font.color = ColorU::new(0xFF, 0xFF, 0xFF, 0xFF);
                 // Subpixel positioning is disabled in mono mode.
-                font.subpx_dir = SubpixelDirection::None;
+                font.disable_subpixel_position();
             }
             FontRenderMode::Alpha | FontRenderMode::Subpixel => {
                 // We don't do any preblending with FreeType currently, so the color is not used.
@@ -539,8 +546,10 @@ impl FontContext {
     ) -> bool {
         // Get the subpixel offsets in FT 26.6 format.
         let (dx, dy) = font.get_subpx_offset(key);
-        let dx = (dx * 64.0 + 0.5) as FT_Long;
-        let dy = (dy * 64.0 + 0.5) as FT_Long;
+        let (dx, dy) = (
+            (dx * 64.0 + 0.5) as FT_Pos,
+            -(dy * 64.0 + 0.5) as FT_Pos,
+        );
 
         // Move the outline curves to be at the origin, taking
         // into account the subpixel positioning.
@@ -565,11 +574,14 @@ impl FontContext {
             };
             unsafe { FT_Library_SetLcdFilter(self.lib, filter) };
         }
-        let render_mode = match (font.render_mode, font.subpx_dir) {
-            (FontRenderMode::Mono, _) => FT_Render_Mode::FT_RENDER_MODE_MONO,
-            (FontRenderMode::Alpha, _) => FT_Render_Mode::FT_RENDER_MODE_NORMAL,
-            (FontRenderMode::Subpixel, SubpixelDirection::Vertical) => FT_Render_Mode::FT_RENDER_MODE_LCD_V,
-            (FontRenderMode::Subpixel, _) => FT_Render_Mode::FT_RENDER_MODE_LCD,
+        let render_mode = match font.render_mode {
+            FontRenderMode::Mono => FT_Render_Mode::FT_RENDER_MODE_MONO,
+            FontRenderMode::Alpha => FT_Render_Mode::FT_RENDER_MODE_NORMAL,
+            FontRenderMode::Subpixel => if font.flags.contains(FontInstanceFlags::LCD_VERTICAL) {
+                FT_Render_Mode::FT_RENDER_MODE_LCD_V
+            } else {
+                FT_Render_Mode::FT_RENDER_MODE_LCD
+            },
         };
         let result = unsafe { FT_Render_Glyph(slot, render_mode) };
         if !succeeded(result) {
@@ -588,13 +600,15 @@ impl FontContext {
 
     #[cfg(not(feature = "pathfinder"))]
     pub fn rasterize_glyph(&mut self, font: &FontInstance, key: &GlyphKey) -> GlyphRasterResult {
-        let slot = match self.load_glyph(font, key) {
-            Some(slot) => slot,
+        let (slot, scale) = match self.load_glyph(font, key) {
+            Some(val) => val,
             None => return GlyphRasterResult::LoadFailed,
         };
 
         // Get dimensions of the glyph, to see if we need to rasterize it.
-        let dimensions = match self.get_glyph_dimensions_impl(slot, font, key, false) {
+        // Don't apply scaling to the dimensions, as the glyph cache needs to know the actual
+        // footprint of the glyph.
+        let dimensions = match self.get_glyph_dimensions_impl(slot, font, key, None) {
             Some(val) => val,
             None => return GlyphRasterResult::LoadFailed,
         };
@@ -606,12 +620,8 @@ impl FontContext {
         }
 
         let format = unsafe { (*slot).format };
-        let mut scale = 1.0;
         match format {
-            FT_Glyph_Format::FT_GLYPH_FORMAT_BITMAP => {
-                let y_size = unsafe { (*(*(*slot).face).size).metrics.y_ppem };
-                scale = font.size.to_f32_px() / y_size as f32;
-            }
+            FT_Glyph_Format::FT_GLYPH_FORMAT_BITMAP => {}
             FT_Glyph_Format::FT_GLYPH_FORMAT_OUTLINE => {
                 if !self.rasterize_glyph_outline(slot, font, key) {
                     return GlyphRasterResult::LoadFailed;

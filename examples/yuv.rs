@@ -5,6 +5,7 @@
 extern crate gleam;
 extern crate glutin;
 extern crate webrender;
+extern crate winit;
 
 #[path = "common/boilerplate.rs"]
 mod boilerplate;
@@ -78,7 +79,7 @@ impl Example for App {
         &mut self,
         api: &RenderApi,
         builder: &mut DisplayListBuilder,
-        resources: &mut ResourceUpdates,
+        txn: &mut Transaction,
         _framebuffer_size: DeviceUintSize,
         _pipeline_id: PipelineId,
         _document_id: DocumentId,
@@ -88,10 +89,7 @@ impl Example for App {
         builder.push_stacking_context(
             &info,
             None,
-            ScrollPolicy::Scrollable,
-            None,
             TransformStyle::Flat,
-            None,
             MixBlendMode::Normal,
             Vec::new(),
             GlyphRasterSpace::Screen,
@@ -101,7 +99,7 @@ impl Example for App {
         let yuv_chanel2 = api.generate_image_key();
         let yuv_chanel2_1 = api.generate_image_key();
         let yuv_chanel3 = api.generate_image_key();
-        resources.add_image(
+        txn.add_image(
             yuv_chanel1,
             ImageDescriptor::new(100, 100, ImageFormat::R8, true, false),
             ImageData::External(ExternalImageData {
@@ -113,7 +111,7 @@ impl Example for App {
             }),
             None,
         );
-        resources.add_image(
+        txn.add_image(
             yuv_chanel2,
             ImageDescriptor::new(100, 100, ImageFormat::RG8, true, false),
             ImageData::External(ExternalImageData {
@@ -125,7 +123,7 @@ impl Example for App {
             }),
             None,
         );
-        resources.add_image(
+        txn.add_image(
             yuv_chanel2_1,
             ImageDescriptor::new(100, 100, ImageFormat::R8, true, false),
             ImageData::External(ExternalImageData {
@@ -137,7 +135,7 @@ impl Example for App {
             }),
             None,
         );
-        resources.add_image(
+        txn.add_image(
             yuv_chanel3,
             ImageDescriptor::new(100, 100, ImageFormat::R8, true, false),
             ImageData::External(ExternalImageData {
@@ -177,7 +175,7 @@ impl Example for App {
 
     fn on_event(
         &mut self,
-        _event: glutin::WindowEvent,
+        _event: winit::WindowEvent,
         _api: &RenderApi,
         _document_id: DocumentId,
     ) -> bool {

@@ -5,6 +5,7 @@
 extern crate gleam;
 extern crate glutin;
 extern crate webrender;
+extern crate winit;
 
 #[path = "common/boilerplate.rs"]
 mod boilerplate;
@@ -83,7 +84,7 @@ impl Example for App {
         &mut self,
         api: &RenderApi,
         builder: &mut DisplayListBuilder,
-        resources: &mut ResourceUpdates,
+        txn: &mut Transaction,
         _framebuffer_size: DeviceUintSize,
         _pipeline_id: PipelineId,
         _document_id: DocumentId,
@@ -93,10 +94,7 @@ impl Example for App {
         builder.push_stacking_context(
             &info,
             None,
-            ScrollPolicy::Scrollable,
-            None,
             TransformStyle::Flat,
-            None,
             MixBlendMode::Normal,
             Vec::new(),
             GlyphRasterSpace::Screen,
@@ -111,7 +109,7 @@ impl Example for App {
             let key1 = api.generate_image_key();
 
             self.image_generator.generate_image(128);
-            resources.add_image(
+            txn.add_image(
                 key0,
                 ImageDescriptor::new(128, 128, ImageFormat::BGRA8, true, false),
                 ImageData::new(self.image_generator.take()),
@@ -119,7 +117,7 @@ impl Example for App {
             );
 
             self.image_generator.generate_image(128);
-            resources.add_image(
+            txn.add_image(
                 key1,
                 ImageDescriptor::new(128, 128, ImageFormat::BGRA8, true, false),
                 ImageData::new(self.image_generator.take()),
@@ -188,23 +186,23 @@ impl Example for App {
 
     fn on_event(
         &mut self,
-        event: glutin::WindowEvent,
+        event: winit::WindowEvent,
         api: &RenderApi,
         _document_id: DocumentId,
     ) -> bool {
         match event {
-            glutin::WindowEvent::KeyboardInput {
-                input: glutin::KeyboardInput {
-                    state: glutin::ElementState::Pressed,
+            winit::WindowEvent::KeyboardInput {
+                input: winit::KeyboardInput {
+                    state: winit::ElementState::Pressed,
                     virtual_keycode: Some(key),
                     ..
                 },
                 ..
             } => {
-                let mut updates = ResourceUpdates::new();
+                let mut txn = Transaction::new();
 
                 match key {
-                    glutin::VirtualKeyCode::S => {
+                    winit::VirtualKeyCode::S => {
                         self.stress_keys.clear();
 
                         for _ in 0 .. 16 {
@@ -215,7 +213,7 @@ impl Example for App {
 
                                 self.image_generator.generate_image(size);
 
-                                updates.add_image(
+                                txn.add_image(
                                     image_key,
                                     ImageDescriptor::new(size, size, ImageFormat::BGRA8, true, false),
                                     ImageData::new(self.image_generator.take()),
@@ -226,23 +224,23 @@ impl Example for App {
                             }
                         }
                     }
-                    glutin::VirtualKeyCode::D => if let Some(image_key) = self.image_key.take() {
-                        updates.delete_image(image_key);
+                    winit::VirtualKeyCode::D => if let Some(image_key) = self.image_key.take() {
+                        txn.delete_image(image_key);
                     },
-                    glutin::VirtualKeyCode::U => if let Some(image_key) = self.image_key {
+                    winit::VirtualKeyCode::U => if let Some(image_key) = self.image_key {
                         let size = 128;
                         self.image_generator.generate_image(size);
 
-                        updates.update_image(
+                        txn.update_image(
                             image_key,
                             ImageDescriptor::new(size, size, ImageFormat::BGRA8, true, false),
                             ImageData::new(self.image_generator.take()),
                             None,
                         );
                     },
-                    glutin::VirtualKeyCode::E => {
+                    winit::VirtualKeyCode::E => {
                         if let Some(image_key) = self.image_key.take() {
-                            updates.delete_image(image_key);
+                            txn.delete_image(image_key);
                         }
 
                         let size = 32;
@@ -254,7 +252,7 @@ impl Example for App {
                             image_type: ExternalImageType::Buffer,
                         };
 
-                        updates.add_image(
+                        txn.add_image(
                             image_key,
                             ImageDescriptor::new(size, size, ImageFormat::BGRA8, true, false),
                             ImageData::External(image_data),
@@ -263,16 +261,16 @@ impl Example for App {
 
                         self.image_key = Some(image_key);
                     }
-                    glutin::VirtualKeyCode::R => {
+                    winit::VirtualKeyCode::R => {
                         if let Some(image_key) = self.image_key.take() {
-                            updates.delete_image(image_key);
+                            txn.delete_image(image_key);
                         }
 
                         let image_key = api.generate_image_key();
                         let size = 32;
                         self.image_generator.generate_image(size);
 
-                        updates.add_image(
+                        txn.add_image(
                             image_key,
                             ImageDescriptor::new(size, size, ImageFormat::BGRA8, true, false),
                             ImageData::new(self.image_generator.take()),
@@ -284,7 +282,7 @@ impl Example for App {
                     _ => {}
                 }
 
-                api.update_resources(updates);
+                api.update_resources(txn.resource_updates);
                 return true;
             }
             _ => {}

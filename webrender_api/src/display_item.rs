@@ -109,6 +109,8 @@ pub enum SpecificDisplayItem {
     Iframe(IframeDisplayItem),
     PushStackingContext(PushStackingContextDisplayItem),
     PopStackingContext,
+    PushReferenceFrame(PushReferenceFrameDisplayListItem),
+    PopReferenceFrame,
     SetGradientStops,
     PushShadow(Shadow),
     PopAllShadows,
@@ -138,6 +140,8 @@ pub enum CompletelySpecificDisplayItem {
     Iframe(IframeDisplayItem),
     PushStackingContext(PushStackingContextDisplayItem, Vec<FilterOp>),
     PopStackingContext,
+    PushReferenceFrame(PushReferenceFrameDisplayListItem),
+    PopReferenceFrame,
     SetGradientStops(Vec<GradientStop>),
     PushShadow(Shadow),
     PopAllShadows,
@@ -372,7 +376,7 @@ pub struct BorderSide {
 }
 
 #[repr(u32)]
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize, Hash, Eq)]
 pub enum BorderStyle {
     None = 0,
     Solid = 1,
@@ -384,6 +388,12 @@ pub enum BorderStyle {
     Ridge = 7,
     Inset = 8,
     Outset = 9,
+}
+
+impl BorderStyle {
+    pub fn is_hidden(&self) -> bool {
+        *self == BorderStyle::Hidden || *self == BorderStyle::None
+    }
 }
 
 #[repr(u32)]
@@ -463,28 +473,30 @@ pub struct RadialGradientDisplayItem {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct PushReferenceFrameDisplayListItem {
+    pub reference_frame: ReferenceFrame,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ReferenceFrame {
+    pub transform: Option<PropertyBinding<LayoutTransform>>,
+    pub perspective: Option<LayoutTransform>,
+    pub id: ClipId,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct PushStackingContextDisplayItem {
     pub stacking_context: StackingContext,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StackingContext {
-    pub scroll_policy: ScrollPolicy,
-    pub transform: Option<PropertyBinding<LayoutTransform>>,
     pub transform_style: TransformStyle,
-    pub perspective: Option<LayoutTransform>,
     pub mix_blend_mode: MixBlendMode,
-    pub reference_frame_id: Option<ClipId>,
     pub clip_node_id: Option<ClipId>,
     pub glyph_raster_space: GlyphRasterSpace,
 } // IMPLICIT: filters: Vec<FilterOp>
 
-#[repr(u32)]
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub enum ScrollPolicy {
-    Scrollable = 0,
-    Fixed = 1,
-}
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -550,6 +562,7 @@ pub enum FilterOp {
 pub struct IframeDisplayItem {
     pub clip_id: ClipId,
     pub pipeline_id: PipelineId,
+    pub ignore_missing_pipeline: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -831,6 +844,13 @@ impl ClipId {
     }
 
     pub fn is_root_scroll_node(&self) -> bool {
+        match *self {
+            ClipId::Clip(1, _) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_root_reference_frame(&self) -> bool {
         match *self {
             ClipId::Clip(1, _) => true,
             _ => false,

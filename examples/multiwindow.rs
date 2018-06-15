@@ -7,6 +7,7 @@ extern crate euclid;
 extern crate gleam;
 extern crate glutin;
 extern crate webrender;
+extern crate winit;
 
 use app_units::Au;
 use gleam::gl;
@@ -16,11 +17,11 @@ use std::io::Read;
 use webrender::api::*;
 
 struct Notifier {
-    events_proxy: glutin::EventsLoopProxy,
+    events_proxy: winit::EventsLoopProxy,
 }
 
 impl Notifier {
-    fn new(events_proxy: glutin::EventsLoopProxy) -> Notifier {
+    fn new(events_proxy: winit::EventsLoopProxy) -> Notifier {
         Notifier { events_proxy }
     }
 }
@@ -43,7 +44,7 @@ impl RenderNotifier for Notifier {
 }
 
 struct Window {
-    events_loop: glutin::EventsLoop, //TODO: share events loop?
+    events_loop: winit::EventsLoop, //TODO: share events loop?
     window: glutin::GlWindow,
     renderer: webrender::Renderer,
     name: &'static str,
@@ -56,13 +57,13 @@ struct Window {
 
 impl Window {
     fn new(name: &'static str, clear_color: ColorF) -> Self {
-        let events_loop = glutin::EventsLoop::new();
+        let events_loop = winit::EventsLoop::new();
         let context_builder = glutin::ContextBuilder::new()
             .with_gl(glutin::GlRequest::GlThenGles {
                 opengl_version: (3, 2),
                 opengles_version: (3, 0),
             });
-        let window_builder = glutin::WindowBuilder::new()
+        let window_builder = winit::WindowBuilder::new()
             .with_title(name)
             .with_multitouch()
             .with_dimensions(800, 600);
@@ -102,17 +103,15 @@ impl Window {
 
         let epoch = Epoch(0);
         let pipeline_id = PipelineId(0, 0);
-        let mut resources = ResourceUpdates::new();
+        let mut txn = Transaction::new();
 
         let font_key = api.generate_font_key();
         let font_bytes = load_file("../wrench/reftests/text/FreeSans.ttf");
-        resources.add_raw_font(font_key, font_bytes, 0);
+        txn.add_raw_font(font_key, font_bytes, 0);
 
         let font_instance_key = api.generate_font_instance_key();
-        resources.add_font_instance(font_instance_key, font_key, Au::from_px(32), None, None, Vec::new());
+        txn.add_font_instance(font_instance_key, font_key, Au::from_px(32), None, None, Vec::new());
 
-        let mut txn = Transaction::new();
-        txn.update_resources(resources);
         api.send_transaction(document_id, txn);
 
         Window {
@@ -137,21 +136,21 @@ impl Window {
         let renderer = &mut self.renderer;
 
         self.events_loop.poll_events(|global_event| match global_event {
-            glutin::Event::WindowEvent { event, .. } => match event {
-                glutin::WindowEvent::Closed |
-                glutin::WindowEvent::KeyboardInput {
-                    input: glutin::KeyboardInput {
-                        virtual_keycode: Some(glutin::VirtualKeyCode::Escape),
+            winit::Event::WindowEvent { event, .. } => match event {
+                winit::WindowEvent::CloseRequested |
+                winit::WindowEvent::KeyboardInput {
+                    input: winit::KeyboardInput {
+                        virtual_keycode: Some(winit::VirtualKeyCode::Escape),
                         ..
                     },
                     ..
                 } => {
                     do_exit = true
                 }
-                glutin::WindowEvent::KeyboardInput {
-                    input: glutin::KeyboardInput {
-                        state: glutin::ElementState::Pressed,
-                        virtual_keycode: Some(glutin::VirtualKeyCode::P),
+                winit::WindowEvent::KeyboardInput {
+                    input: winit::KeyboardInput {
+                        state: winit::ElementState::Pressed,
+                        virtual_keycode: Some(winit::VirtualKeyCode::P),
                         ..
                     },
                     ..
@@ -181,10 +180,7 @@ impl Window {
         builder.push_stacking_context(
             &info,
             None,
-            ScrollPolicy::Scrollable,
-            None,
             TransformStyle::Flat,
-            None,
             MixBlendMode::Normal,
             Vec::new(),
             GlyphRasterSpace::Screen,

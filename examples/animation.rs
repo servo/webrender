@@ -14,6 +14,7 @@ extern crate euclid;
 extern crate gleam;
 extern crate glutin;
 extern crate webrender;
+extern crate winit;
 
 #[path = "common/boilerplate.rs"]
 mod boilerplate;
@@ -34,7 +35,7 @@ impl Example for App {
         &mut self,
         _api: &RenderApi,
         builder: &mut DisplayListBuilder,
-        _resources: &mut ResourceUpdates,
+        _txn: &mut Transaction,
         _framebuffer_size: DeviceUintSize,
         _pipeline_id: PipelineId,
         _document_id: DocumentId,
@@ -43,17 +44,23 @@ impl Example for App {
         let bounds = (0, 0).to(200, 200);
 
         let filters = vec![
-            FilterOp::Opacity(PropertyBinding::Binding(self.opacity_key), self.opacity),
+            FilterOp::Opacity(PropertyBinding::Binding(self.opacity_key, self.opacity), self.opacity),
         ];
+
+        let info = LayoutPrimitiveInfo::new(bounds);
+        let reference_frame_id = builder.push_reference_frame(
+            &info,
+            Some(PropertyBinding::Binding(self.property_key, LayoutTransform::identity())),
+            None,
+        );
+
+        builder.push_clip_id(reference_frame_id);
 
         let info = LayoutPrimitiveInfo::new(bounds);
         builder.push_stacking_context(
             &info,
             None,
-            ScrollPolicy::Scrollable,
-            Some(PropertyBinding::Binding(self.property_key)),
             TransformStyle::Flat,
-            None,
             MixBlendMode::Normal,
             filters,
             GlyphRasterSpace::Screen,
@@ -73,27 +80,30 @@ impl Example for App {
         builder.pop_clip_id();
 
         builder.pop_stacking_context();
+
+        builder.pop_clip_id();
+        builder.pop_reference_frame();
     }
 
-    fn on_event(&mut self, win_event: glutin::WindowEvent, api: &RenderApi, document_id: DocumentId) -> bool {
+    fn on_event(&mut self, win_event: winit::WindowEvent, api: &RenderApi, document_id: DocumentId) -> bool {
         match win_event {
-            glutin::WindowEvent::KeyboardInput {
-                input: glutin::KeyboardInput {
-                    state: glutin::ElementState::Pressed,
+            winit::WindowEvent::KeyboardInput {
+                input: winit::KeyboardInput {
+                    state: winit::ElementState::Pressed,
                     virtual_keycode: Some(key),
                     ..
                 },
                 ..
             } => {
                 let (offset_x, offset_y, angle, delta_opacity) = match key {
-                    glutin::VirtualKeyCode::Down => (0.0, 10.0, 0.0, 0.0),
-                    glutin::VirtualKeyCode::Up => (0.0, -10.0, 0.0, 0.0),
-                    glutin::VirtualKeyCode::Right => (10.0, 0.0, 0.0, 0.0),
-                    glutin::VirtualKeyCode::Left => (-10.0, 0.0, 0.0, 0.0),
-                    glutin::VirtualKeyCode::Comma => (0.0, 0.0, 0.1, 0.0),
-                    glutin::VirtualKeyCode::Period => (0.0, 0.0, -0.1, 0.0),
-                    glutin::VirtualKeyCode::Z => (0.0, 0.0, 0.0, -0.1),
-                    glutin::VirtualKeyCode::X => (0.0, 0.0, 0.0, 0.1),
+                    winit::VirtualKeyCode::Down => (0.0, 10.0, 0.0, 0.0),
+                    winit::VirtualKeyCode::Up => (0.0, -10.0, 0.0, 0.0),
+                    winit::VirtualKeyCode::Right => (10.0, 0.0, 0.0, 0.0),
+                    winit::VirtualKeyCode::Left => (-10.0, 0.0, 0.0, 0.0),
+                    winit::VirtualKeyCode::Comma => (0.0, 0.0, 0.1, 0.0),
+                    winit::VirtualKeyCode::Period => (0.0, 0.0, -0.1, 0.0),
+                    winit::VirtualKeyCode::Z => (0.0, 0.0, 0.0, -0.1),
+                    winit::VirtualKeyCode::X => (0.0, 0.0, 0.0, 0.1),
                     _ => return false,
                 };
                 // Update the transform based on the keyboard input and push it to

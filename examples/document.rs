@@ -6,6 +6,7 @@ extern crate euclid;
 extern crate gleam;
 extern crate glutin;
 extern crate webrender;
+extern crate winit;
 
 #[path = "common/boilerplate.rs"]
 mod boilerplate;
@@ -68,7 +69,7 @@ impl App {
 
             let document_id = api.add_document(size, layer);
             let mut txn = Transaction::new();
-            txn.set_window_parameters(framebuffer_size, bounds, 1.0);
+            txn.set_window_parameters(framebuffer_size, bounds, device_pixel_ratio);
             txn.set_root_pipeline(pipeline_id);
             api.send_transaction(document_id, txn);
 
@@ -87,7 +88,7 @@ impl Example for App {
         &mut self,
         api: &RenderApi,
         base_builder: &mut DisplayListBuilder,
-        _: &mut ResourceUpdates,
+        _txn: &mut Transaction,
         framebuffer_size: DeviceUintSize,
         _: PipelineId,
         _: DocumentId,
@@ -113,10 +114,7 @@ impl Example for App {
             builder.push_stacking_context(
                 &LayoutPrimitiveInfo::new(doc.content_rect),
                 None,
-                ScrollPolicy::Fixed,
-                None,
                 TransformStyle::Flat,
-                None,
                 MixBlendMode::Normal,
                 Vec::new(),
                 GlyphRasterSpace::Screen,

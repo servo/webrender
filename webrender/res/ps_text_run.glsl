@@ -20,7 +20,20 @@ VertexInfo write_text_vertex(vec2 clamped_local_pos,
                              float z,
                              ClipScrollNode scroll_node,
                              PictureTask task,
-                             RectWithSize snap_rect) {
+                             RectWithSize snap_rect,
+                             vec2 snap_bias) {
+    // Ensure the transform does not contain a subpixel translation to ensure
+    // that glyph snapping is stable for equivalent glyph subpixel positions.
+#if defined(WR_FEATURE_GLYPH_TRANSFORM)
+    bool remove_subpx_offset = true;
+#else
+    bool remove_subpx_offset = scroll_node.is_axis_aligned;
+#endif
+
+    if (remove_subpx_offset) {
+        scroll_node.transform[3].xy = floor(scroll_node.transform[3].xy + 0.5);
+    }
+
     // Transform the current vertex to world space.
     vec4 world_pos = scroll_node.transform * vec4(clamped_local_pos, 0.0, 1.0);
 
@@ -34,16 +47,17 @@ VertexInfo write_text_vertex(vec2 clamped_local_pos,
 
 #ifdef WR_FEATURE_GLYPH_TRANSFORM
     // For transformed subpixels, we just need to align the glyph origin to a device pixel.
-    // Only check the scroll node transform's translation since the scales and axes match.
-    vec2 world_snap_p0 = snap_rect.p0 + scroll_node.transform[3].xy * uDevicePixelRatio;
-    final_pos += floor(world_snap_p0 + 0.5) - world_snap_p0;
-#elif !defined(WR_FEATURE_TRANSFORM)
+    final_pos += floor(snap_rect.p0 + snap_bias) - snap_rect.p0;
+#else
     // Compute the snapping offset only if the scroll node transform is axis-aligned.
-    final_pos += compute_snap_offset(
-        clamped_local_pos,
-        scroll_node.transform,
-        snap_rect
-    );
+    if (scroll_node.is_axis_aligned) {
+        final_pos += compute_snap_offset(
+            clamped_local_pos,
+            scroll_node.transform,
+            snap_rect,
+            snap_bias
+        );
+    }
 #endif
 
     gl_Position = uTransform * vec4(final_pos, z, 1.0);
@@ -71,9 +85,7 @@ void main(void) {
         color_mode = uMode;
     }
 
-    Glyph glyph = fetch_glyph(prim.specific_prim_address,
-                              glyph_index,
-                              subpx_dir);
+    Glyph glyph = fetch_glyph(prim.specific_prim_address, glyph_index);
     GlyphResource res = fetch_glyph_resource(resource_address);
 
 #ifdef WR_FEATURE_GLYPH_TRANSFORM
@@ -112,12 +124,38 @@ void main(void) {
     local_pos = clamp_rect(local_pos, prim.local_clip_rect);
 #endif
 
+    vec2 snap_bias;
+    // In subpixel mode, the subpixel offset has already been
+    // accounted for while rasterizing the glyph. However, we
+    // must still round with a subpixel bias rather than rounding
+    // to the nearest whole pixel, depending on subpixel direciton.
+    switch (subpx_dir) {
+        case SUBPX_DIR_NONE:
+        default:
+            snap_bias = vec2(0.5);
+            break;
+        case SUBPX_DIR_HORIZONTAL:
+            // Glyphs positioned [-0.125, 0.125] get a
+            // subpx position of zero. So include that
+            // offset in the glyph position to ensure
+            // we round to the correct whole position.
+            snap_bias = vec2(0.125, 0.5);
+            break;
+        case SUBPX_DIR_VERTICAL:
+            snap_bias = vec2(0.5, 0.125);
+            break;
+        case SUBPX_DIR_MIXED:
+            snap_bias = vec2(0.125);
+            break;
+    }
+
     VertexInfo vi = write_text_vertex(local_pos,
                                       prim.local_clip_rect,
                                       prim.z,
                                       prim.scroll_node,
                                       prim.task,
-                                      glyph_rect);
+                                      glyph_rect,
+                                      snap_bias);
 
 #ifdef WR_FEATURE_GLYPH_TRANSFORM
     vec2 f = (transform * vi.local_pos - glyph_rect.p0) / glyph_rect.size;

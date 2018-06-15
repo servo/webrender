@@ -48,7 +48,7 @@ vec2 transform_point_snapped(
     RectWithSize local_rect,
     mat4 transform
 ) {
-    vec2 snap_offset = compute_snap_offset(local_pos, transform, local_rect);
+    vec2 snap_offset = compute_snap_offset(local_pos, transform, local_rect, vec2(0.5));
     vec4 world_pos = transform * vec4(local_pos, 0.0, 1.0);
     vec2 device_pos = world_pos.xy / world_pos.w * uDevicePixelRatio;
 
@@ -95,10 +95,10 @@ void brush_vs(
         //       works. That assumption may not hold if this
         //       is used for other purposes in the future.
         if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_X) != 0) {
-            stretch_size.x = texel_rect.z - texel_rect.x;
+            stretch_size.x = (texel_rect.z - texel_rect.x) / uDevicePixelRatio;
         }
         if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_Y) != 0) {
-            stretch_size.y = texel_rect.w - texel_rect.y;
+            stretch_size.y = (texel_rect.w - texel_rect.y) / uDevicePixelRatio;
         }
 
         uv0 = res.uv_rect.p0 + texel_rect.xy;

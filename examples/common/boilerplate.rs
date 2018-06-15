@@ -10,14 +10,15 @@ use glutin::{self, GlContext};
 use std::env;
 use std::path::PathBuf;
 use webrender;
+use winit;
 use webrender::api::*;
 
 struct Notifier {
-    events_proxy: glutin::EventsLoopProxy,
+    events_proxy: winit::EventsLoopProxy,
 }
 
 impl Notifier {
-    fn new(events_proxy: glutin::EventsLoopProxy) -> Notifier {
+    fn new(events_proxy: winit::EventsLoopProxy) -> Notifier {
         Notifier { events_proxy }
     }
 }
@@ -71,12 +72,12 @@ pub trait Example {
         &mut self,
         api: &RenderApi,
         builder: &mut DisplayListBuilder,
-        resources: &mut ResourceUpdates,
+        txn: &mut Transaction,
         framebuffer_size: DeviceUintSize,
         pipeline_id: PipelineId,
         document_id: DocumentId,
     );
-    fn on_event(&mut self, glutin::WindowEvent, &RenderApi, DocumentId) -> bool {
+    fn on_event(&mut self, winit::WindowEvent, &RenderApi, DocumentId) -> bool {
         false
     }
     fn get_image_handlers(
@@ -103,13 +104,13 @@ pub fn main_wrapper<E: Example>(
         None
     };
 
-    let mut events_loop = glutin::EventsLoop::new();
+    let mut events_loop = winit::EventsLoop::new();
     let context_builder = glutin::ContextBuilder::new()
         .with_gl(glutin::GlRequest::GlThenGles {
             opengl_version: (3, 2),
             opengles_version: (3, 0),
         });
-    let window_builder = glutin::WindowBuilder::new()
+    let window_builder = winit::WindowBuilder::new()
         .with_title(E::TITLE)
         .with_multitouch()
         .with_dimensions(E::WIDTH, E::HEIGHT);
@@ -169,17 +170,16 @@ pub fn main_wrapper<E: Example>(
     let pipeline_id = PipelineId(0, 0);
     let layout_size = framebuffer_size.to_f32() / euclid::TypedScale::new(device_pixel_ratio);
     let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);
-    let mut resources = ResourceUpdates::new();
+    let mut txn = Transaction::new();
 
     example.render(
         &api,
         &mut builder,
-        &mut resources,
+        &mut txn,
         framebuffer_size,
         pipeline_id,
         document_id,
     );
-    let mut txn = Transaction::new();
     txn.set_display_list(
         epoch,
         None,
@@ -187,7 +187,6 @@ pub fn main_wrapper<E: Example>(
         builder.finalize(),
         true,
     );
-    txn.update_resources(resources);
     txn.set_root_pipeline(pipeline_id);
     txn.generate_frame();
     api.send_transaction(document_id, txn);
@@ -198,11 +197,14 @@ pub fn main_wrapper<E: Example>(
         let mut custom_event = true;
 
         match global_event {
-            glutin::Event::WindowEvent { event: glutin::WindowEvent::Closed, .. } => return glutin::ControlFlow::Break,
-            glutin::Event::WindowEvent {
-                event: glutin::WindowEvent::KeyboardInput {
-                    input: glutin::KeyboardInput {
-                        state: glutin::ElementState::Pressed,
+            winit::Event::WindowEvent {
+                event: winit::WindowEvent::CloseRequested,
+                ..
+            } => return winit::ControlFlow::Break,
+            winit::Event::WindowEvent {
+                event: winit::WindowEvent::KeyboardInput {
+                    input: winit::KeyboardInput {
+                        state: winit::ElementState::Pressed,
                         virtual_keycode: Some(key),
                         ..
                     },
@@ -210,27 +212,27 @@ pub fn main_wrapper<E: Example>(
                 },
                 ..
             } => match key {
-                glutin::VirtualKeyCode::Escape => return glutin::ControlFlow::Break,
-                glutin::VirtualKeyCode::P => renderer.toggle_debug_flags(webrender::DebugFlags::PROFILER_DBG),
-                glutin::VirtualKeyCode::O => renderer.toggle_debug_flags(webrender::DebugFlags::RENDER_TARGET_DBG),
-                glutin::VirtualKeyCode::I => renderer.toggle_debug_flags(webrender::DebugFlags::TEXTURE_CACHE_DBG),
-                glutin::VirtualKeyCode::S => renderer.toggle_debug_flags(webrender::DebugFlags::COMPACT_PROFILER),
-                glutin::VirtualKeyCode::Q => renderer.toggle_debug_flags(
+                winit::VirtualKeyCode::Escape => return winit::ControlFlow::Break,
+                winit::VirtualKeyCode::P => renderer.toggle_debug_flags(webrender::DebugFlags::PROFILER_DBG),
+                winit::VirtualKeyCode::O => renderer.toggle_debug_flags(webrender::DebugFlags::RENDER_TARGET_DBG),
+                winit::VirtualKeyCode::I => renderer.toggle_debug_flags(webrender::DebugFlags::TEXTURE_CACHE_DBG),
+                winit::VirtualKeyCode::S => renderer.toggle_debug_flags(webrender::DebugFlags::COMPACT_PROFILER),
+                winit::VirtualKeyCode::Q => renderer.toggle_debug_flags(
                     webrender::DebugFlags::GPU_TIME_QUERIES | webrender::DebugFlags::GPU_SAMPLE_QUERIES
                 ),
-                glutin::VirtualKeyCode::Key1 => txn.set_window_parameters(
+                winit::VirtualKeyCode::Key1 => txn.set_window_parameters(
                     framebuffer_size,
                     DeviceUintRect::new(DeviceUintPoint::zero(), framebuffer_size),
                     1.0
                 ),
-                glutin::VirtualKeyCode::Key2 => txn.set_window_parameters(
+                winit::VirtualKeyCode::Key2 => txn.set_window_parameters(
                     framebuffer_size,
                     DeviceUintRect::new(DeviceUintPoint::zero(), framebuffer_size),
                     2.0
                 ),
-                glutin::VirtualKeyCode::M => api.notify_memory_pressure(),
+                winit::VirtualKeyCode::M => api.notify_memory_pressure(),
                 #[cfg(feature = "capture")]
-                glutin::VirtualKeyCode::C => {
+                winit::VirtualKeyCode::C => {
                     let path: PathBuf = "../captures/example".into();
                     //TODO: switch between SCENE/FRAME capture types
                     // based on "shift" modifier, when `glutin` is updated.
@@ -239,24 +241,23 @@ pub fn main_wrapper<E: Example>(
                 },
                 _ => {
                     let win_event = match global_event {
-                        glutin::Event::WindowEvent { event, .. } => event,
+                        winit::Event::WindowEvent { event, .. } => event,
                         _ => unreachable!()
                     };
                     custom_event = example.on_event(win_event, &api, document_id)
                 },
             },
-            glutin::Event::WindowEvent { event, .. } => custom_event = example.on_event(event, &api, document_id),
-            _ => return glutin::ControlFlow::Continue,
+            winit::Event::WindowEvent { event, .. } => custom_event = example.on_event(event, &api, document_id),
+            _ => return winit::ControlFlow::Continue,
         };
 
         if custom_event {
             let mut builder = DisplayListBuilder::new(pipeline_id, layout_size);
-            let mut resources = ResourceUpdates::new();
 
             example.render(
                 &api,
                 &mut builder,
-                &mut resources,
+                &mut txn,
                 framebuffer_size,
                 pipeline_id,
                 document_id,
@@ -268,7 +269,6 @@ pub fn main_wrapper<E: Example>(
                 builder.finalize(),
                 true,
             );
-            txn.update_resources(resources);
             txn.generate_frame();
         }
         api.send_transaction(document_id, txn);
@@ -279,7 +279,7 @@ pub fn main_wrapper<E: Example>(
         example.draw_custom(&*gl);
         window.swap_buffers().ok();
 
-        glutin::ControlFlow::Continue
+        winit::ControlFlow::Continue
     });
 
     renderer.deinit();

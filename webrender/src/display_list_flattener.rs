@@ -10,27 +10,27 @@ use api::{FilterOp, FontInstanceKey, GlyphInstance, GlyphOptions, GlyphRasterSpa
 use api::{IframeDisplayItem, ImageKey, ImageRendering, ItemRange, LayoutPoint};
 use api::{LayoutPrimitiveInfo, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D};
 use api::{LineOrientation, LineStyle, LocalClip, NinePatchBorderSource, PipelineId};
-use api::{PropertyBinding, RepeatMode, ScrollFrameDisplayItem, ScrollPolicy, ScrollSensitivity};
+use api::{PropertyBinding, ReferenceFrame, RepeatMode, ScrollFrameDisplayItem, ScrollSensitivity};
 use api::{Shadow, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect};
-use api::{TileOffset, TransformStyle, YuvColorSpace, YuvData};
-use app_units::Au;
+use api::{TransformStyle, YuvColorSpace, YuvData};
 use clip::{ClipRegion, ClipSource, ClipSources, ClipStore};
 use clip_scroll_node::{ClipScrollNode, NodeType, StickyFrameInfo};
 use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, ClipScrollTree};
 use euclid::{SideOffsets2D, vec2};
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use glyph_rasterizer::FontInstance;
+use gpu_cache::GpuCacheHandle;
 use gpu_types::BrushFlags;
 use hit_test::{HitTestingItem, HitTestingRun};
-use image::{decompose_image, TiledImageInfo, simplify_repeated_primitive};
+use image::simplify_repeated_primitive;
 use internal_types::{FastHashMap, FastHashSet};
 use picture::PictureCompositeMode;
-use prim_store::{BrushClipMaskKind, BrushKind, BrushPrimitive, BrushSegmentDescriptor, CachedGradient};
-use prim_store::{CachedGradientIndex, EdgeAaSegmentMask, ImageCacheKey, ImagePrimitiveCpu, ImageSource};
-use prim_store::{BrushSegment, PictureIndex, PrimitiveContainer, PrimitiveIndex, PrimitiveStore};
+use prim_store::{BrushClipMaskKind, BrushKind, BrushPrimitive, BrushSegmentDescriptor};
+use prim_store::{EdgeAaSegmentMask, ImageSource};
+use prim_store::{BorderSource, BrushSegment, PictureIndex, PrimitiveContainer, PrimitiveIndex, PrimitiveStore};
 use prim_store::{OpacityBinding, ScrollNodeAndClipChain, TextRunPrimitiveCpu};
 use render_backend::{DocumentView};
-use resource_cache::{FontInstanceMap, ImageRequest, TiledImageMap};
+use resource_cache::{FontInstanceMap, ImageRequest};
 use scene::{Scene, ScenePipeline, StackingContextHelpers};
 use scene_builder::{BuiltScene, SceneRequest};
 use std::{f32, mem, usize};
@@ -150,19 +150,12 @@ pub struct DisplayListFlattener<'a> {
     /// The map of all font instances.
     font_instances: FontInstanceMap,
 
-    /// The map of tiled images.
-    tiled_image_map: TiledImageMap,
-
     /// Used to track the latest flattened epoch for each pipeline.
     pipeline_epochs: Vec<(PipelineId, Epoch)>,
 
     /// A set of pipelines that the caller has requested be made available as
     /// output textures.
     output_pipelines: &'a FastHashSet<PipelineId>,
-
-    /// A list of replacements to make in order to properly handle fixed position
-    /// content as well as stacking contexts that create reference frames.
-    replacements: Vec<(ClipId, ClipId)>,
 
     /// The data structure that converting between ClipId and the various index
     /// types that the ClipScrollTree uses.
@@ -196,9 +189,6 @@ pub struct DisplayListFlattener<'a> {
     /// The configuration to use for the FrameBuilder. We consult this in
     /// order to determine the default font.
     pub config: FrameBuilderConfig,
-
-    /// The gradients collecting during display list flattening.
-    pub cached_gradients: Vec<CachedGradient>,
 }
 
 impl<'a> DisplayListFlattener<'a> {
@@ -207,11 +197,11 @@ impl<'a> DisplayListFlattener<'a> {
         scene: &Scene,
         clip_scroll_tree: &mut ClipScrollTree,
         font_instances: FontInstanceMap,
-        tiled_image_map: TiledImageMap,
         view: &DocumentView,
         output_pipelines: &FastHashSet<PipelineId>,
         frame_builder_config: &FrameBuilderConfig,
         new_scene: &mut Scene,
+        scene_id: u64,
     ) -> FrameBuilder {
         // We checked that the root pipeline is available on the render backend.
         let root_pipeline_id = scene.root_pipeline_id.unwrap();
@@ -227,14 +217,11 @@ impl<'a> DisplayListFlattener<'a> {
             scene,
             clip_scroll_tree,
             font_instances,
-            tiled_image_map,
             config: *frame_builder_config,
             pipeline_epochs: Vec::new(),
-            replacements: Vec::new(),
             output_pipelines,
             id_to_index_mapper: ClipIdToIndexMapper::default(),
             hit_testing_runs: recycle_vec(old_builder.hit_testing_runs),
-            cached_gradients: recycle_vec(old_builder.cached_gradients),
             scrollbar_prims: recycle_vec(old_builder.scrollbar_prims),
             reference_frame_stack: Vec::new(),
             picture_stack: Vec::new(),
@@ -264,19 +251,9 @@ impl<'a> DisplayListFlattener<'a> {
             view.inner_rect,
             background_color,
             view.window_size,
-            flattener
+            scene_id,
+            flattener,
         )
-    }
-
-    /// Since WebRender still handles fixed position and reference frame content internally
-    /// we need to apply this table of id replacements only to the id that affects the
-    /// position of a node. We can eventually remove this when clients start handling
-    /// reference frames themselves. This method applies these replacements.
-    fn apply_scroll_frame_id_replacement(&self, index: ClipId) -> ClipId {
-        match self.replacements.last() {
-            Some(&(to_replace, replacement)) if to_replace == index => replacement,
-            _ => index,
-        }
     }
 
     fn get_complex_clips(
@@ -287,14 +264,7 @@ impl<'a> DisplayListFlattener<'a> {
         if complex_clips.is_empty() {
             return vec![];
         }
-
-        self.scene
-            .pipelines
-            .get(&pipeline_id)
-            .expect("No display list?")
-            .display_list
-            .get(complex_clips)
-            .collect()
+        self.scene.get_display_list_for_pipeline(pipeline_id).get(complex_clips).collect()
     }
 
     fn get_clip_chain_items(
@@ -305,14 +275,7 @@ impl<'a> DisplayListFlattener<'a> {
         if items.is_empty() {
             return vec![];
         }
-
-        self.scene
-            .pipelines
-            .get(&pipeline_id)
-            .expect("No display list?")
-            .display_list
-            .get(items)
-            .collect()
+        self.scene.get_display_list_for_pipeline(pipeline_id).get(items).collect()
     }
 
     fn flatten_root(&mut self, pipeline: &'a ScenePipeline, frame_size: &LayoutSize) {
@@ -384,6 +347,10 @@ impl<'a> DisplayListFlattener<'a> {
                     None => break,
                 };
 
+                if SpecificDisplayItem::PopReferenceFrame == *item.item() {
+                    return;
+                }
+
                 if SpecificDisplayItem::PopStackingContext == *item.item() {
                     return;
                 }
@@ -413,6 +380,7 @@ impl<'a> DisplayListFlattener<'a> {
     ) {
         let frame_rect = item.rect().translate(reference_frame_relative_offset);
         let sticky_frame_info = StickyFrameInfo::new(
+            frame_rect,
             info.margins,
             info.vertical_offset_bounds,
             info.horizontal_offset_bounds,
@@ -423,7 +391,6 @@ impl<'a> DisplayListFlattener<'a> {
         self.clip_scroll_tree.add_sticky_frame(
             index,
             clip_and_scroll.scroll_node_id, /* parent id */
-            frame_rect,
             sticky_frame_info,
             info.id.pipeline_id(),
         );
@@ -467,15 +434,37 @@ impl<'a> DisplayListFlattener<'a> {
         );
     }
 
+    fn flatten_reference_frame(
+        &mut self,
+        traversal: &mut BuiltDisplayListIter<'a>,
+        pipeline_id: PipelineId,
+        item: &DisplayItemRef,
+        reference_frame: &ReferenceFrame,
+        scroll_node_id: ClipId,
+        reference_frame_relative_offset: LayoutVector2D,
+    ) {
+        self.push_reference_frame(
+            reference_frame.id,
+            Some(scroll_node_id),
+            pipeline_id,
+            reference_frame.transform,
+            reference_frame.perspective,
+            reference_frame_relative_offset + item.rect().origin.to_vector(),
+        );
+
+        self.flatten_items(traversal, pipeline_id, LayoutVector2D::zero());
+
+        self.pop_reference_frame();
+    }
+
     fn flatten_stacking_context(
         &mut self,
         traversal: &mut BuiltDisplayListIter<'a>,
         pipeline_id: PipelineId,
         item: &DisplayItemRef,
         stacking_context: &StackingContext,
-        unreplaced_scroll_id: ClipId,
-        mut scroll_node_id: ClipId,
-        mut reference_frame_relative_offset: LayoutVector2D,
+        scroll_node_id: ClipId,
+        reference_frame_relative_offset: LayoutVector2D,
         is_backface_visible: bool,
     ) {
         // Avoid doing unnecessary work for empty stacking contexts.
@@ -486,59 +475,20 @@ impl<'a> DisplayListFlattener<'a> {
 
         let composition_operations = {
             // TODO(optimization?): self.traversal.display_list()
-            let display_list = &self
-                .scene
-                .pipelines
-                .get(&pipeline_id)
-                .expect("No display list?!")
-                .display_list;
+            let display_list = self.scene.get_display_list_for_pipeline(pipeline_id);
             CompositeOps::new(
                 stacking_context.filter_ops_for_compositing(display_list, item.filters()),
                 stacking_context.mix_blend_mode_for_compositing(),
             )
         };
 
-        if stacking_context.scroll_policy == ScrollPolicy::Fixed {
-            scroll_node_id = self.current_reference_frame_id();
-            self.replacements.push((unreplaced_scroll_id, scroll_node_id));
-        }
-
-        let bounds = item.rect();
-        reference_frame_relative_offset += bounds.origin.to_vector();
-
-        // If we have a transformation or a perspective, we should have been assigned a new
-        // reference frame id. This means this stacking context establishes a new reference frame.
-        // Descendant fixed position content will be positioned relative to us.
-        if let Some(reference_frame_id) = stacking_context.reference_frame_id {
-            debug_assert!(
-                stacking_context.transform.is_some() ||
-                stacking_context.perspective.is_some()
-            );
-
-            let reference_frame_bounds = LayoutRect::new(LayoutPoint::zero(), bounds.size);
-            self.push_reference_frame(
-                reference_frame_id,
-                Some(scroll_node_id),
-                pipeline_id,
-                &reference_frame_bounds,
-                stacking_context.transform,
-                stacking_context.perspective,
-                reference_frame_relative_offset,
-            );
-            self.replacements.push((unreplaced_scroll_id, reference_frame_id));
-            reference_frame_relative_offset = LayoutVector2D::zero();
-        }
-
-        // We apply the replacements one more time in case we need to set it to a replacement
-        // that we just pushed above.
-        let final_scroll_node = self.apply_scroll_frame_id_replacement(unreplaced_scroll_id);
         self.push_stacking_context(
             pipeline_id,
             composition_operations,
             stacking_context.transform_style,
             is_backface_visible,
             false,
-            final_scroll_node,
+            scroll_node_id,
             stacking_context.clip_node_id,
             stacking_context.glyph_raster_space,
         );
@@ -546,17 +496,8 @@ impl<'a> DisplayListFlattener<'a> {
         self.flatten_items(
             traversal,
             pipeline_id,
-            reference_frame_relative_offset,
+            reference_frame_relative_offset + item.rect().origin.to_vector(),
         );
-
-        if stacking_context.scroll_policy == ScrollPolicy::Fixed {
-            self.replacements.pop();
-        }
-
-        if stacking_context.reference_frame_id.is_some() {
-            self.replacements.pop();
-            self.pop_reference_frame();
-        }
 
         self.pop_stacking_context();
     }
@@ -572,8 +513,7 @@ impl<'a> DisplayListFlattener<'a> {
         let pipeline = match self.scene.pipelines.get(&iframe_pipeline_id) {
             Some(pipeline) => pipeline,
             None => {
-                //TODO: assert/debug_assert?
-                error!("Unknown pipeline used for iframe {:?}", info);
+                debug_assert!(info.ignore_missing_pipeline);
                 return
             },
         };
@@ -593,18 +533,17 @@ impl<'a> DisplayListFlattener<'a> {
         self.pipeline_epochs.push((iframe_pipeline_id, epoch));
 
         let bounds = item.rect();
-        let iframe_rect = LayoutRect::new(LayoutPoint::zero(), bounds.size);
         let origin = *reference_frame_relative_offset + bounds.origin.to_vector();
         self.push_reference_frame(
             ClipId::root_reference_frame(iframe_pipeline_id),
             Some(info.clip_id),
             iframe_pipeline_id,
-            &iframe_rect,
             None,
             None,
             origin,
         );
 
+        let iframe_rect = LayoutRect::new(LayoutPoint::zero(), bounds.size);
         self.add_scroll_frame(
             ClipId::root_scroll_node(iframe_pipeline_id),
             ClipId::root_reference_frame(iframe_pipeline_id),
@@ -626,58 +565,22 @@ impl<'a> DisplayListFlattener<'a> {
         pipeline_id: PipelineId,
         reference_frame_relative_offset: LayoutVector2D,
     ) -> Option<BuiltDisplayListIter<'a>> {
-        let mut clip_and_scroll_ids = item.clip_and_scroll();
-        let unreplaced_scroll_id = clip_and_scroll_ids.scroll_node_id;
-        clip_and_scroll_ids.scroll_node_id =
-            self.apply_scroll_frame_id_replacement(clip_and_scroll_ids.scroll_node_id);
+        let clip_and_scroll_ids = item.clip_and_scroll();
         let clip_and_scroll = self.id_to_index_mapper.map_clip_and_scroll(&clip_and_scroll_ids);
 
         let prim_info = item.get_layout_primitive_info(&reference_frame_relative_offset);
         match *item.item() {
             SpecificDisplayItem::Image(ref info) => {
-                match self.tiled_image_map.get(&info.image_key).cloned() {
-                    Some(tiling) => {
-                        // The image resource is tiled. We have to generate an image primitive
-                        // for each tile.
-                        decompose_image(
-                            &TiledImageInfo {
-                                rect: prim_info.rect,
-                                tile_spacing: info.tile_spacing,
-                                stretch_size: info.stretch_size,
-                                device_image_size: tiling.image_size,
-                                device_tile_size: tiling.tile_size as u32,
-                            },
-                            &mut|tile| {
-                                let mut prim_info = prim_info.clone();
-                                prim_info.rect = tile.rect;
-                                self.add_image(
-                                    clip_and_scroll,
-                                    &prim_info,
-                                    tile.stretch_size,
-                                    info.tile_spacing,
-                                    None,
-                                    info.image_key,
-                                    info.image_rendering,
-                                    info.alpha_type,
-                                    Some(tile.tile_offset),
-                                );
-                            }
-                        );
-                    }
-                    None => {
-                        self.add_image(
-                            clip_and_scroll,
-                            &prim_info,
-                            info.stretch_size,
-                            info.tile_spacing,
-                            None,
-                            info.image_key,
-                            info.image_rendering,
-                            info.alpha_type,
-                            None,
-                        );
-                    }
-                }
+                self.add_image(
+                    clip_and_scroll,
+                    &prim_info,
+                    info.stretch_size,
+                    info.tile_spacing,
+                    None,
+                    info.image_key,
+                    info.image_rendering,
+                    info.alpha_type,
+                );
             }
             SpecificDisplayItem::YuvImage(ref info) => {
                 self.add_yuv_image(
@@ -731,7 +634,6 @@ impl<'a> DisplayListFlattener<'a> {
                     info.gradient.start_point,
                     info.gradient.end_point,
                     item.gradient_stops(),
-                    item.display_list().get(item.gradient_stops()).count(),
                     info.gradient.extend_mode,
                     info.tile_size,
                     info.tile_spacing,
@@ -774,7 +676,6 @@ impl<'a> DisplayListFlattener<'a> {
                     &prim_info,
                     info,
                     item.gradient_stops(),
-                    item.display_list().get(item.gradient_stops()).count(),
                 );
             }
             SpecificDisplayItem::PushStackingContext(ref info) => {
@@ -784,12 +685,24 @@ impl<'a> DisplayListFlattener<'a> {
                     pipeline_id,
                     &item,
                     &info.stacking_context,
-                    unreplaced_scroll_id,
                     clip_and_scroll_ids.scroll_node_id,
                     reference_frame_relative_offset,
                     prim_info.is_backface_visible,
                 );
                 return Some(subtraversal);
+            }
+            SpecificDisplayItem::PushReferenceFrame(ref info) => {
+                let mut subtraversal = item.sub_iter();
+                self.flatten_reference_frame(
+                    &mut subtraversal,
+                    pipeline_id,
+                    &item,
+                    &info.reference_frame,
+                    clip_and_scroll_ids.scroll_node_id,
+                    reference_frame_relative_offset,
+                );
+                return Some(subtraversal);
+
             }
             SpecificDisplayItem::Iframe(ref info) => {
                 self.flatten_iframe(
@@ -843,7 +756,7 @@ impl<'a> DisplayListFlattener<'a> {
             // Do nothing; these are dummy items for the display list parser
             SpecificDisplayItem::SetGradientStops => {}
 
-            SpecificDisplayItem::PopStackingContext => {
+            SpecificDisplayItem::PopStackingContext | SpecificDisplayItem::PopReferenceFrame => {
                 unreachable!("Should have returned in parent method.")
             }
             SpecificDisplayItem::PushShadow(shadow) => {
@@ -1279,7 +1192,6 @@ impl<'a> DisplayListFlattener<'a> {
         reference_frame_id: ClipId,
         parent_id: Option<ClipId>,
         pipeline_id: PipelineId,
-        rect: &LayoutRect,
         source_transform: Option<PropertyBinding<LayoutTransform>>,
         source_perspective: Option<LayoutTransform>,
         origin_in_parent_reference_frame: LayoutVector2D,
@@ -1287,7 +1199,6 @@ impl<'a> DisplayListFlattener<'a> {
         let index = self.id_to_index_mapper.get_node_index(reference_frame_id);
         let node = ClipScrollNode::new_reference_frame(
             parent_id.map(|id| self.id_to_index_mapper.get_node_index(id)),
-            rect,
             source_transform,
             source_perspective,
             origin_in_parent_reference_frame,
@@ -1306,10 +1217,6 @@ impl<'a> DisplayListFlattener<'a> {
 
     pub fn current_reference_frame_index(&self) -> ClipScrollNodeIndex {
         self.reference_frame_stack.last().unwrap().1
-    }
-
-    pub fn current_reference_frame_id(&self) -> ClipId{
-        self.reference_frame_stack.last().unwrap().0
     }
 
     pub fn setup_viewport_offset(
@@ -1332,13 +1239,10 @@ impl<'a> DisplayListFlattener<'a> {
         viewport_size: &LayoutSize,
         content_size: &LayoutSize,
     ) {
-        let viewport_rect = LayoutRect::new(LayoutPoint::zero(), *viewport_size);
-
         self.push_reference_frame(
             ClipId::root_reference_frame(pipeline_id),
             None,
             pipeline_id,
-            &viewport_rect,
             None,
             None,
             LayoutVector2D::zero(),
@@ -1349,7 +1253,7 @@ impl<'a> DisplayListFlattener<'a> {
             ClipId::root_reference_frame(pipeline_id),
             Some(ExternalScrollId(0, pipeline_id)),
             pipeline_id,
-            &viewport_rect,
+            &LayoutRect::new(LayoutPoint::zero(), *viewport_size),
             content_size,
             ScrollSensitivity::ScriptAndInputEvents,
         );
@@ -1361,7 +1265,6 @@ impl<'a> DisplayListFlattener<'a> {
         parent_id: ClipId,
         clip_region: ClipRegion,
     ) -> ClipScrollNodeIndex {
-        let clip_rect = clip_region.main;
         let clip_sources = ClipSources::from(clip_region);
         let handle = self.clip_store.insert(clip_sources);
 
@@ -1370,7 +1273,6 @@ impl<'a> DisplayListFlattener<'a> {
             node_index,
             self.id_to_index_mapper.get_node_index(parent_id),
             handle,
-            clip_rect,
             new_node_id.pipeline_id(),
         );
         self.id_to_index_mapper.add_clip_chain(new_node_id, clip_chain_index);
@@ -1588,7 +1490,6 @@ impl<'a> DisplayListFlattener<'a> {
         info: &LayoutPrimitiveInfo,
         border_item: &BorderDisplayItem,
         gradient_stops: ItemRange<GradientStop>,
-        gradient_stops_count: usize,
     ) {
         let rect = info.rect;
         let create_segments = |outset: SideOffsets2D<f32>| {
@@ -1698,8 +1599,7 @@ impl<'a> DisplayListFlattener<'a> {
                         }
 
                         let segment = BrushSegment::new(
-                            rect.origin,
-                            rect.size,
+                            rect,
                             true,
                             EdgeAaSegmentMask::empty(),
                             [
@@ -1796,7 +1696,6 @@ impl<'a> DisplayListFlattener<'a> {
                     RepeatMode::Stretch,
                     border.repeat_vertical,
                 );
-
                 let descriptor = BrushSegmentDescriptor {
                     segments,
                     clip_mask_kind: BrushClipMaskKind::Unknown,
@@ -1804,13 +1703,15 @@ impl<'a> DisplayListFlattener<'a> {
 
                 let prim = PrimitiveContainer::Brush(match border.source {
                     NinePatchBorderSource::Image(image_key) => {
+                        let source = BorderSource::Image(ImageRequest {
+                            key: image_key,
+                            rendering: ImageRendering::Auto,
+                            tile: None,
+                        });
+
                         BrushPrimitive::new(
                             BrushKind::Border {
-                                request: ImageRequest {
-                                    key: image_key,
-                                    rendering: ImageRendering::Auto,
-                                    tile: None,
-                                },
+                                source
                             },
                             Some(descriptor),
                         )
@@ -1833,7 +1734,6 @@ impl<'a> DisplayListFlattener<'a> {
                     border.gradient.start_point - segment_rel,
                     border.gradient.end_point - segment_rel,
                     gradient_stops,
-                    gradient_stops_count,
                     border.gradient.extend_mode,
                     segment.size,
                     LayoutSize::zero(),
@@ -1862,18 +1762,24 @@ impl<'a> DisplayListFlattener<'a> {
         }
     }
 
-    fn add_gradient_impl(
+    pub fn add_gradient(
         &mut self,
         clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayoutPrimitiveInfo,
         start_point: LayoutPoint,
         end_point: LayoutPoint,
         stops: ItemRange<GradientStop>,
-        stops_count: usize,
         extend_mode: ExtendMode,
-        gradient_index: CachedGradientIndex,
         stretch_size: LayoutSize,
+        mut tile_spacing: LayoutSize,
     ) {
+        let mut prim_rect = info.rect;
+        simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
+        let info = LayoutPrimitiveInfo {
+            rect: prim_rect,
+            .. *info
+        };
+
         // Try to ensure that if the gradient is specified in reverse, then so long as the stops
         // are also supplied in reverse that the rendered result will be equivalent. To do this,
         // a reference orientation for the gradient line must be chosen, somewhat arbitrarily, so
@@ -1895,116 +1801,21 @@ impl<'a> DisplayListFlattener<'a> {
         let prim = BrushPrimitive::new(
             BrushKind::LinearGradient {
                 stops_range: stops,
-                stops_count,
                 extend_mode,
                 reverse_stops,
                 start_point: sp,
                 end_point: ep,
-                gradient_index,
+                stops_handle: GpuCacheHandle::new(),
                 stretch_size,
+                tile_spacing,
+                visible_tiles: Vec::new(),
             },
             None,
         );
 
         let prim = PrimitiveContainer::Brush(prim);
 
-        self.add_primitive(clip_and_scroll, info, Vec::new(), prim);
-    }
-
-    pub fn add_gradient(
-        &mut self,
-        clip_and_scroll: ScrollNodeAndClipChain,
-        info: &LayoutPrimitiveInfo,
-        start_point: LayoutPoint,
-        end_point: LayoutPoint,
-        stops: ItemRange<GradientStop>,
-        stops_count: usize,
-        extend_mode: ExtendMode,
-        stretch_size: LayoutSize,
-        mut tile_spacing: LayoutSize,
-    ) {
-        let gradient_index = CachedGradientIndex(self.cached_gradients.len());
-        self.cached_gradients.push(CachedGradient::new());
-
-        let mut prim_rect = info.rect;
-        simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
-        let info = LayoutPrimitiveInfo {
-            rect: prim_rect,
-            .. *info
-        };
-
-        if tile_spacing != LayoutSize::zero() {
-            let prim_infos = info.decompose(
-                stretch_size,
-                tile_spacing,
-                64 * 64,
-            );
-
-            if !prim_infos.is_empty() {
-                for prim_info in prim_infos {
-                    self.add_gradient_impl(
-                        clip_and_scroll,
-                        &prim_info,
-                        start_point,
-                        end_point,
-                        stops,
-                        stops_count,
-                        extend_mode,
-                        gradient_index,
-                        prim_info.rect.size,
-                    );
-                }
-
-                return;
-            }
-        }
-
-        self.add_gradient_impl(
-            clip_and_scroll,
-            &info,
-            start_point,
-            end_point,
-            stops,
-            stops_count,
-            extend_mode,
-            gradient_index,
-            stretch_size,
-        );
-    }
-
-    fn add_radial_gradient_impl(
-        &mut self,
-        clip_and_scroll: ScrollNodeAndClipChain,
-        info: &LayoutPrimitiveInfo,
-        center: LayoutPoint,
-        start_radius: f32,
-        end_radius: f32,
-        ratio_xy: f32,
-        stops: ItemRange<GradientStop>,
-        extend_mode: ExtendMode,
-        gradient_index: CachedGradientIndex,
-        stretch_size: LayoutSize,
-    ) {
-        let prim = BrushPrimitive::new(
-            BrushKind::RadialGradient {
-                stops_range: stops,
-                extend_mode,
-                center,
-                start_radius,
-                end_radius,
-                ratio_xy,
-                gradient_index,
-                stretch_size,
-            },
-            None,
-        );
-
-        self.add_primitive(
-            clip_and_scroll,
-            info,
-            Vec::new(),
-            PrimitiveContainer::Brush(prim),
-        );
+        self.add_primitive(clip_and_scroll, &info, Vec::new(), prim);
     }
 
     pub fn add_radial_gradient(
@@ -2020,9 +1831,6 @@ impl<'a> DisplayListFlattener<'a> {
         stretch_size: LayoutSize,
         mut tile_spacing: LayoutSize,
     ) {
-        let gradient_index = CachedGradientIndex(self.cached_gradients.len());
-        self.cached_gradients.push(CachedGradient::new());
-
         let mut prim_rect = info.rect;
         simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
         let info = LayoutPrimitiveInfo {
@@ -2030,44 +1838,27 @@ impl<'a> DisplayListFlattener<'a> {
             .. *info
         };
 
-        if tile_spacing != LayoutSize::zero() {
-            let prim_infos = info.decompose(
+        let prim = BrushPrimitive::new(
+            BrushKind::RadialGradient {
+                stops_range: stops,
+                extend_mode,
+                center,
+                start_radius,
+                end_radius,
+                ratio_xy,
+                stops_handle: GpuCacheHandle::new(),
                 stretch_size,
                 tile_spacing,
-                64 * 64,
-            );
+                visible_tiles: Vec::new(),
+            },
+            None,
+        );
 
-            if !prim_infos.is_empty() {
-                for prim_info in prim_infos {
-                    self.add_radial_gradient_impl(
-                        clip_and_scroll,
-                        &prim_info,
-                        center,
-                        start_radius,
-                        end_radius,
-                        ratio_xy,
-                        stops,
-                        extend_mode,
-                        gradient_index,
-                        stretch_size,
-                    );
-                }
-
-                return;
-            }
-        }
-
-        self.add_radial_gradient_impl(
+        self.add_primitive(
             clip_and_scroll,
             &info,
-            center,
-            start_radius,
-            end_radius,
-            ratio_xy,
-            stops,
-            extend_mode,
-            gradient_index,
-            stretch_size,
+            Vec::new(),
+            PrimitiveContainer::Brush(prim),
         );
     }
 
@@ -2097,16 +1888,6 @@ impl<'a> DisplayListFlattener<'a> {
                 return;
             }
 
-            // Sanity check - anything with glyphs bigger than this
-            // is probably going to consume too much memory to render
-            // efficiently anyway. This is specifically to work around
-            // the font_advance.html reftest, which creates a very large
-            // font as a crash test - the rendering is also ignored
-            // by the azure renderer.
-            if font_instance.size >= Au::from_px(4096) {
-                return;
-            }
-
             // TODO(gw): Use a proper algorithm to select
             // whether this item should be rendered with
             // subpixel AA!
@@ -2130,20 +1911,18 @@ impl<'a> DisplayListFlattener<'a> {
                 *text_color,
                 font_instance.bg_color,
                 render_mode,
-                font_instance.subpx_dir,
                 flags,
                 font_instance.platform_options,
                 font_instance.variations.clone(),
             );
-            TextRunPrimitiveCpu {
-                font: prim_font,
+            TextRunPrimitiveCpu::new(
+                prim_font,
+                run_offset,
                 glyph_range,
-                glyph_gpu_blocks: Vec::new(),
-                glyph_keys: Vec::new(),
-                offset: run_offset,
-                shadow: false,
+                Vec::new(),
+                false,
                 glyph_raster_space,
-            }
+            )
         };
 
         self.add_primitive(
@@ -2164,19 +1943,12 @@ impl<'a> DisplayListFlattener<'a> {
         image_key: ImageKey,
         image_rendering: ImageRendering,
         alpha_type: AlphaType,
-        tile_offset: Option<TileOffset>,
     ) {
         let mut prim_rect = info.rect;
         simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
         let info = LayoutPrimitiveInfo {
             rect: prim_rect,
             .. *info
-        };
-
-        let request = ImageRequest {
-            key: image_key,
-            rendering: image_rendering,
-            tile: tile_offset,
         };
 
         let sub_rect = sub_rect.map(|texel_rect| {
@@ -2192,49 +1964,31 @@ impl<'a> DisplayListFlattener<'a> {
             )
         });
 
-        // See if conditions are met to run through the new
-        // image brush shader, which supports segments.
-        if tile_offset.is_none() {
-            let prim = BrushPrimitive::new(
-                BrushKind::Image {
-                    request,
-                    current_epoch: Epoch::invalid(),
-                    alpha_type,
-                    stretch_size,
-                    tile_spacing,
-                    source: ImageSource::Default,
-                    sub_rect,
-                    opacity_binding: OpacityBinding::new(),
+        let prim = BrushPrimitive::new(
+            BrushKind::Image {
+                request: ImageRequest {
+                    key: image_key,
+                    rendering: image_rendering,
+                    tile: None,
                 },
-                None,
-            );
-
-            self.add_primitive(
-                clip_and_scroll,
-                &info,
-                Vec::new(),
-                PrimitiveContainer::Brush(prim),
-            );
-        } else {
-            let prim_cpu = ImagePrimitiveCpu {
-                tile_spacing,
+                current_epoch: Epoch::invalid(),
                 alpha_type,
                 stretch_size,
-                current_epoch: Epoch::invalid(),
+                tile_spacing,
                 source: ImageSource::Default,
-                key: ImageCacheKey {
-                    request,
-                    texel_rect: sub_rect,
-                },
-            };
+                sub_rect,
+                visible_tiles: Vec::new(),
+                opacity_binding: OpacityBinding::new(),
+            },
+            None,
+        );
 
-            self.add_primitive(
-                clip_and_scroll,
-                &info,
-                Vec::new(),
-                PrimitiveContainer::Image(prim_cpu),
-            );
-        }
+        self.add_primitive(
+            clip_and_scroll,
+            &info,
+            Vec::new(),
+            PrimitiveContainer::Brush(prim),
+        );
     }
 
     pub fn add_yuv_image(
@@ -2281,11 +2035,11 @@ pub fn build_scene(config: &FrameBuilderConfig, request: SceneRequest) -> BuiltS
         &request.scene,
         &mut clip_scroll_tree,
         request.font_instances,
-        request.tiled_image_map,
         &request.view,
         &request.output_pipelines,
         config,
-        &mut new_scene
+        &mut new_scene,
+        request.scene_id,
     );
 
     BuiltScene {
@@ -2293,72 +2047,6 @@ pub fn build_scene(config: &FrameBuilderConfig, request: SceneRequest) -> BuiltS
         frame_builder,
         clip_scroll_tree,
         removed_pipelines: request.removed_pipelines,
-    }
-}
-
-trait PrimitiveInfoTiler {
-    fn decompose(
-        &self,
-        tile_size: LayoutSize,
-        tile_spacing: LayoutSize,
-        max_prims: usize,
-    ) -> Vec<LayoutPrimitiveInfo>;
-}
-
-impl PrimitiveInfoTiler for LayoutPrimitiveInfo {
-    fn decompose(
-        &self,
-        tile_size: LayoutSize,
-        tile_spacing: LayoutSize,
-        max_prims: usize,
-    ) -> Vec<LayoutPrimitiveInfo> {
-        let mut prims = Vec::new();
-        let tile_repeat = tile_size + tile_spacing;
-
-        if tile_repeat.width <= 0.0 ||
-           tile_repeat.height <= 0.0 {
-            return prims;
-        }
-
-        if tile_repeat.width < self.rect.size.width ||
-           tile_repeat.height < self.rect.size.height {
-            let clip_rect = self.clip_rect
-                .intersection(&self.rect)
-                .unwrap_or_else(LayoutRect::zero);
-            let rect_p0 = self.rect.origin;
-            let rect_p1 = self.rect.bottom_right();
-
-            let mut y0 = rect_p0.y;
-            while y0 < rect_p1.y {
-                let mut x0 = rect_p0.x;
-
-                while x0 < rect_p1.x {
-                    prims.push(LayoutPrimitiveInfo {
-                        rect: LayoutRect::new(
-                            LayoutPoint::new(x0, y0),
-                            tile_size,
-                        ),
-                        clip_rect,
-                        is_backface_visible: self.is_backface_visible,
-                        tag: self.tag,
-                    });
-
-                    // Mostly a safety against a crazy number of primitives
-                    // being generated. If we exceed that amount, just bail
-                    // out and only draw the maximum amount.
-                    if prims.len() > max_prims {
-                        warn!("too many prims found due to repeat/tile. dropping extra prims!");
-                        return prims;
-                    }
-
-                    x0 += tile_repeat.width;
-                }
-
-                y0 += tile_repeat.height;
-            }
-        }
-
-        prims
     }
 }
 

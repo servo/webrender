@@ -49,7 +49,7 @@ fn main() {
     events_loop.run_forever(|event| {
         if let winit::Event::WindowEvent { event, .. } = event {
             match event {
-                winit::WindowEvent::Closed => {
+                winit::WindowEvent::CloseRequested => {
                     return winit::ControlFlow::Break
                 }
                 winit::WindowEvent::MouseWheel { delta, .. } => {

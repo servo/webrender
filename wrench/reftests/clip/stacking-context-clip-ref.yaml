@@ -2,7 +2,7 @@
 root:
   items:
   - type: clip
-    id: 1
+    id: 2
     bounds: [0, 0, 100, 100]
     complex:
       - rect: [0, 0, 100, 100]
@@ -18,9 +18,9 @@ root:
       - type: rect
         bounds: [ 0, 0, 100, 100 ]
         color: [0, 255, 0]
-        clip-and-scroll: 1
+        clip-and-scroll: 2
   - type: clip
-    id: 2
+    id: 3
     bounds: [120, 0, 50, 50]
   - type: stacking-context
     bounds: [100, 0, 100, 100]
@@ -29,4 +29,4 @@ root:
       - type: rect
         bounds: [ 0, 0, 100, 100 ]
         color: [0, 255, 0]
-        clip-and-scroll: 2
+        clip-and-scroll: 3

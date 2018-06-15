@@ -178,6 +178,25 @@ fn maybe_radius_yaml(radius: &BorderRadius) -> Option<Yaml> {
     }
 }
 
+fn write_reference_frame(
+    parent: &mut Table,
+    reference_frame: &ReferenceFrame,
+    properties: &SceneProperties,
+    clip_id_mapper: &mut ClipIdMapper,
+) {
+    matrix4d_node(
+        parent,
+        "transform",
+        &properties.resolve_layout_transform(&reference_frame.transform)
+    );
+
+    if let Some(perspective) = reference_frame.perspective {
+        matrix4d_node(parent, "perspective", &perspective);
+    }
+
+    usize_node(parent, "id", clip_id_mapper.add_id(reference_frame.id));
+}
+
 fn write_stacking_context(
     parent: &mut Table,
     sc: &StackingContext,
@@ -185,10 +204,6 @@ fn write_stacking_context(
     filter_iter: AuxIter<FilterOp>,
     clip_id_mapper: &ClipIdMapper,
 ) {
-    enum_node(parent, "scroll-policy", sc.scroll_policy);
-
-    matrix4d_node(parent, "transform", &properties.resolve_layout_transform(&sc.transform));
-
     enum_node(parent, "transform-style", sc.transform_style);
 
     let glyph_raster_space = match sc.glyph_raster_space {
@@ -202,11 +217,7 @@ fn write_stacking_context(
     str_node(parent, "glyph-raster-space", &glyph_raster_space);
 
     if let Some(clip_node_id) = sc.clip_node_id {
-        yaml_node(parent, "clip-node", Yaml::Integer(clip_id_mapper.map_id(&clip_node_id) as i64));
-    }
-
-    if let Some(perspective) = sc.perspective {
-        matrix4d_node(parent, "perspective", &perspective);
+        yaml_node(parent, "clip-node", clip_id_mapper.map_id(&clip_node_id));
     }
 
     // mix_blend_mode
@@ -225,7 +236,7 @@ fn write_stacking_context(
             FilterOp::Invert(x) => { filters.push(Yaml::String(format!("invert({})", x))) }
             FilterOp::Opacity(x, _) => {
                 filters.push(Yaml::String(format!("opacity({})",
-                                                  properties.resolve_float(&x, 1.0))))
+                                                  properties.resolve_float(&x))))
             }
             FilterOp::Saturate(x) => { filters.push(Yaml::String(format!("saturate({})", x))) }
             FilterOp::Sepia(x) => { filters.push(Yaml::String(format!("sepia({})", x))) }
@@ -505,8 +516,8 @@ impl YamlFrameWriter {
         scene.finish_display_list(self.pipeline_id.unwrap(), dl);
     }
 
-    fn update_resources(&mut self, updates: &ResourceUpdates) {
-        for update in &updates.updates {
+    fn update_resources(&mut self, updates: &[ResourceUpdate]) {
+        for update in updates {
             match *update {
                 ResourceUpdate::AddImage(ref img) => {
                     if let Some(ref data) = self.images.get(&img.key) {
@@ -516,7 +527,7 @@ impl YamlFrameWriter {
                     }
 
                     let stride = img.descriptor.stride.unwrap_or(
-                        img.descriptor.width * img.descriptor.format.bytes_per_pixel(),
+                        img.descriptor.size.width * img.descriptor.format.bytes_per_pixel(),
                     );
                     let bytes = match img.data {
                         ImageData::Raw(ref v) => (**v).clone(),
@@ -527,8 +538,8 @@ impl YamlFrameWriter {
                     self.images.insert(
                         img.key,
                         CachedImage {
-                            width: img.descriptor.width,
-                            height: img.descriptor.height,
+                            width: img.descriptor.size.width,
+                            height: img.descriptor.size.height,
                             stride,
                             format: img.descriptor.format,
                             bytes: Some(bytes),
@@ -539,15 +550,16 @@ impl YamlFrameWriter {
                 }
                 ResourceUpdate::UpdateImage(ref img) => {
                     if let Some(ref mut data) = self.images.get_mut(&img.key) {
-                        assert_eq!(data.width, img.descriptor.width);
-                        assert_eq!(data.height, img.descriptor.height);
+                        assert_eq!(data.width, img.descriptor.size.width);
+                        assert_eq!(data.height, img.descriptor.size.height);
                         assert_eq!(data.format, img.descriptor.format);
 
                         if let ImageData::Raw(ref bytes) = img.data {
                             data.path = None;
                             data.bytes = Some((**bytes).clone());
                         } else {
-                            // Other existing image types only make sense within the gecko integration.
+                            // Other existing image types only make sense
+                            // within the gecko integration.
                             println!(
                                 "Wrench only supports updating buffer images ({}).",
                                 "ignoring update command"
@@ -719,13 +731,7 @@ impl YamlFrameWriter {
                 );
             }
 
-            let clip_and_scroll_yaml = match clip_id_mapper.map_info(&base.clip_and_scroll()) {
-                (scroll_id, Some(clip_id)) => {
-                    Yaml::Array(vec![Yaml::Integer(scroll_id), Yaml::Integer(clip_id)])
-                }
-                (scroll_id, None) => Yaml::Integer(scroll_id),
-            };
-            yaml_node(&mut v, "clip-and-scroll", clip_and_scroll_yaml);
+            yaml_node(&mut v, "clip-and-scroll", clip_id_mapper.map_info(&base.clip_and_scroll()));
             bool_node(&mut v, "backface-visible", base.is_backface_visible());
 
             match *base.item() {
@@ -1021,6 +1027,7 @@ impl YamlFrameWriter {
                 Iframe(item) => {
                     str_node(&mut v, "type", "iframe");
                     u32_vec_node(&mut v, "id", &[item.pipeline_id.0, item.pipeline_id.1]);
+                    bool_node(&mut v, "ignore_missing_pipeline", item.ignore_missing_pipeline);
                 }
                 PushStackingContext(item) => {
                     str_node(&mut v, "type", "stacking-context");
@@ -1031,6 +1038,19 @@ impl YamlFrameWriter {
                         &scene.properties,
                         filters,
                         clip_id_mapper,
+                    );
+
+                    let mut sub_iter = base.sub_iter();
+                    self.write_display_list(&mut v, display_list, scene, &mut sub_iter, clip_id_mapper);
+                    continue_traversal = Some(sub_iter);
+                }
+                PushReferenceFrame(item) => {
+                    str_node(&mut v, "type", "reference-frame");
+                    write_reference_frame(
+                        &mut v,
+                        &item.reference_frame,
+                        &scene.properties,
+                        clip_id_mapper
                     );
 
                     let mut sub_iter = base.sub_iter();
@@ -1060,14 +1080,14 @@ impl YamlFrameWriter {
                     let id = ClipId::ClipChain(item.id);
                     u32_node(&mut v, "id", clip_id_mapper.add_id(id) as u32);
 
-                    let clip_ids: Vec<u32> = display_list.get(base.clip_chain_items()).map(|clip_id| {
-                        clip_id_mapper.map_id(&clip_id) as u32
+                    let clip_ids = display_list.get(base.clip_chain_items()).map(|clip_id| {
+                        clip_id_mapper.map_id(&clip_id)
                     }).collect();
-                    u32_vec_node(&mut v, "clips", &clip_ids);
+                    yaml_node(&mut v, "clips", Yaml::Array(clip_ids));
 
                     if let Some(parent) = item.parent {
                         let parent = ClipId::ClipChain(parent);
-                        u32_node(&mut v, "parent", clip_id_mapper.map_id(&parent) as u32);
+                        yaml_node(&mut v, "parent", clip_id_mapper.map_id(&parent));
                     }
                 }
                 ScrollFrame(item) => {
@@ -1127,6 +1147,7 @@ impl YamlFrameWriter {
                 }
 
                 PopStackingContext => return,
+                PopReferenceFrame => return,
                 SetGradientStops => panic!("dummy item yielded?"),
                 PushShadow(shadow) => {
                     str_node(&mut v, "type", "shadow");
@@ -1227,7 +1248,7 @@ impl ClipIdMapper {
     fn new() -> ClipIdMapper {
         ClipIdMapper {
             hash_map: HashMap::new(),
-            current_clip_id: 1,
+            current_clip_id: 2,
         }
     }
 
@@ -1237,17 +1258,24 @@ impl ClipIdMapper {
         self.current_clip_id - 1
     }
 
-    fn map_id(&self, id: &ClipId) -> usize {
-        if id.is_root_scroll_node() {
-            return 0;
+    fn map_id(&self, id: &ClipId) -> Yaml {
+        if id.is_root_reference_frame() {
+            Yaml::String("root-reference-frame".to_owned())
+        } else if id.is_root_scroll_node() {
+            Yaml::String("root-scroll-node".to_owned())
+        } else {
+            Yaml::Integer(*self.hash_map.get(id).unwrap() as i64)
         }
-        *self.hash_map.get(id).unwrap()
     }
 
-    fn map_info(&self, info: &ClipAndScrollInfo) -> (i64, Option<i64>) {
-        (
-            self.map_id(&info.scroll_node_id) as i64,
-            info.clip_node_id.map(|ref id| self.map_id(id) as i64),
-        )
+    fn map_info(&self, info: &ClipAndScrollInfo) -> Yaml {
+        let scroll_node_yaml = self.map_id(&info.scroll_node_id);
+        match info.clip_node_id {
+            Some(ref clip_node_id) => Yaml::Array(vec![
+                scroll_node_yaml,
+                self.map_id(&clip_node_id)
+            ]),
+            None => scroll_node_yaml,
+        }
     }
 }

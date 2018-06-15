@@ -4,7 +4,6 @@
 
 use api::{ColorU, FontKey, FontRenderMode, GlyphDimensions};
 use api::{FontInstanceFlags, FontVariation, NativeFontHandle};
-use api::{GlyphKey, SubpixelDirection};
 use app_units::Au;
 use core_foundation::array::{CFArray, CFArrayRef};
 use core_foundation::base::TCFType;
@@ -27,7 +26,7 @@ use core_text;
 use core_text::font::{CTFont, CTFontRef};
 use core_text::font_descriptor::{kCTFontDefaultOrientation, kCTFontColorGlyphsTrait};
 use gamma_lut::{ColorLut, GammaLut};
-use glyph_rasterizer::{FontInstance, FontTransform};
+use glyph_rasterizer::{FontInstance, FontTransform, GlyphKey};
 #[cfg(feature = "pathfinder")]
 use glyph_rasterizer::NativeFontHandleWrapper;
 #[cfg(not(feature = "pathfinder"))]
@@ -463,7 +462,7 @@ impl FontContext {
                 // In mono mode the color of the font is irrelevant.
                 font.color = ColorU::new(255, 255, 255, 255);
                 // Subpixel positioning is disabled in mono mode.
-                font.subpx_dir = SubpixelDirection::None;
+                font.disable_subpixel_position();
             }
             FontRenderMode::Alpha => {
                 font.color = if font.flags.contains(FontInstanceFlags::FONT_SMOOTHING) {
@@ -491,7 +490,8 @@ impl FontContext {
     #[cfg(not(feature = "pathfinder"))]
     pub fn rasterize_glyph(&mut self, font: &FontInstance, key: &GlyphKey) -> GlyphRasterResult {
         let (x_scale, y_scale) = font.transform.compute_scale().unwrap_or((1.0, 1.0));
-        let size = font.size.scale_by(y_scale as f32);
+        let scale = font.oversized_scale_factor(x_scale, y_scale);
+        let size = font.size.scale_by((y_scale / scale) as f32);
         let ct_font = match self.get_ct_font(font.font_key, size, &font.variations) {
             Some(font) => font,
             None => return GlyphRasterResult::LoadFailed,
@@ -530,7 +530,7 @@ impl FontContext {
 
         let glyph = key.index as CGGlyph;
         let (strike_scale, pixel_step) = if bitmap { (y_scale, 1.0) } else { (x_scale, y_scale / x_scale) };
-        let extra_strikes = font.get_extra_strikes(strike_scale);
+        let extra_strikes = font.get_extra_strikes(strike_scale / scale);
         let metrics = get_glyph_metrics(
             &ct_font,
             transform.as_ref(),
@@ -725,7 +725,7 @@ impl FontContext {
             top: metrics.rasterized_ascent as f32,
             width: metrics.rasterized_width,
             height: metrics.rasterized_height,
-            scale: if bitmap { y_scale.recip() as f32 } else { 1.0 },
+            scale: (if bitmap { scale / y_scale } else { scale }) as f32,
             format: if bitmap { GlyphFormat::ColorBitmap } else { font.get_glyph_format() },
             bytes: rasterized_pixels,
         })

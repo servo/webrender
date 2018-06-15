@@ -10,7 +10,7 @@ use crossbeam::sync::chase_lev;
 use dwrote;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use font_loader::system_fonts;
-use glutin::EventsLoopProxy;
+use winit::EventsLoopProxy;
 use json_frame_writer::JsonFrameWriter;
 use ron_frame_writer::RonFrameWriter;
 use std::collections::HashMap;
@@ -144,7 +144,7 @@ impl WrenchThing for CapturedDocument {
 
 pub struct Wrench {
     window_size: DeviceUintSize,
-    device_pixel_ratio: f32,
+    pub device_pixel_ratio: f32,
     page_zoom_factor: ZoomFactor,
 
     pub renderer: webrender::Renderer,
@@ -280,7 +280,6 @@ impl Wrench {
         &mut self,
         font_key: FontKey,
         instance_key: FontInstanceKey,
-        render_mode: Option<FontRenderMode>,
         text: &str,
         size: Au,
         origin: LayoutPoint,
@@ -294,20 +293,8 @@ impl Wrench {
             .filter_map(|idx| *idx)
             .collect();
 
-        let render_mode = render_mode.unwrap_or(<FontInstanceOptions as Default>::default().render_mode);
-        let subpx_dir = SubpixelDirection::Horizontal.limit_by(render_mode);
-
         // Retrieve the metrics for each glyph.
-        let mut keys = Vec::new();
-        for glyph_index in &indices {
-            keys.push(GlyphKey::new(
-                *glyph_index,
-                LayoutPoint::zero(),
-                render_mode,
-                subpx_dir,
-            ));
-        }
-        let metrics = self.api.get_glyph_dimensions(instance_key, keys);
+        let metrics = self.api.get_glyph_dimensions(instance_key, indices.clone());
 
         let mut bounding_rect = LayoutRect::zero();
         let mut positions = Vec::new();
@@ -385,9 +372,9 @@ impl Wrench {
     #[cfg(target_os = "windows")]
     pub fn font_key_from_native_handle(&mut self, descriptor: &NativeFontHandle) -> FontKey {
         let key = self.api.generate_font_key();
-        let mut resources = ResourceUpdates::new();
-        resources.add_native_font(key, descriptor.clone());
-        self.api.update_resources(resources);
+        let mut txn = Transaction::new();
+        txn.add_native_font(key, descriptor.clone());
+        self.api.update_resources(txn.resource_updates);
         key
     }
 
@@ -456,9 +443,9 @@ impl Wrench {
 
     pub fn font_key_from_bytes(&mut self, bytes: Vec<u8>, index: u32) -> FontKey {
         let key = self.api.generate_font_key();
-        let mut update = ResourceUpdates::new();
-        update.add_raw_font(key, bytes, index);
-        self.api.update_resources(update);
+        let mut txn = Transaction::new();
+        txn.add_raw_font(key, bytes, index);
+        self.api.update_resources(txn.resource_updates);
         key
     }
 
@@ -470,7 +457,7 @@ impl Wrench {
         bg_color: Option<ColorU>,
     ) -> FontInstanceKey {
         let key = self.api.generate_font_instance_key();
-        let mut update = ResourceUpdates::new();
+        let mut txn = Transaction::new();
         let mut options: FontInstanceOptions = Default::default();
         options.flags |= flags;
         if let Some(render_mode) = render_mode {
@@ -479,16 +466,16 @@ impl Wrench {
         if let Some(bg_color) = bg_color {
             options.bg_color = bg_color;
         }
-        update.add_font_instance(key, font_key, size, Some(options), None, Vec::new());
-        self.api.update_resources(update);
+        txn.add_font_instance(key, font_key, size, Some(options), None, Vec::new());
+        self.api.update_resources(txn.resource_updates);
         key
     }
 
     #[allow(dead_code)]
     pub fn delete_font_instance(&mut self, key: FontInstanceKey) {
-        let mut update = ResourceUpdates::new();
-        update.delete_font_instance(key);
-        self.api.update_resources(update);
+        let mut txn = Transaction::new();
+        txn.delete_font_instance(key);
+        self.api.update_resources(txn.resource_updates);
     }
 
     pub fn update(&mut self, dim: DeviceUintSize) {
