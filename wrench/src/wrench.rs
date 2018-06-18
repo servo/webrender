@@ -11,8 +11,6 @@ use dwrote;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use font_loader::system_fonts;
 use winit::EventsLoopProxy;
-use json_frame_writer::JsonFrameWriter;
-use ron_frame_writer::RonFrameWriter;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -21,7 +19,6 @@ use time;
 use webrender;
 use webrender::api::*;
 use webrender::{DebugFlags, RendererStats};
-use yaml_frame_writer::YamlFrameWriterReceiver;
 use {WindowWrapper, NotifierEvent, BLACK_COLOR, WHITE_COLOR};
 
 // TODO(gw): This descriptor matches what we currently support for fonts
@@ -37,13 +34,6 @@ pub enum FontDescriptor {
         style: u32,
         stretch: u32,
     },
-}
-
-pub enum SaveType {
-    Yaml,
-    Json,
-    Ron,
-    Binary,
 }
 
 struct NotifierData {
@@ -170,7 +160,6 @@ impl Wrench {
         proxy: Option<EventsLoopProxy>,
         shader_override_path: Option<PathBuf>,
         dp_ratio: f32,
-        save_type: Option<SaveType>,
         size: DeviceUintSize,
         do_rebuild: bool,
         no_subpixel_aa: bool,
@@ -184,19 +173,6 @@ impl Wrench {
     ) -> Self {
         println!("Shader override path: {:?}", shader_override_path);
 
-        let recorder = save_type.map(|save_type| match save_type {
-            SaveType::Yaml => Box::new(
-                YamlFrameWriterReceiver::new(&PathBuf::from("yaml_frames")),
-            ) as Box<webrender::ApiRecordingReceiver>,
-            SaveType::Json => Box::new(JsonFrameWriter::new(&PathBuf::from("json_frames"))) as
-                Box<webrender::ApiRecordingReceiver>,
-            SaveType::Ron => Box::new(RonFrameWriter::new(&PathBuf::from("ron_frames"))) as
-                Box<webrender::ApiRecordingReceiver>,
-            SaveType::Binary => Box::new(webrender::BinaryRecorder::new(
-                &PathBuf::from("wr-record.bin"),
-            )) as Box<webrender::ApiRecordingReceiver>,
-        });
-
         let mut debug_flags = DebugFlags::ECHO_DRIVER_MESSAGES;
         debug_flags.set(DebugFlags::DISABLE_BATCHING, no_batch);
         let callbacks = Arc::new(Mutex::new(blob::BlobCallbacks::new()));
@@ -204,7 +180,6 @@ impl Wrench {
         let opts = webrender::RendererOptions {
             device_pixel_ratio: dp_ratio,
             resource_override_path: shader_override_path,
-            recorder,
             enable_subpixel_aa: !no_subpixel_aa,
             debug_flags,
             enable_clear_scissor: !no_scissor,

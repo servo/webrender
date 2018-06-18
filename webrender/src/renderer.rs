@@ -41,7 +41,6 @@ use profiler::{BackendProfileCounters, FrameProfileCounters,
                GpuProfileTag, RendererProfileCounters, RendererProfileTimers};
 use query::GpuProfiler;
 use rayon::{ThreadPool, ThreadPoolBuilder};
-use record::ApiRecordingReceiver;
 use render_backend::RenderBackend;
 use scene_builder::SceneBuilder;
 use shade::Shaders;
@@ -1660,7 +1659,6 @@ impl Renderer {
         // potential transition when enabling a flag is run.
         let debug_flags = DebugFlags::default();
         let payload_rx_for_backend = payload_rx.to_mpsc_receiver();
-        let recorder = options.recorder;
         let thread_listener = Arc::new(options.thread_listener);
         let thread_listener_for_rayon_start = thread_listener.clone();
         let thread_listener_for_rayon_end = thread_listener.clone();
@@ -1736,7 +1734,6 @@ impl Renderer {
                 resource_cache,
                 backend_notifier,
                 config,
-                recorder,
                 sampler,
                 enable_render_on_scroll,
             );
@@ -4069,7 +4066,6 @@ pub struct RendererOptions {
     pub upload_method: UploadMethod,
     pub workers: Option<Arc<ThreadPool>>,
     pub blob_image_renderer: Option<Box<BlobImageRenderer>>,
-    pub recorder: Option<Box<ApiRecordingReceiver>>,
     pub thread_listener: Option<Box<ThreadListener + Send + Sync>>,
     pub enable_render_on_scroll: bool,
     pub cached_programs: Option<Rc<ProgramCache>>,
@@ -4103,7 +4099,6 @@ impl Default for RendererOptions {
             upload_method: UploadMethod::PixelBuffer(VertexUsageHint::Stream),
             workers: None,
             blob_image_renderer: None,
-            recorder: None,
             thread_listener: None,
             enable_render_on_scroll: true,
             renderer_id: None,
