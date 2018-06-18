@@ -1471,9 +1471,10 @@ impl BrushPrimitive {
                         )
                     }
                     BorderSource::Border { ref handle, .. } => {
-                        let rt_handle = handle
-                            .as_ref()
-                            .expect("bug: render task handle not allocated");
+                        let rt_handle = match *handle {
+                            Some(ref handle) => handle,
+                            None => return None,
+                        };
                         let rt_cache_entry = resource_cache
                             .get_cached_render_task(rt_handle);
                         resource_cache.get_texture_cache_item(&rt_cache_entry.handle)

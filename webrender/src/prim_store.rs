@@ -1424,39 +1424,39 @@ impl PrimitiveStore {
                 if needs_update {
                     cache_key.scale = scale_au;
 
-                    *task_info = Some(BorderRenderTaskInfo::new(
+                    *task_info = BorderRenderTaskInfo::new(
                         &metadata.local_rect,
                         border,
                         widths,
                         scale,
                         &mut new_segments,
-                    ));
+                    );
                 }
 
-                let task_info = task_info.as_ref().unwrap();
+                *handle = task_info.as_ref().map(|task_info| {
+                    frame_state.resource_cache.request_render_task(
+	                    RenderTaskCacheKey {
+	                        size: DeviceIntSize::zero(),
+	                        kind: RenderTaskCacheKeyKind::Border(cache_key.clone()),
+	                    },
+	                    frame_state.gpu_cache,
+	                    frame_state.render_tasks,
+	                    None,
+	                    false,          // todo
+	                    |render_tasks| {
+	                        let task = RenderTask::new_border(
+	                            task_info.size,
+	                            task_info.build_instances(border),
+	                        );
 
-                *handle = Some(frame_state.resource_cache.request_render_task(
-                    RenderTaskCacheKey {
-                        size: DeviceIntSize::zero(),
-                        kind: RenderTaskCacheKeyKind::Border(cache_key.clone()),
-                    },
-                    frame_state.gpu_cache,
-                    frame_state.render_tasks,
-                    None,
-                    false,          // todo
-                    |render_tasks| {
-                        let task = RenderTask::new_border(
-                            task_info.size,
-                            task_info.build_instances(border),
-                        );
+	                        let task_id = render_tasks.add(task);
 
-                        let task_id = render_tasks.add(task);
+	                        pic_state.tasks.push(task_id);
 
-                        pic_state.tasks.push(task_id);
-
-                        task_id
-                    }
-                ));
+	                        task_id
+	                    }
+	                )
+	            });
 
                 if needs_update {
                     brush.segment_desc = Some(BrushSegmentDescriptor {

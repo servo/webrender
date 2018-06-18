@@ -18,3 +18,4 @@ platform(linux,mac) == border-image.yaml border-image-ref.png
 == border-no-bogus-line.yaml border-no-bogus-line-ref.png
 platform(linux,mac) == dotted-corner-small-radius.yaml dotted-corner-small-radius.png
 == overlapping.yaml overlapping.png
+== zero-width.yaml blank.yaml
