@@ -143,7 +143,7 @@ pub struct PrimitiveInstance {
     data: [i32; 8],
 }
 
-pub struct SimplePrimitiveInstance {
+pub struct GlyphInstance {
     pub specific_prim_address: GpuCacheAddress,
     pub task_address: RenderTaskAddress,
     pub clip_task_address: RenderTaskAddress,
@@ -152,7 +152,7 @@ pub struct SimplePrimitiveInstance {
     pub z: ZBufferId,
 }
 
-impl SimplePrimitiveInstance {
+impl GlyphInstance {
     pub fn new(
         specific_prim_address: GpuCacheAddress,
         task_address: RenderTaskAddress,
@@ -161,7 +161,7 @@ impl SimplePrimitiveInstance {
         scroll_id: ClipScrollNodeIndex,
         z: ZBufferId,
     ) -> Self {
-        SimplePrimitiveInstance {
+        GlyphInstance {
             specific_prim_address,
             task_address,
             clip_task_address,

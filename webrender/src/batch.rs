@@ -13,7 +13,7 @@ use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheHandle, GpuCacheAddress};
 use gpu_types::{BrushFlags, BrushInstance, ClipChainRectIndex};
 use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex, SplitCompositeInstance};
-use gpu_types::{PrimitiveInstance, RasterizationSpace, SimplePrimitiveInstance, ZBufferId};
+use gpu_types::{PrimitiveInstance, RasterizationSpace, GlyphInstance, ZBufferId};
 use gpu_types::ZBufferIdGenerator;
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::{PictureCompositeMode, PicturePrimitive, PictureSurface};
@@ -637,14 +637,6 @@ impl AlphaBatchBuilder {
         let clip_task_address = prim_metadata
             .clip_task_id
             .map_or(OPAQUE_TASK_ADDRESS, |id| render_tasks.get_task_address(id));
-        let base_instance = SimplePrimitiveInstance::new(
-            prim_cache_address,
-            task_address,
-            clip_task_address,
-            clip_chain_rect_index,
-            scroll_id,
-            z,
-        );
 
         let specified_blend_mode = ctx.prim_store.get_blend_mode(prim_metadata);
 
@@ -1165,6 +1157,14 @@ impl AlphaBatchBuilder {
 
                         let key = BatchKey::new(kind, blend_mode, textures);
                         let batch = batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
+                        let base_instance = GlyphInstance::new(
+                            prim_cache_address,
+                            task_address,
+                            clip_task_address,
+                            clip_chain_rect_index,
+                            scroll_id,
+                            z,
+                        );
 
                         for glyph in glyphs {
                             batch.push(base_instance.build(
