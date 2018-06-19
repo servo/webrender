@@ -20,45 +20,53 @@ VertexInfo write_text_vertex(vec2 clamped_local_pos,
                              float z,
                              ClipScrollNode scroll_node,
                              PictureTask task,
+                             vec2 text_offset,
                              RectWithSize snap_rect,
                              vec2 snap_bias) {
-    // Ensure the transform does not contain a subpixel translation to ensure
-    // that glyph snapping is stable for equivalent glyph subpixel positions.
-#if defined(WR_FEATURE_GLYPH_TRANSFORM)
-    bool remove_subpx_offset = true;
-#else
-    bool remove_subpx_offset = scroll_node.is_axis_aligned;
-#endif
-
-    if (remove_subpx_offset) {
-        scroll_node.transform[3].xy = floor(scroll_node.transform[3].xy + 0.5);
-    }
-
     // Transform the current vertex to world space.
     vec4 world_pos = scroll_node.transform * vec4(clamped_local_pos, 0.0, 1.0);
 
     // Convert the world positions to device pixel space.
-    vec2 device_pos = world_pos.xy / world_pos.w * uDevicePixelRatio;
+    float device_scale = uDevicePixelRatio / world_pos.w;
+    vec2 device_pos = world_pos.xy * device_scale;
 
     // Apply offsets for the render task to get correct screen location.
     vec2 final_pos = device_pos -
                      task.content_origin +
                      task.common_data.task_rect.p0;
 
-#ifdef WR_FEATURE_GLYPH_TRANSFORM
-    // For transformed subpixels, we just need to align the glyph origin to a device pixel.
-    final_pos += floor(snap_rect.p0 + snap_bias) - snap_rect.p0;
+#if defined(WR_FEATURE_GLYPH_TRANSFORM)
+    bool remove_subpx_offset = true;
 #else
     // Compute the snapping offset only if the scroll node transform is axis-aligned.
-    if (scroll_node.is_axis_aligned) {
+    bool remove_subpx_offset = scroll_node.is_axis_aligned;
+#endif
+    if (remove_subpx_offset) {
+        // Ensure the transformed text offset does not contain a subpixel translation
+        // such that glyph snapping is stable for equivalent glyph subpixel positions.
+        vec2 world_text_offset = mat2(scroll_node.transform) * text_offset;
+        vec2 device_text_pos = (scroll_node.transform[3].xy + world_text_offset) * device_scale;
+        final_pos += floor(device_text_pos + 0.5) - device_text_pos;
+
+#ifdef WR_FEATURE_GLYPH_TRANSFORM
+        // For transformed subpixels, we just need to align the glyph origin to a device pixel.
+        // The transformed text offset has already been snapped, so remove it from the glyph
+        // origin when snapping the glyph.
+        vec2 snap_offset = snap_rect.p0 - world_text_offset * device_scale;
+        final_pos += floor(snap_offset + snap_bias) - snap_offset;
+#else
+        // The transformed text offset has already been snapped, so remove it from the transform
+        // when snapping the glyph.
+        mat4 snap_transform = scroll_node.transform;
+        snap_transform[3].xy = -world_text_offset;
         final_pos += compute_snap_offset(
             clamped_local_pos,
-            scroll_node.transform,
+            snap_transform,
             snap_rect,
             snap_bias
         );
-    }
 #endif
+    }
 
     gl_Position = uTransform * vec4(final_pos, z, 1.0);
 
@@ -154,6 +162,7 @@ void main(void) {
                                       prim.z,
                                       prim.scroll_node,
                                       prim.task,
+                                      text.offset,
                                       glyph_rect,
                                       snap_bias);
 
