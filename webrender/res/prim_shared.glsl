@@ -108,33 +108,6 @@ PrimitiveInstance fetch_prim_instance() {
     return pi;
 }
 
-struct CompositeInstance {
-    int render_task_index;
-    int src_task_index;
-    int backdrop_task_index;
-    int user_data0;
-    int user_data1;
-    float z;
-    int user_data2;
-    int user_data3;
-};
-
-CompositeInstance fetch_composite_instance() {
-    CompositeInstance ci;
-
-    ci.render_task_index = aData0.x;
-    ci.src_task_index = aData0.y;
-    ci.backdrop_task_index = aData0.z;
-    ci.z = float(aData0.w);
-
-    ci.user_data0 = aData1.x;
-    ci.user_data1 = aData1.y;
-    ci.user_data2 = aData1.z;
-    ci.user_data3 = aData1.w;
-
-    return ci;
-}
-
 struct Primitive {
     ClipScrollNode scroll_node;
     ClipArea clip_area;
