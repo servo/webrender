@@ -645,44 +645,47 @@ impl ResourceCache {
         //  - The image is a blob.
         //  - The blob hasn't already been requested this frame.
         if self.pending_image_requests.insert(request) && template.data.is_blob() {
-            if let Some(ref mut renderer) = self.blob_image_renderer {
-                let (offset, size) = match template.tiling {
-                    Some(tile_size) => {
-                        let tile_offset = request.tile.unwrap();
-                        let actual_size = compute_tile_size(
-                            &template.descriptor,
-                            tile_size,
-                            tile_offset,
-                        );
-                        let offset = DevicePoint::new(
-                            tile_offset.x as f32 * tile_size as f32,
-                            tile_offset.y as f32 * tile_size as f32,
-                        );
+            let renderer = match self.blob_image_renderer {
+                Some(ref mut renderer) => renderer,
+                None => return,
+            };
 
-                        if let Some(dirty) = dirty_rect {
-                            if intersect_for_tile(dirty, actual_size, tile_size, tile_offset).is_none() {
-                                // don't bother requesting unchanged tiles
-                                self.pending_image_requests.remove(&request);
-                                return
-                            }
+            let (offset, size) = match template.tiling {
+                Some(tile_size) => {
+                    let tile_offset = request.tile.unwrap();
+                    let actual_size = compute_tile_size(
+                        &template.descriptor,
+                        tile_size,
+                        tile_offset,
+                    );
+                    let offset = DevicePoint::new(
+                        tile_offset.x as f32 * tile_size as f32,
+                        tile_offset.y as f32 * tile_size as f32,
+                    );
+
+                    if let Some(dirty) = dirty_rect {
+                        if intersect_for_tile(dirty, actual_size, tile_size, tile_offset).is_none() {
+                            // don't bother requesting unchanged tiles
+                            self.pending_image_requests.remove(&request);
+                            return
                         }
-
-                        (offset, actual_size)
                     }
-                    None => (DevicePoint::zero(), template.descriptor.size),
-                };
 
-                renderer.request(
-                    &self.resources,
-                    request.into(),
-                    &BlobImageDescriptor {
-                        size,
-                        offset,
-                        format: template.descriptor.format,
-                    },
-                    dirty_rect,
-                );
-            }
+                    (offset, actual_size)
+                }
+                None => (DevicePoint::zero(), template.descriptor.size),
+            };
+
+            renderer.request(
+                &self.resources,
+                request.into(),
+                &BlobImageDescriptor {
+                    size,
+                    offset,
+                    format: template.descriptor.format,
+                },
+                dirty_rect,
+            );
         }
     }
 
