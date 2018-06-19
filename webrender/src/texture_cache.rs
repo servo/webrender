@@ -380,6 +380,16 @@ impl TextureCache {
         }
     }
 
+    // Returns true if the image needs to be uploaded to the
+    // texture cache (either never uploaded, or has been
+    // evicted on a previous frame).
+    pub fn needs_upload(&self, handle: &TextureCacheHandle) -> bool {
+        match handle.entry {
+            Some(ref handle) => self.entries.get_opt(handle).is_none(),
+            None => true,
+        }
+    }
+
     pub fn max_texture_size(&self) -> u32 {
         self.max_texture_size
     }

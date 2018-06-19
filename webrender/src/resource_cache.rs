@@ -968,13 +968,6 @@ impl ResourceCache {
 
                 let clipped_tile_size = compute_tile_size(image_descriptor, tile_size, tile);
 
-                if let Some(dirty) = dirty_rect {
-                    dirty_rect = intersect_for_tile(dirty, clipped_tile_size, tile_size, tile);
-                    if dirty_rect.is_none() {
-                        continue
-                    }
-                }
-
                 // The tiled image could be stored on the CPU as one large image or be
                 // already broken up into tiles. This affects the way we compute the stride
                 // and offset.
@@ -1028,6 +1021,15 @@ impl ResourceCache {
             };
 
             let entry = self.cached_images.get_mut(&request).as_mut().unwrap();
+            if cfg!(debug_assertions) {
+                // confirm that we agree with the logic in `request_image` here, in debug builds only
+                if let (Some(tile), Some(dirty)) = (request.tile, dirty_rect) {
+                    let needs_upload = self.texture_cache.needs_upload(&entry.texture_cache_handle);
+                    let intersection = intersect_for_tile(dirty, descriptor.size, image_template.tiling.unwrap(), tile);
+                    debug_assert!(needs_upload || intersection.is_some());
+                }
+            }
+
             self.texture_cache.update(
                 &mut entry.texture_cache_handle,
                 descriptor,
