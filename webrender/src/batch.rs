@@ -12,7 +12,7 @@ use euclid::{TypedTransform3D, vec3};
 use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheHandle, GpuCacheAddress};
 use gpu_types::{BrushFlags, BrushInstance, ClipChainRectIndex};
-use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex, CompositePrimitiveInstance};
+use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex, SplitCompositeInstance};
 use gpu_types::{PrimitiveInstance, RasterizationSpace, SimplePrimitiveInstance, ZBufferId};
 use gpu_types::ZBufferIdGenerator;
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
@@ -520,17 +520,13 @@ impl AlphaBatchBuilder {
                 .expect("BUG: unexpected surface in splitting")
                 .resolve_render_task_id();
             let source_task_address = render_tasks.get_task_address(source_task_id);
-            let gpu_address = gpu_handle.as_int(gpu_cache);
+            let gpu_address = gpu_cache.get_address(&gpu_handle);
 
-            let instance = CompositePrimitiveInstance::new(
+            let instance = SplitCompositeInstance::new(
                 task_address,
                 source_task_address,
-                RenderTaskAddress(0),
                 gpu_address,
-                0,
                 z_generator.next(),
-                0,
-                0,
             );
 
             batch.push(PrimitiveInstance::from(instance));
