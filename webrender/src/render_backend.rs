@@ -23,7 +23,6 @@ use gpu_cache::GpuCache;
 use hit_test::{HitTest, HitTester};
 use internal_types::{DebugOutput, FastHashMap, FastHashSet, RenderedDocument, ResultMsg};
 use profiler::{BackendProfileCounters, IpcProfileCounters, ResourceProfileCounters};
-use record::ApiRecordingReceiver;
 use renderer::{AsyncPropertySampler, PipelineInfo};
 use resource_cache::ResourceCache;
 #[cfg(feature = "replay")]
@@ -423,7 +422,6 @@ pub struct RenderBackend {
     documents: FastHashMap<DocumentId, Document>,
 
     notifier: Box<RenderNotifier>,
-    recorder: Option<Box<ApiRecordingReceiver>>,
     sampler: Option<Box<AsyncPropertySampler + Send>>,
 
     last_scene_id: u64,
@@ -441,7 +439,6 @@ impl RenderBackend {
         resource_cache: ResourceCache,
         notifier: Box<RenderNotifier>,
         frame_config: FrameBuilderConfig,
-        recorder: Option<Box<ApiRecordingReceiver>>,
         sampler: Option<Box<AsyncPropertySampler + Send>>,
         enable_render_on_scroll: bool,
     ) -> RenderBackend {
@@ -461,7 +458,6 @@ impl RenderBackend {
             frame_config,
             documents: FastHashMap::default(),
             notifier,
-            recorder,
             sampler,
             last_scene_id: 0,
             enable_render_on_scroll,
@@ -472,7 +468,6 @@ impl RenderBackend {
         &mut self,
         document_id: DocumentId,
         message: SceneMsg,
-        frame_counter: u32,
         ipc_profile_counters: &mut IpcProfileCounters,
     ) -> DocumentOps {
         let doc = self.documents.get_mut(&document_id).expect("No document?");
@@ -526,10 +521,6 @@ impl RenderBackend {
                         }
                     }
                 };
-
-                if let Some(ref mut r) = self.recorder {
-                    r.write_payload(frame_counter, &data.to_data());
-                }
 
                 let built_display_list =
                     BuiltDisplayList::from_data(data.display_list_data, list_descriptor);
@@ -777,9 +768,6 @@ impl RenderBackend {
 
             keep_going = match self.api_rx.recv() {
                 Ok(msg) => {
-                    if let Some(ref mut r) = self.recorder {
-                        r.write_msg(frame_counter, &msg);
-                    }
                     self.process_api_msg(msg, &mut profile_counters, &mut frame_counter)
                 }
                 Err(..) => { false }
@@ -988,7 +976,6 @@ impl RenderBackend {
                 self.process_scene_msg(
                     document_id,
                     scene_msg,
-                    *frame_counter,
                     &mut profile_counters.ipc,
                 )
             );

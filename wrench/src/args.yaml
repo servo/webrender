@@ -25,10 +25,6 @@ args:
       short: r
       long: rebuild
       help: Rebuild display list from scratch every frame
-  - save:
-      long: save
-      help: 'Save frames, one of: yaml, json, ron, or binary'
-      takes_value: true
   - no_subpixel_aa:
       short: a
       long: no-subpixel-aa
@@ -82,7 +78,7 @@ subcommands:
               required: true
               index: 1
     - show:
-        about: show frame(s) described by YAML, binary recording, or capture
+        about: show frame(s) described by YAML or capture
         aliases: ['load', 'replay']
         args:
           - queue:
@@ -108,9 +104,6 @@ subcommands:
           - skip-uploads:
               long: skip-uploads
               help: Skip re-uploads while reissuing Api messages (BROKEN)
-          - play:
-              long: play
-              help: Play entire recording through, then quit (useful with --save) (binary recording only)
           - INPUT:
               help: The input YAML, binary recording, or capture directory
               required: true
