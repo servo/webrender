@@ -15,6 +15,126 @@ varying vec4 vUvClip;
 
 #ifdef WR_VERTEX_SHADER
 
+struct Glyph {
+    vec2 offset;
+};
+
+Glyph fetch_glyph(int specific_prim_address,
+                  int glyph_index) {
+    // Two glyphs are packed in each texel in the GPU cache.
+    int glyph_address = specific_prim_address +
+                        VECS_PER_TEXT_RUN +
+                        glyph_index / 2;
+    vec4 data = fetch_from_resource_cache_1(glyph_address);
+    // Select XY or ZW based on glyph index.
+    // We use "!= 0" instead of "== 1" here in order to work around a driver
+    // bug with equality comparisons on integers.
+    vec2 glyph = mix(data.xy, data.zw, bvec2(glyph_index % 2 != 0));
+
+    return Glyph(glyph);
+}
+
+struct GlyphResource {
+    vec4 uv_rect;
+    float layer;
+    vec2 offset;
+    float scale;
+};
+
+GlyphResource fetch_glyph_resource(int address) {
+    vec4 data[2] = fetch_from_resource_cache_2(address);
+    return GlyphResource(data[0], data[1].x, data[1].yz, data[1].w);
+}
+
+struct TextRun {
+    vec4 color;
+    vec4 bg_color;
+    vec2 offset;
+};
+
+TextRun fetch_text_run(int address) {
+    vec4 data[3] = fetch_from_resource_cache_3(address);
+    return TextRun(data[0], data[1], data[2].xy);
+}
+
+struct PrimitiveInstance {
+    int prim_address;
+    int specific_prim_address;
+    int render_task_index;
+    int clip_task_index;
+    int scroll_node_id;
+    int clip_chain_rect_index;
+    int z;
+    int user_data0;
+    int user_data1;
+    int user_data2;
+};
+
+PrimitiveInstance fetch_prim_instance() {
+    PrimitiveInstance pi;
+
+    pi.prim_address = aData0.x;
+    pi.specific_prim_address = pi.prim_address + VECS_PER_PRIM_HEADER;
+    pi.render_task_index = aData0.y % 0x10000;
+    pi.clip_task_index = aData0.y / 0x10000;
+    pi.clip_chain_rect_index = aData0.z;
+    pi.scroll_node_id = aData0.w;
+    pi.z = aData1.x;
+    pi.user_data0 = aData1.y;
+    pi.user_data1 = aData1.z;
+    pi.user_data2 = aData1.w;
+
+    return pi;
+}
+
+struct Primitive {
+    ClipScrollNode scroll_node;
+    ClipArea clip_area;
+    PictureTask task;
+    RectWithSize local_rect;
+    RectWithSize local_clip_rect;
+    int specific_prim_address;
+    int user_data0;
+    int user_data1;
+    int user_data2;
+    float z;
+};
+
+struct PrimitiveGeometry {
+    RectWithSize local_rect;
+    RectWithSize local_clip_rect;
+};
+
+PrimitiveGeometry fetch_primitive_geometry(int address) {
+    vec4 geom[2] = fetch_from_resource_cache_2(address);
+    return PrimitiveGeometry(RectWithSize(geom[0].xy, geom[0].zw),
+                             RectWithSize(geom[1].xy, geom[1].zw));
+}
+
+Primitive load_primitive() {
+    PrimitiveInstance pi = fetch_prim_instance();
+
+    Primitive prim;
+
+    prim.scroll_node = fetch_clip_scroll_node(pi.scroll_node_id);
+    prim.clip_area = fetch_clip_area(pi.clip_task_index);
+    prim.task = fetch_picture_task(pi.render_task_index);
+
+    RectWithSize clip_chain_rect = fetch_clip_chain_rect(pi.clip_chain_rect_index);
+
+    PrimitiveGeometry geom = fetch_primitive_geometry(pi.prim_address);
+    prim.local_rect = geom.local_rect;
+    prim.local_clip_rect = intersect_rects(clip_chain_rect, geom.local_clip_rect);
+
+    prim.specific_prim_address = pi.specific_prim_address;
+    prim.user_data0 = pi.user_data0;
+    prim.user_data1 = pi.user_data1;
+    prim.user_data2 = pi.user_data2;
+    prim.z = float(pi.z);
+
+    return prim;
+}
+
 VertexInfo write_text_vertex(vec2 clamped_local_pos,
                              RectWithSize local_clip_rect,
                              float z,
