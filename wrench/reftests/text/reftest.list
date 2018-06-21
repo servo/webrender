@@ -37,6 +37,7 @@ fuzzy(1,6) platform(linux) options(disable-dual-source-blending) draw_calls(5) =
 fuzzy(1,6) platform(linux) draw_calls(2) == colors.yaml colors-subpx.png
 platform(linux) options(disable-subpixel) == border-radius.yaml border-radius-alpha.png
 platform(linux) == border-radius.yaml border-radius-subpx.png
+platform(linux) == complex-clip-rounding-error.yaml complex-clip-rounding-error-ref.yaml
 options(disable-aa) == transparent-no-aa.yaml transparent-no-aa-ref.yaml
 != diacritics.yaml diacritics-ref.yaml
 fuzzy(1,1) platform(linux) options(disable-subpixel) == text-masking.yaml text-masking-alpha.png
