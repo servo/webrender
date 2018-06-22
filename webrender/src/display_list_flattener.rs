@@ -17,7 +17,7 @@ use clip::{ClipRegion, ClipSource, ClipSources, ClipStore};
 use clip_scroll_node::{ClipScrollNode, NodeType, StickyFrameInfo};
 use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, ClipScrollTree};
 use euclid::{SideOffsets2D, vec2};
-use frame_builder::{FrameBuilder, FrameBuilderConfig};
+use frame_builder::{ChasePrimitive, FrameBuilder, FrameBuilderConfig};
 use glyph_rasterizer::FontInstance;
 use gpu_cache::GpuCacheHandle;
 use gpu_types::BrushFlags;
@@ -875,6 +875,10 @@ impl<'a> DisplayListFlattener<'a> {
 
         if container.is_visible() {
             let prim_index = self.create_primitive(info, clip_sources, container);
+            if cfg!(debug_assertions) && ChasePrimitive::LocalRect(info.rect) == self.config.chase_primitive {
+                println!("Chasing {:?}", prim_index);
+                self.prim_store.chase_id = Some(prim_index);
+            }
             self.add_primitive_to_hit_testing_list(info, clip_and_scroll);
             self.add_primitive_to_draw_list(prim_index, clip_and_scroll);
         }
