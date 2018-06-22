@@ -32,11 +32,6 @@ varying vec3 vClipMaskUv;
 
 #ifdef WR_VERTEX_SHADER
 
-#define VECS_PER_LOCAL_CLIP_RECT    1
-#define VECS_PER_PRIM_HEADER        2
-#define VECS_PER_TEXT_RUN           3
-#define VECS_PER_GRADIENT_STOP      2
-
 #define COLOR_MODE_FROM_PASS          0
 #define COLOR_MODE_ALPHA              1
 #define COLOR_MODE_SUBPX_CONST_COLOR  2
@@ -47,16 +42,46 @@ varying vec3 vClipMaskUv;
 #define COLOR_MODE_BITMAP             7
 #define COLOR_MODE_COLOR_BITMAP       8
 
-uniform HIGHP_SAMPLER_FLOAT sampler2D sLocalClipRects;
+uniform HIGHP_SAMPLER_FLOAT sampler2D sPrimitiveHeadersF;
+uniform HIGHP_SAMPLER_FLOAT isampler2D sPrimitiveHeadersI;
 
 // Instanced attributes
-in ivec4 aData0;
-in ivec4 aData1;
+in ivec4 aData;
 
-RectWithSize fetch_clip_chain_rect(int index) {
-    ivec2 uv = get_fetch_uv(index, VECS_PER_LOCAL_CLIP_RECT);
-    vec4 rect = TEXEL_FETCH(sLocalClipRects, uv, 0, ivec2(0, 0));
-    return RectWithSize(rect.xy, rect.zw);
+#define VECS_PER_PRIM_HEADER_F 2
+#define VECS_PER_PRIM_HEADER_I 2
+
+struct PrimitiveHeader {
+    RectWithSize local_rect;
+    RectWithSize local_clip_rect;
+    float z;
+    int specific_prim_address;
+    int render_task_index;
+    int clip_task_index;
+    int scroll_node_id;
+    ivec3 user_data;
+};
+
+PrimitiveHeader fetch_prim_header(int index) {
+    PrimitiveHeader ph;
+
+    ivec2 uv_f = get_fetch_uv(index, VECS_PER_PRIM_HEADER_F);
+    vec4 local_rect = TEXEL_FETCH(sPrimitiveHeadersF, uv_f, 0, ivec2(0, 0));
+    vec4 local_clip_rect = TEXEL_FETCH(sPrimitiveHeadersF, uv_f, 0, ivec2(1, 0));
+    ph.local_rect = RectWithSize(local_rect.xy, local_rect.zw);
+    ph.local_clip_rect = RectWithSize(local_clip_rect.xy, local_clip_rect.zw);
+
+    ivec2 uv_i = get_fetch_uv(index, VECS_PER_PRIM_HEADER_I);
+    ivec4 data0 = TEXEL_FETCH(sPrimitiveHeadersI, uv_i, 0, ivec2(0, 0));
+    ivec4 data1 = TEXEL_FETCH(sPrimitiveHeadersI, uv_i, 0, ivec2(1, 0));
+    ph.z = float(data0.x);
+    ph.render_task_index = data0.y;
+    ph.specific_prim_address = data0.z;
+    ph.clip_task_index = data0.w;
+    ph.scroll_node_id = data1.x;
+    ph.user_data = data1.yzw;
+
+    return ph;
 }
 
 struct VertexInfo {

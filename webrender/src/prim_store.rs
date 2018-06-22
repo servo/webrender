@@ -20,7 +20,7 @@ use frame_builder::PrimitiveRunContext;
 use glyph_rasterizer::{FontInstance, FontTransform, GlyphKey, FONT_SIZE_LIMIT};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
-use gpu_types::{BrushFlags, ClipChainRectIndex};
+use gpu_types::BrushFlags;
 use image::{for_each_tile, for_each_repetition};
 use picture::{PictureCompositeMode, PictureId, PicturePrimitive};
 #[cfg(debug_assertions)]
@@ -174,7 +174,11 @@ pub struct PrimitiveMetadata {
     //           storing them here.
     pub local_rect: LayoutRect,
     pub local_clip_rect: LayoutRect,
-    pub clip_chain_rect_index: ClipChainRectIndex,
+
+    // The current combined local clip for this primitive, from
+    // the primitive local clip above and the current clip chain.
+    pub combined_local_clip_rect: LayoutRect,
+
     pub is_backface_visible: bool,
     pub screen_rect: Option<ScreenRect>,
 
@@ -234,11 +238,15 @@ pub struct VisibleImageTile {
     pub tile_offset: TileOffset,
     pub handle: GpuCacheHandle,
     pub edge_flags: EdgeAaSegmentMask,
+    pub local_rect: LayoutRect,
+    pub local_clip_rect: LayoutRect,
 }
 
 #[derive(Debug)]
 pub struct VisibleGradientTile {
     pub handle: GpuCacheHandle,
+    pub local_rect: LayoutRect,
+    pub local_clip_rect: LayoutRect,
 }
 
 #[derive(Debug)]
@@ -1213,7 +1221,7 @@ impl PrimitiveStore {
             clip_task_id: None,
             local_rect: *local_rect,
             local_clip_rect: *local_clip_rect,
-            clip_chain_rect_index: ClipChainRectIndex(0),
+            combined_local_clip_rect: *local_clip_rect,
             is_backface_visible,
             screen_rect: None,
             tag,
@@ -1684,8 +1692,6 @@ impl PrimitiveStore {
 
                                                 let mut handle = GpuCacheHandle::new();
                                                 if let Some(mut request) = frame_state.gpu_cache.request(&mut handle) {
-                                                    request.push(*tile_rect);
-                                                    request.push(tight_clip_rect);
                                                     request.push(ColorF::new(1.0, 1.0, 1.0, opacity_binding.current).premultiplied());
                                                     request.push(PremultipliedColorF::WHITE);
                                                     request.push([tile_rect.size.width, tile_rect.size.height, 0.0, 0.0]);
@@ -1696,6 +1702,8 @@ impl PrimitiveStore {
                                                     tile_offset,
                                                     handle,
                                                     edge_flags: tile_flags & edge_flags,
+                                                    local_rect: *tile_rect,
+                                                    local_clip_rect: tight_clip_rect,
                                                 });
                                             }
                                         );
@@ -1789,9 +1797,7 @@ impl PrimitiveStore {
                                 prim_run_context,
                                 frame_context,
                                 frame_state,
-                                &mut |rect, clip_rect, mut request| {
-                                    request.push(*rect);
-                                    request.push(*clip_rect);
+                                &mut |rect, mut request| {
                                     request.push([
                                         center.x,
                                         center.y,
@@ -1841,9 +1847,7 @@ impl PrimitiveStore {
                                 prim_run_context,
                                 frame_context,
                                 frame_state,
-                                &mut |rect, clip_rect, mut request| {
-                                    request.push(*rect);
-                                    request.push(*clip_rect);
+                                &mut |rect, mut request| {
                                     request.push([
                                         start_point.x,
                                         start_point.y,
@@ -1895,10 +1899,6 @@ impl PrimitiveStore {
 
         // Mark this GPU resource as required for this frame.
         if let Some(mut request) = frame_state.gpu_cache.request(&mut metadata.gpu_location) {
-            // has to match VECS_PER_BRUSH_PRIM
-            request.push(metadata.local_rect);
-            request.push(metadata.local_clip_rect);
-
             match metadata.prim_kind {
                 PrimitiveKind::TextRun => {
                     let text = &self.cpu_text_runs[metadata.cpu_prim_index.0];
@@ -2457,7 +2457,11 @@ impl PrimitiveStore {
                 clipped,
                 unclipped,
             });
-            metadata.clip_chain_rect_index = prim_run_context.clip_chain_rect_index;
+
+            metadata.combined_local_clip_rect = prim_run_context
+                .local_clip_rect
+                .intersection(&metadata.local_clip_rect)
+                .unwrap_or(LayoutRect::zero());
 
             (local_rect, unclipped)
         };
@@ -2565,19 +2569,16 @@ impl PrimitiveStore {
                 None
             };
 
-            let clip_chain_rect_index = match clip_chain_rect {
+            let local_clip_chain_rect = match clip_chain_rect {
                 Some(rect) if rect.is_empty() => continue,
-                Some(rect) => {
-                    frame_state.local_clip_rects.push(rect);
-                    ClipChainRectIndex(frame_state.local_clip_rects.len() - 1)
-                }
-                None => ClipChainRectIndex(0), // This is no clipping.
+                Some(rect) => rect,
+                None => frame_context.max_local_clip,
             };
 
             let child_prim_run_context = PrimitiveRunContext::new(
                 clip_chain,
                 scroll_node,
-                clip_chain_rect_index,
+                local_clip_chain_rect,
             );
 
             for i in 0 .. run.count {
@@ -2646,7 +2647,7 @@ fn decompose_repeated_primitive(
     prim_run_context: &PrimitiveRunContext,
     frame_context: &FrameBuildingContext,
     frame_state: &mut FrameBuildingState,
-    callback: &mut FnMut(&LayoutRect, &LayoutRect, GpuDataRequest),
+    callback: &mut FnMut(&LayoutRect, GpuDataRequest),
 ) {
     visible_tiles.clear();
 
@@ -2669,16 +2670,19 @@ fn decompose_repeated_primitive(
         &mut |origin, _| {
 
             let mut handle = GpuCacheHandle::new();
+            let rect = LayoutRect {
+                origin: *origin,
+                size: *stretch_size,
+            };
             if let Some(request) = frame_state.gpu_cache.request(&mut handle) {
-                let rect = LayoutRect {
-                    origin: *origin,
-                    size: *stretch_size,
-                };
-
-                callback(&rect, &tight_clip_rect, request);
+                callback(&rect, request);
             }
 
-            visible_tiles.push(VisibleGradientTile { handle });
+            visible_tiles.push(VisibleGradientTile {
+                local_rect: rect,
+                local_clip_rect: tight_clip_rect,
+                handle
+            });
         }
     );
 
