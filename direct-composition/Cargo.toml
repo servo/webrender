@@ -9,5 +9,5 @@ euclid = "0.17"
 gleam = "0.5"
 mozangle = {version = "0.1", features = ["egl"]}
 webrender = {path = "../webrender"}
-winapi = {version = "0.3", features = ["winerror", "d3d11", "dcomp"]}
-winit = "0.13"
+winapi = {version = "0.3.5", features = ["winerror", "d3d11", "dcomp"]}
+winit = { git = "https://github.com/tomaka/winit", branch = "master" }
