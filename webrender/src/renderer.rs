@@ -277,7 +277,8 @@ pub(crate) enum TextureSampler {
     // the *first* pass. Items rendered in this target are
     // available as inputs to tasks in any subsequent pass.
     SharedCacheA8,
-    LocalClipRects
+    PrimitiveHeadersF,
+    PrimitiveHeadersI,
 }
 
 impl TextureSampler {
@@ -306,7 +307,8 @@ impl Into<TextureSlot> for TextureSampler {
             TextureSampler::RenderTasks => TextureSlot(7),
             TextureSampler::Dither => TextureSlot(8),
             TextureSampler::SharedCacheA8 => TextureSlot(9),
-            TextureSampler::LocalClipRects => TextureSlot(10),
+            TextureSampler::PrimitiveHeadersF => TextureSlot(11),
+            TextureSampler::PrimitiveHeadersI => TextureSlot(12),
         }
     }
 }
@@ -330,12 +332,7 @@ pub(crate) mod desc {
         ],
         instance_attributes: &[
             VertexAttribute {
-                name: "aData0",
-                count: 4,
-                kind: VertexAttributeKind::I32,
-            },
-            VertexAttribute {
-                name: "aData1",
+                name: "aData",
                 count: 4,
                 kind: VertexAttributeKind::I32,
             },
@@ -1215,8 +1212,14 @@ struct VertexDataTexture {
 }
 
 impl VertexDataTexture {
-    fn new(device: &mut Device) -> VertexDataTexture {
-        let texture = device.create_texture(TextureTarget::Default, ImageFormat::RGBAF32);
+    fn new(
+        device: &mut Device,
+        format: ImageFormat,
+    ) -> VertexDataTexture {
+        let texture = device.create_texture(
+            TextureTarget::Default,
+            format,
+        );
         let pbo = device.create_pbo();
 
         VertexDataTexture { texture, pbo }
@@ -1369,8 +1372,9 @@ pub struct Renderer {
     pub gpu_profile: GpuProfiler<GpuProfileTag>,
     vaos: RendererVAOs,
 
+    prim_header_f_texture: VertexDataTexture,
+    prim_header_i_texture: VertexDataTexture,
     node_data_texture: VertexDataTexture,
-    local_clip_rects_texture: VertexDataTexture,
     render_task_texture: VertexDataTexture,
     gpu_cache_texture: CacheTexture,
 
@@ -1629,9 +1633,10 @@ impl Renderer {
 
         let texture_resolver = SourceTextureResolver::new(&mut device);
 
-        let node_data_texture = VertexDataTexture::new(&mut device);
-        let local_clip_rects_texture = VertexDataTexture::new(&mut device);
-        let render_task_texture = VertexDataTexture::new(&mut device);
+        let prim_header_f_texture = VertexDataTexture::new(&mut device, ImageFormat::RGBAF32);
+        let prim_header_i_texture = VertexDataTexture::new(&mut device, ImageFormat::RGBAI32);
+        let node_data_texture = VertexDataTexture::new(&mut device, ImageFormat::RGBAF32);
+        let render_task_texture = VertexDataTexture::new(&mut device, ImageFormat::RGBAF32);
 
         let gpu_cache_texture = CacheTexture::new(
             &mut device,
@@ -1785,7 +1790,8 @@ impl Renderer {
                 border_vao,
             },
             node_data_texture,
-            local_clip_rects_texture,
+            prim_header_i_texture,
+            prim_header_f_texture,
             render_task_texture,
             pipeline_info: PipelineInfo::default(),
             dither_matrix_texture,
@@ -3533,17 +3539,26 @@ impl Renderer {
         let _timer = self.gpu_profile.start_timer(GPU_TAG_SETUP_DATA);
         self.device.set_device_pixel_ratio(frame.device_pixel_ratio);
 
-        self.node_data_texture.update(&mut self.device, &mut frame.node_data);
-        self.device.bind_texture(TextureSampler::ClipScrollNodes, &self.node_data_texture.texture);
-
-        self.local_clip_rects_texture.update(
+        self.prim_header_f_texture.update(
             &mut self.device,
-            &mut frame.clip_chain_local_clip_rects
+            &mut frame.prim_headers.headers_float,
         );
         self.device.bind_texture(
-            TextureSampler::LocalClipRects,
-            &self.local_clip_rects_texture.texture
+            TextureSampler::PrimitiveHeadersF,
+            &self.prim_header_f_texture.texture,
         );
+
+        self.prim_header_i_texture.update(
+            &mut self.device,
+            &mut frame.prim_headers.headers_int,
+        );
+        self.device.bind_texture(
+            TextureSampler::PrimitiveHeadersI,
+            &self.prim_header_i_texture.texture,
+        );
+
+        self.node_data_texture.update(&mut self.device, &mut frame.node_data);
+        self.device.bind_texture(TextureSampler::ClipScrollNodes, &self.node_data_texture.texture);
 
         self.render_task_texture
             .update(&mut self.device, &mut frame.render_tasks.task_data);
@@ -3930,7 +3945,8 @@ impl Renderer {
             self.device.delete_texture(dither_matrix_texture);
         }
         self.node_data_texture.deinit(&mut self.device);
-        self.local_clip_rects_texture.deinit(&mut self.device);
+        self.prim_header_f_texture.deinit(&mut self.device);
+        self.prim_header_i_texture.deinit(&mut self.device);
         self.render_task_texture.deinit(&mut self.device);
         self.device.delete_pbo(self.texture_cache_upload_pbo);
         self.texture_resolver.deinit(&mut self.device);
