@@ -355,7 +355,8 @@ fn create_prim_shader(
                 ("sRenderTasks", TextureSampler::RenderTasks),
                 ("sResourceCache", TextureSampler::ResourceCache),
                 ("sSharedCacheA8", TextureSampler::SharedCacheA8),
-                ("sLocalClipRects", TextureSampler::LocalClipRects),
+                ("sPrimitiveHeadersF", TextureSampler::PrimitiveHeadersF),
+                ("sPrimitiveHeadersI", TextureSampler::PrimitiveHeadersI),
             ],
         );
     }
@@ -383,7 +384,8 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program
                 ("sRenderTasks", TextureSampler::RenderTasks),
                 ("sResourceCache", TextureSampler::ResourceCache),
                 ("sSharedCacheA8", TextureSampler::SharedCacheA8),
-                ("sLocalClipRects", TextureSampler::LocalClipRects),
+                ("sPrimitiveHeadersF", TextureSampler::PrimitiveHeadersF),
+                ("sPrimitiveHeadersI", TextureSampler::PrimitiveHeadersI),
             ],
         );
     }

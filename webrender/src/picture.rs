@@ -489,16 +489,9 @@ impl PicturePrimitive {
                     //           that writes a brush primitive header.
 
                     // Basic brush primitive header is (see end of prepare_prim_for_render_inner in prim_store.rs)
-                    //  local_rect
-                    //  clip_rect
                     //  [brush specific data]
                     //  [segment_rect, segment data]
                     let shadow_rect = prim_metadata.local_rect.translate(&offset);
-                    let shadow_clip_rect = prim_metadata.local_clip_rect.translate(&offset);
-
-                    // local_rect, clip_rect
-                    request.push(shadow_rect);
-                    request.push(shadow_clip_rect);
 
                     // ImageBrush colors
                     request.push(color.premultiplied());
