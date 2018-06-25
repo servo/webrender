@@ -1077,17 +1077,13 @@ impl AlphaBatchBuilder {
                 let text_cpu =
                     &ctx.prim_store.cpu_text_runs[prim_metadata.cpu_prim_index.0];
 
-                let font = text_cpu.get_font(
-                    ctx.device_pixel_scale,
-                    scroll_node.transform,
-                );
-                let subpx_dir = font.get_subpx_dir();
+                let subpx_dir = text_cpu.used_font.get_subpx_dir();
 
                 let glyph_fetch_buffer = &mut self.glyph_fetch_buffer;
                 let batch_list = &mut self.batch_list;
 
                 ctx.resource_cache.fetch_glyphs(
-                    font,
+                    text_cpu.used_font.clone(),
                     &text_cpu.glyph_keys,
                     glyph_fetch_buffer,
                     gpu_cache,
@@ -1114,7 +1110,7 @@ impl AlphaBatchBuilder {
                         let (blend_mode, color_mode) = match glyph_format {
                             GlyphFormat::Subpixel |
                             GlyphFormat::TransformedSubpixel => {
-                                if text_cpu.font.bg_color.a != 0 {
+                                if text_cpu.used_font.bg_color.a != 0 {
                                     (
                                         BlendMode::SubpixelWithBgColor,
                                         ShaderColorMode::FromRenderPassMode,
@@ -1126,7 +1122,7 @@ impl AlphaBatchBuilder {
                                     )
                                 } else {
                                     (
-                                        BlendMode::SubpixelConstantTextColor(text_cpu.font.color.into()),
+                                        BlendMode::SubpixelConstantTextColor(text_cpu.used_font.color.into()),
                                         ShaderColorMode::SubpixelConstantTextColor,
                                     )
                                 }

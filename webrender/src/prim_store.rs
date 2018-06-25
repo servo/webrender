@@ -747,12 +747,12 @@ impl<'a> GradientGpuBlockBuilder<'a> {
 
 #[derive(Debug, Clone)]
 pub struct TextRunPrimitiveCpu {
-    pub font: FontInstance,
+    pub specified_font: FontInstance,
+    pub used_font: FontInstance,
     pub offset: LayoutVector2D,
     pub glyph_range: ItemRange<GlyphInstance>,
     pub glyph_keys: Vec<GlyphKey>,
     pub glyph_gpu_blocks: Vec<GpuBlockData>,
-    pub glyph_transform: (DevicePixelScale, FontTransform),
     pub shadow: bool,
     pub glyph_raster_space: GlyphRasterSpace,
 }
@@ -767,60 +767,97 @@ impl TextRunPrimitiveCpu {
         glyph_raster_space: GlyphRasterSpace,
     ) -> Self {
         TextRunPrimitiveCpu {
-            font,
+            specified_font: font.clone(),
+            used_font: font,
             offset,
             glyph_range,
             glyph_keys,
             glyph_gpu_blocks: Vec::new(),
-            glyph_transform: (DevicePixelScale::new(1.0), FontTransform::identity()),
             shadow,
             glyph_raster_space,
         }
     }
 
-    pub fn get_font(
-        &self,
+    pub fn update_font_instance(
+        &mut self,
         device_pixel_scale: DevicePixelScale,
-        transform: LayoutToWorldTransform,
-    ) -> FontInstance {
-        let mut font = self.font.clone();
-        font.size = font.size.scale_by(device_pixel_scale.0);
+        transform: &LayoutToWorldTransform,
+        allow_subpixel_aa: bool,
+    ) -> bool {
+        // Get the current font size in device pixels
+        let device_font_size = self.specified_font.size.scale_by(device_pixel_scale.0);
+
+        // Determine if rasterizing glyphs in local or screen space.
         // Only support transforms that can be coerced to simple 2D transforms.
-        if transform.has_perspective_component() ||
+        let transform_glyphs = if transform.has_perspective_component() ||
            !transform.has_2d_inverse() ||
            // Font sizes larger than the limit need to be scaled, thus can't use subpixels.
-           transform.exceeds_2d_scale(FONT_SIZE_LIMIT / font.size.to_f64_px()) ||
+           transform.exceeds_2d_scale(FONT_SIZE_LIMIT / device_font_size.to_f64_px()) ||
            // Otherwise, ensure the font is rasterized in screen-space.
            self.glyph_raster_space != GlyphRasterSpace::Screen {
-            font.disable_subpixel_aa();
-            font.disable_subpixel_position();
+            false
         } else {
+            true
+        };
+
+        // Get the font transform matrix (skew / scale) from the complete transform.
+        let font_transform = if transform_glyphs {
             // Quantize the transform to minimize thrashing of the glyph cache.
-            font.transform = FontTransform::from(&transform).quantize();
+            FontTransform::from(transform).quantize()
+        } else {
+            FontTransform::identity()
+        };
+
+        // If the transform or device size is different, then the caller of
+        // this method needs to know to rebuild the glyphs.
+        let cache_dirty =
+            self.used_font.transform != font_transform ||
+            self.used_font.size != device_font_size;
+
+        // Construct used font instance from the specified font instance
+        self.used_font = FontInstance {
+            transform: font_transform,
+            size: device_font_size,
+            ..self.specified_font.clone()
+        };
+
+        // If subpixel AA is disabled due to the backing surface the glyphs
+        // are being drawn onto, disable it (unless we are using the
+        // specifial subpixel mode that estimates background color).
+        if !allow_subpixel_aa && self.specified_font.bg_color.a == 0 {
+            self.used_font.disable_subpixel_aa();
         }
-        font
+
+        // If using local space glyphs, we don't want subpixel AA
+        // or positioning.
+        if !transform_glyphs {
+            self.used_font.disable_subpixel_aa();
+            self.used_font.disable_subpixel_position();
+        }
+
+        cache_dirty
     }
 
     fn prepare_for_render(
         &mut self,
         device_pixel_scale: DevicePixelScale,
-        transform: LayoutToWorldTransform,
+        transform: &LayoutToWorldTransform,
         allow_subpixel_aa: bool,
         display_list: &BuiltDisplayList,
         frame_building_state: &mut FrameBuildingState,
     ) {
-        if !allow_subpixel_aa && self.font.bg_color.a == 0 {
-            self.font.disable_subpixel_aa();
-        }
-
-        let font = self.get_font(device_pixel_scale, transform);
+        let cache_dirty = self.update_font_instance(
+            device_pixel_scale,
+            transform,
+            allow_subpixel_aa,
+        );
 
         // Cache the glyph positions, if not in the cache already.
         // TODO(gw): In the future, remove `glyph_instances`
         //           completely, and just reference the glyphs
         //           directly from the display list.
-        if self.glyph_keys.is_empty() || self.glyph_transform != (device_pixel_scale, font.transform) {
-            let subpx_dir = font.get_subpx_dir();
+        if self.glyph_keys.is_empty() || cache_dirty {
+            let subpx_dir = self.used_font.get_subpx_dir();
             let src_glyphs = display_list.get(self.glyph_range);
 
             // TODO(gw): If we support chunks() on AuxIter
@@ -828,7 +865,7 @@ impl TextRunPrimitiveCpu {
             //           be much simpler...
             let mut gpu_block = [0.0; 4];
             for (i, src) in src_glyphs.enumerate() {
-                let world_offset = font.transform.transform(&src.point);
+                let world_offset = self.used_font.transform.transform(&src.point);
                 let device_offset = device_pixel_scale.transform_point(&world_offset);
                 let key = GlyphKey::new(src.index, device_offset, subpx_dir);
                 self.glyph_keys.push(key);
@@ -850,12 +887,10 @@ impl TextRunPrimitiveCpu {
             if (self.glyph_keys.len() & 1) != 0 {
                 self.glyph_gpu_blocks.push(gpu_block.into());
             }
-
-            self.glyph_transform = (device_pixel_scale, font.transform);
         }
 
         frame_building_state.resource_cache
-                            .request_glyphs(font,
+                            .request_glyphs(self.used_font.clone(),
                                             &self.glyph_keys,
                                             frame_building_state.gpu_cache,
                                             frame_building_state.render_tasks,
@@ -863,9 +898,9 @@ impl TextRunPrimitiveCpu {
     }
 
     fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
-        request.push(ColorF::from(self.font.color).premultiplied());
+        request.push(ColorF::from(self.used_font.color).premultiplied());
         // this is the only case where we need to provide plain color to GPU
-        let bg_color = ColorF::from(self.font.bg_color);
+        let bg_color = ColorF::from(self.used_font.bg_color);
         request.push([bg_color.r, bg_color.g, bg_color.b, 1.0]);
         request.push([
             self.offset.x,
@@ -1079,7 +1114,7 @@ impl PrimitiveContainer {
     pub fn is_visible(&self) -> bool {
         match *self {
             PrimitiveContainer::TextRun(ref info) => {
-                info.font.color.a > 0
+                info.specified_font.color.a > 0
             }
             PrimitiveContainer::Brush(ref brush) => {
                 match brush.kind {
@@ -1108,7 +1143,7 @@ impl PrimitiveContainer {
             PrimitiveContainer::TextRun(ref info) => {
                 let mut font = FontInstance {
                     color: shadow.color.into(),
-                    ..info.font.clone()
+                    ..info.specified_font.clone()
                 };
                 if shadow.blur_radius > 0.0 {
                     font.disable_subpixel_aa();
@@ -1503,7 +1538,7 @@ impl PrimitiveStore {
                 let transform = prim_run_context.scroll_node.world_content_transform.into();
                 text.prepare_for_render(
                     frame_context.device_pixel_scale,
-                    transform,
+                    &transform,
                     pic_context.allow_subpixel_aa,
                     pic_context.display_list,
                     frame_state,
