@@ -26,7 +26,7 @@ use device::{FileWatcherHandler, ShaderError, TextureFilter,
              VertexUsageHint, VAO, VBO, CustomVAO};
 use device::{ProgramCache, ReadPixelsFormat};
 use euclid::{rect, Transform3D};
-use frame_builder::FrameBuilderConfig;
+use frame_builder::{ChasePrimitive, FrameBuilderConfig};
 use gleam::gl;
 use glyph_rasterizer::{GlyphFormat, GlyphRasterizer};
 use gpu_cache::{GpuBlockData, GpuCacheUpdate, GpuCacheUpdateList};
@@ -1658,6 +1658,7 @@ impl Renderer {
             default_font_render_mode,
             dual_source_blending_is_enabled: true,
             dual_source_blending_is_supported: ext_dual_source_blending,
+            chase_primitive: options.chase_primitive,
         };
 
         let device_pixel_ratio = options.device_pixel_ratio;
@@ -4094,6 +4095,7 @@ pub struct RendererOptions {
     pub disable_dual_source_blending: bool,
     pub scene_builder_hooks: Option<Box<SceneBuilderHooks + Send>>,
     pub sampler: Option<Box<AsyncPropertySampler + Send>>,
+    pub chase_primitive: ChasePrimitive,
 }
 
 impl Default for RendererOptions {
@@ -4127,6 +4129,7 @@ impl Default for RendererOptions {
             disable_dual_source_blending: false,
             scene_builder_hooks: None,
             sampler: None,
+            chase_primitive: ChasePrimitive::Nothing,
         }
     }
 }

@@ -26,6 +26,21 @@ use tiling::{Frame, RenderPass, RenderPassKind, RenderTargetContext};
 use tiling::{ScrollbarPrimitive, SpecialRenderPasses};
 use util::{self, WorldToLayoutFastTransform};
 
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub enum ChasePrimitive {
+    Nothing,
+    LocalRect(LayoutRect),
+}
+
+impl Default for ChasePrimitive {
+    fn default() -> Self {
+        ChasePrimitive::Nothing
+    }
+}
+
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -34,6 +49,7 @@ pub struct FrameBuilderConfig {
     pub default_font_render_mode: FontRenderMode,
     pub dual_source_blending_is_supported: bool,
     pub dual_source_blending_is_enabled: bool,
+    pub chase_primitive: ChasePrimitive,
 }
 
 /// A builder structure for `tiling::Frame`
@@ -132,6 +148,7 @@ impl FrameBuilder {
                 default_font_render_mode: FontRenderMode::Mono,
                 dual_source_blending_is_enabled: true,
                 dual_source_blending_is_supported: false,
+                chase_primitive: ChasePrimitive::Nothing,
             },
         }
     }
