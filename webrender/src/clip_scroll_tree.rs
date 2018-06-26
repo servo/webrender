@@ -70,11 +70,6 @@ pub struct ClipScrollTree {
 
     pub pending_scroll_offsets: FastHashMap<ExternalScrollId, (LayoutPoint, ScrollClamping)>,
 
-    /// The current frame id, used for giving a unique id to all new dynamically
-    /// added frames and clips. The ClipScrollTree increments this by one every
-    /// time a new dynamic frame is created.
-    current_new_node_item: u64,
-
     /// A set of pipelines which should be discarded the next time this
     /// tree is drained.
     pub pipelines_to_discard: FastHashSet<PipelineId>,
@@ -112,7 +107,6 @@ impl ClipScrollTree {
             clip_chains_descriptors: Vec::new(),
             clip_chains: vec![ClipChain::empty(&DeviceIntRect::zero())],
             pending_scroll_offsets: FastHashMap::default(),
-            current_new_node_item: 1,
             pipelines_to_discard: FastHashSet::default(),
         }
     }
@@ -146,8 +140,6 @@ impl ClipScrollTree {
     }
 
     pub fn drain(&mut self) -> ScrollStates {
-        self.current_new_node_item = 1;
-
         let mut scroll_states = FastHashMap::default();
         for old_node in &mut self.nodes.drain(..) {
             if self.pipelines_to_discard.contains(&old_node.pipeline_id) {

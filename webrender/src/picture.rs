@@ -276,7 +276,7 @@ impl PicturePrimitive {
         self.can_draw_directly_to_parent_surface()
     }
 
-    pub fn prepare_for_render_inner(
+    pub fn prepare_for_render(
         &mut self,
         prim_index: PrimitiveIndex,
         prim_metadata: &mut PrimitiveMetadata,
@@ -584,27 +584,6 @@ impl PicturePrimitive {
                 self.surface = Some(PictureSurface::RenderTask(render_task_id));
             }
         }
-    }
-
-    pub fn prepare_for_render(
-        &mut self,
-        prim_index: PrimitiveIndex,
-        prim_metadata: &mut PrimitiveMetadata,
-        prim_run_context: &PrimitiveRunContext,
-        pic_state_for_children: PictureState,
-        pic_state: &mut PictureState,
-        frame_context: &FrameBuildingContext,
-        frame_state: &mut FrameBuildingState,
-    ) {
-        self.prepare_for_render_inner(
-            prim_index,
-            prim_metadata,
-            prim_run_context,
-            pic_state_for_children,
-            pic_state,
-            frame_context,
-            frame_state,
-        );
     }
 }
 
