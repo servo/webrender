@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AlphaType, BorderRadius, BoxShadowClipMode, BuiltDisplayList, ClipMode, ColorF, ComplexClipRegion};
+use api::{AlphaType, BorderRadius, BoxShadowClipMode, BuiltDisplayList, ClipMode, ColorF};
 use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode};
 use api::{FilterOp, GlyphInstance, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, TileOffset};
 use api::{GlyphRasterSpace, LayoutPoint, LayoutRect, LayoutSize, LayoutToWorldTransform, LayoutVector2D};
@@ -2860,31 +2860,6 @@ fn edge_flags_for_tile_spacing(tile_spacing: &LayoutSize) -> EdgeAaSegmentMask {
     }
 
     flags
-}
-
-//Test for one clip region contains another
-trait InsideTest<T> {
-    fn might_contain(&self, clip: &T) -> bool;
-}
-
-impl InsideTest<ComplexClipRegion> for ComplexClipRegion {
-    // Returns true if clip is inside self, can return false negative
-    fn might_contain(&self, clip: &ComplexClipRegion) -> bool {
-        let delta_left = clip.rect.origin.x - self.rect.origin.x;
-        let delta_top = clip.rect.origin.y - self.rect.origin.y;
-        let delta_right = self.rect.max_x() - clip.rect.max_x();
-        let delta_bottom = self.rect.max_y() - clip.rect.max_y();
-
-        delta_left >= 0f32 && delta_top >= 0f32 && delta_right >= 0f32 && delta_bottom >= 0f32 &&
-            clip.radii.top_left.width >= self.radii.top_left.width - delta_left &&
-            clip.radii.top_left.height >= self.radii.top_left.height - delta_top &&
-            clip.radii.top_right.width >= self.radii.top_right.width - delta_right &&
-            clip.radii.top_right.height >= self.radii.top_right.height - delta_top &&
-            clip.radii.bottom_left.width >= self.radii.bottom_left.width - delta_left &&
-            clip.radii.bottom_left.height >= self.radii.bottom_left.height - delta_bottom &&
-            clip.radii.bottom_right.width >= self.radii.bottom_right.width - delta_right &&
-            clip.radii.bottom_right.height >= self.radii.bottom_right.height - delta_bottom
-    }
 }
 
 fn convert_clip_chain_to_clip_vector(
