@@ -6,3 +6,4 @@ fuzzy(1,331264) == tile-repeat-prim-or-decompose.yaml tile-repeat-prim-or-decomp
 platform(linux,mac) options(allow-mipmaps) == downscale.yaml downscale.png
 == segments.yaml segments.png
 platform(linux,mac) == yuv.yaml yuv.png
+== tiled-clip-chain.yaml tiled-clip-chain-ref.yaml
