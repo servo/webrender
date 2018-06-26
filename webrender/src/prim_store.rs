@@ -1704,7 +1704,9 @@ impl PrimitiveStore {
                                 // Tighten the clip rect because decomposing the repeated image can
                                 // produce primitives that are partially covering the original image
                                 // rect and we want to clip these extra parts out.
-                                let tight_clip_rect = metadata.local_clip_rect.intersection(&metadata.local_rect).unwrap();
+                                let tight_clip_rect = metadata
+                                    .combined_local_clip_rect
+                                    .intersection(&metadata.local_rect).unwrap();
 
                                 let visible_rect = compute_conservative_visible_rect(
                                     prim_run_context,
@@ -2783,7 +2785,9 @@ fn decompose_repeated_primitive(
     // Tighten the clip rect because decomposing the repeated image can
     // produce primitives that are partially covering the original image
     // rect and we want to clip these extra parts out.
-    let tight_clip_rect = metadata.local_clip_rect.intersection(&metadata.local_rect).unwrap();
+    let tight_clip_rect = metadata
+        .combined_local_clip_rect
+        .intersection(&metadata.local_rect).unwrap();
 
     let visible_rect = compute_conservative_visible_rect(
         prim_run_context,
