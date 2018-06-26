@@ -14,7 +14,7 @@ use api::{PropertyBinding, ReferenceFrame, RepeatMode, ScrollFrameDisplayItem, S
 use api::{Shadow, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect};
 use api::{TransformStyle, YuvColorSpace, YuvData};
 use clip::{ClipRegion, ClipSource, ClipSources, ClipStore};
-use clip_scroll_node::{ClipScrollNode, NodeType, StickyFrameInfo};
+use clip_scroll_node::{ClipScrollNode, NodeType, SpatialNodeKind, StickyFrameInfo};
 use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, ClipScrollTree};
 use euclid::vec2;
 use frame_builder::{ChasePrimitive, FrameBuilder, FrameBuilderConfig};
@@ -1233,7 +1233,7 @@ impl<'a> DisplayListFlattener<'a> {
         let viewport_offset = (inner_rect.origin.to_vector().to_f32() / device_pixel_scale).round();
         let root_id = self.clip_scroll_tree.root_reference_frame_index();
         let root_node = &mut self.clip_scroll_tree.nodes[root_id.0];
-        if let NodeType::ReferenceFrame(ref mut info) = root_node.node_type {
+        if let NodeType::Spatial { kind: SpatialNodeKind::ReferenceFrame(ref mut info), .. } = root_node.node_type {
             info.resolved_transform =
                 LayoutVector2D::new(viewport_offset.x, viewport_offset.y).into();
         }
