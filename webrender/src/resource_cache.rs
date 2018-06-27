@@ -652,9 +652,9 @@ impl ResourceCache {
         //  - The image is a blob.
         //  - The blob hasn't already been requested this frame.
         if template.data.is_blob() || dirty_rect.is_some() {
-            let (offset, size) = match template.tiling {
-                Some(tile_size) => {
-                    let tile_offset = request.tile.unwrap();
+            let (offset, size) = match request.tile {
+                Some(tile_offset) => {
+                    let tile_size = template.tiling.unwrap();
                     let actual_size = compute_tile_size(
                         &template.descriptor,
                         tile_size,
