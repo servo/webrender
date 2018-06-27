@@ -1391,7 +1391,7 @@ impl YamlFrameReader {
             clip_rect,
             complex_clips,
             image_mask,
-            ScrollSensitivity::Script,
+            ScrollSensitivity::ScriptAndInputEvents,
         );
         if let Some(numeric_id) = numeric_id {
             self.add_clip_id_mapping(numeric_id, real_id);
