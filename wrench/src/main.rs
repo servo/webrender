@@ -257,7 +257,7 @@ fn make_window(
                 })
                 .with_vsync(vsync);
             let window_builder = winit::WindowBuilder::new()
-                .with_title("WRech")
+                .with_title("WRench")
                 .with_multitouch()
                 .with_dimensions(size.width, size.height);
 
