@@ -32,6 +32,7 @@ use render_backend::FrameId;
 use render_task::{RenderTaskCache, RenderTaskCacheKey, RenderTaskId};
 use render_task::{RenderTaskCacheEntry, RenderTaskCacheEntryHandle, RenderTaskTree};
 use std::collections::hash_map::Entry::{self, Occupied, Vacant};
+use std::collections::hash_map::IterMut;
 use std::cmp;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -101,7 +102,6 @@ struct ImageResource {
     descriptor: ImageDescriptor,
     epoch: Epoch,
     tiling: Option<TileSize>,
-    dirty_rect: Option<DeviceUintRect>,
 }
 
 #[derive(Clone, Debug)]
@@ -138,6 +138,7 @@ impl ImageTemplates {
 struct CachedImageInfo {
     texture_cache_handle: TextureCacheHandle,
     epoch: Epoch,
+    dirty_rect: Option<DeviceUintRect>,
 }
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -195,8 +196,16 @@ where
             .expect("Didn't find a cached resource with that ID!")
     }
 
+    pub fn try_get_mut(&mut self, key: &K) -> Option<&mut V> {
+        self.resources.get_mut(key)
+    }
+
     pub fn entry(&mut self, key: K) -> Entry<K, V> {
         self.resources.entry(key)
+    }
+
+    pub fn iter_mut(&mut self) -> IterMut<K, V> {
+        self.resources.iter_mut()
     }
 
     pub fn clear(&mut self) {
@@ -508,14 +517,12 @@ impl ResourceCache {
                 tiling,
             );
         }
-        let dirty_rect = Some(descriptor.full_rect());
 
         let resource = ImageResource {
             descriptor,
             data,
             epoch: Epoch(0),
             tiling,
-            dirty_rect,
         };
 
         self.resources.image_templates.insert(image_key, resource);
@@ -546,16 +553,53 @@ impl ResourceCache {
                 .update(image_key, Arc::clone(blob), dirty_rect);
         }
 
+        // Each cache entry stores its own copy of the image's dirty rect. This allows them to be
+        // updated independently. If we are tiling we need to scan the whole cache otherwise there
+        // is a finite number of keys.
+        //
+        // It is important to never assume an empty dirty rect implies a full reupload here,
+        // although we are able to do so elsewhere. We must store the descriptor's full rect
+        // instead. This is because there are update sequences which could cause us to forget the
+        // correct dirty regions if we cleared the dirty rect when we received None, e.g.:
+        //
+        //      1) Update with no dirty rect. We want to reupload everything.
+        //      2) Update with dirty rect B. We still want to reupload everything, not just B.
+        //      3) Perform the upload some time later.
+        if tiling.is_some() {
+            for (request, entry) in self.cached_images.iter_mut() {
+                if request.tile.is_some() && request.key == image_key && entry.is_ok() {
+                    let merged_dirty_rect = match (dirty_rect, entry.as_ref().unwrap().dirty_rect) {
+                        (Some(rect), Some(prev_rect)) => Some(rect.union(&prev_rect)),
+                        (Some(rect), None) => Some(rect),
+                        (None, _) => Some(descriptor.full_rect()),
+                    };
+                    entry.as_mut().unwrap().dirty_rect = merged_dirty_rect;
+                }
+            }
+        } else {
+            for &render in &[ImageRendering::Auto, ImageRendering::CrispEdges, ImageRendering::Pixelated] {
+                let request = ImageRequest {
+                    key: image_key,
+                    rendering: render,
+                    tile: None
+                };
+
+                if let Some(&mut Ok(ref mut entry)) = self.cached_images.try_get_mut(&request) {
+                    let merged_dirty_rect = match (dirty_rect, entry.dirty_rect) {
+                        (Some(rect), Some(prev_rect)) => Some(rect.union(&prev_rect)),
+                        (Some(rect), None) => Some(rect),
+                        (None, _) => Some(descriptor.full_rect()),
+                    };
+                    entry.dirty_rect = merged_dirty_rect;
+                }
+            }
+        }
+
         *image = ImageResource {
             descriptor,
             data,
             epoch: Epoch(image.epoch.0 + 1),
             tiling,
-            dirty_rect: match (dirty_rect, image.dirty_rect) {
-                (Some(rect), Some(prev_rect)) => Some(rect.union(&prev_rect)),
-                (Some(rect), None) => Some(rect),
-                (None, _) => None,
-            },
         };
     }
 
@@ -623,6 +667,7 @@ impl ResourceCache {
                     CachedImageInfo {
                         epoch: template.epoch,
                         texture_cache_handle: TextureCacheHandle::new(),
+                        dirty_rect: None,
                     }
                 )),
                 true,
@@ -634,9 +679,9 @@ impl ResourceCache {
 
         let dirty_rect = if needs_upload {
             // the texture cache entry has been evicted, treat it as all dirty
-            Some(template.descriptor.full_rect())
+            None
         } else if needs_update {
-            template.dirty_rect
+            entry.as_ref().unwrap().dirty_rect
         } else {
             return
         };
@@ -664,6 +709,7 @@ impl ResourceCache {
                     if let Some(dirty) = dirty_rect {
                         if intersect_for_tile(dirty, actual_size, tile_size, tile_offset).is_none() {
                             // don't bother requesting unchanged tiles
+                            entry.as_mut().unwrap().dirty_rect.take();
                             self.pending_image_requests.remove(&request);
                             return
                         }
@@ -932,8 +978,6 @@ impl ResourceCache {
     }
 
     fn update_texture_cache(&mut self, gpu_cache: &mut GpuCache) {
-        let mut keys_to_clear_dirty_rect = FastHashSet::default();
-
         for request in self.pending_image_requests.drain() {
             let image_template = self.resources.image_templates.get_mut(request.key).unwrap();
             debug_assert!(image_template.data.uses_texture_cache());
@@ -980,12 +1024,10 @@ impl ResourceCache {
                 let tile_size = image_template.tiling.unwrap();
                 let clipped_tile_size = compute_tile_size(&descriptor, tile_size, tile);
 
-                local_dirty_rect = if let Some(ref rect) = image_template.dirty_rect {
-                    keys_to_clear_dirty_rect.insert(request.key.clone());
-
+                local_dirty_rect = if let Some(rect) = entry.dirty_rect.take() {
                     // We should either have a dirty rect, or we are re-uploading where the dirty
                     // rect is ignored anyway.
-                    let intersection = intersect_for_tile(*rect, clipped_tile_size, tile_size, tile);
+                    let intersection = intersect_for_tile(rect, clipped_tile_size, tile_size, tile);
                     debug_assert!(intersection.is_some() ||
                                   self.texture_cache.needs_upload(&entry.texture_cache_handle));
                     intersection
@@ -1008,7 +1050,7 @@ impl ResourceCache {
 
                 descriptor.size = clipped_tile_size;
             } else {
-                local_dirty_rect = image_template.dirty_rect.take();
+                local_dirty_rect = entry.dirty_rect.take();
             }
 
             let filter = match request.rendering {
@@ -1049,11 +1091,6 @@ impl ResourceCache {
                 None,
                 UvRectKind::Rect,
             );
-        }
-
-        for key in keys_to_clear_dirty_rect.drain() {
-            let image_template = self.resources.image_templates.get_mut(key).unwrap();
-            image_template.dirty_rect.take();
         }
     }
 
@@ -1474,7 +1511,6 @@ impl ResourceCache {
                 descriptor: template.descriptor,
                 tiling: template.tiling,
                 epoch: template.epoch,
-                dirty_rect: None,
             });
         }
 
