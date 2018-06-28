@@ -6,7 +6,7 @@ use api::{DeviceIntRect, DevicePixelScale, ExternalScrollId, LayoutPoint, Layout
 use api::{PipelineId, ScrollClamping, ScrollLocation, ScrollNodeState};
 use api::WorldPoint;
 use clip::{ClipChain, ClipSourcesHandle, ClipStore};
-use clip_scroll_node::{ClipScrollNode, NodeType, ScrollFrameInfo, StickyFrameInfo};
+use clip_scroll_node::{ClipScrollNode, NodeType, SpatialNodeKind, ScrollFrameInfo, StickyFrameInfo};
 use gpu_cache::GpuCache;
 use gpu_types::{ClipScrollNodeIndex as GPUClipScrollNodeIndex, ClipScrollNodeData};
 use internal_types::{FastHashMap, FastHashSet};
@@ -130,7 +130,7 @@ impl ClipScrollTree {
     pub fn get_scroll_node_state(&self) -> Vec<ScrollNodeState> {
         let mut result = vec![];
         for node in &self.nodes {
-            if let NodeType::ScrollFrame(info) = node.node_type {
+            if let NodeType::Spatial { kind: SpatialNodeKind::ScrollFrame(info), .. } = node.node_type {
                 if let Some(id) = info.external_id {
                     result.push(ScrollNodeState { id, scroll_offset: info.offset })
                 }
@@ -147,7 +147,7 @@ impl ClipScrollTree {
             }
 
             match old_node.node_type {
-                NodeType::ScrollFrame(info) if info.external_id.is_some() => {
+                NodeType::Spatial { kind: SpatialNodeKind::ScrollFrame(info), .. } if info.external_id.is_some() => {
                     scroll_states.insert(info.external_id.unwrap(), info);
                 }
                 _ => {}
@@ -187,7 +187,7 @@ impl ClipScrollTree {
 
         let node = &self.nodes[index.0];
         match node.node_type {
-            NodeType::ScrollFrame(state) if state.sensitive_to_input_events() => index,
+            NodeType::Spatial { kind: SpatialNodeKind::ScrollFrame(state), .. } if state.sensitive_to_input_events() => index,
             _ => self.find_nearest_scrolling_ancestor(node.parent)
         }
     }
@@ -338,7 +338,7 @@ impl ClipScrollTree {
     pub fn finalize_and_apply_pending_scroll_offsets(&mut self, old_states: ScrollStates) {
         for node in &mut self.nodes {
             let external_id = match node.node_type {
-                NodeType::ScrollFrame(ScrollFrameInfo { external_id: Some(id), ..} ) => id,
+                NodeType::Spatial { kind: SpatialNodeKind::ScrollFrame(ScrollFrameInfo { external_id: Some(id), ..} ), .. } => id,
                 _ => continue,
             };
 
@@ -360,7 +360,19 @@ impl ClipScrollTree {
         pipeline_id: PipelineId,
     )  -> ClipChainIndex {
         let clip_chain_index = self.allocate_clip_chain();
-        let node_type = NodeType::Clip { handle, clip_chain_index, clip_chain_node: None };
+
+        let positioning_node_index = match self.nodes[parent_index.0].node_type {
+            NodeType::Spatial { .. } => parent_index,
+            NodeType::Clip { positioning_node_index, .. } => positioning_node_index,
+            NodeType::Empty => panic!("bug: uninitialized node!"),
+        };
+
+        let node_type = NodeType::Clip {
+            handle,
+            clip_chain_index,
+            clip_chain_node: None,
+            positioning_node_index,
+         };
         let node = ClipScrollNode::new(pipeline_id, Some(parent_index), node_type);
         self.add_node(node, index);
         clip_chain_index
@@ -428,6 +440,26 @@ impl ClipScrollTree {
     ) {
         let node = &self.nodes[index.0];
         match node.node_type {
+            NodeType::Spatial { ref kind } => {
+                match *kind {
+                    SpatialNodeKind::StickyFrame(ref sticky_frame_info) => {
+                        pt.new_level(format!("StickyFrame"));
+                        pt.add_item(format!("index: {:?}", index));
+                        pt.add_item(format!("sticky info: {:?}", sticky_frame_info));
+                    }
+                    SpatialNodeKind::ScrollFrame(scrolling_info) => {
+                        pt.new_level(format!("ScrollFrame"));
+                        pt.add_item(format!("index: {:?}", index));
+                        pt.add_item(format!("viewport: {:?}", scrolling_info.viewport_rect));
+                        pt.add_item(format!("scrollable_size: {:?}", scrolling_info.scrollable_size));
+                        pt.add_item(format!("scroll offset: {:?}", scrolling_info.offset));
+                    }
+                    SpatialNodeKind::ReferenceFrame(ref info) => {
+                        pt.new_level(format!("ReferenceFrame {:?}", info.resolved_transform));
+                        pt.add_item(format!("index: {:?}", index));
+                    }
+                }
+            }
             NodeType::Clip { ref handle, .. } => {
                 pt.new_level("Clip".to_owned());
 
@@ -438,22 +470,6 @@ impl ClipScrollTree {
                     pt.add_item(format!("{:?}", source));
                 }
                 pt.end_level();
-            }
-            NodeType::ReferenceFrame(ref info) => {
-                pt.new_level(format!("ReferenceFrame {:?}", info.resolved_transform));
-                pt.add_item(format!("index: {:?}", index));
-            }
-            NodeType::ScrollFrame(scrolling_info) => {
-                pt.new_level(format!("ScrollFrame"));
-                pt.add_item(format!("index: {:?}", index));
-                pt.add_item(format!("viewport: {:?}", scrolling_info.viewport_rect));
-                pt.add_item(format!("scrollable_size: {:?}", scrolling_info.scrollable_size));
-                pt.add_item(format!("scroll offset: {:?}", scrolling_info.offset));
-            }
-            NodeType::StickyFrame(ref sticky_frame_info) => {
-                pt.new_level(format!("StickyFrame"));
-                pt.add_item(format!("index: {:?}", index));
-                pt.add_item(format!("sticky info: {:?}", sticky_frame_info));
             }
             NodeType::Empty => unreachable!("Empty node remaining in ClipScrollTree."),
         }
