@@ -27,6 +27,8 @@ fuzzy(1,1) platform(linux) == shadow-ordering.yaml shadow-ordering-ref.yaml
 fuzzy(1,1786) options(disable-subpixel) == synthetic-bold-transparent.yaml synthetic-bold-transparent-ref.yaml
 != synthetic-bold-transparent.yaml synthetic-bold.yaml
 != synthetic-italics.yaml synthetic-italics-ref.yaml
+!= synthetic-italics-custom.yaml synthetic-italics-ref.yaml
+!= synthetic-italics-custom.yaml synthetic-italics.yaml
 options(disable-aa) == ahem.yaml ahem-ref.yaml
 platform(linux) == isolated-text.yaml isolated-text.png
 platform(mac) == white-opacity.yaml white-opacity.png
