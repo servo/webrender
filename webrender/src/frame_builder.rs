@@ -10,7 +10,7 @@ use clip_scroll_node::{ClipScrollNode};
 use clip_scroll_tree::{ClipScrollNodeIndex, ClipScrollTree};
 use display_list_flattener::{DisplayListFlattener};
 use gpu_cache::GpuCache;
-use gpu_types::{ClipScrollNodeData, PrimitiveHeaders, UvRectKind};
+use gpu_types::{PrimitiveHeaders, TransformData, UvRectKind};
 use hit_test::{HitTester, HitTestingRun};
 use internal_types::{FastHashMap};
 use picture::PictureSurface;
@@ -72,7 +72,7 @@ pub struct FrameBuildingContext<'a> {
     pub pipelines: &'a FastHashMap<PipelineId, Arc<ScenePipeline>>,
     pub screen_rect: DeviceIntRect,
     pub clip_scroll_tree: &'a ClipScrollTree,
-    pub node_data: &'a [ClipScrollNodeData],
+    pub transforms: &'a [TransformData],
     pub max_local_clip: LayoutRect,
 }
 
@@ -186,7 +186,7 @@ impl FrameBuilder {
         profile_counters: &mut FrameProfileCounters,
         device_pixel_scale: DevicePixelScale,
         scene_properties: &SceneProperties,
-        node_data: &[ClipScrollNodeData],
+        transforms: &[TransformData],
     ) -> Option<RenderTaskId> {
         profile_scope!("cull");
 
@@ -212,7 +212,7 @@ impl FrameBuilder {
             pipelines,
             screen_rect: self.screen_rect.to_i32(),
             clip_scroll_tree,
-            node_data,
+            transforms,
             max_local_clip: LayoutRect::new(
                 LayoutPoint::new(-MAX_CLIP_COORD, -MAX_CLIP_COORD),
                 LayoutSize::new(2.0 * MAX_CLIP_COORD, 2.0 * MAX_CLIP_COORD),
@@ -322,16 +322,13 @@ impl FrameBuilder {
         resource_cache.begin_frame(frame_id);
         gpu_cache.begin_frame();
 
-        let mut node_data = Vec::with_capacity(clip_scroll_tree.nodes.len());
-
-        clip_scroll_tree.update_tree(
+        let transform_palette = clip_scroll_tree.update_tree(
             &self.screen_rect.to_i32(),
             device_pixel_scale,
             &mut self.clip_store,
             resource_cache,
             gpu_cache,
             pan,
-            &mut node_data,
             scene_properties,
         );
 
@@ -352,7 +349,7 @@ impl FrameBuilder {
             &mut profile_counters,
             device_pixel_scale,
             scene_properties,
-            &node_data,
+            &transform_palette.transforms,
         );
 
         resource_cache.block_until_all_resources_added(gpu_cache,
@@ -396,7 +393,7 @@ impl FrameBuilder {
                 resource_cache,
                 clip_scroll_tree,
                 use_dual_source_blending,
-                node_data: &node_data,
+                transforms: &transform_palette,
             };
 
             pass.build(
@@ -427,7 +424,7 @@ impl FrameBuilder {
             layer,
             profile_counters,
             passes,
-            node_data,
+            transform_palette: transform_palette.transforms,
             render_tasks,
             deferred_resolves,
             gpu_cache_frame_id,

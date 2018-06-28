@@ -7,10 +7,10 @@ use api::{LayoutVector2D, LayoutTransform, PipelineId, PropertyBinding};
 use api::{ScrollClamping, ScrollLocation, ScrollSensitivity, StickyOffsetBounds};
 use clip::{ClipChain, ClipChainNode, ClipSourcesHandle, ClipStore, ClipWorkItem};
 use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, CoordinateSystemId};
-use clip_scroll_tree::TransformUpdateState;
+use clip_scroll_tree::{TransformUpdateState, TransformIndex};
 use euclid::SideOffsets2D;
 use gpu_cache::GpuCache;
-use gpu_types::{ClipScrollNodeIndex as GPUClipScrollNodeIndex, ClipScrollNodeData};
+use gpu_types::{TransformData, TransformPalette};
 use resource_cache::ResourceCache;
 use scene::SceneProperties;
 use util::{LayoutToWorldFastTransform, LayoutFastTransform};
@@ -76,9 +76,6 @@ pub enum NodeType {
         /// because the ClipChain may not contain our node if is optimized out, but API
         /// defined ClipChains will still need to access it.
         clip_chain_node: Option<ClipChainNode>,
-
-        /// The clip scroll node that provides the transform for this clip node.
-        positioning_node_index: ClipScrollNodeIndex,
     },
 
     /// An empty node, used to pad the ClipScrollTree's array of nodes so that
@@ -136,16 +133,18 @@ pub struct ClipScrollNode {
     /// reference frame transforms.
     pub coordinate_system_relative_transform: LayoutFastTransform,
 
-    /// A linear ID / index of this clip-scroll node. Used as a reference to
-    /// pass to shaders, to allow them to fetch a given clip-scroll node.
-    pub node_data_index: GPUClipScrollNodeIndex,
+    /// The index of the spatial node that provides positioning information for this node.
+    /// For reference frames, scroll and sticky frames it is a unique identfier.
+    /// For clip nodes, this is the nearest ancestor spatial node.
+    pub transform_index: TransformIndex,
 }
 
 impl ClipScrollNode {
     pub fn new(
         pipeline_id: PipelineId,
         parent_index: Option<ClipScrollNodeIndex>,
-        node_type: NodeType
+        node_type: NodeType,
+        transform_index: TransformIndex,
     ) -> Self {
         ClipScrollNode {
             world_viewport_transform: LayoutToWorldFastTransform::identity(),
@@ -158,12 +157,17 @@ impl ClipScrollNode {
             invertible: true,
             coordinate_system_id: CoordinateSystemId(0),
             coordinate_system_relative_transform: LayoutFastTransform::identity(),
-            node_data_index: GPUClipScrollNodeIndex(0),
+            transform_index,
         }
     }
 
     pub fn empty() -> ClipScrollNode {
-        Self::new(PipelineId::dummy(), None, NodeType::Empty)
+        Self::new(
+            PipelineId::dummy(),
+            None,
+            NodeType::Empty,
+            TransformIndex(0),
+        )
     }
 
     pub fn new_scroll_frame(
@@ -173,6 +177,7 @@ impl ClipScrollNode {
         frame_rect: &LayoutRect,
         content_size: &LayoutSize,
         scroll_sensitivity: ScrollSensitivity,
+        transform_index: TransformIndex,
     ) -> Self {
         let node_type = NodeType::Spatial {
             kind: SpatialNodeKind::ScrollFrame(ScrollFrameInfo::new(
@@ -186,7 +191,12 @@ impl ClipScrollNode {
             )),
         };
 
-        Self::new(pipeline_id, Some(parent_index), node_type)
+        Self::new(
+            pipeline_id,
+            Some(parent_index),
+            node_type,
+            transform_index,
+        )
     }
 
     pub fn new_reference_frame(
@@ -195,6 +205,7 @@ impl ClipScrollNode {
         source_perspective: Option<LayoutTransform>,
         origin_in_parent_reference_frame: LayoutVector2D,
         pipeline_id: PipelineId,
+        transform_index: TransformIndex,
     ) -> Self {
         let identity = LayoutTransform::identity();
         let source_perspective = source_perspective.map_or_else(
@@ -212,6 +223,7 @@ impl ClipScrollNode {
             NodeType::Spatial {
                 kind: SpatialNodeKind::ReferenceFrame(info),
             },
+            transform_index,
         )
     }
 
@@ -219,11 +231,17 @@ impl ClipScrollNode {
         parent_index: ClipScrollNodeIndex,
         sticky_frame_info: StickyFrameInfo,
         pipeline_id: PipelineId,
+        transform_index: TransformIndex,
     ) -> Self {
         let node_type = NodeType::Spatial {
             kind: SpatialNodeKind::StickyFrame(sticky_frame_info),
         };
-        Self::new(pipeline_id, Some(parent_index), node_type)
+        Self::new(
+            pipeline_id,
+            Some(parent_index),
+            node_type,
+            transform_index,
+        )
     }
 
 
@@ -285,29 +303,32 @@ impl ClipScrollNode {
         self.world_viewport_transform = LayoutToWorldFastTransform::identity();
     }
 
-    pub fn push_gpu_node_data(&mut self, node_data: &mut Vec<ClipScrollNodeData>) {
-        if !self.invertible {
-            node_data.push(ClipScrollNodeData::invalid());
-            return;
-        }
-
-        let inv_transform = match self.world_content_transform.inverse() {
-            Some(inverted) => inverted.to_transform(),
-            None => {
-                node_data.push(ClipScrollNodeData::invalid());
+    pub fn push_gpu_data(
+        &mut self,
+        transform_palette: &mut TransformPalette,
+    ) {
+        if let NodeType::Spatial { .. } = self.node_type {
+            if !self.invertible {
+                transform_palette.set(self.transform_index, TransformData::invalid());
                 return;
             }
-        };
 
-        let data = ClipScrollNodeData {
-            transform: self.world_content_transform.into(),
-            inv_transform,
-            transform_kind: self.transform_kind as u32 as f32,
-            padding: [0.0; 3],
-        };
+            let inv_transform = match self.world_content_transform.inverse() {
+                Some(inverted) => inverted.to_transform(),
+                None => {
+                    transform_palette.set(self.transform_index, TransformData::invalid());
+                    return;
+                }
+            };
 
-        // Write the data that will be made available to the GPU for this node.
-        node_data.push(data);
+            let data = TransformData {
+                transform: self.world_content_transform.into(),
+                inv_transform,
+            };
+
+            // Write the data that will be made available to the GPU for this node.
+            transform_palette.set(self.transform_index, data);
+        }
     }
 
     pub fn update(
@@ -398,7 +419,7 @@ impl ClipScrollNode {
 
         let new_node = ClipChainNode {
             work_item: ClipWorkItem {
-                scroll_node_data_index: self.node_data_index,
+                transform_index: self.transform_index,
                 clip_sources: clip_sources_handle.weak(),
                 coordinate_system_id: state.current_coordinate_system_id,
             },
@@ -638,7 +659,7 @@ impl ClipScrollNode {
         // between us and the parent reference frame. If we are a reference frame,
         // we need to reset both these values.
         match self.node_type {
-            NodeType::Spatial { ref kind } => {
+            NodeType::Spatial { ref kind, .. } => {
                 match *kind {
                     SpatialNodeKind::StickyFrame(ref info) => {
                         // We don't translate the combined rect by the sticky offset, because sticky
@@ -676,7 +697,6 @@ impl ClipScrollNode {
             _ => LayoutSize::zero(),
         }
     }
-
 
     pub fn scroll(&mut self, scroll_location: ScrollLocation) -> bool {
         let scrolling = match self.node_type {

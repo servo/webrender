@@ -12,9 +12,9 @@ use euclid::{TypedTransform3D, vec3};
 use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheHandle, GpuCacheAddress};
 use gpu_types::{BrushFlags, BrushInstance, PrimitiveHeaders};
-use gpu_types::{ClipMaskInstance, ClipScrollNodeIndex, SplitCompositeInstance};
+use gpu_types::{ClipMaskInstance, SplitCompositeInstance};
 use gpu_types::{PrimitiveInstance, RasterizationSpace, GlyphInstance};
-use gpu_types::{PrimitiveHeader, PrimitiveHeaderIndex};
+use gpu_types::{PrimitiveHeader, PrimitiveHeaderIndex, TransformPaletteId, TransformPalette};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::{PictureCompositeMode, PicturePrimitive, PictureSurface};
 use plane_split::{BspSplitter, Polygon, Splitter};
@@ -29,7 +29,7 @@ use resource_cache::{CacheItem, GlyphFetchResult, ImageRequest, ResourceCache};
 use scene::FilterOpHelpers;
 use std::{usize, f32, i32};
 use tiling::{RenderTargetContext};
-use util::{MatrixHelpers, TransformedRectKind};
+use util::{TransformedRectKind};
 
 // Special sentinel value recognized by the shader. It is considered to be
 // a dummy task that doesn't mask out anything.
@@ -476,10 +476,10 @@ impl AlphaBatchBuilder {
         // Add each run in this picture to the batch.
         for run in &pic.runs {
             let scroll_node = &ctx.clip_scroll_tree.nodes[run.clip_and_scroll.scroll_node_id.0];
-            let scroll_id = scroll_node.node_data_index;
+            let transform_id = ctx.transforms.get_id(scroll_node.transform_index);
             self.add_run_to_batch(
                 run,
-                scroll_id,
+                transform_id,
                 ctx,
                 gpu_cache,
                 render_tasks,
@@ -539,7 +539,7 @@ impl AlphaBatchBuilder {
     fn add_run_to_batch(
         &mut self,
         run: &PrimitiveRun,
-        scroll_id: ClipScrollNodeIndex,
+        transform_id: TransformPaletteId,
         ctx: &RenderTargetContext,
         gpu_cache: &mut GpuCache,
         render_tasks: &RenderTaskTree,
@@ -556,7 +556,7 @@ impl AlphaBatchBuilder {
 
             if metadata.screen_rect.is_some() {
                 self.add_prim_to_batch(
-                    scroll_id,
+                    transform_id,
                     prim_index,
                     ctx,
                     gpu_cache,
@@ -578,7 +578,7 @@ impl AlphaBatchBuilder {
     // in that picture are being drawn into the same target.
     fn add_prim_to_batch(
         &mut self,
-        scroll_id: ClipScrollNodeIndex,
+        transform_id: TransformPaletteId,
         prim_index: PrimitiveIndex,
         ctx: &RenderTargetContext,
         gpu_cache: &mut GpuCache,
@@ -594,11 +594,10 @@ impl AlphaBatchBuilder {
         #[cfg(debug_assertions)] //TODO: why is this needed?
         debug_assert_eq!(prim_metadata.prepared_frame_id, render_tasks.frame_id());
 
-        let scroll_node = &ctx.node_data[scroll_id.0 as usize];
         // TODO(gw): Calculating this for every primitive is a bit
         //           wasteful. We should probably cache this in
         //           the scroll node...
-        let transform_kind = scroll_node.transform.transform_kind();
+        let transform_kind = transform_id.transform_kind();
 
         let screen_rect = prim_metadata.screen_rect.expect("bug");
         let task_relative_bounding_rect = DeviceIntRect::new(
@@ -651,7 +650,7 @@ impl AlphaBatchBuilder {
             task_address,
             specific_prim_address: prim_cache_address,
             clip_task_address,
-            scroll_id,
+            transform_id,
         };
 
         match prim_metadata.prim_kind {
@@ -1748,7 +1747,7 @@ impl ClipBatcher {
     ) {
         let instance = ClipMaskInstance {
             render_task_address: task_address,
-            scroll_node_data_index: ClipScrollNodeIndex(0),
+            transform_id: TransformPaletteId::identity(),
             segment: 0,
             clip_data_address,
             resource_address: GpuCacheAddress::invalid(),
@@ -1765,12 +1764,13 @@ impl ClipBatcher {
         resource_cache: &ResourceCache,
         gpu_cache: &GpuCache,
         clip_store: &ClipStore,
+        transforms: &TransformPalette,
     ) {
         let mut coordinate_system_id = coordinate_system_id;
         for work_item in clips.iter() {
             let instance = ClipMaskInstance {
                 render_task_address: task_address,
-                scroll_node_data_index: work_item.scroll_node_data_index,
+                transform_id: transforms.get_id(work_item.transform_index),
                 segment: 0,
                 clip_data_address: GpuCacheAddress::invalid(),
                 resource_address: GpuCacheAddress::invalid(),

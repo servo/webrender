@@ -4,11 +4,11 @@
 
 use api::{DeviceIntRect, DevicePixelScale, ExternalScrollId, LayoutPoint, LayoutRect, LayoutVector2D};
 use api::{PipelineId, ScrollClamping, ScrollLocation, ScrollNodeState};
-use api::WorldPoint;
+use api::{LayoutSize, LayoutTransform, PropertyBinding, ScrollSensitivity, WorldPoint};
 use clip::{ClipChain, ClipSourcesHandle, ClipStore};
 use clip_scroll_node::{ClipScrollNode, NodeType, SpatialNodeKind, ScrollFrameInfo, StickyFrameInfo};
 use gpu_cache::GpuCache;
-use gpu_types::{ClipScrollNodeIndex as GPUClipScrollNodeIndex, ClipScrollNodeData};
+use gpu_types::TransformPalette;
 use internal_types::{FastHashMap, FastHashSet};
 use print_tree::{PrintTree, PrintTreePrinter};
 use resource_cache::ResourceCache;
@@ -28,6 +28,15 @@ pub struct CoordinateSystemId(pub u32);
 
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
 pub struct ClipScrollNodeIndex(pub usize);
+
+// Used to index the smaller subset of nodes in the CST that define
+// new transform / positioning.
+// TODO(gw): In the future if we split the CST into a positioning and
+//           clipping tree, this can be tidied up a bit.
+#[derive(Copy, Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct TransformIndex(pub u32);
 
 const ROOT_REFERENCE_FRAME_INDEX: ClipScrollNodeIndex = ClipScrollNodeIndex(0);
 const TOPMOST_SCROLL_NODE_INDEX: ClipScrollNodeIndex = ClipScrollNodeIndex(1);
@@ -73,6 +82,10 @@ pub struct ClipScrollTree {
     /// A set of pipelines which should be discarded the next time this
     /// tree is drained.
     pub pipelines_to_discard: FastHashSet<PipelineId>,
+
+    /// The number of nodes in the CST that are spatial. Currently, this is all
+    /// nodes that are not clip nodes.
+    spatial_node_count: usize,
 }
 
 #[derive(Clone)]
@@ -108,6 +121,7 @@ impl ClipScrollTree {
             clip_chains: vec![ClipChain::empty(&DeviceIntRect::zero())],
             pending_scroll_offsets: FastHashMap::default(),
             pipelines_to_discard: FastHashSet::default(),
+            spatial_node_count: 0,
         }
     }
 
@@ -154,6 +168,7 @@ impl ClipScrollTree {
             }
         }
 
+        self.spatial_node_count = 0;
         self.pipelines_to_discard.clear();
         self.clip_chains = vec![ClipChain::empty(&DeviceIntRect::zero())];
         self.clip_chains_descriptors.clear();
@@ -212,40 +227,41 @@ impl ClipScrollTree {
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
         pan: WorldPoint,
-        node_data: &mut Vec<ClipScrollNodeData>,
         scene_properties: &SceneProperties,
-    ) {
-        if self.nodes.is_empty() {
-            return;
+    ) -> TransformPalette {
+        let mut transform_palette = TransformPalette::new(self.spatial_node_count);
+
+        if !self.nodes.is_empty() {
+            self.clip_chains[0] = ClipChain::empty(screen_rect);
+
+            let root_reference_frame_index = self.root_reference_frame_index();
+            let mut state = TransformUpdateState {
+                parent_reference_frame_transform: LayoutVector2D::new(pan.x, pan.y).into(),
+                parent_accumulated_scroll_offset: LayoutVector2D::zero(),
+                nearest_scrolling_ancestor_offset: LayoutVector2D::zero(),
+                nearest_scrolling_ancestor_viewport: LayoutRect::zero(),
+                parent_clip_chain_index: ClipChainIndex(0),
+                current_coordinate_system_id: CoordinateSystemId::root(),
+                coordinate_system_relative_transform: LayoutFastTransform::identity(),
+                invertible: true,
+            };
+            let mut next_coordinate_system_id = state.current_coordinate_system_id.next();
+            self.update_node(
+                root_reference_frame_index,
+                &mut state,
+                &mut next_coordinate_system_id,
+                device_pixel_scale,
+                clip_store,
+                resource_cache,
+                gpu_cache,
+                &mut transform_palette,
+                scene_properties,
+            );
+
+            self.build_clip_chains(screen_rect);
         }
 
-        self.clip_chains[0] = ClipChain::empty(screen_rect);
-
-        let root_reference_frame_index = self.root_reference_frame_index();
-        let mut state = TransformUpdateState {
-            parent_reference_frame_transform: LayoutVector2D::new(pan.x, pan.y).into(),
-            parent_accumulated_scroll_offset: LayoutVector2D::zero(),
-            nearest_scrolling_ancestor_offset: LayoutVector2D::zero(),
-            nearest_scrolling_ancestor_viewport: LayoutRect::zero(),
-            parent_clip_chain_index: ClipChainIndex(0),
-            current_coordinate_system_id: CoordinateSystemId::root(),
-            coordinate_system_relative_transform: LayoutFastTransform::identity(),
-            invertible: true,
-        };
-        let mut next_coordinate_system_id = state.current_coordinate_system_id.next();
-        self.update_node(
-            root_reference_frame_index,
-            &mut state,
-            &mut next_coordinate_system_id,
-            device_pixel_scale,
-            clip_store,
-            resource_cache,
-            gpu_cache,
-            node_data,
-            scene_properties,
-        );
-
-        self.build_clip_chains(screen_rect);
+        transform_palette
     }
 
     fn update_node(
@@ -257,7 +273,7 @@ impl ClipScrollTree {
         clip_store: &mut ClipStore,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
-        gpu_node_data: &mut Vec<ClipScrollNodeData>,
+        transform_palette: &mut TransformPalette,
         scene_properties: &SceneProperties,
     ) {
         // TODO(gw): This is an ugly borrow check workaround to clone these.
@@ -268,9 +284,6 @@ impl ClipScrollTree {
                 Some(node) => node,
                 None => return,
             };
-
-            // We set this early so that we can use it to populate the ClipChain.
-            node.node_data_index = GPUClipScrollNodeIndex(gpu_node_data.len() as u32);
 
             node.update(
                 &mut state,
@@ -283,7 +296,7 @@ impl ClipScrollTree {
                 &mut self.clip_chains,
             );
 
-            node.push_gpu_node_data(gpu_node_data);
+            node.push_gpu_data(transform_palette);
 
             if node.children.is_empty() {
                 return;
@@ -302,7 +315,7 @@ impl ClipScrollTree {
                 clip_store,
                 resource_cache,
                 gpu_cache,
-                gpu_node_data,
+                transform_palette,
                 scene_properties,
             );
         }
@@ -352,6 +365,13 @@ impl ClipScrollTree {
         }
     }
 
+    // Generate the next valid TransformIndex for the CST.
+    fn next_transform_index(&mut self) -> TransformIndex {
+        let transform_index = TransformIndex(self.spatial_node_count as u32);
+        self.spatial_node_count += 1;
+        transform_index
+    }
+
     pub fn add_clip_node(
         &mut self,
         index: ClipScrollNodeIndex,
@@ -360,22 +380,63 @@ impl ClipScrollTree {
         pipeline_id: PipelineId,
     )  -> ClipChainIndex {
         let clip_chain_index = self.allocate_clip_chain();
-
-        let positioning_node_index = match self.nodes[parent_index.0].node_type {
-            NodeType::Spatial { .. } => parent_index,
-            NodeType::Clip { positioning_node_index, .. } => positioning_node_index,
-            NodeType::Empty => panic!("bug: uninitialized node!"),
-        };
+        let transform_index = self.nodes[parent_index.0].transform_index;
 
         let node_type = NodeType::Clip {
             handle,
             clip_chain_index,
             clip_chain_node: None,
-            positioning_node_index,
-         };
-        let node = ClipScrollNode::new(pipeline_id, Some(parent_index), node_type);
+        };
+        let node = ClipScrollNode::new(
+            pipeline_id,
+            Some(parent_index),
+            node_type,
+            transform_index,
+        );
         self.add_node(node, index);
         clip_chain_index
+    }
+
+    pub fn add_scroll_frame(
+        &mut self,
+        index: ClipScrollNodeIndex,
+        parent_index: ClipScrollNodeIndex,
+        external_id: Option<ExternalScrollId>,
+        pipeline_id: PipelineId,
+        frame_rect: &LayoutRect,
+        content_size: &LayoutSize,
+        scroll_sensitivity: ScrollSensitivity,
+    ) {
+        let node = ClipScrollNode::new_scroll_frame(
+            pipeline_id,
+            parent_index,
+            external_id,
+            frame_rect,
+            content_size,
+            scroll_sensitivity,
+            self.next_transform_index(),
+        );
+        self.add_node(node, index);
+    }
+
+    pub fn add_reference_frame(
+        &mut self,
+        index: ClipScrollNodeIndex,
+        parent_index: Option<ClipScrollNodeIndex>,
+        source_transform: Option<PropertyBinding<LayoutTransform>>,
+        source_perspective: Option<LayoutTransform>,
+        origin_in_parent_reference_frame: LayoutVector2D,
+        pipeline_id: PipelineId,
+    ) {
+        let node = ClipScrollNode::new_reference_frame(
+            parent_index,
+            source_transform,
+            source_perspective,
+            origin_in_parent_reference_frame,
+            pipeline_id,
+            self.next_transform_index(),
+        );
+        self.add_node(node, index);
     }
 
     pub fn add_sticky_frame(
@@ -385,7 +446,12 @@ impl ClipScrollTree {
         sticky_frame_info: StickyFrameInfo,
         pipeline_id: PipelineId,
     ) {
-        let node = ClipScrollNode::new_sticky_frame(parent_index, sticky_frame_info, pipeline_id);
+        let node = ClipScrollNode::new_sticky_frame(
+            parent_index,
+            sticky_frame_info,
+            pipeline_id,
+            self.next_transform_index(),
+        );
         self.add_node(node, index);
     }
 
@@ -440,7 +506,7 @@ impl ClipScrollTree {
     ) {
         let node = &self.nodes[index.0];
         match node.node_type {
-            NodeType::Spatial { ref kind } => {
+            NodeType::Spatial { ref kind, .. } => {
                 match *kind {
                     SpatialNodeKind::StickyFrame(ref sticky_frame_info) => {
                         pt.new_level(format!("StickyFrame"));
