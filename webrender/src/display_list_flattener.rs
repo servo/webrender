@@ -14,7 +14,7 @@ use api::{PropertyBinding, ReferenceFrame, RepeatMode, ScrollFrameDisplayItem, S
 use api::{Shadow, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect};
 use api::{TransformStyle, YuvColorSpace, YuvData};
 use clip::{ClipRegion, ClipSource, ClipSources, ClipStore};
-use clip_scroll_node::{ClipScrollNode, NodeType, SpatialNodeKind, StickyFrameInfo};
+use clip_scroll_node::{NodeType, SpatialNodeKind, StickyFrameInfo};
 use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, ClipScrollTree};
 use euclid::vec2;
 use frame_builder::{ChasePrimitive, FrameBuilder, FrameBuilderConfig};
@@ -1203,14 +1203,15 @@ impl<'a> DisplayListFlattener<'a> {
         origin_in_parent_reference_frame: LayoutVector2D,
     ) -> ClipScrollNodeIndex {
         let index = self.id_to_index_mapper.get_node_index(reference_frame_id);
-        let node = ClipScrollNode::new_reference_frame(
-            parent_id.map(|id| self.id_to_index_mapper.get_node_index(id)),
+        let parent_index = parent_id.map(|id| self.id_to_index_mapper.get_node_index(id));
+        self.clip_scroll_tree.add_reference_frame(
+            index,
+            parent_index,
             source_transform,
             source_perspective,
             origin_in_parent_reference_frame,
             pipeline_id,
         );
-        self.clip_scroll_tree.add_node(node, index);
         self.reference_frame_stack.push((reference_frame_id, index));
 
         match parent_id {
@@ -1296,16 +1297,15 @@ impl<'a> DisplayListFlattener<'a> {
         scroll_sensitivity: ScrollSensitivity,
     ) -> ClipScrollNodeIndex {
         let node_index = self.id_to_index_mapper.get_node_index(new_node_id);
-        let node = ClipScrollNode::new_scroll_frame(
-            pipeline_id,
+        self.clip_scroll_tree.add_scroll_frame(
+            node_index,
             self.id_to_index_mapper.get_node_index(parent_id),
             external_id,
+            pipeline_id,
             frame_rect,
             content_size,
             scroll_sensitivity,
         );
-
-        self.clip_scroll_tree.add_node(node, node_index);
         self.id_to_index_mapper.map_to_parent_clip_chain(new_node_id, &parent_id);
         node_index
     }

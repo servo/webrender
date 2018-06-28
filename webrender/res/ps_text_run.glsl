@@ -62,13 +62,13 @@ TextRun fetch_text_run(int address) {
 VertexInfo write_text_vertex(vec2 clamped_local_pos,
                              RectWithSize local_clip_rect,
                              float z,
-                             ClipScrollNode scroll_node,
+                             Transform transform,
                              PictureTask task,
                              vec2 text_offset,
                              RectWithSize snap_rect,
                              vec2 snap_bias) {
     // Transform the current vertex to world space.
-    vec4 world_pos = scroll_node.transform * vec4(clamped_local_pos, 0.0, 1.0);
+    vec4 world_pos = transform.m * vec4(clamped_local_pos, 0.0, 1.0);
 
     // Convert the world positions to device pixel space.
     float device_scale = uDevicePixelRatio / world_pos.w;
@@ -83,13 +83,13 @@ VertexInfo write_text_vertex(vec2 clamped_local_pos,
     bool remove_subpx_offset = true;
 #else
     // Compute the snapping offset only if the scroll node transform is axis-aligned.
-    bool remove_subpx_offset = scroll_node.is_axis_aligned;
+    bool remove_subpx_offset = transform.is_axis_aligned;
 #endif
     if (remove_subpx_offset) {
         // Ensure the transformed text offset does not contain a subpixel translation
         // such that glyph snapping is stable for equivalent glyph subpixel positions.
-        vec2 world_text_offset = mat2(scroll_node.transform) * text_offset;
-        vec2 device_text_pos = (scroll_node.transform[3].xy + world_text_offset) * device_scale;
+        vec2 world_text_offset = mat2(transform.m) * text_offset;
+        vec2 device_text_pos = (transform.m[3].xy + world_text_offset) * device_scale;
         final_pos += floor(device_text_pos + 0.5) - device_text_pos;
 
 #ifdef WR_FEATURE_GLYPH_TRANSFORM
@@ -101,7 +101,7 @@ VertexInfo write_text_vertex(vec2 clamped_local_pos,
 #else
         // The transformed text offset has already been snapped, so remove it from the transform
         // when snapping the glyph.
-        mat4 snap_transform = scroll_node.transform;
+        mat4 snap_transform = transform.m;
         snap_transform[3].xy = -world_text_offset;
         final_pos += compute_snap_offset(
             clamped_local_pos,
@@ -133,7 +133,7 @@ void main(void) {
 
     PrimitiveHeader ph = fetch_prim_header(prim_header_address);
 
-    ClipScrollNode scroll_node = fetch_clip_scroll_node(ph.scroll_node_id);
+    Transform transform = fetch_transform(ph.transform_id);
     ClipArea clip_area = fetch_clip_area(ph.clip_task_index);
     PictureTask task = fetch_picture_task(ph.render_task_index);
 
@@ -148,14 +148,14 @@ void main(void) {
 
 #ifdef WR_FEATURE_GLYPH_TRANSFORM
     // Transform from local space to glyph space.
-    mat2 transform = mat2(scroll_node.transform) * uDevicePixelRatio;
+    mat2 glyph_transform = mat2(transform.m) * uDevicePixelRatio;
 
     // Compute the glyph rect in glyph space.
-    RectWithSize glyph_rect = RectWithSize(res.offset + transform * (text.offset + glyph.offset),
+    RectWithSize glyph_rect = RectWithSize(res.offset + glyph_transform * (text.offset + glyph.offset),
                                            res.uv_rect.zw - res.uv_rect.xy);
 
     // Transform the glyph rect back to local space.
-    mat2 inv = inverse(transform);
+    mat2 inv = inverse(glyph_transform);
     RectWithSize local_rect = transform_rect(glyph_rect, inv);
 
     // Select the corner of the glyph's local space rect that we are processing.
@@ -210,14 +210,14 @@ void main(void) {
     VertexInfo vi = write_text_vertex(local_pos,
                                       ph.local_clip_rect,
                                       ph.z,
-                                      scroll_node,
+                                      transform,
                                       task,
                                       text.offset,
                                       glyph_rect,
                                       snap_bias);
 
 #ifdef WR_FEATURE_GLYPH_TRANSFORM
-    vec2 f = (transform * vi.local_pos - glyph_rect.p0) / glyph_rect.size;
+    vec2 f = (glyph_transform * vi.local_pos - glyph_rect.p0) / glyph_rect.size;
     vUvClip = vec4(f, 1.0 - f);
 #else
     vec2 f = (vi.local_pos - glyph_rect.p0) / glyph_rect.size;

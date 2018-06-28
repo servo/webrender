@@ -351,7 +351,7 @@ fn create_prim_shader(
                 ("sDither", TextureSampler::Dither),
                 ("sCacheA8", TextureSampler::CacheA8),
                 ("sCacheRGBA8", TextureSampler::CacheRGBA8),
-                ("sClipScrollNodes", TextureSampler::ClipScrollNodes),
+                ("sTransformPalette", TextureSampler::TransformPalette),
                 ("sRenderTasks", TextureSampler::RenderTasks),
                 ("sResourceCache", TextureSampler::ResourceCache),
                 ("sSharedCacheA8", TextureSampler::SharedCacheA8),
@@ -380,7 +380,7 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program
             program,
             &[
                 ("sColor0", TextureSampler::Color0),
-                ("sClipScrollNodes", TextureSampler::ClipScrollNodes),
+                ("sTransformPalette", TextureSampler::TransformPalette),
                 ("sRenderTasks", TextureSampler::RenderTasks),
                 ("sResourceCache", TextureSampler::ResourceCache),
                 ("sSharedCacheA8", TextureSampler::SharedCacheA8),

@@ -12,8 +12,7 @@ use device::{FrameId, Texture};
 #[cfg(feature = "pathfinder")]
 use euclid::{TypedPoint2D, TypedVector2D};
 use gpu_cache::{GpuCache};
-use gpu_types::{BorderInstance, BlurDirection, BlurInstance, PrimitiveHeaders};
-use gpu_types::{ClipScrollNodeData};
+use gpu_types::{BorderInstance, BlurDirection, BlurInstance, PrimitiveHeaders, TransformData, TransformPalette};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 #[cfg(feature = "pathfinder")]
 use pathfinder_partitioner::mesh::Mesh;
@@ -48,7 +47,7 @@ pub struct RenderTargetContext<'a, 'rc> {
     pub resource_cache: &'rc mut ResourceCache,
     pub clip_scroll_tree: &'a ClipScrollTree,
     pub use_dual_source_blending: bool,
-    pub node_data: &'a [ClipScrollNodeData],
+    pub transforms: &'a TransformPalette,
 }
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -602,6 +601,7 @@ impl RenderTarget for AlphaRenderTarget {
                     ctx.resource_cache,
                     gpu_cache,
                     clip_store,
+                    ctx.transforms,
                 );
             }
             RenderTaskKind::ClipRegion(ref task) => {
@@ -985,7 +985,7 @@ pub struct Frame {
     #[cfg_attr(any(feature = "capture", feature = "replay"), serde(default = "FrameProfileCounters::new", skip))]
     pub profile_counters: FrameProfileCounters,
 
-    pub node_data: Vec<ClipScrollNodeData>,
+    pub transform_palette: Vec<TransformData>,
     pub render_tasks: RenderTaskTree,
     pub prim_headers: PrimitiveHeaders,
 

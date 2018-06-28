@@ -4,9 +4,11 @@
 
 use api::{DevicePoint, DeviceSize, DeviceRect, LayoutRect, LayoutToWorldTransform};
 use api::{PremultipliedColorF, WorldToLayoutTransform};
+use clip_scroll_tree::TransformIndex;
 use gpu_cache::{GpuCacheAddress, GpuDataRequest};
 use prim_store::{EdgeAaSegmentMask};
 use render_task::RenderTaskAddress;
+use util::{MatrixHelpers, TransformedRectKind};
 
 // Contains type that must exactly match the same structures declared in GLSL.
 
@@ -113,7 +115,7 @@ pub struct BorderInstance {
 #[repr(C)]
 pub struct ClipMaskInstance {
     pub render_task_address: RenderTaskAddress,
-    pub scroll_node_data_index: ClipScrollNodeIndex,
+    pub transform_id: TransformPaletteId,
     pub segment: i32,
     pub clip_data_address: GpuCacheAddress,
     pub resource_address: GpuCacheAddress,
@@ -183,7 +185,7 @@ impl PrimitiveHeaders {
             task_address: prim_header.task_address,
             specific_prim_address: prim_header.specific_prim_address.as_int(),
             clip_task_address: prim_header.clip_task_address,
-            scroll_id: prim_header.scroll_id,
+            transform_id: prim_header.transform_id,
             user_data,
         });
 
@@ -199,7 +201,7 @@ pub struct PrimitiveHeader {
     pub task_address: RenderTaskAddress,
     pub specific_prim_address: GpuCacheAddress,
     pub clip_task_address: RenderTaskAddress,
-    pub scroll_id: ClipScrollNodeIndex,
+    pub transform_id: TransformPaletteId,
 }
 
 // f32 parts of a primitive header
@@ -223,7 +225,7 @@ pub struct PrimitiveHeaderI {
     pub task_address: RenderTaskAddress,
     pub specific_prim_address: i32,
     pub clip_task_address: RenderTaskAddress,
-    pub scroll_id: ClipScrollNodeIndex,
+    pub transform_id: TransformPaletteId,
     pub user_data: [i32; 3],
 }
 
@@ -334,31 +336,112 @@ impl From<BrushInstance> for PrimitiveInstance {
     }
 }
 
+// Represents the information about a transform palette
+// entry that is passed to shaders. It includes an index
+// into the transform palette, and a set of flags. The
+// only flag currently used determines whether the
+// transform is axis-aligned (and this should have
+// pixel snapping applied).
 #[derive(Copy, Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(C)]
-pub struct ClipScrollNodeIndex(pub u32);
+pub struct TransformPaletteId(pub u32);
 
+impl TransformPaletteId {
+    // Get the palette ID for an identity transform.
+    pub fn identity() -> TransformPaletteId {
+        TransformPaletteId(0)
+    }
+
+    // Extract the transform kind from the id.
+    pub fn transform_kind(&self) -> TransformedRectKind {
+        if (self.0 >> 24) == 0 {
+            TransformedRectKind::AxisAligned
+        } else {
+            TransformedRectKind::Complex
+        }
+    }
+}
+
+// The GPU data payload for a transform palette entry.
 #[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(C)]
-pub struct ClipScrollNodeData {
+pub struct TransformData {
     pub transform: LayoutToWorldTransform,
     pub inv_transform: WorldToLayoutTransform,
-    pub transform_kind: f32,
-    pub padding: [f32; 3],
 }
 
-impl ClipScrollNodeData {
+impl TransformData {
     pub fn invalid() -> Self {
-        ClipScrollNodeData {
+        TransformData {
             transform: LayoutToWorldTransform::identity(),
             inv_transform: WorldToLayoutTransform::identity(),
-            transform_kind: 0.0,
-            padding: [0.0; 3],
         }
+    }
+}
+
+// Extra data stored about each transform palette entry.
+pub struct TransformMetadata {
+    pub transform_kind: TransformedRectKind,
+}
+
+// Stores a contiguous list of TransformData structs, that
+// are ready for upload to the GPU.
+// TODO(gw): For now, this only stores the complete local
+//           to world transform for each spatial node. In
+//           the future, the transform palette will support
+//           specifying a coordinate system that the transform
+//           should be relative to.
+pub struct TransformPalette {
+    pub transforms: Vec<TransformData>,
+    metadata: Vec<TransformMetadata>,
+}
+
+impl TransformPalette {
+    pub fn new(spatial_node_count: usize) -> TransformPalette {
+        TransformPalette {
+            transforms: Vec::with_capacity(spatial_node_count),
+            metadata: Vec::with_capacity(spatial_node_count),
+        }
+    }
+
+    // Set the local -> world transform for a given spatial
+    // node in the transform palette.
+    pub fn set(
+        &mut self,
+        index: TransformIndex,
+        data: TransformData,
+    ) {
+        let index = index.0 as usize;
+
+        // Pad the vectors out if they are not long enough to
+        // account for this index. This can occur, for instance,
+        // when we stop recursing down the CST due to encountering
+        // a node with an invalid transform.
+        while index >= self.transforms.len() {
+            self.transforms.push(TransformData::invalid());
+            self.metadata.push(TransformMetadata {
+                transform_kind: TransformedRectKind::AxisAligned,
+            });
+        }
+
+        // Store the transform itself, along with metadata about it.
+        self.metadata[index] = TransformMetadata {
+            transform_kind: data.transform.transform_kind(),
+        };
+        self.transforms[index] = data;
+    }
+
+    // Get a transform palette id for the given spatial node.
+    // TODO(gw): In the future, it will be possible to specify
+    //           a coordinate system id here, to allow retrieving
+    //           transforms in the local space of a given spatial node.
+    pub fn get_id(&self, index: TransformIndex) -> TransformPaletteId {
+        let transform_kind = self.metadata[index.0 as usize].transform_kind as u32;
+        TransformPaletteId(index.0 | (transform_kind << 24))
     }
 }
 

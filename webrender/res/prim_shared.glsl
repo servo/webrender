@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include rect,clip_scroll,render_task,resource_cache,snap,transform
+#include rect,render_task,resource_cache,snap,transform
 
 #define EXTEND_MODE_CLAMP  0
 #define EXTEND_MODE_REPEAT 1
@@ -58,7 +58,7 @@ struct PrimitiveHeader {
     int specific_prim_address;
     int render_task_index;
     int clip_task_index;
-    int scroll_node_id;
+    int transform_id;
     ivec3 user_data;
 };
 
@@ -78,7 +78,7 @@ PrimitiveHeader fetch_prim_header(int index) {
     ph.render_task_index = data0.y;
     ph.specific_prim_address = data0.z;
     ph.clip_task_index = data0.w;
-    ph.scroll_node_id = data1.x;
+    ph.transform_id = data1.x;
     ph.user_data = data1.yzw;
 
     return ph;
@@ -94,7 +94,7 @@ struct VertexInfo {
 VertexInfo write_vertex(RectWithSize instance_rect,
                         RectWithSize local_clip_rect,
                         float z,
-                        ClipScrollNode scroll_node,
+                        Transform transform,
                         PictureTask task,
                         RectWithSize snap_rect) {
 
@@ -107,13 +107,13 @@ VertexInfo write_vertex(RectWithSize instance_rect,
     /// Compute the snapping offset.
     vec2 snap_offset = compute_snap_offset(
         clamped_local_pos,
-        scroll_node.transform,
+        transform.m,
         snap_rect,
         vec2(0.5)
     );
 
     // Transform the current vertex to world space.
-    vec4 world_pos = scroll_node.transform * vec4(clamped_local_pos, 0.0, 1.0);
+    vec4 world_pos = transform.m * vec4(clamped_local_pos, 0.0, 1.0);
 
     // Convert the world positions to device pixel space.
     vec2 device_pos = world_pos.xy / world_pos.w * uDevicePixelRatio;
@@ -160,7 +160,7 @@ VertexInfo write_transform_vertex(RectWithSize local_segment_rect,
                                   RectWithSize local_clip_rect,
                                   vec4 clip_edge_mask,
                                   float z,
-                                  ClipScrollNode scroll_node,
+                                  Transform transform,
                                   PictureTask task,
                                   bool do_perspective_interpolation) {
     // Calculate a clip rect from local_rect + local clip
@@ -193,7 +193,7 @@ VertexInfo write_transform_vertex(RectWithSize local_segment_rect,
     vec2 local_pos = local_segment_rect.p0 + local_segment_rect.size * aPosition.xy;
 
     // Transform the current vertex to the world cpace.
-    vec4 world_pos = scroll_node.transform * vec4(local_pos, 0.0, 1.0);
+    vec4 world_pos = transform.m * vec4(local_pos, 0.0, 1.0);
 
     // Convert the world positions to device pixel space.
     vec2 device_pos = world_pos.xy / world_pos.w * uDevicePixelRatio;
