@@ -6,11 +6,11 @@ use api::{BuiltDisplayList, ColorF, DeviceIntPoint, DeviceIntRect, DevicePixelSc
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentLayer, FontRenderMode};
 use api::{LayoutPoint, LayoutRect, LayoutSize, PipelineId, WorldPoint};
 use clip::{ClipChain, ClipStore};
-use clip_scroll_node::{ClipScrollNode};
-use clip_scroll_tree::{ClipScrollNodeIndex, ClipScrollTree};
+use clip_scroll_node::{SpatialNode};
+use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
 use display_list_flattener::{DisplayListFlattener};
 use gpu_cache::GpuCache;
-use gpu_types::{PrimitiveHeaders, TransformData, UvRectKind};
+use gpu_types::{PrimitiveHeaders, TransformData, TransformIndex, UvRectKind};
 use hit_test::{HitTester, HitTestingRun};
 use internal_types::{FastHashMap};
 use picture::PictureSurface;
@@ -88,7 +88,7 @@ pub struct FrameBuildingState<'a> {
 pub struct PictureContext<'a> {
     pub pipeline_id: PipelineId,
     pub prim_runs: Vec<PrimitiveRun>,
-    pub original_reference_frame_index: Option<ClipScrollNodeIndex>,
+    pub original_reference_frame_index: Option<SpatialNodeIndex>,
     pub display_list: &'a BuiltDisplayList,
     pub inv_world_transform: Option<WorldToLayoutFastTransform>,
     pub apply_local_clip_rect: bool,
@@ -114,20 +114,23 @@ impl PictureState {
 
 pub struct PrimitiveRunContext<'a> {
     pub clip_chain: &'a ClipChain,
-    pub scroll_node: &'a ClipScrollNode,
+    pub scroll_node: &'a SpatialNode,
+    pub transform_index: TransformIndex,
     pub local_clip_rect: LayoutRect,
 }
 
 impl<'a> PrimitiveRunContext<'a> {
     pub fn new(
         clip_chain: &'a ClipChain,
-        scroll_node: &'a ClipScrollNode,
+        scroll_node: &'a SpatialNode,
+        transform_index: TransformIndex,
         local_clip_rect: LayoutRect,
     ) -> Self {
         PrimitiveRunContext {
             clip_chain,
             scroll_node,
             local_clip_rect,
+            transform_index,
         }
     }
 }
@@ -196,7 +199,7 @@ impl FrameBuilder {
 
         // The root picture is always the first one added.
         let root_clip_scroll_node =
-            &clip_scroll_tree.nodes[clip_scroll_tree.root_reference_frame_index().0];
+            &clip_scroll_tree.spatial_nodes[clip_scroll_tree.root_reference_frame_index().0];
 
         let display_list = &pipelines
             .get(&root_clip_scroll_node.pipeline_id)
@@ -270,7 +273,7 @@ impl FrameBuilder {
 
         for scrollbar_prim in &self.scrollbar_prims {
             let metadata = &mut self.prim_store.cpu_metadata[scrollbar_prim.prim_index.0];
-            let scroll_frame = &clip_scroll_tree.nodes[scrollbar_prim.scroll_frame_index.0];
+            let scroll_frame = &clip_scroll_tree.spatial_nodes[scrollbar_prim.scroll_frame_index.0];
 
             // Invalidate what's in the cache so it will get rebuilt.
             gpu_cache.invalidate(&metadata.gpu_location);
