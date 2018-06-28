@@ -270,7 +270,7 @@ pub(crate) enum TextureSampler {
     CacheA8,
     CacheRGBA8,
     ResourceCache,
-    ClipScrollNodes,
+    TransformPalette,
     RenderTasks,
     Dither,
     // A special sampler that is bound to the A8 output of
@@ -303,7 +303,7 @@ impl Into<TextureSlot> for TextureSampler {
             TextureSampler::CacheA8 => TextureSlot(3),
             TextureSampler::CacheRGBA8 => TextureSlot(4),
             TextureSampler::ResourceCache => TextureSlot(5),
-            TextureSampler::ClipScrollNodes => TextureSlot(6),
+            TextureSampler::TransformPalette => TextureSlot(6),
             TextureSampler::RenderTasks => TextureSlot(7),
             TextureSampler::Dither => TextureSlot(8),
             TextureSampler::SharedCacheA8 => TextureSlot(9),
@@ -1374,7 +1374,7 @@ pub struct Renderer {
 
     prim_header_f_texture: VertexDataTexture,
     prim_header_i_texture: VertexDataTexture,
-    node_data_texture: VertexDataTexture,
+    transforms_texture: VertexDataTexture,
     render_task_texture: VertexDataTexture,
     gpu_cache_texture: CacheTexture,
 
@@ -1635,7 +1635,7 @@ impl Renderer {
 
         let prim_header_f_texture = VertexDataTexture::new(&mut device, ImageFormat::RGBAF32);
         let prim_header_i_texture = VertexDataTexture::new(&mut device, ImageFormat::RGBAI32);
-        let node_data_texture = VertexDataTexture::new(&mut device, ImageFormat::RGBAF32);
+        let transforms_texture = VertexDataTexture::new(&mut device, ImageFormat::RGBAF32);
         let render_task_texture = VertexDataTexture::new(&mut device, ImageFormat::RGBAF32);
 
         let gpu_cache_texture = CacheTexture::new(
@@ -1790,7 +1790,7 @@ impl Renderer {
                 dash_and_dot_vao,
                 border_vao,
             },
-            node_data_texture,
+            transforms_texture,
             prim_header_i_texture,
             prim_header_f_texture,
             render_task_texture,
@@ -3558,8 +3558,14 @@ impl Renderer {
             &self.prim_header_i_texture.texture,
         );
 
-        self.node_data_texture.update(&mut self.device, &mut frame.node_data);
-        self.device.bind_texture(TextureSampler::ClipScrollNodes, &self.node_data_texture.texture);
+        self.transforms_texture.update(
+            &mut self.device,
+            &mut frame.transform_palette,
+        );
+        self.device.bind_texture(
+            TextureSampler::TransformPalette,
+            &self.transforms_texture.texture,
+        );
 
         self.render_task_texture
             .update(&mut self.device, &mut frame.render_tasks.task_data);
@@ -3945,7 +3951,7 @@ impl Renderer {
         if let Some(dither_matrix_texture) = self.dither_matrix_texture {
             self.device.delete_texture(dither_matrix_texture);
         }
-        self.node_data_texture.deinit(&mut self.device);
+        self.transforms_texture.deinit(&mut self.device);
         self.prim_header_f_texture.deinit(&mut self.device);
         self.prim_header_i_texture.deinit(&mut self.device);
         self.render_task_texture.deinit(&mut self.device);
@@ -4034,11 +4040,11 @@ pub trait SceneBuilderHooks {
     /// and before it processes anything.
     fn register(&self);
     /// This is called before each scene swap occurs.
-    fn pre_scene_swap(&self);
+    fn pre_scene_swap(&self, scenebuild_time: u64);
     /// This is called after each scene swap occurs. The PipelineInfo contains
     /// the updated epochs and pipelines removed in the new scene compared to
     /// the old scene.
-    fn post_scene_swap(&self, info: PipelineInfo);
+    fn post_scene_swap(&self, info: PipelineInfo, sceneswap_time: u64);
     /// This is called after a resource update operation on the scene builder
     /// thread, in the case where resource updates were applied without a scene
     /// build.

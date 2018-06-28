@@ -257,7 +257,7 @@ fn make_window(
                 })
                 .with_vsync(vsync);
             let window_builder = winit::WindowBuilder::new()
-                .with_title("WRech")
+                .with_title("WRench")
                 .with_multitouch()
                 .with_dimensions(size.width, size.height);
 
@@ -351,7 +351,11 @@ impl RenderNotifier for Notifier {
         self.tx.send(NotifierEvent::ShutDown).unwrap();
     }
 
-    fn new_frame_ready(&self, _: DocumentId, _scrolled: bool, composite_needed: bool) {
+    fn new_frame_ready(&self,
+                       _: DocumentId,
+                       _scrolled: bool,
+                       composite_needed: bool,
+                       _render_time: Option<u64>) {
         if composite_needed {
             self.wake_up();
         }
@@ -649,17 +653,30 @@ fn render<'a>(
                         let path = PathBuf::from("../captures/wrench");
                         wrench.api.save_capture(path, CaptureBits::all());
                     }
-                    VirtualKeyCode::Up => {
+                    VirtualKeyCode::Up | VirtualKeyCode::Down => {
+                        let mut txn = Transaction::new();
+
+                        let offset = match vk {
+                            winit::VirtualKeyCode::Up => LayoutVector2D::new(0.0, 10.0),
+                            winit::VirtualKeyCode::Down => LayoutVector2D::new(0.0, -10.0),
+                            _ => unreachable!("Should not see non directional keys here.")
+                        };
+
+                        txn.scroll(ScrollLocation::Delta(offset), cursor_position);
+                        txn.generate_frame();
+                        wrench.api.send_transaction(wrench.document_id, txn);
+
+                        do_frame = true;
+                    }
+                    VirtualKeyCode::Add => {
                         let current_zoom = wrench.get_page_zoom();
                         let new_zoom_factor = ZoomFactor::new(current_zoom.get() + 0.1);
-
                         wrench.set_page_zoom(new_zoom_factor);
                         do_frame = true;
                     }
-                    VirtualKeyCode::Down => {
+                    VirtualKeyCode::Subtract => {
                         let current_zoom = wrench.get_page_zoom();
                         let new_zoom_factor = ZoomFactor::new((current_zoom.get() - 0.1).max(0.1));
-
                         wrench.set_page_zoom(new_zoom_factor);
                         do_frame = true;
                     }

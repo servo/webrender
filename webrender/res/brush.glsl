@@ -46,15 +46,15 @@ void main(void) {
     PictureTask pic_task = fetch_picture_task(ph.render_task_index);
     ClipArea clip_area = fetch_clip_area(clip_address);
 
-    ClipScrollNode scroll_node = fetch_clip_scroll_node(ph.scroll_node_id);
+    Transform transform = fetch_transform(ph.transform_id);
 
     // Write the normal vertex information out.
-    if (scroll_node.is_axis_aligned) {
+    if (transform.is_axis_aligned) {
         vi = write_vertex(
             local_segment_rect,
             ph.local_clip_rect,
             ph.z,
-            scroll_node,
+            transform,
             pic_task,
             ph.local_rect
         );
@@ -78,7 +78,7 @@ void main(void) {
             ph.local_clip_rect,
             mix(vec4(0.0), vec4(1.0), edge_mask),
             ph.z,
-            scroll_node,
+            transform,
             pic_task,
             do_perspective_interpolation
         );
@@ -104,7 +104,7 @@ void main(void) {
         ph.local_rect,
         local_segment_rect,
         ph.user_data,
-        scroll_node.transform,
+        transform.m,
         pic_task,
         brush_flags,
         segment_data[1]

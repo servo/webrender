@@ -109,7 +109,10 @@ impl RenderNotifier for Notifier {
         self.update(false);
     }
 
-    fn new_frame_ready(&self, _: DocumentId, scrolled: bool, _composite_needed: bool) {
+    fn new_frame_ready(&self, _: DocumentId,
+                       scrolled: bool,
+                       _composite_needed: bool,
+                       _render_time: Option<u64>) {
         self.update(!scrolled);
     }
 }
@@ -457,6 +460,7 @@ impl Wrench {
         flags: FontInstanceFlags,
         render_mode: Option<FontRenderMode>,
         bg_color: Option<ColorU>,
+        synthetic_italics: SyntheticItalics,
     ) -> FontInstanceKey {
         let key = self.api.generate_font_instance_key();
         let mut txn = Transaction::new();
@@ -468,6 +472,7 @@ impl Wrench {
         if let Some(bg_color) = bg_color {
             options.bg_color = bg_color;
         }
+        options.synthetic_italics = synthetic_italics;
         txn.add_font_instance(key, font_key, size, Some(options), None, Vec::new());
         self.api.update_resources(txn.resource_updates);
         key

@@ -199,7 +199,7 @@ pub struct YamlFrameReader {
     image_map: HashMap<(PathBuf, Option<i64>), (ImageKey, LayoutSize)>,
 
     fonts: HashMap<FontDescriptor, FontKey>,
-    font_instances: HashMap<(FontKey, Au, FontInstanceFlags, Option<ColorU>), FontInstanceKey>,
+    font_instances: HashMap<(FontKey, Au, FontInstanceFlags, Option<ColorU>, SyntheticItalics), FontInstanceKey>,
     font_render_mode: Option<FontRenderMode>,
     allow_mipmaps: bool,
 
@@ -563,12 +563,13 @@ impl YamlFrameReader {
         size: Au,
         bg_color: Option<ColorU>,
         flags: FontInstanceFlags,
+        synthetic_italics: SyntheticItalics,
         wrench: &mut Wrench,
     ) -> FontInstanceKey {
         let font_render_mode = self.font_render_mode;
 
         *self.font_instances
-            .entry((font_key, size, flags, bg_color))
+            .entry((font_key, size, flags, bg_color, synthetic_italics))
             .or_insert_with(|| {
                 wrench.add_font_instance(
                     font_key,
@@ -576,6 +577,7 @@ impl YamlFrameReader {
                     flags,
                     font_render_mode,
                     bg_color,
+                    synthetic_italics,
                 )
             })
     }
@@ -881,26 +883,28 @@ impl YamlFrameReader {
                         radius,
                     }))
                 }
-                "image" => {
-                    let file = rsrc_path(&item["image-source"], &self.aux_dir);
-                    let (image_key, _) = self
-                        .add_or_get_image(&file, None, wrench);
+                "image" | "gradient" | "radial-gradient" => {
                     let image_width = item["image-width"]
                         .as_i64()
-                        .expect("border must have image-width");
+                        .unwrap_or(info.rect.size.width as i64);
                     let image_height = item["image-height"]
                         .as_i64()
-                        .expect("border must have image-height");
+                        .unwrap_or(info.rect.size.height as i64);
                     let fill = item["fill"].as_bool().unwrap_or(false);
-                    let slice = item["slice"].as_vec_u32().expect("border must have slice");
-                    let slice = broadcast(&slice, 4);
+
+                    let slice = item["slice"].as_vec_u32();
+                    let slice = match slice {
+                        Some(slice) => broadcast(&slice, 4),
+                        None => vec![widths.top as u32, widths.left as u32, widths.bottom as u32, widths.right as u32],
+                    };
+
                     let outset = item["outset"]
                         .as_vec_f32()
                         .expect("border must have outset");
                     let outset = broadcast(&outset, 4);
                     let repeat_horizontal = match item["repeat-horizontal"]
                         .as_str()
-                        .expect("border must have repeat-horizontal")
+                        .unwrap_or("stretch")
                     {
                         "stretch" => RepeatMode::Stretch,
                         "repeat" => RepeatMode::Repeat,
@@ -910,7 +914,7 @@ impl YamlFrameReader {
                     };
                     let repeat_vertical = match item["repeat-vertical"]
                         .as_str()
-                        .expect("border must have repeat-vertical")
+                        .unwrap_or("stretch")
                     {
                         "stretch" => RepeatMode::Stretch,
                         "repeat" => RepeatMode::Repeat,
@@ -918,36 +922,33 @@ impl YamlFrameReader {
                         "space" => RepeatMode::Space,
                         s => panic!("Unknown box border image repeat mode {}", s),
                     };
+                    let source = match border_type {
+                        "image" => {
+                            let file = rsrc_path(&item["image-source"], &self.aux_dir);
+                            let (image_key, _) = self
+                                .add_or_get_image(&file, None, wrench);
+                            NinePatchBorderSource::Image(image_key)
+                        }
+                        "gradient" => {
+                            let gradient = self.to_gradient(dl, item);
+                            NinePatchBorderSource::Gradient(gradient)
+                        }
+                        "radial-gradient" => {
+                            let gradient = self.to_radial_gradient(dl, item);
+                            NinePatchBorderSource::RadialGradient(gradient)
+
+                        }
+                        _ => unreachable!("Unexpected border type"),
+                    };
+
                     Some(BorderDetails::NinePatch(NinePatchBorder {
-                        source: NinePatchBorderSource::Image(image_key),
+                        source,
                         width: image_width as u32,
                         height: image_height as u32,
                         slice: SideOffsets2D::new(slice[0], slice[1], slice[2], slice[3]),
                         fill,
                         repeat_horizontal,
                         repeat_vertical,
-                        outset: SideOffsets2D::new(outset[0], outset[1], outset[2], outset[3]),
-                    }))
-                }
-                "gradient" => {
-                    let gradient = self.to_gradient(dl, item);
-                    let outset = item["outset"]
-                        .as_vec_f32()
-                        .expect("borders must have outset");
-                    let outset = broadcast(&outset, 4);
-                    Some(BorderDetails::Gradient(GradientBorder {
-                        gradient,
-                        outset: SideOffsets2D::new(outset[0], outset[1], outset[2], outset[3]),
-                    }))
-                }
-                "radial-gradient" => {
-                    let gradient = self.to_radial_gradient(dl, item);
-                    let outset = item["outset"]
-                        .as_vec_f32()
-                        .expect("borders must have outset");
-                    let outset = broadcast(&outset, 4);
-                    Some(BorderDetails::RadialGradient(RadialGradientBorder {
-                        gradient,
                         outset: SideOffsets2D::new(outset[0], outset[1], outset[2], outset[3]),
                     }))
                 }
@@ -1135,11 +1136,15 @@ impl YamlFrameReader {
         let size = item["size"].as_pt_to_au().unwrap_or(Au::from_f32_px(16.0));
         let color = item["color"].as_colorf().unwrap_or(*BLACK_COLOR);
         let bg_color = item["bg-color"].as_colorf().map(|c| c.into());
+        let synthetic_italics = if let Some(angle) = item["synthetic-italics"].as_f32() {
+            SyntheticItalics::from_degrees(angle)
+        } else if item["synthetic-italics"].as_bool().unwrap_or(false) {
+            SyntheticItalics::enabled()
+        } else {
+            SyntheticItalics::disabled()
+        };
 
         let mut flags = FontInstanceFlags::empty();
-        if item["synthetic-italics"].as_bool().unwrap_or(false) {
-            flags |= FontInstanceFlags::SYNTHETIC_ITALICS;
-        }
         if item["synthetic-bold"].as_bool().unwrap_or(false) {
             flags |= FontInstanceFlags::SYNTHETIC_BOLD;
         }
@@ -1167,6 +1172,7 @@ impl YamlFrameReader {
                                                                  size,
                                                                  bg_color,
                                                                  flags,
+                                                                 synthetic_italics,
                                                                  wrench);
 
         assert!(
@@ -1392,7 +1398,7 @@ impl YamlFrameReader {
             clip_rect,
             complex_clips,
             image_mask,
-            ScrollSensitivity::Script,
+            ScrollSensitivity::ScriptAndInputEvents,
         );
         if let Some(numeric_id) = numeric_id {
             self.add_clip_id_mapping(numeric_id, real_id);

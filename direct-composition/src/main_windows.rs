@@ -190,7 +190,11 @@ impl api::RenderNotifier for Notifier {
         let _ = self.events_proxy.wakeup();
     }
 
-    fn new_frame_ready(&self, _: api::DocumentId, _: bool, _: bool) {
+    fn new_frame_ready(&self,
+                       _: api::DocumentId,
+                       _: bool,
+                       _: bool,
+                       _: Option<u64>) {
         self.wake_up();
     }
 }

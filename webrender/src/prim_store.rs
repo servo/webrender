@@ -2096,11 +2096,11 @@ impl PrimitiveStore {
                 // node and the primitive, we need to get the clip rect in the
                 // local space of the primitive, in order to generate correct
                 // local segments.
-                let local_clip_rect = if clip_item.scroll_node_data_index == prim_run_context.scroll_node.node_data_index {
+                let local_clip_rect = if clip_item.transform_index == prim_run_context.scroll_node.transform_index {
                     local_clip_rect
                 } else {
                     let clip_transform = frame_context
-                        .node_data[clip_item.scroll_node_data_index.0 as usize]
+                        .transforms[clip_item.transform_index.0 as usize]
                         .transform;
                     let prim_transform = &prim_run_context.scroll_node.world_content_transform;
                     let relative_transform = prim_transform
@@ -2298,7 +2298,7 @@ impl PrimitiveStore {
 
                 Arc::new(ClipChainNode {
                     work_item: ClipWorkItem {
-                        scroll_node_data_index: prim_run_context.scroll_node.node_data_index,
+                        transform_index: prim_run_context.scroll_node.transform_index,
                         clip_sources: clip_sources.weak(),
                         coordinate_system_id: prim_coordinate_system_id,
                     },

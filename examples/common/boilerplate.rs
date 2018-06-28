@@ -35,7 +35,11 @@ impl RenderNotifier for Notifier {
         let _ = self.events_proxy.wakeup();
     }
 
-    fn new_frame_ready(&self, _: DocumentId, _scrolled: bool, _composite_needed: bool) {
+    fn new_frame_ready(&self,
+                       _: DocumentId,
+                       _scrolled: bool,
+                       _composite_needed: bool,
+                       _render_time: Option<u64>) {
         self.wake_up();
     }
 }
