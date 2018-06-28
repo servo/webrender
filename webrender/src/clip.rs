@@ -7,11 +7,11 @@ use api::{ImageRendering, LayoutRect, LayoutSize, LayoutPoint, LayoutVector2D, L
 use api::{BoxShadowClipMode, LayoutToWorldScale, LineOrientation, LineStyle};
 use border::{ensure_no_corner_overlap};
 use box_shadow::{BLUR_SAMPLE_SCALE, BoxShadowClipSource, BoxShadowCacheKey};
-use clip_scroll_tree::{ClipChainIndex, CoordinateSystemId, TransformIndex};
+use clip_scroll_tree::{ClipChainIndex, CoordinateSystemId};
 use ellipse::Ellipse;
 use freelist::{FreeList, FreeListHandle, WeakFreeListHandle};
 use gpu_cache::{GpuCache, GpuCacheHandle, ToGpuBlocks};
-use gpu_types::{BoxShadowStretchMode};
+use gpu_types::{BoxShadowStretchMode, TransformIndex};
 use prim_store::{ClipData, ImageMaskData};
 use render_task::to_cache_size;
 use resource_cache::{ImageRequest, ResourceCache};

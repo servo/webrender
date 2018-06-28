@@ -6,8 +6,8 @@ use api::{DeviceRect, FilterOp, MixBlendMode, PipelineId, PremultipliedColorF};
 use api::{DeviceIntRect, DeviceIntSize, DevicePoint, LayoutPoint, LayoutRect};
 use api::{DevicePixelScale, PictureIntPoint, PictureIntRect, PictureIntSize};
 use box_shadow::{BLUR_SAMPLE_SCALE};
-use clip_scroll_node::ClipScrollNode;
-use clip_scroll_tree::ClipScrollNodeIndex;
+use clip_scroll_node::SpatialNode;
+use clip_scroll_tree::SpatialNodeIndex;
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState, PrimitiveRunContext};
 use gpu_cache::{GpuCacheHandle};
 use gpu_types::UvRectKind;
@@ -150,7 +150,7 @@ pub struct PicturePrimitive {
     // The original reference frame ID for this picture.
     // It is only different if this is part of a 3D
     // rendering context.
-    pub reference_frame_index: ClipScrollNodeIndex,
+    pub reference_frame_index: SpatialNodeIndex,
     pub real_local_rect: LayoutRect,
     // An optional cache handle for storing extra data
     // in the GPU cache, depending on the type of
@@ -183,7 +183,7 @@ impl PicturePrimitive {
         composite_mode: Option<PictureCompositeMode>,
         is_in_3d_context: bool,
         pipeline_id: PipelineId,
-        reference_frame_index: ClipScrollNodeIndex,
+        reference_frame_index: SpatialNodeIndex,
         frame_output_pipeline_id: Option<PipelineId>,
         apply_local_clip_rect: bool,
     ) -> Self {
@@ -590,7 +590,7 @@ impl PicturePrimitive {
 // Calculate a single screen-space UV for a picture.
 fn calculate_screen_uv(
     local_pos: &LayoutPoint,
-    clip_scroll_node: &ClipScrollNode,
+    clip_scroll_node: &SpatialNode,
     rendered_rect: &DeviceRect,
     device_pixel_scale: DevicePixelScale,
 ) -> DevicePoint {
@@ -616,7 +616,7 @@ fn calculate_screen_uv(
 // vertex positions of a picture.
 fn calculate_uv_rect_kind(
     local_rect: &LayoutRect,
-    clip_scroll_node: &ClipScrollNode,
+    clip_scroll_node: &SpatialNode,
     rendered_rect: &DeviceIntRect,
     device_pixel_scale: DevicePixelScale,
 ) -> UvRectKind {

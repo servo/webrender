@@ -11,8 +11,8 @@ use api::{BorderWidths, LayoutToWorldScale, NormalBorder};
 use app_units::Au;
 use border::{BorderCacheKey, BorderRenderTaskInfo};
 use box_shadow::BLUR_SAMPLE_SCALE;
-use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, CoordinateSystemId};
-use clip_scroll_node::ClipScrollNode;
+use clip_scroll_tree::{ClipChainIndex, CoordinateSystemId, SpatialNodeIndex};
+use clip_scroll_node::SpatialNode;
 use clip::{ClipChain, ClipChainNode, ClipChainNodeIter, ClipChainNodeRef, ClipSource};
 use clip::{ClipSourcesHandle, ClipWorkItem};
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
@@ -42,13 +42,13 @@ pub const VECS_PER_SEGMENT: usize = 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ScrollNodeAndClipChain {
-    pub scroll_node_id: ClipScrollNodeIndex,
+    pub scroll_node_id: SpatialNodeIndex,
     pub clip_chain_index: ClipChainIndex,
 }
 
 impl ScrollNodeAndClipChain {
     pub fn new(
-        scroll_node_id: ClipScrollNodeIndex,
+        scroll_node_id: SpatialNodeIndex,
         clip_chain_index: ClipChainIndex
     ) -> Self {
         ScrollNodeAndClipChain { scroll_node_id, clip_chain_index }
@@ -1242,7 +1242,7 @@ impl PrimitiveStore {
         composite_mode: Option<PictureCompositeMode>,
         is_in_3d_context: bool,
         pipeline_id: PipelineId,
-        reference_frame_index: ClipScrollNodeIndex,
+        reference_frame_index: SpatialNodeIndex,
         frame_output_pipeline_id: Option<PipelineId>,
         apply_local_clip_rect: bool,
     ) -> PictureIndex {
@@ -2100,7 +2100,7 @@ impl PrimitiveStore {
                 // node and the primitive, we need to get the clip rect in the
                 // local space of the primitive, in order to generate correct
                 // local segments.
-                let local_clip_rect = if clip_item.transform_index == prim_run_context.scroll_node.transform_index {
+                let local_clip_rect = if clip_item.transform_index == prim_run_context.transform_index {
                     local_clip_rect
                 } else {
                     let clip_transform = frame_context
@@ -2303,11 +2303,11 @@ impl PrimitiveStore {
 
                 Arc::new(ClipChainNode {
                     work_item: ClipWorkItem {
-                        transform_index: prim_run_context.scroll_node.transform_index,
+                        transform_index: prim_run_context.transform_index,
                         clip_sources: clip_sources.weak(),
                         coordinate_system_id: prim_coordinate_system_id,
                     },
-                    // The local_clip_rect a property of ClipChain nodes that are ClipScrollNodes.
+                    // The local_clip_rect a property of ClipChain nodes that are ClipNodes.
                     // It's used to calculate a local clipping rectangle before we reach this
                     // point, so we can set it to zero here. It should be unused from this point
                     // on.
@@ -2649,7 +2649,7 @@ impl PrimitiveStore {
             //           lookups ever show up in a profile).
             let scroll_node = &frame_context
                 .clip_scroll_tree
-                .nodes[run.clip_and_scroll.scroll_node_id.0];
+                .spatial_nodes[run.clip_and_scroll.scroll_node_id.0];
             let clip_chain = frame_context
                 .clip_scroll_tree
                 .get_clip_chain(run.clip_and_scroll.clip_chain_index);
@@ -2685,7 +2685,7 @@ impl PrimitiveStore {
                 .and_then(|original_reference_frame_index| {
                     frame_context
                         .clip_scroll_tree
-                        .nodes[original_reference_frame_index.0]
+                        .spatial_nodes[original_reference_frame_index.0]
                         .world_content_transform
                         .inverse()
                 })
@@ -2722,6 +2722,7 @@ impl PrimitiveStore {
             let child_prim_run_context = PrimitiveRunContext::new(
                 clip_chain,
                 scroll_node,
+                run.clip_and_scroll.scroll_node_id.transform_index(),
                 local_clip_chain_rect,
             );
 
@@ -2914,7 +2915,7 @@ fn convert_clip_chain_to_clip_vector(
 }
 
 fn get_local_clip_rect_for_nodes(
-    scroll_node: &ClipScrollNode,
+    scroll_node: &SpatialNode,
     clip_chain: &ClipChain,
 ) -> Option<LayoutRect> {
     ClipChainNodeIter { current: clip_chain.nodes.clone() }
