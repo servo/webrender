@@ -7,3 +7,4 @@ platform(linux,mac) options(allow-mipmaps) == downscale.yaml downscale.png
 == segments.yaml segments.png
 platform(linux,mac) == yuv.yaml yuv.png
 == tiled-clip-chain.yaml tiled-clip-chain-ref.yaml
+== tiled-complex-clip.yaml tiled-complex-clip-ref.yaml
