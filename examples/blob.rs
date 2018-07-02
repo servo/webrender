@@ -15,7 +15,6 @@ use boilerplate::{Example, HandyDandyRectBuilder};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use rayon::prelude::*;
 use std::collections::HashMap;
-use std::mem;
 use std::sync::Arc;
 use webrender::api::{self, DisplayListBuilder, DocumentId, PipelineId, RenderApi, Transaction};
 
@@ -143,33 +142,35 @@ impl api::BlobImageHandler for CheckerboardRenderer {
         self.image_cmds.remove(&key);
     }
 
+    fn prepare_resources(
+        &mut self,
+        _services: &api::BlobImageResources,
+        _requests: &[api::BlobImageParams],
+    ) {}
+
     fn delete_font(&mut self, _font: api::FontKey) {}
     fn delete_font_instance(&mut self, _instance: api::FontInstanceKey) {}
     fn clear_namespace(&mut self, _namespace: api::IdNamespace) {}
-    fn create_blob_rasterizer(
-        &mut self,
-        _resources: &api::BlobImageResources,
-        requests: Vec<api::BlobImageParams>,
-    ) -> Option<Box<api::AsyncBlobImageRasterizer>> {
-        Some(Box::new(SceneBuilderRequest {
+    fn create_blob_rasterizer(&mut self) -> Box<api::AsyncBlobImageRasterizer> {
+        Box::new(Rasterizer {
             workers: Arc::clone(&self.workers),
-            requests: requests.into_iter().map(|params| {
-                (params, Arc::clone(&self.image_cmds[&params.request.key]))
-            }).collect(),
-        }))
+            image_cmds: self.image_cmds.clone(),
+        })
     }
 }
 
-struct SceneBuilderRequest {
+struct Rasterizer {
     workers: Arc<ThreadPool>,
-    requests: Vec<(api::BlobImageParams, Arc<ImageRenderingCommands>)>,
+    image_cmds: HashMap<api::ImageKey, Arc<ImageRenderingCommands>>,
 }
 
-impl api::AsyncBlobImageRasterizer for SceneBuilderRequest {
-    fn run(&mut self) -> Vec<(api::BlobImageRequest, api::BlobImageResult)> {
-        let requests = mem::replace(&mut self.requests, Vec::new());
-        let workers = Arc::clone(&self.workers);
-        workers.install(|| {
+impl api::AsyncBlobImageRasterizer for Rasterizer {
+    fn rasterize(&mut self, requests: &[api::BlobImageParams]) -> Vec<(api::BlobImageRequest, api::BlobImageResult)> {
+        let requests: Vec<(&api::BlobImageParams, Arc<ImageRenderingCommands>)> = requests.into_iter().map(|params| {
+            (params, Arc::clone(&self.image_cmds[&params.request.key]))
+        }).collect();
+
+        self.workers.install(|| {
             requests.into_par_iter().map(|(params, commands)| {
                 (params.request, render_blob(commands, &params.descriptor, params.request.tile))
             }).collect()

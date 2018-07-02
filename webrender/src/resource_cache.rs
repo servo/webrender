@@ -378,6 +378,12 @@ pub struct ResourceCache {
     blob_image_handler: Option<Box<BlobImageHandler>>,
     rasterized_blob_images: FastHashMap<ImageKey, RasterizedBlobImage>,
     blob_image_templates: FastHashMap<ImageKey, BlobImageTemplate>,
+
+    // If while building a frame we encounter blobs that we didn't already
+    // rasterize, add them to this list and rasterize them synchronously.
+    missing_blob_images: Vec<BlobImageParams>,
+    // The rasterizer associated with the current scene.
+    blob_image_rasterizer: Option<Box<AsyncBlobImageRasterizer>>,
 }
 
 impl ResourceCache {
@@ -400,6 +406,8 @@ impl ResourceCache {
             blob_image_handler,
             rasterized_blob_images: FastHashMap::default(),
             blob_image_templates: FastHashMap::default(),
+            missing_blob_images: Vec::new(),
+            blob_image_rasterizer: None,
         }
     }
 
@@ -555,6 +563,10 @@ impl ResourceCache {
         }
 
         *updates = new_updates;
+    }
+
+    pub fn set_blob_rasterizer(&mut self, rasterizer: Box<AsyncBlobImageRasterizer>) {
+        self.blob_image_rasterizer = Some(rasterizer);
     }
 
     pub fn add_rasterized_blob_images(&mut self, images: Vec<(BlobImageRequest, BlobImageResult)>) {
@@ -776,6 +788,7 @@ impl ResourceCache {
             Some(image) => if image.data.is_blob() {
                 self.blob_image_handler.as_mut().unwrap().delete(image_key);
                 self.blob_image_templates.remove(&image_key);
+                self.rasterized_blob_images.remove(&image_key);
             },
             None => {
                 warn!("Delete the non-exist key");
@@ -875,11 +888,59 @@ impl ResourceCache {
         self.texture_cache.request(&entry.texture_cache_handle, gpu_cache);
 
         self.pending_image_requests.insert(request);
+
+        if template.data.is_blob() {
+            let request: BlobImageRequest = request.into();
+            let missing = match self.rasterized_blob_images.get(&request.key) {
+                Some(img) => !img.data.contains_key(&request.tile),
+                None => true,
+            };
+
+            // For some reason the blob image is missing. We'll fall back to
+            // rasterizing it on the render backend thread.
+            if missing {
+                let descriptor = match template.tiling {
+                    Some(tile_size) => {
+                        let tile = request.tile.unwrap();
+                        BlobImageDescriptor {
+                            offset: DevicePoint::new(
+                                tile.x as f32 * tile_size as f32,
+                                tile.y as f32 * tile_size as f32,
+                            ),
+                            size: compute_tile_size(
+                                &template.descriptor,
+                                tile_size,
+                                tile,
+                            ),
+                            format: template.descriptor.format,
+                        }
+                    }
+                    None => {
+                        BlobImageDescriptor {
+                            offset: DevicePoint::origin(),
+                            size: template.descriptor.size,
+                            format: template.descriptor.format,
+                        }
+                    }
+                };
+
+                self.missing_blob_images.push(
+                    BlobImageParams {
+                        request,
+                        descriptor,
+                        dirty_rect: None,
+                    }
+                );
+            }
+        }
     }
 
-    pub fn create_blob_scene_builder_request(&mut self, keys: &[ImageKey]) -> Option<Box<AsyncBlobImageRasterizer>> {
-        if keys.is_empty() || self.blob_image_handler.is_none() {
-            return None;
+    pub fn create_blob_scene_builder_requests(
+        &mut self,
+        keys: &[ImageKey]
+    ) -> (Option<Box<AsyncBlobImageRasterizer>>, Vec<BlobImageParams>) {
+        if self.blob_image_handler.is_none() {
+            return (None, Vec::new());
         }
 
         let mut blob_request_params = Vec::new();
@@ -922,6 +983,21 @@ impl ResourceCache {
 
                     if let Some(range) = tiles.intersection(&dirty_tiles) {
                         tiles = range;
+                    }
+                }
+
+                // This code tries to keep things sane if Gecko sends
+                // nonsensical blob image requests.
+                // Constant here definitely needs to be tweaked.
+                const MAX_TILES_PER_REQUEST: u32 = 64;
+                while tiles.size.width as u32 * tiles.size.height as u32 > MAX_TILES_PER_REQUEST {
+                    // Remove tiles in the largest dimension.
+                    if tiles.size.width > tiles.size.height {
+                        tiles.size.width -= 2;
+                        tiles.origin.x += 1;
+                    } else {
+                        tiles.size.height -= 2;
+                        tiles.origin.y += 1;
                     }
                 }
 
@@ -976,11 +1052,9 @@ impl ResourceCache {
             }
             template.dirty_rect = None;
         }
-
-        self.blob_image_handler.as_mut().unwrap().create_blob_rasterizer(
-            &self.resources,
-            blob_request_params
-        )
+        let handler = self.blob_image_handler.as_mut().unwrap();
+        handler.prepare_resources(&self.resources, &blob_request_params);
+        (Some(handler.create_blob_rasterizer()), blob_request_params)
     }
 
     fn discard_tiles_outside_visible_area(
@@ -1013,9 +1087,9 @@ impl ResourceCache {
         );
         image.data.retain(|tile, _| {
             match tile {
-                Some(offset) => tile_range.contains(offset),
+                &Some(offset) => tile_range.contains(&offset),
                 // This would be a bug. If we get here the blob should be tiled.
-                None => false,
+                &None => false,
             }
         });
     }
@@ -1248,6 +1322,8 @@ impl ResourceCache {
             texture_cache_profile,
         );
 
+        self.rasterize_missing_blob_images();
+
         // Apply any updates of new / updated images (incl. blobs) to the texture cache.
         self.update_texture_cache(gpu_cache);
         render_tasks.prepare_for_render();
@@ -1257,6 +1333,29 @@ impl ResourceCache {
             render_tasks,
         );
         self.texture_cache.end_frame(texture_cache_profile);
+    }
+
+    fn rasterize_missing_blob_images(&mut self) {
+        if self.missing_blob_images.is_empty() {
+            return;
+        }
+
+        {
+            let handler = self.blob_image_handler.as_mut().unwrap();
+            handler.prepare_resources(&self.resources, &self.missing_blob_images);
+            if self.blob_image_rasterizer.is_none() {
+                self.blob_image_rasterizer = Some(handler.create_blob_rasterizer());
+            }
+        }
+
+        let rasterized_blobs = self.blob_image_rasterizer
+            .as_mut()
+            .unwrap()
+            .rasterize(&self.missing_blob_images);
+
+        self.add_rasterized_blob_images(rasterized_blobs);
+
+        self.missing_blob_images.clear();
     }
 
     fn update_texture_cache(&mut self, gpu_cache: &mut GpuCache) {
@@ -1273,7 +1372,7 @@ impl ResourceCache {
                 ImageData::Blob(..) => {
                     let blob_image = self.rasterized_blob_images.get(&request.key).unwrap();
                     match &blob_image.data.get(&request.tile).as_ref() {
-                        Some(result) => {
+                        &Some(result) => {
                             let result = result
                                 .as_ref()
                                 .expect("Failed to render a blob image");
@@ -1282,7 +1381,7 @@ impl ResourceCache {
 
                             ImageData::Raw(Arc::clone(&result.data))
                         }
-                        None => {
+                        &None => {
                             debug_assert!(false, "invalid blob image request during frame building");
                             continue;
                         }
@@ -1583,27 +1682,27 @@ impl ResourceCache {
                 }
                 ImageData::Blob(_) => {
                     assert_eq!(template.tiling, None);
-                    let request = BlobImageParams {
-                        request: BlobImageRequest {
-                            key,
-                            //TODO: support tiled blob images
-                            // https://github.com/servo/webrender/issues/2236
-                            tile: None,
-                        },
-                        descriptor: BlobImageDescriptor {
-                            size: desc.size,
-                            offset: DevicePoint::zero(),
-                            format: desc.format,
-                        },
-                        dirty_rect: None,
-                    };
+                    let blob_request_params = vec![
+                        BlobImageParams {
+                            request: BlobImageRequest {
+                                key,
+                                //TODO: support tiled blob images
+                                // https://github.com/servo/webrender/issues/2236
+                                tile: None,
+                            },
+                            descriptor: BlobImageDescriptor {
+                                size: desc.size,
+                                offset: DevicePoint::zero(),
+                                format: desc.format,
+                            },
+                            dirty_rect: None,
+                        }
+                    ];
 
-                    let renderer = self.blob_image_handler.as_mut().unwrap();
-                    let (_, result) = renderer.create_blob_rasterizer(
-                        &self.resources,
-                        vec![request],
-                    ).unwrap().run().pop().unwrap();
-
+                    let blob_handler = self.blob_image_handler.as_mut().unwrap();
+                    blob_handler.prepare_resources(&self.resources, &blob_request_params);
+                    let mut rasterizer = blob_handler.create_blob_rasterizer();
+                    let (_, result) = rasterizer.rasterize(&blob_request_params).pop().unwrap();
                     let result = result.expect("Blob rasterization failed");
 
                     assert_eq!(result.size, desc.size);

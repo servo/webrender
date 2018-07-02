@@ -186,11 +186,13 @@ pub trait BlobImageResources {
 /// The handler is responsible for collecting resources, managing/updating blob commands
 /// and creating the rasterizer objects, but isn't expected to do any rasterization itself.
 pub trait BlobImageHandler: Send {
-    fn create_blob_rasterizer(
+    fn create_blob_rasterizer(&mut self) -> Box<AsyncBlobImageRasterizer>;
+
+    fn prepare_resources(
         &mut self,
         services: &BlobImageResources,
-        requests: Vec<BlobImageParams>,
-    ) -> Option<Box<AsyncBlobImageRasterizer>>;
+        requests: &[BlobImageParams],
+    );
 
     fn add(&mut self, key: ImageKey, data: Arc<BlobImageData>, tiling: Option<TileSize>);
 
@@ -207,7 +209,7 @@ pub trait BlobImageHandler: Send {
 
 // A group of rasterization requests to execute synchronously on the scene builder thread.
 pub trait AsyncBlobImageRasterizer : Send {
-    fn run(&mut self) -> Vec<(BlobImageRequest, BlobImageResult)>;
+    fn rasterize(&mut self, requests: &[BlobImageParams]) -> Vec<(BlobImageRequest, BlobImageResult)>;
 }
 
 

@@ -253,13 +253,14 @@ impl Document {
             None
         };
 
-        let blob_request = resource_cache.create_blob_scene_builder_request(
+        let (blob_rasterizer, blob_requests) = resource_cache.create_blob_scene_builder_requests(
             &blobs_to_rasterize
         );
 
         scene_tx.send(SceneBuilderRequest::Transaction {
             scene: scene_request,
-            blob_request,
+            blob_requests,
+            blob_rasterizer,
             resource_updates: transaction_msg.resource_updates,
             frame_ops: transaction_msg.frame_ops,
             render: transaction_msg.generate_frame,
@@ -725,6 +726,7 @@ impl RenderBackend {
                         render,
                         result_tx,
                         rasterized_blobs,
+                        blob_rasterizer,
                     } => {
                         let mut ops = DocumentOps::nop();
                         if let Some(doc) = self.documents.get_mut(&document_id) {
@@ -763,6 +765,9 @@ impl RenderBackend {
                         };
 
                         self.resource_cache.add_rasterized_blob_images(rasterized_blobs);
+                        if let Some(rasterizer) = blob_rasterizer {
+                            self.resource_cache.set_blob_rasterizer(rasterizer);
+                        }
 
                         if !transaction_msg.is_empty() || ops.render {
                             self.update_document(
@@ -1244,12 +1249,12 @@ fn get_blob_image_updates(updates: &[ResourceUpdate]) -> Vec<ImageKey> {
     let mut requests = Vec::new();
     for update in updates {
         match update {
-            ResourceUpdate::AddImage(img) => {
+            &ResourceUpdate::AddImage(ref img) => {
                 if img.data.is_blob() {
                     requests.push(img.key);
                 }
             }
-            ResourceUpdate::UpdateImage(img) => {
+            &ResourceUpdate::UpdateImage(ref img) => {
                 if img.data.is_blob() {
                     requests.push(img.key);
                 }

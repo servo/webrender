@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AsyncBlobImageRasterizer, BlobImageRequest, BlobImageResult};
+use api::{AsyncBlobImageRasterizer, BlobImageRequest, BlobImageParams, BlobImageResult};
 use api::{DocumentId, PipelineId, ApiMsg, FrameMsg, ResourceUpdate};
 use api::channel::MsgSender;
 use display_list_flattener::build_scene;
@@ -21,7 +21,8 @@ pub enum SceneBuilderRequest {
     Transaction {
         document_id: DocumentId,
         scene: Option<SceneRequest>,
-        blob_request: Option<Box<AsyncBlobImageRasterizer>>,
+        blob_requests: Vec<BlobImageParams>,
+        blob_rasterizer: Option<Box<AsyncBlobImageRasterizer>>,
         resource_updates: Vec<ResourceUpdate>,
         frame_ops: Vec<FrameMsg>,
         render: bool,
@@ -38,6 +39,7 @@ pub enum SceneBuilderResult {
         built_scene: Option<BuiltScene>,
         resource_updates: Vec<ResourceUpdate>,
         rasterized_blobs: Vec<(BlobImageRequest, BlobImageResult)>,
+        blob_rasterizer: Option<Box<AsyncBlobImageRasterizer>>,
         frame_ops: Vec<FrameMsg>,
         render: bool,
         result_tx: Option<Sender<SceneSwapResult>>,
@@ -137,7 +139,8 @@ impl SceneBuilder {
             SceneBuilderRequest::Transaction {
                 document_id,
                 scene,
-                blob_request,
+                blob_requests,
+                mut blob_rasterizer,
                 resource_updates,
                 frame_ops,
                 render,
@@ -147,8 +150,10 @@ impl SceneBuilder {
                     build_scene(&self.config, request)
                 });
 
-                let rasterized_blobs = match blob_request {
-                    Some(mut request) => request.run(),
+                let rasterized_blobs = match blob_rasterizer {
+                    Some(ref mut rasterizer) => {
+                        rasterizer.rasterize(&blob_requests)
+                    },
                     None => Vec::new(),
                 };
 
@@ -180,6 +185,7 @@ impl SceneBuilder {
                     built_scene,
                     resource_updates,
                     rasterized_blobs,
+                    blob_rasterizer,
                     frame_ops,
                     render,
                     result_tx,

@@ -155,29 +155,18 @@ impl BlobImageHandler for CheckerboardRenderer {
 
     fn clear_namespace(&mut self, _namespace: IdNamespace) {}
 
-    fn create_blob_rasterizer(
+    fn prepare_resources(
         &mut self,
-        _resources: &BlobImageResources,
-        requests: Vec<BlobImageParams>,
-    ) -> Option<Box<AsyncBlobImageRasterizer>> {
-        (self.callbacks.lock().unwrap().request)(&requests);
-        Some(Box::new(SceneBuilderRequest {
-            requests: requests.into_iter().map(
-                |item| {
-                    let &(color, tile_size) = self.image_cmds.get(&item.request.key).unwrap();
+        _services: &BlobImageResources,
+        requests: &[BlobImageParams],
+    ) {
+        if !requests.is_empty() {
+            (self.callbacks.lock().unwrap().request)(&requests);
+        }
+    }
 
-                    let tile = item.request.tile.map(|tile| (tile_size.unwrap(), tile));
-
-                    Command {
-                        request: item.request,
-                        color,
-                        tile,
-                        descriptor: item.descriptor,
-                        dirty_rect: item.dirty_rect,
-                    }
-                }
-            ).collect(),
-        }))
+    fn create_blob_rasterizer(&mut self) -> Box<AsyncBlobImageRasterizer> {
+        Box::new(Rasterizer { image_cmds: self.image_cmds.clone() })
     }
 }
 
@@ -189,13 +178,29 @@ struct Command {
     dirty_rect: Option<DeviceUintRect>
 }
 
-struct SceneBuilderRequest {
-    requests: Vec<Command>,
+struct Rasterizer {
+    image_cmds: HashMap<ImageKey, (ColorU, Option<TileSize>)>,
 }
 
-impl AsyncBlobImageRasterizer for SceneBuilderRequest {
-    fn run(&mut self) -> Vec<(BlobImageRequest, BlobImageResult)> {
-        self.requests.iter().map(|cmd| {
+impl AsyncBlobImageRasterizer for Rasterizer {
+    fn rasterize(&mut self, requests: &[BlobImageParams]) -> Vec<(BlobImageRequest, BlobImageResult)> {
+        let requests: Vec<Command> = requests.into_iter().map(
+            |item| {
+                let &(color, tile_size) = self.image_cmds.get(&item.request.key).unwrap();
+
+                let tile = item.request.tile.map(|tile| (tile_size.unwrap(), tile));
+
+                Command {
+                    request: item.request,
+                    color,
+                    tile,
+                    descriptor: item.descriptor,
+                    dirty_rect: item.dirty_rect,
+                }
+            }
+        ).collect();
+
+        requests.iter().map(|cmd| {
             (cmd.request, render_blob(cmd.color, &cmd.descriptor, cmd.tile, cmd.dirty_rect))
         }).collect()
     }
