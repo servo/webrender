@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BuiltDisplayList, ColorF, DynamicProperties, Epoch, LayoutSize};
+use api::{BuildState, BuiltDisplayList, ColorF, DynamicProperties, Epoch, LayoutSize};
 use api::{FilterOp, LayoutTransform, PipelineId, PropertyBinding, PropertyBindingId};
 use api::{ItemRange, MixBlendMode, StackingContext};
 use internal_types::FastHashMap;
@@ -99,7 +99,7 @@ pub struct ScenePipeline {
 pub struct Scene {
     pub root_pipeline_id: Option<PipelineId>,
     pub pipelines: FastHashMap<PipelineId, Arc<ScenePipeline>>,
-    pub pipeline_epochs: FastHashMap<PipelineId, Epoch>,
+    pub pipeline_epochs: FastHashMap<PipelineId, (Epoch, BuildState)>,
 }
 
 impl Scene {
@@ -140,7 +140,7 @@ impl Scene {
         };
 
         self.pipelines.insert(pipeline_id, Arc::new(new_pipeline));
-        self.pipeline_epochs.insert(pipeline_id, epoch);
+        self.pipeline_epochs.insert(pipeline_id, (epoch, BuildState::not_built()));
     }
 
     pub fn remove_pipeline(&mut self, pipeline_id: PipelineId) {
@@ -152,7 +152,7 @@ impl Scene {
     }
 
     pub fn update_epoch(&mut self, pipeline_id: PipelineId, epoch: Epoch) {
-        self.pipeline_epochs.insert(pipeline_id, epoch);
+        self.pipeline_epochs.insert(pipeline_id, (epoch, BuildState::not_built()));
     }
 }
 

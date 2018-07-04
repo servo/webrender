@@ -9,7 +9,7 @@
 //!
 //! [renderer]: struct.Renderer.html
 
-use api::{BlobImageRenderer, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
+use api::{BlobImageRenderer, BuildState, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentId, Epoch, ExternalImageId};
 use api::{ExternalImageType, FontRenderMode, FrameMsg, ImageFormat, PipelineId};
 use api::{RenderApiSender, RenderNotifier, TexelRect, TextureTarget};
@@ -1833,7 +1833,10 @@ impl Renderer {
 
     /// Returns the Epoch of the current frame in a pipeline.
     pub fn current_epoch(&self, pipeline_id: PipelineId) -> Option<Epoch> {
-        self.pipeline_info.epochs.get(&pipeline_id).cloned()
+        self.pipeline_info.epochs
+            .get(&pipeline_id)
+            .cloned()
+            .map(|(epoch, _built)| epoch)
     }
 
     pub fn flush_pipeline_info(&mut self) -> PipelineInfo {
@@ -4234,7 +4237,7 @@ impl OutputImageHandler for () {
 
 #[derive(Default)]
 pub struct PipelineInfo {
-    pub epochs: FastHashMap<PipelineId, Epoch>,
+    pub epochs: FastHashMap<PipelineId, (Epoch, BuildState)>,
     pub removed_pipelines: Vec<PipelineId>,
 }
 

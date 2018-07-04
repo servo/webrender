@@ -3,11 +3,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayListIter, ClipAndScrollInfo};
-use api::{ClipId, ColorF, ComplexClipRegion, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
-use api::{DevicePixelScale, DeviceUintRect, DisplayItemRef, Epoch, ExtendMode, ExternalScrollId};
-use api::{FilterOp, FontInstanceKey, GlyphInstance, GlyphOptions, GlyphRasterSpace, GradientStop};
-use api::{IframeDisplayItem, ImageKey, ImageRendering, ItemRange, LayoutPoint};
+use api::{AlphaType, BorderDetails, BorderDisplayItem, BuildState, BuiltDisplayListIter};
+use api::{ClipAndScrollInfo, ClipId, ColorF, ComplexClipRegion, DeviceIntPoint, DeviceIntRect};
+use api::{DeviceIntSize, DevicePixelScale, DeviceUintRect, DisplayItemRef, Epoch, ExtendMode};
+use api::{ExternalScrollId, FilterOp, FontInstanceKey, GlyphInstance, GlyphOptions, GlyphRasterSpace};
+use api::{GradientStop, IframeDisplayItem, ImageKey, ImageRendering, ItemRange, LayoutPoint};
 use api::{LayoutPrimitiveInfo, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D};
 use api::{LineOrientation, LineStyle, LocalClip, NinePatchBorderSource, PipelineId};
 use api::{PropertyBinding, ReferenceFrame, RepeatMode, ScrollFrameDisplayItem, ScrollSensitivity};
@@ -151,7 +151,7 @@ pub struct DisplayListFlattener<'a> {
     font_instances: FontInstanceMap,
 
     /// Used to track the latest flattened epoch for each pipeline.
-    pipeline_epochs: Vec<(PipelineId, Epoch)>,
+    pipeline_epochs: Vec<(PipelineId, (Epoch, BuildState))>,
 
     /// A set of pipelines that the caller has requested be made available as
     /// output textures.
@@ -207,7 +207,7 @@ impl<'a> DisplayListFlattener<'a> {
         let root_pipeline_id = scene.root_pipeline_id.unwrap();
         let root_pipeline = scene.pipelines.get(&root_pipeline_id).unwrap();
 
-        let root_epoch = scene.pipeline_epochs[&root_pipeline_id];
+        let root_epoch = scene.pipeline_epochs[&root_pipeline_id].0;
 
         let background_color = root_pipeline
             .background_color
@@ -243,8 +243,12 @@ impl<'a> DisplayListFlattener<'a> {
         debug_assert!(flattener.picture_stack.is_empty());
 
         new_scene.root_pipeline_id = Some(root_pipeline_id);
-        new_scene.pipeline_epochs.insert(root_pipeline_id, root_epoch);
+        new_scene.pipeline_epochs.insert(root_pipeline_id, (root_epoch, BuildState::built()));
         new_scene.pipeline_epochs.extend(flattener.pipeline_epochs.drain(..));
+        for (pipeline_id, value) in scene.pipeline_epochs.iter() {
+            new_scene.pipeline_epochs.entry(*pipeline_id).or_insert((value.0, BuildState::not_built()));
+        }
+
         new_scene.pipelines = scene.pipelines.clone();
 
         FrameBuilder::with_display_list_flattener(
@@ -529,8 +533,8 @@ impl<'a> DisplayListFlattener<'a> {
             ),
         );
 
-        let epoch = self.scene.pipeline_epochs[&iframe_pipeline_id];
-        self.pipeline_epochs.push((iframe_pipeline_id, epoch));
+        let epoch = self.scene.pipeline_epochs[&iframe_pipeline_id].0;
+        self.pipeline_epochs.push((iframe_pipeline_id, (epoch, BuildState::built())));
 
         let bounds = item.rect();
         let origin = *reference_frame_relative_offset + bounds.origin.to_vector();
