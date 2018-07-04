@@ -1892,7 +1892,6 @@ impl<'a> DisplayListFlattener<'a> {
                     rendering: image_rendering,
                     tile: None,
                 },
-                current_epoch: Epoch::invalid(),
                 alpha_type,
                 stretch_size,
                 tile_spacing,

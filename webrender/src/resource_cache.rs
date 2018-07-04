@@ -5,7 +5,7 @@
 use api::{AddFont, BlobImageResources, ResourceUpdate};
 use api::{BlobImageDescriptor, BlobImageError, BlobImageRenderer, BlobImageRequest};
 use api::{ClearCache, ColorF, DevicePoint, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
-use api::{Epoch, FontInstanceKey, FontKey, FontTemplate, GlyphIndex};
+use api::{FontInstanceKey, FontKey, FontTemplate, GlyphIndex};
 use api::{ExternalImageData, ExternalImageType};
 use api::{FontInstanceOptions, FontInstancePlatformOptions, FontVariation};
 use api::{GlyphDimensions, IdNamespace};
@@ -86,7 +86,6 @@ pub struct ImageProperties {
     pub descriptor: ImageDescriptor,
     pub external_image: Option<ExternalImageData>,
     pub tiling: Option<TileSize>,
-    pub epoch: Epoch,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -100,7 +99,6 @@ enum State {
 struct ImageResource {
     data: ImageData,
     descriptor: ImageDescriptor,
-    epoch: Epoch,
     tiling: Option<TileSize>,
 }
 
@@ -572,7 +570,6 @@ impl ResourceCache {
         let resource = ImageResource {
             descriptor,
             data,
-            epoch: Epoch(0),
             tiling,
         };
 
@@ -623,7 +620,6 @@ impl ResourceCache {
         *image = ImageResource {
             descriptor,
             data,
-            epoch: Epoch(image.epoch.0 + 1),
             tiling,
         };
     }
@@ -993,7 +989,6 @@ impl ResourceCache {
                 descriptor: image_template.descriptor,
                 external_image,
                 tiling: image_template.tiling,
-                epoch: image_template.epoch,
             }
         })
     }
@@ -1251,7 +1246,6 @@ enum PlainFontTemplate {
 struct PlainImageTemplate {
     data: String,
     descriptor: ImageDescriptor,
-    epoch: Epoch,
     tiling: Option<TileSize>,
 }
 
@@ -1450,7 +1444,6 @@ impl ResourceCache {
                         },
                         descriptor: template.descriptor.clone(),
                         tiling: template.tiling,
-                        epoch: template.epoch,
                     })
                 })
                 .collect(),
@@ -1575,7 +1568,6 @@ impl ResourceCache {
                 data,
                 descriptor: template.descriptor,
                 tiling: template.tiling,
-                epoch: template.epoch,
             });
         }
 
