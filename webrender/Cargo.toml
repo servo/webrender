@@ -74,3 +74,7 @@ dwrote = "0.4.1"
 core-foundation = "0.6"
 core-graphics = "0.14"
 core-text = { version = "10", default-features = false }
+
+[build-dependencies]
+ron = "0.1.7"
+serde = { version = "1.0", features = ["serde_derive"] }
