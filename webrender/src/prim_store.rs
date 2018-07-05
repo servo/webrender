@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AlphaType, BorderRadius, BoxShadowClipMode, BuiltDisplayList, ClipMode, ColorF};
-use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, Epoch, ExtendMode};
+use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, ExtendMode};
 use api::{FilterOp, GlyphInstance, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, TileOffset};
 use api::{GlyphRasterSpace, LayoutPoint, LayoutRect, LayoutSize, LayoutToWorldTransform, LayoutVector2D};
 use api::{PipelineId, PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat, DeviceIntSideOffsets};
@@ -284,7 +284,6 @@ pub enum BrushKind {
     },
     Image {
         request: ImageRequest,
-        current_epoch: Epoch,
         alpha_type: AlphaType,
         stretch_size: LayoutSize,
         tile_spacing: LayoutSize,
@@ -1577,7 +1576,6 @@ impl PrimitiveStore {
                         sub_rect,
                         stretch_size,
                         ref mut tile_spacing,
-                        ref mut current_epoch,
                         ref mut source,
                         ref mut opacity_binding,
                         ref mut visible_tiles,
@@ -1590,7 +1588,6 @@ impl PrimitiveStore {
 
                         // Set if we need to request the source image from the cache this frame.
                         if let Some(image_properties) = image_properties {
-                            *current_epoch = image_properties.epoch;
                             is_tiled = image_properties.tiling.is_some();
 
                             // If the opacity changed, invalidate the GPU cache so that
