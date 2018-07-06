@@ -190,6 +190,9 @@ pub struct DisplayListFlattener<'a> {
     /// A stack of the currently active shadows
     shadow_stack: Vec<(Shadow, PictureIndex)>,
 
+    /// The stack keeping track of the root clip chains associated with pipelines.
+    pipeline_clip_chain_stack: Vec<ClipChainIndex>,
+
     /// A list of scrollbar primitives.
     pub scrollbar_prims: Vec<ScrollbarPrimitive>,
 
@@ -240,6 +243,7 @@ impl<'a> DisplayListFlattener<'a> {
             picture_stack: Vec::new(),
             shadow_stack: Vec::new(),
             sc_stack: Vec::new(),
+            pipeline_clip_chain_stack: Vec::new(),
             prim_store: old_builder.prim_store.recycle(),
             clip_store: old_builder.clip_store.recycle(),
         };
@@ -539,6 +543,16 @@ impl<'a> DisplayListFlattener<'a> {
             ),
         );
 
+        let clip_chain_index = match clip_and_scroll_ids.clip_node_id {
+            //TODO: what needs to be done in this case?
+            Some(ClipId::Clip(..)) => ClipChainIndex::NO_CLIP,
+            None => ClipChainIndex::NO_CLIP,
+            Some(ref clip_chain) => {
+                self.id_to_index_mapper.get_clip_chain_index(clip_chain)
+            }
+        };
+        self.pipeline_clip_chain_stack.push(clip_chain_index);
+
         let bounds = item.rect();
         let origin = *reference_frame_relative_offset + bounds.origin.to_vector();
         self.push_reference_frame(
@@ -564,6 +578,7 @@ impl<'a> DisplayListFlattener<'a> {
         self.flatten_root(pipeline, &iframe_rect.size);
 
         self.pop_reference_frame();
+        self.pipeline_clip_chain_stack.pop();
     }
 
     fn flatten_item<'b>(
@@ -733,12 +748,15 @@ impl<'a> DisplayListFlattener<'a> {
             }
             SpecificDisplayItem::ClipChain(ref info) => {
                 let items = self.get_clip_chain_items(pipeline_id, item.clip_chain_items())
-                                .iter()
-                                .map(|id| self.id_to_index_mapper.get_clip_node_index(*id))
-                                .collect();
-                let parent = info.parent.map(|id|
-                     self.id_to_index_mapper.get_clip_chain_index(&ClipId::ClipChain(id))
-                );
+                    .iter()
+                    .map(|id| self.id_to_index_mapper.get_clip_node_index(*id))
+                    .collect();
+                let parent = match info.parent {
+                    Some(id) => Some(
+                        self.id_to_index_mapper.get_clip_chain_index(&ClipId::ClipChain(id))
+                    ),
+                    None => self.pipeline_clip_chain_stack.last().cloned(),
+                };
                 let clip_chain_index =
                     self.clip_scroll_tree.add_clip_chain_descriptor(parent, items);
                 self.id_to_index_mapper.add_clip_chain(ClipId::ClipChain(info.id), clip_chain_index);
@@ -906,7 +924,7 @@ impl<'a> DisplayListFlattener<'a> {
     ) {
         let clip_chain_id = match clipping_node {
             Some(ref clipping_node) => self.id_to_index_mapper.get_clip_chain_index(clipping_node),
-            None => ClipChainIndex(0), // This means no clipping.
+            None => ClipChainIndex::NO_CLIP,
         };
         let clip_and_scroll = ScrollNodeAndClipChain::new(
             self.get_spatial_node_index_for_clip_id(spatial_node),
@@ -1224,7 +1242,7 @@ impl<'a> DisplayListFlattener<'a> {
         match parent_id {
             Some(ref parent_id) =>
                 self.id_to_index_mapper.map_to_parent_clip_chain(reference_frame_id, parent_id),
-            _ => self.id_to_index_mapper.add_clip_chain(reference_frame_id, ClipChainIndex(0)),
+            _ => self.id_to_index_mapper.add_clip_chain(reference_frame_id, ClipChainIndex::NO_CLIP),
         }
         index
     }
