@@ -966,7 +966,7 @@ impl CacheTexture {
 
         let bus = if use_scatter {
             let program = device
-                .create_program("gpu_cache_update", "", &desc::GPU_CACHE_UPDATE)?;
+                .create_program("gpu_cache_update", &[], &desc::GPU_CACHE_UPDATE)?;
             let buf_position = device.create_vbo();
             let buf_value = device.create_vbo();
             //Note: the vertex attributes have to be supplied in the same order

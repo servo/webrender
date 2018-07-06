@@ -105,11 +105,11 @@ pub struct DebugRenderer {
 
 impl DebugRenderer {
     pub fn new(device: &mut Device) -> Self {
-        let font_program = device.create_program("debug_font", "", &DESC_FONT).unwrap();
+        let font_program = device.create_program("debug_font", &[], &DESC_FONT).unwrap();
         device.bind_shader_samplers(&font_program, &[("sColor0", DebugSampler::Font)]);
 
         let color_program = device
-            .create_program("debug_color", "", &DESC_COLOR)
+            .create_program("debug_color", &[], &DESC_COLOR)
             .unwrap();
 
         let font_vao = device.create_vao(&DESC_FONT);

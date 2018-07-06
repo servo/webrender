@@ -103,10 +103,6 @@ mod texture_cache;
 mod tiling;
 mod util;
 
-mod shader_source {
-    include!(concat!(env!("OUT_DIR"), "/shaders.rs"));
-}
-
 pub use record::{ApiRecordingReceiver, BinaryRecorder, WEBRENDER_RECORDING_HEADER};
 
 mod platform {
@@ -179,7 +175,7 @@ extern crate png;
 pub extern crate webrender_api;
 
 #[doc(hidden)]
-pub use device::{build_shader_strings, ReadPixelsFormat, UploadMethod, VertexUsageHint};
+pub use device::{load_shader_sources, ReadPixelsFormat, UploadMethod, VertexUsageHint};
 pub use device::{ProgramBinary, ProgramCache, ProgramCacheObserver, ProgramSources};
 pub use frame_builder::ChasePrimitive;
 pub use renderer::{AsyncPropertySampler, CpuProfile, DebugFlags, OutputImageHandler, RendererKind};

@@ -16,8 +16,6 @@ struct Shader {
     features: &'static [&'static str],
 }
 
-const SHADER_PREFIX: &str = "#define WR_MAX_VERTEX_TEXTURE_WIDTH 1024\n";
-
 const BRUSH_FEATURES: &[&str] = &["", "ALPHA_PASS"];
 const CLIP_FEATURES: &[&str] = &["TRANSFORM"];
 const CACHE_FEATURES: &[&str] = &[""];
@@ -64,12 +62,10 @@ const SHADERS: &[Shader] = &[
     Shader {
         name: "brush_yuv_image",
         features: &[
-            "",
-            "YUV_NV12",
-            "YUV_PLANAR",
-            "YUV_INTERLEAVED",
-            "TEXTURE_2D,YUV_NV12",
-            "YUV_NV12,ALPHA_PASS",
+            "YUV_NV12,YUV_REC709",
+            "YUV_PLANAR,YUV_REC709",
+            "YUV_INTERLEAVED,YUV_REC709",
+            "TEXTURE_2D,YUV_NV12,YUV_REC709",
         ],
     },
     Shader {
@@ -113,15 +109,11 @@ fn validate_shaders() {
 
     for shader in SHADERS {
         for config in shader.features {
-            let mut features = String::new();
-            features.push_str(SHADER_PREFIX);
-
-            for feature in config.split(",") {
-                features.push_str(&format!("#define WR_FEATURE_{}\n", feature));
-            }
-
             let (vs, fs) =
-                webrender::build_shader_strings(VERSION_STRING, &features, shader.name, &None);
+                webrender::load_shader_sources(VERSION_STRING,
+                                               &config.split(",").collect::<Vec<_>>(),
+                                               shader.name,
+                                               &None);
 
             validate(&vs_validator, shader.name, vs);
             validate(&fs_validator, shader.name, fs);

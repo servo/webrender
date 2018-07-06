@@ -2,7 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use super::super::shader_source;
 use api::{ColorF, ImageFormat};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceUintRect, DeviceUintSize};
 use api::TextureTarget;
@@ -53,10 +52,6 @@ const GL_FORMAT_BGRA_GLES: gl::GLuint = gl::BGRA_EXT;
 
 const SHADER_VERSION_GL: &str = "#version 150\n";
 const SHADER_VERSION_GLES: &str = "#version 300 es\n";
-
-const SHADER_KIND_VERTEX: &str = "#define WR_VERTEX_SHADER\n";
-const SHADER_KIND_FRAGMENT: &str = "#define WR_FRAGMENT_SHADER\n";
-const SHADER_IMPORT: &str = "#include ";
 
 pub struct TextureSlot(pub usize);
 
@@ -147,83 +142,51 @@ fn get_shader_version(gl: &gl::Gl) -> &'static str {
     }
 }
 
-// Get a shader string by name, from the built in resources or
-// an override path, if supplied.
-fn get_shader_source(shader_name: &str, base_path: &Option<PathBuf>) -> Option<String> {
-    if let Some(ref base) = *base_path {
-        let shader_path = base.join(&format!("{}.glsl", shader_name));
-        if shader_path.exists() {
-            let mut source = String::new();
-            File::open(&shader_path)
-                .unwrap()
-                .read_to_string(&mut source)
-                .unwrap();
-            return Some(source);
-        }
-    }
-
-    shader_source::SHADERS
-        .get(shader_name)
-        .map(|s| s.to_string())
-}
-
-// Parse a shader string for imports. Imports are recursively processed, and
-// prepended to the list of outputs.
-fn parse_shader_source(source: String, base_path: &Option<PathBuf>, output: &mut String) {
-    for line in source.lines() {
-        if line.starts_with(SHADER_IMPORT) {
-            let imports = line[SHADER_IMPORT.len() ..].split(',');
-
-            // For each import, get the source, and recurse.
-            for import in imports {
-                if let Some(include) = get_shader_source(import, base_path) {
-                    parse_shader_source(include, base_path, output);
-                }
-            }
-        } else {
-            output.push_str(line);
-            output.push_str("\n");
-        }
-    }
-}
-
-pub fn build_shader_strings(
+pub fn load_shader_sources(
     gl_version_string: &str,
-    features: &str,
+    features: &[&'static str],
     base_filename: &str,
     override_path: &Option<PathBuf>,
 ) -> (String, String) {
-    // Construct a list of strings to be passed to the shader compiler.
+
+
+    let (vs_path, fs_path) = {
+        let mut postfix = String::new();
+        for feature in features {
+            if !feature.is_empty() {
+                postfix.push_str(&format!("_{}", &feature.to_lowercase()));
+            }
+        }
+
+        let mut file_name = base_filename.to_owned();
+        file_name.push_str(&postfix);
+
+        let mut vs_path = match *override_path {
+            Some(ref p) => PathBuf::from(p),
+            None => PathBuf::from(env!("OUT_DIR")),
+        };
+
+        vs_path.push(file_name);
+        let mut fs_path = vs_path.clone();
+        vs_path.set_extension("vert");
+        fs_path.set_extension("frag");
+        (vs_path, fs_path)
+
+    };
+
+    let mut vs_file =
+        File::open(vs_path.as_path()).expect(&format!("Unable to open shader file: {:?}", vs_path));
     let mut vs_source = String::new();
+    vs_file.read_to_string(&mut vs_source).unwrap();
+
+    let mut fs_file =
+        File::open(fs_path.as_path()).expect(&format!("Unable to open shader file: {:?}", fs_path));
     let mut fs_source = String::new();
-
-    // GLSL requires that the version number comes first.
-    vs_source.push_str(gl_version_string);
-    fs_source.push_str(gl_version_string);
-
-    // Insert the shader name to make debugging easier.
-    let name_string = format!("// {}\n", base_filename);
-    vs_source.push_str(&name_string);
-    fs_source.push_str(&name_string);
-
-    // Define a constant depending on whether we are compiling VS or FS.
-    vs_source.push_str(SHADER_KIND_VERTEX);
-    fs_source.push_str(SHADER_KIND_FRAGMENT);
-
-    // Add any defines that were passed by the caller.
-    vs_source.push_str(features);
-    fs_source.push_str(features);
-
-    // Parse the main .glsl file, including any imports
-    // and append them to the list of sources.
-    let mut shared_result = String::new();
-    if let Some(shared_source) = get_shader_source(base_filename, override_path) {
-        parse_shader_source(shared_source, override_path, &mut shared_result);
+    fs_file.read_to_string(&mut fs_source).unwrap();
+    if gl_version_string == SHADER_VERSION_GLES {
+        vs_source = vs_source.replacen(SHADER_VERSION_GL, SHADER_VERSION_GLES, 1);
+        fs_source = fs_source.replacen(SHADER_VERSION_GL, SHADER_VERSION_GLES, 1);
     }
-
-    vs_source.push_str(&shared_result);
-    fs_source.push_str(&shared_result);
-
     (vs_source, fs_source)
 }
 
@@ -1412,19 +1375,17 @@ impl Device {
     pub fn create_program(
         &mut self,
         base_filename: &str,
-        features: &str,
+        features: &[&'static str],
         descriptor: &VertexDescriptor,
     ) -> Result<Program, ShaderError> {
         debug_assert!(self.inside_frame);
 
-        let gl_version_string = get_shader_version(&*self.gl);
-
-        let (vs_source, fs_source) = build_shader_strings(
-            gl_version_string,
-            features,
-            base_filename,
-            &self.resource_override_path,
-        );
+        let (vs_source, fs_source) =
+            load_shader_sources(
+                get_shader_version(&*self.gl),
+                features,
+                base_filename,
+                &self.resource_override_path);
 
         let sources = ProgramSources::new(self.renderer_name.clone(), vs_source, fs_source);
 
