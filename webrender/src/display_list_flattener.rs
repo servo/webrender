@@ -169,6 +169,9 @@ pub struct DisplayListFlattener<'a> {
     /// The map of all font instances.
     font_instances: FontInstanceMap,
 
+    /// The map keeping track of the root clip chains associated with pipelines.
+    pipeline_clip_chains: FastHashMap<PipelineId, ClipChainIndex>,
+
     /// A set of pipelines that the caller has requested be made available as
     /// output textures.
     output_pipelines: &'a FastHashSet<PipelineId>,
@@ -232,6 +235,7 @@ impl<'a> DisplayListFlattener<'a> {
             clip_scroll_tree,
             font_instances,
             config: *frame_builder_config,
+            pipeline_clip_chains: FastHashMap::default(),
             output_pipelines,
             id_to_index_mapper: ClipIdToIndexMapper::default(),
             hit_testing_runs: recycle_vec(old_builder.hit_testing_runs),
@@ -539,6 +543,17 @@ impl<'a> DisplayListFlattener<'a> {
             ),
         );
 
+        match clip_and_scroll_ids.clip_node_id {
+            Some(ClipId::Clip(..)) => {
+                //TODO: what needs to be done in this case?
+            }
+            Some(ref clip_chain) => {
+                let chain_index = self.id_to_index_mapper.get_clip_chain_index(clip_chain);
+                self.pipeline_clip_chains.insert(iframe_pipeline_id, chain_index);
+            }
+            None => {}
+        }
+
         let bounds = item.rect();
         let origin = *reference_frame_relative_offset + bounds.origin.to_vector();
         self.push_reference_frame(
@@ -733,12 +748,19 @@ impl<'a> DisplayListFlattener<'a> {
             }
             SpecificDisplayItem::ClipChain(ref info) => {
                 let items = self.get_clip_chain_items(pipeline_id, item.clip_chain_items())
-                                .iter()
-                                .map(|id| self.id_to_index_mapper.get_clip_node_index(*id))
-                                .collect();
-                let parent = info.parent.map(|id|
-                     self.id_to_index_mapper.get_clip_chain_index(&ClipId::ClipChain(id))
-                );
+                    .iter()
+                    .map(|id| self.id_to_index_mapper.get_clip_node_index(*id))
+                    .collect();
+                let parent = match info.parent {
+                    Some(id) => {
+                        Some(self.id_to_index_mapper
+                            .get_clip_chain_index(&ClipId::ClipChain(id))
+                        )
+                    }
+                    None => {
+                        self.pipeline_clip_chains.get(&pipeline_id).cloned()
+                    }
+                };
                 let clip_chain_index =
                     self.clip_scroll_tree.add_clip_chain_descriptor(parent, items);
                 self.id_to_index_mapper.add_clip_chain(ClipId::ClipChain(info.id), clip_chain_index);
