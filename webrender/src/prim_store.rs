@@ -2273,7 +2273,8 @@ impl PrimitiveStore {
             prim_screen_rect.intersection(&prim_run_context.clip_chain.combined_outer_screen_rect);
         let clip_chain = prim_run_context.clip_chain.nodes.clone();
         if cfg!(debug_assertions) && Some(prim_index) == self.chase_id {
-            println!("\tbase combined outer rect {:?}", combined_outer_rect);
+            println!("\tbase screen {:?}, combined clip chain {:?}",
+                prim_screen_rect, prim_run_context.clip_chain.combined_outer_screen_rect);
         }
 
         let prim_coordinate_system_id = prim_run_context.scroll_node.coordinate_system_id;
@@ -2691,6 +2692,20 @@ impl PrimitiveStore {
                 .map(|inv_parent| {
                     inv_parent.pre_mul(&scroll_node.world_content_transform)
                 });
+
+            if run.is_chasing(self.chase_id) {
+                println!("\teffective clip chain from {:?} {}",
+                    scroll_node.coordinate_system_id,
+                    if pic_context.apply_local_clip_rect { "(applied)" } else { "" },
+                );
+                let iter = ClipChainNodeIter { current: clip_chain.nodes.clone() };
+                for node in iter {
+                    println!("\t\t{:?} {:?}",
+                        node.work_item.coordinate_system_id,
+                        node.local_clip_rect,
+                    );
+                }
+            }
 
             let clip_chain_rect = if pic_context.apply_local_clip_rect {
                 get_local_clip_rect_for_nodes(scroll_node, clip_chain)
