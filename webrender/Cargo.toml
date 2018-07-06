@@ -63,6 +63,8 @@ optional = true
 
 [dev-dependencies]
 mozangle = "0.1"
+ron = "0.1.7"
+serde = { version = "1.0", features = ["serde_derive"] }
 
 [target.'cfg(any(target_os = "android", all(unix, not(target_os = "macos"))))'.dependencies]
 freetype = { version = "0.4", default-features = false }
