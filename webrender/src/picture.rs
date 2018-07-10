@@ -7,7 +7,7 @@ use api::{DeviceIntRect, DeviceIntSize, DevicePoint, LayoutPoint, LayoutRect};
 use api::{DevicePixelScale, PictureIntPoint, PictureIntRect, PictureIntSize};
 use box_shadow::{BLUR_SAMPLE_SCALE};
 use clip_scroll_node::ClipScrollNode;
-use clip_scroll_tree::ClipScrollNodeIndex;
+use clip_scroll_tree::TransformIndex;
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState, PrimitiveRunContext};
 use gpu_cache::{GpuCacheHandle};
 use gpu_types::UvRectKind;
@@ -80,7 +80,7 @@ pub struct PictureCacheKey {
     //       we relax that, we'll need to consider some
     //       extra parameters, depending on transform.
 
-    // This is a globally unique id of the scene this picture 
+    // This is a globally unique id of the scene this picture
     // is associated with, to avoid picture id collisions.
     scene_id: u64,
 
@@ -147,10 +147,10 @@ pub struct PicturePrimitive {
     // pages to a texture), this is the pipeline this
     // picture is the root of.
     pub frame_output_pipeline_id: Option<PipelineId>,
-    // The original reference frame ID for this picture.
+    // The original transform index for this picture.
     // It is only different if this is part of a 3D
     // rendering context.
-    pub reference_frame_index: ClipScrollNodeIndex,
+    pub transform_index: TransformIndex,
     pub real_local_rect: LayoutRect,
     // An optional cache handle for storing extra data
     // in the GPU cache, depending on the type of
@@ -183,7 +183,7 @@ impl PicturePrimitive {
         composite_mode: Option<PictureCompositeMode>,
         is_in_3d_context: bool,
         pipeline_id: PipelineId,
-        reference_frame_index: ClipScrollNodeIndex,
+        transform_index: TransformIndex,
         frame_output_pipeline_id: Option<PipelineId>,
         apply_local_clip_rect: bool,
     ) -> Self {
@@ -194,7 +194,7 @@ impl PicturePrimitive {
             composite_mode,
             is_in_3d_context,
             frame_output_pipeline_id,
-            reference_frame_index,
+            transform_index,
             real_local_rect: LayoutRect::zero(),
             extra_gpu_data_handle: GpuCacheHandle::new(),
             apply_local_clip_rect,

@@ -11,7 +11,7 @@ use api::{BorderWidths, LayoutToWorldScale, NormalBorder};
 use app_units::Au;
 use border::{BorderCacheKey, BorderRenderTaskInfo};
 use box_shadow::BLUR_SAMPLE_SCALE;
-use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, CoordinateSystemId};
+use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, CoordinateSystemId, TransformIndex};
 use clip_scroll_node::ClipScrollNode;
 use clip::{ClipChain, ClipChainNode, ClipChainNodeIter, ClipChainNodeRef, ClipSource};
 use clip::{ClipSourcesHandle, ClipWorkItem};
@@ -1242,7 +1242,7 @@ impl PrimitiveStore {
         composite_mode: Option<PictureCompositeMode>,
         is_in_3d_context: bool,
         pipeline_id: PipelineId,
-        reference_frame_index: ClipScrollNodeIndex,
+        transform_index: TransformIndex,
         frame_output_pipeline_id: Option<PipelineId>,
         apply_local_clip_rect: bool,
     ) -> PictureIndex {
@@ -1251,7 +1251,7 @@ impl PrimitiveStore {
             composite_mode,
             is_in_3d_context,
             pipeline_id,
-            reference_frame_index,
+            transform_index,
             frame_output_pipeline_id,
             apply_local_clip_rect,
         );
@@ -2489,7 +2489,7 @@ impl PrimitiveStore {
                     PictureContext {
                         pipeline_id: pic.pipeline_id,
                         prim_runs: mem::replace(&mut pic.runs, Vec::new()),
-                        original_reference_frame_index: Some(pic.reference_frame_index),
+                        original_transform_index: Some(pic.transform_index),
                         display_list,
                         inv_world_transform,
                         apply_local_clip_rect: pic.apply_local_clip_rect,
@@ -2681,16 +2681,14 @@ impl PrimitiveStore {
                 });
 
             let original_relative_transform = pic_context
-                .original_reference_frame_index
-                .and_then(|original_reference_frame_index| {
+                .original_transform_index
+                .map(|original_transform_index| {
                     frame_context
-                        .clip_scroll_tree
-                        .nodes[original_reference_frame_index.0]
-                        .world_content_transform
-                        .inverse()
+                        .transforms[original_transform_index.0 as usize]
+                        .inv_transform
                 })
                 .map(|inv_parent| {
-                    inv_parent.pre_mul(&scroll_node.world_content_transform)
+                    inv_parent.pre_mul(&scroll_node.world_content_transform.into())
                 });
 
             if run.is_chasing(self.chase_id) {

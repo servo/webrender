@@ -427,16 +427,18 @@ impl ClipScrollTree {
         source_perspective: Option<LayoutTransform>,
         origin_in_parent_reference_frame: LayoutVector2D,
         pipeline_id: PipelineId,
-    ) {
+    ) -> TransformIndex {
+        let transform_index = self.next_transform_index();
         let node = ClipScrollNode::new_reference_frame(
             parent_index,
             source_transform,
             source_perspective,
             origin_in_parent_reference_frame,
             pipeline_id,
-            self.next_transform_index(),
+            transform_index,
         );
         self.add_node(node, index);
+        transform_index
     }
 
     pub fn add_sticky_frame(

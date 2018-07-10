@@ -7,7 +7,7 @@ root:
         - type: "stacking-context"
           transform-origin: 235 235
           transform: rotate-x(15)
-          filters: opacity(0.5)
+          filters: brightness(0.5)
           items:
             - image: checkerboard(2, 16, 16)
               bounds: [100, 100, 260, 260]

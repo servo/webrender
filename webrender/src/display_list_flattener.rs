@@ -15,7 +15,7 @@ use api::{Shadow, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, 
 use api::{TransformStyle, YuvColorSpace, YuvData};
 use clip::{ClipRegion, ClipSource, ClipSources, ClipStore};
 use clip_scroll_node::{NodeType, SpatialNodeKind, StickyFrameInfo};
-use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, ClipScrollTree};
+use clip_scroll_tree::{ClipChainIndex, ClipScrollNodeIndex, ClipScrollTree, TransformIndex};
 use euclid::vec2;
 use frame_builder::{ChasePrimitive, FrameBuilder, FrameBuilderConfig};
 use glyph_rasterizer::FontInstance;
@@ -158,9 +158,9 @@ pub struct DisplayListFlattener<'a> {
     /// types that the ClipScrollTree uses.
     id_to_index_mapper: ClipIdToIndexMapper,
 
-    /// A stack of scroll nodes used during display list processing to properly
-    /// parent new scroll nodes.
-    reference_frame_stack: Vec<(ClipId, ClipScrollNodeIndex)>,
+    /// A stack of transform node indices used during display list processing to
+    /// parent pictures.
+    transform_stack: Vec<TransformIndex>,
 
     /// A stack of stacking context properties.
     sc_stack: Vec<FlattenedStackingContext>,
@@ -217,7 +217,7 @@ impl<'a> DisplayListFlattener<'a> {
             id_to_index_mapper: ClipIdToIndexMapper::default(),
             hit_testing_runs: recycle_vec(old_builder.hit_testing_runs),
             scrollbar_prims: recycle_vec(old_builder.scrollbar_prims),
-            reference_frame_stack: Vec::new(),
+            transform_stack: Vec::new(),
             picture_stack: Vec::new(),
             shadow_stack: Vec::new(),
             sc_stack: Vec::new(),
@@ -898,7 +898,7 @@ impl<'a> DisplayListFlattener<'a> {
 
         // Construct the necessary set of Picture primitives
         // to draw this stacking context.
-        let current_reference_frame_index = self.current_reference_frame_index();
+        let current_transform_index = self.current_transform_index();
 
         // An arbitrary large clip rect. For now, we don't
         // specify a clip specific to the stacking context.
@@ -920,7 +920,7 @@ impl<'a> DisplayListFlattener<'a> {
                 None,
                 false,
                 pipeline_id,
-                current_reference_frame_index,
+                current_transform_index,
                 None,
                 true,
             );
@@ -976,7 +976,7 @@ impl<'a> DisplayListFlattener<'a> {
                 None,
                 false,
                 pipeline_id,
-                current_reference_frame_index,
+                current_transform_index,
                 None,
                 true,
             );
@@ -1026,7 +1026,7 @@ impl<'a> DisplayListFlattener<'a> {
                 Some(PictureCompositeMode::Filter(*filter)),
                 false,
                 pipeline_id,
-                current_reference_frame_index,
+                current_transform_index,
                 None,
                 true,
             );
@@ -1055,7 +1055,7 @@ impl<'a> DisplayListFlattener<'a> {
                 Some(PictureCompositeMode::MixBlend(mix_blend_mode)),
                 false,
                 pipeline_id,
-                current_reference_frame_index,
+                current_transform_index,
                 None,
                 true,
             );
@@ -1110,7 +1110,7 @@ impl<'a> DisplayListFlattener<'a> {
             composite_mode,
             participating_in_3d_context,
             pipeline_id,
-            current_reference_frame_index,
+            current_transform_index,
             frame_output_pipeline_id,
             true,
         );
@@ -1194,7 +1194,7 @@ impl<'a> DisplayListFlattener<'a> {
     ) -> ClipScrollNodeIndex {
         let index = self.id_to_index_mapper.get_node_index(reference_frame_id);
         let parent_index = parent_id.map(|id| self.id_to_index_mapper.get_node_index(id));
-        self.clip_scroll_tree.add_reference_frame(
+        let transform_index = self.clip_scroll_tree.add_reference_frame(
             index,
             parent_index,
             source_transform,
@@ -1202,7 +1202,7 @@ impl<'a> DisplayListFlattener<'a> {
             origin_in_parent_reference_frame,
             pipeline_id,
         );
-        self.reference_frame_stack.push((reference_frame_id, index));
+        self.transform_stack.push(transform_index);
 
         match parent_id {
             Some(ref parent_id) =>
@@ -1212,8 +1212,8 @@ impl<'a> DisplayListFlattener<'a> {
         index
     }
 
-    pub fn current_reference_frame_index(&self) -> ClipScrollNodeIndex {
-        self.reference_frame_stack.last().unwrap().1
+    pub fn current_transform_index(&self) -> TransformIndex {
+        *self.transform_stack.last().unwrap()
     }
 
     pub fn setup_viewport_offset(
@@ -1301,7 +1301,7 @@ impl<'a> DisplayListFlattener<'a> {
     }
 
     pub fn pop_reference_frame(&mut self) {
-        self.reference_frame_stack.pop();
+        self.transform_stack.pop();
     }
 
     pub fn push_shadow(
@@ -1311,7 +1311,7 @@ impl<'a> DisplayListFlattener<'a> {
         info: &LayoutPrimitiveInfo,
     ) {
         let pipeline_id = self.sc_stack.last().unwrap().pipeline_id;
-        let current_reference_frame_index = self.current_reference_frame_index();
+        let current_transform_index = self.current_transform_index();
         let max_clip = LayoutRect::max_rect();
 
         // Quote from https://drafts.csswg.org/css-backgrounds-3/#shadow-blur
@@ -1333,7 +1333,7 @@ impl<'a> DisplayListFlattener<'a> {
             Some(PictureCompositeMode::Filter(FilterOp::Blur(std_deviation))),
             false,
             pipeline_id,
-            current_reference_frame_index,
+            current_transform_index,
             None,
             apply_local_clip_rect,
         );

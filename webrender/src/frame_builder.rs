@@ -7,7 +7,7 @@ use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentLayer, FontRe
 use api::{LayoutPoint, LayoutRect, LayoutSize, PipelineId, WorldPoint};
 use clip::{ClipChain, ClipStore};
 use clip_scroll_node::{ClipScrollNode};
-use clip_scroll_tree::{ClipScrollNodeIndex, ClipScrollTree};
+use clip_scroll_tree::{ClipScrollTree, TransformIndex};
 use display_list_flattener::{DisplayListFlattener};
 use gpu_cache::GpuCache;
 use gpu_types::{PrimitiveHeaders, TransformData, UvRectKind};
@@ -88,7 +88,7 @@ pub struct FrameBuildingState<'a> {
 pub struct PictureContext<'a> {
     pub pipeline_id: PipelineId,
     pub prim_runs: Vec<PrimitiveRun>,
-    pub original_reference_frame_index: Option<ClipScrollNodeIndex>,
+    pub original_transform_index: Option<TransformIndex>,
     pub display_list: &'a BuiltDisplayList,
     pub inv_world_transform: Option<WorldToLayoutFastTransform>,
     pub apply_local_clip_rect: bool,
@@ -231,7 +231,7 @@ impl FrameBuilder {
         let pic_context = PictureContext {
             pipeline_id: root_clip_scroll_node.pipeline_id,
             prim_runs: mem::replace(&mut self.prim_store.pictures[0].runs, Vec::new()),
-            original_reference_frame_index: None,
+            original_transform_index: None,
             display_list,
             inv_world_transform: None,
             apply_local_clip_rect: true,
