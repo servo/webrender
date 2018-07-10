@@ -115,7 +115,7 @@ pub struct BorderInstance {
 #[repr(C)]
 pub struct ClipMaskInstance {
     pub render_task_address: RenderTaskAddress,
-    pub transform_id: TransformPaletteId,
+    pub transform_id: TransformId,
     pub segment: i32,
     pub clip_data_address: GpuCacheAddress,
     pub resource_address: GpuCacheAddress,
@@ -201,7 +201,7 @@ pub struct PrimitiveHeader {
     pub task_address: RenderTaskAddress,
     pub specific_prim_address: GpuCacheAddress,
     pub clip_task_address: RenderTaskAddress,
-    pub transform_id: TransformPaletteId,
+    pub transform_id: TransformId,
 }
 
 // f32 parts of a primitive header
@@ -225,7 +225,7 @@ pub struct PrimitiveHeaderI {
     pub task_address: RenderTaskAddress,
     pub specific_prim_address: i32,
     pub clip_task_address: RenderTaskAddress,
-    pub transform_id: TransformPaletteId,
+    pub transform_id: TransformId,
     pub user_data: [i32; 3],
 }
 
@@ -346,12 +346,12 @@ impl From<BrushInstance> for PrimitiveInstance {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(C)]
-pub struct TransformPaletteId(pub u32);
+pub struct TransformId(pub u32);
 
-impl TransformPaletteId {
+impl TransformId {
     // Get the palette ID for an identity transform.
-    pub fn identity() -> TransformPaletteId {
-        TransformPaletteId(0)
+    pub fn identity() -> TransformId {
+        TransformId(0)
     }
 
     // Extract the transform kind from the id.
@@ -439,9 +439,9 @@ impl TransformPalette {
     // TODO(gw): In the future, it will be possible to specify
     //           a coordinate system id here, to allow retrieving
     //           transforms in the local space of a given spatial node.
-    pub fn get_id(&self, index: TransformIndex) -> TransformPaletteId {
+    pub fn get_id(&self, index: TransformIndex) -> TransformId {
         let transform_kind = self.metadata[index.0 as usize].transform_kind as u32;
-        TransformPaletteId(index.0 | (transform_kind << 24))
+        TransformId(index.0 | (transform_kind << 24))
     }
 }
 

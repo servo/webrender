@@ -14,7 +14,7 @@ use gpu_cache::{GpuCache, GpuCacheHandle, GpuCacheAddress};
 use gpu_types::{BrushFlags, BrushInstance, PrimitiveHeaders};
 use gpu_types::{ClipMaskInstance, SplitCompositeInstance};
 use gpu_types::{PrimitiveInstance, RasterizationSpace, GlyphInstance};
-use gpu_types::{PrimitiveHeader, PrimitiveHeaderIndex, TransformPaletteId, TransformPalette};
+use gpu_types::{PrimitiveHeader, PrimitiveHeaderIndex, TransformId, TransformPalette};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::{PictureCompositeMode, PicturePrimitive, PictureSurface};
 use plane_split::{BspSplitter, Polygon, Splitter};
@@ -539,7 +539,7 @@ impl AlphaBatchBuilder {
     fn add_run_to_batch(
         &mut self,
         run: &PrimitiveRun,
-        transform_id: TransformPaletteId,
+        transform_id: TransformId,
         ctx: &RenderTargetContext,
         gpu_cache: &mut GpuCache,
         render_tasks: &RenderTaskTree,
@@ -578,7 +578,7 @@ impl AlphaBatchBuilder {
     // in that picture are being drawn into the same target.
     fn add_prim_to_batch(
         &mut self,
-        transform_id: TransformPaletteId,
+        transform_id: TransformId,
         prim_index: PrimitiveIndex,
         ctx: &RenderTargetContext,
         gpu_cache: &mut GpuCache,
@@ -669,10 +669,9 @@ impl AlphaBatchBuilder {
                             // Push into parent plane splitter.
                             debug_assert!(picture.surface.is_some());
 
-                            let real_xf = &ctx.clip_scroll_tree
-                                .nodes[picture.reference_frame_index.0]
-                                .world_content_transform
-                                .into();
+                            let real_xf = &ctx.transforms
+                                .transforms[picture.transform_index.0 as usize]
+                                .transform;
                             let polygon = make_polygon(
                                 picture.real_local_rect,
                                 real_xf,
@@ -1747,7 +1746,7 @@ impl ClipBatcher {
     ) {
         let instance = ClipMaskInstance {
             render_task_address: task_address,
-            transform_id: TransformPaletteId::identity(),
+            transform_id: TransformId::identity(),
             segment: 0,
             clip_data_address,
             resource_address: GpuCacheAddress::invalid(),
