@@ -117,7 +117,7 @@ pub fn main_wrapper<E: Example>(
     let window_builder = winit::WindowBuilder::new()
         .with_title(E::TITLE)
         .with_multitouch()
-        .with_dimensions(E::WIDTH, E::HEIGHT);
+        .with_dimensions(glutin::dpi::LogicalSize::new(E::WIDTH as f64, E::HEIGHT as f64));
     let window = glutin::GlWindow::new(window_builder, context_builder, &events_loop)
         .unwrap();
 
@@ -137,7 +137,7 @@ pub fn main_wrapper<E: Example>(
 
     println!("OpenGL version {}", gl.get_string(gl::VERSION));
     println!("Shader resource path: {:?}", res_path);
-    let device_pixel_ratio = window.hidpi_factor();
+    let device_pixel_ratio = window.get_hidpi_factor() as f32;
     println!("Device pixel ratio: {}", device_pixel_ratio);
 
     println!("Loading shaders...");
@@ -152,8 +152,8 @@ pub fn main_wrapper<E: Example>(
     };
 
     let framebuffer_size = {
-        let (width, height) = window.get_inner_size().unwrap();
-        DeviceUintSize::new(width, height)
+        let size = window.get_inner_size().unwrap();
+        DeviceUintSize::new(size.width as u32, size.height as u32)
     };
     let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
     let (mut renderer, sender) = webrender::Renderer::new(gl.clone(), notifier, opts).unwrap();

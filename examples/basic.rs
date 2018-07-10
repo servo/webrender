@@ -94,10 +94,10 @@ impl TouchState {
                     touch.id,
                     Touch {
                         id: touch.id,
-                        start_x: touch.location.0 as f32,
-                        start_y: touch.location.1 as f32,
-                        current_x: touch.location.0 as f32,
-                        current_y: touch.location.1 as f32,
+                        start_x: touch.location.x as f32,
+                        start_y: touch.location.y as f32,
+                        current_x: touch.location.x as f32,
+                        current_y: touch.location.y as f32,
                     },
                 );
                 self.current_gesture = Gesture::None;
@@ -105,8 +105,8 @@ impl TouchState {
             TouchPhase::Moved => {
                 match self.active_touches.get_mut(&touch.id) {
                     Some(active_touch) => {
-                        active_touch.current_x = touch.location.0 as f32;
-                        active_touch.current_y = touch.location.1 as f32;
+                        active_touch.current_x = touch.location.x as f32;
+                        active_touch.current_y = touch.location.y as f32;
                     }
                     None => panic!("move touch event with unknown touch id!"),
                 }
