@@ -2047,19 +2047,39 @@ impl PrimitiveStore {
             }
 
             let local_clips = frame_state.clip_store.get_opt(&clip_item.clip_sources).expect("bug");
+            rect_clips_only = rect_clips_only && local_clips.only_rectangular_clips;
+
+            // TODO(gw): We can easily extend the segment builder to support these clip sources in
+            // the future, but they are rarely used.
+            // We must do this check here in case we continue early below.
+            if local_clips.has_image_or_line_decoration_clip {
+                clip_mask_kind = BrushClipMaskKind::Global;
+            }
+
+            // If this clip item is positioned by another positioning node, its relative position
+            // could change during scrolling. This means that we would need to resegment. Instead
+            // of doing that, only segment with clips that have the same positioning node.
+            // TODO(mrobinson, #2858): It may make sense to include these nodes, resegmenting only
+            // when necessary while scrolling.
+            if clip_item.transform_index != prim_run_context.transform_index {
+                // We don't need to generate a global clip mask for rectangle clips because we are
+                // in the same coordinate system and rectangular clips are handled by the local
+                // clip chain rectangle.
+                if !local_clips.only_rectangular_clips {
+                    clip_mask_kind = BrushClipMaskKind::Global;
+                }
+                continue;
+            }
+
             for &(ref clip, _) in &local_clips.clips {
                 let (local_clip_rect, radius, mode) = match *clip {
                     ClipSource::RoundedRectangle(rect, radii, clip_mode) => {
-                        rect_clips_only = false;
-
                         (rect, Some(radii), clip_mode)
                     }
                     ClipSource::Rectangle(rect, mode) => {
                         (rect, None, mode)
                     }
                     ClipSource::BoxShadow(ref info) => {
-                        rect_clips_only = false;
-
                         // For inset box shadows, we can clip out any
                         // pixels that are inside the shadow region
                         // and are beyond the inner rect, as they can't
@@ -2084,16 +2104,7 @@ impl PrimitiveStore {
 
                         continue;
                     }
-                    ClipSource::LineDecoration(..) |
-                    ClipSource::Image(..) => {
-                        rect_clips_only = false;
-
-                        // TODO(gw): We can easily extend the segment builder
-                        //           to support these clip sources in the
-                        //           future, but they are rarely used.
-                        clip_mask_kind = BrushClipMaskKind::Global;
-                        continue;
-                    }
+                    ClipSource::LineDecoration(..) | ClipSource::Image(..) => continue,
                 };
 
                 // If the scroll node transforms are different between the clip
