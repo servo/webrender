@@ -679,7 +679,7 @@ impl AlphaBatchBuilder {
                                 prim_index.0,
                             );
 
-                            splitter.add(polygon);
+                            splitter.add(polygon.expect("Should be a valid polygon"));
 
                             return;
                         }
@@ -1696,7 +1696,7 @@ fn make_polygon(
     rect: LayoutRect,
     transform: &LayoutToWorldTransform,
     anchor: usize,
-) -> Polygon<f64, WorldPixel> {
+) -> Option<Polygon<f64, WorldPixel>> {
     let mat = TypedTransform3D::row_major(
         transform.m11 as f64,
         transform.m12 as f64,
@@ -1714,7 +1714,7 @@ fn make_polygon(
         transform.m42 as f64,
         transform.m43 as f64,
         transform.m44 as f64);
-    Polygon::from_transformed_rect(rect.cast().unwrap(), mat, anchor)
+    Polygon::from_transformed_rect(rect.cast(), mat, anchor)
 }
 
 /// Batcher managing draw calls into the clip mask (in the RT cache).

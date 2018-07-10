@@ -5,7 +5,7 @@ authors = ["Simon Sapin <simon.sapin@exyr.org>"]
 license = "MPL-2.0"
 
 [target.'cfg(windows)'.dependencies]
-euclid = "0.17"
+euclid = "0.18"
 gleam = "0.5"
 mozangle = {version = "0.1", features = ["egl"]}
 webrender = {path = "../webrender"}
