@@ -12,6 +12,7 @@ extern crate winit;
 use app_units::Au;
 use gleam::gl;
 use glutin::GlContext;
+use glutin::dpi::LogicalSize;
 use std::fs::File;
 use std::io::Read;
 use webrender::api::*;
@@ -70,7 +71,7 @@ impl Window {
         let window_builder = winit::WindowBuilder::new()
             .with_title(name)
             .with_multitouch()
-            .with_dimensions(800, 600);
+            .with_dimensions(LogicalSize::new(800., 600.));
         let window = glutin::GlWindow::new(window_builder, context_builder, &events_loop)
             .unwrap();
 
@@ -88,7 +89,7 @@ impl Window {
             glutin::Api::WebGl => unimplemented!(),
         };
 
-        let device_pixel_ratio = window.hidpi_factor();
+        let device_pixel_ratio = window.get_hidpi_factor() as f32;
 
         let opts = webrender::RendererOptions {
             device_pixel_ratio,
@@ -97,8 +98,8 @@ impl Window {
         };
 
         let framebuffer_size = {
-            let (width, height) = window.get_inner_size().unwrap();
-            DeviceUintSize::new(width, height)
+            let glutin::dpi::LogicalSize{width, height} = window.get_inner_size().unwrap();
+            DeviceUintSize::new(width as u32, height as u32)
         };
         let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
         let (renderer, sender) = webrender::Renderer::new(gl.clone(), notifier, opts).unwrap();
@@ -171,10 +172,10 @@ impl Window {
         }
 
         let framebuffer_size = {
-            let (width, height) = self.window.get_inner_size().unwrap();
-            DeviceUintSize::new(width, height)
+            let glutin::dpi::LogicalSize {width, height} = self.window.get_inner_size().unwrap();
+            DeviceUintSize::new(width as u32, height as u32)
         };
-        let device_pixel_ratio = self.window.hidpi_factor();
+        let device_pixel_ratio = self.window.get_hidpi_factor() as f32;
         let layout_size = framebuffer_size.to_f32() / euclid::TypedScale::new(device_pixel_ratio);
         let mut txn = Transaction::new();
         let mut builder = DisplayListBuilder::new(self.pipeline_id, layout_size);
