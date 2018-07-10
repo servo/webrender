@@ -184,10 +184,10 @@ impl WindowWrapper {
     fn get_inner_size(&self) -> DeviceUintSize {
         //HACK: `winit` needs to figure out its hidpi story...
         #[cfg(target_os = "macos")]
-        fn inner_size(window: &winit::Window) -> (u32, u32) {
-            let (w, h) = window.get_inner_size().unwrap();
+        fn inner_size(window: &winit::Window) -> LogicalSize {
+            let LogicalSize { width, height } = window.get_inner_size().unwrap();
             let factor = window.get_hidpi_factor();
-            ((w as f32 * factor) as _, (h as f32 * factor) as _)
+            LogicalSize::new(width * factor, height * factor)
         }
         #[cfg(not(target_os = "macos"))]
         fn inner_size(window: &winit::Window) -> LogicalSize {
@@ -211,8 +211,12 @@ impl WindowWrapper {
 
     fn resize(&mut self, size: DeviceUintSize) {
         match *self {
-            WindowWrapper::Window(ref mut window, _) => window.set_inner_size(LogicalSize::new(size.width as f64, size.height as f64)),
-            WindowWrapper::Angle(ref mut window, ..) => window.set_inner_size(LogicalSize::new(size.width as f64, size.height as f64)),
+            WindowWrapper::Window(ref mut window, _) => {
+                window.set_inner_size(LogicalSize::new(size.width as f64, size.height as f64))
+            },
+            WindowWrapper::Angle(ref mut window, ..) => {
+                window.set_inner_size(LogicalSize::new(size.width as f64, size.height as f64))
+            },
             WindowWrapper::Headless(_, _) => unimplemented!(), // requites Glutin update
         }
     }
@@ -584,7 +588,7 @@ fn render<'a>(
                 winit::WindowEvent::Focused(..) => {
                     do_render = true;
                 }
-                winit::WindowEvent::CursorMoved { position: LogicalPosition{x, y}, .. } => {
+                winit::WindowEvent::CursorMoved { position: LogicalPosition { x, y }, .. } => {
                     cursor_position = WorldPoint::new(x as f32, y as f32);
                     do_render = true;
                 }

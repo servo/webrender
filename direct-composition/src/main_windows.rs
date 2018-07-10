@@ -5,6 +5,7 @@
 extern crate direct_composition;
 extern crate euclid;
 extern crate gleam;
+extern crate glutin;
 extern crate webrender;
 extern crate winit;
 
@@ -12,6 +13,7 @@ use direct_composition::DirectComposition;
 use std::sync::mpsc;
 use webrender::api;
 use winit::os::windows::WindowExt;
+use glutin::dpi::LogicalSize;
 
 fn main() {
     let mut events_loop = winit::EventsLoop::new();
@@ -21,12 +23,12 @@ fn main() {
 
     let window = winit::WindowBuilder::new()
         .with_title("WebRender + ANGLE + DirectComposition")
-        .with_dimensions(1024, 768)
+        .with_dimensions(LogicalSize::new(1024., 768.))
         .build(&events_loop)
         .unwrap();
 
     let composition = direct_composition_from_window(&window);
-    let factor = window.hidpi_factor();
+    let factor = window.get_hidpi_factor() as f32;
 
     let mut clicks: usize = 0;
     let mut offset_y = 100.;
@@ -55,7 +57,7 @@ fn main() {
                 winit::WindowEvent::MouseWheel { delta, .. } => {
                     let dy = match delta {
                         winit::MouseScrollDelta::LineDelta(_, dy) => dy,
-                        winit::MouseScrollDelta::PixelDelta(_, dy) => dy,
+                        winit::MouseScrollDelta::PixelDelta(pos) => pos.y as f32,
                     };
                     offset_y = (offset_y - 10. * dy).max(0.).min(468.);
 

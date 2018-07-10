@@ -98,7 +98,7 @@ impl Window {
         };
 
         let framebuffer_size = {
-            let LogicalSize{width, height} = window.get_inner_size().unwrap();
+            let LogicalSize { width, height } = window.get_inner_size().unwrap();
             DeviceUintSize::new(width as u32, height as u32)
         };
         let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
@@ -172,7 +172,7 @@ impl Window {
         }
 
         let framebuffer_size = {
-            let LogicalSize {width, height} = self.window.get_inner_size().unwrap();
+            let LogicalSize { width, height } = self.window.get_inner_size().unwrap();
             DeviceUintSize::new(width as u32, height as u32)
         };
         let device_pixel_ratio = self.window.get_hidpi_factor() as f32;

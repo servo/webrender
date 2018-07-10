@@ -165,7 +165,7 @@ impl Example for App {
                     self.cursor_position,
                 );
             }
-            winit::WindowEvent::CursorMoved { position: LogicalPosition{x, y}, .. } => {
+            winit::WindowEvent::CursorMoved { position: LogicalPosition { x, y }, .. } => {
                 self.cursor_position = WorldPoint::new(x as f32, y as f32);
             }
             winit::WindowEvent::MouseWheel { delta, .. } => {
