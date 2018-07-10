@@ -2241,7 +2241,11 @@ impl Renderer {
         &mut self,
         framebuffer_size: DeviceUintSize,
     ) -> Result<RendererStats, Vec<RendererError>> {
-        self.render_impl(Some(framebuffer_size))
+        let mut current_program = [0_i32];
+        unsafe { self.device.gl().get_integer_v(gl::CURRENT_PROGRAM, &mut current_program) };
+        let result = self.render_impl(Some(framebuffer_size));
+        self.device.gl().use_program(current_program[0] as u32);
+        result
     }
 
     // If framebuffer_size is None, don't render
