@@ -12,7 +12,7 @@ extern crate winit;
 use direct_composition::DirectComposition;
 use std::sync::mpsc;
 use webrender::api;
-use winit::os::windows::WindowExt;
+use winit::os::windows::{WindowExt, WindowBuilderExt};
 use glutin::dpi::LogicalSize;
 
 fn main() {
@@ -24,6 +24,9 @@ fn main() {
     let window = winit::WindowBuilder::new()
         .with_title("WebRender + ANGLE + DirectComposition")
         .with_dimensions(LogicalSize::new(1024., 768.))
+        .with_decorations(true)
+        .with_transparency(true)
+        .with_no_redirection_bitmap(true)
         .build(&events_loop)
         .unwrap();
 
