@@ -181,7 +181,7 @@ pub trait BlobImageResources {
 }
 
 /// A handler on the render backend that can create rasterizer objects which will
-/// be sent to the scene builder thread to execute teh rasterization.
+/// be sent to the scene builder thread to execute the rasterization.
 ///
 /// The handler is responsible for collecting resources, managing/updating blob commands
 /// and creating the rasterizer objects, but isn't expected to do any rasterization itself.

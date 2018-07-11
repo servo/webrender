@@ -1248,13 +1248,13 @@ impl RenderBackend {
 fn get_blob_image_updates(updates: &[ResourceUpdate]) -> Vec<ImageKey> {
     let mut requests = Vec::new();
     for update in updates {
-        match update {
-            &ResourceUpdate::AddImage(ref img) => {
+        match *update {
+            ResourceUpdate::AddImage(ref img) => {
                 if img.data.is_blob() {
                     requests.push(img.key);
                 }
             }
-            &ResourceUpdate::UpdateImage(ref img) => {
+            ResourceUpdate::UpdateImage(ref img) => {
                 if img.data.is_blob() {
                     requests.push(img.key);
                 }

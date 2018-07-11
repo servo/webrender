@@ -102,7 +102,7 @@ struct RasterizedBlobImage {
 }
 
 /// Pre scene building state.
-/// We use this to generate the async bob rendering requests.
+/// We use this to generate the async blob rendering requests.
 struct BlobImageTemplate {
     descriptor: ImageDescriptor,
     tiling: Option<TileSize>,
@@ -755,10 +755,9 @@ impl ResourceCache {
 
         self.blob_image_handler.as_mut().unwrap().update(key, data, *dirty_rect);
 
-        let image = match self.blob_image_templates.get_mut(&key) {
-            Some(res) => res,
-            None => panic!("Attempt to update non-existent blob image"),
-        };
+        let image = self.blob_image_templates
+            .get_mut(&key)
+            .expect("Attempt to update non-existent blob image");
 
         let mut tiling = image.tiling;
         if tiling.is_none() &&
@@ -1086,10 +1085,10 @@ impl ResourceCache {
             tile_size,
         );
         image.data.retain(|tile, _| {
-            match tile {
-                &Some(offset) => tile_range.contains(&offset),
+            match *tile {
+                Some(offset) => tile_range.contains(&offset),
                 // This would be a bug. If we get here the blob should be tiled.
-                &None => false,
+                None => false,
             }
         });
     }

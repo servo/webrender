@@ -150,12 +150,10 @@ impl SceneBuilder {
                     build_scene(&self.config, request)
                 });
 
-                let rasterized_blobs = match blob_rasterizer {
-                    Some(ref mut rasterizer) => {
-                        rasterizer.rasterize(&blob_requests)
-                    },
-                    None => Vec::new(),
-                };
+                let rasterized_blobs = blob_rasterizer.as_mut().map_or(
+                    Vec::new(),
+                    |rasterizer| rasterizer.rasterize(&blob_requests),
+                );
 
                 // We only need the pipeline info and the result channel if we
                 // have a hook callback *and* if this transaction actually built
