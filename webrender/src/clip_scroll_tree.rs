@@ -6,13 +6,14 @@ use api::{DeviceIntRect, DevicePixelScale, ExternalScrollId, LayoutPoint, Layout
 use api::{PipelineId, ScrollClamping, ScrollLocation, ScrollNodeState};
 use api::{LayoutSize, LayoutTransform, PropertyBinding, ScrollSensitivity, WorldPoint};
 use clip::{ClipChain, ClipSourcesHandle, ClipStore};
-use clip_scroll_node::{ClipNode, ScrollFrameInfo, SpatialNode, SpatialNodeType, StickyFrameInfo};
+use clip_node::ClipNode;
 use gpu_cache::GpuCache;
 use gpu_types::{TransformIndex, TransformPalette};
 use internal_types::{FastHashMap, FastHashSet};
 use print_tree::{PrintTree, PrintTreePrinter};
 use resource_cache::ResourceCache;
 use scene::SceneProperties;
+use spatial_node::{ScrollFrameInfo, SpatialNode, SpatialNodeType, StickyFrameInfo};
 use util::{LayoutFastTransform, LayoutToWorldFastTransform};
 
 pub type ScrollStates = FastHashMap<ExternalScrollId, ScrollFrameInfo>;

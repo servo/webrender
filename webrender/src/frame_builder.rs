@@ -6,7 +6,6 @@ use api::{BuiltDisplayList, ColorF, DeviceIntPoint, DeviceIntRect, DevicePixelSc
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentLayer, FontRenderMode};
 use api::{LayoutPoint, LayoutRect, LayoutSize, PipelineId, WorldPoint};
 use clip::{ClipChain, ClipStore};
-use clip_scroll_node::{SpatialNode};
 use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
 use display_list_flattener::{DisplayListFlattener};
 use gpu_cache::GpuCache;
@@ -20,6 +19,7 @@ use render_backend::FrameId;
 use render_task::{RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree};
 use resource_cache::{ResourceCache};
 use scene::{ScenePipeline, SceneProperties};
+use spatial_node::SpatialNode;
 use std::{mem, f32};
 use std::sync::Arc;
 use tiling::{Frame, RenderPass, RenderPassKind, RenderTargetContext};
@@ -198,11 +198,11 @@ impl FrameBuilder {
         }
 
         // The root picture is always the first one added.
-        let root_clip_scroll_node =
+        let root_spatial_node =
             &clip_scroll_tree.spatial_nodes[clip_scroll_tree.root_reference_frame_index().0];
 
         let display_list = &pipelines
-            .get(&root_clip_scroll_node.pipeline_id)
+            .get(&root_spatial_node.pipeline_id)
             .expect("No display list?")
             .display_list;
 
@@ -232,7 +232,7 @@ impl FrameBuilder {
         };
 
         let pic_context = PictureContext {
-            pipeline_id: root_clip_scroll_node.pipeline_id,
+            pipeline_id: root_spatial_node.pipeline_id,
             prim_runs: mem::replace(&mut self.prim_store.pictures[0].runs, Vec::new()),
             original_reference_frame_index: None,
             display_list,

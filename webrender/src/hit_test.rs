@@ -5,7 +5,7 @@
 use api::{BorderRadius, ClipMode, HitTestFlags, HitTestItem, HitTestResult, ItemTag, LayoutPoint};
 use api::{LayoutPrimitiveInfo, LayoutRect, PipelineId, WorldPoint};
 use clip::{ClipSource, ClipStore, rounded_rectangle_contains_point};
-use clip_scroll_node::ClipNode;
+use clip_node::ClipNode;
 use clip_scroll_tree::{ClipChainIndex, ClipNodeIndex, SpatialNodeIndex, ClipScrollTree};
 use internal_types::FastHashMap;
 use prim_store::ScrollNodeAndClipChain;
