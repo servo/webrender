@@ -6,7 +6,7 @@ use api::{DeviceRect, FilterOp, MixBlendMode, PipelineId, PremultipliedColorF};
 use api::{DeviceIntRect, DeviceIntSize, DevicePoint, LayoutPoint, LayoutRect};
 use api::{DevicePixelScale, PictureIntPoint, PictureIntRect, PictureIntSize};
 use box_shadow::{BLUR_SAMPLE_SCALE};
-use clip_scroll_node::SpatialNode;
+use spatial_node::SpatialNode;
 use clip_scroll_tree::SpatialNodeIndex;
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState, PrimitiveRunContext};
 use gpu_cache::{GpuCacheHandle};
@@ -590,18 +590,18 @@ impl PicturePrimitive {
 // Calculate a single screen-space UV for a picture.
 fn calculate_screen_uv(
     local_pos: &LayoutPoint,
-    clip_scroll_node: &SpatialNode,
+    spatial_node: &SpatialNode,
     rendered_rect: &DeviceRect,
     device_pixel_scale: DevicePixelScale,
 ) -> DevicePoint {
-    let world_pos = clip_scroll_node
+    let world_pos = spatial_node
         .world_content_transform
         .transform_point2d(local_pos);
 
     let mut device_pos = world_pos * device_pixel_scale;
 
     // Apply snapping for axis-aligned scroll nodes, as per prim_shared.glsl.
-    if clip_scroll_node.transform_kind == TransformedRectKind::AxisAligned {
+    if spatial_node.transform_kind == TransformedRectKind::AxisAligned {
         device_pos.x = (device_pos.x + 0.5).floor();
         device_pos.y = (device_pos.y + 0.5).floor();
     }
@@ -616,7 +616,7 @@ fn calculate_screen_uv(
 // vertex positions of a picture.
 fn calculate_uv_rect_kind(
     local_rect: &LayoutRect,
-    clip_scroll_node: &SpatialNode,
+    spatial_node: &SpatialNode,
     rendered_rect: &DeviceIntRect,
     device_pixel_scale: DevicePixelScale,
 ) -> UvRectKind {
@@ -624,28 +624,28 @@ fn calculate_uv_rect_kind(
 
     let top_left = calculate_screen_uv(
         &local_rect.origin,
-        clip_scroll_node,
+        spatial_node,
         &rendered_rect,
         device_pixel_scale,
     );
 
     let top_right = calculate_screen_uv(
         &local_rect.top_right(),
-        clip_scroll_node,
+        spatial_node,
         &rendered_rect,
         device_pixel_scale,
     );
 
     let bottom_left = calculate_screen_uv(
         &local_rect.bottom_left(),
-        clip_scroll_node,
+        spatial_node,
         &rendered_rect,
         device_pixel_scale,
     );
 
     let bottom_right = calculate_screen_uv(
         &local_rect.bottom_right(),
-        clip_scroll_node,
+        spatial_node,
         &rendered_rect,
         device_pixel_scale,
     );

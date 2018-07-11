@@ -14,7 +14,6 @@ use api::{PropertyBinding, ReferenceFrame, RepeatMode, ScrollFrameDisplayItem, S
 use api::{Shadow, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect};
 use api::{TransformStyle, YuvColorSpace, YuvData};
 use clip::{ClipRegion, ClipSource, ClipSources, ClipStore};
-use clip_scroll_node::{SpatialNodeType, StickyFrameInfo};
 use clip_scroll_tree::{ClipChainIndex, ClipNodeIndex, ClipScrollTree, SpatialNodeIndex};
 use euclid::vec2;
 use frame_builder::{ChasePrimitive, FrameBuilder, FrameBuilderConfig};
@@ -33,6 +32,7 @@ use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest};
 use scene::{Scene, ScenePipeline, StackingContextHelpers};
 use scene_builder::{BuiltScene, SceneRequest};
+use spatial_node::{SpatialNodeType, StickyFrameInfo};
 use std::{f32, mem, usize};
 use tiling::{CompositeOps, ScrollbarPrimitive};
 use util::{MaxRect, RectHelpers, recycle_vec};
