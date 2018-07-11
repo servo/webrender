@@ -14,6 +14,7 @@ mod boilerplate;
 use boilerplate::{Example, HandyDandyRectBuilder};
 use euclid::SideOffsets2D;
 use webrender::api::*;
+use glutin::dpi::LogicalPosition;
 
 struct App {
     cursor_position: WorldPoint,
@@ -164,14 +165,14 @@ impl Example for App {
                     self.cursor_position,
                 );
             }
-            winit::WindowEvent::CursorMoved { position: (x, y), .. } => {
+            winit::WindowEvent::CursorMoved { position: LogicalPosition { x, y }, .. } => {
                 self.cursor_position = WorldPoint::new(x as f32, y as f32);
             }
             winit::WindowEvent::MouseWheel { delta, .. } => {
                 const LINE_HEIGHT: f32 = 38.0;
                 let (dx, dy) = match delta {
                     winit::MouseScrollDelta::LineDelta(dx, dy) => (dx, dy * LINE_HEIGHT),
-                    winit::MouseScrollDelta::PixelDelta(dx, dy) => (dx, dy),
+                    winit::MouseScrollDelta::PixelDelta(pos) => (pos.x as f32, pos.y as f32),
                 };
 
                 txn.scroll(
