@@ -44,7 +44,7 @@ they're nestable.
 extern crate bitflags;
 #[macro_use]
 extern crate cfg_if;
-#[macro_use]
+#[cfg_attr(target_os = "windows", macro_use)]
 extern crate lazy_static;
 #[macro_use]
 extern crate log;
