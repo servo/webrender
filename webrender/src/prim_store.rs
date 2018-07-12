@@ -33,7 +33,7 @@ use segment::SegmentBuilder;
 use spatial_node::SpatialNode;
 use std::{mem, usize};
 use std::sync::Arc;
-use util::{MatrixHelpers, WorldToLayoutFastTransform, calculate_screen_bounding_rect};
+use util::{MatrixHelpers, calculate_screen_bounding_rect};
 use util::{pack_as_float, recycle_vec};
 
 
@@ -1994,7 +1994,6 @@ impl PrimitiveStore {
         prim_run_context: &PrimitiveRunContext,
         clips: &Vec<ClipWorkItem>,
         has_clips_from_other_coordinate_systems: bool,
-        frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
     ) {
         match brush.segment_desc {
@@ -2107,25 +2106,6 @@ impl PrimitiveStore {
                     ClipSource::LineDecoration(..) | ClipSource::Image(..) => continue,
                 };
 
-                // If the scroll node transforms are different between the clip
-                // node and the primitive, we need to get the clip rect in the
-                // local space of the primitive, in order to generate correct
-                // local segments.
-                let local_clip_rect = if clip_item.transform_index == prim_run_context.transform_index {
-                    local_clip_rect
-                } else {
-                    let clip_transform = frame_context
-                        .transforms[clip_item.transform_index.0 as usize]
-                        .transform;
-                    let prim_transform = &prim_run_context.scroll_node.world_content_transform;
-                    let relative_transform = prim_transform
-                        .inverse()
-                        .unwrap_or(WorldToLayoutFastTransform::identity())
-                        .pre_mul(&clip_transform.into());
-
-                    relative_transform.transform_rect(&local_clip_rect)
-                };
-
                 segment_builder.push_clip_rect(local_clip_rect, radius, mode);
             }
         }
@@ -2192,7 +2172,6 @@ impl PrimitiveStore {
             prim_run_context,
             clips,
             has_clips_from_other_coordinate_systems,
-            frame_context,
             frame_state,
         );
 
