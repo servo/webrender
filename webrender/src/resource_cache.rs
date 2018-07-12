@@ -719,11 +719,7 @@ impl ResourceCache {
         data: Arc<BlobImageData>,
     ) {
         let max_texture_size = self.max_texture_size();
-        if tiling.is_none() &&
-            (descriptor.size.width > max_texture_size ||
-             descriptor.size.height > max_texture_size) {
-            tiling = Some(DEFAULT_TILE_SIZE);
-        }
+        tiling = get_blob_tiling(tiling, descriptor, max_texture_size);
 
         self.blob_image_handler.as_mut().unwrap().add(key, data, tiling);
 
@@ -751,20 +747,15 @@ impl ResourceCache {
         dirty_rect: &Option<DeviceUintRect>,
         data: Arc<BlobImageData>,
     ) {
-        let max_texture_size = self.max_texture_size();
-
         self.blob_image_handler.as_mut().unwrap().update(key, data, *dirty_rect);
+
+        let max_texture_size = self.max_texture_size();
 
         let image = self.blob_image_templates
             .get_mut(&key)
             .expect("Attempt to update non-existent blob image");
 
-        let mut tiling = image.tiling;
-        if tiling.is_none() &&
-            (descriptor.size.width > max_texture_size ||
-             descriptor.size.height > max_texture_size) {
-            tiling = Some(DEFAULT_TILE_SIZE);
-        }
+        let tiling = get_blob_tiling(image.tiling, descriptor, max_texture_size);
 
         *image = BlobImageTemplate {
             descriptor: *descriptor,
@@ -1088,7 +1079,10 @@ impl ResourceCache {
             match *tile {
                 Some(offset) => tile_range.contains(&offset),
                 // This would be a bug. If we get here the blob should be tiled.
-                None => false,
+                None => {
+                    error!("Blob image template and image data tiling don't match.");
+                    false
+                }
             }
         });
     }
@@ -1370,7 +1364,7 @@ impl ResourceCache {
                 }
                 ImageData::Blob(..) => {
                     let blob_image = self.rasterized_blob_images.get(&request.key).unwrap();
-                    match &blob_image.data.get(&request.tile).as_ref() {
+                    match &blob_image.data.get(&request.tile) {
                         &Some(result) => {
                             let result = result
                                 .as_ref()
@@ -1519,6 +1513,21 @@ impl ResourceCache {
         }
     }
 }
+
+pub fn get_blob_tiling(
+    tiling: Option<TileSize>,
+    descriptor: &ImageDescriptor,
+    max_texture_size: u32,
+) -> Option<TileSize> {
+    if tiling.is_none() &&
+        (descriptor.size.width > max_texture_size ||
+         descriptor.size.height > max_texture_size) {
+        return Some(DEFAULT_TILE_SIZE);
+    }
+
+    tiling
+}
+
 
 // Compute the width and height of a tile depending on its position in the image.
 pub fn compute_tile_size(
@@ -1681,7 +1690,7 @@ impl ResourceCache {
                 }
                 ImageData::Blob(_) => {
                     assert_eq!(template.tiling, None);
-                    let blob_request_params = vec![
+                    let blob_request_params = &[
                         BlobImageParams {
                             request: BlobImageRequest {
                                 key,
@@ -1699,9 +1708,9 @@ impl ResourceCache {
                     ];
 
                     let blob_handler = self.blob_image_handler.as_mut().unwrap();
-                    blob_handler.prepare_resources(&self.resources, &blob_request_params);
+                    blob_handler.prepare_resources(&self.resources, blob_request_params);
                     let mut rasterizer = blob_handler.create_blob_rasterizer();
-                    let (_, result) = rasterizer.rasterize(&blob_request_params).pop().unwrap();
+                    let (_, result) = rasterizer.rasterize(blob_request_params).pop().unwrap();
                     let result = result.expect("Blob rasterization failed");
 
                     assert_eq!(result.size, desc.size);

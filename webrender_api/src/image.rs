@@ -186,28 +186,40 @@ pub trait BlobImageResources {
 /// The handler is responsible for collecting resources, managing/updating blob commands
 /// and creating the rasterizer objects, but isn't expected to do any rasterization itself.
 pub trait BlobImageHandler: Send {
+    /// Creates a snapshot of the current state of blob images in the handler.
     fn create_blob_rasterizer(&mut self) -> Box<AsyncBlobImageRasterizer>;
 
+    /// A hook to let the blob image handler update any state related to resources that
+    /// are not bundled in the blob recording itself.
     fn prepare_resources(
         &mut self,
         services: &BlobImageResources,
         requests: &[BlobImageParams],
     );
 
+    /// Register a blob image.
     fn add(&mut self, key: ImageKey, data: Arc<BlobImageData>, tiling: Option<TileSize>);
 
+    /// Update an already registered blob image.
     fn update(&mut self, key: ImageKey, data: Arc<BlobImageData>, dirty_rect: Option<DeviceUintRect>);
 
+    /// Delete am already registered blob image.
     fn delete(&mut self, key: ImageKey);
 
+    /// A hook to let the handler clean up any state related to a font which the resource
+    /// cache is about to delete.
     fn delete_font(&mut self, key: FontKey);
 
+    /// A hook to let the handler clean up any state related to a font instance which the
+    /// resource cache is about to delete.
     fn delete_font_instance(&mut self, key: FontInstanceKey);
 
+    /// A hook to let the handler clean up any state related a given namespace before the
+    /// resource cache deletes them.
     fn clear_namespace(&mut self, namespace: IdNamespace);
 }
 
-// A group of rasterization requests to execute synchronously on the scene builder thread.
+/// A group of rasterization requests to execute synchronously on the scene builder thread.
 pub trait AsyncBlobImageRasterizer : Send {
     fn rasterize(&mut self, requests: &[BlobImageParams]) -> Vec<(BlobImageRequest, BlobImageResult)>;
 }

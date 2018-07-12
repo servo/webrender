@@ -226,7 +226,7 @@ impl Document {
     fn forward_transaction_to_scene_builder(
         &mut self,
         transaction_msg: TransactionMsg,
-        blobs_to_rasterize: Vec<ImageKey>,
+        blobs_to_rasterize: &[ImageKey],
         document_ops: &DocumentOps,
         document_id: DocumentId,
         scene_id: u64,
@@ -254,7 +254,7 @@ impl Document {
         };
 
         let (blob_rasterizer, blob_requests) = resource_cache.create_blob_scene_builder_requests(
-            &blobs_to_rasterize
+            blobs_to_rasterize
         );
 
         scene_tx.send(SceneBuilderRequest::Transaction {
@@ -1012,8 +1012,6 @@ impl RenderBackend {
     ) {
         let mut op = initial_op;
 
-        // We currently don't support rasterizing blob images outside of the
-        // render thread.
         if !blob_requests.is_empty() {
             transaction_msg.use_scene_builder_thread = true;
         }
@@ -1036,7 +1034,7 @@ impl RenderBackend {
 
             doc.forward_transaction_to_scene_builder(
                 transaction_msg,
-                blob_requests,
+                &blob_requests,
                 &op,
                 document_id,
                 scene_id,

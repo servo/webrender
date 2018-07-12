@@ -266,7 +266,13 @@ impl<'a> RawtestHarness<'a> {
         let blob_img1 = self.wrench.api.generate_image_key();
         txn.add_image(
             blob_img1,
-            ImageDescriptor::new(800, 800, ImageFormat::BGRA8, false, false),
+            ImageDescriptor::new(
+                image_size.width as u32,
+                image_size.height as u32,
+                ImageFormat::BGRA8,
+                false,
+                false
+            ),
             ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
             Some(100),
         );
@@ -289,7 +295,13 @@ impl<'a> RawtestHarness<'a> {
         let blob_img2 = self.wrench.api.generate_image_key();
         txn.add_image(
             blob_img2,
-            ImageDescriptor::new(800, 800, ImageFormat::BGRA8, false, false),
+            ImageDescriptor::new(
+                image_size.width as u32,
+                image_size.height as u32,
+                ImageFormat::BGRA8,
+                false,
+                false
+            ),
             ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
             Some(100),
         );
