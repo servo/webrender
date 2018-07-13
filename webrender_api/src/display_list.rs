@@ -11,7 +11,7 @@ use serde::ser::{Serializer, SerializeSeq};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::marker::PhantomData;
-use std::{io, mem, ptr, slice};
+use std::{io, mem, ptr, slice, u32};
 use time::precise_time_ns;
 use {AlphaType, BorderDetails, BorderDisplayItem, BorderRadius, BorderWidths, BoxShadowClipMode};
 use {BoxShadowDisplayItem, ClipAndScrollInfo, ClipChainId, ClipChainItem, ClipDisplayItem, ClipId};
@@ -915,18 +915,36 @@ impl DisplayListBuilder {
         self.save_state.take().expect("No save to clear in DisplayListBuilder");
     }
 
-    pub fn print_display_list(&mut self) {
+    /// Print the display items in the list to stderr. If the start parameter
+    /// is specified, only display items starting at that index (inclusive) will
+    /// be printed. If the end parameter is specified, only display items before
+    /// that index (exclusive) will be printed. Calling this function with
+    /// end <= start is allowed but is just a waste of CPU cycles.
+    /// This function returns the total number of items in the display list, which
+    /// allows the caller to subsequently invoke this function to only dump the
+    /// newly-added items.
+    pub fn print_display_list(
+        &mut self,
+        indent: usize,
+        start: Option<u32>,
+        end: Option<u32>,
+    ) -> u32 {
         let mut temp = BuiltDisplayList::default();
         mem::swap(&mut temp.data, &mut self.data);
 
+        let mut index: u32 = 0;
         {
             let mut iter = BuiltDisplayListIter::new(&temp);
             while let Some(item) = iter.next_raw() {
-                println!("{:?}", item.display_item());
+                if index >= start.unwrap_or(0) && index < end.unwrap_or(u32::MAX) {
+                    eprintln!("{}{:?}", "  ".repeat(indent), item.display_item());
+                }
+                index = index + 1;
             }
         }
 
         self.data = temp.data;
+        index
     }
 
     fn push_item(&mut self, item: SpecificDisplayItem, info: &LayoutPrimitiveInfo) {
