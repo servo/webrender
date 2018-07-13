@@ -236,14 +236,14 @@ pub fn compute_tile_range(
     let th = (image_size.height as f32) / (tile_size as f32);
 
     let t0 = point2(
-        f32::floor(visible_area.origin.x * tw) as u16,
-        f32::floor(visible_area.origin.y * th) as u16,
-    );
+        f32::floor(visible_area.origin.x * tw),
+        f32::floor(visible_area.origin.y * th),
+    ).cast::<u16>().unwrap();
 
     let t1 = point2(
-        f32::ceil(visible_area.max_x() * tw) as u16,
-        f32::ceil(visible_area.max_y() * th) as u16,
-    );
+        f32::ceil(visible_area.max_x() * tw),
+        f32::ceil(visible_area.max_y() * th),
+    ).cast::<u16>().unwrap();
 
     TileRange {
         origin: t0,

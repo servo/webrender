@@ -971,9 +971,7 @@ impl ResourceCache {
                         tile_size,
                     );
 
-                    if let Some(range) = tiles.intersection(&dirty_tiles) {
-                        tiles = range;
-                    }
+                    tiles = tiles.intersection(&dirty_tiles).unwrap_or(TileRange::zero());
                 }
 
                 // This code tries to keep things sane if Gecko sends
@@ -1333,13 +1331,10 @@ impl ResourceCache {
             return;
         }
 
-        {
-            let handler = self.blob_image_handler.as_mut().unwrap();
-            handler.prepare_resources(&self.resources, &self.missing_blob_images);
-            if self.blob_image_rasterizer.is_none() {
-                self.blob_image_rasterizer = Some(handler.create_blob_rasterizer());
-            }
-        }
+        self.blob_image_handler
+            .as_mut()
+            .unwrap()
+            .prepare_resources(&self.resources, &self.missing_blob_images);
 
         let rasterized_blobs = self.blob_image_rasterizer
             .as_mut()
@@ -1364,8 +1359,8 @@ impl ResourceCache {
                 }
                 ImageData::Blob(..) => {
                     let blob_image = self.rasterized_blob_images.get(&request.key).unwrap();
-                    match &blob_image.data.get(&request.tile) {
-                        &Some(result) => {
+                    match blob_image.data.get(&request.tile) {
+                        Some(result) => {
                             let result = result
                                 .as_ref()
                                 .expect("Failed to render a blob image");
@@ -1374,7 +1369,7 @@ impl ResourceCache {
 
                             ImageData::Raw(Arc::clone(&result.data))
                         }
-                        &None => {
+                        None => {
                             debug_assert!(false, "invalid blob image request during frame building");
                             continue;
                         }

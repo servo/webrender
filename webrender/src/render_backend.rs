@@ -773,7 +773,7 @@ impl RenderBackend {
                             self.update_document(
                                 document_id,
                                 transaction_msg,
-                                Vec::new(),
+                                &[],
                                 &mut frame_counter,
                                 &mut profile_counters,
                                 ops,
@@ -988,7 +988,7 @@ impl RenderBackend {
                 self.update_document(
                     document_id,
                     doc_msgs,
-                    blob_requests,
+                    &blob_requests,
                     frame_counter,
                     profile_counters,
                     DocumentOps::nop(),
@@ -1004,7 +1004,7 @@ impl RenderBackend {
         &mut self,
         document_id: DocumentId,
         mut transaction_msg: TransactionMsg,
-        blob_requests: Vec<ImageKey>,
+        blob_requests: &[ImageKey],
         frame_counter: &mut u32,
         profile_counters: &mut BackendProfileCounters,
         initial_op: DocumentOps,
@@ -1034,7 +1034,7 @@ impl RenderBackend {
 
             doc.forward_transaction_to_scene_builder(
                 transaction_msg,
-                &blob_requests,
+                blob_requests,
                 &op,
                 document_id,
                 scene_id,

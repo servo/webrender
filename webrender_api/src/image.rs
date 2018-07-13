@@ -203,7 +203,7 @@ pub trait BlobImageHandler: Send {
     /// Update an already registered blob image.
     fn update(&mut self, key: ImageKey, data: Arc<BlobImageData>, dirty_rect: Option<DeviceUintRect>);
 
-    /// Delete am already registered blob image.
+    /// Delete an already registered blob image.
     fn delete(&mut self, key: ImageKey);
 
     /// A hook to let the handler clean up any state related to a font which the resource
