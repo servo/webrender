@@ -8,7 +8,7 @@ use api::{LayoutSize, LayoutTransform, PropertyBinding, ScrollSensitivity, World
 use clip::{ClipChain, ClipSourcesHandle, ClipStore};
 use clip_node::ClipNode;
 use gpu_cache::GpuCache;
-use gpu_types::{TransformIndex, TransformPalette};
+use gpu_types::TransformPalette;
 use internal_types::{FastHashMap, FastHashSet};
 use print_tree::{PrintTree, PrintTreePrinter};
 use resource_cache::ResourceCache;
@@ -28,16 +28,12 @@ pub type ScrollStates = FastHashMap<ExternalScrollId, ScrollFrameInfo>;
 pub struct CoordinateSystemId(pub u32);
 
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct SpatialNodeIndex(pub usize);
 
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
 pub struct ClipNodeIndex(pub usize);
-
-impl SpatialNodeIndex {
-    pub fn transform_index(&self) -> TransformIndex {
-        TransformIndex(self.0 as u32)
-    }
-}
 
 const ROOT_REFERENCE_FRAME_INDEX: SpatialNodeIndex = SpatialNodeIndex(0);
 const TOPMOST_SCROLL_NODE_INDEX: SpatialNodeIndex = SpatialNodeIndex(1);

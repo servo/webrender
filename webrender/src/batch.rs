@@ -475,8 +475,9 @@ impl AlphaBatchBuilder {
 
         // Add each run in this picture to the batch.
         for run in &pic.runs {
-            let transform_id =
-                ctx.transforms.get_id(run.clip_and_scroll.scroll_node_id.transform_index());
+            let transform_id = ctx
+                .transforms
+                .get_id(run.clip_and_scroll.scroll_node_id);
             self.add_run_to_batch(
                 run,
                 transform_id,
@@ -1770,7 +1771,7 @@ impl ClipBatcher {
         for work_item in clips.iter() {
             let instance = ClipMaskInstance {
                 render_task_address: task_address,
-                transform_id: transforms.get_id(work_item.transform_index),
+                transform_id: transforms.get_id(work_item.spatial_node_index),
                 segment: 0,
                 clip_data_address: GpuCacheAddress::invalid(),
                 resource_address: GpuCacheAddress::invalid(),

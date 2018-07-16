@@ -4,6 +4,7 @@
 
 use api::{DevicePoint, DeviceSize, DeviceRect, LayoutRect, LayoutToWorldTransform};
 use api::{PremultipliedColorF, WorldToLayoutTransform};
+use clip_scroll_tree::SpatialNodeIndex;
 use gpu_cache::{GpuCacheAddress, GpuDataRequest};
 use prim_store::{EdgeAaSegmentMask};
 use render_task::RenderTaskAddress;
@@ -399,11 +400,6 @@ pub struct TransformPalette {
     metadata: Vec<TransformMetadata>,
 }
 
-#[derive(Copy, Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct TransformIndex(pub u32);
-
 impl TransformPalette {
     pub fn new(spatial_node_count: usize) -> TransformPalette {
         TransformPalette {
@@ -416,7 +412,7 @@ impl TransformPalette {
     // node in the transform palette.
     pub fn set(
         &mut self,
-        index: TransformIndex,
+        index: SpatialNodeIndex,
         data: TransformData,
     ) {
         let index = index.0 as usize;
@@ -443,9 +439,15 @@ impl TransformPalette {
     // TODO(gw): In the future, it will be possible to specify
     //           a coordinate system id here, to allow retrieving
     //           transforms in the local space of a given spatial node.
-    pub fn get_id(&self, index: TransformIndex) -> TransformPaletteId {
+    pub fn get_id(
+        &self,
+        index: SpatialNodeIndex,
+    ) -> TransformPaletteId {
         let transform_kind = self.metadata[index.0 as usize].transform_kind as u32;
-        TransformPaletteId(index.0 | (transform_kind << 24))
+        TransformPaletteId(
+            (index.0 as u32) |
+            (transform_kind << 24)
+        )
     }
 }
 
