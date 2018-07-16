@@ -1083,7 +1083,7 @@ impl AlphaBatchBuilder {
 
                 ctx.resource_cache.fetch_glyphs(
                     text_cpu.used_font.clone(),
-                    &text_cpu.glyph_keys,
+                    &text_cpu.visible_keys,
                     glyph_fetch_buffer,
                     gpu_cache,
                     |texture_id, mut glyph_format, glyphs| {

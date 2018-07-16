@@ -211,12 +211,7 @@ impl EvictionNotice {
     }
 
     pub fn check(&self) -> bool {
-        if self.evicted.get() {
-            self.evicted.set(false);
-            true
-        } else {
-            false
-        }
+        self.evicted.replace(false)
     }
 }
 

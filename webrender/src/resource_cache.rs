@@ -882,6 +882,9 @@ impl ResourceCache {
         F: FnMut(SourceTexture, GlyphFormat, &[GlyphFetchResult]),
     {
         debug_assert_eq!(self.state, State::QueryResources);
+        if glyph_keys.is_empty() {
+            return
+        }
 
         self.glyph_rasterizer.prepare_font(&mut font);
         let glyph_key_cache = self.cached_glyphs.get_glyph_key_cache_for_font(&font);
