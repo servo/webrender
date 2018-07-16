@@ -33,9 +33,7 @@ pub struct FontContext {
     fonts: FastHashMap<FontKey, dwrote::FontFace>,
     simulations: FastHashMap<(FontKey, dwrote::DWRITE_FONT_SIMULATIONS), dwrote::FontFace>,
     #[cfg(not(feature = "pathfinder"))]
-    gamma_lut: GammaLut,
-    #[cfg(not(feature = "pathfinder"))]
-    gdi_gamma_lut: GammaLut,
+    gamma_luts: FastHashMap<(u16, u16), GammaLut>,
 }
 
 // DirectWrite is safe to use on multiple threads and non-shareable resources are
@@ -104,19 +102,13 @@ impl FontContext {
         // TODO: Fetch this data from Gecko itself.
         cfg_if! {
             if #[cfg(not(feature = "pathfinder"))] {
-                const CONTRAST: f32 = 1.0;
-                const GAMMA: f32 = 1.8;
-                const GDI_GAMMA: f32 = 2.3;
+                const GDI_GAMMA: u16 = 230;
             }
         }
 
         Ok(FontContext {
             fonts: FastHashMap::default(),
             simulations: FastHashMap::default(),
-            #[cfg(not(feature = "pathfinder"))]
-            gamma_lut: GammaLut::new(CONTRAST, GAMMA, GAMMA),
-            #[cfg(not(feature = "pathfinder"))]
-            gdi_gamma_lut: GammaLut::new(CONTRAST, GDI_GAMMA, GDI_GAMMA),
         })
     }
 
@@ -432,17 +424,26 @@ impl FontContext {
         let pixels = analysis.create_alpha_texture(texture_type, bounds);
         let mut bgra_pixels = self.convert_to_bgra(&pixels, font.render_mode, bitmaps);
 
-        let lut_correction = match font.render_mode {
-            FontRenderMode::Mono => &self.gdi_gamma_lut,
+        let FontInstancePlatformOptions { gamma, contrast, .. } = font.platform_options.unwrap_or_default();
+        let gdi_gamma = match font.render_mode {
+            FontRenderMode::Mono => GDI_GAMMA,
             FontRenderMode::Alpha | FontRenderMode::Subpixel => {
                 if bitmaps || font.flags.contains(FontInstanceFlags::FORCE_GDI) {
-                    &self.gdi_gamma_lut
+                    GDI_GAMMA
                 } else {
-                    &self.gamma_lut
+                    gamma
                 }
             }
         };
-        lut_correction.preblend(&mut bgra_pixels, font.color);
+        let gamma_lut = self.gamma_luts
+            .entry((gdi_gamma, contrast))
+            .or_insert_with(||
+                GammaLut::new(
+                    contrast as f32 / 100.0,
+                    gdi_gamma as f32 / 100.0,
+                    gdi_gamma as f32 / 100.0,
+                ));
+        gamma_lut.preblend(&mut bgra_pixels, font.color);
 
         GlyphRasterResult::Bitmap(RasterizedGlyph {
             left: bounds.left as f32,
