@@ -8,7 +8,7 @@ use api::{LayoutVector2D, PipelineId, PropertyBinding, ScrollClamping, ScrollLoc
 use api::{ScrollSensitivity, StickyOffsetBounds};
 use clip_scroll_tree::{CoordinateSystemId, SpatialNodeIndex, TransformUpdateState};
 use euclid::SideOffsets2D;
-use gpu_types::{TransformData, TransformIndex, TransformPalette};
+use gpu_types::{TransformData, TransformPalette};
 use scene::SceneProperties;
 use util::{LayoutFastTransform, LayoutToWorldFastTransform, TransformedRectKind};
 
@@ -221,16 +221,15 @@ impl SpatialNode {
         transform_palette: &mut TransformPalette,
         node_index: SpatialNodeIndex,
     ) {
-        let transform_index = TransformIndex(node_index.0 as u32);
         if !self.invertible {
-            transform_palette.set(transform_index, TransformData::invalid());
+            transform_palette.set(node_index, TransformData::invalid());
             return;
         }
 
         let inv_transform = match self.world_content_transform.inverse() {
             Some(inverted) => inverted.to_transform(),
             None => {
-                transform_palette.set(transform_index, TransformData::invalid());
+                transform_palette.set(node_index, TransformData::invalid());
                 return;
             }
         };
@@ -241,7 +240,7 @@ impl SpatialNode {
         };
 
         // Write the data that will be made available to the GPU for this node.
-        transform_palette.set(transform_index, data);
+        transform_palette.set(node_index, data);
     }
 
     pub fn update(

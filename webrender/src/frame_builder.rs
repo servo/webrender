@@ -9,7 +9,7 @@ use clip::{ClipChain, ClipStore};
 use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
 use display_list_flattener::{DisplayListFlattener};
 use gpu_cache::GpuCache;
-use gpu_types::{PrimitiveHeaders, TransformData, TransformIndex, UvRectKind};
+use gpu_types::{PrimitiveHeaders, TransformData, UvRectKind};
 use hit_test::{HitTester, HitTestingRun};
 use internal_types::{FastHashMap};
 use picture::PictureSurface;
@@ -115,7 +115,7 @@ impl PictureState {
 pub struct PrimitiveRunContext<'a> {
     pub clip_chain: &'a ClipChain,
     pub scroll_node: &'a SpatialNode,
-    pub transform_index: TransformIndex,
+    pub spatial_node_index: SpatialNodeIndex,
     pub local_clip_rect: LayoutRect,
 }
 
@@ -123,14 +123,14 @@ impl<'a> PrimitiveRunContext<'a> {
     pub fn new(
         clip_chain: &'a ClipChain,
         scroll_node: &'a SpatialNode,
-        transform_index: TransformIndex,
+        spatial_node_index: SpatialNodeIndex,
         local_clip_rect: LayoutRect,
     ) -> Self {
         PrimitiveRunContext {
             clip_chain,
             scroll_node,
             local_clip_rect,
-            transform_index,
+            spatial_node_index,
         }
     }
 }
