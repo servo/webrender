@@ -148,13 +148,9 @@ impl HitTester {
         }
 
         for (index, node) in clip_scroll_tree.clip_nodes.iter().enumerate() {
-            let regions = match get_regions_for_clip_node(node, clip_store) {
-                Some(regions) => regions,
-                None => continue,
-            };
             self.clip_nodes.push(HitTestClipNode {
                 spatial_node: node.spatial_node,
-                regions,
+                regions: get_regions_for_clip_node(node, clip_store),
             });
 
              let clip_chain = self.clip_chains.get_mut(node.clip_chain_index.0).unwrap();
@@ -341,17 +337,17 @@ impl HitTester {
 fn get_regions_for_clip_node(
     node: &ClipNode,
     clip_store: &ClipStore
-) -> Option<Vec<HitTestRegion>> {
+) -> Vec<HitTestRegion> {
     let handle = match node.handle.as_ref() {
         Some(handle) => handle,
         None => {
             warn!("Encountered an empty clip node unexpectedly.");
-            return None;
+            return Vec::new()
         }
     };
 
     let clips = clip_store.get(handle).clips();
-    Some(clips.iter().map(|source| {
+    clips.iter().map(|source| {
         match source.0 {
             ClipSource::Rectangle(ref rect, mode) => HitTestRegion::Rectangle(*rect, mode),
             ClipSource::RoundedRectangle(ref rect, ref radii, ref mode) =>
@@ -362,7 +358,7 @@ fn get_regions_for_clip_node(
                 unreachable!("Didn't expect to hit test against BorderCorner / BoxShadow / LineDecoration");
             }
         }
-    }).collect())
+    }).collect()
 }
 
 #[derive(Clone, Copy, PartialEq)]
