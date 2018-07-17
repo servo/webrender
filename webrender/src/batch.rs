@@ -477,7 +477,7 @@ impl AlphaBatchBuilder {
         for run in &pic.runs {
             let transform_id = ctx
                 .transforms
-                .get_id(run.clip_and_scroll.scroll_node_id);
+                .get_id(run.clip_and_scroll.spatial_node_index);
             self.add_run_to_batch(
                 run,
                 transform_id,

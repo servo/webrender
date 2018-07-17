@@ -337,7 +337,7 @@ impl<'a> DisplayListFlattener<'a> {
                 reference_frame_info,
                 &LayoutPrimitiveInfo::new(scrollbar_rect),
                 DEFAULT_SCROLLBAR_COLOR,
-                ScrollbarInfo(scroll_frame_info.scroll_node_id, container_rect),
+                ScrollbarInfo(scroll_frame_info.spatial_node_index, container_rect),
             );
         }
 
@@ -400,7 +400,7 @@ impl<'a> DisplayListFlattener<'a> {
         let index = self.get_spatial_node_index_for_clip_id(info.id);
         self.clip_scroll_tree.add_sticky_frame(
             index,
-            clip_and_scroll.scroll_node_id, /* parent id */
+            clip_and_scroll.spatial_node_index, /* parent id */
             sticky_frame_info,
             info.id.pipeline_id(),
         );
