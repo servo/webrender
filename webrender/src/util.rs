@@ -267,10 +267,10 @@ pub fn calculate_screen_bounding_rect(
         )
     } else {
         WorldRect::from_points(&[
-            homogens[0].to_point2d(),
-            homogens[1].to_point2d(),
-            homogens[2].to_point2d(),
-            homogens[3].to_point2d(),
+            homogens[0].to_point2d().unwrap(),
+            homogens[1].to_point2d().unwrap(),
+            homogens[2].to_point2d().unwrap(),
+            homogens[3].to_point2d().unwrap(),
         ])
     };
 
@@ -556,7 +556,7 @@ impl<Src, Dst> FastTransform<Src, Dst> {
                 let new_point = *point + offset;
                 TypedPoint2D::from_untyped(&new_point.to_untyped())
             }
-            FastTransform::Transform { ref transform, .. } => transform.transform_point2d(point),
+            FastTransform::Transform { ref transform, .. } => transform.transform_point2d(point).unwrap(),
         }
     }
 
@@ -576,7 +576,7 @@ impl<Src, Dst> FastTransform<Src, Dst> {
         match *self {
             FastTransform::Offset(offset) =>
                 TypedRect::from_untyped(&rect.to_untyped().translate(&offset.to_untyped())),
-            FastTransform::Transform { ref transform, .. } => transform.transform_rect(rect),
+            FastTransform::Transform { ref transform, .. } => transform.transform_rect(rect).unwrap(),
         }
     }
 
@@ -585,7 +585,7 @@ impl<Src, Dst> FastTransform<Src, Dst> {
             FastTransform::Offset(offset) =>
                 Some(TypedRect::from_untyped(&rect.to_untyped().translate(&-offset.to_untyped()))),
             FastTransform::Transform { inverse: Some(ref inverse), is_2d: true, .. }  =>
-                Some(inverse.transform_rect(rect)),
+                inverse.transform_rect(rect),
             FastTransform::Transform { ref transform, is_2d: false, .. } =>
                 Some(transform.inverse_rect_footprint(rect)),
             FastTransform::Transform { inverse: None, .. }  => None,
