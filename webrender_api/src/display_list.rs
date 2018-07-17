@@ -915,18 +915,36 @@ impl DisplayListBuilder {
         self.save_state.take().expect("No save to clear in DisplayListBuilder");
     }
 
-    pub fn print_display_list(&mut self) {
+    /// Print the display items in the list to stderr. If the start parameter
+    /// is specified, only display items starting at that index (inclusive) will
+    /// be printed. If the end parameter is specified, only display items before
+    /// that index (exclusive) will be printed. Calling this function with
+    /// end <= start is allowed but is just a waste of CPU cycles.
+    /// This function returns the total number of items in the display list, which
+    /// allows the caller to subsequently invoke this function to only dump the
+    /// newly-added items.
+    pub fn print_display_list(
+        &mut self,
+        indent: usize,
+        start: Option<usize>,
+        end: Option<usize>,
+    ) -> usize {
         let mut temp = BuiltDisplayList::default();
         mem::swap(&mut temp.data, &mut self.data);
 
+        let mut index: usize = 0;
         {
             let mut iter = BuiltDisplayListIter::new(&temp);
             while let Some(item) = iter.next_raw() {
-                println!("{:?}", item.display_item());
+                if index >= start.unwrap_or(0) && end.map_or(true, |e| index < e) {
+                    eprintln!("{}{:?}", "  ".repeat(indent), item.display_item());
+                }
+                index += 1;
             }
         }
 
         self.data = temp.data;
+        index
     }
 
     fn push_item(&mut self, item: SpecificDisplayItem, info: &LayoutPrimitiveInfo) {
