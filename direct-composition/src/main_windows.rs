@@ -5,7 +5,6 @@
 extern crate direct_composition;
 extern crate euclid;
 extern crate gleam;
-extern crate glutin;
 extern crate webrender;
 extern crate winit;
 
@@ -13,7 +12,7 @@ use direct_composition::DirectComposition;
 use std::sync::mpsc;
 use webrender::api;
 use winit::os::windows::{WindowExt, WindowBuilderExt};
-use glutin::dpi::LogicalSize;
+use winit::dpi::LogicalSize;
 
 fn main() {
     let mut events_loop = winit::EventsLoop::new();
