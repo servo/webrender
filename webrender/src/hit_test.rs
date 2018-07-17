@@ -233,8 +233,8 @@ impl HitTester {
         let point = test.get_absolute_point(self);
 
         for &HitTestingRun(ref items, ref clip_and_scroll) in self.runs.iter().rev() {
-            let scroll_node_id = clip_and_scroll.scroll_node_id;
-            let scroll_node = &self.spatial_nodes[scroll_node_id.0];
+            let spatial_node_index = clip_and_scroll.spatial_node_index;
+            let scroll_node = &self.spatial_nodes[spatial_node_index.0];
             let transform = scroll_node.world_content_transform;
             let point_in_layer = match transform.inverse() {
                 Some(inverted) => inverted.transform_point2d(&point),
@@ -255,7 +255,7 @@ impl HitTester {
                     break;
                 }
 
-                return Some(scroll_node_id);
+                return Some(spatial_node_index);
             }
         }
 
@@ -267,8 +267,8 @@ impl HitTester {
 
         let mut result = HitTestResult::default();
         for &HitTestingRun(ref items, ref clip_and_scroll) in self.runs.iter().rev() {
-            let scroll_node_id = clip_and_scroll.scroll_node_id;
-            let scroll_node = &self.spatial_nodes[scroll_node_id.0];
+            let spatial_node_index = clip_and_scroll.spatial_node_index;
+            let scroll_node = &self.spatial_nodes[spatial_node_index.0];
             let pipeline_id = scroll_node.pipeline_id;
             match (test.pipeline_id, pipeline_id) {
                 (Some(id), node_id) if node_id != id => continue,

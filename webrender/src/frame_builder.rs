@@ -9,11 +9,11 @@ use clip::{ClipChain, ClipStore};
 use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
 use display_list_flattener::{DisplayListFlattener};
 use gpu_cache::GpuCache;
-use gpu_types::{PrimitiveHeaders, TransformData, UvRectKind};
+use gpu_types::{PrimitiveHeaders, TransformPalette, UvRectKind};
 use hit_test::{HitTester, HitTestingRun};
 use internal_types::{FastHashMap};
 use picture::PictureSurface;
-use prim_store::{PrimitiveIndex, PrimitiveRun, PrimitiveStore};
+use prim_store::{PrimitiveIndex, PrimitiveRun, PrimitiveStore, Transform};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_backend::FrameId;
 use render_task::{RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree};
@@ -72,7 +72,7 @@ pub struct FrameBuildingContext<'a> {
     pub pipelines: &'a FastHashMap<PipelineId, Arc<ScenePipeline>>,
     pub screen_rect: DeviceIntRect,
     pub clip_scroll_tree: &'a ClipScrollTree,
-    pub transforms: &'a [TransformData],
+    pub transforms: &'a TransformPalette,
     pub max_local_clip: LayoutRect,
 }
 
@@ -116,6 +116,7 @@ pub struct PrimitiveRunContext<'a> {
     pub clip_chain: &'a ClipChain,
     pub scroll_node: &'a SpatialNode,
     pub spatial_node_index: SpatialNodeIndex,
+    pub transform: Transform,
     pub local_clip_rect: LayoutRect,
 }
 
@@ -125,12 +126,14 @@ impl<'a> PrimitiveRunContext<'a> {
         scroll_node: &'a SpatialNode,
         spatial_node_index: SpatialNodeIndex,
         local_clip_rect: LayoutRect,
+        transform: Transform,
     ) -> Self {
         PrimitiveRunContext {
             clip_chain,
             scroll_node,
             local_clip_rect,
             spatial_node_index,
+            transform,
         }
     }
 }
@@ -189,7 +192,7 @@ impl FrameBuilder {
         profile_counters: &mut FrameProfileCounters,
         device_pixel_scale: DevicePixelScale,
         scene_properties: &SceneProperties,
-        transforms: &[TransformData],
+        transform_palette: &TransformPalette,
     ) -> Option<RenderTaskId> {
         profile_scope!("cull");
 
@@ -215,7 +218,7 @@ impl FrameBuilder {
             pipelines,
             screen_rect: self.screen_rect.to_i32(),
             clip_scroll_tree,
-            transforms,
+            transforms: transform_palette,
             max_local_clip: LayoutRect::new(
                 LayoutPoint::new(-MAX_CLIP_COORD, -MAX_CLIP_COORD),
                 LayoutSize::new(2.0 * MAX_CLIP_COORD, 2.0 * MAX_CLIP_COORD),
@@ -352,7 +355,7 @@ impl FrameBuilder {
             &mut profile_counters,
             device_pixel_scale,
             scene_properties,
-            &transform_palette.transforms,
+            &transform_palette,
         );
 
         resource_cache.block_until_all_resources_added(gpu_cache,

@@ -34,7 +34,7 @@ use spatial_node::SpatialNode;
 use std::{mem, usize};
 use std::sync::Arc;
 use util::{MatrixHelpers, calculate_screen_bounding_rect};
-use util::{pack_as_float, recycle_vec};
+use util::{pack_as_float, recycle_vec, TransformedRectKind};
 
 
 const MIN_BRUSH_SPLIT_AREA: f32 = 256.0 * 256.0;
@@ -42,17 +42,31 @@ pub const VECS_PER_SEGMENT: usize = 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ScrollNodeAndClipChain {
-    pub scroll_node_id: SpatialNodeIndex,
+    pub spatial_node_index: SpatialNodeIndex,
     pub clip_chain_index: ClipChainIndex,
 }
 
 impl ScrollNodeAndClipChain {
     pub fn new(
-        scroll_node_id: SpatialNodeIndex,
+        spatial_node_index: SpatialNodeIndex,
         clip_chain_index: ClipChainIndex
     ) -> Self {
-        ScrollNodeAndClipChain { scroll_node_id, clip_chain_index }
+        ScrollNodeAndClipChain {
+            spatial_node_index,
+            clip_chain_index,
+        }
     }
+}
+
+// This is CPU-side information about a transform, that is relevant
+// during culling and primitive prep pass. Often it is the same as
+// the information in the clip-scroll tree. However, if we decide
+// to rasterize a picture in local space, then this will be the
+// transform relative to that picture's coordinate system.
+pub struct Transform {
+    pub m: LayoutToWorldTransform,
+    pub backface_is_visible: bool,
+    pub transform_kind: TransformedRectKind,
 }
 
 #[derive(Debug)]
@@ -2420,8 +2434,7 @@ impl PrimitiveStore {
         let (prim_kind, cpu_prim_index) = {
             let metadata = &self.cpu_metadata[prim_index.0];
 
-            if !metadata.is_backface_visible &&
-               prim_run_context.scroll_node.world_content_transform.is_backface_visible() {
+            if !metadata.is_backface_visible && prim_run_context.transform.backface_is_visible {
                 if cfg!(debug_assertions) && Some(prim_index) == self.chase_id {
                     println!("\tculled for not having visible back faces");
                 }
@@ -2639,7 +2652,7 @@ impl PrimitiveStore {
             //           lookups ever show up in a profile).
             let scroll_node = &frame_context
                 .clip_scroll_tree
-                .spatial_nodes[run.clip_and_scroll.scroll_node_id.0];
+                .spatial_nodes[run.clip_and_scroll.spatial_node_index.0];
             let clip_chain = frame_context
                 .clip_scroll_tree
                 .get_clip_chain(run.clip_and_scroll.clip_chain_index);
@@ -2709,11 +2722,16 @@ impl PrimitiveStore {
                 None => frame_context.max_local_clip,
             };
 
+            let transform = frame_context
+                .transforms
+                .get_transform(run.clip_and_scroll.spatial_node_index);
+
             let child_prim_run_context = PrimitiveRunContext::new(
                 clip_chain,
                 scroll_node,
-                run.clip_and_scroll.scroll_node_id,
+                run.clip_and_scroll.spatial_node_index,
                 local_clip_chain_rect,
+                transform,
             );
 
             for i in 0 .. run.count {
