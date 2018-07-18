@@ -2765,12 +2765,6 @@ impl PrimitiveStore {
                         result.local_rect_in_original_parent_space =
                             result.local_rect_in_original_parent_space.union(&bounds);
                     }
-
-                    if let Some(ref matrix) = parent_relative_transform {
-                        let bounds = matrix.transform_rect(&prim_local_rect);
-                        result.local_rect_in_actual_parent_space =
-                            result.local_rect_in_actual_parent_space.union(&bounds);
-                    }
                 }
             }
         }
