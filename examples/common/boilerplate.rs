@@ -117,7 +117,7 @@ pub fn main_wrapper<E: Example>(
     let window_builder = winit::WindowBuilder::new()
         .with_title(E::TITLE)
         .with_multitouch()
-        .with_dimensions(glutin::dpi::LogicalSize::new(E::WIDTH as f64, E::HEIGHT as f64));
+        .with_dimensions(winit::dpi::LogicalSize::new(E::WIDTH as f64, E::HEIGHT as f64));
     let window = glutin::GlWindow::new(window_builder, context_builder, &events_loop)
         .unwrap();
 

@@ -12,10 +12,10 @@ extern crate winit;
 use app_units::Au;
 use gleam::gl;
 use glutin::GlContext;
-use glutin::dpi::LogicalSize;
 use std::fs::File;
 use std::io::Read;
 use webrender::api::*;
+use winit::dpi::LogicalSize;
 
 struct Notifier {
     events_proxy: winit::EventsLoopProxy,
