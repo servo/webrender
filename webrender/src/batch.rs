@@ -1715,7 +1715,7 @@ fn make_polygon(
         transform.m42 as f64,
         transform.m43 as f64,
         transform.m44 as f64);
-    Polygon::from_transformed_rect(rect.cast().unwrap(), mat, anchor)
+    Polygon::from_transformed_rect(rect.cast(), mat, anchor).unwrap()
 }
 
 /// Batcher managing draw calls into the clip mask (in the RT cache).

@@ -593,7 +593,7 @@ fn calculate_screen_uv(
     rendered_rect: &DeviceRect,
     device_pixel_scale: DevicePixelScale,
 ) -> DevicePoint {
-    let world_pos = transform.m.transform_point2d(local_pos);
+    let world_pos = transform.m.transform_point2d(local_pos).unwrap();
 
     let mut device_pos = world_pos * device_pixel_scale;
 
