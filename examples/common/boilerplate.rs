@@ -152,7 +152,10 @@ pub fn main_wrapper<E: Example>(
     };
 
     let framebuffer_size = {
-        let size = window.get_inner_size().unwrap();
+        let size = window
+            .get_inner_size()
+            .map(|s| s.to_physical(device_pixel_ratio as f64))
+            .unwrap();
         DeviceUintSize::new(size.width as u32, size.height as u32)
     };
     let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
