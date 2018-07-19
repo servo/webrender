@@ -3,30 +3,102 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 extern crate mozangle;
-extern crate ron;
-#[macro_use]
-extern crate serde;
 extern crate webrender;
 
 use mozangle::shaders::{BuiltInResources, Output, ShaderSpec, ShaderValidator};
-use ron::de;
-use std::fs::File;
-use std::path::PathBuf;
 
 // from glslang
 const FRAGMENT_SHADER: u32 = 0x8B30;
 const VERTEX_SHADER: u32 = 0x8B31;
 
-const VERSION_STRING: &str = "#version 300 es\n";
-
-// Extensions required by these features are not supported by the angle shader validator.
-const EXCLUDED_FEATURES: &'static[&'static str] = &["DUAL_SOURCE_BLENDING", "TEXTURE_EXTERNAL", "TEXTURE_RECT"];
-
-#[derive(Deserialize)]
 struct Shader {
-    name: String,
-    feature_sets: Vec<String>,
+    name: &'static str,
+    features: &'static [&'static str],
 }
+
+const SHADER_PREFIX: &str = "#define WR_MAX_VERTEX_TEXTURE_WIDTH 1024\n";
+
+const BRUSH_FEATURES: &[&str] = &["", "ALPHA_PASS"];
+const CLIP_FEATURES: &[&str] = &["TRANSFORM"];
+const CACHE_FEATURES: &[&str] = &[""];
+const GRADIENT_FEATURES: &[&str] = &[ "", "DITHERING", "ALPHA_PASS", "DITHERING,ALPHA_PASS" ];
+const PRIM_FEATURES: &[&str] = &[""];
+
+const SHADERS: &[Shader] = &[
+    // Clip mask shaders
+    Shader {
+        name: "cs_clip_rectangle",
+        features: CLIP_FEATURES,
+    },
+    Shader {
+        name: "cs_clip_image",
+        features: CLIP_FEATURES,
+    },
+    Shader {
+        name: "cs_clip_box_shadow",
+        features: CLIP_FEATURES,
+    },
+    Shader {
+        name: "cs_clip_line",
+        features: CLIP_FEATURES,
+    },
+    // Cache shaders
+    Shader {
+        name: "cs_blur",
+        features: &[ "ALPHA_TARGET", "COLOR_TARGET" ],
+    },
+    Shader {
+        name: "cs_border_segment",
+        features: CACHE_FEATURES,
+    },
+    // Prim shaders
+    Shader {
+        name: "ps_split_composite",
+        features: PRIM_FEATURES,
+    },
+    Shader {
+        name: "ps_text_run",
+        features: &[ "", "GLYPH_TRANSFORM" ],
+    },
+    // Brush shaders
+    Shader {
+        name: "brush_yuv_image",
+        features: &[
+            "",
+            "YUV_NV12",
+            "YUV_PLANAR",
+            "YUV_INTERLEAVED",
+            "TEXTURE_2D,YUV_NV12",
+            "YUV_NV12,ALPHA_PASS",
+        ],
+    },
+    Shader {
+        name: "brush_solid",
+        features: BRUSH_FEATURES,
+    },
+    Shader {
+        name: "brush_image",
+        features: BRUSH_FEATURES,
+    },
+    Shader {
+        name: "brush_blend",
+        features: BRUSH_FEATURES,
+    },
+    Shader {
+        name: "brush_mix_blend",
+        features: BRUSH_FEATURES,
+    },
+    Shader {
+        name: "brush_radial_gradient",
+        features: GRADIENT_FEATURES,
+    },
+    Shader {
+        name: "brush_linear_gradient",
+        features: GRADIENT_FEATURES,
+    },
+];
+
+const VERSION_STRING: &str = "#version 300 es\n";
 
 #[test]
 fn validate_shaders() {
@@ -39,49 +111,25 @@ fn validate_shaders() {
     let fs_validator =
         ShaderValidator::new(FRAGMENT_SHADER, ShaderSpec::Gles3, Output::Essl, &resources).unwrap();
 
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("res");
-    path.push("shaders.ron");
+    for shader in SHADERS {
+        for config in shader.features {
+            let mut features = String::new();
+            features.push_str(SHADER_PREFIX);
 
-    let file = File::open(&path).expect("Unable to open shaders.ron");
-    let shaders: Vec<Shader> = de::from_reader(file).expect("Unable to deserialize shaders.ron");
-
-    for shader in shaders {
-        let mut feature_variants: Vec<String> = Vec::new();
-
-        // Building up possible permutations of features
-        for feature_set in shader.feature_sets {
-            if feature_variants.is_empty() {
-                feature_variants = feature_set.split(',').map(|s| s.to_owned()).collect();
-                feature_variants.retain(|f| !EXCLUDED_FEATURES.contains(&f.as_str()));
-            } else {
-                let prev_variants: Vec<String> = feature_variants.drain(..).collect();
-                for variant in prev_variants.iter() {
-                    for feature in feature_set.split(',') {
-                        if !EXCLUDED_FEATURES.contains(&feature) {
-                            feature_variants.push(format!("{},{}", variant, feature));
-                        }
-                    }
-                }
+            for feature in config.split(",") {
+                features.push_str(&format!("#define WR_FEATURE_{}\n", feature));
             }
-        }
 
-        for variant in feature_variants {
-            let features = variant.split(",").collect::<Vec<_>>();
             let (vs, fs) =
-                webrender::load_shader_sources(VERSION_STRING,
-                                               &features,
-                                               &shader.name,
-                                               &None);
+                webrender::build_shader_strings(VERSION_STRING, &features, shader.name, &None);
 
-            validate(&vs_validator, &shader.name, &features, vs);
-            validate(&fs_validator, &shader.name, &features, fs);
-
+            validate(&vs_validator, shader.name, vs);
+            validate(&fs_validator, shader.name, fs);
         }
     }
 }
 
-fn validate(validator: &ShaderValidator, name: &str, features: &[&str], source: String) {
+fn validate(validator: &ShaderValidator, name: &str, source: String) {
     // Check for each `switch` to have a `default`, see
     // https://github.com/servo/webrender/wiki/Driver-issues#lack-of-default-case-in-a-switch
     assert_eq!(source.matches("switch").count(), source.matches("default:").count(),
@@ -89,13 +137,12 @@ fn validate(validator: &ShaderValidator, name: &str, features: &[&str], source: 
     // Run Angle validator
     match validator.compile_and_translate(&[&source]) {
         Ok(_) => {
-            println!("Shader translated succesfully: {}, features: {:?}", name, features);
+            println!("Shader translated succesfully: {}", name);
         }
         Err(_) => {
             panic!(
-                "Shader compilation failed: {}, features: {:?}\n{}",
+                "Shader compilation failed: {}\n{}",
                 name,
-                features,
                 validator.info_log()
             );
         }
