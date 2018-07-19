@@ -2755,14 +2755,27 @@ impl PrimitiveStore {
                     };
 
                     if let Some(ref matrix) = parent_relative_transform {
-                        let bounds = matrix.transform_rect(&clipped_rect);
-                        result.local_rect_in_actual_parent_space =
-                            result.local_rect_in_actual_parent_space.union(&bounds);
+                        match matrix.transform_rect(&clipped_rect) {
+                            Some(bounds) => {
+                                result.local_rect_in_actual_parent_space =
+                                    result.local_rect_in_actual_parent_space.union(&bounds);
+                            }
+                            None => {
+                                warn!("parent relative transform can't transform the primitive rect for {:?}", prim_index);
+                            }
+                        }
+
                     }
                     if let Some(ref matrix) = original_relative_transform {
-                        let bounds = matrix.transform_rect(&clipped_rect);
-                        result.local_rect_in_original_parent_space =
-                            result.local_rect_in_original_parent_space.union(&bounds);
+                        match matrix.transform_rect(&clipped_rect) {
+                            Some(bounds) => {
+                                result.local_rect_in_original_parent_space =
+                                    result.local_rect_in_original_parent_space.union(&bounds);
+                            }
+                            None => {
+                                warn!("original relative transform can't transform the primitive rect for {:?}", prim_index);
+                            }
+                        }
                     }
                 }
             }

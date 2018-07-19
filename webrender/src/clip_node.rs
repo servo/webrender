@@ -83,7 +83,8 @@ impl ClipNode {
             },
             local_clip_rect: spatial_node
                 .coordinate_system_relative_transform
-                .transform_rect(&local_outer_rect),
+                .transform_rect(&local_outer_rect)
+                .expect("clip node transform is not valid"),
             screen_outer_rect,
             screen_inner_rect,
             prev: None,
