@@ -12,6 +12,7 @@ use euclid::{Transform3D};
 use glyph_rasterizer::GlyphFormat;
 use renderer::{
     desc,
+    MAX_VERTEX_TEXTURE_WIDTH,
     BlendMode, ImageBufferKind, RendererError, RendererOptions,
     TextureSampler, VertexArrayKind,
 };
@@ -318,6 +319,15 @@ fn create_prim_shader(
     features: &[&'static str],
     vertex_format: VertexArrayKind,
 ) -> Result<Program, ShaderError> {
+    let mut prefix = format!(
+        "#define WR_MAX_VERTEX_TEXTURE_WIDTH {}\n",
+        MAX_VERTEX_TEXTURE_WIDTH
+    );
+
+    for feature in features {
+        prefix.push_str(&format!("#define WR_FEATURE_{}\n", feature));
+    }
+
     debug!("PrimShader {}", name);
 
     let vertex_descriptor = match vertex_format {
@@ -329,7 +339,7 @@ fn create_prim_shader(
         VertexArrayKind::Border => desc::BORDER,
     };
 
-    let program = device.create_program(name, &features, &vertex_descriptor);
+    let program = device.create_program(name, &prefix, &vertex_descriptor);
 
     if let Ok(ref program) = program {
         device.bind_shader_samplers(
@@ -355,9 +365,15 @@ fn create_prim_shader(
 }
 
 fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program, ShaderError> {
+    let prefix = format!(
+        "#define WR_MAX_VERTEX_TEXTURE_WIDTH {}\n
+        #define WR_FEATURE_TRANSFORM\n",
+        MAX_VERTEX_TEXTURE_WIDTH
+    );
+
     debug!("ClipShader {}", name);
 
-    let program = device.create_program(name, &["TRANSFORM"], &desc::CLIP);
+    let program = device.create_program(name, &prefix, &desc::CLIP);
 
     if let Ok(ref program) = program {
         device.bind_shader_samplers(
