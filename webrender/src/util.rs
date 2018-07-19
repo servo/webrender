@@ -4,7 +4,7 @@
 
 use api::{BorderRadius, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixelScale};
 use api::{DevicePoint, DeviceRect, DeviceSize, LayoutPixel, LayoutPoint, LayoutRect, LayoutSize};
-use api::{WorldPixel, WorldRect};
+use api::{WorldPixel, WorldPoint, WorldRect};
 use euclid::{Point2D, Rect, Size2D, TypedPoint2D, TypedRect, TypedSize2D};
 use euclid::{TypedTransform2D, TypedTransform3D, TypedVector2D, TypedVector3D};
 use euclid::{HomogeneousVector};
@@ -262,9 +262,10 @@ pub fn calculate_screen_bounding_rect(
                     transform.transform_point2d_homogeneous(&p.to_2d()),
                     transform.transform_point2d(&p.to_2d())
                 );
+                //TODO: change to `expect` when the near splitting code is ready
                 transform
                     .transform_point2d(&p.to_2d())
-                    .expect("all the points are supposed to be transformable after near plane clipping")
+                    .unwrap_or(WorldPoint::zero())
             })
         )
     } else {
