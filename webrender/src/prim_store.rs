@@ -2653,9 +2653,8 @@ impl PrimitiveStore {
             let scroll_node = &frame_context
                 .clip_scroll_tree
                 .spatial_nodes[run.clip_and_scroll.spatial_node_index.0];
-            let clip_chain = frame_context
-                .clip_scroll_tree
-                .get_clip_chain(run.clip_and_scroll.clip_chain_index);
+            let clip_chain = &frame_context
+                .clip_chains[run.clip_and_scroll.clip_chain_index.0];
 
             // Mark whether this picture contains any complex coordinate
             // systems, due to either the scroll node or the clip-chain.

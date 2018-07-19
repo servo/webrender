@@ -670,13 +670,12 @@ impl AlphaBatchBuilder {
                             // Push into parent plane splitter.
                             debug_assert!(picture.surface.is_some());
 
-                            let real_xf = &ctx.clip_scroll_tree
-                                .spatial_nodes[picture.reference_frame_index.0]
-                                .world_content_transform
-                                .into();
+                            let real_xf = &ctx
+                                .transforms
+                                .get_transform(picture.reference_frame_index);
                             let polygon = make_polygon(
                                 picture.real_local_rect,
-                                real_xf,
+                                &real_xf.m,
                                 prim_index.0,
                             );
 
