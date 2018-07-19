@@ -34,8 +34,8 @@ impl ClipNode {
     const EMPTY: ClipNode = ClipNode {
         spatial_node: SpatialNodeIndex(0),
         handle: None,
-        clip_chain_index: ClipChainIndex(0),
-        parent_clip_chain_index: ClipChainIndex(0),
+        clip_chain_index: ClipChainIndex::NO_CLIP,
+        parent_clip_chain_index: ClipChainIndex::NO_CLIP,
         clip_chain_node: None,
     };
 
