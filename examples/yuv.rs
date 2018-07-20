@@ -72,6 +72,8 @@ impl webrender::ExternalImageHandler for YuvImageProvider {
 }
 
 struct App {
+    texture_id: gl::GLuint,
+    current_value: u8,
 }
 
 impl Example for App {
@@ -187,12 +189,27 @@ impl Example for App {
         gl: &gl::Gl,
     ) -> (Option<Box<webrender::ExternalImageHandler>>,
           Option<Box<webrender::OutputImageHandler>>) {
-        (Some(Box::new(YuvImageProvider::new(gl))), None)
+        let provider = YuvImageProvider::new(gl);
+        self.texture_id = provider.texture_ids[0];
+        (Some(Box::new(provider)), None)
+    }
+
+    fn draw_custom(&mut self, gl: &gl::Gl) {
+        init_gl_texture(self.texture_id, gl::RED, gl::RED, &[self.current_value; 100 * 100], gl);
+        self.current_value = self.current_value.wrapping_add(1);
     }
 }
 
 fn main() {
     let mut app = App {
+        texture_id: 0,
+        current_value: 0,
     };
-    boilerplate::main_wrapper(&mut app, None);
+
+    let opts = webrender::RendererOptions {
+        debug_flags: webrender::DebugFlags::NEW_FRAME_INDICATOR | webrender::DebugFlags::NEW_SCENE_INDICATOR,
+        ..Default::default()
+    };
+
+    boilerplate::main_wrapper(&mut app, Some(opts));
 }

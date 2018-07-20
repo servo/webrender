@@ -81,7 +81,12 @@ pub trait Example {
         pipeline_id: PipelineId,
         document_id: DocumentId,
     );
-    fn on_event(&mut self, winit::WindowEvent, &RenderApi, DocumentId) -> bool {
+    fn on_event(
+        &mut self,
+        winit::WindowEvent,
+        &RenderApi,
+        DocumentId,
+    ) -> bool {
         false
     }
     fn get_image_handlers(
@@ -91,7 +96,7 @@ pub trait Example {
           Option<Box<webrender::OutputImageHandler>>) {
         (None, None)
     }
-    fn draw_custom(&self, _gl: &gl::Gl) {
+    fn draw_custom(&mut self, _gl: &gl::Gl) {
     }
 }
 
@@ -248,10 +253,18 @@ pub fn main_wrapper<E: Example>(
                         winit::Event::WindowEvent { event, .. } => event,
                         _ => unreachable!()
                     };
-                    custom_event = example.on_event(win_event, &api, document_id)
+                    custom_event = example.on_event(
+                        win_event,
+                        &api,
+                        document_id,
+                    )
                 },
             },
-            winit::Event::WindowEvent { event, .. } => custom_event = example.on_event(event, &api, document_id),
+            winit::Event::WindowEvent { event, .. } => custom_event = example.on_event(
+                event,
+                &api,
+                document_id,
+            ),
             _ => return winit::ControlFlow::Continue,
         };
 

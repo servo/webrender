@@ -54,7 +54,7 @@ name = "yuv"
 path = "yuv.rs"
 
 [features]
-debug = ["webrender/capture", "webrender/debugger", "webrender/profiler"]
+debug = ["webrender/capture", "webrender/debugger", "webrender/profiler", "webrender/debug_renderer"]
 
 [dependencies]
 app_units = "0.6"
