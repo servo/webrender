@@ -11,6 +11,8 @@ packages = [
     "num-traits",
     "rand",
     "winapi",
+    "core-graphics",
+    "core-text",
     "yaml-rust",
 ]
 
