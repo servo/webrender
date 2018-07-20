@@ -4,7 +4,7 @@
 
 use api::{BorderRadius, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixelScale};
 use api::{DevicePoint, DeviceRect, DeviceSize, LayoutPixel, LayoutPoint, LayoutRect, LayoutSize};
-use api::{WorldPixel, WorldRect};
+use api::{WorldPixel, WorldPoint, WorldRect};
 use euclid::{Point2D, Rect, Size2D, TypedPoint2D, TypedRect, TypedSize2D};
 use euclid::{TypedTransform2D, TypedTransform3D, TypedVector2D, TypedVector3D};
 use euclid::{HomogeneousVector};
@@ -262,10 +262,14 @@ pub fn calculate_screen_bounding_rect(
                     transform.transform_point2d_homogeneous(&p.to_2d()),
                     transform.transform_point2d(&p.to_2d())
                 );
-                transform.transform_point2d(&p.to_2d())
+                //TODO: change to `expect` when the near splitting code is ready
+                transform
+                    .transform_point2d(&p.to_2d())
+                    .unwrap_or(WorldPoint::zero())
             })
         )
     } else {
+        // we just checked for all the points to be in positive hemisphere, so `unwrap` is valid
         WorldRect::from_points(&[
             homogens[0].to_point2d().unwrap(),
             homogens[1].to_point2d().unwrap(),
@@ -550,13 +554,13 @@ impl<Src, Dst> FastTransform<Src, Dst> {
     }
 
     #[inline(always)]
-    pub fn transform_point2d(&self, point: &TypedPoint2D<f32, Src>) -> TypedPoint2D<f32, Dst> {
+    pub fn transform_point2d(&self, point: &TypedPoint2D<f32, Src>) -> Option<TypedPoint2D<f32, Dst>> {
         match *self {
             FastTransform::Offset(offset) => {
                 let new_point = *point + offset;
-                TypedPoint2D::from_untyped(&new_point.to_untyped())
+                Some(TypedPoint2D::from_untyped(&new_point.to_untyped()))
             }
-            FastTransform::Transform { ref transform, .. } => transform.transform_point2d(point).unwrap(),
+            FastTransform::Transform { ref transform, .. } => transform.transform_point2d(point),
         }
     }
 
@@ -572,11 +576,11 @@ impl<Src, Dst> FastTransform<Src, Dst> {
     }
 
     #[inline(always)]
-    pub fn transform_rect(&self, rect: &TypedRect<f32, Src>) -> TypedRect<f32, Dst> {
+    pub fn transform_rect(&self, rect: &TypedRect<f32, Src>) -> Option<TypedRect<f32, Dst>> {
         match *self {
             FastTransform::Offset(offset) =>
-                TypedRect::from_untyped(&rect.to_untyped().translate(&offset.to_untyped())),
-            FastTransform::Transform { ref transform, .. } => transform.transform_rect(rect).unwrap(),
+                Some(TypedRect::from_untyped(&rect.to_untyped().translate(&offset.to_untyped()))),
+            FastTransform::Transform { ref transform, .. } => transform.transform_rect(rect),
         }
     }
 
