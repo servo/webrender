@@ -350,15 +350,7 @@ fn get_regions_for_clip_node(
     node: &ClipNode,
     clip_store: &ClipStore
 ) -> Vec<HitTestRegion> {
-    let handle = match node.handle.as_ref() {
-        Some(handle) => handle,
-        None => {
-            warn!("Encountered an empty clip node unexpectedly.");
-            return Vec::new()
-        }
-    };
-
-    let clips = clip_store.get(handle).clips();
+    let clips = clip_store.get(&node.handle).clips();
     clips.iter().map(|source| {
         match source.0 {
             ClipSource::Rectangle(ref rect, mode) => HitTestRegion::Rectangle(*rect, mode),

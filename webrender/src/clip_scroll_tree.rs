@@ -355,33 +355,31 @@ impl ClipScrollTree {
 
     pub fn add_clip_node(
         &mut self,
-        index: ClipNodeIndex,
         parent_clip_chain_index: ClipChainIndex,
         spatial_node: SpatialNodeIndex,
         handle: ClipSourcesHandle,
-    )  -> ClipChainIndex {
+    ) -> (ClipNodeIndex, ClipChainIndex) {
         let clip_chain_index = self.allocate_clip_chain();
         let node = ClipNode {
             parent_clip_chain_index,
             spatial_node,
-            handle: Some(handle),
+            handle,
             clip_chain_index,
             clip_chain_node: None,
         };
-        self.push_clip_node(node, index);
-        clip_chain_index
+        let node_index = self.push_clip_node(node);
+        (node_index, clip_chain_index)
     }
 
     pub fn add_scroll_frame(
         &mut self,
-        index: SpatialNodeIndex,
         parent_index: SpatialNodeIndex,
         external_id: Option<ExternalScrollId>,
         pipeline_id: PipelineId,
         frame_rect: &LayoutRect,
         content_size: &LayoutSize,
         scroll_sensitivity: ScrollSensitivity,
-    ) {
+    ) -> SpatialNodeIndex {
         let node = SpatialNode::new_scroll_frame(
             pipeline_id,
             parent_index,
@@ -390,18 +388,17 @@ impl ClipScrollTree {
             content_size,
             scroll_sensitivity,
         );
-        self.add_spatial_node(node, index);
+        self.add_spatial_node(node)
     }
 
     pub fn add_reference_frame(
         &mut self,
-        index: SpatialNodeIndex,
         parent_index: Option<SpatialNodeIndex>,
         source_transform: Option<PropertyBinding<LayoutTransform>>,
         source_perspective: Option<LayoutTransform>,
         origin_in_parent_reference_frame: LayoutVector2D,
         pipeline_id: PipelineId,
-    ) {
+    ) -> SpatialNodeIndex {
         let node = SpatialNode::new_reference_frame(
             parent_index,
             source_transform,
@@ -409,22 +406,21 @@ impl ClipScrollTree {
             origin_in_parent_reference_frame,
             pipeline_id,
         );
-        self.add_spatial_node(node, index);
+        self.add_spatial_node(node)
     }
 
     pub fn add_sticky_frame(
         &mut self,
-        index: SpatialNodeIndex,
         parent_index: SpatialNodeIndex,
         sticky_frame_info: StickyFrameInfo,
         pipeline_id: PipelineId,
-    ) {
+    ) -> SpatialNodeIndex {
         let node = SpatialNode::new_sticky_frame(
             parent_index,
             sticky_frame_info,
             pipeline_id,
         );
-        self.add_spatial_node(node, index);
+        self.add_spatial_node(node)
     }
 
     pub fn add_clip_chain_descriptor(
@@ -437,47 +433,22 @@ impl ClipScrollTree {
         index
     }
 
-    pub fn push_clip_node(&mut self, node: ClipNode, index: ClipNodeIndex) {
-        if index.0 == self.clip_nodes.len() {
-            self.clip_nodes.push(node);
-            return;
-        }
-
-        if let Some(empty_node) = self.clip_nodes.get_mut(index.0) {
-            *empty_node = node;
-            return
-        }
-
-        let length_to_reserve = index.0 + 1 - self.clip_nodes.len();
-        self.clip_nodes.reserve_exact(length_to_reserve);
-
-        // We would like to use `Vec::resize` here, but the Clone trait is not supported
-        // for ClipNodes. We can fix this either when support is added for something like
-        // `Vec::resize_default`.
-        let length_to_extend = self.clip_nodes.len() .. index.0;
-        self.clip_nodes.extend(length_to_extend.map(|_| ClipNode::empty()));
+    pub fn push_clip_node(&mut self, node: ClipNode) -> ClipNodeIndex {
+        let index = ClipNodeIndex(self.clip_nodes.len());
         self.clip_nodes.push(node);
+        index
     }
 
-    pub fn add_spatial_node(&mut self, node: SpatialNode, index: SpatialNodeIndex) {
+    pub fn add_spatial_node(&mut self, node: SpatialNode) -> SpatialNodeIndex {
+        let index = SpatialNodeIndex(self.spatial_nodes.len());
+
         // When the parent node is None this means we are adding the root.
         if let Some(parent_index) = node.parent {
             self.spatial_nodes[parent_index.0].add_child(index);
         }
 
-        if index.0 == self.spatial_nodes.len() {
-            self.spatial_nodes.push(node);
-            return;
-        }
-
-        if let Some(empty_node) = self.spatial_nodes.get_mut(index.0) {
-            *empty_node = node;
-            return
-        }
-
-        debug_assert!(index.0 > self.spatial_nodes.len() - 1);
-        self.spatial_nodes.resize(index.0, SpatialNode::empty());
         self.spatial_nodes.push(node);
+        index
     }
 
     pub fn discard_frame_state_for_pipeline(&mut self, pipeline_id: PipelineId) {
@@ -508,7 +479,6 @@ impl ClipScrollTree {
                 pt.new_level(format!("ReferenceFrame {:?}", info.resolved_transform));
                 pt.add_item(format!("index: {:?}", index));
             }
-            SpatialNodeType::Empty => unreachable!("Empty node remaining in ClipScrollTree."),
         }
 
         pt.add_item(format!("world_viewport_transform: {:?}", node.world_viewport_transform));

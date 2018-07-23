@@ -15,7 +15,7 @@ pub struct ClipNode {
     pub spatial_node: SpatialNodeIndex,
 
     /// A handle to this clip nodes clips in the ClipStore.
-    pub handle: Option<ClipSourcesHandle>,
+    pub handle: ClipSourcesHandle,
 
     /// An index to a ClipChain defined by this ClipNode's hiearchy in the display
     /// list.
@@ -31,18 +31,6 @@ pub struct ClipNode {
 }
 
 impl ClipNode {
-    const EMPTY: ClipNode = ClipNode {
-        spatial_node: SpatialNodeIndex(0),
-        handle: None,
-        clip_chain_index: ClipChainIndex::NO_CLIP,
-        parent_clip_chain_index: ClipChainIndex::NO_CLIP,
-        clip_chain_node: None,
-    };
-
-    pub fn empty() -> ClipNode {
-        ClipNode::EMPTY
-    }
-
     pub fn update(
         &mut self,
         spatial_node: &SpatialNode,
@@ -52,13 +40,7 @@ impl ClipNode {
         gpu_cache: &mut GpuCache,
         clip_chains: &mut [ClipChain],
     ) {
-        let (clip_sources, weak_handle) = match self.handle {
-            Some(ref handle) => (clip_store.get_mut(handle), handle.weak()),
-            None => {
-                warn!("Tried to process an empty clip node");
-                return;
-            }
-        };
+        let clip_sources = clip_store.get_mut(&self.handle);
         clip_sources.update(gpu_cache, resource_cache, device_pixel_scale);
 
         let (screen_inner_rect, screen_outer_rect) = clip_sources.get_screen_bounds(
@@ -78,7 +60,7 @@ impl ClipNode {
         let new_node = ClipChainNode {
             work_item: ClipWorkItem {
                 spatial_node_index: self.spatial_node,
-                clip_sources: weak_handle,
+                clip_sources: self.handle.weak(),
                 coordinate_system_id: spatial_node.coordinate_system_id,
             },
             local_clip_rect: spatial_node
