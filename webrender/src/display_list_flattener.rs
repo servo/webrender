@@ -13,7 +13,7 @@ use api::{LineOrientation, LineStyle, LocalClip, NinePatchBorderSource, Pipeline
 use api::{PropertyBinding, ReferenceFrame, RepeatMode, ScrollFrameDisplayItem, ScrollSensitivity};
 use api::{Shadow, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect};
 use api::{TransformStyle, YuvColorSpace, YuvData};
-use clip::{ClipRegion, ClipSource, ClipSources, ClipStore};
+use clip::{ClipRegion, ClipSource, ClipSources, ClipSourcesHandle, ClipStore};
 use clip_scroll_tree::{ClipChainIndex, ClipNodeIndex, ClipScrollTree, SpatialNodeIndex};
 use euclid::vec2;
 use frame_builder::{ChasePrimitive, FrameBuilder, FrameBuilderConfig};
@@ -738,22 +738,28 @@ impl<'a> DisplayListFlattener<'a> {
         None
     }
 
+    fn add_clip_sources(
+        &mut self,
+        clip_sources: Vec<ClipSource>,
+        spatial_node_index: SpatialNodeIndex,
+    ) -> Option<ClipSourcesHandle> {
+        if clip_sources.is_empty() {
+            None
+        } else {
+            Some(self.clip_store.insert(ClipSources::new(clip_sources, spatial_node_index)))
+        }
+    }
+
     /// Create a primitive and add it to the prim store. This method doesn't
     /// add the primitive to the draw list, so can be used for creating
     /// sub-primitives.
     pub fn create_primitive(
         &mut self,
         info: &LayoutPrimitiveInfo,
-        clip_sources: Vec<ClipSource>,
+        clip_sources: Option<ClipSourcesHandle>,
         container: PrimitiveContainer,
     ) -> PrimitiveIndex {
         let stacking_context = self.sc_stack.last().expect("bug: no stacking context!");
-
-        let clip_sources = if clip_sources.is_empty() {
-            None
-        } else {
-            Some(self.clip_store.insert(ClipSources::new(clip_sources)))
-        };
 
         self.prim_store.add_primitive(
             &info.rect,
@@ -824,6 +830,10 @@ impl<'a> DisplayListFlattener<'a> {
                     .iter()
                     .map(|cs| cs.offset(&shadow.offset))
                     .collect();
+                let clip_sources = self.add_clip_sources(
+                    clip_sources,
+                    clip_and_scroll.spatial_node_index,
+                );
 
                 // Construct and add a primitive for the given shadow.
                 let shadow_prim_index = self.create_primitive(
@@ -840,6 +850,10 @@ impl<'a> DisplayListFlattener<'a> {
         }
 
         if container.is_visible() {
+            let clip_sources = self.add_clip_sources(
+                clip_sources,
+                clip_and_scroll.spatial_node_index,
+            );
             let prim_index = self.create_primitive(info, clip_sources, container);
             if cfg!(debug_assertions) && ChasePrimitive::LocalRect(info.rect) == self.config.chase_primitive {
                 println!("Chasing {:?}", prim_index);
@@ -1235,11 +1249,12 @@ impl<'a> DisplayListFlattener<'a> {
         parent_id: ClipId,
         clip_region: ClipRegion,
     ) -> ClipChainIndex {
-        let clip_sources = ClipSources::from(clip_region);
-        let handle = self.clip_store.insert(clip_sources);
-
         let parent_clip_chain_index = self.id_to_index_mapper.get_clip_chain_index(&parent_id);
         let spatial_node = self.get_spatial_node_index_for_clip_id(parent_id);
+
+        let clip_sources = ClipSources::from_region(clip_region, spatial_node);
+        let handle = self.clip_store.insert(clip_sources);
+
         let (node_index, clip_chain_index) = self.clip_scroll_tree.add_clip_node(
             parent_clip_chain_index,
             spatial_node,
@@ -1398,7 +1413,7 @@ impl<'a> DisplayListFlattener<'a> {
 
         let prim_index = self.create_primitive(
             info,
-            Vec::new(),
+            None,
             PrimitiveContainer::Brush(prim),
         );
 
