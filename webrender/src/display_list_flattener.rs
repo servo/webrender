@@ -56,8 +56,8 @@ pub struct ClipIdToIndexMapper {
 
 impl ClipIdToIndexMapper {
     pub fn add_clip_chain(&mut self, id: ClipId, index: ClipChainIndex) {
-        debug_assert!(!self.clip_chain_map.contains_key(&id));
-        self.clip_chain_map.insert(id, index);
+        let _is_new_key = self.clip_chain_map.insert(id, index).is_none();
+        debug_assert!(_is_new_key);
     }
 
     pub fn map_to_parent_clip_chain(&mut self, id: ClipId, parent_id: &ClipId) {
@@ -66,13 +66,13 @@ impl ClipIdToIndexMapper {
     }
 
     pub fn map_spatial_node(&mut self, id: ClipId, index: SpatialNodeIndex) {
-        debug_assert!(!self.spatial_node_map.contains_key(&id));
-        self.spatial_node_map.insert(id, index);
+        let _is_new_key = self.spatial_node_map.insert(id, index).is_none();
+        debug_assert!(_is_new_key);
     }
 
     pub fn map_clip_node(&mut self, id: ClipId, index: ClipNodeIndex) {
-        debug_assert!(!self.clip_node_map.contains_key(&id));
-        self.clip_node_map.insert(id, index);
+        let _is_new_key = self.clip_node_map.insert(id, index).is_none();
+        debug_assert!(_is_new_key);
     }
 
     pub fn get_clip_chain_index(&self, id: &ClipId) -> ClipChainIndex {
