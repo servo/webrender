@@ -256,14 +256,13 @@ impl ClipScrollTree {
         );
 
         for clip_node in &mut self.clip_nodes {
-            let spatial_node = &self.spatial_nodes[clip_node.spatial_node.0];
             clip_node.update(
-                spatial_node,
                 device_pixel_scale,
                 clip_store,
                 resource_cache,
                 gpu_cache,
                 &mut self.clip_chains,
+                &self.spatial_nodes,
             );
         }
         self.build_clip_chains(screen_rect);
@@ -356,13 +355,11 @@ impl ClipScrollTree {
     pub fn add_clip_node(
         &mut self,
         parent_clip_chain_index: ClipChainIndex,
-        spatial_node: SpatialNodeIndex,
         handle: ClipSourcesHandle,
     ) -> (ClipNodeIndex, ClipChainIndex) {
         let clip_chain_index = self.allocate_clip_chain();
         let node = ClipNode {
             parent_clip_chain_index,
-            spatial_node,
             handle,
             clip_chain_index,
             clip_chain_node: None,

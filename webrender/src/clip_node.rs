@@ -4,16 +4,13 @@
 
 use api::DevicePixelScale;
 use clip::{ClipChain, ClipChainNode, ClipSourcesHandle, ClipStore, ClipWorkItem};
-use clip_scroll_tree::{ClipChainIndex, SpatialNodeIndex};
+use clip_scroll_tree::{ClipChainIndex};
 use gpu_cache::GpuCache;
 use resource_cache::ResourceCache;
 use spatial_node::SpatialNode;
 
 #[derive(Debug)]
 pub struct ClipNode {
-    /// The node that determines how this clip node is positioned.
-    pub spatial_node: SpatialNodeIndex,
-
     /// A handle to this clip nodes clips in the ClipStore.
     pub handle: ClipSourcesHandle,
 
@@ -33,15 +30,16 @@ pub struct ClipNode {
 impl ClipNode {
     pub fn update(
         &mut self,
-        spatial_node: &SpatialNode,
         device_pixel_scale: DevicePixelScale,
         clip_store: &mut ClipStore,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
         clip_chains: &mut [ClipChain],
+        spatial_nodes: &[SpatialNode],
     ) {
         let clip_sources = clip_store.get_mut(&self.handle);
         clip_sources.update(gpu_cache, resource_cache, device_pixel_scale);
+        let spatial_node = &spatial_nodes[clip_sources.spatial_node_index.0];
 
         let (screen_inner_rect, screen_outer_rect) = clip_sources.get_screen_bounds(
             &spatial_node.world_content_transform,
