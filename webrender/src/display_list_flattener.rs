@@ -96,9 +96,7 @@ impl ClipIdToIndexMapper {
 
     pub fn get_spatial_node_index(&self, id: ClipId) -> SpatialNodeIndex {
         match id {
-            ClipId::Clip(..) => {
-                panic!("Tried to use clip node as positioning node.");
-            }
+            ClipId::Clip(..) |
             ClipId::Spatial(..) => {
                 self.spatial_node_map[&id]
             }
@@ -880,7 +878,7 @@ impl<'a> DisplayListFlattener<'a> {
             None => ClipChainIndex::NO_CLIP,
         };
         let clip_and_scroll = ScrollNodeAndClipChain::new(
-            self.get_spatial_node_index_for_clip_id(spatial_node),
+            self.id_to_index_mapper.get_spatial_node_index(spatial_node),
             clip_chain_id
         );
 
@@ -1180,7 +1178,7 @@ impl<'a> DisplayListFlattener<'a> {
         source_perspective: Option<LayoutTransform>,
         origin_in_parent_reference_frame: LayoutVector2D,
     ) -> SpatialNodeIndex {
-        let parent_index = parent_id.map(|id| self.get_spatial_node_index_for_clip_id(id));
+        let parent_index = parent_id.map(|id| self.id_to_index_mapper.get_spatial_node_index(id));
         let index = self.clip_scroll_tree.add_reference_frame(
             parent_index,
             source_transform,
@@ -1250,16 +1248,16 @@ impl<'a> DisplayListFlattener<'a> {
         clip_region: ClipRegion,
     ) -> ClipChainIndex {
         let parent_clip_chain_index = self.id_to_index_mapper.get_clip_chain_index(&parent_id);
-        let spatial_node = self.get_spatial_node_index_for_clip_id(parent_id);
+        let spatial_node = self.id_to_index_mapper.get_spatial_node_index(parent_id);
 
         let clip_sources = ClipSources::from_region(clip_region, spatial_node);
         let handle = self.clip_store.insert(clip_sources);
 
         let (node_index, clip_chain_index) = self.clip_scroll_tree.add_clip_node(
             parent_clip_chain_index,
-            spatial_node,
             handle,
         );
+        self.id_to_index_mapper.map_spatial_node(new_node_id, spatial_node);
         self.id_to_index_mapper.map_clip_node(new_node_id, node_index);
         self.id_to_index_mapper.add_clip_chain(new_node_id, clip_chain_index);
         clip_chain_index
@@ -1275,7 +1273,7 @@ impl<'a> DisplayListFlattener<'a> {
         content_size: &LayoutSize,
         scroll_sensitivity: ScrollSensitivity,
     ) -> SpatialNodeIndex {
-        let parent_node_index = self.get_spatial_node_index_for_clip_id(parent_id);
+        let parent_node_index = self.id_to_index_mapper.get_spatial_node_index(parent_id);
         let node_index = self.clip_scroll_tree.add_scroll_frame(
             parent_node_index,
             external_id,
@@ -1925,26 +1923,13 @@ impl<'a> DisplayListFlattener<'a> {
 
     pub fn map_clip_and_scroll(&mut self, info: &ClipAndScrollInfo) -> ScrollNodeAndClipChain {
         ScrollNodeAndClipChain::new(
-            self.get_spatial_node_index_for_clip_id(info.scroll_node_id),
+            self.id_to_index_mapper.get_spatial_node_index(info.scroll_node_id),
             self.id_to_index_mapper.get_clip_chain_index(&info.clip_node_id())
         )
     }
 
     pub fn simple_scroll_and_clip_chain(&mut self, id: &ClipId) -> ScrollNodeAndClipChain {
         self.map_clip_and_scroll(&ClipAndScrollInfo::simple(*id))
-    }
-
-    pub fn get_spatial_node_index_for_clip_id(&mut self, id: ClipId) -> SpatialNodeIndex {
-        match id {
-            ClipId::Spatial(..) => {
-                self.id_to_index_mapper.get_spatial_node_index(id)
-            }
-            ClipId::Clip(..) => {
-                let clip_node_index = self.id_to_index_mapper.get_clip_node_index(id);
-                self.clip_scroll_tree.clip_nodes[clip_node_index.0].spatial_node
-            }
-            ClipId::ClipChain(_) => panic!("Tried to use ClipChain as scroll node."),
-        }
     }
 }
 
