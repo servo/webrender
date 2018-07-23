@@ -91,28 +91,6 @@ pub enum ClipSource {
     LineDecoration(LineDecorationClipSource),
 }
 
-impl From<ClipRegion> for ClipSources {
-    fn from(region: ClipRegion) -> ClipSources {
-        let mut clips = Vec::new();
-
-        if let Some(info) = region.image_mask {
-            clips.push(ClipSource::Image(info));
-        }
-
-        clips.push(ClipSource::Rectangle(region.main, ClipMode::Clip));
-
-        for complex in region.complex_clips {
-            clips.push(ClipSource::new_rounded_rect(
-                complex.rect,
-                complex.radii,
-                complex.mode,
-            ));
-        }
-
-        ClipSources::new(clips)
-    }
-}
-
 impl ClipSource {
     pub fn new_rounded_rect(
         rect: LayoutRect,
@@ -280,10 +258,14 @@ pub struct ClipSources {
     pub local_outer_rect: Option<LayoutRect>,
     pub only_rectangular_clips: bool,
     pub has_image_or_line_decoration_clip: bool,
+    pub spatial_node_index: SpatialNodeIndex,
 }
 
 impl ClipSources {
-    pub fn new(clips: Vec<ClipSource>) -> Self {
+    pub fn new(
+        clips: Vec<ClipSource>,
+        spatial_node_index: SpatialNodeIndex,
+    ) -> Self {
         let (local_inner_rect, local_outer_rect) = Self::calculate_inner_and_outer_rects(&clips);
 
         let has_image_or_line_decoration_clip =
@@ -301,7 +283,31 @@ impl ClipSources {
             local_outer_rect,
             only_rectangular_clips,
             has_image_or_line_decoration_clip,
+            spatial_node_index,
         }
+    }
+
+    pub fn from_region(
+        region: ClipRegion,
+        spatial_node_index: SpatialNodeIndex,
+    ) -> ClipSources {
+        let mut clips = Vec::new();
+
+        if let Some(info) = region.image_mask {
+            clips.push(ClipSource::Image(info));
+        }
+
+        clips.push(ClipSource::Rectangle(region.main, ClipMode::Clip));
+
+        for complex in region.complex_clips {
+            clips.push(ClipSource::new_rounded_rect(
+                complex.rect,
+                complex.radii,
+                complex.mode,
+            ));
+        }
+
+        ClipSources::new(clips, spatial_node_index)
     }
 
     pub fn clips(&self) -> &[(ClipSource, GpuCacheHandle)] {
@@ -647,7 +653,6 @@ impl Iterator for ClipChainNodeIter {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ClipWorkItem {
-    pub spatial_node_index: SpatialNodeIndex,
     pub clip_sources: ClipSourcesWeakHandle,
     pub coordinate_system_id: CoordinateSystemId,
 }

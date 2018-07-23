@@ -2074,7 +2074,7 @@ impl PrimitiveStore {
             // of doing that, only segment with clips that have the same positioning node.
             // TODO(mrobinson, #2858): It may make sense to include these nodes, resegmenting only
             // when necessary while scrolling.
-            if clip_item.spatial_node_index != prim_run_context.spatial_node_index {
+            if local_clips.spatial_node_index != prim_run_context.spatial_node_index {
                 // We don't need to generate a global clip mask for rectangle clips because we are
                 // in the same coordinate system and rectangular clips are handled by the local
                 // clip chain rectangle.
@@ -2307,7 +2307,6 @@ impl PrimitiveStore {
 
                 Arc::new(ClipChainNode {
                     work_item: ClipWorkItem {
-                        spatial_node_index: prim_run_context.spatial_node_index,
                         clip_sources: clip_sources.weak(),
                         coordinate_system_id: prim_coordinate_system_id,
                     },

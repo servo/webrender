@@ -1772,16 +1772,16 @@ impl ClipBatcher {
     ) {
         let mut coordinate_system_id = coordinate_system_id;
         for work_item in clips.iter() {
+            let info = clip_store
+                .get_opt(&work_item.clip_sources)
+                .expect("bug: clip handle should be valid");
             let instance = ClipMaskInstance {
                 render_task_address: task_address,
-                transform_id: transforms.get_id(work_item.spatial_node_index),
+                transform_id: transforms.get_id(info.spatial_node_index),
                 segment: 0,
                 clip_data_address: GpuCacheAddress::invalid(),
                 resource_address: GpuCacheAddress::invalid(),
             };
-            let info = clip_store
-                .get_opt(&work_item.clip_sources)
-                .expect("bug: clip handle should be valid");
 
             for &(ref source, ref handle) in &info.clips {
                 let gpu_address = gpu_cache.get_address(handle);

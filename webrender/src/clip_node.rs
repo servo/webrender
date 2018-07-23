@@ -59,7 +59,6 @@ impl ClipNode {
 
         let new_node = ClipChainNode {
             work_item: ClipWorkItem {
-                spatial_node_index: self.spatial_node,
                 clip_sources: self.handle.weak(),
                 coordinate_system_id: spatial_node.coordinate_system_id,
             },
