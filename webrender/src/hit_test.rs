@@ -35,7 +35,7 @@ pub struct HitTestClipNode {
 }
 
 impl HitTestClipNode {
-    fn new(node: &ClipNode, clip_store: &ClipStore) -> HitTestClipNode {
+    fn new(node: &ClipNode, clip_store: &ClipStore) -> Self {
         let clips = clip_store.get(&node.handle);
         let regions = clips.clips().iter().map(|source| {
             match source.0 {
