@@ -1050,15 +1050,6 @@ impl RenderBackend {
             &mut profile_counters.resources,
         );
 
-        if op.build {
-            let scene_id = self.make_unique_scene_id();
-            let doc = self.documents.get_mut(&document_id).unwrap();
-            let _timer = profile_counters.total_time.timer();
-            profile_scope!("build scene");
-
-            doc.build_scene(&mut self.resource_cache, scene_id);
-        }
-
         // If we have a sampler, get more frame ops from it and add them
         // to the transaction. This is a hook to allow the WR user code to
         // fiddle with things after a potentially long scene build, but just
@@ -1073,6 +1064,15 @@ impl RenderBackend {
         for frame_msg in transaction_msg.frame_ops {
             let _timer = profile_counters.total_time.timer();
             op.combine(self.process_frame_msg(document_id, frame_msg));
+        }
+
+        if op.build {
+            let scene_id = self.make_unique_scene_id();
+            let doc = self.documents.get_mut(&document_id).unwrap();
+            let _timer = profile_counters.total_time.timer();
+            profile_scope!("build scene");
+
+            doc.build_scene(&mut self.resource_cache, scene_id);
         }
 
         let doc = self.documents.get_mut(&document_id).unwrap();
