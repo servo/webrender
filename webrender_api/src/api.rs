@@ -1090,7 +1090,7 @@ impl<T> From<T> for PropertyBinding<T> {
 
 /// The current value of an animated property. This is
 /// supplied by the calling code.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
 pub struct PropertyValue<T> {
     pub key: PropertyBindingKey<T>,
     pub value: T,
@@ -1099,10 +1099,19 @@ pub struct PropertyValue<T> {
 /// When using `generate_frame()`, a list of `PropertyValue` structures
 /// can optionally be supplied to provide the current value of any
 /// animated properties.
-#[derive(Clone, Deserialize, Serialize, Debug)]
+#[derive(Clone, Deserialize, Serialize, Debug, PartialEq)]
 pub struct DynamicProperties {
     pub transforms: Vec<PropertyValue<LayoutTransform>>,
     pub floats: Vec<PropertyValue<f32>>,
+}
+
+impl DynamicProperties {
+    pub fn new() -> DynamicProperties {
+        DynamicProperties {
+            transforms: Vec::new(),
+            floats: Vec::new(),
+        }
+    }
 }
 
 pub trait RenderNotifier: Send {

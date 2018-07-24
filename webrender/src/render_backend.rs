@@ -602,12 +602,9 @@ impl RenderBackend {
     }
 
     fn process_frame_msg(
-        &mut self,
-        document_id: DocumentId,
+        doc: &mut Document,
         message: FrameMsg,
     ) -> DocumentOps {
-        let doc = self.documents.get_mut(&document_id).expect("No document?");
-
         match message {
             FrameMsg::UpdateEpoch(pipeline_id, epoch) => {
                 doc.current.scene.update_epoch(pipeline_id, epoch);
@@ -686,11 +683,11 @@ impl RenderBackend {
             }
             FrameMsg::UpdateDynamicProperties(property_bindings) => {
                 doc.dynamic_properties.set_properties(property_bindings);
-                DocumentOps::render()
+                DocumentOps::nop()
             }
             FrameMsg::AppendDynamicProperties(property_bindings) => {
                 doc.dynamic_properties.add_properties(property_bindings);
-                DocumentOps::render()
+                DocumentOps::nop()
             }
         }
     }
@@ -1070,12 +1067,16 @@ impl RenderBackend {
             }
         }
 
+        let doc = self.documents.get_mut(&document_id).unwrap();
+
         for frame_msg in transaction_msg.frame_ops {
             let _timer = profile_counters.total_time.timer();
-            op.combine(self.process_frame_msg(document_id, frame_msg));
+            op.combine(RenderBackend::process_frame_msg(doc, frame_msg));
         }
 
-        let doc = self.documents.get_mut(&document_id).unwrap();
+        if doc.dynamic_properties.flush_pending_updates() {
+            op.render = true;
+        }
 
         if transaction_msg.generate_frame {
             if let Some(ref mut ros) = doc.render_on_scroll {
