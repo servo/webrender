@@ -66,6 +66,11 @@ impl ClipChainIndex {
     pub const NO_CLIP: Self = ClipChainIndex(0);
 }
 
+pub struct ClipRenderContext<'a> {
+    pub resource_cache: &'a mut ResourceCache,
+    pub gpu_cache: &'a mut GpuCache,
+}
+
 pub struct ClipScrollTree {
     /// Nodes which determine the positions (offsets and transforms) for primitives
     /// and clips.
@@ -223,8 +228,7 @@ impl ClipScrollTree {
         screen_rect: &DeviceIntRect,
         device_pixel_scale: DevicePixelScale,
         clip_store: &mut ClipStore,
-        resource_cache: &mut ResourceCache,
-        gpu_cache: &mut GpuCache,
+        render_context: &mut ClipRenderContext,
         pan: WorldPoint,
         scene_properties: &SceneProperties,
     ) -> TransformPalette {
@@ -259,8 +263,7 @@ impl ClipScrollTree {
             clip_node.update(
                 device_pixel_scale,
                 clip_store,
-                resource_cache,
-                gpu_cache,
+                render_context,
                 &mut self.clip_chains,
                 &self.spatial_nodes,
             );
