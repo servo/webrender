@@ -359,6 +359,23 @@ impl Document {
         }).unwrap();
     }
 
+    fn rebuild_hit_tester(&mut self) {
+        let accumulated_scale_factor = self.view.accumulated_scale_factor();
+        let pan = self.view.pan.to_f32() / accumulated_scale_factor;
+
+        let frame_builder = self.frame_builder.as_mut().unwrap();
+        let palette = frame_builder.update_clip_scroll_tree(
+            None,
+            None,
+            &mut self.clip_scroll_tree,
+            accumulated_scale_factor,
+            pan,
+            &self.dynamic_properties,
+        );
+        debug_assert!(!palette.is_some());
+        self.hit_tester = Some(frame_builder.create_hit_tester(&self.clip_scroll_tree));
+    }
+
     fn render(
         &mut self,
         resource_cache: &mut ResourceCache,
@@ -448,6 +465,7 @@ impl Document {
 struct DocumentOps {
     scroll: bool,
     build: bool,
+    rebuild_hit_tester: bool,
     render: bool,
     composite: bool,
 }
@@ -457,6 +475,7 @@ impl DocumentOps {
         DocumentOps {
             scroll: false,
             build: false,
+            rebuild_hit_tester: false,
             render: false,
             composite: false,
         }
@@ -469,9 +488,9 @@ impl DocumentOps {
         }
     }
 
-    fn render() -> Self {
+    fn rebuild_hit_tester() -> Self {
         DocumentOps {
-            render: true,
+            rebuild_hit_tester: true,
             ..DocumentOps::nop()
         }
     }
@@ -479,6 +498,7 @@ impl DocumentOps {
     fn combine(&mut self, other: Self) {
         self.scroll = self.scroll || other.scroll;
         self.build = self.build || other.build;
+        self.rebuild_hit_tester = self.rebuild_hit_tester || other.rebuild_hit_tester;
         self.render = self.render || other.render;
         self.composite = self.composite || other.composite;
     }
@@ -730,9 +750,8 @@ impl RenderBackend {
                             if let Some(mut built_scene) = built_scene.take() {
                                 doc.new_async_scene_ready(built_scene);
                                 // After applying the new scene we need to
-                                // rebuild the hit-tester, so we trigger a render
-                                // step.
-                                ops = DocumentOps::render();
+                                // rebuild the hit-tester.
+                                ops = DocumentOps::rebuild_hit_tester();
                             }
                             if let Some(tx) = result_tx {
                                 let (resume_tx, resume_rx) = channel();
@@ -766,7 +785,7 @@ impl RenderBackend {
                             self.resource_cache.set_blob_rasterizer(rasterizer);
                         }
 
-                        if !transaction_msg.is_empty() || ops.render {
+                        if !transaction_msg.is_empty() || ops.rebuild_hit_tester {
                             self.update_document(
                                 document_id,
                                 transaction_msg,
@@ -1061,7 +1080,7 @@ impl RenderBackend {
         // fiddle with things after a potentially long scene build, but just
         // before rendering. This is useful for rendering with the latest
         // async transforms.
-        if op.render || transaction_msg.generate_frame {
+        if op.render || op.rebuild_hit_tester || transaction_msg.generate_frame {
             if let Some(ref sampler) = self.sampler {
                 transaction_msg.frame_ops.append(&mut sampler.sample());
             }
@@ -1148,6 +1167,8 @@ impl RenderBackend {
             // new_frame_ready callback below) has the right flags.
             let msg = ResultMsg::PublishPipelineInfo(doc.updated_pipeline_info());
             self.result_tx.send(msg).unwrap();
+        } else if op.rebuild_hit_tester {
+            doc.rebuild_hit_tester();
         }
 
         if transaction_msg.generate_frame {

@@ -302,6 +302,33 @@ impl FrameBuilder {
         }
     }
 
+    pub fn update_clip_scroll_tree(
+        &mut self,
+        resource_cache: Option<&mut ResourceCache>,
+        gpu_cache: Option<&mut GpuCache>,
+        clip_scroll_tree: &mut ClipScrollTree,
+        device_pixel_scale: DevicePixelScale,
+        pan: WorldPoint,
+        scene_properties: &SceneProperties,
+    ) -> Option<TransformPalette> {
+        let mut clip_render_context = if resource_cache.is_some() {
+            Some(ClipRenderContext {
+                resource_cache: resource_cache.unwrap(),
+                gpu_cache: gpu_cache.unwrap(),
+            })
+        } else {
+            None
+        };
+        clip_scroll_tree.update_tree(
+            &self.screen_rect.to_i32(),
+            device_pixel_scale,
+            &mut self.clip_store,
+            &mut clip_render_context,
+            pan,
+            scene_properties,
+        )
+    }
+
     pub fn build(
         &mut self,
         resource_cache: &mut ResourceCache,
@@ -330,20 +357,14 @@ impl FrameBuilder {
         resource_cache.begin_frame(frame_id);
         gpu_cache.begin_frame();
 
-        let transform_palette = {
-            let clip_render_context = ClipRenderContext {
-                resource_cache,
-                gpu_cache,
-            };
-            clip_scroll_tree.update_tree(
-                &self.screen_rect.to_i32(),
-                device_pixel_scale,
-                &mut self.clip_store,
-                &mut Some(clip_render_context),
-                pan,
-                scene_properties,
-            ).expect("Must get a palette since we provided a render context")
-        };
+        let transform_palette = self.update_clip_scroll_tree(
+            Some(resource_cache),
+            Some(gpu_cache),
+            clip_scroll_tree,
+            device_pixel_scale,
+            pan,
+            scene_properties
+        ).expect("Must get a palette since we provided a render context");
 
         self.update_scroll_bars(clip_scroll_tree, gpu_cache);
 
