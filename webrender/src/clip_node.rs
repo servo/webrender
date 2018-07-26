@@ -30,14 +30,16 @@ impl ClipNode {
         &mut self,
         device_pixel_scale: DevicePixelScale,
         clip_store: &mut ClipStore,
-        render_context: &mut ClipRenderContext,
+        render_context: &mut Option<ClipRenderContext>,
         clip_chains: &mut [ClipChain],
         spatial_nodes: &[SpatialNode],
     ) {
         let clip_sources = clip_store.get_mut(&self.handle);
-        clip_sources.update(render_context.gpu_cache,
-                            render_context.resource_cache,
-                            device_pixel_scale);
+        if let &mut Some(ref mut context) = render_context {
+            clip_sources.update(context.gpu_cache,
+                                context.resource_cache,
+                                device_pixel_scale);
+        }
         let spatial_node = &spatial_nodes[clip_sources.spatial_node_index.0];
 
         let (screen_inner_rect, screen_outer_rect) = clip_sources.get_screen_bounds(
