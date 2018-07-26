@@ -302,6 +302,24 @@ impl FrameBuilder {
         }
     }
 
+    pub fn update_clip_scroll_tree(
+        &mut self,
+        clip_render_context: &mut Option<ClipRenderContext>,
+        clip_scroll_tree: &mut ClipScrollTree,
+        device_pixel_scale: DevicePixelScale,
+        pan: WorldPoint,
+        scene_properties: &SceneProperties,
+    ) -> Option<TransformPalette> {
+        clip_scroll_tree.update_tree(
+            &self.screen_rect.to_i32(),
+            device_pixel_scale,
+            &mut self.clip_store,
+            clip_render_context,
+            pan,
+            scene_properties,
+        )
+    }
+
     pub fn build(
         &mut self,
         resource_cache: &mut ResourceCache,
@@ -335,15 +353,14 @@ impl FrameBuilder {
                 resource_cache,
                 gpu_cache,
             };
-            clip_scroll_tree.update_tree(
-                &self.screen_rect.to_i32(),
-                device_pixel_scale,
-                &mut self.clip_store,
+            self.update_clip_scroll_tree(
                 &mut Some(clip_render_context),
+                clip_scroll_tree,
+                device_pixel_scale,
                 pan,
-                scene_properties,
-            ).expect("Must get a palette since we provided a render context")
-        };
+                scene_properties
+            )
+        }.expect("Must get a palette since we provided a render context");
 
         self.update_scroll_bars(clip_scroll_tree, gpu_cache);
 
