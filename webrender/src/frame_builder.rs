@@ -6,7 +6,7 @@ use api::{BuiltDisplayList, ColorF, DeviceIntPoint, DeviceIntRect, DevicePixelSc
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentLayer, FontRenderMode};
 use api::{LayoutPoint, LayoutRect, LayoutSize, PipelineId, WorldPoint};
 use clip::{ClipChain, ClipStore};
-use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
+use clip_scroll_tree::{ClipRenderContext, ClipScrollTree, SpatialNodeIndex};
 use display_list_flattener::{DisplayListFlattener};
 use gpu_cache::GpuCache;
 use gpu_types::{PrimitiveHeaders, TransformPalette, UvRectKind};
@@ -330,15 +330,20 @@ impl FrameBuilder {
         resource_cache.begin_frame(frame_id);
         gpu_cache.begin_frame();
 
-        let transform_palette = clip_scroll_tree.update_tree(
-            &self.screen_rect.to_i32(),
-            device_pixel_scale,
-            &mut self.clip_store,
-            resource_cache,
-            gpu_cache,
-            pan,
-            scene_properties,
-        );
+        let transform_palette = {
+            let mut clip_render_context = ClipRenderContext {
+                resource_cache,
+                gpu_cache,
+            };
+            clip_scroll_tree.update_tree(
+                &self.screen_rect.to_i32(),
+                device_pixel_scale,
+                &mut self.clip_store,
+                &mut clip_render_context,
+                pan,
+                scene_properties,
+            )
+        };
 
         self.update_scroll_bars(clip_scroll_tree, gpu_cache);
 
