@@ -228,11 +228,15 @@ impl ClipScrollTree {
         screen_rect: &DeviceIntRect,
         device_pixel_scale: DevicePixelScale,
         clip_store: &mut ClipStore,
-        render_context: &mut ClipRenderContext,
+        render_context: &mut Option<ClipRenderContext>,
         pan: WorldPoint,
         scene_properties: &SceneProperties,
-    ) -> TransformPalette {
-        let mut transform_palette = TransformPalette::new(self.spatial_nodes.len());
+    ) -> Option<TransformPalette> {
+        let mut transform_palette = if render_context.is_some() {
+            Some(TransformPalette::new(self.spatial_nodes.len()))
+        } else {
+            None
+        };
         if self.spatial_nodes.is_empty() {
             return transform_palette;
         }
@@ -278,7 +282,7 @@ impl ClipScrollTree {
         node_index: SpatialNodeIndex,
         state: &mut TransformUpdateState,
         next_coordinate_system_id: &mut CoordinateSystemId,
-        transform_palette: &mut TransformPalette,
+        transform_palette: &mut Option<TransformPalette>,
         scene_properties: &SceneProperties,
     ) {
         // TODO(gw): This is an ugly borrow check workaround to clone these.
@@ -291,7 +295,9 @@ impl ClipScrollTree {
             };
 
             node.update(&mut state, next_coordinate_system_id, scene_properties);
-            node.push_gpu_data(transform_palette, node_index);
+            if let &mut Some(ref mut palette) = transform_palette {
+                node.push_gpu_data(palette, node_index);
+            }
 
             if node.children.is_empty() {
                 return;
