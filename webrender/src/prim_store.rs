@@ -1983,6 +1983,9 @@ impl PrimitiveStore {
                     match brush.segment_desc {
                         Some(ref segment_desc) => {
                             for segment in &segment_desc.segments {
+                                if cfg!(debug_assertions) && self.chase_id == Some(prim_index) {
+                                    println!("\t\t{:?}", segment);
+                                }
                                 // has to match VECS_PER_SEGMENT
                                 request.write_segment(
                                     segment.local_rect,
@@ -2642,10 +2645,6 @@ impl PrimitiveStore {
         };
 
         for run in &pic_context.prim_runs {
-            if run.is_chasing(self.chase_id) {
-                println!("\tpreparing a run of length {} in pipeline {:?}",
-                    run.count, pic_context.pipeline_id);
-            }
             // TODO(gw): Perhaps we can restructure this to not need to create
             //           a new primitive context for every run (if the hash
             //           lookups ever show up in a profile).
@@ -2654,6 +2653,13 @@ impl PrimitiveStore {
                 .spatial_nodes[run.clip_and_scroll.spatial_node_index.0];
             let clip_chain = &frame_context
                 .clip_chains[run.clip_and_scroll.clip_chain_index.0];
+
+            if run.is_chasing(self.chase_id) {
+                println!("\tpreparing a run of length {} in pipeline {:?}",
+                    run.count, pic_context.pipeline_id);
+                println!("\trun {:?}", run.clip_and_scroll);
+                println!("\ttransform {:?}", scroll_node.world_content_transform.to_transform());
+            }
 
             // Mark whether this picture contains any complex coordinate
             // systems, due to either the scroll node or the clip-chain.
@@ -2715,7 +2721,12 @@ impl PrimitiveStore {
             };
 
             let local_clip_chain_rect = match clip_chain_rect {
-                Some(rect) if rect.is_empty() => continue,
+                Some(rect) if rect.is_empty() => {
+                    if run.is_chasing(self.chase_id) {
+                        println!("\tculled by empty chain rect");
+                    }
+                    continue
+                },
                 Some(rect) => rect,
                 None => frame_context.max_local_clip,
             };
@@ -2748,7 +2759,12 @@ impl PrimitiveStore {
                     let clipped_rect = match clip_chain_rect {
                         Some(ref chain_rect) => match prim_local_rect.intersection(chain_rect) {
                             Some(rect) => rect,
-                            None => continue,
+                            None => {
+                                if cfg!(debug_assertions) && self.chase_id == Some(prim_index) {
+                                    println!("\tculled by chain rect {:?}", chain_rect);
+                                }
+                                continue
+                            },
                         },
                         None => prim_local_rect,
                     };
