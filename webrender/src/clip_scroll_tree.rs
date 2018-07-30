@@ -5,7 +5,7 @@
 use api::{DeviceIntRect, DevicePixelScale, ExternalScrollId, LayoutPoint, LayoutRect, LayoutVector2D};
 use api::{PipelineId, ScrollClamping, ScrollLocation, ScrollNodeState};
 use api::{LayoutSize, LayoutTransform, PropertyBinding, ScrollSensitivity, WorldPoint};
-use clip::{ClipChain, ClipSourcesHandle, ClipStore};
+use clip::{ClipChain, ClipSourcesIndex, ClipStore};
 use clip_node::ClipNode;
 use gpu_cache::GpuCache;
 use gpu_types::TransformPalette;
@@ -355,12 +355,12 @@ impl ClipScrollTree {
     pub fn add_clip_node(
         &mut self,
         parent_clip_chain_index: ClipChainIndex,
-        handle: ClipSourcesHandle,
+        clip_sources_index: ClipSourcesIndex,
     ) -> (ClipNodeIndex, ClipChainIndex) {
         let clip_chain_index = self.allocate_clip_chain();
         let node = ClipNode {
             parent_clip_chain_index,
-            handle,
+            clip_sources_index,
             clip_chain_index,
             clip_chain_node: None,
         };

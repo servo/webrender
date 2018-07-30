@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::DevicePixelScale;
-use clip::{ClipChain, ClipChainNode, ClipSourcesHandle, ClipStore, ClipWorkItem};
+use clip::{ClipChain, ClipChainNode, ClipSourcesIndex, ClipStore, ClipWorkItem};
 use clip_scroll_tree::{ClipChainIndex};
 use gpu_cache::GpuCache;
 use resource_cache::ResourceCache;
@@ -12,7 +12,7 @@ use spatial_node::SpatialNode;
 #[derive(Debug)]
 pub struct ClipNode {
     /// A handle to this clip nodes clips in the ClipStore.
-    pub handle: ClipSourcesHandle,
+    pub clip_sources_index: ClipSourcesIndex,
 
     /// An index to a ClipChain defined by this ClipNode's hiearchy in the display
     /// list.
@@ -37,7 +37,7 @@ impl ClipNode {
         clip_chains: &mut [ClipChain],
         spatial_nodes: &[SpatialNode],
     ) {
-        let clip_sources = clip_store.get_mut(&self.handle);
+        let clip_sources = clip_store.get_mut(self.clip_sources_index);
         clip_sources.update(gpu_cache, resource_cache, device_pixel_scale);
         let spatial_node = &spatial_nodes[clip_sources.spatial_node_index.0];
 
@@ -57,7 +57,7 @@ impl ClipNode {
 
         let new_node = ClipChainNode {
             work_item: ClipWorkItem {
-                clip_sources: self.handle.weak(),
+                clip_sources_index: self.clip_sources_index,
                 coordinate_system_id: spatial_node.coordinate_system_id,
             },
             local_clip_rect: spatial_node

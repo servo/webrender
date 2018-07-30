@@ -13,7 +13,7 @@ use api::{LineOrientation, LineStyle, LocalClip, NinePatchBorderSource, Pipeline
 use api::{PropertyBinding, ReferenceFrame, RepeatMode, ScrollFrameDisplayItem, ScrollSensitivity};
 use api::{Shadow, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect};
 use api::{TransformStyle, YuvColorSpace, YuvData};
-use clip::{ClipRegion, ClipSource, ClipSources, ClipSourcesHandle, ClipStore};
+use clip::{ClipRegion, ClipSource, ClipSources, ClipSourcesIndex, ClipStore};
 use clip_scroll_tree::{ClipChainIndex, ClipNodeIndex, ClipScrollTree, SpatialNodeIndex};
 use euclid::vec2;
 use frame_builder::{ChasePrimitive, FrameBuilder, FrameBuilderConfig};
@@ -740,7 +740,7 @@ impl<'a> DisplayListFlattener<'a> {
         &mut self,
         clip_sources: Vec<ClipSource>,
         spatial_node_index: SpatialNodeIndex,
-    ) -> Option<ClipSourcesHandle> {
+    ) -> Option<ClipSourcesIndex> {
         if clip_sources.is_empty() {
             None
         } else {
@@ -754,7 +754,7 @@ impl<'a> DisplayListFlattener<'a> {
     pub fn create_primitive(
         &mut self,
         info: &LayoutPrimitiveInfo,
-        clip_sources: Option<ClipSourcesHandle>,
+        clip_sources: Option<ClipSourcesIndex>,
         container: PrimitiveContainer,
     ) -> PrimitiveIndex {
         let stacking_context = self.sc_stack.last().expect("bug: no stacking context!");

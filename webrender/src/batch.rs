@@ -1788,9 +1788,7 @@ impl ClipBatcher {
     ) {
         let mut coordinate_system_id = coordinate_system_id;
         for work_item in clips.iter() {
-            let info = clip_store
-                .get_opt(&work_item.clip_sources)
-                .expect("bug: clip handle should be valid");
+            let info = clip_store.get(work_item.clip_sources_index);
             let instance = ClipMaskInstance {
                 render_task_address: task_address,
                 transform_id: transforms.get_id(info.spatial_node_index),
