@@ -13,7 +13,7 @@ use border::{BorderCacheKey, BorderRenderTaskInfo};
 use box_shadow::BLUR_SAMPLE_SCALE;
 use clip_scroll_tree::{ClipChainIndex, CoordinateSystemId, SpatialNodeIndex};
 use clip::{ClipChain, ClipChainNode, ClipChainNodeIter, ClipChainNodeRef, ClipSource};
-use clip::{ClipSourcesHandle, ClipWorkItem};
+use clip::{ClipSourcesIndex, ClipWorkItem};
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
 use frame_builder::PrimitiveRunContext;
 use glyph_rasterizer::{FontInstance, FontTransform, GlyphKey, FONT_SIZE_LIMIT};
@@ -188,7 +188,7 @@ pub struct ScreenRect {
 #[derive(Debug)]
 pub struct PrimitiveMetadata {
     pub opacity: PrimitiveOpacity,
-    pub clip_sources: Option<ClipSourcesHandle>,
+    pub clip_sources_index: Option<ClipSourcesIndex>,
     pub prim_kind: PrimitiveKind,
     pub cpu_prim_index: SpecificPrimitiveIndex,
     pub gpu_location: GpuCacheHandle,
@@ -1281,14 +1281,14 @@ impl PrimitiveStore {
         local_rect: &LayoutRect,
         local_clip_rect: &LayoutRect,
         is_backface_visible: bool,
-        clip_sources: Option<ClipSourcesHandle>,
+        clip_sources_index: Option<ClipSourcesIndex>,
         tag: Option<ItemTag>,
         container: PrimitiveContainer,
     ) -> PrimitiveIndex {
         let prim_index = self.cpu_metadata.len();
 
         let base_metadata = PrimitiveMetadata {
-            clip_sources,
+            clip_sources_index,
             gpu_location: GpuCacheHandle::new(),
             clip_task_id: None,
             local_rect: *local_rect,
@@ -2062,7 +2062,7 @@ impl PrimitiveStore {
                 continue;
             }
 
-            let local_clips = frame_state.clip_store.get_opt(&clip_item.clip_sources).expect("bug");
+            let local_clips = frame_state.clip_store.get(clip_item.clip_sources_index);
             rect_clips_only = rect_clips_only && local_clips.only_rectangular_clips;
 
             // TODO(gw): We can easily extend the segment builder to support these clip sources in
@@ -2288,8 +2288,8 @@ impl PrimitiveStore {
         let transform = &prim_run_context.scroll_node.world_content_transform;
         let extra_clip =  {
             let metadata = &self.cpu_metadata[prim_index.0];
-            metadata.clip_sources.as_ref().map(|clip_sources| {
-                let prim_clips = frame_state.clip_store.get_mut(clip_sources);
+            metadata.clip_sources_index.map(|clip_sources_index| {
+                let prim_clips = frame_state.clip_store.get_mut(clip_sources_index);
                 prim_clips.update(
                     frame_state.gpu_cache,
                     frame_state.resource_cache,
@@ -2310,7 +2310,7 @@ impl PrimitiveStore {
 
                 Arc::new(ClipChainNode {
                     work_item: ClipWorkItem {
-                        clip_sources: clip_sources.weak(),
+                        clip_sources_index,
                         coordinate_system_id: prim_coordinate_system_id,
                     },
                     // The local_clip_rect a property of ClipChain nodes that are ClipNodes.
