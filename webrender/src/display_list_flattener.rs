@@ -232,16 +232,14 @@ impl<'a> DisplayListFlattener<'a> {
             .get(complex_clips)
     }
 
-    //TODO: avoid collecting into a `Vec` here
     fn get_clip_chain_items(
         &self,
         pipeline_id: PipelineId,
         items: ItemRange<ClipId>,
-    ) -> Vec<ClipId> {
-        if items.is_empty() {
-            return vec![];
-        }
-        self.scene.get_display_list_for_pipeline(pipeline_id).get(items).collect()
+    ) -> impl 'a + Iterator<Item = ClipId> {
+        self.scene
+            .get_display_list_for_pipeline(pipeline_id)
+            .get(items)
     }
 
     fn flatten_root(&mut self, pipeline: &'a ScenePipeline, frame_size: &LayoutSize) {
@@ -687,8 +685,7 @@ impl<'a> DisplayListFlattener<'a> {
             }
             SpecificDisplayItem::ClipChain(ref info) => {
                 let items = self.get_clip_chain_items(pipeline_id, item.clip_chain_items())
-                    .iter()
-                    .map(|id| self.id_to_index_mapper.get_clip_node_index(*id))
+                    .map(|id| self.id_to_index_mapper.get_clip_node_index(id))
                     .collect();
                 let parent = match info.parent {
                     Some(id) => Some(
