@@ -488,6 +488,14 @@ impl<Src, Dst> FastTransform<Src, Dst> {
         FastTransform::Transform { transform, inverse, is_2d}
     }
 
+    pub fn kind(&self) -> TransformedRectKind {
+        match *self {
+            FastTransform::Offset(_) => TransformedRectKind::AxisAligned,
+            FastTransform::Transform { ref transform, .. } if transform.preserves_2d_axis_alignment() => TransformedRectKind::AxisAligned,
+            FastTransform::Transform { .. } => TransformedRectKind::Complex,
+        }
+    }
+
     pub fn to_transform(&self) -> Cow<TypedTransform3D<f32, Src, Dst>> {
         match *self {
             FastTransform::Offset(offset) => Cow::Owned(
@@ -528,15 +536,6 @@ impl<Src, Dst> FastTransform<Src, Dst> {
                 FastTransform::Offset(*offset + *other_offset),
             FastTransform::Transform { transform, .. } =>
                 FastTransform::with_transform(transform.pre_translate(other_offset.to_3d()))
-        }
-    }
-
-    #[inline(always)]
-    pub fn preserves_2d_axis_alignment(&self) -> bool {
-        match *self {
-            FastTransform::Offset(..) => true,
-            FastTransform::Transform { ref transform, .. } =>
-                transform.preserves_2d_axis_alignment(),
         }
     }
 

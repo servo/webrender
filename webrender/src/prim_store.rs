@@ -63,8 +63,8 @@ impl ScrollNodeAndClipChain {
 // the information in the clip-scroll tree. However, if we decide
 // to rasterize a picture in local space, then this will be the
 // transform relative to that picture's coordinate system.
-pub struct Transform {
-    pub m: LayoutToWorldTransform,
+pub struct Transform<'a> {
+    pub m: &'a LayoutToWorldTransform,
     pub backface_is_visible: bool,
     pub transform_kind: TransformedRectKind,
 }

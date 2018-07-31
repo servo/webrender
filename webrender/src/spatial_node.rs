@@ -8,7 +8,7 @@ use api::{LayoutVector2D, PipelineId, PropertyBinding, ScrollClamping, ScrollLoc
 use api::{ScrollSensitivity, StickyOffsetBounds};
 use clip_scroll_tree::{CoordinateSystemId, SpatialNodeIndex, TransformUpdateState};
 use euclid::SideOffsets2D;
-use gpu_types::{TransformData, TransformPalette};
+use gpu_types::TransformPalette;
 use scene::SceneProperties;
 use util::{LayoutFastTransform, LayoutToWorldFastTransform, TransformedRectKind};
 
@@ -204,25 +204,11 @@ impl SpatialNode {
         node_index: SpatialNodeIndex,
     ) {
         if !self.invertible {
-            transform_palette.set(node_index, TransformData::invalid());
+            transform_palette.invalidate(node_index);
             return;
         }
 
-        let inv_transform = match self.world_content_transform.inverse() {
-            Some(inverted) => inverted.to_transform().into_owned(),
-            None => {
-                transform_palette.set(node_index, TransformData::invalid());
-                return;
-            }
-        };
-
-        let data = TransformData {
-            transform: self.world_content_transform.to_transform().into_owned(),
-            inv_transform,
-        };
-
-        // Write the data that will be made available to the GPU for this node.
-        transform_palette.set(node_index, data);
+        transform_palette.set(node_index, &self.world_content_transform);
     }
 
     pub fn update(
@@ -239,12 +225,7 @@ impl SpatialNode {
         }
 
         self.update_transform(state, next_coordinate_system_id, scene_properties);
-
-        self.transform_kind = if self.world_content_transform.preserves_2d_axis_alignment() {
-            TransformedRectKind::AxisAligned
-        } else {
-            TransformedRectKind::Complex
-        };
+        self.transform_kind = self.world_content_transform.kind();
 
         // If this node is a reference frame, we check if it has a non-invertible matrix.
         // For non-reference-frames we assume that they will produce only additional
