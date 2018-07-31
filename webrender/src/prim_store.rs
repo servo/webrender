@@ -1574,7 +1574,7 @@ impl PrimitiveStore {
             PrimitiveKind::TextRun => {
                 let text = &mut self.cpu_text_runs[metadata.cpu_prim_index.0];
                 // The transform only makes sense for screen space rasterization
-                let transform = prim_run_context.scroll_node.world_content_transform.into();
+                let transform = prim_run_context.scroll_node.world_content_transform.to_transform();
                 text.prepare_for_render(
                     frame_context.device_pixel_scale,
                     &transform,

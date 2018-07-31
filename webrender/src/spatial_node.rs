@@ -209,7 +209,7 @@ impl SpatialNode {
         }
 
         let inv_transform = match self.world_content_transform.inverse() {
-            Some(inverted) => inverted.to_transform(),
+            Some(inverted) => inverted.to_transform().into_owned(),
             None => {
                 transform_palette.set(node_index, TransformData::invalid());
                 return;
@@ -217,7 +217,7 @@ impl SpatialNode {
         };
 
         let data = TransformData {
-            transform: self.world_content_transform.into(),
+            transform: self.world_content_transform.to_transform().into_owned(),
             inv_transform,
         };
 

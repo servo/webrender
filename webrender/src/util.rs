@@ -11,6 +11,8 @@ use euclid::{HomogeneousVector};
 use num_traits::Zero;
 use plane_split::{Clipper, Plane, Polygon};
 use std::{i32, f32};
+use std::borrow::Cow;
+
 
 // Matches the definition of SK_ScalarNearlyZero in Skia.
 const NEARLY_ZERO: f32 = 1.0 / 4096.0;
@@ -486,11 +488,12 @@ impl<Src, Dst> FastTransform<Src, Dst> {
         FastTransform::Transform { transform, inverse, is_2d}
     }
 
-    pub fn to_transform(&self) -> TypedTransform3D<f32, Src, Dst> {
+    pub fn to_transform(&self) -> Cow<TypedTransform3D<f32, Src, Dst>> {
         match *self {
-            FastTransform::Offset(offset) =>
-                TypedTransform3D::create_translation(offset.x, offset.y, 0.0),
-            FastTransform::Transform { transform, .. } => transform
+            FastTransform::Offset(offset) => Cow::Owned(
+                TypedTransform3D::create_translation(offset.x, offset.y, 0.0)
+            ),
+            FastTransform::Transform { ref transform, .. } => Cow::Borrowed(transform),
         }
     }
 
@@ -650,12 +653,6 @@ impl<Src, Dst> FastTransform<Src, Dst> {
 impl<Src, Dst> From<TypedTransform3D<f32, Src, Dst>> for FastTransform<Src, Dst> {
     fn from(transform: TypedTransform3D<f32, Src, Dst>) -> Self {
         FastTransform::with_transform(transform)
-    }
-}
-
-impl<Src, Dst> Into<TypedTransform3D<f32, Src, Dst>> for FastTransform<Src, Dst> {
-    fn into(self) -> TypedTransform3D<f32, Src, Dst> {
-        self.to_transform()
     }
 }
 
