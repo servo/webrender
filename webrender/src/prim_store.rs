@@ -2064,7 +2064,7 @@ impl PrimitiveStore {
                 continue;
             }
 
-            let local_clips = frame_state.clip_store.get(clip_item.clip_sources_index);
+            let local_clips = &frame_state.clip_store[clip_item.clip_sources_index];
             rect_clips_only = rect_clips_only && local_clips.only_rectangular_clips;
 
             // TODO(gw): We can easily extend the segment builder to support these clip sources in
@@ -2291,7 +2291,7 @@ impl PrimitiveStore {
         let extra_clip =  {
             let metadata = &self.cpu_metadata[prim_index.0];
             metadata.clip_sources_index.map(|clip_sources_index| {
-                let prim_clips = frame_state.clip_store.get_mut(clip_sources_index);
+                let prim_clips = &mut frame_state.clip_store[clip_sources_index];
                 prim_clips.update(
                     frame_state.gpu_cache,
                     frame_state.resource_cache,
