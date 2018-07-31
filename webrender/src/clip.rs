@@ -69,51 +69,77 @@ pub struct LineDecorationClipSource {
     wavy_line_thickness: f32,
 }
 
-#[derive(Clone, Debug)]
-pub struct ClipRegion {
-    pub main: LayoutRect,
-    pub image_mask: Option<ImageMask>,
-    pub complex_clips: Vec<ComplexClipRegion>,
+
+pub struct ComplexTranslateIter<I> {
+    source: I,
+    offset: LayoutVector2D,
 }
 
-impl ClipRegion {
+impl<I: Iterator<Item = ComplexClipRegion>> Iterator for ComplexTranslateIter<I> {
+    type Item = ComplexClipRegion;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.source
+            .next()
+            .map(|mut complex| {
+                complex.rect = complex.rect.translate(&self.offset);
+                complex
+            })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ClipRegion<I> {
+    pub main: LayoutRect,
+    pub image_mask: Option<ImageMask>,
+    pub complex_clips: I,
+}
+
+impl<J> ClipRegion<ComplexTranslateIter<J>> {
     pub fn create_for_clip_node(
         rect: LayoutRect,
-        mut complex_clips: Vec<ComplexClipRegion>,
+        complex_clips: J,
         mut image_mask: Option<ImageMask>,
         reference_frame_relative_offset: &LayoutVector2D,
-    ) -> Self {
-        let rect = rect.translate(reference_frame_relative_offset);
-
+    ) -> Self
+    where
+        J: Iterator<Item = ComplexClipRegion>
+    {
         if let Some(ref mut image_mask) = image_mask {
             image_mask.rect = image_mask.rect.translate(reference_frame_relative_offset);
         }
 
-        for complex_clip in complex_clips.iter_mut() {
-            complex_clip.rect = complex_clip.rect.translate(reference_frame_relative_offset);
-        }
-
         ClipRegion {
-            main: rect,
+            main: rect.translate(reference_frame_relative_offset),
             image_mask,
-            complex_clips,
+            complex_clips: ComplexTranslateIter {
+                source: complex_clips,
+                offset: *reference_frame_relative_offset,
+            },
         }
     }
+}
 
+impl ClipRegion<Option<ComplexClipRegion>> {
     pub fn create_for_clip_node_with_local_clip(
         local_clip: &LocalClip,
         reference_frame_relative_offset: &LayoutVector2D
     ) -> Self {
-        let complex_clips = match *local_clip {
-            LocalClip::Rect(_) => Vec::new(),
-            LocalClip::RoundedRect(_, ref region) => vec![region.clone()],
-        };
-        ClipRegion::create_for_clip_node(
-            *local_clip.clip_rect(),
-            complex_clips,
-            None,
-            reference_frame_relative_offset
-        )
+        ClipRegion {
+            main: local_clip
+                .clip_rect()
+                .translate(reference_frame_relative_offset),
+            image_mask: None,
+            complex_clips: match *local_clip {
+                LocalClip::Rect(_) => None,
+                LocalClip::RoundedRect(_, ref region) => {
+                    Some(ComplexClipRegion {
+                        rect: region.rect.translate(reference_frame_relative_offset),
+                        radii: region.radii,
+                        mode: region.mode,
+                    })
+                },
+            }
+        }
     }
 }
 
@@ -412,14 +438,17 @@ impl ClipSources {
         }
     }
 
-    pub fn from_region(
-        region: &ClipRegion,
+    pub fn from_region<I>(
+        region: ClipRegion<I>,
         spatial_node_index: SpatialNodeIndex,
-    ) -> ClipSources {
+    ) -> ClipSources
+    where
+        I: IntoIterator<Item = ComplexClipRegion>
+    {
         let clip_rect = iter::once(ClipSource::Rectangle(region.main, ClipMode::Clip));
         let clip_image = region.image_mask.map(ClipSource::Image);
         let clips_complex = region.complex_clips
-            .iter()
+            .into_iter()
             .map(|complex| ClipSource::new_rounded_rect(
                 complex.rect,
                 complex.radii,

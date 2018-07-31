@@ -224,13 +224,15 @@ impl<'a> DisplayListFlattener<'a> {
         &self,
         pipeline_id: PipelineId,
         complex_clips: ItemRange<ComplexClipRegion>,
-    ) -> Vec<ComplexClipRegion> {
-        if complex_clips.is_empty() {
-            return vec![];
-        }
-        self.scene.get_display_list_for_pipeline(pipeline_id).get(complex_clips).collect()
+    ) -> impl 'a + Iterator<Item = ComplexClipRegion> {
+        //Note: we could make this a bit more complex to early out
+        // on `complex_clips.is_empty()` if it's worth it
+        self.scene
+            .get_display_list_for_pipeline(pipeline_id)
+            .get(complex_clips)
     }
 
+    //TODO: avoid collecting into a `Vec` here
     fn get_clip_chain_items(
         &self,
         pipeline_id: PipelineId,
@@ -382,7 +384,7 @@ impl<'a> DisplayListFlattener<'a> {
 
         debug_assert!(info.clip_id != info.scroll_frame_id);
 
-        self.add_clip_node(info.clip_id, clip_and_scroll_ids.scroll_node_id, &clip_region);
+        self.add_clip_node(info.clip_id, clip_and_scroll_ids.scroll_node_id, clip_region);
 
         self.add_scroll_frame(
             info.scroll_frame_id,
@@ -483,7 +485,7 @@ impl<'a> DisplayListFlattener<'a> {
         let clip_chain_index = self.add_clip_node(
             info.clip_id,
             clip_and_scroll_ids.scroll_node_id,
-            &ClipRegion::create_for_clip_node_with_local_clip(
+            ClipRegion::create_for_clip_node_with_local_clip(
                 &LocalClip::from(*item.clip_rect()),
                 reference_frame_relative_offset
             ),
@@ -681,7 +683,7 @@ impl<'a> DisplayListFlattener<'a> {
                     info.image_mask,
                     &reference_frame_relative_offset,
                 );
-                self.add_clip_node(info.id, clip_and_scroll_ids.scroll_node_id, &clip_region);
+                self.add_clip_node(info.id, clip_and_scroll_ids.scroll_node_id, clip_region);
             }
             SpecificDisplayItem::ClipChain(ref info) => {
                 let items = self.get_clip_chain_items(pipeline_id, item.clip_chain_items())
@@ -1241,12 +1243,15 @@ impl<'a> DisplayListFlattener<'a> {
         );
     }
 
-    pub fn add_clip_node(
+    pub fn add_clip_node<I>(
         &mut self,
         new_node_id: ClipId,
         parent_id: ClipId,
-        clip_region: &ClipRegion,
-    ) -> ClipChainIndex {
+        clip_region: ClipRegion<I>,
+    ) -> ClipChainIndex
+    where
+        I: IntoIterator<Item = ComplexClipRegion>
+    {
         let parent_clip_chain_index = self.id_to_index_mapper.get_clip_chain_index(&parent_id);
         let spatial_node = self.id_to_index_mapper.get_spatial_node_index(parent_id);
 
