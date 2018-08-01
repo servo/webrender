@@ -8,7 +8,6 @@ check-alphabetical-order = false
 packages = [
     "lazy_static",
     "log",
-    "num-traits",
     "rand",
     "winapi",
     "core-graphics",
