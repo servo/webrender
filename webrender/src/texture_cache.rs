@@ -93,26 +93,26 @@ pub enum CacheEntryMarker {}
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 struct CacheEntry {
-    // Size the requested item, in device pixels.
+    /// Size the requested item, in device pixels.
     size: DeviceUintSize,
-    // Details specific to standalone or shared items.
+    /// Details specific to standalone or shared items.
     kind: EntryKind,
-    // Arbitrary user data associated with this item.
+    /// Arbitrary user data associated with this item.
     user_data: [f32; 3],
-    // The last frame this item was requested for rendering.
+    /// The last frame this item was requested for rendering.
     last_access: FrameId,
-    // Handle to the resource rect in the GPU cache.
+    /// Handle to the resource rect in the GPU cache.
     uv_rect_handle: GpuCacheHandle,
-    // Image format of the item.
+    /// Image format of the item.
     format: ImageFormat,
     filter: TextureFilter,
-    // The actual device texture ID this is part of.
+    /// The actual device texture ID this is part of.
     texture_id: CacheTextureId,
-    // Optional notice when the entry is evicted from the cache.
+    /// Optional notice when the entry is evicted from the cache.
     eviction_notice: Option<EvictionNotice>,
-    // The type of UV rect this entry specifies.
+    /// The type of UV rect this entry specifies.
     uv_rect_kind: UvRectKind,
-    // If true the cache entry may be evicted if unused for a number of frames.
+    /// If set to `Auto` the cache entry may be evicted if unused for a number of frames.
     eviction: Eviction,
 }
 
