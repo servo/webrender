@@ -14,8 +14,8 @@ use gpu_types::BoxShadowStretchMode;
 use prim_store::{ClipData, ImageMaskData};
 use render_task::to_cache_size;
 use resource_cache::{ImageRequest, ResourceCache};
-use util::{LayoutToWorldFastTransform, MaxRect, calculate_screen_bounding_rect};
-use util::{extract_inner_rect_safe, pack_as_float, recycle_vec};
+use util::{LayoutToWorldFastTransform, MaxRect, TransformedRectKind};
+use util::{calculate_screen_bounding_rect, extract_inner_rect_safe, pack_as_float, recycle_vec};
 use std::{iter, ops};
 use std::sync::Arc;
 
@@ -571,7 +571,8 @@ impl ClipSources {
         // rectangle so that we can do screen inner rectangle optimizations for these kind of
         // cilps.
         let can_calculate_inner_rect =
-            transform.preserves_2d_axis_alignment() && !transform.has_perspective_component();
+            transform.kind() == TransformedRectKind::AxisAligned &&
+            !transform.has_perspective_component();
         let screen_inner_rect = if can_calculate_inner_rect {
             calculate_screen_bounding_rect(transform, &self.local_inner_rect, device_pixel_scale, screen_rect)
                 .unwrap_or(DeviceIntRect::zero())

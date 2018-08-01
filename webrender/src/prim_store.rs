@@ -63,8 +63,8 @@ impl ScrollNodeAndClipChain {
 // the information in the clip-scroll tree. However, if we decide
 // to rasterize a picture in local space, then this will be the
 // transform relative to that picture's coordinate system.
-pub struct Transform {
-    pub m: LayoutToWorldTransform,
+pub struct Transform<'a> {
+    pub m: &'a LayoutToWorldTransform,
     pub backface_is_visible: bool,
     pub transform_kind: TransformedRectKind,
 }
@@ -1574,7 +1574,7 @@ impl PrimitiveStore {
             PrimitiveKind::TextRun => {
                 let text = &mut self.cpu_text_runs[metadata.cpu_prim_index.0];
                 // The transform only makes sense for screen space rasterization
-                let transform = prim_run_context.scroll_node.world_content_transform.into();
+                let transform = prim_run_context.scroll_node.world_content_transform.to_transform();
                 text.prepare_for_render(
                     frame_context.device_pixel_scale,
                     &transform,
