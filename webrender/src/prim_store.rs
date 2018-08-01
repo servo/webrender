@@ -2966,8 +2966,8 @@ fn get_local_clip_rect_for_nodes(
                 })
             }
         )
-        .and_then(|local_rect| {
-            scroll_node.coordinate_system_relative_transform.unapply(&local_rect)
+        .map(|local_rect| {
+            local_rect.translate(&-scroll_node.coordinate_system_relative_offset)
         })
 }
 

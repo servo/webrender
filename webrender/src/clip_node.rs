@@ -60,10 +60,8 @@ impl ClipNode {
                 clip_sources_index: self.clip_sources_index,
                 coordinate_system_id: spatial_node.coordinate_system_id,
             },
-            local_clip_rect: spatial_node
-                .coordinate_system_relative_transform
-                .transform_rect(&local_outer_rect)
-                .expect("clip node transform is not valid"),
+            local_clip_rect: local_outer_rect
+                .translate(&spatial_node.coordinate_system_relative_offset),
             screen_outer_rect,
             screen_inner_rect,
             prev: None,

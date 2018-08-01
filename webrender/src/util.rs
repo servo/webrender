@@ -596,17 +596,6 @@ impl<Src, Dst> FastTransform<Src, Dst> {
         }
     }
 
-    #[inline(always)]
-    pub fn offset(&self, new_offset: TypedVector2D<f32, Src>) -> Self {
-        match *self {
-            FastTransform::Offset(offset) => FastTransform::Offset(offset + new_offset),
-            FastTransform::Transform { ref transform, .. } => {
-                let transform = transform.pre_translate(new_offset.to_3d());
-                FastTransform::with_transform(transform)
-            }
-        }
-    }
-
     pub fn post_translate(&self, new_offset: TypedVector2D<f32, Dst>) -> Self {
         match *self {
             FastTransform::Offset(offset) => {
@@ -633,16 +622,6 @@ impl<Src, Dst> FastTransform<Src, Dst> {
                 }),
             FastTransform::Transform { inverse: None, .. } => None,
 
-        }
-    }
-
-    pub fn update(&self, transform: TypedTransform3D<f32, Src, Dst>) -> Option<Self> {
-        if transform.is_simple_2d_translation() {
-            Some(self.offset(TypedVector2D::new(transform.m41, transform.m42)))
-        } else {
-            // If we break 2D axis alignment or have a perspective component, we need to start a
-            // new incompatible coordinate system with which we cannot share clips without masking.
-            None
         }
     }
 }
