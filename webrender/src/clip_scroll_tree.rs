@@ -66,6 +66,11 @@ impl ClipChainIndex {
     pub const NO_CLIP: Self = ClipChainIndex(0);
 }
 
+pub struct ClipRenderContext<'a> {
+    pub resource_cache: &'a mut ResourceCache,
+    pub gpu_cache: &'a mut GpuCache,
+}
+
 pub struct ClipScrollTree {
     /// Nodes which determine the positions (offsets and transforms) for primitives
     /// and clips.
@@ -223,12 +228,15 @@ impl ClipScrollTree {
         screen_rect: &DeviceIntRect,
         device_pixel_scale: DevicePixelScale,
         clip_store: &mut ClipStore,
-        resource_cache: &mut ResourceCache,
-        gpu_cache: &mut GpuCache,
+        render_context: &mut Option<ClipRenderContext>,
         pan: WorldPoint,
         scene_properties: &SceneProperties,
-    ) -> TransformPalette {
-        let mut transform_palette = TransformPalette::new(self.spatial_nodes.len());
+    ) -> Option<TransformPalette> {
+        let mut transform_palette = if render_context.is_some() {
+            Some(TransformPalette::new(self.spatial_nodes.len()))
+        } else {
+            None
+        };
         if self.spatial_nodes.is_empty() {
             return transform_palette;
         }
@@ -259,8 +267,7 @@ impl ClipScrollTree {
             clip_node.update(
                 device_pixel_scale,
                 clip_store,
-                resource_cache,
-                gpu_cache,
+                render_context,
                 &mut self.clip_chains,
                 &self.spatial_nodes,
             );
@@ -275,7 +282,7 @@ impl ClipScrollTree {
         node_index: SpatialNodeIndex,
         state: &mut TransformUpdateState,
         next_coordinate_system_id: &mut CoordinateSystemId,
-        transform_palette: &mut TransformPalette,
+        transform_palette: &mut Option<TransformPalette>,
         scene_properties: &SceneProperties,
     ) {
         // TODO(gw): This is an ugly borrow check workaround to clone these.
@@ -288,7 +295,9 @@ impl ClipScrollTree {
             };
 
             node.update(&mut state, next_coordinate_system_id, scene_properties);
-            node.push_gpu_data(transform_palette, node_index);
+            if let &mut Some(ref mut palette) = transform_palette {
+                node.push_gpu_data(palette, node_index);
+            }
 
             if node.children.is_empty() {
                 return;

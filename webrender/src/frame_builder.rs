@@ -6,7 +6,7 @@ use api::{BuiltDisplayList, ColorF, DeviceIntPoint, DeviceIntRect, DevicePixelSc
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentLayer, FontRenderMode};
 use api::{LayoutPoint, LayoutRect, LayoutSize, PipelineId, WorldPoint};
 use clip::{ClipChain, ClipStore};
-use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
+use clip_scroll_tree::{ClipRenderContext, ClipScrollTree, SpatialNodeIndex};
 use display_list_flattener::{DisplayListFlattener};
 use gpu_cache::GpuCache;
 use gpu_types::{PrimitiveHeaders, TransformPalette, UvRectKind};
@@ -302,6 +302,24 @@ impl FrameBuilder {
         }
     }
 
+    pub fn update_clip_scroll_tree(
+        &mut self,
+        clip_render_context: &mut Option<ClipRenderContext>,
+        clip_scroll_tree: &mut ClipScrollTree,
+        device_pixel_scale: DevicePixelScale,
+        pan: WorldPoint,
+        scene_properties: &SceneProperties,
+    ) -> Option<TransformPalette> {
+        clip_scroll_tree.update_tree(
+            &self.screen_rect.to_i32(),
+            device_pixel_scale,
+            &mut self.clip_store,
+            clip_render_context,
+            pan,
+            scene_properties,
+        )
+    }
+
     pub fn build(
         &mut self,
         resource_cache: &mut ResourceCache,
@@ -330,15 +348,19 @@ impl FrameBuilder {
         resource_cache.begin_frame(frame_id);
         gpu_cache.begin_frame();
 
-        let transform_palette = clip_scroll_tree.update_tree(
-            &self.screen_rect.to_i32(),
-            device_pixel_scale,
-            &mut self.clip_store,
-            resource_cache,
-            gpu_cache,
-            pan,
-            scene_properties,
-        );
+        let transform_palette = {
+            let clip_render_context = ClipRenderContext {
+                resource_cache,
+                gpu_cache,
+            };
+            self.update_clip_scroll_tree(
+                &mut Some(clip_render_context),
+                clip_scroll_tree,
+                device_pixel_scale,
+                pan,
+                scene_properties
+            )
+        }.expect("Must get a palette since we provided a render context");
 
         self.update_scroll_bars(clip_scroll_tree, gpu_cache);
 
