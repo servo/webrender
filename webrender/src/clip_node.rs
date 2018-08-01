@@ -37,7 +37,7 @@ impl ClipNode {
         clip_chains: &mut [ClipChain],
         spatial_nodes: &[SpatialNode],
     ) {
-        let clip_sources = clip_store.get_mut(self.clip_sources_index);
+        let clip_sources = &mut clip_store[self.clip_sources_index];
         clip_sources.update(gpu_cache, resource_cache, device_pixel_scale);
         let spatial_node = &spatial_nodes[clip_sources.spatial_node_index.0];
 
