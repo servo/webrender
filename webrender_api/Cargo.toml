@@ -12,7 +12,7 @@ serialize = []
 deserialize = []
 
 [dependencies]
-app_units = "0.6"
+app_units = "0.7"
 bincode = "1.0"
 bitflags = "1.0"
 byteorder = "1.2.1"
