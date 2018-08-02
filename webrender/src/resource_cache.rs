@@ -1525,6 +1525,9 @@ impl ResourceCache {
         if what.contains(ClearCache::TEXTURE_CACHE) {
             self.texture_cache.clear();
         }
+        if what.contains(ClearCache::RASTERIZED_BLOBS) {
+            self.rasterized_blob_images.clear();
+        }
     }
 
     pub fn clear_namespace(&mut self, namespace: IdNamespace) {
