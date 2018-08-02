@@ -17,6 +17,7 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 use webrender::api::{self, DisplayListBuilder, DocumentId, PipelineId, RenderApi, Transaction};
+use webrender::api::{DeviceUintRect, DeviceUintPoint};
 
 // This example shows how to implement a very basic BlobImageHandler that can only render
 // a checkerboard pattern.
@@ -97,7 +98,10 @@ fn render_blob(
 
     Ok(api::RasterizedBlobImage {
         data: Arc::new(texels),
-        size: descriptor.size,
+        rasterized_rect: DeviceUintRect {
+            origin: DeviceUintPoint::origin(),
+            size: descriptor.size,
+        },
     })
 }
 

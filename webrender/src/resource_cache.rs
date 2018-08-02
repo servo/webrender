@@ -1025,6 +1025,9 @@ impl ResourceCache {
                         format: template.descriptor.format,
                     };
 
+                    // TODO: We only track dirty rects for non-tiled blobs but we
+                    // should also do it with tiled ones unless we settle for a small
+                    // tile size.
                     blob_request_params.push(
                         BlobImageParams {
                             request: BlobImageRequest {
@@ -1037,14 +1040,20 @@ impl ResourceCache {
                     );
                 });
             } else {
-                // TODO: to support partial rendering of non-tiled blobs we
-                // need to know that the current version of the blob is uploaded
-                // to the texture cache and get the guarantee that it will not
-                // get evicted by the time the updated blob is rasterized and
-                // uploaded.
-                // Alternatively we could make it the responsibility of the blob
-                // renderer to always output the full image. This could be based
-                // a similar copy-on-write mechanism as gecko tiling.
+                let needs_upload = match self.cached_images.try_get(&key) {
+                    Some(&ImageResult::UntiledAuto(ref entry)) => {
+                        self.texture_cache.needs_upload(&entry.texture_cache_handle)
+                    }
+                    _ => true,
+                };
+
+                let dirty_rect = if needs_upload {
+                    // The texture cache entry has been evicted, treat it as all dirty.
+                    None
+                } else {
+                    template.dirty_rect
+                };
+
                 blob_request_params.push(
                     BlobImageParams {
                         request: BlobImageRequest {
@@ -1056,7 +1065,7 @@ impl ResourceCache {
                             size: template.descriptor.size,
                             format: template.descriptor.format,
                         },
-                        dirty_rect: None,
+                        dirty_rect,
                     }
                 );
             }
@@ -1369,6 +1378,7 @@ impl ResourceCache {
             let image_template = self.resources.image_templates.get_mut(request.key).unwrap();
             debug_assert!(image_template.data.uses_texture_cache());
 
+            let mut blob_rasterized_rect = None;
             let image_data = match image_template.data {
                 ImageData::Raw(..) | ImageData::External(..) => {
                     // Safe to clone here since the Raw image data is an
@@ -1385,6 +1395,8 @@ impl ResourceCache {
 
                             // TODO: we may want to not panic and show a placeholder instead.
 
+                            blob_rasterized_rect = Some(result.rasterized_rect);
+
                             ImageData::Raw(Arc::clone(&result.data))
                         }
                         None => {
@@ -1400,6 +1412,14 @@ impl ResourceCache {
                 ImageResult::Multi(ref mut entries) => entries.get_mut(&request.into()),
                 ImageResult::Err(_) => panic!("Update requested for invalid entry")
             };
+
+            match (blob_rasterized_rect, entry.dirty_rect) {
+                (Some(rasterized), Some(dirty)) => {
+                    debug_assert!(request.tile.is_some() || rasterized.contains_rect(&dirty));
+                }
+                _ => {}
+            }
+
             let mut descriptor = image_template.descriptor.clone();
             let local_dirty_rect;
 
@@ -1462,6 +1482,12 @@ impl ResourceCache {
                 }
             };
 
+            let eviction = if image_template.data.is_blob() {
+                Eviction::Manual
+            } else {
+                Eviction::Auto
+            };
+
             //Note: at this point, the dirty rectangle is local to the descriptor space
             self.texture_cache.update(
                 &mut entry.texture_cache_handle,
@@ -1473,7 +1499,7 @@ impl ResourceCache {
                 gpu_cache,
                 None,
                 UvRectKind::Rect,
-                Eviction::Auto,
+                eviction,
             );
         }
     }
@@ -1727,7 +1753,7 @@ impl ResourceCache {
                     let (_, result) = rasterizer.rasterize(blob_request_params).pop().unwrap();
                     let result = result.expect("Blob rasterization failed");
 
-                    assert_eq!(result.size, desc.size);
+                    assert_eq!(result.rasterized_rect.size, desc.size);
                     assert_eq!(result.data.len(), desc.compute_total_size() as usize);
 
                     num_blobs += 1;
