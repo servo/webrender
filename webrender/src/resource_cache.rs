@@ -40,7 +40,7 @@ use std::hash::Hash;
 #[cfg(any(feature = "capture", feature = "replay"))]
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use texture_cache::{TextureCache, TextureCacheHandle};
+use texture_cache::{TextureCache, TextureCacheHandle, Eviction};
 use tiling::SpecialRenderPasses;
 
 const DEFAULT_TILE_SIZE: TileSize = 512;
@@ -215,6 +215,10 @@ where
     pub fn get(&self, key: &K) -> &V {
         self.resources.get(key)
             .expect("Didn't find a cached resource with that ID!")
+    }
+
+    pub fn try_get(&self, key: &K) -> Option<&V> {
+        self.resources.get(key)
     }
 
     pub fn insert(&mut self, key: K, value: V) {
@@ -771,6 +775,18 @@ impl ResourceCache {
 
     pub fn delete_image_template(&mut self, image_key: ImageKey) {
         let value = self.resources.image_templates.remove(image_key);
+
+        match self.cached_images.try_get(&image_key) {
+            Some(&ImageResult::UntiledAuto(ref entry)) => {
+                self.texture_cache.mark_unused(&entry.texture_cache_handle);
+            }
+            Some(&ImageResult::Multi(ref entries)) => {
+                for (_, entry) in &entries.resources {
+                    self.texture_cache.mark_unused(&entry.texture_cache_handle);
+                }
+            }
+            _ => {}
+        }
 
         self.cached_images.remove(&image_key);
 
@@ -1457,6 +1473,7 @@ impl ResourceCache {
                 gpu_cache,
                 None,
                 UvRectKind::Rect,
+                Eviction::Auto,
             );
         }
     }
