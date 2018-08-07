@@ -68,17 +68,6 @@ impl App {
     ) {
         // Generate the external image key that will be used to render the output document to the root document.
         self.external_image_key = Some(api.generate_image_key());
-        let mut txn = Transaction::new();
-        txn.add_image(
-            self.external_image_key.unwrap(),
-            ImageDescriptor::new(100, 100, ImageFormat::BGRA8, true, false),
-            ImageData::External(ExternalImageData {
-                id: ExternalImageId(0),
-                channel_index: 0,
-                image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
-            }),
-            None,
-        );
 
         let pipeline_id = PipelineId(1, 0);
         let layer = 1;
@@ -92,6 +81,25 @@ impl App {
             content_rect: bounds.to_f32() / TypedScale::new(device_pixel_ratio),
             color,
         };
+
+        let mut txn = Transaction::new();
+
+        txn.enable_frame_output(document.pipeline_id, true);
+
+        api.send_transaction(document.id, txn);
+
+        let mut txn = Transaction::new();
+
+        txn.add_image(
+            self.external_image_key.unwrap(),
+            ImageDescriptor::new(100, 100, ImageFormat::BGRA8, true, false),
+            ImageData::External(ExternalImageData {
+                id: ExternalImageId(0),
+                channel_index: 0,
+                image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
+            }),
+            None,
+        );
 
         let info = LayoutPrimitiveInfo::new(document.content_rect);
         let mut builder = DisplayListBuilder::new(
@@ -112,7 +120,6 @@ impl App {
         builder.pop_stacking_context();
 
         txn.set_root_pipeline(pipeline_id);
-        txn.enable_frame_output(document.pipeline_id, true);
         txn.set_display_list(
             Epoch(0),
             Some(document.color),
