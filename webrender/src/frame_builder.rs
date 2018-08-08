@@ -5,7 +5,7 @@
 use api::{BuiltDisplayList, ColorF, DeviceIntPoint, DeviceIntRect, DevicePixelScale};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentLayer, FontRenderMode};
 use api::{LayoutPoint, LayoutRect, LayoutSize, PipelineId, WorldPoint};
-use clip::{ClipChain, ClipStore};
+use clip::{ClipStore};
 use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
 use display_list_flattener::{DisplayListFlattener};
 use gpu_cache::GpuCache;
@@ -72,7 +72,6 @@ pub struct FrameBuildingContext<'a> {
     pub pipelines: &'a FastHashMap<PipelineId, Arc<ScenePipeline>>,
     pub screen_rect: DeviceIntRect,
     pub clip_scroll_tree: &'a ClipScrollTree,
-    pub clip_chains: &'a [ClipChain],
     pub transforms: &'a TransformPalette,
     pub max_local_clip: LayoutRect,
 }
@@ -114,25 +113,19 @@ impl PictureState {
 }
 
 pub struct PrimitiveRunContext<'a> {
-    pub clip_chain: &'a ClipChain,
     pub scroll_node: &'a SpatialNode,
     pub spatial_node_index: SpatialNodeIndex,
     pub transform: Transform<'a>,
-    pub local_clip_rect: LayoutRect,
 }
 
 impl<'a> PrimitiveRunContext<'a> {
     pub fn new(
-        clip_chain: &'a ClipChain,
         scroll_node: &'a SpatialNode,
         spatial_node_index: SpatialNodeIndex,
-        local_clip_rect: LayoutRect,
         transform: Transform<'a>,
     ) -> Self {
         PrimitiveRunContext {
-            clip_chain,
             scroll_node,
-            local_clip_rect,
             spatial_node_index,
             transform,
         }
@@ -219,7 +212,6 @@ impl FrameBuilder {
             pipelines,
             screen_rect: self.screen_rect.to_i32(),
             clip_scroll_tree,
-            clip_chains: &clip_scroll_tree.clip_chains,
             transforms: transform_palette,
             max_local_clip: LayoutRect::new(
                 LayoutPoint::new(-MAX_CLIP_COORD, -MAX_CLIP_COORD),
@@ -331,11 +323,6 @@ impl FrameBuilder {
         gpu_cache.begin_frame();
 
         let transform_palette = clip_scroll_tree.update_tree(
-            &self.screen_rect.to_i32(),
-            device_pixel_scale,
-            &mut self.clip_store,
-            resource_cache,
-            gpu_cache,
             pan,
             scene_properties,
         );

@@ -11,7 +11,7 @@ use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState, Prim
 use gpu_cache::{GpuCacheHandle};
 use gpu_types::UvRectKind;
 use prim_store::{PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
-use prim_store::{PrimitiveMetadata, ScrollNodeAndClipChain, Transform};
+use prim_store::{PrimitiveMetadata, Transform};
 use render_task::{ClearMode, RenderTask, RenderTaskCacheEntryHandle};
 use render_task::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId, RenderTaskLocation};
 use scene::{FilterOpHelpers, SceneProperties};
@@ -205,10 +205,10 @@ impl PicturePrimitive {
     pub fn add_primitive(
         &mut self,
         prim_index: PrimitiveIndex,
-        clip_and_scroll: ScrollNodeAndClipChain
+        spatial_node_index: SpatialNodeIndex,
     ) {
         if let Some(ref mut run) = self.runs.last_mut() {
-            if run.clip_and_scroll == clip_and_scroll &&
+            if run.spatial_node_index == spatial_node_index &&
                run.base_prim_index.0 + run.count == prim_index.0 {
                 run.count += 1;
                 return;
@@ -218,7 +218,7 @@ impl PicturePrimitive {
         self.runs.push(PrimitiveRun {
             base_prim_index: prim_index,
             count: 1,
-            clip_and_scroll,
+            spatial_node_index,
         });
     }
 

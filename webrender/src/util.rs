@@ -452,14 +452,6 @@ impl<Src, Dst> FastTransform<Src, Dst> {
     }
 
     #[inline(always)]
-    pub fn has_perspective_component(&self) -> bool {
-        match *self {
-            FastTransform::Offset(..) => false,
-            FastTransform::Transform { ref transform, .. } => transform.has_perspective_component(),
-        }
-    }
-
-    #[inline(always)]
     pub fn is_backface_visible(&self) -> bool {
         match *self {
             FastTransform::Offset(..) => false,

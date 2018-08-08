@@ -7,8 +7,7 @@ use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceSize, DeviceIntSid
 use api::FontRenderMode;
 use border::BorderCacheKey;
 use box_shadow::{BoxShadowCacheKey};
-use clip::{ClipSource, ClipStore, ClipWorkItem};
-use clip_scroll_tree::CoordinateSystemId;
+use clip::{ClipSource, ClipStore, ClipNodeRange};
 use device::TextureFilter;
 #[cfg(feature = "pathfinder")]
 use euclid::{TypedPoint2D, TypedVector2D};
@@ -179,8 +178,7 @@ pub enum RenderTaskLocation {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct CacheMaskTask {
     actual_rect: DeviceIntRect,
-    pub clips: Vec<ClipWorkItem>,
-    pub coordinate_system_id: CoordinateSystemId,
+    pub clip_node_range: ClipNodeRange,
 }
 
 #[derive(Debug)]
@@ -384,8 +382,7 @@ impl RenderTask {
 
     pub fn new_mask(
         outer_rect: DeviceIntRect,
-        clips: Vec<ClipWorkItem>,
-        prim_coordinate_system_id: CoordinateSystemId,
+        clip_node_range: ClipNodeRange,
         clip_store: &mut ClipStore,
         gpu_cache: &mut GpuCache,
         resource_cache: &mut ResourceCache,
@@ -402,59 +399,57 @@ impl RenderTask {
         // TODO(gw): If this ever shows up in a profile, we could pre-calculate
         //           whether a ClipSources contains any box-shadows and skip
         //           this iteration for the majority of cases.
-        for clip_item in &clips {
-            let clip_sources = &mut clip_store[clip_item.clip_sources_index];
-            for &mut (ref mut clip, _) in &mut clip_sources.clips {
-                match *clip {
-                    ClipSource::BoxShadow(ref mut info) => {
-                        let (cache_size, cache_key) = info.cache_key
-                            .as_ref()
-                            .expect("bug: no cache key set")
-                            .clone();
-                        let blur_radius_dp = cache_key.blur_radius_dp as f32;
-                        let clip_data_address = gpu_cache.get_address(&info.clip_data_handle);
+        for i in 0 .. clip_node_range.count {
+            let (clip_node, _) = clip_store.get_node_from_range_mut(&clip_node_range, i);
+            match clip_node.source {
+                ClipSource::BoxShadow(ref mut info) => {
+                    let (cache_size, cache_key) = info.cache_key
+                        .as_ref()
+                        .expect("bug: no cache key set")
+                        .clone();
+                    let blur_radius_dp = cache_key.blur_radius_dp as f32;
+                    let clip_data_address = gpu_cache.get_address(&info.clip_data_handle);
 
-                        // Request a cacheable render task with a blurred, minimal
-                        // sized box-shadow rect.
-                        info.cache_handle = Some(resource_cache.request_render_task(
-                            RenderTaskCacheKey {
-                                size: cache_size,
-                                kind: RenderTaskCacheKeyKind::BoxShadow(cache_key),
-                            },
-                            gpu_cache,
-                            render_tasks,
-                            None,
-                            false,
-                            |render_tasks| {
-                                // Draw the rounded rect.
-                                let mask_task = RenderTask::new_rounded_rect_mask(
-                                    cache_size,
-                                    clip_data_address,
-                                );
+                    // Request a cacheable render task with a blurred, minimal
+                    // sized box-shadow rect.
+                    info.cache_handle = Some(resource_cache.request_render_task(
+                        RenderTaskCacheKey {
+                            size: cache_size,
+                            kind: RenderTaskCacheKeyKind::BoxShadow(cache_key),
+                        },
+                        gpu_cache,
+                        render_tasks,
+                        None,
+                        false,
+                        |render_tasks| {
+                            // Draw the rounded rect.
+                            let mask_task = RenderTask::new_rounded_rect_mask(
+                                cache_size,
+                                clip_data_address,
+                            );
 
-                                let mask_task_id = render_tasks.add(mask_task);
+                            let mask_task_id = render_tasks.add(mask_task);
 
-                                // Blur it
-                                let blur_render_task = RenderTask::new_blur(
-                                    blur_radius_dp,
-                                    mask_task_id,
-                                    render_tasks,
-                                    RenderTargetKind::Alpha,
-                                    ClearMode::Zero,
-                                );
+                            // Blur it
+                            let blur_render_task = RenderTask::new_blur(
+                                blur_radius_dp,
+                                mask_task_id,
+                                render_tasks,
+                                RenderTargetKind::Alpha,
+                                ClearMode::Zero,
+                            );
 
-                                let root_task_id = render_tasks.add(blur_render_task);
-                                children.push(root_task_id);
+                            let root_task_id = render_tasks.add(blur_render_task);
+                            children.push(root_task_id);
 
-                                root_task_id
-                            }
-                        ));
-                    }
-                    ClipSource::Rectangle(..) |
-                    ClipSource::RoundedRectangle(..) |
-                    ClipSource::Image(..) |
-                    ClipSource::LineDecoration(..) => {}
+                            root_task_id
+                        }
+                    ));
                 }
+                ClipSource::Rectangle(..) |
+                ClipSource::RoundedRectangle(..) |
+                ClipSource::Image(..) |
+                ClipSource::LineDecoration(..) => {}
             }
         }
 
@@ -463,8 +458,7 @@ impl RenderTask {
             location: RenderTaskLocation::Dynamic(None, Some(outer_rect.size)),
             kind: RenderTaskKind::CacheMask(CacheMaskTask {
                 actual_rect: outer_rect,
-                clips,
-                coordinate_system_id: prim_coordinate_system_id,
+                clip_node_range,
             }),
             clear_mode: ClearMode::One,
             saved_index: None,
@@ -900,7 +894,7 @@ impl RenderTask {
                 pt.new_level(format!("Picture of {:?}", task.prim_index));
             }
             RenderTaskKind::CacheMask(ref task) => {
-                pt.new_level(format!("CacheMask with {} clips", task.clips.len()));
+                pt.new_level(format!("CacheMask with {} clips", task.clip_node_range.count));
                 pt.add_item(format!("rect: {:?}", task.actual_rect));
             }
             RenderTaskKind::ClipRegion(..) => {

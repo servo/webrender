@@ -595,8 +595,7 @@ impl RenderTarget for AlphaRenderTarget {
                 let task_address = render_tasks.get_task_address(task_id);
                 self.clip_batcher.add(
                     task_address,
-                    &task_info.clips,
-                    task_info.coordinate_system_id,
+                    task_info.clip_node_range,
                     ctx.resource_cache,
                     gpu_cache,
                     clip_store,
