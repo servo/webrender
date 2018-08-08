@@ -32,9 +32,18 @@ use tiling::{RenderTargetKind};
 #[cfg(feature = "pathfinder")]
 use webrender_api::DevicePixel;
 
+const RENDER_TASK_SIZE_SANITY_CHECK: i32 = 16000;
 const FLOATS_PER_RENDER_TASK_INFO: usize = 8;
 pub const MAX_BLUR_STD_DEVIATION: f32 = 4.0;
 pub const MIN_DOWNSCALING_RT_SIZE: i32 = 128;
+
+fn render_task_sanity_check(size: &DeviceIntSize) {
+    if size.width > RENDER_TASK_SIZE_SANITY_CHECK ||
+        size.height > RENDER_TASK_SIZE_SANITY_CHECK {
+        error!("Attempting to create a render task of size {}x{}", size.width, size.height);
+        panic!();
+    }
+}
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -335,6 +344,7 @@ impl RenderTask {
     }
 
     pub fn new_readback(screen_rect: DeviceIntRect) -> Self {
+        render_task_sanity_check(&screen_rect.size);
         RenderTask {
             children: Vec::new(),
             location: RenderTaskLocation::Dynamic(None, Some(screen_rect.size)),
@@ -369,6 +379,8 @@ impl RenderTask {
 
         size.width += padding.horizontal();
         size.height += padding.vertical();
+
+        render_task_sanity_check(&size);
 
         RenderTask {
             children,
@@ -458,6 +470,8 @@ impl RenderTask {
             }
         }
 
+        render_task_sanity_check(&outer_rect.size);
+
         RenderTask {
             children,
             location: RenderTaskLocation::Dynamic(None, Some(outer_rect.size)),
@@ -475,6 +489,8 @@ impl RenderTask {
         size: DeviceIntSize,
         clip_data_address: GpuCacheAddress,
     ) -> Self {
+        render_task_sanity_check(&size);
+
         RenderTask {
             children: Vec::new(),
             location: RenderTaskLocation::Dynamic(None, Some(size)),
@@ -536,6 +552,8 @@ impl RenderTask {
             downscaling_src_task_id = render_tasks.add(downscaling_task);
         }
 
+        render_task_sanity_check(&adjusted_blur_target_size);
+
         let blur_task_v = RenderTask {
             children: vec![downscaling_src_task_id],
             location: RenderTaskLocation::Dynamic(None, Some(adjusted_blur_target_size)),
@@ -569,6 +587,8 @@ impl RenderTask {
         size: DeviceIntSize,
         instances: Vec<BorderInstance>,
     ) -> Self {
+        render_task_sanity_check(&size);
+
         RenderTask {
             children: Vec::new(),
             location: RenderTaskLocation::Dynamic(None, Some(size)),
@@ -585,6 +605,8 @@ impl RenderTask {
         src_task_id: RenderTaskId,
         target_size: DeviceIntSize,
     ) -> Self {
+        render_task_sanity_check(&target_size);
+
         RenderTask {
             children: vec![src_task_id],
             location: RenderTaskLocation::Dynamic(None, Some(target_size)),
