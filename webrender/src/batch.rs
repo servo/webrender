@@ -17,7 +17,7 @@ use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::{PictureCompositeMode, PicturePrimitive, PictureSurface};
 use plane_split::{BspSplitter, Clipper, Polygon, Splitter};
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentTaskId, DeferredResolve};
-use prim_store::{EdgeAaSegmentMask, ImageSource, PictureIndex, PrimitiveIndex, PrimitiveKind};
+use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveIndex, PrimitiveKind};
 use prim_store::{PrimitiveMetadata, PrimitiveRun, PrimitiveStore, VisibleGradientTile};
 use prim_store::{BorderSource};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKind, RenderTaskTree};
@@ -512,8 +512,7 @@ impl AlphaBatchBuilder {
                 BatchTextures::no_texture(),
             );
             let pic_metadata = &ctx.prim_store.cpu_metadata[prim_index.0];
-            let brush = &ctx.prim_store.cpu_brushes[pic_metadata.cpu_prim_index.0];
-            let pic = &ctx.prim_store.pictures[brush.get_picture_index().0];
+            let pic = ctx.prim_store.get_pic(prim_index);
             let batch = self.batch_list.get_suitable_batch(key, &pic_metadata.screen_rect.as_ref().expect("bug").clipped);
 
             let source_task_id = pic
@@ -665,9 +664,7 @@ impl AlphaBatchBuilder {
                 let brush = &ctx.prim_store.cpu_brushes[prim_metadata.cpu_prim_index.0];
 
                 match brush.kind {
-                    BrushKind::Picture { pic_index, .. } => {
-                        let picture = &ctx.prim_store.pictures[pic_index.0];
-
+                    BrushKind::Picture(ref picture) => {
                         // If this picture is participating in a 3D rendering context,
                         // then don't add it to any batches here. Instead, create a polygon
                         // for it and add it to the current plane splitter.
@@ -1390,17 +1387,6 @@ fn get_image_tile_params(
 }
 
 impl BrushPrimitive {
-    pub fn get_picture_index(&self) -> PictureIndex {
-        match self.kind {
-            BrushKind::Picture { pic_index, .. } => {
-                pic_index
-            }
-            _ => {
-                panic!("bug: not a picture brush!!");
-            }
-        }
-    }
-
     fn get_batch_params(
         &self,
         resource_cache: &ResourceCache,
