@@ -4,7 +4,7 @@
 
 use api::{BorderRadius, ClipMode, HitTestFlags, HitTestItem, HitTestResult, ItemTag, LayoutPoint};
 use api::{LayoutPrimitiveInfo, LayoutRect, PipelineId, WorldPoint};
-use clip::{ClipNodeIndex, ClipChainNode, ClipNode, ClipSource, ClipStore};
+use clip::{ClipNodeIndex, ClipChainNode, ClipNode, ClipItem, ClipStore};
 use clip::{ClipChainId, rounded_rectangle_contains_point};
 use clip_scroll_tree::{SpatialNodeIndex, ClipScrollTree};
 use internal_types::FastHashMap;
@@ -36,13 +36,13 @@ pub struct HitTestClipNode {
 
 impl HitTestClipNode {
     fn new(node: &ClipNode) -> Self {
-        let region = match node.source {
-            ClipSource::Rectangle(ref rect, mode) => HitTestRegion::Rectangle(*rect, mode),
-            ClipSource::RoundedRectangle(ref rect, ref radii, ref mode) =>
+        let region = match node.item {
+            ClipItem::Rectangle(ref rect, mode) => HitTestRegion::Rectangle(*rect, mode),
+            ClipItem::RoundedRectangle(ref rect, ref radii, ref mode) =>
                 HitTestRegion::RoundedRectangle(*rect, *radii, *mode),
-            ClipSource::Image(ref mask) => HitTestRegion::Rectangle(mask.rect, ClipMode::Clip),
-            ClipSource::LineDecoration(_) |
-            ClipSource::BoxShadow(_) => HitTestRegion::Invalid,
+            ClipItem::Image(ref mask) => HitTestRegion::Rectangle(mask.rect, ClipMode::Clip),
+            ClipItem::LineDecoration(_) |
+            ClipItem::BoxShadow(_) => HitTestRegion::Invalid,
         };
 
         HitTestClipNode {
@@ -148,9 +148,8 @@ impl HitTester {
             self.clip_nodes.push(HitTestClipNode::new(node));
         }
 
-        for clip_chain in &clip_store.clip_chain_nodes {
-            self.clip_chains.push(clip_chain.clone());
-        }
+        self.clip_chains
+            .extend_from_slice(&clip_store.clip_chain_nodes);
     }
 
     fn is_point_clipped_in_for_clip_chain(
@@ -179,8 +178,8 @@ impl HitTester {
             return false;
         }
 
-        for i in 0 .. descriptor.clip_sources_id.count {
-            let clip_node_index = ClipNodeIndex(descriptor.clip_sources_id.index.0 + i);
+        for i in 0 .. descriptor.clip_item_range.count {
+            let clip_node_index = ClipNodeIndex(descriptor.clip_item_range.index.0 + i);
             if !self.is_point_clipped_in_for_clip_node(point, clip_node_index, test) {
                 test.set_in_clip_chain_cache(clip_chain_id, ClippedIn::NotClippedIn);
                 return false;

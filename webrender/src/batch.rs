@@ -5,7 +5,7 @@
 use api::{AlphaType, ClipMode, DeviceIntRect, DeviceIntSize, DeviceIntPoint};
 use api::{DeviceUintRect, DeviceUintPoint, ExternalImageType, FilterOp, ImageRendering};
 use api::{YuvColorSpace, YuvFormat, WorldPixel};
-use clip::{ClipNodeFlags, ClipNodeRange, ClipSource, ClipStore};
+use clip::{ClipNodeFlags, ClipNodeRange, ClipItem, ClipStore};
 use euclid::vec3;
 use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheHandle, GpuCacheAddress};
@@ -1780,8 +1780,8 @@ impl ClipBatcher {
 
             let gpu_address = gpu_cache.get_address(&clip_node.gpu_cache_handle);
 
-            match clip_node.source {
-                ClipSource::Image(ref mask) => {
+            match clip_node.item {
+                ClipItem::Image(ref mask) => {
                     if let Ok(cache_item) = resource_cache.get_cached_image(
                         ImageRequest {
                             key: mask.image,
@@ -1803,13 +1803,13 @@ impl ClipBatcher {
                         continue;
                     }
                 }
-                ClipSource::LineDecoration(..) => {
+                ClipItem::LineDecoration(..) => {
                     self.line_decorations.push(ClipMaskInstance {
                         clip_data_address: gpu_address,
                         ..instance
                     });
                 }
-                ClipSource::BoxShadow(ref info) => {
+                ClipItem::BoxShadow(ref info) => {
                     let rt_handle = info
                         .cache_handle
                         .as_ref()
@@ -1829,7 +1829,7 @@ impl ClipBatcher {
                             ..instance
                         });
                 }
-                ClipSource::Rectangle(_, mode) => {
+                ClipItem::Rectangle(_, mode) => {
                     if !flags.contains(ClipNodeFlags::SAME_COORD_SYSTEM) ||
                         mode == ClipMode::ClipOut {
                         self.rectangles.push(ClipMaskInstance {
@@ -1838,7 +1838,7 @@ impl ClipBatcher {
                         });
                     }
                 }
-                ClipSource::RoundedRectangle(..) => {
+                ClipItem::RoundedRectangle(..) => {
                     self.rectangles.push(ClipMaskInstance {
                         clip_data_address: gpu_address,
                         ..instance

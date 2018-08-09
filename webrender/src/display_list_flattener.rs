@@ -13,7 +13,7 @@ use api::{LineOrientation, LineStyle, LocalClip, NinePatchBorderSource, Pipeline
 use api::{PropertyBinding, ReferenceFrame, RepeatMode, ScrollFrameDisplayItem, ScrollSensitivity};
 use api::{Shadow, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect};
 use api::{ClipMode, TransformStyle, YuvColorSpace, YuvData};
-use clip::{ClipChainId, ClipRegion, ClipSource, ClipStore};
+use clip::{ClipChainId, ClipRegion, ClipItem, ClipStore};
 use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
 use euclid::vec2;
 use frame_builder::{ChasePrimitive, FrameBuilder, FrameBuilderConfig};
@@ -692,15 +692,15 @@ impl<'a> DisplayListFlattener<'a> {
                         .id_to_index_mapper
                         .get_clip_chain_id(&item);
                     // Get the id of the clip sources entry for that clip chain node.
-                    let clip_sources_id = self
+                    let clip_item_range = self
                         .clip_store
                         .get_clip_chain(item_clip_chain_id)
-                        .clip_sources_id;
+                        .clip_item_range;
                     // Add a new clip chain node, which references the same clip sources, and
                     // parent it to the current parent.
                     clip_chain_id = self
                         .clip_store
-                        .add_clip_chain(clip_sources_id, parent_clip_chain_id);
+                        .add_clip_chain(clip_item_range, parent_clip_chain_id);
                     // For the next clip node, use this new clip chain node as the parent,
                     // to form a linked list.
                     parent_clip_chain_id = clip_chain_id;
@@ -754,22 +754,22 @@ impl<'a> DisplayListFlattener<'a> {
     // just return the parent clip chain id directly.
     fn build_clip_chain(
         &mut self,
-        clip_sources: Vec<ClipSource>,
+        clip_items: Vec<ClipItem>,
         spatial_node_index: SpatialNodeIndex,
-        default_clip_chain_id: ClipChainId,
+        parent_clip_chain_id: ClipChainId,
     ) -> ClipChainId {
-        if clip_sources.is_empty() {
-            default_clip_chain_id
+        if clip_items.is_empty() {
+            parent_clip_chain_id
         } else {
             // Add a range of clip sources.
-            let clip_sources_id = self
+            let clip_item_range = self
                 .clip_store
-                .add_clip_sources(clip_sources, spatial_node_index);
+                .add_clip_items(clip_items, spatial_node_index);
 
             // Add clip chain node that references the clip source range.
             self.clip_store.add_clip_chain(
-                clip_sources_id,
-                default_clip_chain_id,
+                clip_item_range,
+                parent_clip_chain_id,
             )
         }
     }
@@ -836,7 +836,7 @@ impl<'a> DisplayListFlattener<'a> {
         &mut self,
         clip_and_scroll: ScrollNodeAndClipChain,
         info: &LayoutPrimitiveInfo,
-        clip_sources: Vec<ClipSource>,
+        clip_items: Vec<ClipItem>,
         container: PrimitiveContainer,
     ) {
         if !self.shadow_stack.is_empty() {
@@ -850,12 +850,12 @@ impl<'a> DisplayListFlattener<'a> {
                 info.clip_rect = info.clip_rect.translate(&shadow.offset);
 
                 // Offset any local clip sources by the shadow offset.
-                let clip_sources: Vec<ClipSource> = clip_sources
+                let clip_items: Vec<ClipItem> = clip_items
                     .iter()
                     .map(|cs| cs.offset(&shadow.offset))
                     .collect();
                 let clip_chain_id = self.build_clip_chain(
-                    clip_sources,
+                    clip_items,
                     clip_and_scroll.spatial_node_index,
                     clip_and_scroll.clip_chain_id,
                 );
@@ -879,7 +879,7 @@ impl<'a> DisplayListFlattener<'a> {
 
         if container.is_visible() {
             let clip_chain_id = self.build_clip_chain(
-                clip_sources,
+                clip_items,
                 clip_and_scroll.spatial_node_index,
                 clip_and_scroll.clip_chain_id,
             );
@@ -1281,7 +1281,7 @@ impl<'a> DisplayListFlattener<'a> {
     where
         I: IntoIterator<Item = ComplexClipRegion>
     {
-        // Add a new ClipNode - this is a ClipId that identifies a list of clip sources,
+        // Add a new ClipNode - this is a ClipId that identifies a list of clip items,
         // and the positioning node associated with those clip sources.
 
         // Map from parent ClipId to existing clip-chain.
@@ -1294,11 +1294,11 @@ impl<'a> DisplayListFlattener<'a> {
         // Build the clip sources from the supplied region.
         // TODO(gw): We should fix this up to take advantage of the recent
         //           work to avoid heap allocations where possible!
-        let clip_rect = iter::once(ClipSource::Rectangle(clip_region.main, ClipMode::Clip));
-        let clip_image = clip_region.image_mask.map(ClipSource::Image);
+        let clip_rect = iter::once(ClipItem::Rectangle(clip_region.main, ClipMode::Clip));
+        let clip_image = clip_region.image_mask.map(ClipItem::Image);
         let clips_complex = clip_region.complex_clips
             .into_iter()
-            .map(|complex| ClipSource::new_rounded_rect(
+            .map(|complex| ClipItem::new_rounded_rect(
                 complex.rect,
                 complex.radii,
                 complex.mode,
@@ -1306,9 +1306,9 @@ impl<'a> DisplayListFlattener<'a> {
         let clips = clip_rect.chain(clip_image).chain(clips_complex).collect();
 
         // Add those clip sources to the clip store.
-        let clip_sources_id = self
+        let clip_item_range = self
             .clip_store
-            .add_clip_sources(clips, spatial_node);
+            .add_clip_items(clips, spatial_node);
 
         // Add a mapping for this ClipId in case it's referenced as a positioning node.
         self.id_to_index_mapper
@@ -1317,7 +1317,7 @@ impl<'a> DisplayListFlattener<'a> {
         // Add the new clip chain entry
         let clip_chain_id = self
             .clip_store
-            .add_clip_chain(clip_sources_id, parent_clip_chain_index);
+            .add_clip_chain(clip_item_range, parent_clip_chain_index);
 
         // Map the supplied ClipId -> clip chain id.
         self.id_to_index_mapper.add_clip_chain(new_node_id, clip_chain_id);
@@ -1418,7 +1418,7 @@ impl<'a> DisplayListFlattener<'a> {
         info: &LayoutPrimitiveInfo,
         color: ColorF,
         segments: Option<BrushSegmentDescriptor>,
-        extra_clips: Vec<ClipSource>,
+        extra_clips: Vec<ClipItem>,
     ) {
         if color.a == 0.0 {
             // Don't add transparent rectangles to the draw list, but do consider them for hit
@@ -1514,7 +1514,7 @@ impl<'a> DisplayListFlattener<'a> {
             LineStyle::Dotted |
             LineStyle::Dashed => {
                 vec![
-                    ClipSource::new_line_decoration(
+                    ClipItem::new_line_decoration(
                         info.rect,
                         style,
                         orientation,

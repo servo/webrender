@@ -12,7 +12,7 @@ use app_units::Au;
 use border::{BorderCacheKey, BorderRenderTaskInfo};
 use box_shadow::BLUR_SAMPLE_SCALE;
 use clip_scroll_tree::{CoordinateSystemId, SpatialNodeIndex};
-use clip::{ClipNodeFlags, ClipChainId, ClipChainInstance, ClipSource};
+use clip::{ClipNodeFlags, ClipChainId, ClipChainInstance, ClipItem};
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
 use frame_builder::PrimitiveRunContext;
 use glyph_rasterizer::{FontInstance, FontTransform, GlyphKey, FONT_SIZE_LIMIT};
@@ -2065,7 +2065,7 @@ impl PrimitiveStore {
             // TODO(gw): We can easily extend the segment builder to support these clip sources in
             // the future, but they are rarely used.
             // We must do this check here in case we continue early below.
-            if clip_node.source.is_image_or_line_decoration_clip() {
+            if clip_node.item.is_image_or_line_decoration_clip() {
                 clip_mask_kind = BrushClipMaskKind::Global;
             }
 
@@ -2078,21 +2078,21 @@ impl PrimitiveStore {
                 // We don't need to generate a global clip mask for rectangle clips because we are
                 // in the same coordinate system and rectangular clips are handled by the local
                 // clip chain rectangle.
-                if !clip_node.source.is_rect() {
+                if !clip_node.item.is_rect() {
                     clip_mask_kind = BrushClipMaskKind::Global;
                 }
                 continue;
             }
 
-            let (local_clip_rect, radius, mode) = match clip_node.source {
-                ClipSource::RoundedRectangle(rect, radii, clip_mode) => {
+            let (local_clip_rect, radius, mode) = match clip_node.item {
+                ClipItem::RoundedRectangle(rect, radii, clip_mode) => {
                     rect_clips_only = false;
                     (rect, Some(radii), clip_mode)
                 }
-                ClipSource::Rectangle(rect, mode) => {
+                ClipItem::Rectangle(rect, mode) => {
                     (rect, None, mode)
                 }
-                ClipSource::BoxShadow(ref info) => {
+                ClipItem::BoxShadow(ref info) => {
                     rect_clips_only = false;
 
                     // For inset box shadows, we can clip out any
@@ -2119,7 +2119,7 @@ impl PrimitiveStore {
 
                     continue;
                 }
-                ClipSource::LineDecoration(..) | ClipSource::Image(..) => {
+                ClipItem::LineDecoration(..) | ClipItem::Image(..) => {
                     rect_clips_only = false;
                     continue;
                 }

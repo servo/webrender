@@ -7,7 +7,7 @@ use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceSize, DeviceIntSid
 use api::FontRenderMode;
 use border::BorderCacheKey;
 use box_shadow::{BoxShadowCacheKey};
-use clip::{ClipSource, ClipStore, ClipNodeRange};
+use clip::{ClipItem, ClipStore, ClipNodeRange};
 use device::TextureFilter;
 #[cfg(feature = "pathfinder")]
 use euclid::{TypedPoint2D, TypedVector2D};
@@ -401,8 +401,8 @@ impl RenderTask {
         //           this iteration for the majority of cases.
         for i in 0 .. clip_node_range.count {
             let (clip_node, _) = clip_store.get_node_from_range_mut(&clip_node_range, i);
-            match clip_node.source {
-                ClipSource::BoxShadow(ref mut info) => {
+            match clip_node.item {
+                ClipItem::BoxShadow(ref mut info) => {
                     let (cache_size, cache_key) = info.cache_key
                         .as_ref()
                         .expect("bug: no cache key set")
@@ -446,10 +446,10 @@ impl RenderTask {
                         }
                     ));
                 }
-                ClipSource::Rectangle(..) |
-                ClipSource::RoundedRectangle(..) |
-                ClipSource::Image(..) |
-                ClipSource::LineDecoration(..) => {}
+                ClipItem::Rectangle(..) |
+                ClipItem::RoundedRectangle(..) |
+                ClipItem::Image(..) |
+                ClipItem::LineDecoration(..) => {}
             }
         }
 
