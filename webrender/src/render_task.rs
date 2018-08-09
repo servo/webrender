@@ -322,6 +322,24 @@ pub struct RenderTask {
 }
 
 impl RenderTask {
+    #[inline]
+    pub fn with_dynamic_location(
+        size: DeviceIntSize,
+        children: Vec<RenderTaskId>,
+        kind: RenderTaskKind,
+        clear_mode: ClearMode,
+    ) -> Self {
+        render_task_sanity_check(&size);
+
+        RenderTask {
+            location: RenderTaskLocation::Dynamic(None, Some(size)),
+            children,
+            kind,
+            clear_mode,
+            saved_index: None,
+        }
+    }
+
     pub fn new_picture(
         location: RenderTaskLocation,
         prim_index: PrimitiveIndex,
@@ -329,9 +347,20 @@ impl RenderTask {
         children: Vec<RenderTaskId>,
         uv_rect_kind: UvRectKind,
     ) -> Self {
+        let size = match location {
+            RenderTaskLocation::Dynamic(_, Some(size)) => Some(size),
+            RenderTaskLocation::Fixed(rect) => Some(rect.size),
+            RenderTaskLocation::TextureCache(_, _, rect) => Some(rect.size),
+            _ => None,
+        };
+
+        if let Some(size) = size {
+            render_task_sanity_check(&size);
+        }
+
         RenderTask {
-            children,
             location,
+            children,
             kind: RenderTaskKind::Picture(PictureTask {
                 prim_index,
                 content_origin,
@@ -344,14 +373,12 @@ impl RenderTask {
     }
 
     pub fn new_readback(screen_rect: DeviceIntRect) -> Self {
-        render_task_sanity_check(&screen_rect.size);
-        RenderTask {
-            children: Vec::new(),
-            location: RenderTaskLocation::Dynamic(None, Some(screen_rect.size)),
-            kind: RenderTaskKind::Readback(screen_rect),
-            clear_mode: ClearMode::Transparent,
-            saved_index: None,
-        }
+        RenderTask::with_dynamic_location(
+            screen_rect.size,
+            Vec::new(),
+            RenderTaskKind::Readback(screen_rect),
+            ClearMode::Transparent,
+        )
     }
 
     pub fn new_blit(
@@ -380,18 +407,15 @@ impl RenderTask {
         size.width += padding.horizontal();
         size.height += padding.vertical();
 
-        render_task_sanity_check(&size);
-
-        RenderTask {
+        RenderTask::with_dynamic_location(
+            size,
             children,
-            location: RenderTaskLocation::Dynamic(None, Some(size)),
-            kind: RenderTaskKind::Blit(BlitTask {
+            RenderTaskKind::Blit(BlitTask {
                 source,
                 padding: *padding,
             }),
-            clear_mode: ClearMode::Transparent,
-            saved_index: None,
-        }
+            ClearMode::Transparent,
+        )
     }
 
     pub fn new_mask(
@@ -470,36 +494,30 @@ impl RenderTask {
             }
         }
 
-        render_task_sanity_check(&outer_rect.size);
-
-        RenderTask {
+        RenderTask::with_dynamic_location(
+            outer_rect.size,
             children,
-            location: RenderTaskLocation::Dynamic(None, Some(outer_rect.size)),
-            kind: RenderTaskKind::CacheMask(CacheMaskTask {
+            RenderTaskKind::CacheMask(CacheMaskTask {
                 actual_rect: outer_rect,
                 clips,
                 coordinate_system_id: prim_coordinate_system_id,
             }),
-            clear_mode: ClearMode::One,
-            saved_index: None,
-        }
+            ClearMode::One,
+        )
     }
 
     pub fn new_rounded_rect_mask(
         size: DeviceIntSize,
         clip_data_address: GpuCacheAddress,
     ) -> Self {
-        render_task_sanity_check(&size);
-
-        RenderTask {
-            children: Vec::new(),
-            location: RenderTaskLocation::Dynamic(None, Some(size)),
-            kind: RenderTaskKind::ClipRegion(ClipRegionTask {
+        RenderTask::with_dynamic_location(
+            size,
+            Vec::new(),
+            RenderTaskKind::ClipRegion(ClipRegionTask {
                 clip_data_address,
             }),
-            clear_mode: ClearMode::One,
-            saved_index: None,
-        }
+            ClearMode::One,
+        )
     }
 
     // Construct a render task to apply a blur to a primitive.
@@ -552,52 +570,45 @@ impl RenderTask {
             downscaling_src_task_id = render_tasks.add(downscaling_task);
         }
 
-        render_task_sanity_check(&adjusted_blur_target_size);
-
-        let blur_task_v = RenderTask {
-            children: vec![downscaling_src_task_id],
-            location: RenderTaskLocation::Dynamic(None, Some(adjusted_blur_target_size)),
-            kind: RenderTaskKind::VerticalBlur(BlurTask {
+        let blur_task_v = RenderTask::with_dynamic_location(
+            adjusted_blur_target_size,
+            vec![downscaling_src_task_id],
+            RenderTaskKind::VerticalBlur(BlurTask {
                 blur_std_deviation: adjusted_blur_std_deviation,
                 target_kind,
                 uv_rect_handle: GpuCacheHandle::new(),
                 uv_rect_kind,
             }),
             clear_mode,
-            saved_index: None,
-        };
+        );
 
         let blur_task_v_id = render_tasks.add(blur_task_v);
 
-        RenderTask {
-            children: vec![blur_task_v_id],
-            location: RenderTaskLocation::Dynamic(None, Some(adjusted_blur_target_size)),
-            kind: RenderTaskKind::HorizontalBlur(BlurTask {
+        RenderTask::with_dynamic_location(
+            adjusted_blur_target_size,
+            vec![blur_task_v_id],
+            RenderTaskKind::HorizontalBlur(BlurTask {
                 blur_std_deviation: adjusted_blur_std_deviation,
                 target_kind,
                 uv_rect_handle: GpuCacheHandle::new(),
                 uv_rect_kind,
             }),
             clear_mode,
-            saved_index: None,
-        }
+        )
     }
 
     pub fn new_border(
         size: DeviceIntSize,
         instances: Vec<BorderInstance>,
     ) -> Self {
-        render_task_sanity_check(&size);
-
-        RenderTask {
-            children: Vec::new(),
-            location: RenderTaskLocation::Dynamic(None, Some(size)),
-            kind: RenderTaskKind::Border(BorderTask {
+        RenderTask::with_dynamic_location(
+            size,
+            Vec::new(),
+            RenderTaskKind::Border(BorderTask {
                 instances,
             }),
-            clear_mode: ClearMode::Transparent,
-            saved_index: None,
-        }
+            ClearMode::Transparent,
+        )
     }
 
     pub fn new_scaling(
@@ -605,18 +616,15 @@ impl RenderTask {
         src_task_id: RenderTaskId,
         target_size: DeviceIntSize,
     ) -> Self {
-        render_task_sanity_check(&target_size);
-
-        RenderTask {
-            children: vec![src_task_id],
-            location: RenderTaskLocation::Dynamic(None, Some(target_size)),
-            kind: RenderTaskKind::Scaling(target_kind),
-            clear_mode: match target_kind {
+        RenderTask::with_dynamic_location(
+            target_size,
+            vec![src_task_id],
+            RenderTaskKind::Scaling(target_kind),
+            match target_kind {
                 RenderTargetKind::Color => ClearMode::Transparent,
                 RenderTargetKind::Alpha => ClearMode::One,
             },
-            saved_index: None,
-        }
+        )
     }
 
     #[cfg(feature = "pathfinder")]
