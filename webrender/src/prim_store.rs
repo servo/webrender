@@ -1559,7 +1559,7 @@ impl PrimitiveStore {
             }
         }
 
-        let (local_rect, local_clip_rect, clip_chain_id) = {
+        let (local_rect, clip_chain_id) = {
             let metadata = &mut self.primitives[prim_index.0].metadata;
             if metadata.local_rect.size.width <= 0.0 ||
                metadata.local_rect.size.height <= 0.0 {
@@ -1589,15 +1589,17 @@ impl PrimitiveStore {
                 }
             };
 
-            (local_rect, metadata.local_clip_rect, metadata.clip_chain_id)
+            (local_rect, metadata.clip_chain_id)
         };
+
+        let prim = &mut self.primitives[prim_index.0];
 
         let clip_chain = frame_state
             .clip_store
             .build_clip_chain_instance(
                 clip_chain_id,
                 local_rect,
-                local_clip_rect,
+                prim.metadata.local_clip_rect,
                 prim_run_context.spatial_node_index,
                 &frame_context.clip_scroll_tree.spatial_nodes,
                 frame_state.gpu_cache,
@@ -1608,7 +1610,7 @@ impl PrimitiveStore {
         let clip_chain = match clip_chain {
             Some(clip_chain) => clip_chain,
             None => {
-                self.primitives[prim_index.0].metadata.screen_rect = None;
+                prim.metadata.screen_rect = None;
                 return None;
             }
         };
@@ -1659,7 +1661,6 @@ impl PrimitiveStore {
             None => return None,
         };
 
-        let prim = &mut self.primitives[prim_index.0];
         prim.metadata.screen_rect = Some(ScreenRect {
             clipped: clipped_device_rect,
             unclipped: unclipped_device_rect,
@@ -1668,7 +1669,7 @@ impl PrimitiveStore {
         prim.metadata.combined_local_clip_rect = if pic_context.apply_local_clip_rect {
             clip_chain.local_clip_rect
         } else {
-            local_clip_rect
+            prim.metadata.local_clip_rect
         };
 
         let ccr = match prim.metadata.combined_local_clip_rect.intersection(&local_rect) {
