@@ -114,6 +114,23 @@ impl ProfileCounter for FloatProfileCounter {
     }
 }
 
+#[cfg(feature = "debug_renderer")]
+pub struct PercentageProfileCounter {
+    description: &'static str,
+    value: f32,
+}
+
+#[cfg(feature = "debug_renderer")]
+impl ProfileCounter for PercentageProfileCounter {
+    fn description(&self) -> &'static str {
+        self.description
+    }
+
+    fn value(&self) -> String {
+        format!("{:.2}%", self.value * 100.0)
+    }
+}
+
 #[derive(Clone)]
 pub struct ResourceProfileCounter {
     description: &'static str,
@@ -1119,21 +1136,27 @@ impl Profiler {
         );
 
         if !gpu_samplers.is_empty() {
-            let mut samplers = Vec::<FloatProfileCounter>::new();
+            let mut samplers = Vec::<PercentageProfileCounter>::new();
             // Gathering unique GPU samplers. This has O(N^2) complexity,
             // but we only have a few samplers per target.
+            let mut total = 0.0;
             for sampler in gpu_samplers {
                 let value = sampler.count as f32 * screen_fraction;
+                total += value;
                 match samplers.iter().position(|s| {
                     s.description as *const _ == sampler.tag.label as *const _
                 }) {
                     Some(pos) => samplers[pos].value += value,
-                    None => samplers.push(FloatProfileCounter {
+                    None => samplers.push(PercentageProfileCounter {
                         description: sampler.tag.label,
                         value,
                     }),
                 }
             }
+            samplers.push(PercentageProfileCounter {
+                description: "Total",
+                value: total,
+            });
             let samplers: Vec<&ProfileCounter> = samplers.iter().map(|sampler| {
                 sampler as &ProfileCounter
             }).collect();
