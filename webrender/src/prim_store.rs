@@ -1982,77 +1982,6 @@ impl PrimitiveStore {
         }
     }
 
-    fn update_clip_task_for_brush(
-        &mut self,
-        prim_run_context: &PrimitiveRunContext,
-        prim_index: PrimitiveIndex,
-        clip_chain: &ClipChainInstance,
-        combined_outer_rect: &DeviceIntRect,
-        pic_state: &mut PictureState,
-        frame_context: &FrameBuildingContext,
-        frame_state: &mut FrameBuildingState,
-    ) -> bool {
-        debug_assert!(frame_context.screen_rect.contains_rect(combined_outer_rect));
-
-        let prim = &mut self.primitives[prim_index.0];
-        let brush = match prim.details {
-            PrimitiveDetails::Brush(ref mut brush) => brush,
-            PrimitiveDetails::TextRun(..) => return false,
-        };
-
-        write_brush_segment_description(
-            brush,
-            &prim.metadata,
-            clip_chain,
-            frame_state,
-        );
-
-        let segment_desc = match brush.segment_desc {
-            Some(ref mut description) => description,
-            None => return false,
-        };
-        let clip_mask_kind = segment_desc.clip_mask_kind;
-
-        for segment in &mut segment_desc.segments {
-            if !segment.may_need_clip_mask && clip_mask_kind != BrushClipMaskKind::Global {
-                segment.clip_task_id = BrushSegmentTaskId::Opaque;
-                continue;
-            }
-
-            let intersected_rect = calculate_screen_bounding_rect(
-                &prim_run_context.scroll_node.world_content_transform,
-                &segment.local_rect,
-                frame_context.device_pixel_scale,
-                Some(&combined_outer_rect),
-            );
-
-            let bounds = match intersected_rect {
-                Some(bounds) => bounds,
-                None => {
-                    segment.clip_task_id = BrushSegmentTaskId::Empty;
-                    continue;
-                }
-            };
-
-            if clip_chain.clips_range.count > 0 {
-                let clip_task = RenderTask::new_mask(
-                    bounds,
-                    clip_chain.clips_range,
-                    frame_state.clip_store,
-                    frame_state.gpu_cache,
-                    frame_state.resource_cache,
-                    frame_state.render_tasks,
-                );
-
-                let clip_task_id = frame_state.render_tasks.add(clip_task);
-                pic_state.tasks.push(clip_task_id);
-                segment.clip_task_id = BrushSegmentTaskId::RenderTaskId(clip_task_id);
-            }
-        }
-
-        true
-    }
-
     fn reset_clip_task(&mut self, prim_index: PrimitiveIndex) {
         let prim = &mut self.primitives[prim_index.0];
         prim.metadata.clip_task_id = None;
@@ -2082,9 +2011,9 @@ impl PrimitiveStore {
         self.reset_clip_task(prim_index);
 
         // First try to  render this primitive's mask using optimized brush rendering.
-        if self.update_clip_task_for_brush(
+        let prim = &mut self.primitives[prim_index.0];
+        if prim.update_clip_task_for_brush(
             prim_run_context,
-            prim_index,
             &clip_chain,
             prim_screen_rect,
             pic_state,
@@ -2112,7 +2041,7 @@ impl PrimitiveStore {
                 println!("\tcreated task {:?} with combined outer rect {:?}",
                     clip_task_id, prim_screen_rect);
             }
-            self.primitives[prim_index.0].metadata.clip_task_id = Some(clip_task_id);
+            prim.metadata.clip_task_id = Some(clip_task_id);
             pic_state.tasks.push(clip_task_id);
         }
 
@@ -2790,5 +2719,76 @@ fn write_brush_segment_description(
                 });
             }
         }
+    }
+}
+
+impl Primitive {
+    fn update_clip_task_for_brush(
+        &mut self,
+        prim_run_context: &PrimitiveRunContext,
+        clip_chain: &ClipChainInstance,
+        combined_outer_rect: &DeviceIntRect,
+        pic_state: &mut PictureState,
+        frame_context: &FrameBuildingContext,
+        frame_state: &mut FrameBuildingState,
+    ) -> bool {
+        debug_assert!(frame_context.screen_rect.contains_rect(combined_outer_rect));
+
+        let brush = match self.details {
+            PrimitiveDetails::Brush(ref mut brush) => brush,
+            PrimitiveDetails::TextRun(..) => return false,
+        };
+
+        write_brush_segment_description(
+            brush,
+            &self.metadata,
+            clip_chain,
+            frame_state,
+        );
+
+        let segment_desc = match brush.segment_desc {
+            Some(ref mut description) => description,
+            None => return false,
+        };
+        let clip_mask_kind = segment_desc.clip_mask_kind;
+
+        for segment in &mut segment_desc.segments {
+            if !segment.may_need_clip_mask && clip_mask_kind != BrushClipMaskKind::Global {
+                segment.clip_task_id = BrushSegmentTaskId::Opaque;
+                continue;
+            }
+
+            let intersected_rect = calculate_screen_bounding_rect(
+                &prim_run_context.scroll_node.world_content_transform,
+                &segment.local_rect,
+                frame_context.device_pixel_scale,
+                Some(&combined_outer_rect),
+            );
+
+            let bounds = match intersected_rect {
+                Some(bounds) => bounds,
+                None => {
+                    segment.clip_task_id = BrushSegmentTaskId::Empty;
+                    continue;
+                }
+            };
+
+            if clip_chain.clips_range.count > 0 {
+                let clip_task = RenderTask::new_mask(
+                    bounds,
+                    clip_chain.clips_range,
+                    frame_state.clip_store,
+                    frame_state.gpu_cache,
+                    frame_state.resource_cache,
+                    frame_state.render_tasks,
+                );
+
+                let clip_task_id = frame_state.render_tasks.add(clip_task);
+                pic_state.tasks.push(clip_task_id);
+                segment.clip_task_id = BrushSegmentTaskId::RenderTaskId(clip_task_id);
+            }
+        }
+
+        true
     }
 }
