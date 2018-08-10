@@ -13,7 +13,7 @@ use glyph_rasterizer::GlyphFormat;
 use renderer::{
     desc,
     MAX_VERTEX_TEXTURE_WIDTH,
-    BlendMode, ImageBufferKind, RendererError, RendererOptions,
+    BlendMode, DebugFlags, ImageBufferKind, RendererError, RendererOptions,
     TextureSampler, VertexArrayKind,
 };
 
@@ -425,6 +425,7 @@ pub struct Shaders {
     brush_yuv_image: Vec<Option<BrushShader>>,
     brush_radial_gradient: BrushShader,
     brush_linear_gradient: BrushShader,
+    brushes_debug_overdraw: Vec<BrushShader>,
 
     /// These are "cache clip shaders". These shaders are used to
     /// draw clip instances into the cached clip mask. The results
@@ -443,6 +444,7 @@ pub struct Shaders {
     // a cache shader (e.g. blur) to the screen.
     pub ps_text_run: TextShader,
     pub ps_text_run_dual_source: TextShader,
+    pub ps_text_run_debug_overdraw: TextShader,
 
     ps_split_composite: LazilyCompiledShader,
 }
@@ -515,6 +517,18 @@ impl Shaders {
             VECS_PER_BRUSH_LINEAR_GRADIENT
         )?;
 
+        let mut brushes_debug_overdraw = vec![];
+        for vecs_per_brush in 0..4 {
+            brushes_debug_overdraw.push(BrushShader::new(
+                "brush_debug_overdraw",
+                device,
+                &[],
+                options.precache_shaders,
+                false,
+                vecs_per_brush
+            )?);
+        }
+
         let cs_blur_a8 = LazilyCompiledShader::new(
             ShaderKind::Cache(VertexArrayKind::Blur),
             "cs_blur",
@@ -572,6 +586,12 @@ impl Shaders {
         let ps_text_run_dual_source = TextShader::new("ps_text_run",
             device,
             &[(DUAL_SOURCE_BLENDING_FEATURE, 1)],
+            options.precache_shaders,
+        )?;
+
+        let ps_text_run_debug_overdraw = TextShader::new("ps_text_run",
+            device,
+            &[(DEBUG_OVERDRAW_FEATURE, 1)],
             options.precache_shaders,
         )?;
 
@@ -676,12 +696,14 @@ impl Shaders {
             brush_yuv_image,
             brush_radial_gradient,
             brush_linear_gradient,
+            brushes_debug_overdraw,
             cs_clip_rectangle,
             cs_clip_box_shadow,
             cs_clip_image,
             cs_clip_line,
             ps_text_run,
             ps_text_run_dual_source,
+            ps_text_run_debug_overdraw,
             ps_split_composite,
         })
     }
@@ -695,45 +717,61 @@ impl Shaders {
             (color_space as usize)
     }
 
-    pub fn get(&mut self, key: &BatchKey) -> &mut LazilyCompiledShader {
+    pub fn get(&mut self, key: &BatchKey, debug_flags: DebugFlags) -> &mut LazilyCompiledShader {
         match key.kind {
             BatchKind::SplitComposite => {
                 &mut self.ps_split_composite
             }
             BatchKind::Brush(brush_kind) => {
-                let brush_shader = match brush_kind {
-                    BrushBatchKind::Solid => {
-                        &mut self.brush_solid
-                    }
-                    BrushBatchKind::Image(image_buffer_kind) => {
-                        self.brush_image[image_buffer_kind as usize]
-                            .as_mut()
-                            .expect("Unsupported image shader kind")
-                    }
-                    BrushBatchKind::Blend => {
-                        &mut self.brush_blend
-                    }
-                    BrushBatchKind::MixBlend { .. } => {
-                        &mut self.brush_mix_blend
-                    }
-                    BrushBatchKind::RadialGradient => {
-                        &mut self.brush_radial_gradient
-                    }
-                    BrushBatchKind::LinearGradient => {
-                        &mut self.brush_linear_gradient
-                    }
-                    BrushBatchKind::YuvImage(image_buffer_kind, format, color_space) => {
-                        let shader_index =
-                            Self::get_yuv_shader_index(image_buffer_kind, format, color_space);
-                        self.brush_yuv_image[shader_index]
-                            .as_mut()
-                            .expect("Unsupported YUV shader kind")
+                let brush_shader = if debug_flags.contains(DebugFlags::SHOW_OVERDRAW) {
+                    let vecs_per_brush = match brush_kind {
+                        BrushBatchKind::Blend => VECS_PER_BRUSH_BLEND,
+                        BrushBatchKind::Image(..) => VECS_PER_BRUSH_IMAGE,
+                        BrushBatchKind::LinearGradient => VECS_PER_BRUSH_LINEAR_GRADIENT,
+                        BrushBatchKind::MixBlend {..} => VECS_PER_BRUSH_MIX_BLEND,
+                        BrushBatchKind::RadialGradient => VECS_PER_BRUSH_RADIAL_GRADIENT,
+                        BrushBatchKind::Solid => VECS_PER_BRUSH_SOLID,
+                        BrushBatchKind::YuvImage(..) => VECS_PER_BRUSH_YUV_IMAGE,
+                    };
+                    &mut self.brushes_debug_overdraw[vecs_per_brush as usize]
+                } else {
+                    match brush_kind {
+                        BrushBatchKind::Solid => {
+                            &mut self.brush_solid
+                        }
+                        BrushBatchKind::Image(image_buffer_kind) => {
+                            self.brush_image[image_buffer_kind as usize]
+                                .as_mut()
+                                .expect("Unsupported image shader kind")
+                        }
+                        BrushBatchKind::Blend => {
+                            &mut self.brush_blend
+                        }
+                        BrushBatchKind::MixBlend { .. } => {
+                            &mut self.brush_mix_blend
+                        }
+                        BrushBatchKind::RadialGradient => {
+                            &mut self.brush_radial_gradient
+                        }
+                        BrushBatchKind::LinearGradient => {
+                            &mut self.brush_linear_gradient
+                        }
+                        BrushBatchKind::YuvImage(image_buffer_kind, format, color_space) => {
+                            let shader_index =
+                                Self::get_yuv_shader_index(image_buffer_kind, format, color_space);
+                            self.brush_yuv_image[shader_index]
+                                .as_mut()
+                                .expect("Unsupported YUV shader kind")
+                        }
                     }
                 };
                 brush_shader.get(key.blend_mode)
             }
             BatchKind::TextRun(glyph_format) => {
                 let text_shader = match key.blend_mode {
+                    _ if debug_flags.contains(DebugFlags::SHOW_OVERDRAW) => {
+                        &mut self.ps_text_run_debug_overdraw
+                    }
                     BlendMode::SubpixelDualSource => &mut self.ps_text_run_dual_source,
                     _ => &mut self.ps_text_run,
                 };
@@ -750,12 +788,16 @@ impl Shaders {
         self.brush_mix_blend.deinit(device);
         self.brush_radial_gradient.deinit(device);
         self.brush_linear_gradient.deinit(device);
+        for brush in self.brushes_debug_overdraw.into_iter() {
+            brush.deinit(device);
+        }
         self.cs_clip_rectangle.deinit(device);
         self.cs_clip_box_shadow.deinit(device);
         self.cs_clip_image.deinit(device);
         self.cs_clip_line.deinit(device);
         self.ps_text_run.deinit(device);
         self.ps_text_run_dual_source.deinit(device);
+        self.ps_text_run_debug_overdraw.deinit(device);
         for shader in self.brush_image {
             if let Some(shader) = shader {
                 shader.deinit(device);
