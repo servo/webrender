@@ -6,6 +6,8 @@ check-alphabetical-order = false
 [ignore]
 # Ignored packages with duplicated versions
 packages = [
+    "crossbeam-epoch",
+    "crossbeam-utils",
     "lazy_static",
     "log",
     "rand",
