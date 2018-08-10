@@ -20,14 +20,21 @@ use renderer::{
 use gleam::gl::GlType;
 use time::precise_time_ns;
 
+const VECS_PER_BRUSH_BLEND: u32 = 3;
+const VECS_PER_BRUSH_IMAGE: u32 = 3;
+const VECS_PER_BRUSH_LINEAR_GRADIENT: u32 = 2;
+const VECS_PER_BRUSH_MIX_BLEND: u32 = 3;
+const VECS_PER_BRUSH_RADIAL_GRADIENT: u32 = 2;
+const VECS_PER_BRUSH_SOLID: u32 = 1;
+const VECS_PER_BRUSH_YUV_IMAGE: u32 = 0;
 
 impl ImageBufferKind {
     pub(crate) fn get_feature_string(&self) -> &'static str {
         match *self {
-            ImageBufferKind::Texture2D => "TEXTURE_2D",
+            ImageBufferKind::Texture2D => "FEATURE_TEXTURE_2D",
             ImageBufferKind::Texture2DArray => "",
-            ImageBufferKind::TextureRect => "TEXTURE_RECT",
-            ImageBufferKind::TextureExternal => "TEXTURE_EXTERNAL",
+            ImageBufferKind::TextureRect => "FEATURE_TEXTURE_RECT",
+            ImageBufferKind::TextureExternal => "FEATURE_TEXTURE_EXTERNAL",
         }
     }
 
@@ -49,9 +56,13 @@ pub const IMAGE_BUFFER_KINDS: [ImageBufferKind; 4] = [
     ImageBufferKind::Texture2DArray,
 ];
 
-const ALPHA_FEATURE: &str = "ALPHA_PASS";
-const DITHERING_FEATURE: &str = "DITHERING";
-const DUAL_SOURCE_FEATURE: &str = "DUAL_SOURCE_BLENDING";
+const ALPHA_FEATURE: &str = "FEATURE_ALPHA_PASS";
+const ALPHA_TARGET_FEATURE: &str = "FEATURE_ALPHA_TARGET";
+const COLOR_TARGET_FEATURE: &str = "FEATURE_COLOR_TARGET";
+const DEBUG_OVERDRAW_FEATURE: &str = "FEATURE_DEBUG_OVERDRAW";
+const DITHERING_FEATURE: &str = "FEATURE_DITHERING";
+const DUAL_SOURCE_BLENDING_FEATURE: &str = "FEATURE_DUAL_SOURCE_BLENDING";
+const GLYPH_TRANSFORM_FEATURE: &str = "FEATURE_GLYPH_TRANSFORM";
 
 pub(crate) enum ShaderKind {
     Primitive,
@@ -69,14 +80,14 @@ pub struct LazilyCompiledShader {
     program: Option<Program>,
     name: &'static str,
     kind: ShaderKind,
-    features: Vec<&'static str>,
+    defines: Vec<(&'static str, u32)>,
 }
 
 impl LazilyCompiledShader {
     pub(crate) fn new(
         kind: ShaderKind,
         name: &'static str,
-        features: &[&'static str],
+        defines: &[(&'static str, u32)],
         device: &mut Device,
         precache: bool,
     ) -> Result<Self, ShaderError> {
@@ -84,7 +95,7 @@ impl LazilyCompiledShader {
             program: None,
             name,
             kind,
-            features: features.to_vec(),
+            defines: defines.to_vec(),
         };
 
         if precache {
@@ -98,7 +109,7 @@ impl LazilyCompiledShader {
                 (t1 - t0) as f64 / 1000000.0,
                 (t2 - t1) as f64 / 1000000.0,
                 name,
-                features
+                defines
             );
         }
 
@@ -128,25 +139,25 @@ impl LazilyCompiledShader {
                 ShaderKind::Primitive | ShaderKind::Brush | ShaderKind::Text => {
                     create_prim_shader(self.name,
                                        device,
-                                       &self.features,
+                                       &self.defines,
                                        VertexArrayKind::Primitive)
                 }
                 ShaderKind::Cache(format) => {
                     create_prim_shader(self.name,
                                        device,
-                                       &self.features,
+                                       &self.defines,
                                        format)
                 }
                 ShaderKind::VectorStencil => {
                     create_prim_shader(self.name,
                                        device,
-                                       &self.features,
+                                       &self.defines,
                                        VertexArrayKind::VectorStencil)
                 }
                 ShaderKind::VectorCover => {
                     create_prim_shader(self.name,
                                        device,
-                                       &self.features,
+                                       &self.defines,
                                        VertexArrayKind::VectorCover)
                 }
                 ShaderKind::ClipCache => {
@@ -187,37 +198,41 @@ impl BrushShader {
     fn new(
         name: &'static str,
         device: &mut Device,
-        features: &[&'static str],
+        defines: &[(&'static str, u32)],
         precache: bool,
         dual_source: bool,
+        vecs_per_brush: u32,
     ) -> Result<Self, ShaderError> {
+        let mut opaque_defines = defines.to_vec();
+        opaque_defines.push(("VECS_PER_SPECIFIC_BRUSH", vecs_per_brush));
+
         let opaque = LazilyCompiledShader::new(
             ShaderKind::Brush,
             name,
-            features,
+            &opaque_defines,
             device,
             precache,
         )?;
 
-        let mut alpha_features = features.to_vec();
-        alpha_features.push(ALPHA_FEATURE);
+        let mut alpha_defines = opaque_defines.to_vec();
+        alpha_defines.push((ALPHA_FEATURE, 1));
 
         let alpha = LazilyCompiledShader::new(
             ShaderKind::Brush,
             name,
-            &alpha_features,
+            &alpha_defines,
             device,
             precache,
         )?;
 
         let dual_source = if dual_source {
-            let mut dual_source_features = alpha_features.to_vec();
-            dual_source_features.push(DUAL_SOURCE_FEATURE);
+            let mut dual_source_defines = alpha_defines.to_vec();
+            dual_source_defines.push((DUAL_SOURCE_BLENDING_FEATURE, 1));
 
             let shader = LazilyCompiledShader::new(
                 ShaderKind::Brush,
                 name,
-                &dual_source_features,
+                &dual_source_defines,
                 device,
                 precache,
             )?;
@@ -268,24 +283,24 @@ impl TextShader {
     fn new(
         name: &'static str,
         device: &mut Device,
-        features: &[&'static str],
+        defines: &[(&'static str, u32)],
         precache: bool,
     ) -> Result<Self, ShaderError> {
         let simple = LazilyCompiledShader::new(
             ShaderKind::Text,
             name,
-            features,
+            defines,
             device,
             precache,
         )?;
 
-        let mut glyph_transform_features = features.to_vec();
-        glyph_transform_features.push("GLYPH_TRANSFORM");
+        let mut glyph_transform_defines = defines.to_vec();
+        glyph_transform_defines.push((GLYPH_TRANSFORM_FEATURE, 1));
 
         let glyph_transform = LazilyCompiledShader::new(
             ShaderKind::Text,
             name,
-            &glyph_transform_features,
+            &glyph_transform_defines,
             device,
             precache,
         )?;
@@ -316,7 +331,7 @@ impl TextShader {
 fn create_prim_shader(
     name: &'static str,
     device: &mut Device,
-    features: &[&'static str],
+    defines: &[(&'static str, u32)],
     vertex_format: VertexArrayKind,
 ) -> Result<Program, ShaderError> {
     let mut prefix = format!(
@@ -324,8 +339,8 @@ fn create_prim_shader(
         MAX_VERTEX_TEXTURE_WIDTH
     );
 
-    for feature in features {
-        prefix.push_str(&format!("#define WR_FEATURE_{}\n", feature));
+    for (key, value) in defines {
+        prefix.push_str(&format!("#define WR_{} {}\n", key, value));
     }
 
     debug!("PrimShader {}", name);
@@ -453,6 +468,7 @@ impl Shaders {
             &[],
             options.precache_shaders,
             false,
+            VECS_PER_BRUSH_SOLID
         )?;
 
         let brush_blend = BrushShader::new(
@@ -461,6 +477,7 @@ impl Shaders {
             &[],
             options.precache_shaders,
             false,
+            VECS_PER_BRUSH_BLEND
         )?;
 
         let brush_mix_blend = BrushShader::new(
@@ -469,36 +486,39 @@ impl Shaders {
             &[],
             options.precache_shaders,
             false,
+            VECS_PER_BRUSH_MIX_BLEND
         )?;
 
         let brush_radial_gradient = BrushShader::new(
             "brush_radial_gradient",
             device,
             if options.enable_dithering {
-               &[DITHERING_FEATURE]
+               &[(DITHERING_FEATURE, 1)]
             } else {
                &[]
             },
             options.precache_shaders,
             false,
+            VECS_PER_BRUSH_RADIAL_GRADIENT
         )?;
 
         let brush_linear_gradient = BrushShader::new(
             "brush_linear_gradient",
             device,
             if options.enable_dithering {
-               &[DITHERING_FEATURE]
+               &[(DITHERING_FEATURE, 1)]
             } else {
                &[]
             },
             options.precache_shaders,
             false,
+            VECS_PER_BRUSH_LINEAR_GRADIENT
         )?;
 
         let cs_blur_a8 = LazilyCompiledShader::new(
             ShaderKind::Cache(VertexArrayKind::Blur),
             "cs_blur",
-            &["ALPHA_TARGET"],
+            &[(ALPHA_TARGET_FEATURE, 1)],
             device,
             options.precache_shaders,
         )?;
@@ -506,7 +526,7 @@ impl Shaders {
         let cs_blur_rgba8 = LazilyCompiledShader::new(
             ShaderKind::Cache(VertexArrayKind::Blur),
             "cs_blur",
-            &["COLOR_TARGET"],
+            &[(COLOR_TARGET_FEATURE, 1)],
             device,
             options.precache_shaders,
         )?;
@@ -551,7 +571,7 @@ impl Shaders {
 
         let ps_text_run_dual_source = TextShader::new("ps_text_run",
             device,
-            &["DUAL_SOURCE_BLENDING"],
+            &[(DUAL_SOURCE_BLENDING_FEATURE, 1)],
             options.precache_shaders,
         )?;
 
@@ -566,7 +586,7 @@ impl Shaders {
             if IMAGE_BUFFER_KINDS[buffer_kind].has_platform_support(&gl_type) {
                 let feature_string = IMAGE_BUFFER_KINDS[buffer_kind].get_feature_string();
                 if feature_string != "" {
-                    image_features.push(feature_string);
+                    image_features.push((feature_string, 1));
                 }
                 brush_image[buffer_kind] = Some(BrushShader::new(
                     "brush_image",
@@ -574,6 +594,7 @@ impl Shaders {
                     &image_features,
                     options.precache_shaders,
                     true,
+                    VECS_PER_BRUSH_IMAGE
                 )?);
             }
             image_features.clear();
@@ -593,15 +614,15 @@ impl Shaders {
                     for color_space_kind in &YUV_COLOR_SPACES {
                         let feature_string = image_buffer_kind.get_feature_string();
                         if feature_string != "" {
-                            yuv_features.push(feature_string);
+                            yuv_features.push((feature_string, 1));
                         }
                         let feature_string = format_kind.get_feature_string();
                         if feature_string != "" {
-                            yuv_features.push(feature_string);
+                            yuv_features.push((feature_string, 1));
                         }
                         let feature_string = color_space_kind.get_feature_string();
                         if feature_string != "" {
-                            yuv_features.push(feature_string);
+                            yuv_features.push((feature_string, 1));
                         }
 
                         let shader = BrushShader::new(
@@ -610,6 +631,7 @@ impl Shaders {
                             &yuv_features,
                             options.precache_shaders,
                             false,
+                            VECS_PER_BRUSH_YUV_IMAGE
                         )?;
                         let index = Self::get_yuv_shader_index(
                             *image_buffer_kind,

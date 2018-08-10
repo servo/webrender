@@ -592,8 +592,8 @@ pub const YUV_COLOR_SPACES: [YuvColorSpace; 2] = [YuvColorSpace::Rec601, YuvColo
 impl YuvColorSpace {
     pub fn get_feature_string(&self) -> &'static str {
         match *self {
-            YuvColorSpace::Rec601 => "YUV_REC601",
-            YuvColorSpace::Rec709 => "YUV_REC709",
+            YuvColorSpace::Rec601 => "FEATURE_YUV_REC601",
+            YuvColorSpace::Rec709 => "FEATURE_YUV_REC709",
         }
     }
 }
@@ -638,9 +638,9 @@ impl YuvFormat {
 
     pub fn get_feature_string(&self) -> &'static str {
         match *self {
-            YuvFormat::NV12 => "YUV_NV12",
-            YuvFormat::PlanarYCbCr => "YUV_PLANAR",
-            YuvFormat::InterleavedYCbCr => "YUV_INTERLEAVED",
+            YuvFormat::NV12 => "FEATURE_YUV_NV12",
+            YuvFormat::PlanarYCbCr => "FEATURE_YUV_PLANAR",
+            YuvFormat::InterleavedYCbCr => "FEATURE_YUV_INTERLEAVED",
         }
     }
 }

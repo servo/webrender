@@ -34,7 +34,7 @@ void main(void) {
 
     // Fetch the segment of this brush primitive we are drawing.
     int segment_address = ph.specific_prim_address +
-                          VECS_PER_SPECIFIC_BRUSH +
+                          WR_VECS_PER_SPECIFIC_BRUSH +
                           segment_index * VECS_PER_SEGMENT;
 
     vec4[2] segment_data = fetch_from_resource_cache_2(segment_address);
