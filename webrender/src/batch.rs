@@ -17,9 +17,9 @@ use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::{PictureCompositeMode, PicturePrimitive, PictureSurface};
 use plane_split::{BspSplitter, Clipper, Polygon, Splitter};
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentTaskId, DeferredResolve};
-use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveIndex, PrimitiveKind};
-use prim_store::{PrimitiveMetadata, PrimitiveRun, PrimitiveStore, VisibleGradientTile};
-use prim_store::{BorderSource};
+use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveIndex};
+use prim_store::{PrimitiveMetadata, PrimitiveRun, VisibleGradientTile};
+use prim_store::{BorderSource, Primitive, PrimitiveDetails};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskKind, RenderTaskTree};
 use renderer::{BlendMode, ImageBufferKind, ShaderColorMode};
 use renderer::BLOCKS_PER_UV_RECT;
@@ -511,7 +511,7 @@ impl AlphaBatchBuilder {
                 BlendMode::PremultipliedAlpha,
                 BatchTextures::no_texture(),
             );
-            let pic_metadata = &ctx.prim_store.cpu_metadata[prim_index.0];
+            let pic_metadata = &ctx.prim_store.primitives[prim_index.0].metadata;
             let pic = ctx.prim_store.get_pic(prim_index);
             let batch = self.batch_list.get_suitable_batch(key, &pic_metadata.screen_rect.as_ref().expect("bug").clipped);
 
@@ -553,7 +553,7 @@ impl AlphaBatchBuilder {
     ) {
         for i in 0 .. run.count {
             let prim_index = PrimitiveIndex(run.base_prim_index.0 + i);
-            let metadata = &ctx.prim_store.cpu_metadata[prim_index.0];
+            let metadata = &ctx.prim_store.primitives[prim_index.0].metadata;
 
             if metadata.screen_rect.is_some() {
                 self.add_prim_to_batch(
@@ -591,7 +591,8 @@ impl AlphaBatchBuilder {
         content_origin: DeviceIntPoint,
         prim_headers: &mut PrimitiveHeaders,
     ) {
-        let prim_metadata = ctx.prim_store.get_metadata(prim_index);
+        let prim = &ctx.prim_store.primitives[prim_index.0];
+        let prim_metadata = &prim.metadata;
         #[cfg(debug_assertions)] //TODO: why is this needed?
         debug_assert_eq!(prim_metadata.prepared_frame_id, render_tasks.frame_id());
 
@@ -612,9 +613,8 @@ impl AlphaBatchBuilder {
         // If the primitive is internally decomposed into multiple sub-primitives we may not
         // use some of the per-primitive data typically stored in PrimitiveMetadata and get
         // it from each sub-primitive instead.
-        let is_multiple_primitives = match prim_metadata.prim_kind {
-            PrimitiveKind::Brush => {
-                let brush = &ctx.prim_store.cpu_brushes[prim_metadata.cpu_prim_index.0];
+        let is_multiple_primitives = match prim.details {
+            PrimitiveDetails::Brush(ref brush) => {
                 match brush.kind {
                     BrushKind::Image { ref visible_tiles, .. } => !visible_tiles.is_empty(),
                     BrushKind::LinearGradient { ref visible_tiles, .. } => !visible_tiles.is_empty(),
@@ -635,7 +635,7 @@ impl AlphaBatchBuilder {
             .clip_task_id
             .map_or(OPAQUE_TASK_ADDRESS, |id| render_tasks.get_task_address(id));
 
-        let specified_blend_mode = ctx.prim_store.get_blend_mode(prim_metadata);
+        let specified_blend_mode = prim.get_blend_mode();
 
         let non_segmented_blend_mode = if !prim_metadata.opacity.is_opaque ||
             prim_metadata.clip_task_id.is_some() ||
@@ -659,10 +659,8 @@ impl AlphaBatchBuilder {
             println!("\t{:?}", prim_header);
         }
 
-        match prim_metadata.prim_kind {
-            PrimitiveKind::Brush => {
-                let brush = &ctx.prim_store.cpu_brushes[prim_metadata.cpu_prim_index.0];
-
+        match prim.details {
+            PrimitiveDetails::Brush(ref brush) => {
                 match brush.kind {
                     BrushKind::Picture(ref picture) => {
                         // If this picture is participating in a 3D rendering context,
@@ -1094,10 +1092,7 @@ impl AlphaBatchBuilder {
                     }
                 }
             }
-            PrimitiveKind::TextRun => {
-                let text_cpu =
-                    &ctx.prim_store.cpu_text_runs[prim_metadata.cpu_prim_index.0];
-
+            PrimitiveDetails::TextRun(ref text_cpu) => {
                 let subpx_dir = text_cpu.used_font.get_subpx_dir();
 
                 let glyph_fetch_buffer = &mut self.glyph_fetch_buffer;
@@ -1570,23 +1565,15 @@ impl BrushPrimitive {
     }
 }
 
-trait AlphaBatchHelpers {
-    fn get_blend_mode(
-        &self,
-        metadata: &PrimitiveMetadata,
-    ) -> BlendMode;
-}
-
-impl AlphaBatchHelpers for PrimitiveStore {
-    fn get_blend_mode(&self, metadata: &PrimitiveMetadata) -> BlendMode {
-        match metadata.prim_kind {
+impl Primitive {
+    fn get_blend_mode(&self) -> BlendMode {
+        match self.details {
             // Can only resolve the TextRun's blend mode once glyphs are fetched.
-            PrimitiveKind::TextRun => {
+            PrimitiveDetails::TextRun(..) => {
                 BlendMode::PremultipliedAlpha
             }
 
-            PrimitiveKind::Brush => {
-                let brush = &self.cpu_brushes[metadata.cpu_prim_index.0];
+            PrimitiveDetails::Brush(ref brush) => {
                 match brush.kind {
                     BrushKind::Clear => {
                         BlendMode::PremultipliedDestOut

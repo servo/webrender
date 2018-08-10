@@ -193,7 +193,7 @@ impl FrameBuilder {
     ) -> Option<RenderTaskId> {
         profile_scope!("cull");
 
-        if self.prim_store.cpu_metadata.is_empty() {
+        if self.prim_store.primitives.is_empty() {
             return None
         }
 
@@ -276,7 +276,7 @@ impl FrameBuilder {
         static SCROLLBAR_PADDING: f32 = 8.0;
 
         for scrollbar_prim in &self.scrollbar_prims {
-            let metadata = &mut self.prim_store.cpu_metadata[scrollbar_prim.prim_index.0];
+            let metadata = &mut self.prim_store.primitives[scrollbar_prim.prim_index.0].metadata;
             let scroll_frame = &clip_scroll_tree.spatial_nodes[scrollbar_prim.scroll_frame_index.0];
 
             // Invalidate what's in the cache so it will get rebuilt.

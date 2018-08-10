@@ -149,12 +149,6 @@ pub struct SpecificPrimitiveIndex(pub usize);
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveIndex(pub usize);
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum PrimitiveKind {
-    TextRun,
-    Brush,
-}
-
 impl GpuCacheHandle {
     pub fn as_int(&self, gpu_cache: &GpuCache) -> i32 {
         gpu_cache.get_address(self).as_int()
@@ -181,8 +175,6 @@ pub struct ScreenRect {
 pub struct PrimitiveMetadata {
     pub opacity: PrimitiveOpacity,
     pub clip_chain_id: ClipChainId,
-    pub prim_kind: PrimitiveKind,
-    pub cpu_prim_index: SpecificPrimitiveIndex,
     pub gpu_location: GpuCacheHandle,
     pub clip_task_id: Option<RenderTaskId>,
 
@@ -1199,11 +1191,48 @@ impl PrimitiveContainer {
     }
 }
 
+pub enum PrimitiveDetails {
+    Brush(BrushPrimitive),
+    TextRun(TextRunPrimitiveCpu),
+}
+
+pub struct Primitive {
+    pub metadata: PrimitiveMetadata,
+    pub details: PrimitiveDetails,
+}
+
+impl Primitive {
+    pub fn as_pic(&self) -> &PicturePrimitive {
+        match self.details {
+            PrimitiveDetails::Brush(ref brush) => {
+                match brush.kind {
+                    BrushKind::Picture(ref pic) => pic,
+                    _ => panic!("bug: not a picture!"),
+                }
+            }
+            PrimitiveDetails::TextRun(..) => {
+                panic!("bug: not a picture!");
+            }
+        }
+    }
+
+    pub fn as_pic_mut(&mut self) -> &mut PicturePrimitive {
+        match self.details {
+            PrimitiveDetails::Brush(ref mut brush) => {
+                match brush.kind {
+                    BrushKind::Picture(ref mut pic) => pic,
+                    _ => panic!("bug: not a picture!"),
+                }
+            }
+            PrimitiveDetails::TextRun(..) => {
+                panic!("bug: not a picture!");
+            }
+        }
+    }
+}
+
 pub struct PrimitiveStore {
-    /// CPU side information only.
-    pub cpu_brushes: Vec<BrushPrimitive>,
-    pub cpu_text_runs: Vec<TextRunPrimitiveCpu>,
-    pub cpu_metadata: Vec<PrimitiveMetadata>,
+    pub primitives: Vec<Primitive>,
 
     /// A primitive index to chase through debugging.
     pub chase_id: Option<PrimitiveIndex>,
@@ -1212,40 +1241,24 @@ pub struct PrimitiveStore {
 impl PrimitiveStore {
     pub fn new() -> PrimitiveStore {
         PrimitiveStore {
-            cpu_metadata: Vec::new(),
-            cpu_brushes: Vec::new(),
-            cpu_text_runs: Vec::new(),
-
+            primitives: Vec::new(),
             chase_id: None,
         }
     }
 
     pub fn recycle(self) -> Self {
         PrimitiveStore {
-            cpu_metadata: recycle_vec(self.cpu_metadata),
-            cpu_brushes: recycle_vec(self.cpu_brushes),
-            cpu_text_runs: recycle_vec(self.cpu_text_runs),
-
+            primitives: recycle_vec(self.primitives),
             chase_id: self.chase_id,
         }
     }
 
     pub fn get_pic(&self, index: PrimitiveIndex) -> &PicturePrimitive {
-        let metadata = &self.cpu_metadata[index.0];
-        let brush = &self.cpu_brushes[metadata.cpu_prim_index.0];
-        match brush.kind {
-            BrushKind::Picture(ref pic) => pic,
-            _ => panic!("bug: not a picture!"),
-        }
+        self.primitives[index.0].as_pic()
     }
 
     pub fn get_pic_mut(&mut self, index: PrimitiveIndex) -> &mut PicturePrimitive {
-        let metadata = &self.cpu_metadata[index.0];
-        let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
-        match brush.kind {
-            BrushKind::Picture(ref mut pic) => pic,
-            _ => panic!("bug: not a picture!"),
-        }
+        self.primitives[index.0].as_pic_mut()
     }
 
     pub fn add_primitive(
@@ -1257,7 +1270,7 @@ impl PrimitiveStore {
         tag: Option<ItemTag>,
         container: PrimitiveContainer,
     ) -> PrimitiveIndex {
-        let prim_index = self.cpu_metadata.len();
+        let prim_index = self.primitives.len();
 
         let base_metadata = PrimitiveMetadata {
             clip_chain_id,
@@ -1270,13 +1283,11 @@ impl PrimitiveStore {
             screen_rect: None,
             tag,
             opacity: PrimitiveOpacity::translucent(),
-            prim_kind: PrimitiveKind::Brush,
-            cpu_prim_index: SpecificPrimitiveIndex(0),
             #[cfg(debug_assertions)]
             prepared_frame_id: FrameId(0),
         };
 
-        let metadata = match container {
+        let prim = match container {
             PrimitiveContainer::Brush(brush) => {
                 let opacity = match brush.kind {
                     BrushKind::Clear => PrimitiveOpacity::translucent(),
@@ -1291,29 +1302,28 @@ impl PrimitiveStore {
 
                 let metadata = PrimitiveMetadata {
                     opacity,
-                    prim_kind: PrimitiveKind::Brush,
-                    cpu_prim_index: SpecificPrimitiveIndex(self.cpu_brushes.len()),
                     ..base_metadata
                 };
 
-                self.cpu_brushes.push(brush);
-
-                metadata
+                Primitive {
+                    metadata,
+                    details: PrimitiveDetails::Brush(brush),
+                }
             }
             PrimitiveContainer::TextRun(text_cpu) => {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
-                    prim_kind: PrimitiveKind::TextRun,
-                    cpu_prim_index: SpecificPrimitiveIndex(self.cpu_text_runs.len()),
                     ..base_metadata
                 };
 
-                self.cpu_text_runs.push(text_cpu);
-                metadata
+                Primitive {
+                    metadata,
+                    details: PrimitiveDetails::TextRun(text_cpu),
+                }
             }
         };
 
-        self.cpu_metadata.push(metadata);
+        self.primitives.push(prim);
 
         PrimitiveIndex(prim_index)
     }
@@ -1337,15 +1347,14 @@ impl PrimitiveStore {
             return None;
         }
 
-        let prim_metadata = &self.cpu_metadata[run.base_prim_index.0];
+        let prim = &self.primitives[run.base_prim_index.0];
 
         // For now, we only support opacity collapse on solid rects and images.
         // This covers the most common types of opacity filters that can be
         // handled by this optimization. In the future, we can easily extend
         // this to other primitives, such as text runs and gradients.
-        match prim_metadata.prim_kind {
-            PrimitiveKind::Brush => {
-                let brush = &self.cpu_brushes[prim_metadata.cpu_prim_index.0];
+        match prim.details {
+            PrimitiveDetails::Brush(ref brush) => {
                 match brush.kind {
                     BrushKind::Picture(ref pic) => {
                         // If we encounter a picture that is a pass-through
@@ -1367,7 +1376,7 @@ impl PrimitiveStore {
                     BrushKind::Clear => {}
                 }
             }
-            PrimitiveKind::TextRun => {}
+            PrimitiveDetails::TextRun(..) => {}
         }
 
         None
@@ -1393,53 +1402,48 @@ impl PrimitiveStore {
 
         // See if this picture contains a single primitive that supports
         // opacity collapse.
-        if let Some(prim_index) = self.get_opacity_collapse_prim(pic_prim_index) {
-            let (prim_kind, cpu_prim_index) = {
-                let metadata = &self.cpu_metadata[prim_index.0];
-                (metadata.prim_kind, metadata.cpu_prim_index)
-            };
-
-            match prim_kind {
-                PrimitiveKind::Brush => {
-                    let brush = &mut self.cpu_brushes[cpu_prim_index.0];
-
-                    // By this point, we know we should only have found a primitive
-                    // that supports opacity collapse.
-                    match brush.kind {
-                        BrushKind::Solid { ref mut opacity_binding, .. } |
-                        BrushKind::Image { ref mut opacity_binding, .. } => {
-                            opacity_binding.push(binding);
+        match self.get_opacity_collapse_prim(pic_prim_index) {
+            Some(prim_index) => {
+                let prim = &mut self.primitives[prim_index.0];
+                match prim.details {
+                    PrimitiveDetails::Brush(ref mut brush) => {
+                        // By this point, we know we should only have found a primitive
+                        // that supports opacity collapse.
+                        match brush.kind {
+                            BrushKind::Solid { ref mut opacity_binding, .. } |
+                            BrushKind::Image { ref mut opacity_binding, .. } => {
+                                opacity_binding.push(binding);
+                            }
+                            BrushKind::Clear { .. } |
+                            BrushKind::Picture { .. } |
+                            BrushKind::YuvImage { .. } |
+                            BrushKind::Border { .. } |
+                            BrushKind::LinearGradient { .. } |
+                            BrushKind::RadialGradient { .. } => {
+                                unreachable!("bug: invalid prim type for opacity collapse");
+                            }
                         }
-                        BrushKind::Clear { .. } |
-                        BrushKind::Picture { .. } |
-                        BrushKind::YuvImage { .. } |
-                        BrushKind::Border { .. } |
-                        BrushKind::LinearGradient { .. } |
-                        BrushKind::RadialGradient { .. } => {
-                            unreachable!("bug: invalid prim type for opacity collapse");
-                        }
-                    };
-                }
-                PrimitiveKind::TextRun => {
-                    unreachable!("bug: invalid prim type for opacity collapse");
+                    }
+                    PrimitiveDetails::TextRun(..) => {
+                        unreachable!("bug: invalid prim type for opacity collapse");
+                    }
                 }
             }
-
-            // The opacity filter has been collapsed, so mark this picture
-            // as a pass though. This means it will no longer allocate an
-            // intermediate surface or incur an extra blend / blit. Instead,
-            // the collapsed primitive will be drawn directly into the
-            // parent picture.
-            self.get_pic_mut(pic_prim_index).composite_mode = None;
+            None => {
+                return;
+            }
         }
-    }
 
-    pub fn get_metadata(&self, index: PrimitiveIndex) -> &PrimitiveMetadata {
-        &self.cpu_metadata[index.0]
+        // The opacity filter has been collapsed, so mark this picture
+        // as a pass though. This means it will no longer allocate an
+        // intermediate surface or incur an extra blend / blit. Instead,
+        // the collapsed primitive will be drawn directly into the
+        // parent picture.
+        self.get_pic_mut(pic_prim_index).composite_mode = None;
     }
 
     pub fn prim_count(&self) -> usize {
-        self.cpu_metadata.len()
+        self.primitives.len()
     }
 
     fn build_prim_segments_if_needed(
@@ -1449,13 +1453,12 @@ impl PrimitiveStore {
         frame_state: &mut FrameBuildingState,
         frame_context: &FrameBuildingContext,
     ) {
-        let metadata = &mut self.cpu_metadata[prim_index.0];
+        let prim = &mut self.primitives[prim_index.0];
 
-        if metadata.prim_kind != PrimitiveKind::Brush {
-            return;
-        }
-
-        let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
+        let brush = match prim.details {
+            PrimitiveDetails::Brush(ref mut brush) => brush,
+            PrimitiveDetails::TextRun(..) => return,
+        };
 
         if let BrushKind::Border { ref mut source, .. } = brush.kind {
             if let BorderSource::Border {
@@ -1481,7 +1484,7 @@ impl PrimitiveStore {
                     cache_key.scale = scale_au;
 
                     *task_info = BorderRenderTaskInfo::new(
-                        &metadata.local_rect,
+                        &prim.metadata.local_rect,
                         border,
                         widths,
                         scale,
@@ -1522,7 +1525,7 @@ impl PrimitiveStore {
 
                     // The segments have changed, so force the GPU cache to
                     // re-upload the primitive information.
-                    frame_state.gpu_cache.invalidate(&mut metadata.gpu_location);
+                    frame_state.gpu_cache.invalidate(&mut prim.metadata.gpu_location);
                 }
             }
         }
@@ -1539,15 +1542,15 @@ impl PrimitiveStore {
         frame_state: &mut FrameBuildingState,
     ) {
         let mut is_tiled = false;
-        let metadata = &mut self.cpu_metadata[prim_index.0];
+        let prim = &mut self.primitives[prim_index.0];
+        let metadata = &mut prim.metadata;
         #[cfg(debug_assertions)]
         {
             metadata.prepared_frame_id = frame_state.render_tasks.frame_id();
         }
 
-        match metadata.prim_kind {
-            PrimitiveKind::TextRun => {
-                let text = &mut self.cpu_text_runs[metadata.cpu_prim_index.0];
+        match prim.details {
+            PrimitiveDetails::TextRun(ref mut text) => {
                 // The transform only makes sense for screen space rasterization
                 let transform = prim_run_context.scroll_node.world_content_transform.to_transform();
                 text.prepare_for_render(
@@ -1558,8 +1561,7 @@ impl PrimitiveStore {
                     frame_state,
                 );
             }
-            PrimitiveKind::Brush => {
-                let brush = &mut self.cpu_brushes[metadata.cpu_prim_index.0];
+            PrimitiveDetails::Brush(ref mut brush) => {
 
                 match brush.kind {
                     BrushKind::Image {
@@ -1948,13 +1950,11 @@ impl PrimitiveStore {
 
         // Mark this GPU resource as required for this frame.
         if let Some(mut request) = frame_state.gpu_cache.request(&mut metadata.gpu_location) {
-            match metadata.prim_kind {
-                PrimitiveKind::TextRun => {
-                    let text = &self.cpu_text_runs[metadata.cpu_prim_index.0];
+            match prim.details {
+                PrimitiveDetails::TextRun(ref mut text) => {
                     text.write_gpu_blocks(&mut request);
                 }
-                PrimitiveKind::Brush => {
-                    let brush = &self.cpu_brushes[metadata.cpu_prim_index.0];
+                PrimitiveDetails::Brush(ref mut brush) => {
                     brush.write_gpu_blocks(&mut request, metadata.local_rect);
 
                     match brush.segment_desc {
@@ -2150,19 +2150,15 @@ impl PrimitiveStore {
     ) -> bool {
         debug_assert!(frame_context.screen_rect.contains_rect(combined_outer_rect));
 
-        let metadata = &self.cpu_metadata[prim_index.0];
-        let brush = match metadata.prim_kind {
-            PrimitiveKind::Brush => {
-                &mut self.cpu_brushes[metadata.cpu_prim_index.0]
-            }
-            _ => {
-                return false;
-            }
+        let prim = &mut self.primitives[prim_index.0];
+        let brush = match prim.details {
+            PrimitiveDetails::Brush(ref mut brush) => brush,
+            PrimitiveDetails::TextRun(..) => return false,
         };
 
         PrimitiveStore::write_brush_segment_description(
             brush,
-            metadata,
+            &prim.metadata,
             clip_chain,
             frame_state,
         );
@@ -2214,10 +2210,10 @@ impl PrimitiveStore {
     }
 
     fn reset_clip_task(&mut self, prim_index: PrimitiveIndex) {
-        let metadata = &mut self.cpu_metadata[prim_index.0];
-        metadata.clip_task_id = None;
-        if metadata.prim_kind == PrimitiveKind::Brush {
-            if let Some(ref mut desc) = self.cpu_brushes[metadata.cpu_prim_index.0].segment_desc {
+        let prim = &mut self.primitives[prim_index.0];
+        prim.metadata.clip_task_id = None;
+        if let PrimitiveDetails::Brush(ref mut brush) = prim.details {
+            if let Some(ref mut desc) = brush.segment_desc {
                 for segment in &mut desc.segments {
                     segment.clip_task_id = BrushSegmentTaskId::Opaque;
                 }
@@ -2272,7 +2268,7 @@ impl PrimitiveStore {
                 println!("\tcreated task {:?} with combined outer rect {:?}",
                     clip_task_id, prim_screen_rect);
             }
-            self.cpu_metadata[prim_index.0].clip_task_id = Some(clip_task_id);
+            self.primitives[prim_index.0].metadata.clip_task_id = Some(clip_task_id);
             pic_state.tasks.push(clip_task_id);
         }
 
@@ -2291,84 +2287,82 @@ impl PrimitiveStore {
         let mut may_need_clip_mask = true;
         let mut pic_state_for_children = PictureState::new();
 
-        // Do some basic checks first, that can early out
-        // without even knowing the local rect.
-        let (prim_kind, cpu_prim_index, clip_chain_id) = {
-            let metadata = &self.cpu_metadata[prim_index.0];
+        // If we have dependencies, we need to prepare them first, in order
+        // to know the actual rect of this primitive.
+        // For example, scrolling may affect the location of an item in
+        // local space, which may force us to render this item on a larger
+        // picture target, if being composited.
+        let pic_context_for_children = {
+            let prim = &mut self.primitives[prim_index.0];
 
-            if !metadata.is_backface_visible && prim_run_context.transform.backface_is_visible {
+            // Do some basic checks first, that can early out
+            // without even knowing the local rect.
+            if !prim.metadata.is_backface_visible && prim_run_context.transform.backface_is_visible {
                 if cfg!(debug_assertions) && Some(prim_index) == self.chase_id {
                     println!("\tculled for not having visible back faces");
                 }
                 return None;
             }
 
-            (metadata.prim_kind, metadata.cpu_prim_index, metadata.clip_chain_id)
-        };
-
-        // If we have dependencies, we need to prepare them first, in order
-        // to know the actual rect of this primitive.
-        // For example, scrolling may affect the location of an item in
-        // local space, which may force us to render this item on a larger
-        // picture target, if being composited.
-        let pic_context_for_children = match prim_kind {
-            PrimitiveKind::Brush => {
-                match self.cpu_brushes[cpu_prim_index.0].kind {
-                    BrushKind::Picture(ref mut pic) => {
-                        if !pic.resolve_scene_properties(frame_context.scene_properties) {
-                            if cfg!(debug_assertions) && Some(prim_index) == self.chase_id {
-                                println!("\tculled for carrying an invisible composite filter");
+            match prim.details {
+                PrimitiveDetails::Brush(ref mut brush) => {
+                    match brush.kind {
+                        BrushKind::Picture(ref mut pic) => {
+                            if !pic.resolve_scene_properties(frame_context.scene_properties) {
+                                if cfg!(debug_assertions) && Some(prim_index) == self.chase_id {
+                                    println!("\tculled for carrying an invisible composite filter");
+                                }
+                                return None;
                             }
-                            return None;
+
+                            may_need_clip_mask = pic.composite_mode.is_some();
+
+                            let inflation_factor = match pic.composite_mode {
+                                Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
+                                    // The amount of extra space needed for primitives inside
+                                    // this picture to ensure the visibility check is correct.
+                                    BLUR_SAMPLE_SCALE * blur_radius
+                                }
+                                _ => {
+                                    0.0
+                                }
+                            };
+
+                            let display_list = &frame_context
+                                .pipelines
+                                .get(&pic.pipeline_id)
+                                .expect("No display list?")
+                                .display_list;
+
+                            let inv_world_transform = prim_run_context
+                                .scroll_node
+                                .world_content_transform
+                                .inverse();
+
+                            // Mark whether this picture has a complex coordinate system.
+                            pic_state_for_children.has_non_root_coord_system |=
+                                prim_run_context.scroll_node.coordinate_system_id != CoordinateSystemId::root();
+
+                            Some(PictureContext {
+                                pipeline_id: pic.pipeline_id,
+                                prim_runs: mem::replace(&mut pic.runs, Vec::new()),
+                                original_reference_frame_index: Some(pic.reference_frame_index),
+                                display_list,
+                                inv_world_transform,
+                                apply_local_clip_rect: pic.apply_local_clip_rect,
+                                inflation_factor,
+                                // TODO(lsalzman): allow overriding parent if intermediate surface is opaque
+                                allow_subpixel_aa: pic_context.allow_subpixel_aa && pic.allow_subpixel_aa(),
+                            })
                         }
-
-                        may_need_clip_mask = pic.composite_mode.is_some();
-
-                        let inflation_factor = match pic.composite_mode {
-                            Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
-                                // The amount of extra space needed for primitives inside
-                                // this picture to ensure the visibility check is correct.
-                                BLUR_SAMPLE_SCALE * blur_radius
-                            }
-                            _ => {
-                                0.0
-                            }
-                        };
-
-                        let display_list = &frame_context
-                            .pipelines
-                            .get(&pic.pipeline_id)
-                            .expect("No display list?")
-                            .display_list;
-
-                        let inv_world_transform = prim_run_context
-                            .scroll_node
-                            .world_content_transform
-                            .inverse();
-
-                        // Mark whether this picture has a complex coordinate system.
-                        pic_state_for_children.has_non_root_coord_system |=
-                            prim_run_context.scroll_node.coordinate_system_id != CoordinateSystemId::root();
-
-                        Some(PictureContext {
-                            pipeline_id: pic.pipeline_id,
-                            prim_runs: mem::replace(&mut pic.runs, Vec::new()),
-                            original_reference_frame_index: Some(pic.reference_frame_index),
-                            display_list,
-                            inv_world_transform,
-                            apply_local_clip_rect: pic.apply_local_clip_rect,
-                            inflation_factor,
-                            // TODO(lsalzman): allow overriding parent if intermediate surface is opaque
-                            allow_subpixel_aa: pic_context.allow_subpixel_aa && pic.allow_subpixel_aa(),
-                        })
-                    }
-                    _ => {
-                        None
+                        _ => {
+                            None
+                        }
                     }
                 }
-            }
-            _ => {
-                None
+                PrimitiveDetails::TextRun(..) => {
+                    None
+                }
             }
         };
 
@@ -2381,25 +2375,20 @@ impl PrimitiveStore {
             );
 
             // Restore the dependencies (borrow check dance)
-            let new_local_rect = match self.cpu_brushes[cpu_prim_index.0].kind {
-                BrushKind::Picture(ref mut pic) => {
-                    pic.runs = pic_context_for_children.prim_runs;
-                    pic.update_local_rect(result)
-                }
-                _ => unreachable!(),
-            };
+            let prim = &mut self.primitives[prim_index.0];
+            let new_local_rect = prim
+                .as_pic_mut()
+                .update_local_rect(result, pic_context_for_children.prim_runs);
 
-            let metadata = &mut self.cpu_metadata[prim_index.0];
-
-            if new_local_rect != metadata.local_rect {
-                metadata.local_rect = new_local_rect;
-                frame_state.gpu_cache.invalidate(&mut metadata.gpu_location);
+            if new_local_rect != prim.metadata.local_rect {
+                prim.metadata.local_rect = new_local_rect;
+                frame_state.gpu_cache.invalidate(&mut prim.metadata.gpu_location);
                 pic_state.local_rect_changed = true;
             }
         }
 
-        let (local_rect, local_clip_rect) = {
-            let metadata = &mut self.cpu_metadata[prim_index.0];
+        let (local_rect, local_clip_rect, clip_chain_id) = {
+            let metadata = &mut self.primitives[prim_index.0].metadata;
             if metadata.local_rect.size.width <= 0.0 ||
                metadata.local_rect.size.height <= 0.0 {
                 if cfg!(debug_assertions) && Some(prim_index) == self.chase_id {
@@ -2428,7 +2417,7 @@ impl PrimitiveStore {
                 }
             };
 
-            (local_rect, metadata.local_clip_rect)
+            (local_rect, metadata.local_clip_rect, metadata.clip_chain_id)
         };
 
         let clip_chain = frame_state
@@ -2447,7 +2436,7 @@ impl PrimitiveStore {
         let clip_chain = match clip_chain {
             Some(clip_chain) => clip_chain,
             None => {
-                self.cpu_metadata[prim_index.0].screen_rect = None;
+                self.primitives[prim_index.0].metadata.screen_rect = None;
                 return None;
             }
         };
@@ -2499,7 +2488,7 @@ impl PrimitiveStore {
         };
 
         let ccr = {
-            let metadata = &mut self.cpu_metadata[prim_index.0];
+            let metadata = &mut self.primitives[prim_index.0].metadata;
 
             metadata.screen_rect = Some(ScreenRect {
                 clipped: clipped_device_rect,
@@ -2557,8 +2546,8 @@ impl PrimitiveStore {
     // TODO(gw): Make this simpler / more efficient by tidying
     //           up the logic that early outs from prepare_prim_for_render.
     pub fn reset_prim_visibility(&mut self) {
-        for md in &mut self.cpu_metadata {
-            md.screen_rect = None;
+        for prim in &mut self.primitives {
+            prim.metadata.screen_rect = None;
         }
     }
 
