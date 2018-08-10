@@ -556,52 +556,63 @@ impl ClipStore {
             let node = &mut self.clip_nodes[node_info.node_index.0 as usize];
 
             // Convert the prim rect into the clip nodes local space
-            if let Some(prim_rect) = node_info
+            let prim_rect = node_info
                 .conversion
-                .transform_from_prim_space(&current_local_clip_rect) {
+                .transform_from_prim_space(&current_local_clip_rect);
 
-                // See how this clip affects the prim region.
-                let clip_result = node.item.get_clip_result(&prim_rect);
+            // See how this clip affects the prim region.
+            let clip_result = match prim_rect {
+                Some(prim_rect) => {
+                    node.item.get_clip_result(&prim_rect)
+                }
+                None => {
+                    // If we can't get a local rect due to perspective
+                    // weirdness, just assume that we need a clip mask
+                    // for this case.
+                    // TODO(gw): We can probably improve on this once
+                    //           we support local space picture raster.
+                    ClipResult::Partial
+                }
+            };
 
-                match clip_result {
-                    ClipResult::Accept => {
-                        // Doesn't affect the primitive at all, so skip adding to list
-                    }
-                    ClipResult::Reject => {
-                        // Completely clips the supplied prim rect
-                        return None;
-                    }
-                    ClipResult::Partial => {
-                        // Needs a mask -> add to clip node indices
+            match clip_result {
+                ClipResult::Accept => {
+                    // Doesn't affect the primitive at all, so skip adding to list
+                }
+                ClipResult::Reject => {
+                    // Completely clips the supplied prim rect
+                    return None;
+                }
+                ClipResult::Partial => {
+                    // Needs a mask -> add to clip node indices
 
-                        // TODO(gw): Ensure this only runs once on each node per frame?
-                        node.update(
-                            gpu_cache,
-                            resource_cache,
-                            device_pixel_scale,
-                        );
+                    // TODO(gw): Ensure this only runs once on each node per frame?
+                    node.update(
+                        gpu_cache,
+                        resource_cache,
+                        device_pixel_scale,
+                    );
 
-                        // Calculate some flags that are required for the segment
-                        // building logic.
-                        let flags = match node_info.conversion {
-                            ClipSpaceConversion::Local => {
-                                ClipNodeFlags::SAME_SPATIAL_NODE | ClipNodeFlags::SAME_COORD_SYSTEM
-                            }
-                            ClipSpaceConversion::Offset(..) => {
-                                ClipNodeFlags::SAME_COORD_SYSTEM
-                            }
-                            ClipSpaceConversion::Transform(..) => {
-                                has_clips_from_other_coordinate_systems = true;
-                                ClipNodeFlags::empty()
-                            }
-                        };
+                    // Calculate some flags that are required for the segment
+                    // building logic.
+                    let flags = match node_info.conversion {
+                        ClipSpaceConversion::Local => {
+                            ClipNodeFlags::SAME_SPATIAL_NODE | ClipNodeFlags::SAME_COORD_SYSTEM
+                        }
+                        ClipSpaceConversion::Offset(..) => {
+                            ClipNodeFlags::SAME_COORD_SYSTEM
+                        }
+                        ClipSpaceConversion::Transform(..) => {
+                            has_clips_from_other_coordinate_systems = true;
+                            ClipNodeFlags::empty()
+                        }
+                    };
 
-                        // Store this in the index buffer for this clip chain instance.
-                        self.clip_node_indices
-                            .push(ClipNodeInstance::new(node_info.node_index, flags));
+                    // Store this in the index buffer for this clip chain instance.
+                    self.clip_node_indices
+                        .push(ClipNodeInstance::new(node_info.node_index, flags));
 
-                        has_non_root_coord_system |= node_info.has_non_root_coord_system;
-                    }
+                    has_non_root_coord_system |= node_info.has_non_root_coord_system;
                 }
             }
         }
