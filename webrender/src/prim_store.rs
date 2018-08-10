@@ -1470,7 +1470,7 @@ impl PrimitiveStore {
             // Do some basic checks first, that can early out
             // without even knowing the local rect.
             if !prim.metadata.is_backface_visible && prim_run_context.transform.backface_is_visible {
-                if cfg!(debug_assertions) && Some(prim_index) == self.chase_id {
+                if cfg!(debug_assertions) && is_chased {
                     println!("\tculled for not having visible back faces");
                 }
                 return None;
@@ -1481,7 +1481,7 @@ impl PrimitiveStore {
                     match brush.kind {
                         BrushKind::Picture(ref mut pic) => {
                             if !pic.resolve_scene_properties(frame_context.scene_properties) {
-                                if cfg!(debug_assertions) && Some(prim_index) == self.chase_id {
+                                if cfg!(debug_assertions) && is_chased {
                                     println!("\tculled for carrying an invisible composite filter");
                                 }
                                 return None;
@@ -1559,45 +1559,41 @@ impl PrimitiveStore {
             }
         }
 
-        let (local_rect, clip_chain_id) = {
-            let metadata = &mut self.primitives[prim_index.0].metadata;
-            if metadata.local_rect.size.width <= 0.0 ||
-               metadata.local_rect.size.height <= 0.0 {
-                if cfg!(debug_assertions) && Some(prim_index) == self.chase_id {
-                    println!("\tculled for zero local rectangle");
-                }
-                return None;
-            }
-
-            metadata.screen_rect = None;
-
-            // Inflate the local rect for this primitive by the inflation factor of
-            // the picture context. This ensures that even if the primitive itself
-            // is not visible, any effects from the blur radius will be correctly
-            // taken into account.
-            let local_rect = metadata.local_rect
-                .inflate(pic_context.inflation_factor, pic_context.inflation_factor)
-                .intersection(&metadata.local_clip_rect);
-            let local_rect = match local_rect {
-                Some(local_rect) => local_rect,
-                None => {
-                    if cfg!(debug_assertions) && Some(prim_index) == self.chase_id {
-                        println!("\tculled for being out of the local clip rectangle: {:?}",
-                            metadata.local_clip_rect);
-                    }
-                    return None
-                }
-            };
-
-            (local_rect, metadata.clip_chain_id)
-        };
-
         let prim = &mut self.primitives[prim_index.0];
+        prim.metadata.screen_rect = None;
+
+        if prim.metadata.local_rect.size.width <= 0.0 ||
+           prim.metadata.local_rect.size.height <= 0.0 {
+            if cfg!(debug_assertions) && is_chased {
+                println!("\tculled for zero local rectangle");
+            }
+            return None;
+        }
+
+        // Inflate the local rect for this primitive by the inflation factor of
+        // the picture context. This ensures that even if the primitive itself
+        // is not visible, any effects from the blur radius will be correctly
+        // taken into account.
+        let local_rect = prim
+            .metadata
+            .local_rect
+            .inflate(pic_context.inflation_factor, pic_context.inflation_factor)
+            .intersection(&prim.metadata.local_clip_rect);
+        let local_rect = match local_rect {
+            Some(local_rect) => local_rect,
+            None => {
+                if cfg!(debug_assertions) && is_chased {
+                    println!("\tculled for being out of the local clip rectangle: {:?}",
+                        prim.metadata.local_clip_rect);
+                }
+                return None
+            }
+        };
 
         let clip_chain = frame_state
             .clip_store
             .build_clip_chain_instance(
-                clip_chain_id,
+                prim.metadata.clip_chain_id,
                 local_rect,
                 prim.metadata.local_clip_rect,
                 prim_run_context.spatial_node_index,
@@ -1615,7 +1611,7 @@ impl PrimitiveStore {
             }
         };
 
-        if self.chase_id == Some(prim_index) {
+        if cfg!(debug_assertions) && is_chased {
             println!("\teffective clip chain from {:?} {}",
                 clip_chain.clips_range,
                 if pic_context.apply_local_clip_rect { "(applied)" } else { "" },
@@ -1632,7 +1628,7 @@ impl PrimitiveStore {
         ) {
             Some(rect) => rect,
             None => {
-                if cfg!(debug_assertions) && Some(prim_index) == self.chase_id {
+                if cfg!(debug_assertions) && is_chased {
                     println!("\tculled for being behind the near plane of transform: {:?}",
                         prim_run_context.scroll_node.world_content_transform);
                 }
@@ -1648,7 +1644,7 @@ impl PrimitiveStore {
         ) {
             Some(rect) => rect,
             None => {
-                if cfg!(debug_assertions) && Some(prim_index) == self.chase_id {
+                if cfg!(debug_assertions) && is_chased {
                     println!("\tculled for being behind the near plane of transform: {:?}",
                         prim_run_context.scroll_node.world_content_transform);
                 }
