@@ -1659,27 +1659,23 @@ impl PrimitiveStore {
             None => return None,
         };
 
-        let ccr = {
-            let metadata = &mut self.primitives[prim_index.0].metadata;
+        let prim = &mut self.primitives[prim_index.0];
+        prim.metadata.screen_rect = Some(ScreenRect {
+            clipped: clipped_device_rect,
+            unclipped: unclipped_device_rect,
+        });
 
-            metadata.screen_rect = Some(ScreenRect {
-                clipped: clipped_device_rect,
-                unclipped: unclipped_device_rect,
-            });
-
-            metadata.combined_local_clip_rect = if pic_context.apply_local_clip_rect {
-                clip_chain.local_clip_rect
-            } else {
-                local_clip_rect
-            };
-
-            match metadata.combined_local_clip_rect.intersection(&local_rect) {
-                Some(ccr) => ccr,
-                None => return None,
-            }
+        prim.metadata.combined_local_clip_rect = if pic_context.apply_local_clip_rect {
+            clip_chain.local_clip_rect
+        } else {
+            local_clip_rect
         };
 
-        let prim = &mut self.primitives[prim_index.0];
+        let ccr = match prim.metadata.combined_local_clip_rect.intersection(&local_rect) {
+            Some(ccr) => ccr,
+            None => return None,
+        };
+
         prim.build_prim_segments_if_needed(
             pic_state,
             frame_state,
