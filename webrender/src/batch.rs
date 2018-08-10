@@ -5,8 +5,7 @@
 use api::{AlphaType, ClipMode, DeviceIntRect, DeviceIntSize, DeviceIntPoint};
 use api::{DeviceUintRect, DeviceUintPoint, ExternalImageType, FilterOp, ImageRendering};
 use api::{YuvColorSpace, YuvFormat, WorldPixel};
-use clip::{ClipSource, ClipStore, ClipWorkItem};
-use clip_scroll_tree::{CoordinateSystemId};
+use clip::{ClipNodeFlags, ClipNodeRange, ClipItem, ClipStore};
 use euclid::vec3;
 use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheHandle, GpuCacheAddress};
@@ -476,7 +475,7 @@ impl AlphaBatchBuilder {
         for run in &pic.runs {
             let transform_id = ctx
                 .transforms
-                .get_id(run.clip_and_scroll.spatial_node_index);
+                .get_id(run.spatial_node_index);
             self.add_run_to_batch(
                 run,
                 transform_id,
@@ -1762,68 +1761,35 @@ impl ClipBatcher {
     pub fn add(
         &mut self,
         task_address: RenderTaskAddress,
-        clips: &[ClipWorkItem],
-        coordinate_system_id: CoordinateSystemId,
+        clip_node_range: ClipNodeRange,
         resource_cache: &ResourceCache,
         gpu_cache: &GpuCache,
         clip_store: &ClipStore,
         transforms: &TransformPalette,
     ) {
-        let mut coordinate_system_id = coordinate_system_id;
-        for work_item in clips.iter() {
-            let info = &clip_store[work_item.clip_sources_index];
+        for i in 0 .. clip_node_range.count {
+            let (clip_node, flags) = clip_store.get_node_from_range(&clip_node_range, i);
+
             let instance = ClipMaskInstance {
                 render_task_address: task_address,
-                transform_id: transforms.get_id(info.spatial_node_index),
+                transform_id: transforms.get_id(clip_node.spatial_node_index),
                 segment: 0,
                 clip_data_address: GpuCacheAddress::invalid(),
                 resource_address: GpuCacheAddress::invalid(),
             };
 
-            for &(ref source, ref handle) in &info.clips {
-                let gpu_address = gpu_cache.get_address(handle);
+            let gpu_address = gpu_cache.get_address(&clip_node.gpu_cache_handle);
 
-                match *source {
-                    ClipSource::Image(ref mask) => {
-                        if let Ok(cache_item) = resource_cache.get_cached_image(
-                            ImageRequest {
-                                key: mask.image,
-                                rendering: ImageRendering::Auto,
-                                tile: None,
-                            }
-                        ) {
-                            self.images
-                                .entry(cache_item.texture_id)
-                                .or_insert(Vec::new())
-                                .push(ClipMaskInstance {
-                                    clip_data_address: gpu_address,
-                                    resource_address: gpu_cache.get_address(&cache_item.uv_rect_handle),
-                                    ..instance
-                                });
-                        } else {
-                            warn!("Warnings: skip a image mask");
-                            debug!("Key:{:?} Rect::{:?}", mask.image, mask.rect);
-                            continue;
+            match clip_node.item {
+                ClipItem::Image(ref mask) => {
+                    if let Ok(cache_item) = resource_cache.get_cached_image(
+                        ImageRequest {
+                            key: mask.image,
+                            rendering: ImageRendering::Auto,
+                            tile: None,
                         }
-                    }
-                    ClipSource::LineDecoration(..) => {
-                        self.line_decorations.push(ClipMaskInstance {
-                            clip_data_address: gpu_address,
-                            ..instance
-                        });
-                    }
-                    ClipSource::BoxShadow(ref info) => {
-                        let rt_handle = info
-                            .cache_handle
-                            .as_ref()
-                            .expect("bug: render task handle not allocated");
-                        let rt_cache_entry = resource_cache
-                            .get_cached_render_task(rt_handle);
-                        let cache_item = resource_cache
-                            .get_texture_cache_item(&rt_cache_entry.handle);
-                        debug_assert_ne!(cache_item.texture_id, SourceTexture::Invalid);
-
-                        self.box_shadows
+                    ) {
+                        self.images
                             .entry(cache_item.texture_id)
                             .or_insert(Vec::new())
                             .push(ClipMaskInstance {
@@ -1831,23 +1797,52 @@ impl ClipBatcher {
                                 resource_address: gpu_cache.get_address(&cache_item.uv_rect_handle),
                                 ..instance
                             });
+                    } else {
+                        warn!("Warnings: skip a image mask");
+                        debug!("Key:{:?} Rect::{:?}", mask.image, mask.rect);
+                        continue;
                     }
-                    ClipSource::Rectangle(_, mode) => {
-                        if work_item.coordinate_system_id != coordinate_system_id ||
-                           mode == ClipMode::ClipOut {
-                            self.rectangles.push(ClipMaskInstance {
-                                clip_data_address: gpu_address,
-                                ..instance
-                            });
-                            coordinate_system_id = work_item.coordinate_system_id;
-                        }
-                    }
-                    ClipSource::RoundedRectangle(..) => {
+                }
+                ClipItem::LineDecoration(..) => {
+                    self.line_decorations.push(ClipMaskInstance {
+                        clip_data_address: gpu_address,
+                        ..instance
+                    });
+                }
+                ClipItem::BoxShadow(ref info) => {
+                    let rt_handle = info
+                        .cache_handle
+                        .as_ref()
+                        .expect("bug: render task handle not allocated");
+                    let rt_cache_entry = resource_cache
+                        .get_cached_render_task(rt_handle);
+                    let cache_item = resource_cache
+                        .get_texture_cache_item(&rt_cache_entry.handle);
+                    debug_assert_ne!(cache_item.texture_id, SourceTexture::Invalid);
+
+                    self.box_shadows
+                        .entry(cache_item.texture_id)
+                        .or_insert(Vec::new())
+                        .push(ClipMaskInstance {
+                            clip_data_address: gpu_address,
+                            resource_address: gpu_cache.get_address(&cache_item.uv_rect_handle),
+                            ..instance
+                        });
+                }
+                ClipItem::Rectangle(_, mode) => {
+                    if !flags.contains(ClipNodeFlags::SAME_COORD_SYSTEM) ||
+                        mode == ClipMode::ClipOut {
                         self.rectangles.push(ClipMaskInstance {
                             clip_data_address: gpu_address,
                             ..instance
                         });
                     }
+                }
+                ClipItem::RoundedRectangle(..) => {
+                    self.rectangles.push(ClipMaskInstance {
+                        clip_data_address: gpu_address,
+                        ..instance
+                    });
                 }
             }
         }
