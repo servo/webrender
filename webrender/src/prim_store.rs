@@ -1982,162 +1982,6 @@ impl PrimitiveStore {
         }
     }
 
-    fn write_brush_segment_description(
-        brush: &mut BrushPrimitive,
-        metadata: &PrimitiveMetadata,
-        clip_chain: &ClipChainInstance,
-        frame_state: &mut FrameBuildingState,
-    ) {
-        match brush.segment_desc {
-            Some(ref segment_desc) => {
-                // If we already have a segment descriptor, only run through the
-                // clips list if we haven't already determined the mask kind.
-                if segment_desc.clip_mask_kind != BrushClipMaskKind::Unknown {
-                    return;
-                }
-            }
-            None => {
-                // If no segment descriptor built yet, see if it is a brush
-                // type that wants to be segmented.
-                if !brush.kind.supports_segments(frame_state.resource_cache) {
-                    return;
-                }
-            }
-        }
-
-        // If the brush is small, we generally want to skip building segments
-        // and just draw it as a single primitive with clip mask. However,
-        // if the clips are purely rectangles that have no per-fragment
-        // clip masks, we will segment anyway. This allows us to completely
-        // skip allocating a clip mask in these cases.
-        let is_large = metadata.local_rect.size.area() > MIN_BRUSH_SPLIT_AREA;
-
-        // TODO(gw): We should probably detect and store this on each
-        //           ClipSources instance, to avoid having to iterate
-        //           the clip sources here.
-        let mut rect_clips_only = true;
-
-        let mut segment_builder = SegmentBuilder::new(
-            metadata.local_rect,
-            None,
-            metadata.local_clip_rect
-        );
-
-        // If this primitive is clipped by clips from a different coordinate system, then we
-        // need to apply a clip mask for the entire primitive.
-        let mut clip_mask_kind = if clip_chain.has_clips_from_other_coordinate_systems {
-            BrushClipMaskKind::Global
-        } else {
-            BrushClipMaskKind::Individual
-        };
-
-        // Segment the primitive on all the local-space clip sources that we can.
-        for i in 0 .. clip_chain.clips_range.count {
-            let (clip_node, flags) = frame_state.clip_store.get_node_from_range(&clip_chain.clips_range, i);
-
-            if !flags.contains(ClipNodeFlags::SAME_COORD_SYSTEM) {
-                continue;
-            }
-
-            // TODO(gw): We can easily extend the segment builder to support these clip sources in
-            // the future, but they are rarely used.
-            // We must do this check here in case we continue early below.
-            if clip_node.item.is_image_or_line_decoration_clip() {
-                clip_mask_kind = BrushClipMaskKind::Global;
-            }
-
-            // If this clip item is positioned by another positioning node, its relative position
-            // could change during scrolling. This means that we would need to resegment. Instead
-            // of doing that, only segment with clips that have the same positioning node.
-            // TODO(mrobinson, #2858): It may make sense to include these nodes, resegmenting only
-            // when necessary while scrolling.
-            if !flags.contains(ClipNodeFlags::SAME_SPATIAL_NODE) {
-                // We don't need to generate a global clip mask for rectangle clips because we are
-                // in the same coordinate system and rectangular clips are handled by the local
-                // clip chain rectangle.
-                if !clip_node.item.is_rect() {
-                    clip_mask_kind = BrushClipMaskKind::Global;
-                }
-                continue;
-            }
-
-            let (local_clip_rect, radius, mode) = match clip_node.item {
-                ClipItem::RoundedRectangle(rect, radii, clip_mode) => {
-                    rect_clips_only = false;
-                    (rect, Some(radii), clip_mode)
-                }
-                ClipItem::Rectangle(rect, mode) => {
-                    (rect, None, mode)
-                }
-                ClipItem::BoxShadow(ref info) => {
-                    rect_clips_only = false;
-
-                    // For inset box shadows, we can clip out any
-                    // pixels that are inside the shadow region
-                    // and are beyond the inner rect, as they can't
-                    // be affected by the blur radius.
-                    let inner_clip_mode = match info.clip_mode {
-                        BoxShadowClipMode::Outset => None,
-                        BoxShadowClipMode::Inset => Some(ClipMode::ClipOut),
-                    };
-
-                    // Push a region into the segment builder where the
-                    // box-shadow can have an effect on the result. This
-                    // ensures clip-mask tasks get allocated for these
-                    // pixel regions, even if no other clips affect them.
-                    segment_builder.push_mask_region(
-                        info.prim_shadow_rect,
-                        info.prim_shadow_rect.inflate(
-                            -0.5 * info.shadow_rect_alloc_size.width,
-                            -0.5 * info.shadow_rect_alloc_size.height,
-                        ),
-                        inner_clip_mode,
-                    );
-
-                    continue;
-                }
-                ClipItem::LineDecoration(..) | ClipItem::Image(..) => {
-                    rect_clips_only = false;
-                    continue;
-                }
-            };
-
-            segment_builder.push_clip_rect(local_clip_rect, radius, mode);
-        }
-
-        if is_large || rect_clips_only {
-            match brush.segment_desc {
-                Some(ref mut segment_desc) => {
-                    segment_desc.clip_mask_kind = clip_mask_kind;
-                }
-                None => {
-                    // TODO(gw): We can probably make the allocation
-                    //           patterns of this and the segment
-                    //           builder significantly better, by
-                    //           retaining it across primitives.
-                    let mut segments = Vec::new();
-
-                    segment_builder.build(|segment| {
-                        segments.push(
-                            BrushSegment::new(
-                                segment.rect,
-                                segment.has_mask,
-                                segment.edge_flags,
-                                [0.0; 4],
-                                BrushFlags::empty(),
-                            ),
-                        );
-                    });
-
-                    brush.segment_desc = Some(BrushSegmentDescriptor {
-                        segments,
-                        clip_mask_kind,
-                    });
-                }
-            }
-        }
-    }
-
     fn update_clip_task_for_brush(
         &mut self,
         prim_run_context: &PrimitiveRunContext,
@@ -2156,7 +2000,7 @@ impl PrimitiveStore {
             PrimitiveDetails::TextRun(..) => return false,
         };
 
-        PrimitiveStore::write_brush_segment_description(
+        write_brush_segment_description(
             brush,
             &prim.metadata,
             clip_chain,
@@ -2790,5 +2634,161 @@ impl<'a> GpuDataRequest<'a> {
         let _ = VECS_PER_SEGMENT;
         self.push(local_rect);
         self.push(extra_data);
+    }
+}
+
+fn write_brush_segment_description(
+    brush: &mut BrushPrimitive,
+    metadata: &PrimitiveMetadata,
+    clip_chain: &ClipChainInstance,
+    frame_state: &mut FrameBuildingState,
+) {
+    match brush.segment_desc {
+        Some(ref segment_desc) => {
+            // If we already have a segment descriptor, only run through the
+            // clips list if we haven't already determined the mask kind.
+            if segment_desc.clip_mask_kind != BrushClipMaskKind::Unknown {
+                return;
+            }
+        }
+        None => {
+            // If no segment descriptor built yet, see if it is a brush
+            // type that wants to be segmented.
+            if !brush.kind.supports_segments(frame_state.resource_cache) {
+                return;
+            }
+        }
+    }
+
+    // If the brush is small, we generally want to skip building segments
+    // and just draw it as a single primitive with clip mask. However,
+    // if the clips are purely rectangles that have no per-fragment
+    // clip masks, we will segment anyway. This allows us to completely
+    // skip allocating a clip mask in these cases.
+    let is_large = metadata.local_rect.size.area() > MIN_BRUSH_SPLIT_AREA;
+
+    // TODO(gw): We should probably detect and store this on each
+    //           ClipSources instance, to avoid having to iterate
+    //           the clip sources here.
+    let mut rect_clips_only = true;
+
+    let mut segment_builder = SegmentBuilder::new(
+        metadata.local_rect,
+        None,
+        metadata.local_clip_rect
+    );
+
+    // If this primitive is clipped by clips from a different coordinate system, then we
+    // need to apply a clip mask for the entire primitive.
+    let mut clip_mask_kind = if clip_chain.has_clips_from_other_coordinate_systems {
+        BrushClipMaskKind::Global
+    } else {
+        BrushClipMaskKind::Individual
+    };
+
+    // Segment the primitive on all the local-space clip sources that we can.
+    for i in 0 .. clip_chain.clips_range.count {
+        let (clip_node, flags) = frame_state.clip_store.get_node_from_range(&clip_chain.clips_range, i);
+
+        if !flags.contains(ClipNodeFlags::SAME_COORD_SYSTEM) {
+            continue;
+        }
+
+        // TODO(gw): We can easily extend the segment builder to support these clip sources in
+        // the future, but they are rarely used.
+        // We must do this check here in case we continue early below.
+        if clip_node.item.is_image_or_line_decoration_clip() {
+            clip_mask_kind = BrushClipMaskKind::Global;
+        }
+
+        // If this clip item is positioned by another positioning node, its relative position
+        // could change during scrolling. This means that we would need to resegment. Instead
+        // of doing that, only segment with clips that have the same positioning node.
+        // TODO(mrobinson, #2858): It may make sense to include these nodes, resegmenting only
+        // when necessary while scrolling.
+        if !flags.contains(ClipNodeFlags::SAME_SPATIAL_NODE) {
+            // We don't need to generate a global clip mask for rectangle clips because we are
+            // in the same coordinate system and rectangular clips are handled by the local
+            // clip chain rectangle.
+            if !clip_node.item.is_rect() {
+                clip_mask_kind = BrushClipMaskKind::Global;
+            }
+            continue;
+        }
+
+        let (local_clip_rect, radius, mode) = match clip_node.item {
+            ClipItem::RoundedRectangle(rect, radii, clip_mode) => {
+                rect_clips_only = false;
+                (rect, Some(radii), clip_mode)
+            }
+            ClipItem::Rectangle(rect, mode) => {
+                (rect, None, mode)
+            }
+            ClipItem::BoxShadow(ref info) => {
+                rect_clips_only = false;
+
+                // For inset box shadows, we can clip out any
+                // pixels that are inside the shadow region
+                // and are beyond the inner rect, as they can't
+                // be affected by the blur radius.
+                let inner_clip_mode = match info.clip_mode {
+                    BoxShadowClipMode::Outset => None,
+                    BoxShadowClipMode::Inset => Some(ClipMode::ClipOut),
+                };
+
+                // Push a region into the segment builder where the
+                // box-shadow can have an effect on the result. This
+                // ensures clip-mask tasks get allocated for these
+                // pixel regions, even if no other clips affect them.
+                segment_builder.push_mask_region(
+                    info.prim_shadow_rect,
+                    info.prim_shadow_rect.inflate(
+                        -0.5 * info.shadow_rect_alloc_size.width,
+                        -0.5 * info.shadow_rect_alloc_size.height,
+                    ),
+                    inner_clip_mode,
+                );
+
+                continue;
+            }
+            ClipItem::LineDecoration(..) | ClipItem::Image(..) => {
+                rect_clips_only = false;
+                continue;
+            }
+        };
+
+        segment_builder.push_clip_rect(local_clip_rect, radius, mode);
+    }
+
+    if is_large || rect_clips_only {
+        match brush.segment_desc {
+            Some(ref mut segment_desc) => {
+                segment_desc.clip_mask_kind = clip_mask_kind;
+            }
+            None => {
+                // TODO(gw): We can probably make the allocation
+                //           patterns of this and the segment
+                //           builder significantly better, by
+                //           retaining it across primitives.
+                let mut segments = Vec::new();
+
+                segment_builder.build(|segment| {
+                    segments.push(
+                        BrushSegment::new(
+                            segment.rect,
+                            segment.has_mask,
+                            segment.edge_flags,
+                            [0.0; 4],
+                            BrushFlags::empty(),
+                        ),
+                    );
+                });
+
+                brush.segment_desc = Some(BrushSegmentDescriptor {
+                    segments,
+                    clip_mask_kind,
+                });
+            }
+        }
     }
 }
