@@ -212,17 +212,18 @@ impl BatchKind {
 bitflags! {
     #[derive(Default)]
     pub struct DebugFlags: u32 {
-        const PROFILER_DBG      = 1 << 0;
-        const RENDER_TARGET_DBG = 1 << 1;
-        const TEXTURE_CACHE_DBG = 1 << 2;
-        const GPU_TIME_QUERIES  = 1 << 3;
-        const GPU_SAMPLE_QUERIES= 1 << 4;
-        const DISABLE_BATCHING  = 1 << 5;
-        const EPOCHS            = 1 << 6;
-        const COMPACT_PROFILER  = 1 << 7;
-        const ECHO_DRIVER_MESSAGES = 1 << 8;
-        const NEW_FRAME_INDICATOR = 1 << 9;
-        const NEW_SCENE_INDICATOR = 1 << 10;
+        const PROFILER_DBG          = 1 << 0;
+        const RENDER_TARGET_DBG     = 1 << 1;
+        const TEXTURE_CACHE_DBG     = 1 << 2;
+        const GPU_TIME_QUERIES      = 1 << 3;
+        const GPU_SAMPLE_QUERIES    = 1 << 4;
+        const DISABLE_BATCHING      = 1 << 5;
+        const EPOCHS                = 1 << 6;
+        const COMPACT_PROFILER      = 1 << 7;
+        const ECHO_DRIVER_MESSAGES  = 1 << 8;
+        const NEW_FRAME_INDICATOR   = 1 << 9;
+        const NEW_SCENE_INDICATOR   = 1 << 10;
+        const SHOW_OVERDRAW         = 1 << 11;
     }
 }
 
@@ -2168,6 +2169,9 @@ impl Renderer {
             DebugCommand::EnableNewSceneIndicator(enable) => {
                 self.set_debug_flag(DebugFlags::NEW_SCENE_INDICATOR, enable);
             }
+            DebugCommand::EnableShowOverdraw(enable) => {
+                self.set_debug_flag(DebugFlags::SHOW_OVERDRAW, enable);
+            }
             DebugCommand::EnableDualSourceBlending(_) => {
                 panic!("Should be handled by render backend");
             }
@@ -2304,7 +2308,7 @@ impl Renderer {
 
             self.device.disable_scissor();
             self.device.disable_depth();
-            self.device.set_blend(false);
+            self.set_blend(false, true);
             //self.update_shaders();
 
             self.update_texture_cache();
@@ -2847,12 +2851,14 @@ impl Renderer {
             assert!(texture.has_depth() >= target.needs_depth());
         }
 
+        let is_main_framebuffer = render_target.is_none();
+
         {
             let _timer = self.gpu_profile.start_timer(GPU_TAG_SETUP_TARGET);
             self.device
                 .bind_draw_target(render_target, Some(target_size));
             self.device.disable_depth();
-            self.device.set_blend(false);
+            self.set_blend(false, is_main_framebuffer);
 
             let depth_clear = if !depth_is_ready && target.needs_depth() {
                 self.device.enable_depth_write();
@@ -2903,7 +2909,7 @@ impl Renderer {
         if !target.vertical_blurs.is_empty() || !target.horizontal_blurs.is_empty() {
             let _timer = self.gpu_profile.start_timer(GPU_TAG_BLUR);
 
-            self.device.set_blend(false);
+            self.set_blend(false, is_main_framebuffer);
             self.shaders.cs_blur_rgba8
                 .bind(&mut self.device, projection, &mut self.renderer_errors);
 
@@ -2933,7 +2939,7 @@ impl Renderer {
         if target.needs_depth() {
             let _gl = self.gpu_profile.start_marker("opaque batches");
             let opaque_sampler = self.gpu_profile.start_sampler(GPU_SAMPLER_TAG_OPAQUE);
-            self.device.set_blend(false);
+            self.set_blend(false, is_main_framebuffer);
             //Note: depth equality is needed for split planes
             self.device.set_depth_func(DepthFunction::LessEqual);
             self.device.enable_depth();
@@ -2963,7 +2969,7 @@ impl Renderer {
                     .rev()
                 {
                     self.shaders
-                        .get(&batch.key)
+                        .get(&batch.key, self.debug_flags)
                         .bind(
                             &mut self.device, projection,
                             &mut self.renderer_errors,
@@ -2989,7 +2995,7 @@ impl Renderer {
 
         let _gl = self.gpu_profile.start_marker("alpha batches");
         let transparent_sampler = self.gpu_profile.start_sampler(GPU_SAMPLER_TAG_TRANSPARENT);
-        self.device.set_blend(true);
+        self.set_blend(true, is_main_framebuffer);
         let mut prev_blend_mode = BlendMode::None;
 
         for alpha_batch_container in &target.alpha_batch_containers {
@@ -3010,7 +3016,7 @@ impl Renderer {
 
             for batch in &alpha_batch_container.alpha_batches {
                 self.shaders
-                    .get(&batch.key)
+                    .get(&batch.key, self.debug_flags)
                     .bind(
                         &mut self.device, projection,
                         &mut self.renderer_errors,
@@ -3018,6 +3024,10 @@ impl Renderer {
 
                 if batch.key.blend_mode != prev_blend_mode {
                     match batch.key.blend_mode {
+                        _ if self.debug_flags.contains(DebugFlags::SHOW_OVERDRAW) &&
+                                is_main_framebuffer => {
+                            self.device.set_blend_mode_show_overdraw();
+                        }
                         BlendMode::None => {
                             unreachable!("bug: opaque blend in alpha pass");
                         }
@@ -3073,7 +3083,7 @@ impl Renderer {
                 );
 
                 if batch.key.blend_mode == BlendMode::SubpixelWithBgColor {
-                    self.device.set_blend_mode_subpixel_with_bg_color_pass1();
+                    self.set_blend_mode_subpixel_with_bg_color_pass1(is_main_framebuffer);
                     self.device.switch_mode(ShaderColorMode::SubpixelWithBgColorPass1 as _);
 
                     // When drawing the 2nd and 3rd passes, we know that the VAO, textures etc
@@ -3083,7 +3093,7 @@ impl Renderer {
                     self.device
                         .draw_indexed_triangles_instanced_u16(6, batch.instances.len() as i32);
 
-                    self.device.set_blend_mode_subpixel_with_bg_color_pass2();
+                    self.set_blend_mode_subpixel_with_bg_color_pass2(is_main_framebuffer);
                     self.device.switch_mode(ShaderColorMode::SubpixelWithBgColorPass2 as _);
 
                     self.device
@@ -3099,7 +3109,7 @@ impl Renderer {
         }
 
         self.device.disable_depth();
-        self.device.set_blend(false);
+        self.set_blend(false, is_main_framebuffer);
         self.gpu_profile.finish_sampler(transparent_sampler);
 
         // For any registered image outputs on this render target,
@@ -3191,7 +3201,7 @@ impl Renderer {
         if !target.vertical_blurs.is_empty() || !target.horizontal_blurs.is_empty() {
             let _timer = self.gpu_profile.start_timer(GPU_TAG_BLUR);
 
-            self.device.set_blend(false);
+            self.set_blend(false, false);
             self.shaders.cs_blur_a8
                 .bind(&mut self.device, projection, &mut self.renderer_errors);
 
@@ -3221,8 +3231,8 @@ impl Renderer {
             let _timer = self.gpu_profile.start_timer(GPU_TAG_CACHE_CLIP);
 
             // switch to multiplicative blending
-            self.device.set_blend(true);
-            self.device.set_blend_mode_multiply();
+            self.set_blend(true, false);
+            self.set_blend_mode_multiply(false);
 
             // draw rounded cornered rectangles
             if !target.clip_batcher.rectangles.is_empty() {
@@ -3326,7 +3336,7 @@ impl Renderer {
         self.device.disable_depth();
         self.device.disable_depth_write();
 
-        self.device.set_blend(false);
+        self.set_blend(false, false);
 
         // Handle any Pathfinder glyphs.
         let stencil_page = self.stencil_glyphs(&target.glyphs, &projection, &target_size, stats);
@@ -3341,7 +3351,7 @@ impl Renderer {
 
         self.device.disable_depth();
         self.device.disable_depth_write();
-        self.device.set_blend(false);
+        self.set_blend(false, false);
 
         for rect in &target.clears {
             self.device.clear_target(Some([0.0, 0.0, 0.0, 0.0]), None, Some(*rect));
@@ -3354,8 +3364,8 @@ impl Renderer {
         if !target.border_segments.is_empty() {
             let _timer = self.gpu_profile.start_timer(GPU_TAG_CACHE_BORDER);
 
-            self.device.set_blend(true);
-            self.device.set_blend_mode_premultiplied_alpha();
+            self.set_blend(true, false);
+            self.set_blend_mode_premultiplied_alpha(false);
 
             self.shaders.cs_border_segment.bind(
                 &mut self.device,
@@ -3370,7 +3380,7 @@ impl Renderer {
                 stats,
             );
 
-            self.device.set_blend(false);
+            self.set_blend(false, false);
         }
 
         // Draw any blurs for this target.
@@ -3624,8 +3634,8 @@ impl Renderer {
         }
 
         self.device.disable_depth_write();
+        self.set_blend(false, false);
         self.device.disable_stencil();
-        self.device.set_blend(false);
 
         self.bind_frame_data(frame);
         self.texture_resolver.begin_frame();
@@ -4012,6 +4022,47 @@ impl Renderer {
             self.device.delete_external_texture(ext);
         }
         self.device.end_frame();
+    }
+
+    // Sets the blend mode. Blend is unconditionally set if the "show overdraw" debugging mode is
+    // enabled.
+    fn set_blend(&self, mut blend: bool, is_main_framebuffer: bool) {
+        if is_main_framebuffer && self.debug_flags.contains(DebugFlags::SHOW_OVERDRAW) {
+            blend = true
+        }
+        self.device.set_blend(blend)
+    }
+
+    fn set_blend_mode_multiply(&self, is_main_framebuffer: bool) {
+        if is_main_framebuffer && self.debug_flags.contains(DebugFlags::SHOW_OVERDRAW) {
+            self.device.set_blend_mode_show_overdraw();
+        } else {
+            self.device.set_blend_mode_multiply();
+        }
+    }
+
+    fn set_blend_mode_premultiplied_alpha(&self, is_main_framebuffer: bool) {
+        if is_main_framebuffer && self.debug_flags.contains(DebugFlags::SHOW_OVERDRAW) {
+            self.device.set_blend_mode_show_overdraw();
+        } else {
+            self.device.set_blend_mode_premultiplied_alpha();
+        }
+    }
+
+    fn set_blend_mode_subpixel_with_bg_color_pass1(&self, is_main_framebuffer: bool) {
+        if is_main_framebuffer && self.debug_flags.contains(DebugFlags::SHOW_OVERDRAW) {
+            self.device.set_blend_mode_show_overdraw();
+        } else {
+            self.device.set_blend_mode_subpixel_with_bg_color_pass1();
+        }
+    }
+
+    fn set_blend_mode_subpixel_with_bg_color_pass2(&self, is_main_framebuffer: bool) {
+        if is_main_framebuffer && self.debug_flags.contains(DebugFlags::SHOW_OVERDRAW) {
+            self.device.set_blend_mode_show_overdraw();
+        } else {
+            self.device.set_blend_mode_subpixel_with_bg_color_pass2();
+        }
     }
 }
 
