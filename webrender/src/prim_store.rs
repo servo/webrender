@@ -1531,60 +1531,6 @@ impl PrimitiveStore {
         }
     }
 
-    fn update_clip_task(
-        &mut self,
-        prim_index: PrimitiveIndex,
-        prim_run_context: &PrimitiveRunContext,
-        prim_screen_rect: &DeviceIntRect,
-        clip_chain: &ClipChainInstance,
-        pic_state: &mut PictureState,
-        frame_context: &FrameBuildingContext,
-        frame_state: &mut FrameBuildingState,
-    ) -> bool {
-        if cfg!(debug_assertions) && Some(prim_index) == self.chase_id {
-            println!("\tupdating clip task with screen rect {:?}", prim_screen_rect);
-        }
-        // Reset clips from previous frames since we may clip differently each frame.
-        let prim = &mut self.primitives[prim_index.0];
-        prim.reset_clip_task();
-
-        // First try to  render this primitive's mask using optimized brush rendering.
-        if prim.update_clip_task_for_brush(
-            prim_run_context,
-            &clip_chain,
-            prim_screen_rect,
-            pic_state,
-            frame_context,
-            frame_state,
-        ) {
-            if cfg!(debug_assertions) && Some(prim_index) == self.chase_id {
-                println!("\tsegment tasks have been created for clipping");
-            }
-            return true;
-        }
-
-        if clip_chain.clips_range.count > 0 {
-            let clip_task = RenderTask::new_mask(
-                *prim_screen_rect,
-                clip_chain.clips_range,
-                frame_state.clip_store,
-                frame_state.gpu_cache,
-                frame_state.resource_cache,
-                frame_state.render_tasks,
-            );
-
-            let clip_task_id = frame_state.render_tasks.add(clip_task);
-            if cfg!(debug_assertions) && Some(prim_index) == self.chase_id {
-                println!("\tcreated task {:?} with combined outer rect {:?}",
-                    clip_task_id, prim_screen_rect);
-            }
-            prim.metadata.clip_task_id = Some(clip_task_id);
-            pic_state.tasks.push(clip_task_id);
-        }
-
-        true
-    }
-
     pub fn prepare_prim_for_render(
         &mut self,
         prim_index: PrimitiveIndex,
@@ -1825,23 +1771,23 @@ impl PrimitiveStore {
             frame_context,
         );
 
-        if may_need_clip_mask && !self.update_clip_task(
-            prim_index,
+        let prim = &mut self.primitives[prim_index.0];
+        if may_need_clip_mask && !prim.update_clip_task(
             prim_run_context,
             &clipped_device_rect,
             &clip_chain,
             pic_state,
             frame_context,
             frame_state,
+            is_chased,
         ) {
             return None;
         }
 
-        if cfg!(debug_assertions) && Some(prim_index) == self.chase_id {
+        if cfg!(debug_assertions) && is_chased {
             println!("\tconsidered visible and ready with local rect {:?}", local_rect);
         }
 
-        let prim = &mut self.primitives[prim_index.0];
         prim.prepare_prim_for_render_inner(
             prim_index,
             prim_run_context,
@@ -2792,5 +2738,58 @@ impl Primitive {
                 }
             }
         }
+    }
+
+    fn update_clip_task(
+        &mut self,
+        prim_run_context: &PrimitiveRunContext,
+        prim_screen_rect: &DeviceIntRect,
+        clip_chain: &ClipChainInstance,
+        pic_state: &mut PictureState,
+        frame_context: &FrameBuildingContext,
+        frame_state: &mut FrameBuildingState,
+        is_chased: bool,
+    ) -> bool {
+        if cfg!(debug_assertions) && is_chased {
+            println!("\tupdating clip task with screen rect {:?}", prim_screen_rect);
+        }
+        // Reset clips from previous frames since we may clip differently each frame.
+        self.reset_clip_task();
+
+        // First try to  render this primitive's mask using optimized brush rendering.
+        if self.update_clip_task_for_brush(
+            prim_run_context,
+            &clip_chain,
+            prim_screen_rect,
+            pic_state,
+            frame_context,
+            frame_state,
+        ) {
+            if cfg!(debug_assertions) && is_chased {
+                println!("\tsegment tasks have been created for clipping");
+            }
+            return true;
+        }
+
+        if clip_chain.clips_range.count > 0 {
+            let clip_task = RenderTask::new_mask(
+                *prim_screen_rect,
+                clip_chain.clips_range,
+                frame_state.clip_store,
+                frame_state.gpu_cache,
+                frame_state.resource_cache,
+                frame_state.render_tasks,
+            );
+
+            let clip_task_id = frame_state.render_tasks.add(clip_task);
+            if cfg!(debug_assertions) && is_chased {
+                println!("\tcreated task {:?} with combined outer rect {:?}",
+                    clip_task_id, prim_screen_rect);
+            }
+            self.metadata.clip_task_id = Some(clip_task_id);
+            pic_state.tasks.push(clip_task_id);
+        }
+
+        true
     }
 }
