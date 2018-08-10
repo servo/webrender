@@ -58,6 +58,7 @@ pub struct FrameBuilder {
     background_color: Option<ColorF>,
     window_size: DeviceUintSize,
     scene_id: u64,
+    pub next_picture_id: u64,
     pub prim_store: PrimitiveStore,
     pub clip_store: ClipStore,
     pub hit_testing_runs: Vec<HitTestingRun>,
@@ -143,6 +144,7 @@ impl FrameBuilder {
             window_size: DeviceUintSize::zero(),
             background_color: None,
             scene_id: 0,
+            next_picture_id: 0,
             config: FrameBuilderConfig {
                 enable_scrollbars: false,
                 default_font_render_mode: FontRenderMode::Mono,
@@ -170,6 +172,7 @@ impl FrameBuilder {
             window_size,
             scene_id,
             config: flattener.config,
+            next_picture_id: flattener.next_picture_id,
         }
     }
 
@@ -190,11 +193,12 @@ impl FrameBuilder {
     ) -> Option<RenderTaskId> {
         profile_scope!("cull");
 
-        if self.prim_store.pictures.is_empty() {
+        if self.prim_store.cpu_metadata.is_empty() {
             return None
         }
 
         // The root picture is always the first one added.
+        let root_prim_index = PrimitiveIndex(0);
         let root_spatial_node =
             &clip_scroll_tree.spatial_nodes[clip_scroll_tree.root_reference_frame_index().0];
 
@@ -230,7 +234,10 @@ impl FrameBuilder {
 
         let pic_context = PictureContext {
             pipeline_id: root_spatial_node.pipeline_id,
-            prim_runs: mem::replace(&mut self.prim_store.pictures[0].runs, Vec::new()),
+            prim_runs: mem::replace(
+                &mut self.prim_store.get_pic_mut(root_prim_index).runs,
+                Vec::new(),
+            ),
             original_reference_frame_index: None,
             display_list,
             inv_world_transform: None,
@@ -249,12 +256,12 @@ impl FrameBuilder {
             &mut frame_state,
         );
 
-        let pic = &mut self.prim_store.pictures[0];
+        let pic = self.prim_store.get_pic_mut(root_prim_index);
         pic.runs = pic_context.prim_runs;
 
         let root_render_task = RenderTask::new_picture(
             RenderTaskLocation::Fixed(frame_context.screen_rect),
-            PrimitiveIndex(0),
+            root_prim_index,
             DeviceIntPoint::zero(),
             pic_state.tasks,
             UvRectKind::Rect,
