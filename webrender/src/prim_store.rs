@@ -1471,7 +1471,7 @@ impl PrimitiveStore {
                 //           sized border task.
                 let world_scale = LayoutToWorldScale::new(1.0);
                 let mut scale = world_scale * frame_context.device_pixel_scale;
-                let max_scale = BorderRenderTaskInfo::get_max_scale(&border.radius);
+                let max_scale = BorderRenderTaskInfo::get_max_scale(&border.radius, &widths);
                 scale.0 = scale.0.min(max_scale.0);
                 let scale_au = Au::from_f32_px(scale.0);
                 let needs_update = scale_au != cache_key.scale;
