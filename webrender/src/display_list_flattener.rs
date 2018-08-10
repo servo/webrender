@@ -937,7 +937,7 @@ impl<'a> DisplayListFlattener<'a> {
         // If there is no root picture, create one for the main framebuffer.
         if self.sc_stack.is_empty() {
             // Should be no pictures at all if the stack is empty...
-            debug_assert!(self.prim_store.cpu_metadata.is_empty());
+            debug_assert!(self.prim_store.primitives.is_empty());
             debug_assert_eq!(transform_style, TransformStyle::Flat);
 
             // This picture stores primitive runs for items on the
