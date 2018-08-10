@@ -13,7 +13,7 @@ use glyph_rasterizer::GlyphFormat;
 use renderer::{
     desc,
     MAX_VERTEX_TEXTURE_WIDTH,
-    BlendMode, ImageBufferKind, RendererError, RendererOptions,
+    BlendMode, DebugFlags, ImageBufferKind, RendererError, RendererOptions,
     TextureSampler, VertexArrayKind,
 };
 
@@ -50,6 +50,7 @@ pub const IMAGE_BUFFER_KINDS: [ImageBufferKind; 4] = [
 ];
 
 const ALPHA_FEATURE: &str = "ALPHA_PASS";
+const DEBUG_OVERDRAW_FEATURE: &str = "DEBUG_OVERDRAW";
 const DITHERING_FEATURE: &str = "DITHERING";
 const DUAL_SOURCE_FEATURE: &str = "DUAL_SOURCE_BLENDING";
 
@@ -403,13 +404,8 @@ pub struct Shaders {
     pub cs_border_segment: LazilyCompiledShader,
 
     // Brush shaders
-    brush_solid: BrushShader,
-    brush_image: Vec<Option<BrushShader>>,
-    brush_blend: BrushShader,
-    brush_mix_blend: BrushShader,
-    brush_yuv_image: Vec<Option<BrushShader>>,
-    brush_radial_gradient: BrushShader,
-    brush_linear_gradient: BrushShader,
+    brush: BrushShaders,
+    brush_debug_overdraw: BrushShaders,
 
     /// These are "cache clip shaders". These shaders are used to
     /// draw clip instances into the cached clip mask. The results
@@ -428,6 +424,7 @@ pub struct Shaders {
     // a cache shader (e.g. blur) to the screen.
     pub ps_text_run: TextShader,
     pub ps_text_run_dual_source: TextShader,
+    pub ps_text_run_debug_overdraw: TextShader,
 
     ps_split_composite: LazilyCompiledShader,
 }
@@ -446,54 +443,6 @@ impl Shaders {
         } else {
             None
         };
-
-        let brush_solid = BrushShader::new(
-            "brush_solid",
-            device,
-            &[],
-            options.precache_shaders,
-            false,
-        )?;
-
-        let brush_blend = BrushShader::new(
-            "brush_blend",
-            device,
-            &[],
-            options.precache_shaders,
-            false,
-        )?;
-
-        let brush_mix_blend = BrushShader::new(
-            "brush_mix_blend",
-            device,
-            &[],
-            options.precache_shaders,
-            false,
-        )?;
-
-        let brush_radial_gradient = BrushShader::new(
-            "brush_radial_gradient",
-            device,
-            if options.enable_dithering {
-               &[DITHERING_FEATURE]
-            } else {
-               &[]
-            },
-            options.precache_shaders,
-            false,
-        )?;
-
-        let brush_linear_gradient = BrushShader::new(
-            "brush_linear_gradient",
-            device,
-            if options.enable_dithering {
-               &[DITHERING_FEATURE]
-            } else {
-               &[]
-            },
-            options.precache_shaders,
-            false,
-        )?;
 
         let cs_blur_a8 = LazilyCompiledShader::new(
             ShaderKind::Cache(VertexArrayKind::Blur),
@@ -555,20 +504,153 @@ impl Shaders {
             options.precache_shaders,
         )?;
 
+        let ps_text_run_debug_overdraw = TextShader::new("ps_text_run",
+            device,
+            &[DEBUG_OVERDRAW_FEATURE],
+            options.precache_shaders,
+        )?;
+
+        let cs_border_segment = LazilyCompiledShader::new(
+            ShaderKind::Cache(VertexArrayKind::Border),
+            "cs_border_segment",
+             &[],
+             device,
+             options.precache_shaders,
+        )?;
+
+        let ps_split_composite = LazilyCompiledShader::new(
+            ShaderKind::Primitive,
+            "ps_split_composite",
+            &[],
+            device,
+            options.precache_shaders,
+        )?;
+
+        // Brush shaders
+        let brush = BrushShaders::new(device, &gl_type, options, &[])?;
+        let brush_debug_overdraw =
+            BrushShaders::new(device, &gl_type, options, &[DEBUG_OVERDRAW_FEATURE])?;
+
+        if let Some(vao) = dummy_vao {
+            device.delete_custom_vao(vao);
+        }
+
+        Ok(Shaders {
+            cs_blur_a8,
+            cs_blur_rgba8,
+            cs_border_segment,
+            brush,
+            brush_debug_overdraw,
+            cs_clip_rectangle,
+            cs_clip_box_shadow,
+            cs_clip_image,
+            cs_clip_line,
+            ps_text_run,
+            ps_text_run_dual_source,
+            ps_text_run_debug_overdraw,
+            ps_split_composite,
+        })
+    }
+
+    pub fn get(&mut self, key: &BatchKey, debug_flags: DebugFlags) -> &mut LazilyCompiledShader {
+        match key.kind {
+            BatchKind::SplitComposite => {
+                &mut self.ps_split_composite
+            }
+            BatchKind::Brush(brush_kind) => {
+                let brushes = if debug_flags.contains(DebugFlags::SHOW_OVERDRAW) {
+                    &mut self.brush_debug_overdraw
+                } else {
+                    &mut self.brush
+                };
+                brushes.get(brush_kind, key.blend_mode)
+            }
+            BatchKind::TextRun(glyph_format) => {
+                let text_shader = match key.blend_mode {
+                    _ if debug_flags.contains(DebugFlags::SHOW_OVERDRAW) => {
+                        &mut self.ps_text_run_debug_overdraw
+                    }
+                    BlendMode::SubpixelDualSource => &mut self.ps_text_run_dual_source,
+                    _ => &mut self.ps_text_run,
+                };
+                text_shader.get(glyph_format)
+            }
+        }
+    }
+
+    pub fn deinit(self, device: &mut Device) {
+        self.cs_blur_a8.deinit(device);
+        self.cs_blur_rgba8.deinit(device);
+        self.brush.deinit(device);
+        self.brush_debug_overdraw.deinit(device);
+        self.cs_clip_rectangle.deinit(device);
+        self.cs_clip_box_shadow.deinit(device);
+        self.cs_clip_image.deinit(device);
+        self.cs_clip_line.deinit(device);
+        self.ps_text_run.deinit(device);
+        self.ps_text_run_dual_source.deinit(device);
+        self.ps_text_run_debug_overdraw.deinit(device);
+        self.cs_border_segment.deinit(device);
+        self.ps_split_composite.deinit(device);
+    }
+}
+
+struct BrushShaders {
+    solid: BrushShader,
+    image: Vec<Option<BrushShader>>,
+    blend: BrushShader,
+    mix_blend: BrushShader,
+    yuv_image: Vec<Option<BrushShader>>,
+    radial_gradient: BrushShader,
+    linear_gradient: BrushShader,
+}
+
+impl BrushShaders {
+    fn new(device: &mut Device,
+           gl_type: &GlType,
+           options: &RendererOptions,
+           features: &[&'static str])
+           -> Result<Self, ShaderError> {
+        let mut features = features.to_vec();
+
+        let solid = BrushShader::new(
+            "brush_solid",
+            device,
+            &features,
+            options.precache_shaders,
+            false,
+        )?;
+
+        let blend = BrushShader::new(
+            "brush_blend",
+            device,
+            &features,
+            options.precache_shaders,
+            false,
+        )?;
+
+        let mix_blend = BrushShader::new(
+            "brush_mix_blend",
+            device,
+            &features,
+            options.precache_shaders,
+            false,
+        )?;
+
         // All image configuration.
-        let mut image_features = Vec::new();
-        let mut brush_image = Vec::new();
+        let mut image_features = features.clone();
+        let mut image = Vec::new();
         // PrimitiveShader is not clonable. Use push() to initialize the vec.
         for _ in 0 .. IMAGE_BUFFER_KINDS.len() {
-            brush_image.push(None);
+            image.push(None);
         }
         for buffer_kind in 0 .. IMAGE_BUFFER_KINDS.len() {
-            if IMAGE_BUFFER_KINDS[buffer_kind].has_platform_support(&gl_type) {
+            if IMAGE_BUFFER_KINDS[buffer_kind].has_platform_support(gl_type) {
                 let feature_string = IMAGE_BUFFER_KINDS[buffer_kind].get_feature_string();
                 if feature_string != "" {
                     image_features.push(feature_string);
                 }
-                brush_image[buffer_kind] = Some(BrushShader::new(
+                image[buffer_kind] = Some(BrushShader::new(
                     "brush_image",
                     device,
                     &image_features,
@@ -576,19 +658,19 @@ impl Shaders {
                     true,
                 )?);
             }
-            image_features.clear();
+            image_features = features.clone();
         }
 
         // All yuv_image configuration.
-        let mut yuv_features = Vec::new();
+        let mut yuv_features = features.clone();
         let yuv_shader_num = IMAGE_BUFFER_KINDS.len() * YUV_FORMATS.len() * YUV_COLOR_SPACES.len();
-        let mut brush_yuv_image = Vec::new();
+        let mut yuv_image = Vec::new();
         // PrimitiveShader is not clonable. Use push() to initialize the vec.
         for _ in 0 .. yuv_shader_num {
-            brush_yuv_image.push(None);
+            yuv_image.push(None);
         }
         for image_buffer_kind in &IMAGE_BUFFER_KINDS {
-            if image_buffer_kind.has_platform_support(&gl_type) {
+            if image_buffer_kind.has_platform_support(gl_type) {
                 for format_kind in &YUV_FORMATS {
                     for color_space_kind in &YUV_COLOR_SPACES {
                         let feature_string = image_buffer_kind.get_feature_string();
@@ -616,52 +698,61 @@ impl Shaders {
                             *format_kind,
                             *color_space_kind,
                         );
-                        brush_yuv_image[index] = Some(shader);
-                        yuv_features.clear();
+                        yuv_image[index] = Some(shader);
+                        yuv_features = features.clone();
                     }
                 }
             }
         }
 
-        let cs_border_segment = LazilyCompiledShader::new(
-            ShaderKind::Cache(VertexArrayKind::Border),
-            "cs_border_segment",
-             &[],
-             device,
-             options.precache_shaders,
-        )?;
-
-        let ps_split_composite = LazilyCompiledShader::new(
-            ShaderKind::Primitive,
-            "ps_split_composite",
-            &[],
-            device,
-            options.precache_shaders,
-        )?;
-
-        if let Some(vao) = dummy_vao {
-            device.delete_custom_vao(vao);
+        // The following shaders use dithering.
+        if options.enable_dithering {
+            features.push(DITHERING_FEATURE)
         }
 
-        Ok(Shaders {
-            cs_blur_a8,
-            cs_blur_rgba8,
-            cs_border_segment,
-            brush_solid,
-            brush_image,
-            brush_blend,
-            brush_mix_blend,
-            brush_yuv_image,
-            brush_radial_gradient,
-            brush_linear_gradient,
-            cs_clip_rectangle,
-            cs_clip_box_shadow,
-            cs_clip_image,
-            cs_clip_line,
-            ps_text_run,
-            ps_text_run_dual_source,
-            ps_split_composite,
+        let radial_gradient = BrushShader::new(
+            "brush_radial_gradient",
+            device,
+            &features,
+            options.precache_shaders,
+            false,
+        )?;
+
+        let linear_gradient = BrushShader::new(
+            "brush_linear_gradient",
+            device,
+            &features,
+            options.precache_shaders,
+            false,
+        )?;
+
+        Ok(BrushShaders {
+            solid,
+            image,
+            blend,
+            mix_blend,
+            yuv_image,
+            radial_gradient,
+            linear_gradient,
         })
+    }
+
+    fn deinit(self, device: &mut Device) {
+        self.solid.deinit(device);
+        self.blend.deinit(device);
+        self.mix_blend.deinit(device);
+        self.radial_gradient.deinit(device);
+        self.linear_gradient.deinit(device);
+        for shader in self.image {
+            if let Some(shader) = shader {
+                shader.deinit(device);
+            }
+        }
+        for shader in self.yuv_image {
+            if let Some(shader) = shader {
+                shader.deinit(device);
+            }
+        }
     }
 
     fn get_yuv_shader_index(
@@ -673,78 +764,25 @@ impl Shaders {
             (color_space as usize)
     }
 
-    pub fn get(&mut self, key: &BatchKey) -> &mut LazilyCompiledShader {
-        match key.kind {
-            BatchKind::SplitComposite => {
-                &mut self.ps_split_composite
+    fn get(&mut self, brush_kind: BrushBatchKind, blend_mode: BlendMode)
+           -> &mut LazilyCompiledShader {
+        let brush = match brush_kind {
+            BrushBatchKind::Solid => &mut self.solid,
+            BrushBatchKind::Image(image_buffer_kind) => {
+                self.image[image_buffer_kind as usize]
+                    .as_mut()
+                    .expect("Unsupported image shader kind")
             }
-            BatchKind::Brush(brush_kind) => {
-                let brush_shader = match brush_kind {
-                    BrushBatchKind::Solid => {
-                        &mut self.brush_solid
-                    }
-                    BrushBatchKind::Image(image_buffer_kind) => {
-                        self.brush_image[image_buffer_kind as usize]
-                            .as_mut()
-                            .expect("Unsupported image shader kind")
-                    }
-                    BrushBatchKind::Blend => {
-                        &mut self.brush_blend
-                    }
-                    BrushBatchKind::MixBlend { .. } => {
-                        &mut self.brush_mix_blend
-                    }
-                    BrushBatchKind::RadialGradient => {
-                        &mut self.brush_radial_gradient
-                    }
-                    BrushBatchKind::LinearGradient => {
-                        &mut self.brush_linear_gradient
-                    }
-                    BrushBatchKind::YuvImage(image_buffer_kind, format, color_space) => {
-                        let shader_index =
-                            Self::get_yuv_shader_index(image_buffer_kind, format, color_space);
-                        self.brush_yuv_image[shader_index]
-                            .as_mut()
-                            .expect("Unsupported YUV shader kind")
-                    }
-                };
-                brush_shader.get(key.blend_mode)
+            BrushBatchKind::Blend => &mut self.blend,
+            BrushBatchKind::MixBlend { .. } => &mut self.mix_blend,
+            BrushBatchKind::RadialGradient => &mut self.radial_gradient,
+            BrushBatchKind::LinearGradient => &mut self.linear_gradient,
+            BrushBatchKind::YuvImage(image_buffer_kind, format, color_space) => {
+                let shader_index =
+                    Self::get_yuv_shader_index(image_buffer_kind, format, color_space);
+                self.yuv_image[shader_index].as_mut().expect("Unsupported YUV shader kind")
             }
-            BatchKind::TextRun(glyph_format) => {
-                let text_shader = match key.blend_mode {
-                    BlendMode::SubpixelDualSource => &mut self.ps_text_run_dual_source,
-                    _ => &mut self.ps_text_run,
-                };
-                text_shader.get(glyph_format)
-            }
-        }
-    }
-
-    pub fn deinit(self, device: &mut Device) {
-        self.cs_blur_a8.deinit(device);
-        self.cs_blur_rgba8.deinit(device);
-        self.brush_solid.deinit(device);
-        self.brush_blend.deinit(device);
-        self.brush_mix_blend.deinit(device);
-        self.brush_radial_gradient.deinit(device);
-        self.brush_linear_gradient.deinit(device);
-        self.cs_clip_rectangle.deinit(device);
-        self.cs_clip_box_shadow.deinit(device);
-        self.cs_clip_image.deinit(device);
-        self.cs_clip_line.deinit(device);
-        self.ps_text_run.deinit(device);
-        self.ps_text_run_dual_source.deinit(device);
-        for shader in self.brush_image {
-            if let Some(shader) = shader {
-                shader.deinit(device);
-            }
-        }
-        for shader in self.brush_yuv_image {
-            if let Some(shader) = shader {
-                shader.deinit(device);
-            }
-        }
-        self.cs_border_segment.deinit(device);
-        self.ps_split_composite.deinit(device);
+        };
+        brush.get(blend_mode)
     }
 }
