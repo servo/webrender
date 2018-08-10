@@ -1982,18 +1982,6 @@ impl PrimitiveStore {
         }
     }
 
-    fn reset_clip_task(&mut self, prim_index: PrimitiveIndex) {
-        let prim = &mut self.primitives[prim_index.0];
-        prim.metadata.clip_task_id = None;
-        if let PrimitiveDetails::Brush(ref mut brush) = prim.details {
-            if let Some(ref mut desc) = brush.segment_desc {
-                for segment in &mut desc.segments {
-                    segment.clip_task_id = BrushSegmentTaskId::Opaque;
-                }
-            }
-        }
-    }
-
     fn update_clip_task(
         &mut self,
         prim_index: PrimitiveIndex,
@@ -2008,10 +1996,10 @@ impl PrimitiveStore {
             println!("\tupdating clip task with screen rect {:?}", prim_screen_rect);
         }
         // Reset clips from previous frames since we may clip differently each frame.
-        self.reset_clip_task(prim_index);
+        let prim = &mut self.primitives[prim_index.0];
+        prim.reset_clip_task();
 
         // First try to  render this primitive's mask using optimized brush rendering.
-        let prim = &mut self.primitives[prim_index.0];
         if prim.update_clip_task_for_brush(
             prim_run_context,
             &clip_chain,
@@ -2790,5 +2778,16 @@ impl Primitive {
         }
 
         true
+    }
+
+    fn reset_clip_task(&mut self) {
+        self.metadata.clip_task_id = None;
+        if let PrimitiveDetails::Brush(ref mut brush) = self.details {
+            if let Some(ref mut desc) = brush.segment_desc {
+                for segment in &mut desc.segments {
+                    segment.clip_task_id = BrushSegmentTaskId::Opaque;
+                }
+            }
+        }
     }
 }
