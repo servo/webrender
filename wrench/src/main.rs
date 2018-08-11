@@ -620,6 +620,10 @@ fn render<'a>(
                         );
                         do_render = true;
                     }
+                    VirtualKeyCode::V => {
+                        wrench.renderer.toggle_debug_flags(DebugFlags::SHOW_OVERDRAW);
+                        do_render = true;
+                    }
                     VirtualKeyCode::R => {
                         wrench.set_page_zoom(ZoomFactor::new(1.0));
                         do_frame = true;
