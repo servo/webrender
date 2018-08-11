@@ -770,6 +770,7 @@ pub struct TextRunPrimitiveCpu {
     pub offset: LayoutVector2D,
     pub glyph_range: ItemRange<GlyphInstance>,
     pub glyph_keys: Vec<GlyphKey>,
+    pub visible_keys: Vec<GlyphKey>,
     pub glyph_gpu_blocks: Vec<GpuBlockData>,
     pub shadow: bool,
     pub glyph_raster_space: GlyphRasterSpace,
@@ -790,6 +791,7 @@ impl TextRunPrimitiveCpu {
             offset,
             glyph_range,
             glyph_keys,
+            visible_keys: Vec::new(),
             glyph_gpu_blocks: Vec::new(),
             shadow,
             glyph_raster_space,
@@ -863,33 +865,39 @@ impl TextRunPrimitiveCpu {
         allow_subpixel_aa: bool,
         display_list: &BuiltDisplayList,
         frame_building_state: &mut FrameBuildingState,
+        local_clip_rect: &LayoutRect,
     ) {
         let cache_dirty = self.update_font_instance(
             device_pixel_scale,
             transform,
             allow_subpixel_aa,
         );
+        let first_run = self.glyph_keys.is_empty();
+        if cache_dirty || first_run {
+            self.glyph_gpu_blocks.clear();
+        }
 
-        // Cache the glyph positions, if not in the cache already.
-        // TODO(gw): In the future, remove `glyph_instances`
-        //           completely, and just reference the glyphs
-        //           directly from the display list.
-        if self.glyph_keys.is_empty() || cache_dirty {
-            let subpx_dir = self.used_font.get_subpx_dir();
-            let src_glyphs = display_list.get(self.glyph_range);
+        self.visible_keys.clear();
+        let subpx_dir = self.used_font.get_subpx_dir();
+        let src_glyphs = display_list.get(self.glyph_range);
+        let mut gpu_block = [0.0; 4];
 
-            // TODO(gw): If we support chunks() on AuxIter
-            //           in the future, this code below could
-            //           be much simpler...
-            let mut gpu_block = [0.0; 4];
-            for (i, src) in src_glyphs.enumerate() {
+        for (i, src) in src_glyphs.enumerate() {
+            let key = if first_run {
                 let world_offset = self.used_font.transform.transform(&src.point);
                 let device_offset = device_pixel_scale.transform_point(&world_offset);
                 let key = GlyphKey::new(src.index, device_offset, subpx_dir);
+                debug_assert_eq!(i, self.glyph_keys.len());
                 self.glyph_keys.push(key);
-
+                key
+            } else {
+                self.glyph_keys[i]
+            };
+            if local_clip_rect.contains(&src.point) {
+                self.visible_keys.push(key);
+            }
+            if cache_dirty || first_run {
                 // Two glyphs are packed per GPU block.
-
                 if (i & 1) == 0 {
                     gpu_block[0] = src.point.x;
                     gpu_block[1] = src.point.y;
@@ -899,20 +907,23 @@ impl TextRunPrimitiveCpu {
                     self.glyph_gpu_blocks.push(gpu_block.into());
                 }
             }
-
-            // Ensure the last block is added in the case
-            // of an odd number of glyphs.
-            if (self.glyph_keys.len() & 1) != 0 {
-                self.glyph_gpu_blocks.push(gpu_block.into());
-            }
         }
 
-        frame_building_state.resource_cache
-                            .request_glyphs(self.used_font.clone(),
-                                            &self.glyph_keys,
-                                            frame_building_state.gpu_cache,
-                                            frame_building_state.render_tasks,
-                                            frame_building_state.special_render_passes);
+        // Ensure the last block is added in the case
+        // of an odd number of glyphs.
+        if (cache_dirty || first_run) && (self.glyph_keys.len() & 1) != 0 {
+            self.glyph_gpu_blocks.push(gpu_block.into());
+        }
+
+        if !self.visible_keys.is_empty() {
+            frame_building_state.resource_cache.request_glyphs(
+                self.used_font.clone(),
+                &self.visible_keys,
+                frame_building_state.gpu_cache,
+                frame_building_state.render_tasks,
+                frame_building_state.special_render_passes,
+            );
+        }
     }
 
     fn write_gpu_blocks(&self, request: &mut GpuDataRequest) {
@@ -1556,6 +1567,7 @@ impl PrimitiveStore {
                     pic_context.allow_subpixel_aa,
                     pic_context.display_list,
                     frame_state,
+                    &metadata.combined_local_clip_rect,
                 );
             }
             PrimitiveKind::Brush => {

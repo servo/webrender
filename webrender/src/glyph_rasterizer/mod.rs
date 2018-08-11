@@ -370,7 +370,7 @@ impl Into<f64> for SubpixelOffset {
     }
 }
 
-#[derive(Clone, Hash, PartialEq, Eq, Debug, Ord, PartialOrd)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, Debug, Ord, PartialOrd)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct GlyphKey(u32);

@@ -35,7 +35,6 @@ impl FontContexts {
 }
 
 impl GlyphRasterizer {
-
     pub fn request_glyphs(
         &mut self,
         glyph_cache: &mut GlyphCache,
