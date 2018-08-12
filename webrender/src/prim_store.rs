@@ -756,7 +756,7 @@ impl<'a> GradientGpuBlockBuilder<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub struct TextRunPrimitiveCpu {
+pub struct TextRunPrimitive {
     pub specified_font: FontInstance,
     pub used_font: FontInstance,
     pub offset: LayoutVector2D,
@@ -767,7 +767,7 @@ pub struct TextRunPrimitiveCpu {
     pub glyph_raster_space: GlyphRasterSpace,
 }
 
-impl TextRunPrimitiveCpu {
+impl TextRunPrimitive {
     pub fn new(
         font: FontInstance,
         offset: LayoutVector2D,
@@ -776,7 +776,7 @@ impl TextRunPrimitiveCpu {
         shadow: bool,
         glyph_raster_space: GlyphRasterSpace,
     ) -> Self {
-        TextRunPrimitiveCpu {
+        TextRunPrimitive {
             specified_font: font.clone(),
             used_font: font,
             offset,
@@ -1109,7 +1109,7 @@ impl ClipData {
 
 #[derive(Debug)]
 pub enum PrimitiveContainer {
-    TextRun(TextRunPrimitiveCpu),
+    TextRun(TextRunPrimitive),
     Brush(BrushPrimitive),
 }
 
@@ -1159,7 +1159,7 @@ impl PrimitiveContainer {
                     font.disable_subpixel_aa();
                 }
 
-                PrimitiveContainer::TextRun(TextRunPrimitiveCpu::new(
+                PrimitiveContainer::TextRun(TextRunPrimitive::new(
                     font,
                     info.offset + shadow.offset,
                     info.glyph_range,
@@ -1193,7 +1193,7 @@ impl PrimitiveContainer {
 
 pub enum PrimitiveDetails {
     Brush(BrushPrimitive),
-    TextRun(TextRunPrimitiveCpu),
+    TextRun(TextRunPrimitive),
 }
 
 pub struct Primitive {
@@ -1204,13 +1204,8 @@ pub struct Primitive {
 impl Primitive {
     pub fn as_pic(&self) -> &PicturePrimitive {
         match self.details {
-            PrimitiveDetails::Brush(ref brush) => {
-                match brush.kind {
-                    BrushKind::Picture(ref pic) => pic,
-                    _ => panic!("bug: not a picture!"),
-                }
-            }
-            PrimitiveDetails::TextRun(..) => {
+            PrimitiveDetails::Brush(BrushPrimitive { kind: BrushKind::Picture(ref pic), .. }) => pic,
+            _ => {
                 panic!("bug: not a picture!");
             }
         }
@@ -1218,13 +1213,8 @@ impl Primitive {
 
     pub fn as_pic_mut(&mut self) -> &mut PicturePrimitive {
         match self.details {
-            PrimitiveDetails::Brush(ref mut brush) => {
-                match brush.kind {
-                    BrushKind::Picture(ref mut pic) => pic,
-                    _ => panic!("bug: not a picture!"),
-                }
-            }
-            PrimitiveDetails::TextRun(..) => {
+            PrimitiveDetails::Brush(BrushPrimitive { kind: BrushKind::Picture(ref mut pic), .. }) => pic,
+            _ => {
                 panic!("bug: not a picture!");
             }
         }
@@ -1550,7 +1540,10 @@ impl PrimitiveStore {
             let prim = &mut self.primitives[prim_index.0];
             let new_local_rect = prim
                 .as_pic_mut()
-                .update_local_rect(result, pic_context_for_children.prim_runs);
+                .update_local_rect_and_set_runs(
+                    result,
+                    pic_context_for_children.prim_runs
+                );
 
             if new_local_rect != prim.metadata.local_rect {
                 prim.metadata.local_rect = new_local_rect;
@@ -2227,7 +2220,6 @@ impl Primitive {
                 );
             }
             PrimitiveDetails::Brush(ref mut brush) => {
-
                 match brush.kind {
                     BrushKind::Image {
                         request,
@@ -2711,73 +2703,73 @@ impl Primitive {
             PrimitiveDetails::TextRun(..) => return,
         };
 
-        if let BrushKind::Border { ref mut source, .. } = brush.kind {
-            if let BorderSource::Border {
+        if let BrushKind::Border {
+            source: BorderSource::Border {
                 ref border,
                 ref mut cache_key,
                 ref widths,
                 ref mut handle,
                 ref mut task_info,
                 ..
-            } = *source {
-                // TODO(gw): When drawing in screen raster mode, we should also incorporate a
-                //           scale factor from the world transform to get an appropriately
-                //           sized border task.
-                let world_scale = LayoutToWorldScale::new(1.0);
-                let mut scale = world_scale * frame_context.device_pixel_scale;
-                let max_scale = BorderRenderTaskInfo::get_max_scale(&border.radius, &widths);
-                scale.0 = scale.0.min(max_scale.0);
-                let scale_au = Au::from_f32_px(scale.0);
-                let needs_update = scale_au != cache_key.scale;
-                let mut new_segments = Vec::new();
+            }
+        } = brush.kind {
+            // TODO(gw): When drawing in screen raster mode, we should also incorporate a
+            //           scale factor from the world transform to get an appropriately
+            //           sized border task.
+            let world_scale = LayoutToWorldScale::new(1.0);
+            let mut scale = world_scale * frame_context.device_pixel_scale;
+            let max_scale = BorderRenderTaskInfo::get_max_scale(&border.radius, &widths);
+            scale.0 = scale.0.min(max_scale.0);
+            let scale_au = Au::from_f32_px(scale.0);
+            let needs_update = scale_au != cache_key.scale;
+            let mut new_segments = Vec::new();
 
-                if needs_update {
-                    cache_key.scale = scale_au;
+            if needs_update {
+                cache_key.scale = scale_au;
 
-                    *task_info = BorderRenderTaskInfo::new(
-                        &self.metadata.local_rect,
-                        border,
-                        widths,
-                        scale,
-                        &mut new_segments,
-                    );
-                }
+                *task_info = BorderRenderTaskInfo::new(
+                    &self.metadata.local_rect,
+                    border,
+                    widths,
+                    scale,
+                    &mut new_segments,
+                );
+            }
 
-                *handle = task_info.as_ref().map(|task_info| {
-                    frame_state.resource_cache.request_render_task(
-                        RenderTaskCacheKey {
-                            size: DeviceIntSize::zero(),
-                            kind: RenderTaskCacheKeyKind::Border(cache_key.clone()),
-                        },
-                        frame_state.gpu_cache,
-                        frame_state.render_tasks,
-                        None,
-                        false,          // todo
-                        |render_tasks| {
-                            let task = RenderTask::new_border(
-                                task_info.size,
-                                task_info.build_instances(border),
-                            );
+            *handle = task_info.as_ref().map(|task_info| {
+                frame_state.resource_cache.request_render_task(
+                    RenderTaskCacheKey {
+                        size: DeviceIntSize::zero(),
+                        kind: RenderTaskCacheKeyKind::Border(cache_key.clone()),
+                    },
+                    frame_state.gpu_cache,
+                    frame_state.render_tasks,
+                    None,
+                    false,          // todo
+                    |render_tasks| {
+                        let task = RenderTask::new_border(
+                            task_info.size,
+                            task_info.build_instances(border),
+                        );
 
-                            let task_id = render_tasks.add(task);
+                        let task_id = render_tasks.add(task);
 
-                            pic_state.tasks.push(task_id);
+                        pic_state.tasks.push(task_id);
 
-                            task_id
-                        }
-                    )
+                        task_id
+                    }
+                )
+            });
+
+            if needs_update {
+                brush.segment_desc = Some(BrushSegmentDescriptor {
+                    segments: new_segments,
+                    clip_mask_kind: BrushClipMaskKind::Unknown,
                 });
 
-                if needs_update {
-                    brush.segment_desc = Some(BrushSegmentDescriptor {
-                        segments: new_segments,
-                        clip_mask_kind: BrushClipMaskKind::Unknown,
-                    });
-
-                    // The segments have changed, so force the GPU cache to
-                    // re-upload the primitive information.
-                    frame_state.gpu_cache.invalidate(&mut self.metadata.gpu_location);
-                }
+                // The segments have changed, so force the GPU cache to
+                // re-upload the primitive information.
+                frame_state.gpu_cache.invalidate(&mut self.metadata.gpu_location);
             }
         }
     }

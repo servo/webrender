@@ -222,7 +222,7 @@ impl PicturePrimitive {
         });
     }
 
-    pub fn update_local_rect(
+    pub fn update_local_rect_and_set_runs(
         &mut self,
         prim_run_rect: PrimitiveRunLocalRect,
         prim_runs: Vec<PrimitiveRun>,
