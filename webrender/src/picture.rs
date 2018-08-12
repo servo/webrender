@@ -222,10 +222,13 @@ impl PicturePrimitive {
         });
     }
 
-    pub fn update_local_rect(
+    pub fn update_local_rect_and_set_runs(
         &mut self,
         prim_run_rect: PrimitiveRunLocalRect,
+        prim_runs: Vec<PrimitiveRun>,
     ) -> LayoutRect {
+        self.runs = prim_runs;
+
         let local_content_rect = prim_run_rect.local_rect_in_actual_parent_space;
 
         self.real_local_rect = prim_run_rect.local_rect_in_original_parent_space;

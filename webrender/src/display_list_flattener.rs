@@ -27,7 +27,7 @@ use picture::{PictureCompositeMode, PictureId, PicturePrimitive};
 use prim_store::{BrushClipMaskKind, BrushKind, BrushPrimitive, BrushSegmentDescriptor};
 use prim_store::{EdgeAaSegmentMask, ImageSource};
 use prim_store::{BorderSource, BrushSegment, PrimitiveContainer, PrimitiveIndex, PrimitiveStore};
-use prim_store::{OpacityBinding, ScrollNodeAndClipChain, TextRunPrimitiveCpu};
+use prim_store::{OpacityBinding, ScrollNodeAndClipChain, TextRunPrimitive};
 use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest};
 use scene::{Scene, ScenePipeline, StackingContextHelpers};
@@ -937,7 +937,7 @@ impl<'a> DisplayListFlattener<'a> {
         // If there is no root picture, create one for the main framebuffer.
         if self.sc_stack.is_empty() {
             // Should be no pictures at all if the stack is empty...
-            debug_assert!(self.prim_store.cpu_metadata.is_empty());
+            debug_assert!(self.prim_store.primitives.is_empty());
             debug_assert_eq!(transform_style, TransformStyle::Flat);
 
             // This picture stores primitive runs for items on the
@@ -1902,7 +1902,7 @@ impl<'a> DisplayListFlattener<'a> {
                 font_instance.platform_options,
                 font_instance.variations.clone(),
             );
-            TextRunPrimitiveCpu::new(
+            TextRunPrimitive::new(
                 prim_font,
                 run_offset,
                 glyph_range,
