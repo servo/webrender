@@ -723,7 +723,7 @@ impl AlphaBatchBuilder {
                                                 let batch = self.batch_list.get_suitable_batch(key, &task_relative_bounding_rect);
                                                 let prim_header_index = prim_headers.push(&prim_header, [
                                                     uv_rect_address.as_int(),
-                                                    (ShaderColorMode::ColorBitmap as i32) << 16 |
+                                                    (ShaderColorMode::Image as i32) << 16 |
                                                     RasterizationSpace::Screen as i32,
                                                     0,
                                                 ]);
@@ -786,7 +786,7 @@ impl AlphaBatchBuilder {
 
                                             let content_prim_header_index = prim_headers.push(&prim_header, [
                                                 content_uv_rect_address,
-                                                (ShaderColorMode::ColorBitmap as i32) << 16 |
+                                                (ShaderColorMode::Image as i32) << 16 |
                                                 RasterizationSpace::Screen as i32,
                                                 0,
                                             ]);
@@ -971,7 +971,7 @@ impl AlphaBatchBuilder {
                                     .as_int();
                                 let prim_header_index = prim_headers.push(&prim_header, [
                                     uv_rect_address,
-                                    (ShaderColorMode::ColorBitmap as i32) << 16 |
+                                    (ShaderColorMode::Image as i32) << 16 |
                                     RasterizationSpace::Screen as i32,
                                     0,
                                 ]);
@@ -1373,7 +1373,7 @@ fn get_image_tile_params(
             textures,
             [
                 cache_item.uv_rect_handle.as_int(gpu_cache),
-                (ShaderColorMode::ColorBitmap as i32) << 16 |
+                (ShaderColorMode::Image as i32) << 16 |
                      RasterizationSpace::Local as i32,
                 0,
             ],
@@ -1423,7 +1423,7 @@ impl BrushPrimitive {
                         textures,
                         [
                             cache_item.uv_rect_handle.as_int(gpu_cache),
-                            (ShaderColorMode::ColorBitmap as i32) << 16|
+                            (ShaderColorMode::Image as i32) << 16|
                              RasterizationSpace::Local as i32,
                             0,
                         ],
@@ -1461,7 +1461,7 @@ impl BrushPrimitive {
                         textures,
                         [
                             cache_item.uv_rect_handle.as_int(gpu_cache),
-                            (ShaderColorMode::ColorBitmap as i32) << 16|
+                            (ShaderColorMode::Image as i32) << 16|
                              RasterizationSpace::Local as i32,
                             0,
                         ],

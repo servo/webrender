@@ -165,7 +165,8 @@ impl Example for App {
             LayoutSize::zero(),
             ImageRendering::Auto,
             AlphaType::PremultipliedAlpha,
-            self.external_image_key.unwrap()
+            self.external_image_key.unwrap(),
+            ColorF::WHITE,
         );
 
         builder.pop_stacking_context();

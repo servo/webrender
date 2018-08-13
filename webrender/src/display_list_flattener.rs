@@ -521,6 +521,7 @@ impl<'a> DisplayListFlattener<'a> {
                     info.image_key,
                     info.image_rendering,
                     info.alpha_type,
+                    info.color,
                 );
             }
             SpecificDisplayItem::YuvImage(ref info) => {
@@ -1930,6 +1931,7 @@ impl<'a> DisplayListFlattener<'a> {
         image_key: ImageKey,
         image_rendering: ImageRendering,
         alpha_type: AlphaType,
+        color: ColorF,
     ) {
         let mut prim_rect = info.rect;
         simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
@@ -1961,6 +1963,7 @@ impl<'a> DisplayListFlattener<'a> {
                 alpha_type,
                 stretch_size,
                 tile_spacing,
+                color,
                 source: ImageSource::Default,
                 sub_rect,
                 visible_tiles: Vec::new(),

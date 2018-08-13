@@ -146,6 +146,7 @@ impl Example for App {
                 ImageRendering::Auto,
                 AlphaType::PremultipliedAlpha,
                 *key,
+                ColorF::WHITE,
             );
         }
 
@@ -162,6 +163,7 @@ impl Example for App {
                 ImageRendering::Auto,
                 AlphaType::PremultipliedAlpha,
                 image_key,
+                ColorF::WHITE,
             );
         }
 
@@ -178,6 +180,7 @@ impl Example for App {
             ImageRendering::Auto,
             AlphaType::PremultipliedAlpha,
             swap_key,
+            ColorF::WHITE,
         );
         self.swap_index = 1 - self.swap_index;
 

@@ -61,6 +61,7 @@ impl Example for App {
             ImageRendering::Auto,
             AlphaType::PremultipliedAlpha,
             self.image_key,
+            ColorF::WHITE,
         );
 
         let info = LayoutPrimitiveInfo::with_clip_rect(
@@ -74,6 +75,7 @@ impl Example for App {
             ImageRendering::Pixelated,
             AlphaType::PremultipliedAlpha,
             self.image_key,
+            ColorF::WHITE,
         );
 
         builder.pop_stacking_context();

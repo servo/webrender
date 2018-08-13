@@ -17,7 +17,7 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 use webrender::api::{self, DisplayListBuilder, DocumentId, PipelineId, RenderApi, Transaction};
-use webrender::api::{DeviceUintRect, DeviceUintPoint};
+use webrender::api::{ColorF, DeviceUintRect, DeviceUintPoint};
 
 // This example shows how to implement a very basic BlobImageHandler that can only render
 // a checkerboard pattern.
@@ -229,6 +229,7 @@ impl Example for App {
             api::ImageRendering::Auto,
             api::AlphaType::PremultipliedAlpha,
             blob_img1,
+            ColorF::WHITE,
         );
 
         let info = api::LayoutPrimitiveInfo::new((600, 600).by(200, 200));
@@ -239,6 +240,7 @@ impl Example for App {
             api::ImageRendering::Auto,
             api::AlphaType::PremultipliedAlpha,
             blob_img2,
+            ColorF::WHITE,
         );
 
         builder.pop_stacking_context();
