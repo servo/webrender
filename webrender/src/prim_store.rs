@@ -10,7 +10,6 @@ use api::{PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat
 use api::{BorderWidths, BoxShadowClipMode, LayoutToWorldScale, NormalBorder};
 use app_units::Au;
 use border::{BorderCacheKey, BorderRenderTaskInfo};
-use box_shadow::BLUR_SAMPLE_SCALE;
 use clip_scroll_tree::{CoordinateSystemId, SpatialNodeIndex};
 use clip::{ClipNodeFlags, ClipChainId, ClipChainInstance, ClipItem};
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
@@ -1598,31 +1597,11 @@ impl PrimitiveStore {
 
                             may_need_clip_mask = pic.composite_mode.is_some();
 
-                            let inflation_factor = match pic.composite_mode {
-                                Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
-                                    // The amount of extra space needed for primitives inside
-                                    // this picture to ensure the visibility check is correct.
-                                    BLUR_SAMPLE_SCALE * blur_radius
-                                }
-                                _ => {
-                                    0.0
-                                }
-                            };
-
                             // Mark whether this picture has a complex coordinate system.
                             pic_state_for_children.has_non_root_coord_system |=
                                 prim_run_context.scroll_node.coordinate_system_id != CoordinateSystemId::root();
 
-                            Some(PictureContext {
-                                pipeline_id: pic.pipeline_id,
-                                prim_runs: mem::replace(&mut pic.runs, Vec::new()),
-                                spatial_node_index: prim_run_context.spatial_node_index,
-                                original_spatial_node_index: pic.original_spatial_node_index,
-                                apply_local_clip_rect: pic.apply_local_clip_rect,
-                                inflation_factor,
-                                // TODO(lsalzman): allow overriding parent if intermediate surface is opaque
-                                allow_subpixel_aa: pic_context.allow_subpixel_aa && pic.allow_subpixel_aa(),
-                            })
+                            Some(pic.take_context(prim_run_context.spatial_node_index, pic_context.allow_subpixel_aa))
                         }
                         _ => {
                             None
@@ -1647,9 +1626,9 @@ impl PrimitiveStore {
             let prim = &mut self.primitives[prim_index.0];
             let new_local_rect = prim
                 .as_pic_mut()
-                .update_local_rect_and_set_runs(
+                .restore_context(
+                    pic_context_for_children,
                     result,
-                    pic_context_for_children.prim_runs
                 );
 
             if new_local_rect != prim.metadata.local_rect {
