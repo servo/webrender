@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BuiltDisplayList, ColorF, DeviceIntPoint, DeviceIntRect, DevicePixelScale};
+use api::{ColorF, DeviceIntPoint, DeviceIntRect, DevicePixelScale};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentLayer, FontRenderMode};
 use api::{LayoutPoint, LayoutRect, LayoutSize, PipelineId, WorldPoint};
 use clip::{ClipStore};
@@ -24,7 +24,7 @@ use std::{mem, f32};
 use std::sync::Arc;
 use tiling::{Frame, RenderPass, RenderPassKind, RenderTargetContext};
 use tiling::{ScrollbarPrimitive, SpecialRenderPasses};
-use util::{self, WorldToLayoutFastTransform};
+use util;
 
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -86,12 +86,11 @@ pub struct FrameBuildingState<'a> {
     pub special_render_passes: &'a mut SpecialRenderPasses,
 }
 
-pub struct PictureContext<'a> {
+pub struct PictureContext {
     pub pipeline_id: PipelineId,
     pub prim_runs: Vec<PrimitiveRun>,
-    pub original_reference_frame_index: Option<SpatialNodeIndex>,
-    pub display_list: &'a BuiltDisplayList,
-    pub inv_world_transform: Option<WorldToLayoutFastTransform>,
+    pub spatial_node_index: SpatialNodeIndex,
+    pub original_spatial_node_index: SpatialNodeIndex,
     pub apply_local_clip_rect: bool,
     pub inflation_factor: f32,
     pub allow_subpixel_aa: bool,
@@ -199,13 +198,8 @@ impl FrameBuilder {
 
         // The root picture is always the first one added.
         let root_prim_index = PrimitiveIndex(0);
-        let root_spatial_node =
-            &clip_scroll_tree.spatial_nodes[clip_scroll_tree.root_reference_frame_index().0];
-
-        let display_list = &pipelines
-            .get(&root_spatial_node.pipeline_id)
-            .expect("No display list?")
-            .display_list;
+        let root_spatial_node_index = clip_scroll_tree.root_reference_frame_index();
+        let root_spatial_node = &clip_scroll_tree.spatial_nodes[root_spatial_node_index.0];
 
         const MAX_CLIP_COORD: f32 = 1.0e9;
 
@@ -238,9 +232,8 @@ impl FrameBuilder {
                 &mut self.prim_store.get_pic_mut(root_prim_index).runs,
                 Vec::new(),
             ),
-            original_reference_frame_index: None,
-            display_list,
-            inv_world_transform: None,
+            spatial_node_index: root_spatial_node_index,
+            original_spatial_node_index: root_spatial_node_index,
             apply_local_clip_rect: true,
             inflation_factor: 0.0,
             allow_subpixel_aa: true,

@@ -670,7 +670,7 @@ impl AlphaBatchBuilder {
                             // Push into parent plane splitter.
                             debug_assert!(picture.surface.is_some());
                             let transform = &ctx.transforms
-                                .get_transform(picture.reference_frame_index);
+                                .get_transform(picture.original_spatial_node_index);
 
                             match transform.transform_kind {
                                 TransformedRectKind::AxisAligned => {
