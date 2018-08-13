@@ -146,10 +146,10 @@ pub struct PicturePrimitive {
     // pages to a texture), this is the pipeline this
     // picture is the root of.
     pub frame_output_pipeline_id: Option<PipelineId>,
-    // The original reference frame ID for this picture.
+    // The original reference spatial node for this picture.
     // It is only different if this is part of a 3D
     // rendering context.
-    pub reference_frame_index: SpatialNodeIndex,
+    pub original_spatial_node_index: SpatialNodeIndex,
     pub real_local_rect: LayoutRect,
     // An optional cache handle for storing extra data
     // in the GPU cache, depending on the type of
@@ -182,7 +182,7 @@ impl PicturePrimitive {
         composite_mode: Option<PictureCompositeMode>,
         is_in_3d_context: bool,
         pipeline_id: PipelineId,
-        reference_frame_index: SpatialNodeIndex,
+        original_spatial_node_index: SpatialNodeIndex,
         frame_output_pipeline_id: Option<PipelineId>,
         apply_local_clip_rect: bool,
     ) -> Self {
@@ -193,7 +193,7 @@ impl PicturePrimitive {
             composite_mode,
             is_in_3d_context,
             frame_output_pipeline_id,
-            reference_frame_index,
+            original_spatial_node_index,
             real_local_rect: LayoutRect::zero(),
             extra_gpu_data_handle: GpuCacheHandle::new(),
             apply_local_clip_rect,
@@ -229,9 +229,12 @@ impl PicturePrimitive {
     ) -> LayoutRect {
         self.runs = prim_runs;
 
-        let local_content_rect = prim_run_rect.local_rect_in_actual_parent_space;
+        let local_content_rect = prim_run_rect.mapping.local_rect;
 
-        self.real_local_rect = prim_run_rect.local_rect_in_original_parent_space;
+        self.real_local_rect = match prim_run_rect.original_mapping {
+            Some(mapping) => mapping.local_rect,
+            None => local_content_rect,
+        };
 
         match self.composite_mode {
             Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {

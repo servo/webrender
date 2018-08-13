@@ -105,10 +105,6 @@ pub struct DisplayListFlattener<'a> {
     /// types that the ClipScrollTree uses.
     id_to_index_mapper: ClipIdToIndexMapper,
 
-    /// A stack of scroll nodes used during display list processing to properly
-    /// parent new scroll nodes.
-    reference_frame_stack: Vec<(ClipId, SpatialNodeIndex)>,
-
     /// A stack of stacking context properties.
     sc_stack: Vec<FlattenedStackingContext>,
 
@@ -169,7 +165,6 @@ impl<'a> DisplayListFlattener<'a> {
             id_to_index_mapper: ClipIdToIndexMapper::default(),
             hit_testing_runs: recycle_vec(old_builder.hit_testing_runs),
             scrollbar_prims: recycle_vec(old_builder.scrollbar_prims),
-            reference_frame_stack: Vec::new(),
             picture_stack: Vec::new(),
             shadow_stack: Vec::new(),
             sc_stack: Vec::new(),
@@ -396,8 +391,6 @@ impl<'a> DisplayListFlattener<'a> {
         );
 
         self.flatten_items(traversal, pipeline_id, LayoutVector2D::zero());
-
-        self.pop_reference_frame();
     }
 
     fn flatten_stacking_context(
@@ -496,7 +489,6 @@ impl<'a> DisplayListFlattener<'a> {
 
         self.flatten_root(pipeline, &iframe_rect.size);
 
-        self.pop_reference_frame();
         self.pipeline_clip_chain_stack.pop();
     }
 
@@ -922,10 +914,6 @@ impl<'a> DisplayListFlattener<'a> {
             None => ClipChainId::NONE,
         };
 
-        // Construct the necessary set of Picture primitives
-        // to draw this stacking context.
-        let current_reference_frame_index = self.current_reference_frame_index();
-
         // An arbitrary large clip rect. For now, we don't
         // specify a clip specific to the stacking context.
         // However, now that they are represented as Picture
@@ -947,7 +935,7 @@ impl<'a> DisplayListFlattener<'a> {
                 None,
                 false,
                 pipeline_id,
-                current_reference_frame_index,
+                spatial_node_index,
                 None,
                 true,
             );
@@ -1013,7 +1001,7 @@ impl<'a> DisplayListFlattener<'a> {
                 None,
                 false,
                 pipeline_id,
-                current_reference_frame_index,
+                spatial_node_index,
                 None,
                 true,
             );
@@ -1064,7 +1052,7 @@ impl<'a> DisplayListFlattener<'a> {
                 Some(PictureCompositeMode::Filter(*filter)),
                 false,
                 pipeline_id,
-                current_reference_frame_index,
+                spatial_node_index,
                 None,
                 true,
             );
@@ -1094,7 +1082,7 @@ impl<'a> DisplayListFlattener<'a> {
                 Some(PictureCompositeMode::MixBlend(mix_blend_mode)),
                 false,
                 pipeline_id,
-                current_reference_frame_index,
+                spatial_node_index,
                 None,
                 true,
             );
@@ -1150,7 +1138,7 @@ impl<'a> DisplayListFlattener<'a> {
             composite_mode,
             participating_in_3d_context,
             pipeline_id,
-            current_reference_frame_index,
+            spatial_node_index,
             frame_output_pipeline_id,
             true,
         );
@@ -1240,7 +1228,6 @@ impl<'a> DisplayListFlattener<'a> {
             origin_in_parent_reference_frame,
             pipeline_id,
         );
-        self.reference_frame_stack.push((reference_frame_id, index));
         self.id_to_index_mapper.map_spatial_node(reference_frame_id, index);
 
         match parent_id {
@@ -1249,10 +1236,6 @@ impl<'a> DisplayListFlattener<'a> {
             _ => self.id_to_index_mapper.add_clip_chain(reference_frame_id, ClipChainId::NONE),
         }
         index
-    }
-
-    pub fn current_reference_frame_index(&self) -> SpatialNodeIndex {
-        self.reference_frame_stack.last().unwrap().1
     }
 
     pub fn setup_viewport_offset(
@@ -1372,10 +1355,6 @@ impl<'a> DisplayListFlattener<'a> {
         node_index
     }
 
-    pub fn pop_reference_frame(&mut self) {
-        self.reference_frame_stack.pop();
-    }
-
     pub fn push_shadow(
         &mut self,
         shadow: Shadow,
@@ -1383,7 +1362,6 @@ impl<'a> DisplayListFlattener<'a> {
         info: &LayoutPrimitiveInfo,
     ) {
         let pipeline_id = self.sc_stack.last().unwrap().pipeline_id;
-        let current_reference_frame_index = self.current_reference_frame_index();
         let max_clip = LayoutRect::max_rect();
 
         // Quote from https://drafts.csswg.org/css-backgrounds-3/#shadow-blur
@@ -1406,7 +1384,7 @@ impl<'a> DisplayListFlattener<'a> {
             Some(PictureCompositeMode::Filter(FilterOp::Blur(std_deviation))),
             false,
             pipeline_id,
-            current_reference_frame_index,
+            clip_and_scroll.spatial_node_index,
             None,
             apply_local_clip_rect,
         );
