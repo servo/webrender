@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipMode, ColorF};
-use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, ExtendMode};
+use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, ExtendMode, LayoutTransform};
 use api::{FilterOp, GlyphInstance, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, TileOffset};
 use api::{GlyphRasterSpace, LayoutPoint, LayoutRect, LayoutSize, LayoutToWorldTransform, LayoutVector2D};
 use api::{PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat, DeviceIntSideOffsets};
@@ -29,6 +29,7 @@ use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
 use resource_cache::{ImageProperties, ImageRequest, ResourceCache};
 use scene::SceneProperties;
 use segment::SegmentBuilder;
+use spatial_node::SpatialNode;
 use std::{mem, usize};
 use util::{MatrixHelpers, calculate_screen_bounding_rect};
 use util::{pack_as_float, recycle_vec, TransformedRectKind};
@@ -105,6 +106,84 @@ impl PrimitiveOpacity {
     }
 }
 
+#[derive(Debug)]
+pub enum CoordinateSpaceMappingKind {
+    Local,
+    Offset(LayoutVector2D),
+    Transform(Option<LayoutTransform>),
+}
+
+#[derive(Debug)]
+pub struct CoordinateSpaceMapping {
+    kind: CoordinateSpaceMappingKind,
+    pub local_rect: LayoutRect,
+    ref_spatial_node_index: SpatialNodeIndex,
+}
+
+impl CoordinateSpaceMapping {
+    fn new(
+        ref_spatial_node_index: SpatialNodeIndex,
+    ) -> Self {
+        CoordinateSpaceMapping {
+            kind: CoordinateSpaceMappingKind::Local,
+            local_rect: LayoutRect::zero(),
+            ref_spatial_node_index,
+        }
+    }
+
+    pub fn set_target_spatial_node(
+        &mut self,
+        target_node_index: SpatialNodeIndex,
+        spatial_nodes: &[SpatialNode],
+    ) {
+        let ref_spatial_node = &spatial_nodes[self.ref_spatial_node_index.0];
+        let target_spatial_node = &spatial_nodes[target_node_index.0];
+
+        if self.ref_spatial_node_index == target_node_index {
+            self.kind = CoordinateSpaceMappingKind::Local;
+        } else if ref_spatial_node.coordinate_system_id == target_spatial_node.coordinate_system_id {
+            let offset = target_spatial_node.coordinate_system_relative_offset -
+                         ref_spatial_node.coordinate_system_relative_offset;
+            self.kind = CoordinateSpaceMappingKind::Offset(offset);
+        } else {
+            let relative_transform = ref_spatial_node
+                .world_content_transform
+                .inverse()
+                .map(|inv_parent| {
+                    inv_parent.pre_mul(&target_spatial_node.world_content_transform)
+                })
+                .map(|transform| {
+                    *transform.to_transform()
+                });
+            self.kind = CoordinateSpaceMappingKind::Transform(relative_transform);
+        }
+    }
+
+    pub fn accumulate(&mut self, rect: &LayoutRect) {
+        match self.kind {
+            CoordinateSpaceMappingKind::Local => {
+                self.local_rect = self.local_rect.union(rect);
+            }
+            CoordinateSpaceMappingKind::Offset(ref offset) => {
+                let rect = rect.translate(offset);
+                self.local_rect = self.local_rect.union(&rect);
+            }
+            CoordinateSpaceMappingKind::Transform(ref transform) => {
+                if let Some(ref matrix) = transform {
+                    match matrix.transform_rect(rect) {
+                        Some(bounds) => {
+                            self.local_rect = self.local_rect.union(&bounds);
+                        }
+                        None => {
+                            warn!("parent relative transform can't transform the primitive rect for {:?}", rect);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // Represents the local space rect of a list of
 // primitive runs. For most primitive runs, the
 // primitive runs are attached to the parent they
@@ -122,8 +201,49 @@ impl PrimitiveOpacity {
 //          in the picture structure.
 #[derive(Debug)]
 pub struct PrimitiveRunLocalRect {
-    pub local_rect_in_actual_parent_space: LayoutRect,
-    pub local_rect_in_original_parent_space: LayoutRect,
+    pub mapping: CoordinateSpaceMapping,
+    pub original_mapping: Option<CoordinateSpaceMapping>,
+}
+
+impl PrimitiveRunLocalRect {
+    pub fn new(
+        spatial_node_index: SpatialNodeIndex,
+        original_spatial_node_index: SpatialNodeIndex,
+    ) -> Self {
+        let mapping = CoordinateSpaceMapping::new(spatial_node_index);
+
+        let original_mapping = if spatial_node_index == original_spatial_node_index {
+            None
+        } else {
+            Some(CoordinateSpaceMapping::new(original_spatial_node_index))
+        };
+
+        PrimitiveRunLocalRect {
+            mapping,
+            original_mapping,
+        }
+    }
+
+    pub fn set_target_spatial_node(
+        &mut self,
+        target_node_index: SpatialNodeIndex,
+        spatial_nodes: &[SpatialNode],
+    ) {
+        self.mapping
+            .set_target_spatial_node(target_node_index, spatial_nodes);
+
+        if let Some(ref mut mapping) = self.original_mapping {
+            mapping.set_target_spatial_node(target_node_index, spatial_nodes);
+        }
+    }
+
+    pub fn accumulate(&mut self, rect: &LayoutRect) {
+        self.mapping.accumulate(rect);
+
+        if let Some(ref mut mapping) = self.original_mapping {
+            mapping.accumulate(rect);
+        }
+    }
 }
 
 /// For external images, it's not possible to know the
@@ -140,9 +260,6 @@ pub struct DeferredResolve {
     pub address: GpuCacheAddress,
     pub image_properties: ImageProperties,
 }
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub struct SpecificPrimitiveIndex(pub usize);
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -1444,6 +1561,7 @@ impl PrimitiveStore {
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
+        display_list: &BuiltDisplayList,
     ) -> Option<LayoutRect> {
         let mut may_need_clip_mask = true;
         let mut pic_state_for_children = PictureState::new();
@@ -1490,17 +1608,6 @@ impl PrimitiveStore {
                                 }
                             };
 
-                            let display_list = &frame_context
-                                .pipelines
-                                .get(&pic.pipeline_id)
-                                .expect("No display list?")
-                                .display_list;
-
-                            let inv_world_transform = prim_run_context
-                                .scroll_node
-                                .world_content_transform
-                                .inverse();
-
                             // Mark whether this picture has a complex coordinate system.
                             pic_state_for_children.has_non_root_coord_system |=
                                 prim_run_context.scroll_node.coordinate_system_id != CoordinateSystemId::root();
@@ -1508,9 +1615,8 @@ impl PrimitiveStore {
                             Some(PictureContext {
                                 pipeline_id: pic.pipeline_id,
                                 prim_runs: mem::replace(&mut pic.runs, Vec::new()),
-                                original_reference_frame_index: Some(pic.reference_frame_index),
-                                display_list,
-                                inv_world_transform,
+                                spatial_node_index: prim_run_context.spatial_node_index,
+                                original_spatial_node_index: pic.original_spatial_node_index,
                                 apply_local_clip_rect: pic.apply_local_clip_rect,
                                 inflation_factor,
                                 // TODO(lsalzman): allow overriding parent if intermediate surface is opaque
@@ -1696,6 +1802,7 @@ impl PrimitiveStore {
             pic_state,
             frame_context,
             frame_state,
+            display_list,
             is_chased,
         );
 
@@ -1717,10 +1824,16 @@ impl PrimitiveStore {
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
     ) -> PrimitiveRunLocalRect {
-        let mut result = PrimitiveRunLocalRect {
-            local_rect_in_actual_parent_space: LayoutRect::zero(),
-            local_rect_in_original_parent_space: LayoutRect::zero(),
-        };
+        let mut result = PrimitiveRunLocalRect::new(
+            pic_context.spatial_node_index,
+            pic_context.original_spatial_node_index,
+        );
+
+        let display_list = &frame_context
+            .pipelines
+            .get(&pic_context.pipeline_id)
+            .expect("No display list?")
+            .display_list;
 
         for run in &pic_context.prim_runs {
             // TODO(gw): Perhaps we can restructure this to not need to create
@@ -1749,24 +1862,10 @@ impl PrimitiveStore {
                 continue;
             }
 
-            let parent_relative_transform = pic_context
-                .inv_world_transform
-                .map(|inv_parent| {
-                    inv_parent.pre_mul(&scroll_node.world_content_transform)
-                });
-
-            let original_relative_transform = pic_context
-                .original_reference_frame_index
-                .and_then(|original_reference_frame_index| {
-                    frame_context
-                        .clip_scroll_tree
-                        .spatial_nodes[original_reference_frame_index.0]
-                        .world_content_transform
-                        .inverse()
-                })
-                .map(|inv_parent| {
-                    inv_parent.pre_mul(&scroll_node.world_content_transform)
-                });
+            result.set_target_spatial_node(
+                run.spatial_node_index,
+                &frame_context.clip_scroll_tree.spatial_nodes,
+            );
 
             let transform = frame_context
                 .transforms
@@ -1788,32 +1887,10 @@ impl PrimitiveStore {
                     pic_state,
                     frame_context,
                     frame_state,
+                    display_list,
                 ) {
                     frame_state.profile_counters.visible_primitives.inc();
-
-                    if let Some(ref matrix) = parent_relative_transform {
-                        match matrix.transform_rect(&prim_local_rect) {
-                            Some(bounds) => {
-                                result.local_rect_in_actual_parent_space =
-                                    result.local_rect_in_actual_parent_space.union(&bounds);
-                            }
-                            None => {
-                                warn!("parent relative transform can't transform the primitive rect for {:?}", prim_index);
-                            }
-                        }
-
-                    }
-                    if let Some(ref matrix) = original_relative_transform {
-                        match matrix.transform_rect(&prim_local_rect) {
-                            Some(bounds) => {
-                                result.local_rect_in_original_parent_space =
-                                    result.local_rect_in_original_parent_space.union(&bounds);
-                            }
-                            None => {
-                                warn!("original relative transform can't transform the primitive rect for {:?}", prim_index);
-                            }
-                        }
-                    }
+                    result.accumulate(&prim_local_rect);
                 }
             }
         }
@@ -1827,12 +1904,12 @@ fn build_gradient_stops_request(
     stops_range: ItemRange<GradientStop>,
     reverse_stops: bool,
     frame_state: &mut FrameBuildingState,
-    pic_context: &PictureContext
+    display_list: &BuiltDisplayList,
 ) {
     if let Some(mut request) = frame_state.gpu_cache.request(stops_handle) {
         let gradient_builder = GradientGpuBlockBuilder::new(
             stops_range,
-            pic_context.display_list,
+            display_list,
         );
         gradient_builder.build(
             reverse_stops,
@@ -2198,6 +2275,7 @@ impl Primitive {
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
+        display_list: &BuiltDisplayList,
         is_chased: bool,
     ) {
         let mut is_tiled = false;
@@ -2215,7 +2293,7 @@ impl Primitive {
                     frame_context.device_pixel_scale,
                     &transform,
                     pic_context.allow_subpixel_aa,
-                    pic_context.display_list,
+                    display_list,
                     frame_state,
                 );
             }
@@ -2492,7 +2570,7 @@ impl Primitive {
                             stops_range,
                             false,
                             frame_state,
-                            pic_context,
+                            display_list,
                         );
 
                         if tile_spacing != LayoutSize::zero() {
@@ -2542,7 +2620,7 @@ impl Primitive {
                             stops_range,
                             reverse_stops,
                             frame_state,
-                            pic_context,
+                            display_list,
                         );
 
                         if tile_spacing != LayoutSize::zero() {
