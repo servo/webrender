@@ -400,6 +400,7 @@ pub enum BrushKind {
         alpha_type: AlphaType,
         stretch_size: LayoutSize,
         tile_spacing: LayoutSize,
+        color: ColorF,
         source: ImageSource,
         sub_rect: Option<DeviceIntRect>,
         opacity_binding: OpacityBinding,
@@ -603,8 +604,8 @@ impl BrushPrimitive {
             }
             // Images are drawn as a white color, modulated by the total
             // opacity coming from any collapsed property bindings.
-            BrushKind::Image { stretch_size, tile_spacing, ref opacity_binding, .. } => {
-                request.push(ColorF::new(1.0, 1.0, 1.0, opacity_binding.current).premultiplied());
+            BrushKind::Image { stretch_size, tile_spacing, color, ref opacity_binding, .. } => {
+                request.push(color.scale_alpha(opacity_binding.current).premultiplied());
                 request.push(PremultipliedColorF::WHITE);
                 request.push([
                     stretch_size.width + tile_spacing.width,
@@ -2303,6 +2304,7 @@ impl Primitive {
                         request,
                         sub_rect,
                         stretch_size,
+                        color,
                         ref mut tile_spacing,
                         ref mut source,
                         ref mut opacity_binding,
@@ -2328,7 +2330,8 @@ impl Primitive {
                             // batching parameters are used.
                             metadata.opacity.is_opaque =
                                 image_properties.descriptor.is_opaque &&
-                                opacity_binding.current == 1.0;
+                                opacity_binding.current == 1.0 &&
+                                color.a == 1.0;
 
                             if *tile_spacing != LayoutSize::zero() && !is_tiled {
                                 *source = ImageSource::Cache {
