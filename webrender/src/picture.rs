@@ -7,7 +7,8 @@ use api::{DeviceIntRect, DeviceIntSize, DevicePoint, LayoutPoint, LayoutRect};
 use api::{DevicePixelScale, PictureIntPoint, PictureIntRect, PictureIntSize};
 use box_shadow::{BLUR_SAMPLE_SCALE};
 use clip_scroll_tree::SpatialNodeIndex;
-use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState, PrimitiveRunContext};
+use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState};
+use frame_builder::{PictureContext, PrimitiveRunContext};
 use gpu_cache::{GpuCacheHandle};
 use gpu_types::UvRectKind;
 use prim_store::{PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
@@ -202,6 +203,36 @@ impl PicturePrimitive {
         }
     }
 
+    pub fn take_context(
+        &mut self,
+        spatial_node_index: SpatialNodeIndex,
+        allow_subpixel_aa: bool,
+    ) -> PictureContext {
+        // TODO(lsalzman): allow overriding parent if intermediate surface is opaque
+        let allow_subpixel_aa = allow_subpixel_aa && self.allow_subpixel_aa();
+
+        let inflation_factor = match self.composite_mode {
+            Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
+                // The amount of extra space needed for primitives inside
+                // this picture to ensure the visibility check is correct.
+                BLUR_SAMPLE_SCALE * blur_radius
+            }
+            _ => {
+                0.0
+            }
+        };
+
+        PictureContext {
+            pipeline_id: self.pipeline_id,
+            prim_runs: mem::replace(&mut self.runs, Vec::new()),
+            spatial_node_index,
+            original_spatial_node_index: self.original_spatial_node_index,
+            apply_local_clip_rect: self.apply_local_clip_rect,
+            inflation_factor,
+            allow_subpixel_aa,
+        }
+    }
+
     pub fn add_primitive(
         &mut self,
         prim_index: PrimitiveIndex,
@@ -222,12 +253,12 @@ impl PicturePrimitive {
         });
     }
 
-    pub fn update_local_rect_and_set_runs(
+    pub fn restore_context(
         &mut self,
+        context: PictureContext,
         prim_run_rect: PrimitiveRunLocalRect,
-        prim_runs: Vec<PrimitiveRun>,
     ) -> LayoutRect {
-        self.runs = prim_runs;
+        self.runs = context.prim_runs;
 
         let local_content_rect = prim_run_rect.mapping.local_rect;
 
@@ -277,7 +308,7 @@ impl PicturePrimitive {
     }
 
     // Disallow subpixel AA if an intermediate surface is needed.
-    pub fn allow_subpixel_aa(&self) -> bool {
+    fn allow_subpixel_aa(&self) -> bool {
         self.can_draw_directly_to_parent_surface()
     }
 

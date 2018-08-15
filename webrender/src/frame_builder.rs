@@ -20,7 +20,7 @@ use render_task::{RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree};
 use resource_cache::{ResourceCache};
 use scene::{ScenePipeline, SceneProperties};
 use spatial_node::SpatialNode;
-use std::{mem, f32};
+use std::f32;
 use std::sync::Arc;
 use tiling::{Frame, RenderPass, RenderPassKind, RenderTargetContext};
 use tiling::{ScrollbarPrimitive, SpecialRenderPasses};
@@ -195,11 +195,11 @@ impl FrameBuilder {
         if self.prim_store.primitives.is_empty() {
             return None
         }
+        self.prim_store.reset_prim_visibility();
 
         // The root picture is always the first one added.
         let root_prim_index = PrimitiveIndex(0);
         let root_spatial_node_index = clip_scroll_tree.root_reference_frame_index();
-        let root_spatial_node = &clip_scroll_tree.spatial_nodes[root_spatial_node_index.0];
 
         const MAX_CLIP_COORD: f32 = 1.0e9;
 
@@ -226,31 +226,27 @@ impl FrameBuilder {
             special_render_passes,
         };
 
-        let pic_context = PictureContext {
-            pipeline_id: root_spatial_node.pipeline_id,
-            prim_runs: mem::replace(
-                &mut self.prim_store.get_pic_mut(root_prim_index).runs,
-                Vec::new(),
-            ),
-            spatial_node_index: root_spatial_node_index,
-            original_spatial_node_index: root_spatial_node_index,
-            apply_local_clip_rect: true,
-            inflation_factor: 0.0,
-            allow_subpixel_aa: true,
-        };
-
         let mut pic_state = PictureState::new();
 
-        self.prim_store.reset_prim_visibility();
-        self.prim_store.prepare_prim_runs(
+        let pic_context = self
+            .prim_store
+            .get_pic_mut(root_prim_index)
+            .take_context(
+                root_spatial_node_index,
+                true,
+            );
+
+        let result = self.prim_store.prepare_prim_runs(
             &pic_context,
             &mut pic_state,
             &frame_context,
             &mut frame_state,
         );
 
-        let pic = self.prim_store.get_pic_mut(root_prim_index);
-        pic.runs = pic_context.prim_runs;
+        let pic = self
+            .prim_store
+            .get_pic_mut(root_prim_index);
+        pic.restore_context(pic_context, result);
 
         let root_render_task = RenderTask::new_picture(
             RenderTaskLocation::Fixed(frame_context.screen_rect),

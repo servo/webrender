@@ -10,8 +10,7 @@ use api::{PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat
 use api::{BorderWidths, BoxShadowClipMode, LayoutToWorldScale, NormalBorder};
 use app_units::Au;
 use border::{BorderCacheKey, BorderRenderTaskInfo};
-use box_shadow::BLUR_SAMPLE_SCALE;
-use clip_scroll_tree::{CoordinateSystemId, SpatialNodeIndex};
+use clip_scroll_tree::{ClipScrollTree, CoordinateSystemId, SpatialNodeIndex};
 use clip::{ClipNodeFlags, ClipChainId, ClipChainInstance, ClipItem};
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
 use frame_builder::PrimitiveRunContext;
@@ -29,7 +28,6 @@ use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
 use resource_cache::{ImageProperties, ImageRequest, ResourceCache};
 use scene::SceneProperties;
 use segment::SegmentBuilder;
-use spatial_node::SpatialNode;
 use std::{mem, usize};
 use util::{MatrixHelpers, calculate_screen_bounding_rect};
 use util::{pack_as_float, recycle_vec, TransformedRectKind};
@@ -110,7 +108,7 @@ impl PrimitiveOpacity {
 pub enum CoordinateSpaceMappingKind {
     Local,
     Offset(LayoutVector2D),
-    Transform(Option<LayoutTransform>),
+    Transform(LayoutTransform),
 }
 
 #[derive(Debug)]
@@ -134,8 +132,9 @@ impl CoordinateSpaceMapping {
     pub fn set_target_spatial_node(
         &mut self,
         target_node_index: SpatialNodeIndex,
-        spatial_nodes: &[SpatialNode],
+        clip_scroll_tree: &ClipScrollTree,
     ) {
+        let spatial_nodes = &clip_scroll_tree.spatial_nodes;
         let ref_spatial_node = &spatial_nodes[self.ref_spatial_node_index.0];
         let target_spatial_node = &spatial_nodes[target_node_index.0];
 
@@ -146,16 +145,11 @@ impl CoordinateSpaceMapping {
                          ref_spatial_node.coordinate_system_relative_offset;
             CoordinateSpaceMappingKind::Offset(offset)
         } else {
-            let relative_transform = ref_spatial_node
-                .world_content_transform
-                .inverse()
-                .map(|inv_parent| {
-                    inv_parent.pre_mul(&target_spatial_node.world_content_transform)
-                })
-                .map(|transform| {
-                    *transform.to_transform()
-                });
-            CoordinateSpaceMappingKind::Transform(relative_transform)
+            let transform = clip_scroll_tree.get_relative_transform(
+                self.ref_spatial_node_index,
+                target_node_index,
+            );
+            CoordinateSpaceMappingKind::Transform(transform)
         }
     }
 
@@ -169,14 +163,12 @@ impl CoordinateSpaceMapping {
                 self.local_rect = self.local_rect.union(&rect);
             }
             CoordinateSpaceMappingKind::Transform(ref transform) => {
-                if let Some(ref matrix) = transform {
-                    match matrix.transform_rect(rect) {
-                        Some(bounds) => {
-                            self.local_rect = self.local_rect.union(&bounds);
-                        }
-                        None => {
-                            warn!("parent relative transform can't transform the primitive rect for {:?}", rect);
-                        }
+                match transform.transform_rect(rect) {
+                    Some(bounds) => {
+                        self.local_rect = self.local_rect.union(&bounds);
+                    }
+                    None => {
+                        warn!("parent relative transform can't transform the primitive rect for {:?}", rect);
                     }
                 }
             }
@@ -227,13 +219,13 @@ impl PrimitiveRunLocalRect {
     pub fn set_target_spatial_node(
         &mut self,
         target_node_index: SpatialNodeIndex,
-        spatial_nodes: &[SpatialNode],
+        clip_scroll_tree: &ClipScrollTree,
     ) {
         self.mapping
-            .set_target_spatial_node(target_node_index, spatial_nodes);
+            .set_target_spatial_node(target_node_index, clip_scroll_tree);
 
         if let Some(ref mut mapping) = self.original_mapping {
-            mapping.set_target_spatial_node(target_node_index, spatial_nodes);
+            mapping.set_target_spatial_node(target_node_index, clip_scroll_tree);
         }
     }
 
@@ -1598,31 +1590,11 @@ impl PrimitiveStore {
 
                             may_need_clip_mask = pic.composite_mode.is_some();
 
-                            let inflation_factor = match pic.composite_mode {
-                                Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
-                                    // The amount of extra space needed for primitives inside
-                                    // this picture to ensure the visibility check is correct.
-                                    BLUR_SAMPLE_SCALE * blur_radius
-                                }
-                                _ => {
-                                    0.0
-                                }
-                            };
-
                             // Mark whether this picture has a complex coordinate system.
                             pic_state_for_children.has_non_root_coord_system |=
                                 prim_run_context.scroll_node.coordinate_system_id != CoordinateSystemId::root();
 
-                            Some(PictureContext {
-                                pipeline_id: pic.pipeline_id,
-                                prim_runs: mem::replace(&mut pic.runs, Vec::new()),
-                                spatial_node_index: prim_run_context.spatial_node_index,
-                                original_spatial_node_index: pic.original_spatial_node_index,
-                                apply_local_clip_rect: pic.apply_local_clip_rect,
-                                inflation_factor,
-                                // TODO(lsalzman): allow overriding parent if intermediate surface is opaque
-                                allow_subpixel_aa: pic_context.allow_subpixel_aa && pic.allow_subpixel_aa(),
-                            })
+                            Some(pic.take_context(prim_run_context.spatial_node_index, pic_context.allow_subpixel_aa))
                         }
                         _ => {
                             None
@@ -1647,9 +1619,9 @@ impl PrimitiveStore {
             let prim = &mut self.primitives[prim_index.0];
             let new_local_rect = prim
                 .as_pic_mut()
-                .update_local_rect_and_set_runs(
+                .restore_context(
+                    pic_context_for_children,
                     result,
-                    pic_context_for_children.prim_runs
                 );
 
             if new_local_rect != prim.metadata.local_rect {
@@ -1865,7 +1837,7 @@ impl PrimitiveStore {
 
             result.set_target_spatial_node(
                 run.spatial_node_index,
-                &frame_context.clip_scroll_tree.spatial_nodes,
+                &frame_context.clip_scroll_tree,
             );
 
             let transform = frame_context
