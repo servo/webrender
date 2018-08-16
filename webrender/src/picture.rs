@@ -372,7 +372,8 @@ impl PicturePrimitive {
                 // relevant transforms haven't changed from frame to frame.
                 let surface = if pic_state_for_children.has_non_root_coord_system {
                     let picture_task = RenderTask::new_picture(
-                        RenderTaskLocation::Dynamic(None, Some(device_rect.size)),
+                        RenderTaskLocation::Dynamic(None, device_rect.size),
+                        prim_screen_rect.unclipped.size,
                         prim_index,
                         device_rect.origin,
                         pic_state_for_children.tasks,
@@ -428,7 +429,8 @@ impl PicturePrimitive {
                             let child_tasks = mem::replace(&mut pic_state_for_children.tasks, Vec::new());
 
                             let picture_task = RenderTask::new_picture(
-                                RenderTaskLocation::Dynamic(None, Some(device_rect.size)),
+                                RenderTaskLocation::Dynamic(None, device_rect.size),
+                                prim_screen_rect.unclipped.size,
                                 prim_index,
                                 device_rect.origin,
                                 child_tasks,
@@ -484,7 +486,8 @@ impl PicturePrimitive {
                 );
 
                 let mut picture_task = RenderTask::new_picture(
-                    RenderTaskLocation::Dynamic(None, Some(device_rect.size)),
+                    RenderTaskLocation::Dynamic(None, device_rect.size),
+                    prim_screen_rect.unclipped.size,
                     prim_index,
                     device_rect.origin,
                     pic_state_for_children.tasks,
@@ -553,7 +556,8 @@ impl PicturePrimitive {
                 );
 
                 let picture_task = RenderTask::new_picture(
-                    RenderTaskLocation::Dynamic(None, Some(prim_screen_rect.clipped.size)),
+                    RenderTaskLocation::Dynamic(None, prim_screen_rect.clipped.size),
+                    prim_screen_rect.unclipped.size,
                     prim_index,
                     prim_screen_rect.clipped.origin,
                     pic_state_for_children.tasks,
@@ -588,7 +592,8 @@ impl PicturePrimitive {
                 );
 
                 let picture_task = RenderTask::new_picture(
-                    RenderTaskLocation::Dynamic(None, Some(prim_screen_rect.clipped.size)),
+                    RenderTaskLocation::Dynamic(None, prim_screen_rect.clipped.size),
+                    prim_screen_rect.unclipped.size,
                     prim_index,
                     prim_screen_rect.clipped.origin,
                     pic_state_for_children.tasks,
@@ -608,7 +613,8 @@ impl PicturePrimitive {
                 );
 
                 let picture_task = RenderTask::new_picture(
-                    RenderTaskLocation::Dynamic(None, Some(prim_screen_rect.clipped.size)),
+                    RenderTaskLocation::Dynamic(None, prim_screen_rect.clipped.size),
+                    prim_screen_rect.unclipped.size,
                     prim_index,
                     prim_screen_rect.clipped.origin,
                     pic_state_for_children.tasks,
