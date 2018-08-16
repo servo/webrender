@@ -458,12 +458,8 @@ impl AlphaBatchBuilder {
 
         // Add each run in this picture to the batch.
         for run in &pic.runs {
-            let transform_id = ctx
-                .transforms
-                .get_id(run.spatial_node_index);
             self.add_run_to_batch(
                 run,
-                transform_id,
                 ctx,
                 gpu_cache,
                 render_tasks,
@@ -525,7 +521,6 @@ impl AlphaBatchBuilder {
     fn add_run_to_batch(
         &mut self,
         run: &PrimitiveRun,
-        transform_id: TransformPaletteId,
         ctx: &RenderTargetContext,
         gpu_cache: &mut GpuCache,
         render_tasks: &RenderTaskTree,
@@ -541,6 +536,10 @@ impl AlphaBatchBuilder {
             let metadata = &ctx.prim_store.primitives[prim_index.0].metadata;
 
             if metadata.screen_rect.is_some() {
+                let transform_id = ctx
+                    .transforms
+                    .get_id(metadata.spatial_node_index);
+
                 self.add_prim_to_batch(
                     transform_id,
                     prim_index,
@@ -655,12 +654,12 @@ impl AlphaBatchBuilder {
                             // Push into parent plane splitter.
                             debug_assert!(picture.surface.is_some());
                             let transform = &ctx.transforms
-                                .get_transform(picture.original_spatial_node_index);
+                                .get_transform_by_id(transform_id);
 
                             match transform.transform_kind {
                                 TransformedRectKind::AxisAligned => {
                                     let polygon = Polygon::from_transformed_rect(
-                                        picture.real_local_rect.cast(),
+                                        prim_metadata.local_rect.cast(),
                                         transform.m.cast(),
                                         prim_index.0,
                                     ).unwrap();
@@ -671,7 +670,7 @@ impl AlphaBatchBuilder {
                                     let bounds = (screen_rect.clipped.to_f32() / ctx.device_pixel_scale).to_f64();
                                     let matrix = transform.m.cast();
                                     let results = clipper.clip_transformed(
-                                        Polygon::from_rect(picture.real_local_rect.cast(), prim_index.0),
+                                        Polygon::from_rect(prim_metadata.local_rect.cast(), prim_index.0),
                                         &matrix,
                                         Some(bounds),
                                     );

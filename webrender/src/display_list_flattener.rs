@@ -777,6 +777,7 @@ impl<'a> DisplayListFlattener<'a> {
         &mut self,
         info: &LayoutPrimitiveInfo,
         clip_chain_id: ClipChainId,
+        spatial_node_index: SpatialNodeIndex,
         container: PrimitiveContainer,
     ) -> PrimitiveIndex {
         let stacking_context = self.sc_stack.last().expect("bug: no stacking context!");
@@ -786,6 +787,7 @@ impl<'a> DisplayListFlattener<'a> {
             &info.clip_rect,
             info.is_backface_visible && stacking_context.is_backface_visible,
             clip_chain_id,
+            spatial_node_index,
             info.tag,
             container,
         )
@@ -818,12 +820,11 @@ impl<'a> DisplayListFlattener<'a> {
     pub fn add_primitive_to_draw_list(
         &mut self,
         prim_index: PrimitiveIndex,
-        spatial_node_index: SpatialNodeIndex,
     ) {
         // Add primitive to the top-most Picture on the stack.
         let pic_prim_index = *self.picture_stack.last().unwrap();
         let pic = self.prim_store.get_pic_mut(pic_prim_index);
-        pic.add_primitive(prim_index, spatial_node_index);
+        pic.add_primitive(prim_index);
     }
 
     /// Convenience interface that creates a primitive entry and adds it
@@ -860,15 +861,13 @@ impl<'a> DisplayListFlattener<'a> {
                 let shadow_prim_index = self.create_primitive(
                     &info,
                     clip_chain_id,
+                    clip_and_scroll.spatial_node_index,
                     container.create_shadow(shadow),
                 );
 
                 // Add the new primitive to the shadow picture.
                 let shadow_pic = self.prim_store.get_pic_mut(shadow_pic_prim_index);
-                shadow_pic.add_primitive(
-                    shadow_prim_index,
-                    clip_and_scroll.spatial_node_index,
-                );
+                shadow_pic.add_primitive(shadow_prim_index);
             }
             self.shadow_stack = shadow_stack;
         }
@@ -879,7 +878,12 @@ impl<'a> DisplayListFlattener<'a> {
                 clip_and_scroll.spatial_node_index,
                 clip_and_scroll.clip_chain_id,
             );
-            let prim_index = self.create_primitive(info, clip_chain_id, container);
+            let prim_index = self.create_primitive(
+                info,
+                clip_chain_id,
+                clip_and_scroll.spatial_node_index,
+                container,
+            );
             if cfg!(debug_assertions) && ChasePrimitive::LocalRect(info.rect) == self.config.chase_primitive {
                 println!("Chasing {:?}", prim_index);
                 self.prim_store.chase_id = Some(prim_index);
@@ -887,7 +891,6 @@ impl<'a> DisplayListFlattener<'a> {
             self.add_primitive_to_hit_testing_list(info, clip_and_scroll);
             self.add_primitive_to_draw_list(
                 prim_index,
-                clip_and_scroll.spatial_node_index,
             );
         }
     }
@@ -936,7 +939,6 @@ impl<'a> DisplayListFlattener<'a> {
                 None,
                 false,
                 pipeline_id,
-                spatial_node_index,
                 None,
                 true,
             );
@@ -946,6 +948,7 @@ impl<'a> DisplayListFlattener<'a> {
                 &max_clip,
                 true,
                 ClipChainId::NONE,
+                spatial_node_index,
                 None,
                 PrimitiveContainer::Brush(BrushPrimitive::new_picture(picture)),
             );
@@ -1002,7 +1005,6 @@ impl<'a> DisplayListFlattener<'a> {
                 None,
                 false,
                 pipeline_id,
-                spatial_node_index,
                 None,
                 true,
             );
@@ -1014,6 +1016,7 @@ impl<'a> DisplayListFlattener<'a> {
                 &max_clip,
                 is_backface_visible,
                 clip_chain_id,
+                spatial_node_index,
                 None,
                 PrimitiveContainer::Brush(prim),
             );
@@ -1021,7 +1024,7 @@ impl<'a> DisplayListFlattener<'a> {
             let parent_prim_index = *self.picture_stack.last().unwrap();
 
             let pic = self.prim_store.get_pic_mut(parent_prim_index);
-            pic.add_primitive(prim_index, spatial_node_index);
+            pic.add_primitive(prim_index);
 
             self.picture_stack.push(prim_index);
 
@@ -1053,7 +1056,6 @@ impl<'a> DisplayListFlattener<'a> {
                 Some(PictureCompositeMode::Filter(*filter)),
                 false,
                 pipeline_id,
-                spatial_node_index,
                 None,
                 true,
             );
@@ -1064,6 +1066,7 @@ impl<'a> DisplayListFlattener<'a> {
                 &max_clip,
                 is_backface_visible,
                 clip_chain_id,
+                spatial_node_index,
                 None,
                 PrimitiveContainer::Brush(src_prim),
             );
@@ -1071,7 +1074,7 @@ impl<'a> DisplayListFlattener<'a> {
             let parent_pic = self.prim_store.get_pic_mut(parent_prim_index);
             parent_prim_index = src_prim_index;
 
-            parent_pic.add_primitive(src_prim_index, spatial_node_index);
+            parent_pic.add_primitive(src_prim_index);
 
             self.picture_stack.push(src_prim_index);
         }
@@ -1083,7 +1086,6 @@ impl<'a> DisplayListFlattener<'a> {
                 Some(PictureCompositeMode::MixBlend(mix_blend_mode)),
                 false,
                 pipeline_id,
-                spatial_node_index,
                 None,
                 true,
             );
@@ -1095,13 +1097,14 @@ impl<'a> DisplayListFlattener<'a> {
                 &max_clip,
                 is_backface_visible,
                 clip_chain_id,
+                spatial_node_index,
                 None,
                 PrimitiveContainer::Brush(src_prim),
             );
 
             let parent_pic = self.prim_store.get_pic_mut(parent_prim_index);
             parent_prim_index = src_prim_index;
-            parent_pic.add_primitive(src_prim_index, spatial_node_index);
+            parent_pic.add_primitive(src_prim_index);
 
             self.picture_stack.push(src_prim_index);
         }
@@ -1139,7 +1142,6 @@ impl<'a> DisplayListFlattener<'a> {
             composite_mode,
             participating_in_3d_context,
             pipeline_id,
-            spatial_node_index,
             frame_output_pipeline_id,
             true,
         );
@@ -1153,12 +1155,13 @@ impl<'a> DisplayListFlattener<'a> {
             &max_clip,
             is_backface_visible,
             clip_chain_id,
+            spatial_node_index,
             None,
             PrimitiveContainer::Brush(sc_prim),
         );
 
         let parent_pic = self.prim_store.get_pic_mut(parent_prim_index);
-        parent_pic.add_primitive(sc_prim_index, spatial_node_index);
+        parent_pic.add_primitive(sc_prim_index);
 
         // Add this as the top-most picture for primitives to be added to.
         self.picture_stack.push(sc_prim_index);
@@ -1385,7 +1388,6 @@ impl<'a> DisplayListFlattener<'a> {
             Some(PictureCompositeMode::Filter(FilterOp::Blur(std_deviation))),
             false,
             pipeline_id,
-            clip_and_scroll.spatial_node_index,
             None,
             apply_local_clip_rect,
         );
@@ -1397,6 +1399,7 @@ impl<'a> DisplayListFlattener<'a> {
             &max_clip,
             info.is_backface_visible,
             clip_and_scroll.clip_chain_id,
+            clip_and_scroll.spatial_node_index,
             None,
             PrimitiveContainer::Brush(shadow_prim),
         );
@@ -1405,7 +1408,6 @@ impl<'a> DisplayListFlattener<'a> {
         // picture on to the shadow stack, to avoid infinite recursion!
         self.add_primitive_to_draw_list(
             shadow_prim_index,
-            clip_and_scroll.spatial_node_index,
         );
         self.shadow_stack.push((shadow, shadow_prim_index));
     }
@@ -1480,12 +1482,12 @@ impl<'a> DisplayListFlattener<'a> {
         let prim_index = self.create_primitive(
             info,
             ClipChainId::NONE,
+            spatial_node_index,
             PrimitiveContainer::Brush(prim),
         );
 
         self.add_primitive_to_draw_list(
             prim_index,
-            spatial_node_index,
         );
 
         self.scrollbar_prims.push(ScrollbarPrimitive {
