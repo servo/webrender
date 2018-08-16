@@ -250,6 +250,7 @@ impl FrameBuilder {
 
         let root_render_task = RenderTask::new_picture(
             RenderTaskLocation::Fixed(frame_context.screen_rect),
+            frame_context.screen_rect.size,
             root_prim_index,
             DeviceIntPoint::zero(),
             pic_state.tasks,
