@@ -13,7 +13,7 @@ use border::{BorderCacheKey, BorderRenderTaskInfo};
 use clip_scroll_tree::{ClipScrollTree, CoordinateSystemId, SpatialNodeIndex};
 use clip::{ClipNodeFlags, ClipChainId, ClipChainInstance, ClipItem};
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
-use frame_builder::PrimitiveRunContext;
+use frame_builder::PrimitiveContext;
 use glyph_rasterizer::{FontInstance, FontTransform, GlyphKey, FONT_SIZE_LIMIT};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
@@ -69,7 +69,6 @@ pub struct Transform<'a> {
 pub struct PrimitiveRun {
     pub base_prim_index: PrimitiveIndex,
     pub count: usize,
-    pub spatial_node_index: SpatialNodeIndex,
 }
 
 impl PrimitiveRun {
@@ -105,75 +104,10 @@ impl PrimitiveOpacity {
 }
 
 #[derive(Debug)]
-pub enum CoordinateSpaceMappingKind {
+pub enum CoordinateSpaceMapping {
     Local,
     Offset(LayoutVector2D),
     Transform(LayoutTransform),
-}
-
-#[derive(Debug)]
-pub struct CoordinateSpaceMapping {
-    kind: CoordinateSpaceMappingKind,
-    pub local_rect: LayoutRect,
-    ref_spatial_node_index: SpatialNodeIndex,
-}
-
-impl CoordinateSpaceMapping {
-    fn new(
-        ref_spatial_node_index: SpatialNodeIndex,
-    ) -> Self {
-        CoordinateSpaceMapping {
-            kind: CoordinateSpaceMappingKind::Local,
-            local_rect: LayoutRect::zero(),
-            ref_spatial_node_index,
-        }
-    }
-
-    pub fn set_target_spatial_node(
-        &mut self,
-        target_node_index: SpatialNodeIndex,
-        clip_scroll_tree: &ClipScrollTree,
-    ) {
-        let spatial_nodes = &clip_scroll_tree.spatial_nodes;
-        let ref_spatial_node = &spatial_nodes[self.ref_spatial_node_index.0];
-        let target_spatial_node = &spatial_nodes[target_node_index.0];
-
-        self.kind = if self.ref_spatial_node_index == target_node_index {
-            CoordinateSpaceMappingKind::Local
-        } else if ref_spatial_node.coordinate_system_id == target_spatial_node.coordinate_system_id {
-            let offset = target_spatial_node.coordinate_system_relative_offset -
-                         ref_spatial_node.coordinate_system_relative_offset;
-            CoordinateSpaceMappingKind::Offset(offset)
-        } else {
-            let transform = clip_scroll_tree.get_relative_transform(
-                self.ref_spatial_node_index,
-                target_node_index,
-            );
-            CoordinateSpaceMappingKind::Transform(transform)
-        }
-    }
-
-    pub fn accumulate(&mut self, rect: &LayoutRect) {
-        match self.kind {
-            CoordinateSpaceMappingKind::Local => {
-                self.local_rect = self.local_rect.union(rect);
-            }
-            CoordinateSpaceMappingKind::Offset(ref offset) => {
-                let rect = rect.translate(offset);
-                self.local_rect = self.local_rect.union(&rect);
-            }
-            CoordinateSpaceMappingKind::Transform(ref transform) => {
-                match transform.transform_rect(rect) {
-                    Some(bounds) => {
-                        self.local_rect = self.local_rect.union(&bounds);
-                    }
-                    None => {
-                        warn!("parent relative transform can't transform the primitive rect for {:?}", rect);
-                    }
-                }
-            }
-        }
-    }
 }
 
 // Represents the local space rect of a list of
@@ -192,27 +126,20 @@ impl CoordinateSpaceMapping {
 //          polygons directly and store internally
 //          in the picture structure.
 #[derive(Debug)]
-pub struct PrimitiveRunLocalRect {
-    pub mapping: CoordinateSpaceMapping,
-    pub original_mapping: Option<CoordinateSpaceMapping>,
+pub struct LocalRectBuilder {
+    kind: CoordinateSpaceMapping,
+    ref_spatial_node_index: SpatialNodeIndex,
+    current_target_spatial_node_index: SpatialNodeIndex,
+    pub local_rect: LayoutRect,
 }
 
-impl PrimitiveRunLocalRect {
-    pub fn new(
-        spatial_node_index: SpatialNodeIndex,
-        original_spatial_node_index: SpatialNodeIndex,
-    ) -> Self {
-        let mapping = CoordinateSpaceMapping::new(spatial_node_index);
-
-        let original_mapping = if spatial_node_index == original_spatial_node_index {
-            None
-        } else {
-            Some(CoordinateSpaceMapping::new(original_spatial_node_index))
-        };
-
-        PrimitiveRunLocalRect {
-            mapping,
-            original_mapping,
+impl LocalRectBuilder {
+    pub fn new(ref_spatial_node_index: SpatialNodeIndex) -> Self {
+        LocalRectBuilder {
+            kind: CoordinateSpaceMapping::Local,
+            local_rect: LayoutRect::zero(),
+            ref_spatial_node_index,
+            current_target_spatial_node_index: ref_spatial_node_index,
         }
     }
 
@@ -221,19 +148,47 @@ impl PrimitiveRunLocalRect {
         target_node_index: SpatialNodeIndex,
         clip_scroll_tree: &ClipScrollTree,
     ) {
-        self.mapping
-            .set_target_spatial_node(target_node_index, clip_scroll_tree);
+        if target_node_index != self.current_target_spatial_node_index {
+            let spatial_nodes = &clip_scroll_tree.spatial_nodes;
+            let ref_spatial_node = &spatial_nodes[self.ref_spatial_node_index.0];
+            let target_spatial_node = &spatial_nodes[target_node_index.0];
+            self.current_target_spatial_node_index = target_node_index;
 
-        if let Some(ref mut mapping) = self.original_mapping {
-            mapping.set_target_spatial_node(target_node_index, clip_scroll_tree);
+            self.kind = if self.ref_spatial_node_index == target_node_index {
+                CoordinateSpaceMapping::Local
+            } else if ref_spatial_node.coordinate_system_id == target_spatial_node.coordinate_system_id {
+                let offset = target_spatial_node.coordinate_system_relative_offset -
+                             ref_spatial_node.coordinate_system_relative_offset;
+                CoordinateSpaceMapping::Offset(offset)
+            } else {
+                let transform = clip_scroll_tree.get_relative_transform(
+                    self.ref_spatial_node_index,
+                    target_node_index,
+                );
+                CoordinateSpaceMapping::Transform(transform)
+            };
         }
     }
 
     pub fn accumulate(&mut self, rect: &LayoutRect) {
-        self.mapping.accumulate(rect);
-
-        if let Some(ref mut mapping) = self.original_mapping {
-            mapping.accumulate(rect);
+        match self.kind {
+            CoordinateSpaceMapping::Local => {
+                self.local_rect = self.local_rect.union(rect);
+            }
+            CoordinateSpaceMapping::Offset(ref offset) => {
+                let rect = rect.translate(offset);
+                self.local_rect = self.local_rect.union(&rect);
+            }
+            CoordinateSpaceMapping::Transform(ref transform) => {
+                match transform.transform_rect(rect) {
+                    Some(bounds) => {
+                        self.local_rect = self.local_rect.union(&bounds);
+                    }
+                    None => {
+                        warn!("parent relative transform can't transform the primitive rect for {:?}", rect);
+                    }
+                }
+            }
         }
     }
 }
@@ -284,6 +239,7 @@ pub struct ScreenRect {
 pub struct PrimitiveMetadata {
     pub opacity: PrimitiveOpacity,
     pub clip_chain_id: ClipChainId,
+    pub spatial_node_index: SpatialNodeIndex,
     pub gpu_location: GpuCacheHandle,
     pub clip_task_id: Option<RenderTaskId>,
 
@@ -1367,6 +1323,7 @@ impl PrimitiveStore {
         local_clip_rect: &LayoutRect,
         is_backface_visible: bool,
         clip_chain_id: ClipChainId,
+        spatial_node_index: SpatialNodeIndex,
         tag: Option<ItemTag>,
         container: PrimitiveContainer,
     ) -> PrimitiveIndex {
@@ -1376,6 +1333,7 @@ impl PrimitiveStore {
             clip_chain_id,
             gpu_location: GpuCacheHandle::new(),
             clip_task_id: None,
+            spatial_node_index,
             local_rect: *local_rect,
             local_clip_rect: *local_clip_rect,
             combined_local_clip_rect: *local_clip_rect,
@@ -1549,16 +1507,16 @@ impl PrimitiveStore {
     pub fn prepare_prim_for_render(
         &mut self,
         prim_index: PrimitiveIndex,
-        prim_run_context: &PrimitiveRunContext,
+        prim_context: &PrimitiveContext,
         pic_context: &PictureContext,
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
         display_list: &BuiltDisplayList,
+        is_chased: bool,
     ) -> Option<LayoutRect> {
         let mut may_need_clip_mask = true;
         let mut pic_state_for_children = PictureState::new();
-        let is_chased = Some(prim_index) == self.chase_id;
 
         // If we have dependencies, we need to prepare them first, in order
         // to know the actual rect of this primitive.
@@ -1566,18 +1524,7 @@ impl PrimitiveStore {
         // local space, which may force us to render this item on a larger
         // picture target, if being composited.
         let pic_context_for_children = {
-            let prim = &mut self.primitives[prim_index.0];
-
-            // Do some basic checks first, that can early out
-            // without even knowing the local rect.
-            if !prim.metadata.is_backface_visible && prim_run_context.transform.backface_is_visible {
-                if cfg!(debug_assertions) && is_chased {
-                    println!("\tculled for not having visible back faces");
-                }
-                return None;
-            }
-
-            match prim.details {
+            match self.primitives[prim_index.0].details {
                 PrimitiveDetails::Brush(ref mut brush) => {
                     match brush.kind {
                         BrushKind::Picture(ref mut pic) => {
@@ -1592,9 +1539,9 @@ impl PrimitiveStore {
 
                             // Mark whether this picture has a complex coordinate system.
                             pic_state_for_children.has_non_root_coord_system |=
-                                prim_run_context.scroll_node.coordinate_system_id != CoordinateSystemId::root();
+                                prim_context.spatial_node.coordinate_system_id != CoordinateSystemId::root();
 
-                            Some(pic.take_context(prim_run_context.spatial_node_index, pic_context.allow_subpixel_aa))
+                            Some(pic.take_context(pic_context.allow_subpixel_aa))
                         }
                         _ => {
                             None
@@ -1608,11 +1555,16 @@ impl PrimitiveStore {
         };
 
         if let Some(pic_context_for_children) = pic_context_for_children {
-            let result = self.prepare_prim_runs(
+            let mut local_rect_builder = LocalRectBuilder::new(
+                prim_context.spatial_node_index,
+            );
+
+            self.prepare_prim_runs(
                 &pic_context_for_children,
                 &mut pic_state_for_children,
                 frame_context,
                 frame_state,
+                &mut local_rect_builder,
             );
 
             // Restore the dependencies (borrow check dance)
@@ -1621,7 +1573,7 @@ impl PrimitiveStore {
                 .as_pic_mut()
                 .restore_context(
                     pic_context_for_children,
-                    result,
+                    local_rect_builder,
                 );
 
             if new_local_rect != prim.metadata.local_rect {
@@ -1632,7 +1584,6 @@ impl PrimitiveStore {
         }
 
         let prim = &mut self.primitives[prim_index.0];
-        prim.metadata.screen_rect = None;
 
         if prim.metadata.local_rect.size.width <= 0.0 ||
            prim.metadata.local_rect.size.height <= 0.0 {
@@ -1668,7 +1619,7 @@ impl PrimitiveStore {
                 prim.metadata.clip_chain_id,
                 local_rect,
                 prim.metadata.local_clip_rect,
-                prim_run_context.spatial_node_index,
+                prim_context.spatial_node_index,
                 &frame_context.clip_scroll_tree.spatial_nodes,
                 frame_state.gpu_cache,
                 frame_state.resource_cache,
@@ -1693,7 +1644,7 @@ impl PrimitiveStore {
         pic_state.has_non_root_coord_system |= clip_chain.has_non_root_coord_system;
 
         let unclipped_device_rect = match calculate_screen_bounding_rect(
-            &prim_run_context.scroll_node.world_content_transform,
+            &prim_context.spatial_node.world_content_transform,
             &local_rect,
             frame_context.device_pixel_scale,
             None, //TODO: inflate `frame_context.screen_rect` appropriately
@@ -1702,14 +1653,14 @@ impl PrimitiveStore {
             None => {
                 if cfg!(debug_assertions) && is_chased {
                     println!("\tculled for being behind the near plane of transform: {:?}",
-                        prim_run_context.scroll_node.world_content_transform);
+                        prim_context.spatial_node.world_content_transform);
                 }
                 return None
             }
         };
 
         let clipped_device_rect = match calculate_screen_bounding_rect(
-            &prim_run_context.scroll_node.world_content_transform,
+            &prim_context.spatial_node.world_content_transform,
             &clip_chain.local_bounding_rect,
             frame_context.device_pixel_scale,
             None,
@@ -1718,7 +1669,7 @@ impl PrimitiveStore {
             None => {
                 if cfg!(debug_assertions) && is_chased {
                     println!("\tculled for being behind the near plane of transform: {:?}",
-                        prim_run_context.scroll_node.world_content_transform);
+                        prim_context.spatial_node.world_content_transform);
                 }
                 return None
             }
@@ -1752,7 +1703,7 @@ impl PrimitiveStore {
         );
 
         if may_need_clip_mask && !prim.update_clip_task(
-            prim_run_context,
+            prim_context,
             &clipped_device_rect,
             &clip_chain,
             pic_state,
@@ -1769,7 +1720,7 @@ impl PrimitiveStore {
 
         prim.prepare_prim_for_render_inner(
             prim_index,
-            prim_run_context,
+            prim_context,
             pic_state_for_children,
             pic_context,
             pic_state,
@@ -1796,12 +1747,8 @@ impl PrimitiveStore {
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
-    ) -> PrimitiveRunLocalRect {
-        let mut result = PrimitiveRunLocalRect::new(
-            pic_context.spatial_node_index,
-            pic_context.original_spatial_node_index,
-        );
-
+        local_rect_builder: &mut LocalRectBuilder,
+    ) {
         let display_list = &frame_context
             .pipelines
             .get(&pic_context.pipeline_id)
@@ -1809,66 +1756,81 @@ impl PrimitiveStore {
             .display_list;
 
         for run in &pic_context.prim_runs {
-            // TODO(gw): Perhaps we can restructure this to not need to create
-            //           a new primitive context for every run (if the hash
-            //           lookups ever show up in a profile).
-            let scroll_node = &frame_context
-                .clip_scroll_tree
-                .spatial_nodes[run.spatial_node_index.0];
-
             if run.is_chasing(self.chase_id) {
                 println!("\tpreparing a run of length {} in pipeline {:?}",
                     run.count, pic_context.pipeline_id);
-                println!("\trun {:?}", run.spatial_node_index);
-                println!("\ttransform {:?}", scroll_node.world_content_transform.to_transform());
             }
-
-            // Mark whether this picture contains any complex coordinate
-            // systems, due to either the scroll node or the clip-chain.
-            pic_state.has_non_root_coord_system |=
-                scroll_node.coordinate_system_id != CoordinateSystemId::root();
-
-            if !scroll_node.invertible {
-                if run.is_chasing(self.chase_id) {
-                    println!("\tculled for the scroll node transform being invertible");
-                }
-                continue;
-            }
-
-            result.set_target_spatial_node(
-                run.spatial_node_index,
-                &frame_context.clip_scroll_tree,
-            );
-
-            let transform = frame_context
-                .transforms
-                .get_transform(run.spatial_node_index);
-
-            let child_prim_run_context = PrimitiveRunContext::new(
-                scroll_node,
-                run.spatial_node_index,
-                transform,
-            );
 
             for i in 0 .. run.count {
                 let prim_index = PrimitiveIndex(run.base_prim_index.0 + i);
+                let is_chased = Some(prim_index) == self.chase_id;
+
+                // TODO(gw): These workarounds for borrowck are unfortunate. We
+                //           should see if we can re-structure these to avoid so
+                //           many special borrow blocks.
+                let (spatial_node_index, is_backface_visible) = {
+                    let prim = &self.primitives[prim_index.0];
+                    (prim.metadata.spatial_node_index, prim.metadata.is_backface_visible)
+                };
+
+                let spatial_node = &frame_context
+                    .clip_scroll_tree
+                    .spatial_nodes[spatial_node_index.0];
+
+                let transform = frame_context
+                    .transforms
+                    .get_transform(spatial_node_index);
+
+                // TODO(gw): Although constructing these is cheap, they are often
+                //           the same for many consecutive primitives, so it may
+                //           be worth caching the most recent context.
+                let prim_context = PrimitiveContext::new(
+                    spatial_node,
+                    spatial_node_index,
+                    transform,
+                );
+
+                // Do some basic checks first, that can early out
+                // without even knowing the local rect.
+                if !is_backface_visible && prim_context.transform.backface_is_visible {
+                    if cfg!(debug_assertions) && is_chased {
+                        println!("\tculled for not having visible back faces");
+                    }
+                    continue;
+                }
+
+                if !spatial_node.invertible {
+                    if cfg!(debug_assertions) && is_chased {
+                        println!("\tculled for the scroll node transform being invertible");
+                    }
+                    continue;
+                }
+
+                // Mark whether this picture contains any complex coordinate
+                // systems, due to either the scroll node or the clip-chain.
+                pic_state.has_non_root_coord_system |=
+                    spatial_node.coordinate_system_id != CoordinateSystemId::root();
+
+                local_rect_builder.set_target_spatial_node(
+                    spatial_node_index,
+                    &frame_context.clip_scroll_tree,
+                );
 
                 if let Some(prim_local_rect) = self.prepare_prim_for_render(
                     prim_index,
-                    &child_prim_run_context,
+                    &prim_context,
                     pic_context,
                     pic_state,
                     frame_context,
                     frame_state,
                     display_list,
+                    is_chased,
                 ) {
                     frame_state.profile_counters.visible_primitives.inc();
-                    result.accumulate(&prim_local_rect);
+                    local_rect_builder.accumulate(&prim_local_rect);
                 }
             }
         }
-
-        result
     }
 }
 
@@ -1896,7 +1858,7 @@ fn decompose_repeated_primitive(
     metadata: &mut PrimitiveMetadata,
     stretch_size: &LayoutSize,
     tile_spacing: &LayoutSize,
-    prim_run_context: &PrimitiveRunContext,
+    prim_context: &PrimitiveContext,
     frame_context: &FrameBuildingContext,
     frame_state: &mut FrameBuildingState,
     callback: &mut FnMut(&LayoutRect, GpuDataRequest),
@@ -1916,7 +1878,7 @@ fn decompose_repeated_primitive(
         .unclipped;
 
     let visible_rect = compute_conservative_visible_rect(
-        prim_run_context,
+        prim_context,
         frame_context,
         unclipped_device_rect,
         &tight_clip_rect
@@ -1957,7 +1919,7 @@ fn decompose_repeated_primitive(
 }
 
 fn compute_conservative_visible_rect(
-    prim_run_context: &PrimitiveRunContext,
+    prim_context: &PrimitiveContext,
     frame_context: &FrameBuildingContext,
     clipped_device_rect: &DeviceIntRect,
     local_clip_rect: &LayoutRect,
@@ -1965,8 +1927,8 @@ fn compute_conservative_visible_rect(
     let world_screen_rect = clipped_device_rect
         .to_f32() / frame_context.device_pixel_scale;
 
-    if let Some(layer_screen_rect) = prim_run_context
-        .scroll_node
+    if let Some(layer_screen_rect) = prim_context
+        .spatial_node
         .world_content_transform
         .unapply(&world_screen_rect) {
 
@@ -2136,7 +2098,7 @@ fn write_brush_segment_description(
 impl Primitive {
     fn update_clip_task_for_brush(
         &mut self,
-        prim_run_context: &PrimitiveRunContext,
+        prim_context: &PrimitiveContext,
         clip_chain: &ClipChainInstance,
         combined_outer_rect: &DeviceIntRect,
         pic_state: &mut PictureState,
@@ -2170,7 +2132,7 @@ impl Primitive {
             }
 
             let intersected_rect = calculate_screen_bounding_rect(
-                &prim_run_context.scroll_node.world_content_transform,
+                &prim_context.spatial_node.world_content_transform,
                 &segment.local_rect,
                 frame_context.device_pixel_scale,
                 Some(&combined_outer_rect),
@@ -2217,7 +2179,7 @@ impl Primitive {
     fn prepare_prim_for_render_inner(
         &mut self,
         prim_index: PrimitiveIndex,
-        prim_run_context: &PrimitiveRunContext,
+        prim_context: &PrimitiveContext,
         pic_state_for_children: PictureState,
         pic_context: &PictureContext,
         pic_state: &mut PictureState,
@@ -2236,7 +2198,7 @@ impl Primitive {
         match self.details {
             PrimitiveDetails::TextRun(ref mut text) => {
                 // The transform only makes sense for screen space rasterization
-                let transform = prim_run_context.scroll_node.world_content_transform.to_transform();
+                let transform = prim_context.spatial_node.world_content_transform.to_transform();
                 text.prepare_for_render(
                     frame_context.device_pixel_scale,
                     &transform,
@@ -2391,7 +2353,7 @@ impl Primitive {
                                     .intersection(&metadata.local_rect).unwrap();
 
                                 let visible_rect = compute_conservative_visible_rect(
-                                    prim_run_context,
+                                    prim_context,
                                     frame_context,
                                     &metadata.screen_rect.unwrap().clipped,
                                     &tight_clip_rect
@@ -2531,7 +2493,7 @@ impl Primitive {
                                 metadata,
                                 &stretch_size,
                                 &tile_spacing,
-                                prim_run_context,
+                                prim_context,
                                 frame_context,
                                 frame_state,
                                 &mut |rect, mut request| {
@@ -2581,7 +2543,7 @@ impl Primitive {
                                 metadata,
                                 &stretch_size,
                                 &tile_spacing,
-                                prim_run_context,
+                                prim_context,
                                 frame_context,
                                 frame_state,
                                 &mut |rect, mut request| {
@@ -2606,7 +2568,7 @@ impl Primitive {
                         pic.prepare_for_render(
                             prim_index,
                             metadata,
-                            prim_run_context,
+                            prim_context,
                             pic_state_for_children,
                             pic_state,
                             frame_context,
@@ -2669,7 +2631,7 @@ impl Primitive {
 
     fn update_clip_task(
         &mut self,
-        prim_run_context: &PrimitiveRunContext,
+        prim_context: &PrimitiveContext,
         prim_screen_rect: &DeviceIntRect,
         clip_chain: &ClipChainInstance,
         pic_state: &mut PictureState,
@@ -2685,7 +2647,7 @@ impl Primitive {
 
         // First try to  render this primitive's mask using optimized brush rendering.
         if self.update_clip_task_for_brush(
-            prim_run_context,
+            prim_context,
             &clip_chain,
             prim_screen_rect,
             pic_state,

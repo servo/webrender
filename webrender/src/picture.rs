@@ -6,12 +6,11 @@ use api::{DeviceRect, FilterOp, MixBlendMode, PipelineId, PremultipliedColorF};
 use api::{DeviceIntRect, DeviceIntSize, DevicePoint, LayoutPoint, LayoutRect};
 use api::{DevicePixelScale, PictureIntPoint, PictureIntRect, PictureIntSize};
 use box_shadow::{BLUR_SAMPLE_SCALE};
-use clip_scroll_tree::SpatialNodeIndex;
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState};
-use frame_builder::{PictureContext, PrimitiveRunContext};
+use frame_builder::{PictureContext, PrimitiveContext};
 use gpu_cache::{GpuCacheHandle};
 use gpu_types::UvRectKind;
-use prim_store::{PrimitiveIndex, PrimitiveRun, PrimitiveRunLocalRect};
+use prim_store::{PrimitiveIndex, PrimitiveRun, LocalRectBuilder};
 use prim_store::{PrimitiveMetadata, Transform};
 use render_task::{ClearMode, RenderTask, RenderTaskCacheEntryHandle};
 use render_task::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId, RenderTaskLocation};
@@ -147,11 +146,6 @@ pub struct PicturePrimitive {
     // pages to a texture), this is the pipeline this
     // picture is the root of.
     pub frame_output_pipeline_id: Option<PipelineId>,
-    // The original reference spatial node for this picture.
-    // It is only different if this is part of a 3D
-    // rendering context.
-    pub original_spatial_node_index: SpatialNodeIndex,
-    pub real_local_rect: LayoutRect,
     // An optional cache handle for storing extra data
     // in the GPU cache, depending on the type of
     // picture.
@@ -183,7 +177,6 @@ impl PicturePrimitive {
         composite_mode: Option<PictureCompositeMode>,
         is_in_3d_context: bool,
         pipeline_id: PipelineId,
-        original_spatial_node_index: SpatialNodeIndex,
         frame_output_pipeline_id: Option<PipelineId>,
         apply_local_clip_rect: bool,
     ) -> Self {
@@ -194,8 +187,6 @@ impl PicturePrimitive {
             composite_mode,
             is_in_3d_context,
             frame_output_pipeline_id,
-            original_spatial_node_index,
-            real_local_rect: LayoutRect::zero(),
             extra_gpu_data_handle: GpuCacheHandle::new(),
             apply_local_clip_rect,
             pipeline_id,
@@ -205,7 +196,6 @@ impl PicturePrimitive {
 
     pub fn take_context(
         &mut self,
-        spatial_node_index: SpatialNodeIndex,
         allow_subpixel_aa: bool,
     ) -> PictureContext {
         // TODO(lsalzman): allow overriding parent if intermediate surface is opaque
@@ -225,8 +215,6 @@ impl PicturePrimitive {
         PictureContext {
             pipeline_id: self.pipeline_id,
             prim_runs: mem::replace(&mut self.runs, Vec::new()),
-            spatial_node_index,
-            original_spatial_node_index: self.original_spatial_node_index,
             apply_local_clip_rect: self.apply_local_clip_rect,
             inflation_factor,
             allow_subpixel_aa,
@@ -236,11 +224,9 @@ impl PicturePrimitive {
     pub fn add_primitive(
         &mut self,
         prim_index: PrimitiveIndex,
-        spatial_node_index: SpatialNodeIndex,
     ) {
         if let Some(ref mut run) = self.runs.last_mut() {
-            if run.spatial_node_index == spatial_node_index &&
-               run.base_prim_index.0 + run.count == prim_index.0 {
+            if run.base_prim_index.0 + run.count == prim_index.0 {
                 run.count += 1;
                 return;
             }
@@ -249,23 +235,17 @@ impl PicturePrimitive {
         self.runs.push(PrimitiveRun {
             base_prim_index: prim_index,
             count: 1,
-            spatial_node_index,
         });
     }
 
     pub fn restore_context(
         &mut self,
         context: PictureContext,
-        prim_run_rect: PrimitiveRunLocalRect,
+        local_rect_builder: LocalRectBuilder,
     ) -> LayoutRect {
         self.runs = context.prim_runs;
 
-        let local_content_rect = prim_run_rect.mapping.local_rect;
-
-        self.real_local_rect = match prim_run_rect.original_mapping {
-            Some(mapping) => mapping.local_rect,
-            None => local_content_rect,
-        };
+        let local_content_rect = local_rect_builder.local_rect;
 
         match self.composite_mode {
             Some(PictureCompositeMode::Filter(FilterOp::Blur(blur_radius))) => {
@@ -316,7 +296,7 @@ impl PicturePrimitive {
         &mut self,
         prim_index: PrimitiveIndex,
         prim_metadata: &mut PrimitiveMetadata,
-        prim_run_context: &PrimitiveRunContext,
+        prim_context: &PrimitiveContext,
         mut pic_state_for_children: PictureState,
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
@@ -359,7 +339,7 @@ impl PicturePrimitive {
 
                 let uv_rect_kind = calculate_uv_rect_kind(
                     &prim_metadata.local_rect,
-                    &prim_run_context.transform,
+                    &prim_context.transform,
                     &device_rect,
                     frame_context.device_pixel_scale,
                 );
@@ -480,7 +460,7 @@ impl PicturePrimitive {
 
                 let uv_rect_kind = calculate_uv_rect_kind(
                     &prim_metadata.local_rect,
-                    &prim_run_context.transform,
+                    &prim_context.transform,
                     &device_rect,
                     frame_context.device_pixel_scale,
                 );
@@ -550,7 +530,7 @@ impl PicturePrimitive {
             Some(PictureCompositeMode::MixBlend(..)) => {
                 let uv_rect_kind = calculate_uv_rect_kind(
                     &prim_metadata.local_rect,
-                    &prim_run_context.transform,
+                    &prim_context.transform,
                     &prim_screen_rect.clipped,
                     frame_context.device_pixel_scale,
                 );
@@ -586,7 +566,7 @@ impl PicturePrimitive {
 
                 let uv_rect_kind = calculate_uv_rect_kind(
                     &prim_metadata.local_rect,
-                    &prim_run_context.transform,
+                    &prim_context.transform,
                     &prim_screen_rect.clipped,
                     frame_context.device_pixel_scale,
                 );
@@ -607,7 +587,7 @@ impl PicturePrimitive {
             Some(PictureCompositeMode::Blit) | None => {
                 let uv_rect_kind = calculate_uv_rect_kind(
                     &prim_metadata.local_rect,
-                    &prim_run_context.transform,
+                    &prim_context.transform,
                     &prim_screen_rect.clipped,
                     frame_context.device_pixel_scale,
                 );
