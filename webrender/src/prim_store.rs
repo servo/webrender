@@ -2012,7 +2012,7 @@ fn write_brush_segment_description(
         Some(ref segment_desc) => {
             // If we already have a segment descriptor, only run through the
             // clips list if we haven't already determined the mask kind.
-            if segment_desc.clip_mask_kind != BrushClipMaskKind::Unknown {
+            if segment_desc.clip_mask_kind == clip_chain.clip_mask_kind {
                 return;
             }
         }
@@ -2043,28 +2043,9 @@ fn write_brush_segment_description(
         metadata.local_clip_rect
     );
 
-    // If this primitive is clipped by clips from a different coordinate system, then we
-    // need to apply a clip mask for the entire primitive.
-    let mut clip_mask_kind = if clip_chain.has_clips_from_other_coordinate_systems {
-        BrushClipMaskKind::Global
-    } else {
-        BrushClipMaskKind::Individual
-    };
-
     // Segment the primitive on all the local-space clip sources that we can.
     for i in 0 .. clip_chain.clips_range.count {
         let (clip_node, flags) = frame_state.clip_store.get_node_from_range(&clip_chain.clips_range, i);
-
-        if !flags.contains(ClipNodeFlags::SAME_COORD_SYSTEM) {
-            continue;
-        }
-
-        // TODO(gw): We can easily extend the segment builder to support these clip sources in
-        // the future, but they are rarely used.
-        // We must do this check here in case we continue early below.
-        if clip_node.item.is_image_or_line_decoration_clip() {
-            clip_mask_kind = BrushClipMaskKind::Global;
-        }
 
         // If this clip item is positioned by another positioning node, its relative position
         // could change during scrolling. This means that we would need to resegment. Instead
@@ -2072,12 +2053,6 @@ fn write_brush_segment_description(
         // TODO(mrobinson, #2858): It may make sense to include these nodes, resegmenting only
         // when necessary while scrolling.
         if !flags.contains(ClipNodeFlags::SAME_SPATIAL_NODE) {
-            // We don't need to generate a global clip mask for rectangle clips because we are
-            // in the same coordinate system and rectangular clips are handled by the local
-            // clip chain rectangle.
-            if !clip_node.item.is_rect() {
-                clip_mask_kind = BrushClipMaskKind::Global;
-            }
             continue;
         }
 
@@ -2128,7 +2103,7 @@ fn write_brush_segment_description(
     if is_large || rect_clips_only {
         match brush.segment_desc {
             Some(ref mut segment_desc) => {
-                segment_desc.clip_mask_kind = clip_mask_kind;
+                segment_desc.clip_mask_kind = clip_chain.clip_mask_kind;
             }
             None => {
                 // TODO(gw): We can probably make the allocation
@@ -2151,7 +2126,7 @@ fn write_brush_segment_description(
 
                 brush.segment_desc = Some(BrushSegmentDescriptor {
                     segments,
-                    clip_mask_kind,
+                    clip_mask_kind: clip_chain.clip_mask_kind,
                 });
             }
         }
