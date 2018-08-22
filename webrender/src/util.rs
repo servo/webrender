@@ -4,7 +4,7 @@
 
 use api::{BorderRadius, DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePixelScale};
 use api::{DevicePoint, DeviceRect, DeviceSize, LayoutPixel, LayoutPoint, LayoutRect, LayoutSize};
-use api::{WorldPixel, WorldRect};
+use api::{WorldPixel, WorldRect, WorldPoint, WorldSize};
 use euclid::{Point2D, Rect, Size2D, TypedPoint2D, TypedRect, TypedSize2D};
 use euclid::{TypedTransform2D, TypedTransform3D, TypedVector2D};
 use euclid::{HomogeneousVector};
@@ -362,6 +362,17 @@ impl MaxRect for DeviceRect {
         DeviceRect::new(
             DevicePoint::new(-MAX_COORD, -MAX_COORD),
             DeviceSize::new(2.0 * MAX_COORD, 2.0 * MAX_COORD),
+        )
+    }
+}
+
+impl MaxRect for WorldRect {
+    fn max_rect() -> Self {
+        const MAX_COORD: f32 = 1.0e9;
+
+        WorldRect::new(
+            WorldPoint::new(-MAX_COORD, -MAX_COORD),
+            WorldSize::new(2.0 * MAX_COORD, 2.0 * MAX_COORD),
         )
     }
 }
