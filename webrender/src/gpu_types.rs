@@ -369,7 +369,7 @@ impl TransformPaletteId {
 }
 
 // The GPU data payload for a transform palette entry.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(C)]
@@ -388,8 +388,17 @@ impl TransformData {
 }
 
 // Extra data stored about each transform palette entry.
+#[derive(Clone)]
 pub struct TransformMetadata {
     transform_kind: TransformedRectKind,
+}
+
+impl TransformMetadata {
+    fn invalid() -> Self {
+        TransformMetadata {
+            transform_kind: TransformedRectKind::AxisAligned,
+        }
+    }
 }
 
 // Stores a contiguous list of TransformData structs, that
@@ -407,27 +416,12 @@ pub struct TransformPalette {
 impl TransformPalette {
     pub fn new(spatial_node_count: usize) -> Self {
         TransformPalette {
-            transforms: Vec::with_capacity(spatial_node_count),
-            metadata: Vec::with_capacity(spatial_node_count),
-        }
-    }
-
-    #[inline]
-    fn grow(&mut self, index: SpatialNodeIndex) {
-        // Pad the vectors out if they are not long enough to
-        // account for this index. This can occur, for instance,
-        // when we stop recursing down the CST due to encountering
-        // a node with an invalid transform.
-        while self.transforms.len() <= index.0 as usize {
-            self.transforms.push(TransformData::invalid());
-            self.metadata.push(TransformMetadata {
-                transform_kind: TransformedRectKind::AxisAligned,
-            });
+            transforms: vec![TransformData::invalid(); spatial_node_count],
+            metadata: vec![TransformMetadata::invalid(); spatial_node_count],
         }
     }
 
     pub fn invalidate(&mut self, index: SpatialNodeIndex) {
-        self.grow(index);
         self.metadata[index.0 as usize] = TransformMetadata {
             transform_kind: TransformedRectKind::AxisAligned,
         };
@@ -439,8 +433,6 @@ impl TransformPalette {
     pub fn set(
         &mut self, index: SpatialNodeIndex, fast_transform: &LayoutToWorldFastTransform,
     ) -> bool {
-        self.grow(index);
-
         match fast_transform.inverse() {
             Some(inverted) => {
                 // Store the transform itself, along with metadata about it.
@@ -474,7 +466,7 @@ impl TransformPalette {
         let metadata = &self.metadata[index.0 as usize];
 
         Transform {
-            m: &data.transform,
+            m: data.transform,
             transform_kind: metadata.transform_kind,
             backface_is_visible: data.transform.is_backface_visible(),
         }

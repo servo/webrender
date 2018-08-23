@@ -73,7 +73,6 @@ pub struct FrameBuildingContext<'a> {
     pub pipelines: &'a FastHashMap<PipelineId, Arc<ScenePipeline>>,
     pub screen_rect: DeviceIntRect,
     pub clip_scroll_tree: &'a ClipScrollTree,
-    pub transforms: &'a TransformPalette,
     pub max_local_clip: LayoutRect,
 }
 
@@ -84,6 +83,7 @@ pub struct FrameBuildingState<'a> {
     pub resource_cache: &'a mut ResourceCache,
     pub gpu_cache: &'a mut GpuCache,
     pub special_render_passes: &'a mut SpecialRenderPasses,
+    pub transforms: &'a mut TransformPalette,
 }
 
 pub struct PictureContext {
@@ -113,14 +113,14 @@ impl PictureState {
 pub struct PrimitiveContext<'a> {
     pub spatial_node: &'a SpatialNode,
     pub spatial_node_index: SpatialNodeIndex,
-    pub transform: Transform<'a>,
+    pub transform: Transform,
 }
 
 impl<'a> PrimitiveContext<'a> {
     pub fn new(
         spatial_node: &'a SpatialNode,
         spatial_node_index: SpatialNodeIndex,
-        transform: Transform<'a>,
+        transform: Transform,
     ) -> Self {
         PrimitiveContext {
             spatial_node,
@@ -186,7 +186,7 @@ impl FrameBuilder {
         profile_counters: &mut FrameProfileCounters,
         device_pixel_scale: DevicePixelScale,
         scene_properties: &SceneProperties,
-        transform_palette: &TransformPalette,
+        transform_palette: &mut TransformPalette,
     ) -> Option<RenderTaskId> {
         profile_scope!("cull");
 
@@ -208,7 +208,6 @@ impl FrameBuilder {
             pipelines,
             screen_rect: self.screen_rect.to_i32(),
             clip_scroll_tree,
-            transforms: transform_palette,
             max_local_clip: LayoutRect::new(
                 LayoutPoint::new(-MAX_CLIP_COORD, -MAX_CLIP_COORD),
                 LayoutSize::new(2.0 * MAX_CLIP_COORD, 2.0 * MAX_CLIP_COORD),
@@ -222,6 +221,7 @@ impl FrameBuilder {
             resource_cache,
             gpu_cache,
             special_render_passes,
+            transforms: transform_palette,
         };
 
         let mut pic_state = PictureState::new();
@@ -319,7 +319,7 @@ impl FrameBuilder {
         resource_cache.begin_frame(frame_id);
         gpu_cache.begin_frame();
 
-        let transform_palette = clip_scroll_tree.update_tree(
+        let mut transform_palette = clip_scroll_tree.update_tree(
             pan,
             scene_properties,
         );
@@ -341,7 +341,7 @@ impl FrameBuilder {
             &mut profile_counters,
             device_pixel_scale,
             scene_properties,
-            &transform_palette,
+            &mut transform_palette,
         );
 
         resource_cache.block_until_all_resources_added(gpu_cache,

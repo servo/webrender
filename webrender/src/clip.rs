@@ -12,12 +12,11 @@ use clip_scroll_tree::{ClipScrollTree, CoordinateSystemId, SpatialNodeIndex};
 use ellipse::Ellipse;
 use gpu_cache::{GpuCache, GpuCacheHandle, ToGpuBlocks};
 use gpu_types::BoxShadowStretchMode;
-use plane_split::{Clipper, Polygon};
 use prim_store::{ClipData, ImageMaskData};
 use render_task::to_cache_size;
 use resource_cache::{ImageRequest, ResourceCache};
 use std::{cmp, u32};
-use util::{extract_inner_rect_safe, pack_as_float, recycle_vec, MaxRect};
+use util::{extract_inner_rect_safe, pack_as_float, project_rect, recycle_vec, MaxRect};
 
 /*
 
@@ -1076,53 +1075,6 @@ pub fn rounded_rectangle_contains_point(
     }
 
     true
-}
-
-fn project_rect(
-    transform: &LayoutToWorldTransform,
-    rect: &LayoutRect,
-) -> Option<WorldRect> {
-    let homogens = [
-        transform.transform_point2d_homogeneous(&rect.origin),
-        transform.transform_point2d_homogeneous(&rect.top_right()),
-        transform.transform_point2d_homogeneous(&rect.bottom_left()),
-        transform.transform_point2d_homogeneous(&rect.bottom_right()),
-    ];
-
-    // Note: we only do the full frustum collision when the polygon approaches the camera plane.
-    // Otherwise, it will be clamped to the screen bounds anyway.
-    if homogens.iter().any(|h| h.w <= 0.0) {
-        let mut clipper = Clipper::new();
-        clipper.add_frustum(
-            transform,
-            None,
-        );
-
-        let polygon = Polygon::from_rect(*rect, 1);
-        let results = clipper.clip(polygon);
-        if results.is_empty() {
-            return None
-        }
-
-        Some(WorldRect::from_points(results
-            .into_iter()
-            // filter out parts behind the view plane
-            .flat_map(|poly| &poly.points)
-            .map(|p| {
-                let mut homo = transform.transform_point2d_homogeneous(&p.to_2d());
-                homo.w = homo.w.max(0.00000001); // avoid infinite values
-                homo.to_point2d().unwrap()
-            })
-        ))
-    } else {
-        // we just checked for all the points to be in positive hemisphere, so `unwrap` is valid
-        Some(WorldRect::from_points(&[
-            homogens[0].to_point2d().unwrap(),
-            homogens[1].to_point2d().unwrap(),
-            homogens[2].to_point2d().unwrap(),
-            homogens[3].to_point2d().unwrap(),
-        ]))
-    }
 }
 
 pub fn project_inner_rect(

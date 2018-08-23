@@ -29,8 +29,8 @@ use resource_cache::{ImageProperties, ImageRequest, ResourceCache};
 use scene::SceneProperties;
 use segment::SegmentBuilder;
 use std::{cmp, mem, usize};
-use util::{MatrixHelpers, calculate_screen_bounding_rect};
-use util::{pack_as_float, recycle_vec, TransformedRectKind};
+use util::{MatrixHelpers, pack_as_float, project_rect, recycle_vec};
+use util::{TransformedRectKind, world_rect_to_device_pixels};
 
 
 const MIN_BRUSH_SPLIT_AREA: f32 = 256.0 * 256.0;
@@ -59,8 +59,8 @@ impl ScrollNodeAndClipChain {
 // the information in the clip-scroll tree. However, if we decide
 // to rasterize a picture in local space, then this will be the
 // transform relative to that picture's coordinate system.
-pub struct Transform<'a> {
-    pub m: &'a LayoutToWorldTransform,
+pub struct Transform {
+    pub m: LayoutToWorldTransform,
     pub backface_is_visible: bool,
     pub transform_kind: TransformedRectKind,
 }
@@ -1635,13 +1635,8 @@ impl PrimitiveStore {
 
         pic_state.has_non_root_coord_system |= clip_chain.has_non_root_coord_system;
 
-        let unclipped_device_rect = match calculate_screen_bounding_rect(
-            &prim_context.spatial_node.world_content_transform,
-            &local_rect,
-            frame_context.device_pixel_scale,
-            None, //TODO: inflate `frame_context.screen_rect` appropriately
-        ) {
-            Some(rect) => rect,
+        let world_rect = match project_rect(&prim_context.transform.m, &local_rect) {
+            Some(world_rect) => world_rect,
             None => {
                 if cfg!(debug_assertions) && is_chased {
                     println!("\tculled for being behind the near plane of transform: {:?}",
@@ -1651,9 +1646,21 @@ impl PrimitiveStore {
             }
         };
 
-        let clipped_device_rect = (clip_chain.world_clip_rect * frame_context.device_pixel_scale)
-            .round_out()
-            .to_i32();
+        let unclipped_device_rect = match world_rect_to_device_pixels(
+            world_rect,
+            frame_context.device_pixel_scale,
+        ) {
+            Some(rect) => rect,
+            None => return None,
+        };
+
+        let clipped_device_rect = match world_rect_to_device_pixels(
+            clip_chain.world_clip_rect,
+            frame_context.device_pixel_scale,
+        ) {
+            Some(rect) => rect,
+            None => return None,
+        };
 
         let clipped_device_rect = match clipped_device_rect.intersection(&frame_context.screen_rect) {
             Some(clipped_device_rect) => clipped_device_rect,
@@ -1757,7 +1764,7 @@ impl PrimitiveStore {
                     .clip_scroll_tree
                     .spatial_nodes[spatial_node_index.0];
 
-                let transform = frame_context
+                let transform = frame_state
                     .transforms
                     .get_transform(spatial_node_index);
 
@@ -2157,9 +2164,13 @@ impl Primitive {
                         continue;
                     }
 
-                    let bounds = (segment_clip_chain.world_clip_rect * frame_context.device_pixel_scale)
-                        .round_out()
-                        .to_i32();
+                    let bounds = match world_rect_to_device_pixels(
+                        segment_clip_chain.world_clip_rect,
+                        frame_context.device_pixel_scale,
+                    ) {
+                        Some(rect) => rect,
+                        None => continue,
+                    };
 
                     let clip_task = RenderTask::new_mask(
                         bounds,
