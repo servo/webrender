@@ -2043,7 +2043,7 @@ fn write_brush_segment_description(
     }
 
     if is_large || rect_clips_only {
-        // If there we no local clips, then we will subdivide the primitive into
+        // If there were no local clips, then we will subdivide the primitive into
         // a uniform grid (up to 8x8 segments). This will typically result in
         // a significant number of those segments either being completely clipped,
         // or determined to not need a clip mask for that segment.

@@ -867,60 +867,44 @@ impl ClipItem {
         transform: &LayoutToWorldTransform,
         prim_rect: &WorldRect,
     ) -> ClipResult {
-        match *self {
-            ClipItem::Rectangle(ref clip_rect, ClipMode::Clip) => {
-                if let Some(inner_clip_rect) = project_inner_rect(transform, clip_rect) {
-                    if inner_clip_rect.contains_rect(prim_rect) {
-                        return ClipResult::Accept;
-                    }
-                }
-
-                let outer_clip_rect = match project_rect(transform, clip_rect) {
-                    Some(outer_clip_rect) => outer_clip_rect,
-                    None => return ClipResult::Partial,
-                };
-
-                match outer_clip_rect.intersection(prim_rect) {
-                    Some(..) => {
-                        ClipResult::Partial
-                    }
-                    None => {
-                        ClipResult::Reject
-                    }
-                }
+        let (clip_rect, inner_rect) = match *self {
+            ClipItem::Rectangle(clip_rect, ClipMode::Clip) => {
+                (clip_rect, Some(clip_rect))
             }
             ClipItem::RoundedRectangle(ref clip_rect, ref radius, ClipMode::Clip) => {
-                let inner_clip_rect = extract_inner_rect_safe(clip_rect, radius)
-                    .and_then(|ref inner_clip_rect| {
-                        project_inner_rect(transform, inner_clip_rect)
-                    });
-
-                if let Some(inner_clip_rect) = inner_clip_rect {
-                    if inner_clip_rect.contains_rect(prim_rect) {
-                        return ClipResult::Accept;
-                    }
-                }
-
-                let outer_clip_rect = match project_rect(transform, clip_rect) {
-                    Some(outer_clip_rect) => outer_clip_rect,
-                    None => return ClipResult::Partial,
-                };
-
-                match outer_clip_rect.intersection(prim_rect) {
-                    Some(..) => {
-                        ClipResult::Partial
-                    }
-                    None => {
-                        ClipResult::Reject
-                    }
-                }
+                let inner_clip_rect = extract_inner_rect_safe(clip_rect, radius);
+                (*clip_rect, inner_clip_rect)
             }
             ClipItem::Rectangle(_, ClipMode::ClipOut) |
             ClipItem::RoundedRectangle(_, _, ClipMode::ClipOut) |
             ClipItem::Image(..) |
             ClipItem::BoxShadow(..) |
             ClipItem::LineDecoration(..) => {
+                return ClipResult::Partial
+            }
+        };
+
+        let inner_clip_rect = inner_rect.and_then(|ref inner_rect| {
+            project_inner_rect(transform, inner_rect)
+        });
+
+        if let Some(inner_clip_rect) = inner_clip_rect {
+            if inner_clip_rect.contains_rect(prim_rect) {
+                return ClipResult::Accept;
+            }
+        }
+
+        let outer_clip_rect = match project_rect(transform, &clip_rect) {
+            Some(outer_clip_rect) => outer_clip_rect,
+            None => return ClipResult::Partial,
+        };
+
+        match outer_clip_rect.intersection(prim_rect) {
+            Some(..) => {
                 ClipResult::Partial
+            }
+            None => {
+                ClipResult::Reject
             }
         }
     }
@@ -1129,24 +1113,24 @@ pub fn project_inner_rect(
     transform: &LayoutToWorldTransform,
     rect: &LayoutRect,
 ) -> Option<WorldRect> {
-    let homogens = [
-        transform.transform_point2d_homogeneous(&rect.origin),
-        transform.transform_point2d_homogeneous(&rect.top_right()),
-        transform.transform_point2d_homogeneous(&rect.bottom_left()),
-        transform.transform_point2d_homogeneous(&rect.bottom_right()),
+    let points = [
+        transform.transform_point2d(&rect.origin),
+        transform.transform_point2d(&rect.top_right()),
+        transform.transform_point2d(&rect.bottom_left()),
+        transform.transform_point2d(&rect.bottom_right()),
     ];
 
     // Note: we only do the full frustum collision when the polygon approaches the camera plane.
     // Otherwise, it will be clamped to the screen bounds anyway.
-    if homogens.iter().any(|h| h.w <= 0.0) {
+    if points.iter().any(|p| p.is_none()) {
         None
     } else {
         // we just checked for all the points to be in positive hemisphere, so `unwrap` is valid
         let points = [
-            homogens[0].to_point2d().unwrap(),
-            homogens[1].to_point2d().unwrap(),
-            homogens[2].to_point2d().unwrap(),
-            homogens[3].to_point2d().unwrap(),
+            points[0].unwrap(),
+            points[1].unwrap(),
+            points[2].unwrap(),
+            points[3].unwrap(),
         ];
         let mut xs = [points[0].x, points[1].x, points[2].x, points[3].x];
         let mut ys = [points[0].y, points[1].y, points[2].y, points[3].y];
