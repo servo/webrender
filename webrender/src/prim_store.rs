@@ -420,6 +420,41 @@ impl BrushKind {
             opacity_binding: OpacityBinding::new(),
         }
     }
+
+    // Construct a brush that is a border with `border` style and `widths`
+    // dimensions.
+    pub fn new_border(border: NormalBorder, widths: BorderWidths) -> BrushKind {
+        let cache_key = BorderCacheKey::new(&border, &widths);
+        BrushKind::Border {
+            source: BorderSource::Border {
+                border,
+                widths,
+                cache_key,
+                task_info: None,
+                handle: None,
+            }
+        }
+    }
+
+    // Construct a brush that is an image wisth `stretch_size` dimensions and
+    // `color`.
+    pub fn new_image(
+        request: ImageRequest,
+        stretch_size: LayoutSize,
+        color: ColorF
+    ) -> BrushKind {
+        BrushKind::Image {
+            request,
+            alpha_type: AlphaType::PremultipliedAlpha,
+            stretch_size,
+            tile_spacing: LayoutSize::new(0., 0.),
+            color,
+            source: ImageSource::Default,
+            sub_rect: None,
+            opacity_binding: OpacityBinding::new(),
+            visible_tiles: Vec::new(),
+        }
+    }
 }
 
 bitflags! {
@@ -1242,11 +1277,35 @@ impl PrimitiveContainer {
                             None,
                         ))
                     }
+                    BrushKind::Border { ref source } => {
+                        let source = match *source {
+                            BorderSource::Image(request) => {
+                                BrushKind::Border {
+                                    source: BorderSource::Image(request)
+                                }
+                            },
+                            BorderSource::Border { border, widths, .. } => {
+                                let border = border.with_color(shadow.color);
+                                BrushKind::new_border(border, widths)
+
+                            }
+                        };
+                        PrimitiveContainer::Brush(BrushPrimitive::new(
+                            source,
+                            None,
+                        ))
+                    }
+                    BrushKind::Image { request, stretch_size, .. } => {
+                        PrimitiveContainer::Brush(BrushPrimitive::new(
+                            BrushKind::new_image(request.clone(),
+                                                 stretch_size.clone(),
+                                                 shadow.color),
+                            None,
+                        ))
+                    }
                     BrushKind::Clear |
                     BrushKind::Picture { .. } |
-                    BrushKind::Image { .. } |
                     BrushKind::YuvImage { .. } |
-                    BrushKind::Border { .. } |
                     BrushKind::RadialGradient { .. } |
                     BrushKind::LinearGradient { .. } => {
                         panic!("bug: other brush kinds not expected here yet");
