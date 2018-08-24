@@ -63,3 +63,5 @@ fuzzy(1,71) platform(linux) == raster-space.yaml raster-space.png
 == bg-color.yaml bg-color-ref.yaml
 != large-glyphs.yaml blank.yaml
 == snap-text-offset.yaml snap-text-offset-ref.yaml
+== shadow-border.yaml shadow-solid-ref.yaml
+== shadow-image.yaml shadow-solid-ref.yaml
