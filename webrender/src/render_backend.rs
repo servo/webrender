@@ -353,6 +353,7 @@ impl Document {
             blob_requests,
             blob_rasterizer,
             resource_updates: transaction_msg.resource_updates,
+            rasterized_blobs: Vec::new(),
             frame_ops: transaction_msg.frame_ops,
             render: transaction_msg.generate_frame,
             document_id,
@@ -508,6 +509,7 @@ pub struct RenderBackend {
     payload_rx: Receiver<Payload>,
     result_tx: Sender<ResultMsg>,
     scene_tx: Sender<SceneBuilderRequest>,
+    low_priority_scene_tx: Sender<SceneBuilderRequest>,
     scene_rx: Receiver<SceneBuilderResult>,
 
     payload_buffer: Vec<Payload>,
@@ -534,6 +536,7 @@ impl RenderBackend {
         payload_rx: Receiver<Payload>,
         result_tx: Sender<ResultMsg>,
         scene_tx: Sender<SceneBuilderRequest>,
+        low_priority_scene_tx: Sender<SceneBuilderRequest>,
         scene_rx: Receiver<SceneBuilderResult>,
         default_device_pixel_ratio: f32,
         resource_cache: ResourceCache,
@@ -551,6 +554,7 @@ impl RenderBackend {
             payload_rx,
             result_tx,
             scene_tx,
+            low_priority_scene_tx,
             scene_rx,
             payload_buffer: Vec::new(),
             default_device_pixel_ratio,
@@ -798,7 +802,7 @@ impl RenderBackend {
             };
         }
 
-        let _ = self.scene_tx.send(SceneBuilderRequest::Stop);
+        let _ = self.low_priority_scene_tx.send(SceneBuilderRequest::Stop);
         // Ensure we read everything the scene builder is sending us from
         // inflight messages, otherwise the scene builder might panic.
         while let Ok(msg) = self.scene_rx.recv() {
@@ -835,7 +839,7 @@ impl RenderBackend {
                 self.scene_tx.send(SceneBuilderRequest::WakeUp).unwrap();
             }
             ApiMsg::FlushSceneBuilder(tx) => {
-                self.scene_tx.send(SceneBuilderRequest::Flush(tx)).unwrap();
+                self.low_priority_scene_tx.send(SceneBuilderRequest::Flush(tx)).unwrap();
             }
             ApiMsg::UpdateResources(mut updates) => {
                 self.resource_cache.pre_scene_building_update(

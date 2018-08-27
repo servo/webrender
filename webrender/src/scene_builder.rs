@@ -23,6 +23,7 @@ pub enum SceneBuilderRequest {
         scene: Option<SceneRequest>,
         blob_requests: Vec<BlobImageParams>,
         blob_rasterizer: Option<Box<AsyncBlobImageRasterizer>>,
+        rasterized_blobs: Vec<(BlobImageRequest, BlobImageResult)>,
         resource_updates: Vec<ResourceUpdate>,
         frame_ops: Vec<FrameMsg>,
         render: bool,
@@ -141,6 +142,7 @@ impl SceneBuilder {
                 scene,
                 blob_requests,
                 mut blob_rasterizer,
+                mut rasterized_blobs,
                 resource_updates,
                 frame_ops,
                 render,
@@ -150,10 +152,13 @@ impl SceneBuilder {
                     build_scene(&self.config, request)
                 });
 
-                let rasterized_blobs = blob_rasterizer.as_mut().map_or(
+                let mut more_rasterized_blobs = blob_rasterizer.as_mut().map_or(
                     Vec::new(),
                     |rasterizer| rasterizer.rasterize(&blob_requests),
                 );
+
+                rasterized_blobs.append(&mut more_rasterized_blobs);
+
 
                 // We only need the pipeline info and the result channel if we
                 // have a hook callback *and* if this transaction actually built
@@ -213,6 +218,78 @@ impl SceneBuilder {
                 self.tx.send(SceneBuilderResult::Stopped).unwrap();
                 // We don't need to send a WakeUp to api_tx because we only
                 // get the Stop when the RenderBackend loop is exiting.
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+/// A scene builder thread which executes expensive operations such as blob rasterization
+/// with a lower priority than the normal scene builder thread.
+///
+/// After rasterizing blobs, the secene building request is forwarded to the normal scene
+/// builder where the FrameBuilder is generated.
+pub struct LowPrioritySceneBuilder {
+    pub rx: Receiver<SceneBuilderRequest>,
+    pub tx: Sender<SceneBuilderRequest>,
+}
+
+impl LowPrioritySceneBuilder {
+    pub fn run(&mut self) {
+        loop {
+            match self.rx.recv() {
+                Ok(msg) => {
+                    if !self.process_message(msg) {
+                        break;
+                    }
+                }
+                Err(_) => {
+                    break;
+                }
+            }
+        }
+    }
+
+    fn process_message(&mut self, msg: SceneBuilderRequest) -> bool {
+        match msg {
+            SceneBuilderRequest::WakeUp => {}
+            SceneBuilderRequest::Flush(tx) => {
+                self.tx.send(SceneBuilderRequest::Flush(tx)).unwrap();
+            }
+            SceneBuilderRequest::Transaction {
+                document_id,
+                scene,
+                blob_requests,
+                mut blob_rasterizer,
+                mut rasterized_blobs,
+                resource_updates,
+                frame_ops,
+                render,
+            } => {
+                let mut more_rasterized_blobs = blob_rasterizer.as_mut().map_or(
+                    Vec::new(),
+                    |rasterizer| rasterizer.rasterize(&blob_requests),
+                );
+
+                rasterized_blobs.append(&mut more_rasterized_blobs);
+
+                self.tx.send(
+                    SceneBuilderRequest::Transaction {
+                        document_id,
+                        scene,
+                        blob_requests: Vec::new(),
+                        blob_rasterizer,
+                        rasterized_blobs,
+                        resource_updates,
+                        frame_ops,
+                        render,
+                    }
+                ).unwrap();
+            }
+            SceneBuilderRequest::Stop => {
+                self.tx.send(SceneBuilderRequest::Stop).unwrap();
                 return false;
             }
         }
