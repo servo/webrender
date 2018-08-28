@@ -26,9 +26,9 @@ root:
             color: green
 
         - type: clip
-          bounds: [490, 50, 200, 200]
+          bounds: [490, 50, 500, 500]
           complex:
-            - rect: [490, 50, 200, 200]
+            - rect: [490, 50, 500, 500]
               radius: {
                 top-left: [32, 16],
                 top-right: [40, 24],
@@ -37,5 +37,5 @@ root:
               }
           items:
           - type: rect
-            bounds: 490 50 200 200
+            bounds: 490 50 500 500
             color: blue
