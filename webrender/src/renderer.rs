@@ -1739,25 +1739,31 @@ impl Renderer {
             }
         })?;
 
-        let (low_priority_scene_tx, low_priority_scene_rx) = channel();
-        let lp_builder = LowPrioritySceneBuilder {
-            rx: low_priority_scene_rx,
-            tx: scene_tx.clone(),
+        let low_priority_scene_tx = if options.support_low_priority_transactions {
+            let (low_priority_scene_tx, low_priority_scene_rx) = channel();
+            let lp_builder = LowPrioritySceneBuilder {
+                rx: low_priority_scene_rx,
+                tx: scene_tx.clone(),
+            };
+
+            thread::Builder::new().name(lp_scene_thread_name.clone()).spawn(move || {
+                register_thread_with_profiler(lp_scene_thread_name.clone());
+                if let Some(ref thread_listener) = *thread_listener_for_lp_scene_builder {
+                    thread_listener.thread_started(&lp_scene_thread_name);
+                }
+
+                let mut scene_builder = lp_builder;
+                scene_builder.run();
+
+                if let Some(ref thread_listener) = *thread_listener_for_lp_scene_builder {
+                    thread_listener.thread_stopped(&lp_scene_thread_name);
+                }
+            })?;
+
+            low_priority_scene_tx
+        } else {
+            scene_tx.clone()
         };
-
-        thread::Builder::new().name(lp_scene_thread_name.clone()).spawn(move || {
-            register_thread_with_profiler(lp_scene_thread_name.clone());
-            if let Some(ref thread_listener) = *thread_listener_for_lp_scene_builder {
-                thread_listener.thread_started(&lp_scene_thread_name);
-            }
-
-            let mut scene_builder = lp_builder;
-            scene_builder.run();
-
-            if let Some(ref thread_listener) = *thread_listener_for_lp_scene_builder {
-                thread_listener.thread_stopped(&lp_scene_thread_name);
-            }
-        })?;
 
         thread::Builder::new().name(rb_thread_name.clone()).spawn(move || {
             register_thread_with_profiler(rb_thread_name.clone());
@@ -4245,6 +4251,7 @@ pub struct RendererOptions {
     pub scene_builder_hooks: Option<Box<SceneBuilderHooks + Send>>,
     pub sampler: Option<Box<AsyncPropertySampler + Send>>,
     pub chase_primitive: ChasePrimitive,
+    pub support_low_priority_transactions: bool,
 }
 
 impl Default for RendererOptions {
@@ -4279,6 +4286,7 @@ impl Default for RendererOptions {
             scene_builder_hooks: None,
             sampler: None,
             chase_primitive: ChasePrimitive::Nothing,
+            support_low_priority_transactions: false,
         }
     }
 }
