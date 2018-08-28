@@ -65,7 +65,7 @@ impl Transaction {
             frame_ops: Vec::new(),
             resource_updates: Vec::new(),
             payloads: Vec::new(),
-            use_scene_builder_thread: false, // TODO: make this true by default.
+            use_scene_builder_thread: true,
             generate_frame: false,
         }
     }

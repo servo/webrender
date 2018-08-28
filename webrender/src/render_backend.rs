@@ -17,6 +17,7 @@ use api::CapturedDocument;
 use clip_scroll_tree::{SpatialNodeIndex, ClipScrollTree};
 #[cfg(feature = "debugger")]
 use debug_server;
+#[cfg(feature = "replay")]
 use display_list_flattener::DisplayListFlattener;
 use frame_builder::{FrameBuilder, FrameBuilderConfig};
 use gpu_cache::GpuCache;
@@ -261,6 +262,7 @@ impl Document {
     }
 
     // TODO: We will probably get rid of this soon and always forward to the scene building thread.
+    #[cfg(feature = "replay")]
     fn build_scene(&mut self, resource_cache: &mut ResourceCache, scene_id: u64) {
         let max_texture_size = resource_cache.max_texture_size();
 
@@ -1025,7 +1027,7 @@ impl RenderBackend {
             );
         }
 
-        if transaction_msg.use_scene_builder_thread {
+        if op.build || transaction_msg.use_scene_builder_thread {
             let scene_id = self.make_unique_scene_id();
             let doc = self.documents.get_mut(&document_id).unwrap();
 
@@ -1046,15 +1048,6 @@ impl RenderBackend {
             transaction_msg.resource_updates,
             &mut profile_counters.resources,
         );
-
-        if op.build {
-            let scene_id = self.make_unique_scene_id();
-            let doc = self.documents.get_mut(&document_id).unwrap();
-            let _timer = profile_counters.total_time.timer();
-            profile_scope!("build scene");
-
-            doc.build_scene(&mut self.resource_cache, scene_id);
-        }
 
         // If we have a sampler, get more frame ops from it and add them
         // to the transaction. This is a hook to allow the WR user code to
@@ -1114,7 +1107,7 @@ impl RenderBackend {
                     &mut self.resource_cache,
                     &mut self.gpu_cache,
                     &mut profile_counters.resources,
-                    op.build || has_built_scene,
+                    has_built_scene,
                 );
 
                 debug!("generated frame for document {:?} with {} passes",
