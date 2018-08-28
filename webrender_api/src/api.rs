@@ -978,6 +978,10 @@ impl RenderApi {
 
     /// Load a capture of the current frame state for debugging.
     pub fn load_capture(&self, path: PathBuf) -> Vec<CapturedDocument> {
+        // First flush the scene builder otherwise async scenes might clobber
+        // the capture we are about to load.
+        self.flush_scene_builder();
+
         let (tx, rx) = channel::msg_channel().unwrap();
         let msg = ApiMsg::DebugCommand(DebugCommand::LoadCapture(path, tx));
         self.send_message(msg);
