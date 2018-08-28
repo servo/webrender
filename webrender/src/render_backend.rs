@@ -763,6 +763,7 @@ impl RenderBackend {
                             resource_updates,
                             generate_frame: render,
                             use_scene_builder_thread: false,
+                            low_priority: false,
                         };
 
                         self.resource_cache.add_rasterized_blob_images(rasterized_blobs);
@@ -1033,6 +1034,12 @@ impl RenderBackend {
             let scene_id = self.make_unique_scene_id();
             let doc = self.documents.get_mut(&document_id).unwrap();
 
+            let tx = if transaction_msg.low_priority {
+                &self.low_priority_scene_tx
+            } else {
+                &self.scene_tx
+            };
+
             doc.forward_transaction_to_scene_builder(
                 transaction_msg,
                 blob_requests,
@@ -1040,7 +1047,7 @@ impl RenderBackend {
                 document_id,
                 scene_id,
                 &mut self.resource_cache,
-                &self.scene_tx,
+                tx,
             );
 
             return;
