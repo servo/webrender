@@ -599,7 +599,7 @@ impl RenderBackend {
 
                         if txn.build_frame || !txn.resource_updates.is_empty() || !txn.frame_ops.is_empty() {
                             self.update_document(
-                                txn.document_id,
+                            txn.document_id,
                                 replace(&mut txn.resource_updates, Vec::new()),
                                 replace(&mut txn.frame_ops, Vec::new()),
                                 txn.build_frame,
@@ -895,7 +895,13 @@ impl RenderBackend {
             });
         }
 
-        self.scene_tx.send(SceneBuilderRequest::Transaction(txn)).unwrap();
+        let tx = if transaction_msg.low_priority {
+            &self.low_priority_scene_tx
+        } else {
+            &self.scene_tx
+        };
+
+        tx.send(SceneBuilderRequest::Transaction(txn)).unwrap();
     }
 
     fn update_document(
