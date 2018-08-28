@@ -25,6 +25,7 @@ use {RadialGradient, RadialGradientDisplayItem, RectangleDisplayItem, ReferenceF
 use {ScrollFrameDisplayItem, ScrollSensitivity, Shadow, SpecificDisplayItem, StackingContext};
 use {StickyFrameDisplayItem, StickyOffsetBounds, TextDisplayItem, TransformStyle, YuvColorSpace};
 use {YuvData, YuvImageDisplayItem};
+use {GradientBuilder};
 
 // We don't want to push a long text-run. If a text-run is too long, split it into several parts.
 // This needs to be set to (renderer::MAX_VERTEX_TEXTURE_WIDTH - VECS_PER_TEXT_RUN) * 2
@@ -947,6 +948,11 @@ impl DisplayListBuilder {
         index
     }
 
+    /// Add an item to the display list.
+    /// 
+    /// NOTE: It is usually preferable to use the specialized methods to push
+    /// display items. Pushing unexpected or invalid items here may
+    /// result in WebRender panicking or behaving in unexpected ways.
     pub fn push_item(&mut self, item: SpecificDisplayItem, info: &LayoutPrimitiveInfo) {
         serialize_fast(
             &mut self.data,
@@ -1018,6 +1024,10 @@ impl DisplayListBuilder {
         debug_assert_eq!(len, count);
     }
 
+    /// Push items from an iterator to the display list.
+    /// 
+    /// NOTE: Pushing unexpected or invalid items to the display list
+    /// may result in panic and confusion.
     pub fn push_iter<I>(&mut self, iter: I)
     where
         I: IntoIterator,
@@ -1116,11 +1126,12 @@ impl DisplayListBuilder {
         &mut self,
         start_point: LayoutPoint,
         end_point: LayoutPoint,
-        mut stops: Vec<GradientStop>,
+        stops: Vec<GradientStop>,
         extend_mode: ExtendMode,
     ) -> Gradient {
-        let gradient = Gradient::new(start_point, end_point, &mut stops, extend_mode);
-        self.push_stops(&stops);
+        let mut builder = GradientBuilder::with_stops(stops);
+        let gradient = builder.gradient(start_point, end_point, extend_mode);
+        self.push_stops(builder.stops());
         gradient
     }
 
@@ -1130,11 +1141,12 @@ impl DisplayListBuilder {
         &mut self,
         center: LayoutPoint,
         radius: LayoutSize,
-        mut stops: Vec<GradientStop>,
+        stops: Vec<GradientStop>,
         extend_mode: ExtendMode,
     ) -> RadialGradient {
-        let gradient = RadialGradient::new(center, radius, &mut stops, extend_mode);
-        self.push_stops(&stops);
+        let mut builder = GradientBuilder::with_stops(stops);
+        let gradient = builder.radial_gradient(center, radius, extend_mode);
+        self.push_stops(builder.stops());
         gradient
     }
 
