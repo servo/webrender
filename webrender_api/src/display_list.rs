@@ -16,7 +16,7 @@ use time::precise_time_ns;
 use {AlphaType, BorderDetails, BorderDisplayItem, BorderRadius, BorderWidths, BoxShadowClipMode};
 use {BoxShadowDisplayItem, ClipAndScrollInfo, ClipChainId, ClipChainItem, ClipDisplayItem, ClipId};
 use {ColorF, ComplexClipRegion, DisplayItem, ExtendMode, ExternalScrollId, FilterOp};
-use {FontInstanceKey, GlyphInstance, GlyphOptions, GlyphRasterSpace, Gradient};
+use {FontInstanceKey, GlyphInstance, GlyphOptions, GlyphRasterSpace, Gradient, GradientBuilder};
 use {GradientDisplayItem, GradientStop, IframeDisplayItem, ImageDisplayItem, ImageKey, ImageMask};
 use {ImageRendering, LayoutPoint, LayoutPrimitiveInfo, LayoutRect, LayoutSize, LayoutTransform};
 use {LayoutVector2D, LineDisplayItem, LineOrientation, LineStyle, MixBlendMode, PipelineId};
@@ -25,7 +25,6 @@ use {RadialGradient, RadialGradientDisplayItem, RectangleDisplayItem, ReferenceF
 use {ScrollFrameDisplayItem, ScrollSensitivity, Shadow, SpecificDisplayItem, StackingContext};
 use {StickyFrameDisplayItem, StickyOffsetBounds, TextDisplayItem, TransformStyle, YuvColorSpace};
 use {YuvData, YuvImageDisplayItem};
-use {GradientBuilder};
 
 // We don't want to push a long text-run. If a text-run is too long, split it into several parts.
 // This needs to be set to (renderer::MAX_VERTEX_TEXTURE_WIDTH - VECS_PER_TEXT_RUN) * 2
