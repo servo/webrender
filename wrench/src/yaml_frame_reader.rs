@@ -302,7 +302,7 @@ impl YamlFrameReader {
         let content_size = self.get_root_size_from_yaml(wrench, yaml);
         let mut builder = DisplayListBuilder::new(pipeline_id, content_size);
         let mut info = LayoutPrimitiveInfo::new(LayoutRect::zero());
-        self.add_stacking_context_from_yaml(&mut builder, wrench, yaml, true, &mut info);
+        self.add_stacking_context_from_yaml(&mut builder, wrench, yaml, true, &mut info, None);
         self.display_lists.push(builder.finalize());
     }
 
@@ -1316,14 +1316,14 @@ impl YamlFrameReader {
             let complex_clip = self.get_complex_clip_for_item(item);
             let clip_rect = item["clip-rect"].as_rect().unwrap_or(full_clip);
 
-            let mut pushed_clip = false;
+            let mut pushed_clip_id = None;
             if let Some(complex_clip) = complex_clip {
                 match item_type {
                     "clip" | "clip-chain" | "scroll-frame" => {},
                     _ => {
                         let id = dl.define_clip(clip_rect, vec![complex_clip], None);
                         dl.push_clip_id(id);
-                        pushed_clip = true;
+                        pushed_clip_id = Some(id);
                     }
                 }
             }
@@ -1349,7 +1349,7 @@ impl YamlFrameReader {
                 "box-shadow" => self.handle_box_shadow(dl, item, &mut info),
                 "iframe" => self.handle_iframe(dl, item, &mut info),
                 "stacking-context" => {
-                    self.add_stacking_context_from_yaml(dl, wrench, item, false, &mut info)
+                    self.add_stacking_context_from_yaml(dl, wrench, item, false, &mut info, pushed_clip_id)
                 }
                 "reference-frame" => self.handle_reference_frame(dl, wrench, item, &mut info),
                 "shadow" => self.handle_push_shadow(dl, item, &mut info),
@@ -1357,9 +1357,8 @@ impl YamlFrameReader {
                 _ => println!("Skipping unknown item type: {:?}", item),
             }
 
-            if pushed_clip {
+            if pushed_clip_id.is_some() {
                 dl.pop_clip_id();
-
             }
 
             if clip_scroll_info.is_some() {
@@ -1583,6 +1582,7 @@ impl YamlFrameReader {
         yaml: &Yaml,
         is_root: bool,
         info: &mut LayoutPrimitiveInfo,
+        pushed_clip_id: Option<ClipId>,
     ) {
         let default_bounds = LayoutRect::new(LayoutPoint::zero(), wrench.window_size_f32());
         let bounds = yaml["bounds"].as_rect().unwrap_or(default_bounds);
@@ -1600,6 +1600,10 @@ impl YamlFrameReader {
         };
 
         let clip_node_id = self.to_clip_id(&yaml["clip-node"], dl.pipeline_id);
+        if clip_node_id.is_some() && pushed_clip_id != clip_node_id {
+            warn!("Specified two different clips for stacking context");
+        }
+        let clip_node_id = clip_node_id.or(pushed_clip_id);
         let transform_style = yaml["transform-style"]
             .as_transform_style()
             .unwrap_or(TransformStyle::Flat);
