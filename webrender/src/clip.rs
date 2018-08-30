@@ -321,9 +321,13 @@ pub struct ClipStore {
 #[derive(Debug)]
 pub struct ClipChainInstance {
     pub clips_range: ClipNodeRange,
+    // Combined clip rect for clips that are in the
+    // same coordinate system as the primitive.
     pub local_clip_rect: LayoutRect,
     pub has_non_root_coord_system: bool,
     pub has_non_local_clips: bool,
+    // Combined clip rect in picture space (may
+    // be more conservative that local_clip_rect).
     pub pic_clip_rect: PictureRect,
 }
 
