@@ -1,0 +1,20 @@
+---
+root:
+  items:
+    - type: stacking-context
+      items:
+        - type: stacking-context
+          transform: rotate-y(180)
+          transform-style: preserve-3d
+          backface-visible: false
+          transform-origin: 50 50
+          items:
+            - type: stacking-context
+              transform: rotate-y(180)
+              transform-origin: 50 50
+              items:
+                - type: stacking-context
+                  items:
+                    - type: rect
+                      color: red
+                      bounds: 0 0 100 100
