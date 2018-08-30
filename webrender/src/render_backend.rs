@@ -871,8 +871,12 @@ impl RenderBackend {
 
                         // Set for any existing documents.
                         for (_, doc) in &mut self.documents {
-                            doc.frame_builder_config .dual_source_blending_is_enabled = enable;
+                            doc.frame_builder_config.dual_source_blending_is_enabled = enable;
                         }
+
+                        self.scene_tx.send(SceneBuilderRequest::SetFrameBuilderConfig(
+                            self.frame_config.clone()
+                        )).unwrap();
 
                         // We don't want to forward this message to the renderer.
                         return true;
