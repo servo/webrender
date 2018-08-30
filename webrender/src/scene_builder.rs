@@ -81,7 +81,7 @@ pub struct SceneRequest {
     pub scene_id: u64,
 }
 
-/// For the replay feature.
+#[cfg(feature = "replay")]
 pub struct LoadScene {
     pub document_id: DocumentId,
     pub scene: Scene,
@@ -102,12 +102,13 @@ pub struct BuiltScene {
 // Message from render backend to scene builder.
 pub enum SceneBuilderRequest {
     Transaction(Box<Transaction>),
-    LoadScenes(Vec<LoadScene>),
     DeleteDocument(DocumentId),
     WakeUp,
     Flush(MsgSender<()>),
     SetFrameBuilderConfig(FrameBuilderConfig),
-    Stop
+    Stop,
+    #[cfg(feature = "replay")]
+    LoadScenes(Vec<LoadScene>),
 }
 
 // Message from scene builder to render backend.
@@ -176,11 +177,12 @@ impl SceneBuilder {
                 Ok(SceneBuilderRequest::DeleteDocument(document_id)) => {
                     self.documents.remove(&document_id);
                 }
-                Ok(SceneBuilderRequest::LoadScenes(msg)) => {
-                    self.load_scenes(msg);
-                }
                 Ok(SceneBuilderRequest::SetFrameBuilderConfig(cfg)) => {
                     self.config = cfg;
+                }
+                #[cfg(feature = "replay")]
+                Ok(SceneBuilderRequest::LoadScenes(msg)) => {
+                    self.load_scenes(msg);
                 }
                 Ok(SceneBuilderRequest::Stop) => {
                     self.tx.send(SceneBuilderResult::Stopped).unwrap();
@@ -203,7 +205,7 @@ impl SceneBuilder {
         }
     }
 
-    // Specific to the replay functionality.
+    #[cfg(feature = "replay")]
     fn load_scenes(&mut self, scenes: Vec<LoadScene>) {
         for item in scenes {
             self.config = item.config;
