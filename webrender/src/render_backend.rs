@@ -92,9 +92,6 @@ struct Document {
     /// The id of the current frame.
     frame_id: FrameId,
 
-    /// A configuration object for the FrameBuilder that we produce.
-    frame_builder_config: FrameBuilderConfig,
-
     // the `Option` here is only to deal with borrow checker
     frame_builder: Option<FrameBuilder>,
     // A set of pipelines that the caller has requested be
@@ -118,7 +115,6 @@ struct Document {
 
 impl Document {
     pub fn new(
-        frame_builder_config: FrameBuilderConfig,
         window_size: DeviceUintSize,
         layer: DocumentLayer,
         enable_render_on_scroll: bool,
@@ -143,7 +139,6 @@ impl Document {
             },
             clip_scroll_tree: ClipScrollTree::new(),
             frame_id: FrameId(0),
-            frame_builder_config,
             frame_builder: None,
             output_pipelines: FastHashSet::default(),
             render_on_scroll,
@@ -707,7 +702,6 @@ impl RenderBackend {
             }
             ApiMsg::AddDocument(document_id, initial_size, layer) => {
                 let document = Document::new(
-                    self.frame_config.clone(),
                     initial_size,
                     layer,
                     self.enable_render_on_scroll,
@@ -761,11 +755,6 @@ impl RenderBackend {
                         // that are created.
                         self.frame_config
                             .dual_source_blending_is_enabled = enable;
-
-                        // Set for any existing documents.
-                        for (_, doc) in &mut self.documents {
-                            doc.frame_builder_config.dual_source_blending_is_enabled = enable;
-                        }
 
                         self.scene_tx.send(SceneBuilderRequest::SetFrameBuilderConfig(
                             self.frame_config.clone()
@@ -1302,7 +1291,6 @@ impl RenderBackend {
                 view: view.clone(),
                 clip_scroll_tree: ClipScrollTree::new(),
                 frame_id: FrameId(0),
-                frame_builder_config: self.frame_config.clone(),
                 frame_builder: Some(FrameBuilder::empty()),
                 output_pipelines: FastHashSet::default(),
                 render_on_scroll: None,
