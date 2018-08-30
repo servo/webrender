@@ -2263,6 +2263,9 @@ impl Primitive {
         true
     }
 
+    // Returns true if the primitive *might* need a clip mask. If
+    // false, there is no need to even check for clip masks for
+    // this primitive.
     fn reset_clip_task(&mut self) -> bool {
         self.metadata.clip_task_id = None;
         match self.details {
@@ -2741,6 +2744,7 @@ impl Primitive {
             println!("\tupdating clip task with pic rect {:?}", clip_chain.pic_clip_rect);
         }
         // Reset clips from previous frames since we may clip differently each frame.
+        // If this primitive never needs clip masks, just return straight away.
         if !self.reset_clip_task() {
             return;
         }

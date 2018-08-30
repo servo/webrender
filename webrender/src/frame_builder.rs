@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorF, DeviceIntPoint, DeviceIntRect, DevicePixelScale, LayoutPixel, PicturePixel};
+use api::{ColorF, DeviceIntPoint, DevicePixelScale, LayoutPixel, PicturePixel};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentLayer, FontRenderMode, PictureRect};
 use api::{LayoutPoint, LayoutRect, LayoutSize, PipelineId, WorldPoint, WorldRect, WorldPixel};
 use clip::{ClipStore};
@@ -71,7 +71,6 @@ pub struct FrameBuildingContext<'a> {
     pub device_pixel_scale: DevicePixelScale,
     pub scene_properties: &'a SceneProperties,
     pub pipelines: &'a FastHashMap<PipelineId, Arc<ScenePipeline>>,
-    pub screen_rect: DeviceIntRect,
     pub world_rect: WorldRect,
     pub clip_scroll_tree: &'a ClipScrollTree,
     pub transforms: &'a TransformPalette,
@@ -226,7 +225,6 @@ impl FrameBuilder {
             device_pixel_scale,
             scene_properties,
             pipelines,
-            screen_rect: self.screen_rect.to_i32(),
             world_rect,
             clip_scroll_tree,
             transforms: transform_palette,
@@ -283,8 +281,8 @@ impl FrameBuilder {
         let pic_state = pic.take_state();
 
         let root_render_task = RenderTask::new_picture(
-            RenderTaskLocation::Fixed(frame_context.screen_rect),
-            frame_context.screen_rect.size.to_f32(),
+            RenderTaskLocation::Fixed(self.screen_rect.to_i32()),
+            self.screen_rect.size.to_f32(),
             root_prim_index,
             DeviceIntPoint::zero(),
             pic_state.tasks,
