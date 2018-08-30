@@ -86,6 +86,8 @@ struct Document {
     // The scene with the latest transactions applied, not necessarily built yet.
     // what we will send to the scene builder.
     pending: SceneData,
+    // Calll render() on next generate_frame.
+    render_on_generate_frame: bool,
 
     view: DocumentView,
 
@@ -143,6 +145,7 @@ impl Document {
                 scene: Scene::new(),
                 removed_pipelines: Vec::new(),
             },
+            render_on_generate_frame: false,
             view: DocumentView {
                 window_size,
                 inner_rect: DeviceUintRect::new(DeviceUintPoint::zero(), window_size),
@@ -204,10 +207,15 @@ impl Document {
                     }
                 };
 
+                let scrolled = self.scroll_nearest_scrolling_ancestor(delta, node_index);
+
                 let should_render =
                     should_render &&
-                    self.scroll_nearest_scrolling_ancestor(delta, node_index) &&
+                    scrolled &&
                     self.render_on_scroll == Some(true);
+
+                self.render_on_generate_frame |= scrolled && !should_render;
+
                 DocumentOps {
                     scroll: true,
                     render: should_render,
@@ -229,13 +237,18 @@ impl Document {
             }
             FrameMsg::SetPan(pan) => {
                 self.view.pan = pan;
+                self.render_on_generate_frame = true;
                 DocumentOps::nop()
             }
             FrameMsg::ScrollNodeWithId(origin, id, clamp) => {
                 profile_scope!("ScrollNodeWithScrollId");
 
-                let should_render = self.scroll_node(origin, id, clamp)
-                    && self.render_on_scroll == Some(true);
+                let scrolled = self.scroll_node(origin, id, clamp);
+
+                let should_render = scrolled &&
+                    self.render_on_scroll == Some(true);
+
+                self.render_on_generate_frame |= scrolled && !should_render;
 
                 DocumentOps {
                     scroll: true,
@@ -583,10 +596,12 @@ impl RenderBackend {
             }
             SceneMsg::SetPageZoom(factor) => {
                 doc.view.page_zoom_factor = factor.get();
+                doc.render_on_generate_frame = true;
                 DocumentOps::nop()
             }
             SceneMsg::SetPinchZoom(factor) => {
                 doc.view.pinch_zoom_factor = factor.get();
+                doc.render_on_generate_frame = true;
                 DocumentOps::nop()
             }
             SceneMsg::SetWindowParameters {
@@ -597,6 +612,7 @@ impl RenderBackend {
                 doc.view.window_size = window_size;
                 doc.view.inner_rect = inner_rect;
                 doc.view.device_pixel_ratio = device_pixel_ratio;
+                doc.render_on_generate_frame = true;
                 DocumentOps::nop()
             }
             SceneMsg::SetDisplayList {
@@ -700,6 +716,13 @@ impl RenderBackend {
         // 2^64 scenes ought to be enough for anybody!
         self.last_scene_id += 1;
         self.last_scene_id
+    }
+
+    pub fn set_render_on_generate_frame(&mut self) {
+        // Set render_on_generate_frame for any existing documents.
+        for (_, doc) in &mut self.documents {
+            doc.render_on_generate_frame = true;
+        }
     }
 
     pub fn run(&mut self, mut profile_counters: BackendProfileCounters) {
@@ -829,6 +852,19 @@ impl RenderBackend {
         profile_counters: &mut BackendProfileCounters,
         frame_counter: &mut u32,
     ) -> bool {
+
+        // Set render_on_generate_frame for any existing documents
+        // if message includes resource_cache update.
+        match msg {
+            ApiMsg::UpdateResources(_) |
+            ApiMsg::ClearNamespace(_) |
+            ApiMsg::MemoryPressure |
+            ApiMsg::DebugCommand(_) => {
+                self.set_render_on_generate_frame();
+            }
+            _ => {}
+        }
+
         match msg {
             ApiMsg::WakeUp => {}
             ApiMsg::WakeSceneBuilder => {
@@ -1042,6 +1078,12 @@ impl RenderBackend {
             return;
         }
 
+        if !transaction_msg.resource_updates.is_empty() {
+            // Set render_on_generate_frame for any existing documents
+            // if resource_updates is not empty, since the updates could affects to another documents.
+            self.set_render_on_generate_frame();
+        }
+
         self.resource_cache.post_scene_building_update(
             transaction_msg.resource_updates,
             &mut profile_counters.resources,
@@ -1054,6 +1096,7 @@ impl RenderBackend {
             profile_scope!("build scene");
 
             doc.build_scene(&mut self.resource_cache, scene_id);
+            doc.render_on_generate_frame = true;
         }
 
         // If we have a sampler, get more frame ops from it and add them
@@ -1084,8 +1127,10 @@ impl RenderBackend {
             }
 
             if doc.current.scene.root_pipeline_id.is_some() {
-                op.render = true;
                 op.composite = true;
+                if doc.render_on_generate_frame {
+                    op.render = true;
+                }
             }
         }
 
@@ -1097,11 +1142,13 @@ impl RenderBackend {
             op.composite = false;
         }
 
-        debug_assert!(op.render || !op.composite);
+        debug_assert!(op.render || !op.composite || transaction_msg.generate_frame);
 
         let mut render_time = None;
         if op.render && doc.has_pixels() {
             profile_scope!("generate frame");
+
+            doc.render_on_generate_frame = false;
 
             *frame_counter += 1;
 
@@ -1141,9 +1188,10 @@ impl RenderBackend {
             );
             self.result_tx.send(msg).unwrap();
             profile_counters.reset();
-        } else if op.render {
+        } else if op.render || transaction_msg.generate_frame {
             // WR-internal optimization to avoid doing a bunch of render work if
-            // there's no pixels. We still want to pretend to render and request
+            // there's no pixels or if the render work is not necessary on generate_frame.
+            // We still want to pretend to render and request
             // a composite to make sure that the callbacks (particularly the
             // new_frame_ready callback below) has the right flags.
             let msg = ResultMsg::PublishPipelineInfo(doc.updated_pipeline_info());
@@ -1431,6 +1479,7 @@ impl RenderBackend {
                     scene,
                     removed_pipelines: Vec::new(),
                 },
+                render_on_generate_frame: false,
                 view,
                 clip_scroll_tree: ClipScrollTree::new(),
                 frame_id: FrameId(0),
