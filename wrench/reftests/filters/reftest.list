@@ -35,3 +35,4 @@ platform(linux,mac) == filter-drop-shadow-on-viewport-edge.yaml filter-drop-shad
 platform(linux,mac) == blend-clipped.yaml blend-clipped.png
 == filter-segments.yaml filter-segments-ref.yaml
 == iframe-dropshadow.yaml iframe-dropshadow-ref.yaml
+== filter-mix-blend-mode.yaml filter-mix-blend-mode-ref.yaml
