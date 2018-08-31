@@ -12,7 +12,7 @@ use gpu_cache::GpuCache;
 use gpu_types::{PrimitiveHeaders, TransformPalette, UvRectKind};
 use hit_test::{HitTester, HitTestingRun};
 use internal_types::{FastHashMap};
-use picture::PictureSurface;
+use picture::{PictureCompositeMode, PictureSurface, RasterConfig};
 use prim_store::{PrimitiveIndex, PrimitiveRun, PrimitiveStore, Transform, SpaceMapper};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_backend::FrameId;
@@ -301,7 +301,10 @@ impl FrameBuilder {
         );
 
         let render_task_id = frame_state.render_tasks.add(root_render_task);
-        pic.surface = Some(PictureSurface::RenderTask(render_task_id));
+        pic.raster_config = Some(RasterConfig {
+            composite_mode: PictureCompositeMode::Blit,
+            surface: Some(PictureSurface::RenderTask(render_task_id)),
+        });
         Some(render_task_id)
     }
 
