@@ -30,6 +30,7 @@ pub struct Transaction {
     pub resource_updates: Vec<ResourceUpdate>,
     pub frame_ops: Vec<FrameMsg>,
     pub set_root_pipeline: Option<PipelineId>,
+    pub generate_frame: bool,
     pub render: bool,
 }
 
@@ -61,6 +62,7 @@ pub struct BuiltTransaction {
     pub removed_pipelines: Vec<PipelineId>,
     pub scene_build_start_time: u64,
     pub scene_build_end_time: u64,
+    pub generate_frame: bool,
     pub render: bool,
 }
 
@@ -240,6 +242,7 @@ impl SceneBuilder {
 
             let txn = Box::new(BuiltTransaction {
                 document_id: item.document_id,
+                generate_frame: true,
                 render: item.generate_frame,
                 built_scene,
                 resource_updates: Vec::new(),
@@ -257,6 +260,7 @@ impl SceneBuilder {
 
     /// Do the bulk of the work of the scene builder thread.
     fn process_transaction(&mut self, txn: &mut Transaction) -> Box<BuiltTransaction> {
+
         let scene_build_start_time = precise_time_ns();
 
         let scene = self.documents.entry(txn.document_id).or_insert(Scene::new());
@@ -316,13 +320,10 @@ impl SceneBuilder {
             |rasterizer| rasterizer.rasterize(&blob_requests),
         );
 
-        // After applying the new scene we need to
-        // rebuild the hit-tester, so we trigger a render
-        // step.
-
         Box::new(BuiltTransaction {
             document_id: txn.document_id,
-            render: txn.render || built_scene.is_some(),
+            generate_frame: txn.generate_frame || built_scene.is_some(),
+            render: txn.render,
             built_scene,
             resource_updates: replace(&mut txn.resource_updates, Vec::new()),
             rasterized_blobs: rasterized_blobs,

@@ -147,7 +147,9 @@ impl Document {
         }
     }
 
-    fn can_render(&self) -> bool { self.frame_builder.is_some() }
+    fn can_render(&self) -> bool {
+        self.frame_builder.is_some() && self.scene.has_root_pipeline()
+    }
 
     fn has_pixels(&self) -> bool {
         !self.view.window_size.is_empty_or_negative()
@@ -192,8 +194,8 @@ impl Document {
 
                 return DocumentOps {
                     scroll: true,
+                    generate_frame: should_render,
                     render: should_render,
-                    composite: should_render,
                     ..DocumentOps::nop()
                 };
             }
@@ -219,8 +221,8 @@ impl Document {
 
                 return DocumentOps {
                     scroll: true,
+                    generate_frame: should_render,
                     render: should_render,
-                    composite: should_render,
                     ..DocumentOps::nop()
                 };
             }
@@ -327,23 +329,17 @@ impl Document {
 
 struct DocumentOps {
     scroll: bool,
+    generate_frame: bool,
     render: bool,
-    composite: bool,
 }
 
 impl DocumentOps {
     fn nop() -> Self {
         DocumentOps {
             scroll: false,
+            generate_frame: false,
             render: false,
-            composite: false,
         }
-    }
-
-    fn combine(&mut self, other: Self) {
-        self.scroll = self.scroll || other.scroll;
-        self.render = self.render || other.render;
-        self.composite = self.composite || other.composite;
     }
 }
 
@@ -564,6 +560,7 @@ impl RenderBackend {
             while let Ok(msg) = self.scene_rx.try_recv() {
                 match msg {
                     SceneBuilderResult::Transaction(mut txn, result_tx) => {
+                        let has_built_scene = txn.built_scene.is_some();
                         if let Some(doc) = self.documents.get_mut(&txn.document_id) {
 
                             doc.removed_pipelines.append(&mut txn.removed_pipelines);
@@ -598,15 +595,16 @@ impl RenderBackend {
                             self.resource_cache.set_blob_rasterizer(rasterizer);
                         }
 
-                        if txn.render || !txn.resource_updates.is_empty() || !txn.frame_ops.is_empty() {
+                        if txn.generate_frame || !txn.resource_updates.is_empty() || !txn.frame_ops.is_empty() {
                             self.update_document(
                                 txn.document_id,
                                 replace(&mut txn.resource_updates, Vec::new()),
                                 replace(&mut txn.frame_ops, Vec::new()),
+                                txn.generate_frame,
                                 txn.render,
                                 &mut frame_counter,
                                 &mut profile_counters,
-                                true,
+                                has_built_scene,
                             );
                         }
                     },
@@ -838,6 +836,7 @@ impl RenderBackend {
             resource_updates: transaction_msg.resource_updates,
             frame_ops: transaction_msg.frame_ops,
             set_root_pipeline: None,
+            generate_frame: transaction_msg.generate_frame,
             render: transaction_msg.generate_frame,
         });
 
@@ -867,11 +866,11 @@ impl RenderBackend {
         }
 
         if !transaction_msg.use_scene_builder_thread && txn.can_skip_scene_builder() {
-
             self.update_document(
                 txn.document_id,
                 replace(&mut txn.resource_updates, Vec::new()),
                 replace(&mut txn.frame_ops, Vec::new()),
+                txn.generate_frame,
                 txn.render,
                 frame_counter,
                 profile_counters,
@@ -901,12 +900,12 @@ impl RenderBackend {
         document_id: DocumentId,
         resource_updates: Vec<ResourceUpdate>,
         mut frame_ops: Vec<FrameMsg>,
-        generate_frame: bool,
+        mut generate_frame: bool,
+        mut render: bool,
         frame_counter: &mut u32,
         profile_counters: &mut BackendProfileCounters,
         has_built_scene: bool,
     ) {
-
         self.resource_cache.post_scene_building_update(
             resource_updates,
             &mut profile_counters.resources,
@@ -923,30 +922,30 @@ impl RenderBackend {
             }
         }
 
-        let mut op = DocumentOps {
-            render: generate_frame,
-            ..DocumentOps::nop()
-        };
 
         let doc = self.documents.get_mut(&document_id).unwrap();
 
+        let mut scroll = false;
         for frame_msg in frame_ops {
             let _timer = profile_counters.total_time.timer();
-            op.combine(doc.process_frame_msg(frame_msg));
+            let op = doc.process_frame_msg(frame_msg);
+            generate_frame |= op.generate_frame;
+            render |= op.render;
+            scroll |= op.scroll;
         }
+
+        // After applying the new scene we need to
+        // rebuild the hit-tester, so we trigger a frame generation
+        // step.
+        generate_frame |= has_built_scene;
 
         if doc.dynamic_properties.flush_pending_updates() {
-            op.render = true;
+            generate_frame = true;
         }
 
-        if op.render {
+        if render {
             if let Some(ref mut ros) = doc.render_on_scroll {
                 *ros = true;
-            }
-
-            if doc.scene.root_pipeline_id.is_some() {
-                op.render = true;
-                op.composite = true;
             }
         }
 
@@ -954,14 +953,15 @@ impl RenderBackend {
             // TODO: this happens if we are building the first scene asynchronously and
             // scroll at the same time. we should keep track of the fact that we skipped
             // composition here and do it as soon as we receive the scene.
-            op.render = false;
-            op.composite = false;
+            generate_frame = false;
+            render = false;
         }
 
-        debug_assert!(op.render || !op.composite);
+        // If we don't generate a frame it makes no sense to render.
+        debug_assert!(generate_frame || !render);
 
         let mut render_time = None;
-        if op.render && doc.has_pixels() {
+        if generate_frame && doc.has_pixels() {
             profile_scope!("generate frame");
 
             *frame_counter += 1;
@@ -1002,17 +1002,17 @@ impl RenderBackend {
             );
             self.result_tx.send(msg).unwrap();
             profile_counters.reset();
-        } else if op.render {
+        } else if generate_frame {
             // WR-internal optimization to avoid doing a bunch of render work if
             // there's no pixels. We still want to pretend to render and request
-            // a composite to make sure that the callbacks (particularly the
+            // a render to make sure that the callbacks (particularly the
             // new_frame_ready callback below) has the right flags.
             let msg = ResultMsg::PublishPipelineInfo(doc.updated_pipeline_info());
             self.result_tx.send(msg).unwrap();
         }
 
-        if op.render {
-            self.notifier.new_frame_ready(document_id, op.scroll, op.composite, render_time);
+        if render {
+            self.notifier.new_frame_ready(document_id, scroll, render, render_time);
         }
     }
 
