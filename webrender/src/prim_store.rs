@@ -527,7 +527,7 @@ impl BrushPrimitive {
     pub fn may_need_clip_mask(&self) -> bool {
         match self.kind {
             BrushKind::Picture(ref pic) => {
-                pic.composite_mode.is_some()
+                pic.raster_config.is_some()
             }
             _ => {
                 true
@@ -1465,7 +1465,7 @@ impl PrimitiveStore {
                         // If we encounter a picture that is a pass-through
                         // (i.e. no composite mode), then we can recurse into
                         // that to try and find a primitive to collapse to.
-                        if pic.composite_mode.is_none() {
+                        if pic.requested_composite_mode.is_none() {
                             return self.get_opacity_collapse_prim(run.base_prim_index);
                         }
                     }
@@ -1496,7 +1496,7 @@ impl PrimitiveStore {
         pic_prim_index: PrimitiveIndex,
     ) {
         // Only handle opacity filters for now.
-        let binding = match self.get_pic(pic_prim_index).composite_mode {
+        let binding = match self.get_pic(pic_prim_index).requested_composite_mode {
             Some(PictureCompositeMode::Filter(FilterOp::Opacity(binding, _))) => {
                 binding
             }
@@ -1544,7 +1544,7 @@ impl PrimitiveStore {
         // intermediate surface or incur an extra blend / blit. Instead,
         // the collapsed primitive will be drawn directly into the
         // parent picture.
-        self.get_pic_mut(pic_prim_index).composite_mode = None;
+        self.get_pic_mut(pic_prim_index).requested_composite_mode = None;
     }
 
     pub fn prim_count(&self) -> usize {
