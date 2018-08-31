@@ -425,6 +425,7 @@ impl ClipStore {
         gpu_cache: &mut GpuCache,
         resource_cache: &mut ResourceCache,
         device_pixel_scale: DevicePixelScale,
+        world_rect: &WorldRect,
     ) -> Option<ClipChainInstance> {
         let mut local_clip_rect = local_prim_clip_rect;
         let spatial_nodes = &clip_scroll_tree.spatial_nodes;
@@ -535,6 +536,7 @@ impl ClipStore {
                     node.item.get_clip_result_complex(
                         transform,
                         &world_clip_rect,
+                        world_rect,
                     )
                 }
             };
@@ -854,6 +856,7 @@ impl ClipItem {
         &self,
         transform: &LayoutToWorldTransform,
         prim_world_rect: &WorldRect,
+        world_rect: &WorldRect,
     ) -> ClipResult {
         let (clip_rect, inner_rect) = match *self {
             ClipItem::Rectangle(clip_rect, ClipMode::Clip) => {
@@ -882,7 +885,11 @@ impl ClipItem {
             }
         }
 
-        let outer_clip_rect = match project_rect(transform, &clip_rect) {
+        let outer_clip_rect = match project_rect(
+            transform,
+            &clip_rect,
+            world_rect,
+        ) {
             Some(outer_clip_rect) => outer_clip_rect,
             None => return ClipResult::Partial,
         };
