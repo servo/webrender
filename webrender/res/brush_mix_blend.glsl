@@ -8,7 +8,7 @@
 
 varying vec3 vSrcUv;
 varying vec3 vBackdropUv;
-flat varying int vOp;
+varying float vOp;
 
 #ifdef WR_VERTEX_SHADER
 
@@ -25,7 +25,7 @@ void brush_vs(
 ) {
     vec2 snapped_device_pos = snap_device_pos(vi);
     vec2 texture_size = vec2(textureSize(sCacheRGBA8, 0));
-    vOp = user_data.x;
+    vOp = float(user_data.x);
 
     PictureTask src_task = fetch_picture_task(user_data.z);
     vec2 src_uv = snapped_device_pos +
@@ -217,7 +217,8 @@ Fragment brush_fs() {
     // Return yellow if none of the branches match (shouldn't happen).
     vec4 result = vec4(1.0, 1.0, 0.0, 1.0);
 
-    switch (vOp) {
+    int op = int(vOp);
+    switch (op) {
         case MixBlendMode_Multiply:
             result.rgb = Multiply(Cb.rgb, Cs.rgb);
             break;

@@ -5,10 +5,10 @@
 #include shared,prim_shared
 
 varying vec3 vUv;
-flat varying vec4 vUvRect;
-flat varying vec2 vOffsetScale;
-flat varying float vSigma;
-flat varying int vBlurRadius;
+varying vec4 vUvRect;
+varying vec2 vOffsetScale;
+varying float vSigma;
+varying float vBlurRadius;
 
 #ifdef WR_VERTEX_SHADER
 // Applies a separable gaussian blur in one direction, as specified
@@ -50,7 +50,7 @@ void main(void) {
     vec2 texture_size = vec2(textureSize(sCacheA8, 0).xy);
 #endif
     vUv.z = src_task.texture_layer_index;
-    vBlurRadius = int(3.0 * blur_task.blur_radius);
+    vBlurRadius = 3.0 * blur_task.blur_radius;
     vSigma = blur_task.blur_radius;
 
     switch (aBlurDirection) {
@@ -101,7 +101,8 @@ void main(void) {
     // TODO(gw): The gauss function gets NaNs when blur radius
     //           is zero. In the future, detect this earlier
     //           and skip the blur passes completely.
-    if (vBlurRadius == 0) {
+    int blurRadius = int(vBlurRadius);
+    if (blurRadius == 0) {
         oFragColor = vec4(original_color);
         return;
     }
@@ -117,7 +118,7 @@ void main(void) {
     gauss_coefficient_sum += gauss_coefficient.x;
     gauss_coefficient.xy *= gauss_coefficient.yz;
 
-    for (int i=1 ; i <= vBlurRadius ; ++i) {
+    for (int i=1 ; i <= blurRadius ; ++i) {
         vec2 offset = vOffsetScale * float(i);
 
         vec2 st0 = clamp(vUv.xy - offset, vUvRect.xy, vUvRect.zw);

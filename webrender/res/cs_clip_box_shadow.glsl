@@ -6,11 +6,11 @@
 
 varying vec3 vPos;
 varying vec2 vUv;
-flat varying vec4 vUvBounds;
-flat varying float vLayer;
-flat varying vec4 vEdge;
-flat varying vec4 vUvBounds_NoClamp;
-flat varying float vClipMode;
+varying vec4 vUvBounds;
+varying float vLayer;
+varying vec4 vEdge;
+varying vec4 vUvBounds_NoClamp;
+varying float vClipMode;
 
 #define MODE_STRETCH        0
 #define MODE_SIMPLE         1

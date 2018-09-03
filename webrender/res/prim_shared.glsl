@@ -26,7 +26,7 @@ vec2 clamp_rect(vec2 pt, RectWithSize rect) {
 }
 
 // TODO: convert back to RectWithEndPoint if driver issues are resolved, if ever.
-flat varying vec4 vClipMaskUvBounds;
+varying vec4 vClipMaskUvBounds;
 // XY and W are homogeneous coordinates, Z is the layer index
 varying vec4 vClipMaskUv;
 
@@ -232,6 +232,11 @@ void write_clip(vec4 world_pos, ClipArea area) {
     );
     vClipMaskUv = vec4(uv, area.common_data.texture_layer_index, world_pos.w);
 }
+
+vec2 pack_address(int address) {
+    return vec2(address % 65536, address / 65536);
+}
+
 #endif //WR_VERTEX_SHADER
 
 #ifdef WR_FRAGMENT_SHADER
@@ -271,6 +276,10 @@ vec4 dither(vec4 color) {
     return color;
 }
 #endif //WR_FEATURE_DITHERING
+
+int unpack_address(vec2 packed_address) {
+   return int(65536.0 * packed_address.y + packed_address.x);
+}
 
 vec4 sample_gradient(int address, float offset, float gradient_repeat) {
     // Modulo the offset if the gradient repeats.

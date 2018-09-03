@@ -6,36 +6,36 @@
 
 // For edges, the colors are the same. For corners, these
 // are the colors of each edge making up the corner.
-flat varying vec4 vColor00;
-flat varying vec4 vColor01;
-flat varying vec4 vColor10;
-flat varying vec4 vColor11;
+varying vec4 vColor00;
+varying vec4 vColor01;
+varying vec4 vColor10;
+varying vec4 vColor11;
 
 // A point + tangent defining the line where the edge
 // transition occurs. Used for corners only.
-flat varying vec4 vColorLine;
+varying vec4 vColorLine;
 
 // x = segment, y = styles, z = edge axes, w = clip mode
-flat varying ivec4 vConfig;
+varying vec4 vConfig;
 
 // xy = Local space position of the clip center.
 // zw = Scale the rect origin by this to get the outer
 // corner from the segment rectangle.
-flat varying vec4 vClipCenter_Sign;
+varying vec4 vClipCenter_Sign;
 
 // An outer and inner elliptical radii for border
 // corner clipping.
-flat varying vec4 vClipRadii;
+varying vec4 vClipRadii;
 
 // Reference point for determine edge clip lines.
-flat varying vec4 vEdgeReference;
+varying vec4 vEdgeReference;
 
 // Stores widths/2 and widths/3 to save doing this in FS.
-flat varying vec4 vPartialWidths;
+varying vec4 vPartialWidths;
 
 // Clipping parameters for dot or dash.
-flat varying vec4 vClipParams1;
-flat varying vec4 vClipParams2;
+varying vec4 vClipParams1;
+varying vec4 vClipParams2;
 
 // Local space position
 varying vec2 vPos;
@@ -140,44 +140,44 @@ void main(void) {
 
     // Set some flags used by the FS to determine the
     // orientation of the two edges in this corner.
-    ivec2 edge_axis;
+    float edge_axis;
     // Derive the positions for the edge clips, which must be handled
     // differently between corners and edges.
     vec2 edge_reference;
     switch (segment) {
         case SEGMENT_TOP_LEFT:
-            edge_axis = ivec2(0, 1);
+            edge_axis = 2.0;
             edge_reference = outer;
             break;
         case SEGMENT_TOP_RIGHT:
-            edge_axis = ivec2(1, 0);
+            edge_axis = 1.0;
             edge_reference = vec2(outer.x - aWidths.x, outer.y);
             break;
         case SEGMENT_BOTTOM_RIGHT:
-            edge_axis = ivec2(0, 1);
+            edge_axis = 2.0;
             edge_reference = outer - aWidths;
             break;
         case SEGMENT_BOTTOM_LEFT:
-            edge_axis = ivec2(1, 0);
+            edge_axis = 1.0;
             edge_reference = vec2(outer.x, outer.y - aWidths.y);
             break;
         case SEGMENT_TOP:
         case SEGMENT_BOTTOM:
-            edge_axis = ivec2(1, 1);
+            edge_axis = 3.0;
             edge_reference = vec2(0.0);
             break;
         case SEGMENT_LEFT:
         case SEGMENT_RIGHT:
         default:
-            edge_axis = ivec2(0, 0);
+            edge_axis = 0.0;
             edge_reference = vec2(0.0);
             break;
     }
 
-    vConfig = ivec4(
+    vConfig = vec4(
         segment,
-        style0 | (style1 << 16),
-        edge_axis.x | (edge_axis.y << 16),
+        style0 + (style1 * 16),
+        edge_axis,
         clip_mode
     );
     vPartialWidths = vec4(aWidths / 3.0, aWidths / 2.0);
@@ -308,14 +308,18 @@ vec4 evaluate_color_for_style_in_edge(
     return color0;
 }
 
+ivec2 unpack_edge_axis(float x) {
+    return ivec2(mod(x, 2), x / 2);
+}
+
 void main(void) {
     float aa_range = compute_aa_range(vPos);
     vec4 color0, color1;
 
-    int segment = vConfig.x;
-    ivec2 style = ivec2(vConfig.y & 0xffff, vConfig.y >> 16);
-    ivec2 edge_axis = ivec2(vConfig.z & 0xffff, vConfig.z >> 16);
-    int clip_mode = vConfig.w;
+    int segment = int(vConfig.x);
+    ivec2 style = ivec2(mod(vConfig.y, 16.0), vConfig.y / 16.0);
+    ivec2 edge_axis = unpack_edge_axis(vConfig.z);
+    int clip_mode = int(vConfig.w);
 
     float mix_factor = 0.0;
     if (edge_axis.x != edge_axis.y) {

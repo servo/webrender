@@ -11,10 +11,10 @@
 
 varying vec3 vLocalPos;
 
-flat varying int vStyle;
-flat varying float vAxisSelect;
-flat varying vec4 vParams;
-flat varying vec2 vLocalOrigin;
+varying float vStyle;
+varying float vAxisSelect;
+varying vec4 vParams;
+varying vec2 vLocalOrigin;
 
 #ifdef WR_VERTEX_SHADER
 
@@ -72,9 +72,10 @@ void main(void) {
     }
 
     vLocalOrigin = pos;
-    vStyle = int(data.style);
+    vStyle = data.style;
 
-    switch (vStyle) {
+    int style = int(vStyle);
+    switch (style) {
         case LINE_STYLE_SOLID: {
             break;
         }
@@ -131,7 +132,8 @@ void main(void) {
     // Select the x/y coord, depending on which axis this edge is.
     vec2 pos = mix(local_pos.xy, local_pos.yx, vAxisSelect);
 
-    switch (vStyle) {
+    int style = int(vStyle);
+    switch (style) {
         case LINE_STYLE_SOLID: {
             break;
         }

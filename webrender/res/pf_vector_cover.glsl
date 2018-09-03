@@ -12,7 +12,7 @@ in int aSubpixel;
 in int aPad;
 
 out vec2 vStencilUV;
-flat out int vSubpixel;
+out float vSubpixel;
 
 void main(void) {
     vec4 targetRect = vec4(aTargetRect);
@@ -25,7 +25,7 @@ void main(void) {
 
     gl_Position = uTransform * vec4(targetPosition, aPosition.z, 1.0);
     vStencilUV = stencilPosition;
-    vSubpixel = aSubpixel;
+    vSubpixel = float(aSubpixel);
 }
 
 #endif
@@ -37,7 +37,7 @@ void main(void) {
 #define LCD_FILTER_FACTOR_2     (8.0  / 255.0)
 
 in vec2 vStencilUV;
-flat in int vSubpixel;
+in float vSubpixel;
 
 /// Applies a slight horizontal blur to reduce color fringing on LCD screens
 /// when performing subpixel AA.
@@ -56,7 +56,7 @@ void main(void) {
     ivec2 stencilUV = ivec2(vStencilUV);
     float shade0 = abs(TEXEL_FETCH(sColor0, stencilUV, 0, ivec2(0, 0)).r);
 
-    if (vSubpixel == 0) {
+    if (vSubpixel == 0.0) {
         oFragColor = vec4(shade0);
         return;
     }

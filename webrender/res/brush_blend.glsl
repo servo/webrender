@@ -8,11 +8,11 @@
 
 varying vec3 vUv;
 
-flat varying float vAmount;
-flat varying int vOp;
-flat varying mat3 vColorMat;
-flat varying vec3 vColorOffset;
-flat varying vec4 vUvClipBounds;
+varying float vAmount;
+varying float vOp;
+varying mat3 vColorMat;
+varying vec3 vColorOffset;
+varying vec4 vUvClipBounds;
 
 #ifdef WR_VERTEX_SHADER
 
@@ -51,10 +51,10 @@ void brush_vs(
     float amount = float(user_data.z) / 65536.0;
     float invAmount = 1.0 - amount;
 
-    vOp = user_data.y;
+    vOp = float(user_data.y);
     vAmount = amount;
 
-    switch (vOp) {
+    switch (user_data.y) {
         case 2: {
             // Grayscale
             vColorMat = mat3(
@@ -138,7 +138,8 @@ Fragment brush_fs() {
     float alpha = Cs.a;
     vec3 color = Cs.rgb / Cs.a;
 
-    switch (vOp) {
+    int op = int(vOp);
+    switch (op) {
         case 0:
             break;
         case 1:

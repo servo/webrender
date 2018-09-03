@@ -23,22 +23,22 @@ varying vec2 vLocalPos;
 
 #if defined (WR_FEATURE_YUV_PLANAR)
     varying vec3 vUv_Y;
-    flat varying vec4 vUvBounds_Y;
+    varying vec4 vUvBounds_Y;
 
     varying vec3 vUv_U;
-    flat varying vec4 vUvBounds_U;
+    varying vec4 vUvBounds_U;
 
     varying vec3 vUv_V;
-    flat varying vec4 vUvBounds_V;
+    varying vec4 vUvBounds_V;
 #elif defined (WR_FEATURE_YUV_NV12)
     varying vec3 vUv_Y;
-    flat varying vec4 vUvBounds_Y;
+    varying vec4 vUvBounds_Y;
 
     varying vec3 vUv_UV;
-    flat varying vec4 vUvBounds_UV;
+    varying vec4 vUvBounds_UV;
 #elif defined (WR_FEATURE_YUV_INTERLEAVED)
     varying vec3 vUv_YUV;
-    flat varying vec4 vUvBounds_YUV;
+    varying vec4 vUvBounds_YUV;
 #endif
 
 #ifdef WR_FEATURE_TEXTURE_RECT

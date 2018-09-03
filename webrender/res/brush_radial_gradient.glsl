@@ -6,19 +6,19 @@
 
 #include shared,prim_shared,brush
 
-flat varying int vGradientAddress;
-flat varying float vGradientRepeat;
+varying vec2 vGradientAddress;
+varying float vGradientRepeat;
 
-flat varying vec2 vCenter;
-flat varying float vStartRadius;
-flat varying float vEndRadius;
+varying vec2 vCenter;
+varying float vStartRadius;
+varying float vEndRadius;
 
 varying vec2 vPos;
-flat varying vec2 vRepeatedSize;
+varying vec2 vRepeatedSize;
 
 #ifdef WR_FEATURE_ALPHA_PASS
 varying vec2 vLocalPos;
-flat varying vec2 vTileRepeat;
+varying vec2 vTileRepeat;
 #endif
 
 #ifdef WR_VERTEX_SHADER
@@ -72,7 +72,7 @@ void brush_vs(
     vRepeatedSize = gradient.stretch_size;
     vRepeatedSize.y *=  gradient.ratio_xy;
 
-    vGradientAddress = user_data.x;
+    vGradientAddress = pack_address(user_data.x);
 
     // Whether to repeat the gradient instead of clamping.
     vGradientRepeat = float(gradient.extend_mode != EXTEND_MODE_CLAMP);
@@ -145,9 +145,8 @@ Fragment brush_fs() {
         }
     }
 
-    vec4 color = sample_gradient(vGradientAddress,
-                                 offset,
-                                 vGradientRepeat);
+    int address = unpack_address(vGradientAddress);
+    vec4 color = sample_gradient(address, offset, vGradientRepeat);
 
 #ifdef WR_FEATURE_ALPHA_PASS
     color *= init_transform_fs(vLocalPos);

@@ -4,10 +4,10 @@
 
 #include shared,prim_shared
 
-flat varying vec4 vColor;
+varying vec4 vColor;
 varying vec3 vUv;
-flat varying vec4 vUvBorder;
-flat varying vec2 vMaskSwizzle;
+varying vec4 vUvBorder;
+varying vec2 vMaskSwizzle;
 
 #ifdef WR_FEATURE_GLYPH_TRANSFORM
 varying vec4 vUvClip;
