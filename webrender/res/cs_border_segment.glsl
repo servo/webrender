@@ -309,7 +309,7 @@ vec4 evaluate_color_for_style_in_edge(
 }
 
 ivec2 unpack_edge_axis(float x) {
-    return ivec2(mod(x, 2), x / 2);
+    return ivec2(mod(x, 2.0), x / 2.0);
 }
 
 void main(void) {
