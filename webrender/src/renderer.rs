@@ -12,6 +12,7 @@
 use api::{BlobImageHandler, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentId, Epoch, ExternalImageId};
 use api::{ExternalImageType, FontRenderMode, FrameMsg, ImageFormat, PipelineId};
+use api::{ImageRendering};
 use api::{RenderApiSender, RenderNotifier, TexelRect, TextureTarget};
 use api::{channel};
 use api::DebugCommand;
@@ -2601,7 +2602,8 @@ impl Renderer {
                                 let handler = self.external_image_handler
                                     .as_mut()
                                     .expect("Found external image, but no handler set!");
-                                let size = match handler.lock(id, channel_index).source {
+                                // The filter is only relevant for NativeTexture external images.
+                                let size = match handler.lock(id, channel_index, ImageRendering::Auto).source {
                                     ExternalImageSource::RawData(data) => {
                                         uploader.upload(
                                             rect, layer_index, stride,
@@ -3453,7 +3455,8 @@ impl Renderer {
             let ext_image = props
                 .external_image
                 .expect("BUG: Deferred resolves must be external images!");
-            let image = handler.lock(ext_image.id, ext_image.channel_index);
+            // Provide rendering information for NativeTexture external images.
+            let image = handler.lock(ext_image.id, ext_image.channel_index, deferred_resolve.rendering);
             let texture_target = match ext_image.image_type {
                 ExternalImageType::TextureHandle(target) => target,
                 ExternalImageType::Buffer => {
@@ -4105,8 +4108,8 @@ pub struct ExternalImage<'a> {
 pub trait ExternalImageHandler {
     /// Lock the external image. Then, WR could start to read the image content.
     /// The WR client should not change the image content until the unlock()
-    /// call.
-    fn lock(&mut self, key: ExternalImageId, channel_index: u8) -> ExternalImage;
+    /// call. Provide ImageRendering for NativeTexture external images.
+    fn lock(&mut self, key: ExternalImageId, channel_index: u8, rendering: ImageRendering) -> ExternalImage;
     /// Unlock the external image. The WR should not read the image content
     /// after this call.
     fn unlock(&mut self, key: ExternalImageId, channel_index: u8);
@@ -4435,7 +4438,8 @@ impl Renderer {
             for def in &deferred_images {
                 info!("\t{}", def.short_path);
                 let ExternalImageData { id, channel_index, image_type } = def.external;
-                let ext_image = handler.lock(id, channel_index);
+                // The image rendering parameter is irrelevant because no filtering happens during capturing.
+                let ext_image = handler.lock(id, channel_index, ImageRendering::Auto);
                 let (data, short_path) = match ext_image.source {
                     ExternalImageSource::RawData(data) => {
                         let arc_id = arc_map.len() + 1;
