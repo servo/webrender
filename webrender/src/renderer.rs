@@ -4306,7 +4306,7 @@ struct DummyExternalImageHandler {
 
 #[cfg(feature = "replay")]
 impl ExternalImageHandler for DummyExternalImageHandler {
-    fn lock(&mut self, key: ExternalImageId, channel_index: u8) -> ExternalImage {
+    fn lock(&mut self, key: ExternalImageId, channel_index: u8, rendering: ImageRendering) -> ExternalImage {
         let (ref captured_data, ref uv) = self.data[&(key, channel_index)];
         ExternalImage {
             uv: *uv,
