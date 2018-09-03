@@ -235,6 +235,7 @@ impl Example for App {
             bottom: border_side,
             left: border_side,
             radius: BorderRadius::uniform(20.0),
+            do_aa: true,
         });
 
         let info = LayoutPrimitiveInfo::new((100, 100).to(200, 200));
