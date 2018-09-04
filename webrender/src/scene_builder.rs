@@ -30,7 +30,7 @@ pub struct Transaction {
     pub resource_updates: Vec<ResourceUpdate>,
     pub frame_ops: Vec<FrameMsg>,
     pub set_root_pipeline: Option<PipelineId>,
-    pub generate_frame: bool,
+    pub build_frame: bool,
     pub render: bool,
 }
 
@@ -62,7 +62,7 @@ pub struct BuiltTransaction {
     pub removed_pipelines: Vec<PipelineId>,
     pub scene_build_start_time: u64,
     pub scene_build_end_time: u64,
-    pub generate_frame: bool,
+    pub build_frame: bool,
     pub render: bool,
 }
 
@@ -92,7 +92,7 @@ pub struct LoadScene {
     pub font_instances: FontInstanceMap,
     pub view: DocumentView,
     pub config: FrameBuilderConfig,
-    pub generate_frame: bool,
+    pub build_frame: bool,
 }
 
 pub struct BuiltScene {
@@ -242,8 +242,8 @@ impl SceneBuilder {
 
             let txn = Box::new(BuiltTransaction {
                 document_id: item.document_id,
-                generate_frame: true,
-                render: item.generate_frame,
+                build_frame: true,
+                render: item.build_frame,
                 built_scene,
                 resource_updates: Vec::new(),
                 rasterized_blobs: Vec::new(),
@@ -322,7 +322,7 @@ impl SceneBuilder {
 
         Box::new(BuiltTransaction {
             document_id: txn.document_id,
-            generate_frame: txn.generate_frame || built_scene.is_some(),
+            build_frame: txn.build_frame || built_scene.is_some(),
             render: txn.render,
             built_scene,
             resource_updates: replace(&mut txn.resource_updates, Vec::new()),

@@ -194,7 +194,7 @@ impl Document {
 
                 return DocumentOps {
                     scroll: true,
-                    generate_frame: should_render,
+                    build_frame: should_render,
                     render: should_render,
                     ..DocumentOps::nop()
                 };
@@ -221,7 +221,7 @@ impl Document {
 
                 return DocumentOps {
                     scroll: true,
-                    generate_frame: should_render,
+                    build_frame: should_render,
                     render: should_render,
                     ..DocumentOps::nop()
                 };
@@ -329,7 +329,7 @@ impl Document {
 
 struct DocumentOps {
     scroll: bool,
-    generate_frame: bool,
+    build_frame: bool,
     render: bool,
 }
 
@@ -337,7 +337,7 @@ impl DocumentOps {
     fn nop() -> Self {
         DocumentOps {
             scroll: false,
-            generate_frame: false,
+            build_frame: false,
             render: false,
         }
     }
@@ -595,12 +595,12 @@ impl RenderBackend {
                             self.resource_cache.set_blob_rasterizer(rasterizer);
                         }
 
-                        if txn.generate_frame || !txn.resource_updates.is_empty() || !txn.frame_ops.is_empty() {
+                        if txn.build_frame || !txn.resource_updates.is_empty() || !txn.frame_ops.is_empty() {
                             self.update_document(
                                 txn.document_id,
                                 replace(&mut txn.resource_updates, Vec::new()),
                                 replace(&mut txn.frame_ops, Vec::new()),
-                                txn.generate_frame,
+                                txn.build_frame,
                                 txn.render,
                                 &mut frame_counter,
                                 &mut profile_counters,
@@ -836,7 +836,7 @@ impl RenderBackend {
             resource_updates: transaction_msg.resource_updates,
             frame_ops: transaction_msg.frame_ops,
             set_root_pipeline: None,
-            generate_frame: transaction_msg.generate_frame,
+            build_frame: transaction_msg.generate_frame,
             render: transaction_msg.generate_frame,
         });
 
@@ -870,7 +870,7 @@ impl RenderBackend {
                 txn.document_id,
                 replace(&mut txn.resource_updates, Vec::new()),
                 replace(&mut txn.frame_ops, Vec::new()),
-                txn.generate_frame,
+                txn.build_frame,
                 txn.render,
                 frame_counter,
                 profile_counters,
@@ -900,7 +900,7 @@ impl RenderBackend {
         document_id: DocumentId,
         resource_updates: Vec<ResourceUpdate>,
         mut frame_ops: Vec<FrameMsg>,
-        mut generate_frame: bool,
+        mut build_frame: bool,
         mut render: bool,
         frame_counter: &mut u32,
         profile_counters: &mut BackendProfileCounters,
@@ -916,7 +916,7 @@ impl RenderBackend {
         // fiddle with things after a potentially long scene build, but just
         // before rendering. This is useful for rendering with the latest
         // async transforms.
-        if generate_frame {
+        if build_frame {
             if let Some(ref sampler) = self.sampler {
                 frame_ops.append(&mut sampler.sample());
             }
@@ -929,7 +929,7 @@ impl RenderBackend {
         for frame_msg in frame_ops {
             let _timer = profile_counters.total_time.timer();
             let op = doc.process_frame_msg(frame_msg);
-            generate_frame |= op.generate_frame;
+            build_frame |= op.build_frame;
             render |= op.render;
             scroll |= op.scroll;
         }
@@ -937,10 +937,13 @@ impl RenderBackend {
         // After applying the new scene we need to
         // rebuild the hit-tester, so we trigger a frame generation
         // step.
-        generate_frame |= has_built_scene;
+        //
+        // TODO: We could avoid some the cost of building the frame by only
+        // building the information required for hit-testing (See #2807).
+        build_frame |= has_built_scene;
 
         if doc.dynamic_properties.flush_pending_updates() {
-            generate_frame = true;
+            build_frame = true;
         }
 
         if render {
@@ -953,15 +956,15 @@ impl RenderBackend {
             // TODO: this happens if we are building the first scene asynchronously and
             // scroll at the same time. we should keep track of the fact that we skipped
             // composition here and do it as soon as we receive the scene.
-            generate_frame = false;
+            build_frame = false;
             render = false;
         }
 
         // If we don't generate a frame it makes no sense to render.
-        debug_assert!(generate_frame || !render);
+        debug_assert!(build_frame || !render);
 
         let mut render_time = None;
-        if generate_frame && doc.has_pixels() {
+        if build_frame && doc.has_pixels() {
             profile_scope!("generate frame");
 
             *frame_counter += 1;
@@ -1002,7 +1005,7 @@ impl RenderBackend {
             );
             self.result_tx.send(msg).unwrap();
             profile_counters.reset();
-        } else if generate_frame {
+        } else if build_frame {
             // WR-internal optimization to avoid doing a bunch of render work if
             // there's no pixels. We still want to pretend to render and request
             // a render to make sure that the callbacks (particularly the
@@ -1300,7 +1303,7 @@ impl RenderBackend {
 
             let frame_name = format!("frame-{}-{}", (id.0).0, id.1);
             let frame = CaptureConfig::deserialize::<Frame, _>(root, frame_name);
-            let generate_frame = match frame {
+            let build_frame = match frame {
                 Some(frame) => {
                     info!("\tloaded a built frame with {} passes", frame.passes.len());
 
@@ -1335,7 +1338,7 @@ impl RenderBackend {
                 output_pipelines: doc.output_pipelines.clone(),
                 font_instances: self.resource_cache.get_font_instances(),
                 scene_id: last_scene_id,
-                generate_frame,
+                build_frame,
             });
 
             self.documents.insert(id, doc);
