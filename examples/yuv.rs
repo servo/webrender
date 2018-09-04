@@ -60,7 +60,12 @@ impl YuvImageProvider {
 }
 
 impl webrender::ExternalImageHandler for YuvImageProvider {
-    fn lock(&mut self, key: ExternalImageId, _channel_index: u8, _rendering: ImageRendering) -> webrender::ExternalImage {
+    fn lock(
+        &mut self,
+        key: ExternalImageId,
+        _channel_index: u8,
+        _rendering: ImageRendering
+    ) -> webrender::ExternalImage {
         let id = self.texture_ids[key.0 as usize];
         webrender::ExternalImage {
             uv: TexelRect::new(0.0, 0.0, 1.0, 1.0),
