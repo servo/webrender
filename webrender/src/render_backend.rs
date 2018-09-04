@@ -242,7 +242,7 @@ impl Document {
     }
 
 
-    fn render(
+    fn build_frame(
         &mut self,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
@@ -974,7 +974,7 @@ impl RenderBackend {
                 let _timer = profile_counters.total_time.timer();
                 let frame_build_start_time = precise_time_ns();
 
-                let rendered_document = doc.render(
+                let rendered_document = doc.build_frame(
                     &mut self.resource_cache,
                     &mut self.gpu_cache,
                     &mut profile_counters.resources,
@@ -1192,7 +1192,7 @@ impl RenderBackend {
                 config.serialize(&doc.scene, file_name);
             }
             if config.bits.contains(CaptureBits::FRAME) {
-                let rendered_document = doc.render(
+                let rendered_document = doc.build_frame(
                     &mut self.resource_cache,
                     &mut self.gpu_cache,
                     &mut profile_counters.resources,
