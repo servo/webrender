@@ -195,7 +195,7 @@ impl Document {
                 return DocumentOps {
                     scroll: true,
                     build_frame: should_render,
-                    render: should_render,
+                    render_frame: should_render,
                     ..DocumentOps::nop()
                 };
             }
@@ -222,7 +222,7 @@ impl Document {
                 return DocumentOps {
                     scroll: true,
                     build_frame: should_render,
-                    render: should_render,
+                    render_frame: should_render,
                     ..DocumentOps::nop()
                 };
             }
@@ -330,7 +330,7 @@ impl Document {
 struct DocumentOps {
     scroll: bool,
     build_frame: bool,
-    render: bool,
+    render_frame: bool,
 }
 
 impl DocumentOps {
@@ -338,7 +338,7 @@ impl DocumentOps {
         DocumentOps {
             scroll: false,
             build_frame: false,
-            render: false,
+            render_frame: false,
         }
     }
 }
@@ -601,7 +601,7 @@ impl RenderBackend {
                                 replace(&mut txn.resource_updates, Vec::new()),
                                 replace(&mut txn.frame_ops, Vec::new()),
                                 txn.build_frame,
-                                txn.render,
+                                txn.render_frame,
                                 &mut frame_counter,
                                 &mut profile_counters,
                                 has_built_scene,
@@ -837,7 +837,7 @@ impl RenderBackend {
             frame_ops: transaction_msg.frame_ops,
             set_root_pipeline: None,
             build_frame: transaction_msg.generate_frame,
-            render: transaction_msg.generate_frame,
+            render_frame: transaction_msg.generate_frame,
         });
 
         self.resource_cache.pre_scene_building_update(
@@ -871,7 +871,7 @@ impl RenderBackend {
                 replace(&mut txn.resource_updates, Vec::new()),
                 replace(&mut txn.frame_ops, Vec::new()),
                 txn.build_frame,
-                txn.render,
+                txn.render_frame,
                 frame_counter,
                 profile_counters,
                 false
@@ -901,7 +901,7 @@ impl RenderBackend {
         resource_updates: Vec<ResourceUpdate>,
         mut frame_ops: Vec<FrameMsg>,
         mut build_frame: bool,
-        mut render: bool,
+        mut render_frame: bool,
         frame_counter: &mut u32,
         profile_counters: &mut BackendProfileCounters,
         has_built_scene: bool,
@@ -930,7 +930,7 @@ impl RenderBackend {
             let _timer = profile_counters.total_time.timer();
             let op = doc.process_frame_msg(frame_msg);
             build_frame |= op.build_frame;
-            render |= op.render;
+            render_frame |= op.render_frame;
             scroll |= op.scroll;
         }
 
@@ -946,7 +946,7 @@ impl RenderBackend {
             build_frame = true;
         }
 
-        if render {
+        if render_frame {
             if let Some(ref mut ros) = doc.render_on_scroll {
                 *ros = true;
             }
@@ -957,13 +957,13 @@ impl RenderBackend {
             // scroll at the same time. we should keep track of the fact that we skipped
             // composition here and do it as soon as we receive the scene.
             build_frame = false;
-            render = false;
+            render_frame = false;
         }
 
         // If we don't generate a frame it makes no sense to render.
-        debug_assert!(build_frame || !render);
+        debug_assert!(build_frame || !render_frame);
 
-        let mut render_time = None;
+        let mut frame_build_time = None;
         if build_frame && doc.has_pixels() {
             profile_scope!("generate frame");
 
@@ -972,7 +972,7 @@ impl RenderBackend {
             // borrow ck hack for profile_counters
             let (pending_update, rendered_document) = {
                 let _timer = profile_counters.total_time.timer();
-                let render_start_time = precise_time_ns();
+                let frame_build_start_time = precise_time_ns();
 
                 let rendered_document = doc.render(
                     &mut self.resource_cache,
@@ -987,7 +987,7 @@ impl RenderBackend {
                 let msg = ResultMsg::UpdateGpuCache(self.gpu_cache.extract_updates());
                 self.result_tx.send(msg).unwrap();
 
-                render_time = Some(precise_time_ns() - render_start_time);
+                frame_build_time = Some(precise_time_ns() - frame_build_start_time);
 
                 let pending_update = self.resource_cache.pending_updates();
                 (pending_update, rendered_document)
@@ -1014,8 +1014,8 @@ impl RenderBackend {
             self.result_tx.send(msg).unwrap();
         }
 
-        if render {
-            self.notifier.new_frame_ready(document_id, scroll, render, render_time);
+        if render_frame {
+            self.notifier.new_frame_ready(document_id, scroll, render_frame, frame_build_time);
         }
     }
 
