@@ -98,8 +98,11 @@ impl Window {
         };
 
         let framebuffer_size = {
-            let LogicalSize { width, height } = window.get_inner_size().unwrap();
-            DeviceUintSize::new(width as u32, height as u32)
+            let size = window
+                .get_inner_size()
+                .unwrap()
+                .to_physical(device_pixel_ratio as f64);
+            DeviceUintSize::new(size.width as u32, size.height as u32)
         };
         let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
         let (renderer, sender) = webrender::Renderer::new(gl.clone(), notifier, opts).unwrap();
@@ -171,11 +174,14 @@ impl Window {
             return true
         }
 
-        let framebuffer_size = {
-            let LogicalSize { width, height } = self.window.get_inner_size().unwrap();
-            DeviceUintSize::new(width as u32, height as u32)
-        };
         let device_pixel_ratio = self.window.get_hidpi_factor() as f32;
+        let framebuffer_size = {
+            let size = self.window
+                .get_inner_size()
+                .unwrap()
+                .to_physical(device_pixel_ratio as f64);
+            DeviceUintSize::new(size.width as u32, size.height as u32)
+        };
         let layout_size = framebuffer_size.to_f32() / euclid::TypedScale::new(device_pixel_ratio);
         let mut txn = Transaction::new();
         let mut builder = DisplayListBuilder::new(self.pipeline_id, layout_size);
