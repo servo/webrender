@@ -1,0 +1,10 @@
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [16, 16, 800, 800]
+      filters: blur(100)
+      items:
+      - image: "firefox-logo-large.png"
+        bounds: 0 0 1600 1600
+
