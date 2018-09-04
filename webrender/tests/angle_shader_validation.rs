@@ -16,7 +16,7 @@ struct Shader {
     features: &'static [&'static str],
 }
 
-const SHADER_PREFIX: &str = "#define WR_MAX_VERTEX_TEXTURE_WIDTH 1024\n";
+const SHADER_PREFIX: &str = "#define WR_MAX_VERTEX_TEXTURE_WIDTH 1024U\n";
 
 const BRUSH_FEATURES: &[&str] = &["", "ALPHA_PASS"];
 const CLIP_FEATURES: &[&str] = &["TRANSFORM"];
