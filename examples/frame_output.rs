@@ -50,7 +50,7 @@ impl webrender::OutputImageHandler for OutputHandler {
 }
 
 impl webrender::ExternalImageHandler for ExternalHandler {
-    fn lock(&mut self, _key: ExternalImageId, _channel_index: u8) -> webrender::ExternalImage {
+    fn lock(&mut self, _key: ExternalImageId, _channel_index: u8, _rendering: ImageRendering) -> webrender::ExternalImage {
         webrender::ExternalImage {
             uv: TexelRect::new(0.0, 0.0, 1.0, 1.0),
             source: webrender::ExternalImageSource::NativeTexture(self.texture_id),
