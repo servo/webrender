@@ -405,7 +405,7 @@ impl PicturePrimitive {
                             let picture_task_id = frame_state.render_tasks.add(picture_task);
 
                             let blur_render_task = RenderTask::new_blur(
-                                blur_std_deviation,
+                                blur_std_deviation * 2.0,
                                 picture_task_id,
                                 frame_state.render_tasks,
                                 RenderTargetKind::Color,
@@ -462,7 +462,7 @@ impl PicturePrimitive {
                                     let picture_task_id = render_tasks.add(picture_task);
 
                                     let blur_render_task = RenderTask::new_blur(
-                                        blur_std_deviation,
+                                        blur_std_deviation * 2.0,
                                         picture_task_id,
                                         render_tasks,
                                         RenderTargetKind::Color,
@@ -519,7 +519,7 @@ impl PicturePrimitive {
                         let picture_task_id = frame_state.render_tasks.add(picture_task);
 
                         let blur_render_task = RenderTask::new_blur(
-                            blur_std_deviation.round(),
+                            (blur_std_deviation * 2.0).round(),
                             picture_task_id,
                             frame_state.render_tasks,
                             RenderTargetKind::Color,

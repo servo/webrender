@@ -12,7 +12,7 @@ use device::{FrameId, Texture};
 #[cfg(feature = "pathfinder")]
 use euclid::{TypedPoint2D, TypedVector2D};
 use gpu_cache::{GpuCache};
-use gpu_types::{BorderInstance, BlurDirection, BlurInstance, PrimitiveHeaders, TransformData, TransformPalette};
+use gpu_types::{BorderInstance, BlurInstance, PrimitiveHeaders, TransformData, TransformPalette};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 #[cfg(feature = "pathfinder")]
 use pathfinder_partitioner::mesh::Mesh;
@@ -295,10 +295,10 @@ pub struct GlyphJob;
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct ColorRenderTarget {
     pub alpha_batch_containers: Vec<AlphaBatchContainer>,
-    // List of blur operations to apply for this render target.
-    pub vertical_blurs: Vec<BlurInstance>,
-    pub horizontal_blurs: Vec<BlurInstance>,
+    /// List of blur operations to apply for this render target.
+    pub blurs: Vec<BlurInstance>,
     pub readbacks: Vec<DeviceIntRect>,
+    /// List of scale operations to apply for this render target.
     pub scalings: Vec<ScalingInfo>,
     pub blits: Vec<BlitJob>,
     // List of frame buffer outputs for this render target.
@@ -322,8 +322,7 @@ impl RenderTarget for ColorRenderTarget {
     ) -> Self {
         ColorRenderTarget {
             alpha_batch_containers: Vec::new(),
-            vertical_blurs: Vec::new(),
-            horizontal_blurs: Vec::new(),
+            blurs: Vec::new(),
             readbacks: Vec::new(),
             scalings: Vec::new(),
             blits: Vec::new(),
@@ -394,18 +393,9 @@ impl RenderTarget for ColorRenderTarget {
         let task = &render_tasks[task_id];
 
         match task.kind {
-            RenderTaskKind::VerticalBlur(ref info) => {
+            RenderTaskKind::Blur(ref info) => {
                 info.add_instances(
-                    &mut self.vertical_blurs,
-                    BlurDirection::Vertical,
-                    render_tasks.get_task_address(task_id),
-                    render_tasks.get_task_address(task.children[0]),
-                );
-            }
-            RenderTaskKind::HorizontalBlur(ref info) => {
-                info.add_instances(
-                    &mut self.horizontal_blurs,
-                    BlurDirection::Horizontal,
+                    &mut self.blurs,
                     render_tasks.get_task_address(task_id),
                     render_tasks.get_task_address(task.children[0]),
                 );
@@ -505,9 +495,9 @@ impl RenderTarget for ColorRenderTarget {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct AlphaRenderTarget {
     pub clip_batcher: ClipBatcher,
-    // List of blur operations to apply for this render target.
-    pub vertical_blurs: Vec<BlurInstance>,
-    pub horizontal_blurs: Vec<BlurInstance>,
+    /// List of blur operations to apply for this render target.
+    pub blurs: Vec<BlurInstance>,
+    /// List of scale operations to apply for this render target.
     pub scalings: Vec<ScalingInfo>,
     pub zero_clears: Vec<RenderTaskId>,
     allocator: TextureAllocator,
@@ -524,8 +514,7 @@ impl RenderTarget for AlphaRenderTarget {
     ) -> Self {
         AlphaRenderTarget {
             clip_batcher: ClipBatcher::new(),
-            vertical_blurs: Vec::new(),
-            horizontal_blurs: Vec::new(),
+            blurs: Vec::new(),
             scalings: Vec::new(),
             zero_clears: Vec::new(),
             allocator: TextureAllocator::new(size.expect("bug: alpha targets need size")),
@@ -561,18 +550,9 @@ impl RenderTarget for AlphaRenderTarget {
             RenderTaskKind::Glyph(..) => {
                 panic!("BUG: should not be added to alpha target!");
             }
-            RenderTaskKind::VerticalBlur(ref info) => {
+            RenderTaskKind::Blur(ref info) => {
                 info.add_instances(
-                    &mut self.vertical_blurs,
-                    BlurDirection::Vertical,
-                    render_tasks.get_task_address(task_id),
-                    render_tasks.get_task_address(task.children[0]),
-                );
-            }
-            RenderTaskKind::HorizontalBlur(ref info) => {
-                info.add_instances(
-                    &mut self.horizontal_blurs,
-                    BlurDirection::Horizontal,
+                    &mut self.blurs,
                     render_tasks.get_task_address(task_id),
                     render_tasks.get_task_address(task.children[0]),
                 );
@@ -617,7 +597,7 @@ impl RenderTarget for AlphaRenderTarget {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct TextureCacheRenderTarget {
     pub target_kind: RenderTargetKind,
-    pub horizontal_blurs: Vec<BlurInstance>,
+    pub blurs: Vec<BlurInstance>,
     pub blits: Vec<BlitJob>,
     pub glyphs: Vec<GlyphJob>,
     pub border_segments_complex: Vec<BorderInstance>,
@@ -629,7 +609,7 @@ impl TextureCacheRenderTarget {
     fn new(target_kind: RenderTargetKind) -> Self {
         TextureCacheRenderTarget {
             target_kind,
-            horizontal_blurs: vec![],
+            blurs: vec![],
             blits: vec![],
             glyphs: vec![],
             border_segments_complex: vec![],
@@ -652,13 +632,8 @@ impl TextureCacheRenderTarget {
         let target_rect = task.get_target_rect();
 
         match task.kind {
-            RenderTaskKind::HorizontalBlur(ref info) => {
-                info.add_instances(
-                    &mut self.horizontal_blurs,
-                    BlurDirection::Horizontal,
-                    task_address,
-                    src_task_address.unwrap(),
-                );
+            RenderTaskKind::Blur(ref info) => {
+                info.add_instances(&mut self.blurs, task_address, src_task_address.unwrap());
             }
             RenderTaskKind::Blit(ref task_info) => {
                 match task_info.source {
@@ -699,7 +674,6 @@ impl TextureCacheRenderTarget {
             RenderTaskKind::Glyph(ref mut task_info) => {
                 self.add_glyph_task(task_info, target_rect.0)
             }
-            RenderTaskKind::VerticalBlur(..) |
             RenderTaskKind::Picture(..) |
             RenderTaskKind::ClipRegion(..) |
             RenderTaskKind::CacheMask(..) |
@@ -1009,14 +983,12 @@ impl BlurTask {
     fn add_instances(
         &self,
         instances: &mut Vec<BlurInstance>,
-        blur_direction: BlurDirection,
         task_address: RenderTaskAddress,
         src_task_address: RenderTaskAddress,
     ) {
         let instance = BlurInstance {
             task_address,
             src_task_address,
-            blur_direction,
         };
 
         instances.push(instance);

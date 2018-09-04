@@ -9,6 +9,7 @@ use border::BorderCacheKey;
 use box_shadow::{BoxShadowCacheKey};
 use clip::{ClipItem, ClipStore, ClipNodeRange};
 use device::TextureFilter;
+use euclid::TypedSize2D;
 #[cfg(feature = "pathfinder")]
 use euclid::{TypedPoint2D, TypedVector2D};
 use freelist::{FreeList, FreeListHandle, WeakFreeListHandle};
@@ -33,8 +34,6 @@ use webrender_api::DevicePixel;
 
 const RENDER_TASK_SIZE_SANITY_CHECK: i32 = 16000;
 const FLOATS_PER_RENDER_TASK_INFO: usize = 8;
-pub const MAX_BLUR_STD_DEVIATION: f32 = 4.0;
-pub const MIN_DOWNSCALING_RT_SIZE: i32 = 128;
 
 fn render_task_sanity_check(size: &DeviceIntSize) {
     if size.width > RENDER_TASK_SIZE_SANITY_CHECK ||
@@ -212,7 +211,8 @@ pub struct PictureTask {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct BlurTask {
-    pub blur_std_deviation: f32,
+    pub radius: f32,
+    pub vertical: bool,
     pub target_kind: RenderTargetKind,
     pub uv_rect_handle: GpuCacheHandle,
     uv_rect_kind: UvRectKind,
@@ -221,8 +221,28 @@ pub struct BlurTask {
 impl BlurTask {
     #[cfg(feature = "debugger")]
     fn print_with<T: PrintTreePrinter>(&self, pt: &mut T) {
-        pt.add_item(format!("std deviation: {}", self.blur_std_deviation));
+        pt.add_item(format!("radius: {}", self.radius));
+        pt.add_item(format!("vertical: {:?}", self.vertical));
         pt.add_item(format!("target: {:?}", self.target_kind));
+    }
+
+    // Returns the standard deviation for this blur task.
+    //
+    // This is equal to half of the blur radius. For more information, see [1].
+    //
+    // [1]: https://dbaron.org/log/20110225-blur-radius
+    fn sigma(&self) -> f32 {
+        self.radius * 0.5
+    }
+
+    // Returns the coefficient of the exponent of the blur kernel: 1/(2σ²).
+    pub fn coefficient(&self) -> f32 {
+        let sigma = self.sigma();
+        if sigma != 0.0 {
+            -1.0 / (2.0 * sigma * sigma)
+        } else {
+            0.0
+        }
     }
 }
 
@@ -287,8 +307,7 @@ pub enum RenderTaskKind {
     Picture(PictureTask),
     CacheMask(CacheMaskTask),
     ClipRegion(ClipRegionTask),
-    VerticalBlur(BlurTask),
-    HorizontalBlur(BlurTask),
+    Blur(BlurTask),
     #[allow(dead_code)]
     Glyph(GlyphTask),
     Readback(DeviceIntRect),
@@ -523,9 +542,8 @@ impl RenderTask {
     //    PrimitiveCacheTask: Draw the primitives.
     //           ^
     //           |
-    //    DownscalingTask(s): Each downscaling task reduces the size of render target to
-    //           ^            half. Also reduce the std deviation to half until the std
-    //           |            deviation less than 4.0.
+    //    DownsamplingTask(s): Each downsampling task reduces the size of render target to
+    //           ^             half.
     //           |
     //           |
     //    VerticalBlurTask: Apply the separable vertical blur to the primitive.
@@ -536,62 +554,55 @@ impl RenderTask {
     //           +---- This is stored as the input task to the primitive shader.
     //
     pub fn new_blur(
-        blur_std_deviation: f32,
-        src_task_id: RenderTaskId,
+        radius: f32,
+        mut src_task_id: RenderTaskId,
         render_tasks: &mut RenderTaskTree,
         target_kind: RenderTargetKind,
         clear_mode: ClearMode,
     ) -> Self {
-        // Adjust large std deviation value.
-        let mut adjusted_blur_std_deviation = blur_std_deviation;
-        let (blur_target_size, uv_rect_kind) = {
-            let src_task = &render_tasks[src_task_id];
-            (src_task.get_dynamic_size(), src_task.uv_rect_kind())
-        };
-        let mut adjusted_blur_target_size = blur_target_size;
-        let mut downscaling_src_task_id = src_task_id;
-        let mut scale_factor = 1.0;
-        while adjusted_blur_std_deviation > MAX_BLUR_STD_DEVIATION {
-            if adjusted_blur_target_size.width < MIN_DOWNSCALING_RT_SIZE ||
-               adjusted_blur_target_size.height < MIN_DOWNSCALING_RT_SIZE {
-                break;
-            }
-            adjusted_blur_std_deviation *= 0.5;
-            scale_factor *= 2.0;
-            adjusted_blur_target_size = (blur_target_size.to_f32() / scale_factor).to_i32();
-            let downscaling_task = RenderTask::new_scaling(
-                target_kind,
-                downscaling_src_task_id,
-                adjusted_blur_target_size,
-            );
-            downscaling_src_task_id = render_tasks.add(downscaling_task);
+        // Look up some info.
+        let full_size = render_tasks[src_task_id].get_dynamic_size();
+        let uv_rect_kind = render_tasks[src_task_id].uv_rect_kind();
+
+        // Determine the number of downsampling passes that we'll use.
+        let downsampling_passes = (30 as u32).saturating_sub((radius as u32).leading_zeros());
+
+        // Create downsampling passes.
+        for pass in 0..downsampling_passes {
+            let scale_factor = (2 << pass) as f32;
+            let size = (full_size.to_f32() / scale_factor).ceil().to_i32();
+            src_task_id = render_tasks.add(RenderTask::new_scaling(target_kind, src_task_id, size))
         }
 
-        let blur_task_v = RenderTask::with_dynamic_location(
-            adjusted_blur_target_size,
-            vec![downscaling_src_task_id],
-            RenderTaskKind::VerticalBlur(BlurTask {
-                blur_std_deviation: adjusted_blur_std_deviation,
+        // Create horizontal pass.
+        let scale_factor = (1 << downsampling_passes) as f32;
+        let size = TypedSize2D::new(full_size.width,
+                                    f32::ceil((full_size.height as f32) / scale_factor) as i32);
+        src_task_id = render_tasks.add(RenderTask::with_dynamic_location(
+            size,
+            vec![src_task_id],
+            RenderTaskKind::Blur(BlurTask {
+                radius: radius / scale_factor,
+                vertical: false,
                 target_kind,
                 uv_rect_handle: GpuCacheHandle::new(),
                 uv_rect_kind,
             }),
-            clear_mode,
-        );
+            clear_mode));
 
-        let blur_task_v_id = render_tasks.add(blur_task_v);
-
+        // Create vertical pass.
+        let size = full_size;
         RenderTask::with_dynamic_location(
-            adjusted_blur_target_size,
-            vec![blur_task_v_id],
-            RenderTaskKind::HorizontalBlur(BlurTask {
-                blur_std_deviation: adjusted_blur_std_deviation,
+            size,
+            vec![src_task_id],
+            RenderTaskKind::Blur(BlurTask {
+                radius: radius / scale_factor,
+                vertical: true,
                 target_kind,
                 uv_rect_handle: GpuCacheHandle::new(),
                 uv_rect_kind,
             }),
-            clear_mode,
-        )
+            clear_mode)
     }
 
     pub fn new_border(
@@ -659,8 +670,7 @@ impl RenderTask {
                 task.uv_rect_kind
             }
 
-            RenderTaskKind::VerticalBlur(ref task) |
-            RenderTaskKind::HorizontalBlur(ref task) => {
+            RenderTaskKind::Blur(ref task) => {
                 task.uv_rect_kind
             }
 
@@ -708,12 +718,12 @@ impl RenderTask {
                     RasterizationSpace::Local as i32 as f32,
                 ]
             }
-            RenderTaskKind::VerticalBlur(ref task) |
-            RenderTaskKind::HorizontalBlur(ref task) => {
+            RenderTaskKind::Blur(ref task) => {
+                let coefficient = task.coefficient();
                 [
-                    task.blur_std_deviation,
-                    0.0,
-                    0.0,
+                    coefficient,
+                    f32::exp(coefficient * 2.0),
+                    task.vertical as i32 as f32,
                 ]
             }
             RenderTaskKind::Glyph(_) => {
@@ -754,8 +764,7 @@ impl RenderTask {
             RenderTaskKind::Picture(ref info) => {
                 gpu_cache.get_address(&info.uv_rect_handle)
             }
-            RenderTaskKind::VerticalBlur(ref info) |
-            RenderTaskKind::HorizontalBlur(ref info) => {
+            RenderTaskKind::Blur(ref info) => {
                 gpu_cache.get_address(&info.uv_rect_handle)
             }
             RenderTaskKind::ClipRegion(..) |
@@ -818,8 +827,7 @@ impl RenderTask {
                 RenderTargetKind::Alpha
             }
 
-            RenderTaskKind::VerticalBlur(ref task_info) |
-            RenderTaskKind::HorizontalBlur(ref task_info) => {
+            RenderTaskKind::Blur(ref task_info) => {
                 task_info.target_kind
             }
 
@@ -851,9 +859,8 @@ impl RenderTask {
     pub fn is_shared(&self) -> bool {
         match self.kind {
             RenderTaskKind::Picture(..) |
-            RenderTaskKind::VerticalBlur(..) |
+            RenderTaskKind::Blur(..) |
             RenderTaskKind::Readback(..) |
-            RenderTaskKind::HorizontalBlur(..) |
             RenderTaskKind::Scaling(..) |
             RenderTaskKind::ClipRegion(..) |
             RenderTaskKind::Blit(..) |
@@ -883,8 +890,7 @@ impl RenderTask {
         let (target_rect, target_index) = self.get_target_rect();
 
         let (cache_handle, uv_rect_kind) = match self.kind {
-            RenderTaskKind::HorizontalBlur(ref mut info) |
-            RenderTaskKind::VerticalBlur(ref mut info) => {
+            RenderTaskKind::Blur(ref mut info) => {
                 (&mut info.uv_rect_handle, info.uv_rect_kind)
             }
             RenderTaskKind::Picture(ref mut info) => {
@@ -929,12 +935,8 @@ impl RenderTask {
             RenderTaskKind::ClipRegion(..) => {
                 pt.new_level("ClipRegion".to_owned());
             }
-            RenderTaskKind::VerticalBlur(ref task) => {
-                pt.new_level("VerticalBlur".to_owned());
-                task.print_with(pt);
-            }
-            RenderTaskKind::HorizontalBlur(ref task) => {
-                pt.new_level("HorizontalBlur".to_owned());
+            RenderTaskKind::Blur(ref task) => {
+                pt.new_level("Blur".to_owned());
                 task.print_with(pt);
             }
             RenderTaskKind::Readback(ref rect) => {

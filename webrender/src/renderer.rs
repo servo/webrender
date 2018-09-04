@@ -361,11 +361,6 @@ pub(crate) mod desc {
                 count: 1,
                 kind: VertexAttributeKind::I32,
             },
-            VertexAttribute {
-                name: "aBlurDirection",
-                count: 1,
-                kind: VertexAttributeKind::I32,
-            },
         ],
     };
 
@@ -2045,13 +2040,8 @@ impl Renderer {
         );
         debug_target.add(
             debug_server::BatchKind::Cache,
-            "Vertical Blur",
-            target.vertical_blurs.len(),
-        );
-        debug_target.add(
-            debug_server::BatchKind::Cache,
-            "Horizontal Blur",
-            target.horizontal_blurs.len(),
+            "Blur",
+            target.blurs.len(),
         );
         debug_target.add(
             debug_server::BatchKind::Clip,
@@ -2081,13 +2071,8 @@ impl Renderer {
         );
         debug_target.add(
             debug_server::BatchKind::Cache,
-            "Vertical Blur",
-            target.vertical_blurs.len(),
-        );
-        debug_target.add(
-            debug_server::BatchKind::Cache,
-            "Horizontal Blur",
-            target.horizontal_blurs.len(),
+            "Blur",
+            target.blurs.len(),
         );
 
         for alpha_batch_container in &target.alpha_batch_containers {
@@ -2118,13 +2103,7 @@ impl Renderer {
     #[cfg(feature = "debugger")]
     fn debug_texture_cache_target(target: &TextureCacheRenderTarget) -> debug_server::Target {
         let mut debug_target = debug_server::Target::new("Texture Cache");
-
-        debug_target.add(
-            debug_server::BatchKind::Cache,
-            "Horizontal Blur",
-            target.horizontal_blurs.len(),
-        );
-
+        debug_target.add(debug_server::BatchKind::Cache, "Blur", target.blurs.len());
         debug_target
     }
 
@@ -2938,30 +2917,18 @@ impl Renderer {
         self.handle_blits(&target.blits, render_tasks);
 
         // Draw any blurs for this target.
-        // Blurs are rendered as a standard 2-pass
-        // separable implementation.
-        // TODO(gw): In the future, consider having
-        //           fast path blur shaders for common
-        //           blur radii with fixed weights.
-        if !target.vertical_blurs.is_empty() || !target.horizontal_blurs.is_empty() {
+        //
+        // Blurs are rendered using a two-pass separable implementation, with a fixed support size.
+        if !target.blurs.is_empty() {
             let _timer = self.gpu_profile.start_timer(GPU_TAG_BLUR);
 
             self.set_blend(false, framebuffer_kind);
             self.shaders.cs_blur_rgba8
                 .bind(&mut self.device, projection, &mut self.renderer_errors);
 
-            if !target.vertical_blurs.is_empty() {
+            if !target.blurs.is_empty() {
                 self.draw_instanced_batch(
-                    &target.vertical_blurs,
-                    VertexArrayKind::Blur,
-                    &BatchTextures::no_texture(),
-                    stats,
-                );
-            }
-
-            if !target.horizontal_blurs.is_empty() {
-                self.draw_instanced_batch(
-                    &target.horizontal_blurs,
+                    &target.blurs,
                     VertexArrayKind::Blur,
                     &BatchTextures::no_texture(),
                     stats,
@@ -3230,30 +3197,17 @@ impl Renderer {
         }
 
         // Draw any blurs for this target.
-        // Blurs are rendered as a standard 2-pass
-        // separable implementation.
-        // TODO(gw): In the future, consider having
-        //           fast path blur shaders for common
-        //           blur radii with fixed weights.
-        if !target.vertical_blurs.is_empty() || !target.horizontal_blurs.is_empty() {
+        //
+        // Blurs are rendered using a two-pass separable implementation, with a fixed support size.
+        if !target.blurs.is_empty() {
             let _timer = self.gpu_profile.start_timer(GPU_TAG_BLUR);
 
             self.set_blend(false, FramebufferKind::Other);
-            self.shaders.cs_blur_a8
-                .bind(&mut self.device, projection, &mut self.renderer_errors);
+            self.shaders.cs_blur_a8.bind(&mut self.device, projection, &mut self.renderer_errors);
 
-            if !target.vertical_blurs.is_empty() {
+            if !target.blurs.is_empty() {
                 self.draw_instanced_batch(
-                    &target.vertical_blurs,
-                    VertexArrayKind::Blur,
-                    &BatchTextures::no_texture(),
-                    stats,
-                );
-            }
-
-            if !target.horizontal_blurs.is_empty() {
-                self.draw_instanced_batch(
-                    &target.horizontal_blurs,
+                    &target.blurs,
                     VertexArrayKind::Blur,
                     &BatchTextures::no_texture(),
                     stats,
@@ -3444,7 +3398,7 @@ impl Renderer {
         }
 
         // Draw any blurs for this target.
-        if !target.horizontal_blurs.is_empty() {
+        if !target.blurs.is_empty() {
             let _timer = self.gpu_profile.start_timer(GPU_TAG_BLUR);
 
             match target.target_kind {
@@ -3453,7 +3407,7 @@ impl Renderer {
             }.bind(&mut self.device, &projection, &mut self.renderer_errors);
 
             self.draw_instanced_batch(
-                &target.horizontal_blurs,
+                &target.blurs,
                 VertexArrayKind::Blur,
                 &BatchTextures::no_texture(),
                 stats,

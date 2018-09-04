@@ -57,15 +57,6 @@ pub enum BoxShadowStretchMode {
     Simple = 1,
 }
 
-#[repr(i32)]
-#[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub enum BlurDirection {
-    Horizontal = 0,
-    Vertical,
-}
-
 #[derive(Debug)]
 #[repr(C)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -73,7 +64,6 @@ pub enum BlurDirection {
 pub struct BlurInstance {
     pub task_address: RenderTaskAddress,
     pub src_task_address: RenderTaskAddress,
-    pub blur_direction: BlurDirection,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
