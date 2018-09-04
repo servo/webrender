@@ -1611,6 +1611,7 @@ pub fn resolve_image(
                     deferred_resolves.push(DeferredResolve {
                         image_properties,
                         address: gpu_cache.get_address(&cache_handle),
+                        rendering: request.rendering,
                     });
 
                     cache_item
