@@ -428,7 +428,10 @@ impl BrushKind {
 
     // Construct a brush that is a border with `border` style and `widths`
     // dimensions.
-    pub fn new_border(border: NormalBorder, widths: BorderWidths) -> BrushKind {
+    pub fn new_border(mut border: NormalBorder, widths: BorderWidths) -> BrushKind {
+        // FIXME(emilio): Is this the best place to do this?
+        border.normalize(&widths);
+
         let cache_key = BorderCacheKey::new(&border, &widths);
         BrushKind::Border {
             source: BorderSource::Border {
