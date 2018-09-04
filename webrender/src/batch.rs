@@ -660,8 +660,10 @@ impl AlphaBatchBuilder {
                                         &matrix,
                                         Some(bounding_rect.to_f64()),
                                     );
-                                    for poly in results {
-                                        splitter.add(poly);
+                                    if let Ok(results) = results {
+                                        for poly in results {
+                                            splitter.add(poly);
+                                        }
                                     }
                                 }
                             }
