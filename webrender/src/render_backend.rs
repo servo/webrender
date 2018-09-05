@@ -241,7 +241,6 @@ impl Document {
         DocumentOps::nop()
     }
 
-
     fn build_frame(
         &mut self,
         resource_cache: &mut ResourceCache,
@@ -367,6 +366,7 @@ pub struct RenderBackend {
     payload_rx: Receiver<Payload>,
     result_tx: Sender<ResultMsg>,
     scene_tx: Sender<SceneBuilderRequest>,
+    low_priority_scene_tx: Sender<SceneBuilderRequest>,
     scene_rx: Receiver<SceneBuilderResult>,
 
     payload_buffer: Vec<Payload>,
@@ -393,6 +393,7 @@ impl RenderBackend {
         payload_rx: Receiver<Payload>,
         result_tx: Sender<ResultMsg>,
         scene_tx: Sender<SceneBuilderRequest>,
+        low_priority_scene_tx: Sender<SceneBuilderRequest>,
         scene_rx: Receiver<SceneBuilderResult>,
         default_device_pixel_ratio: f32,
         resource_cache: ResourceCache,
@@ -410,6 +411,7 @@ impl RenderBackend {
             payload_rx,
             result_tx,
             scene_tx,
+            low_priority_scene_tx,
             scene_rx,
             payload_buffer: Vec::new(),
             default_device_pixel_ratio,
@@ -597,7 +599,7 @@ impl RenderBackend {
 
                         if txn.build_frame || !txn.resource_updates.is_empty() || !txn.frame_ops.is_empty() {
                             self.update_document(
-                                txn.document_id,
+                            txn.document_id,
                                 replace(&mut txn.resource_updates, Vec::new()),
                                 replace(&mut txn.frame_ops, Vec::new()),
                                 txn.build_frame,
@@ -628,7 +630,7 @@ impl RenderBackend {
             };
         }
 
-        let _ = self.scene_tx.send(SceneBuilderRequest::Stop);
+        let _ = self.low_priority_scene_tx.send(SceneBuilderRequest::Stop);
         // Ensure we read everything the scene builder is sending us from
         // inflight messages, otherwise the scene builder might panic.
         while let Ok(msg) = self.scene_rx.recv() {
@@ -665,7 +667,7 @@ impl RenderBackend {
                 self.scene_tx.send(SceneBuilderRequest::WakeUp).unwrap();
             }
             ApiMsg::FlushSceneBuilder(tx) => {
-                self.scene_tx.send(SceneBuilderRequest::Flush(tx)).unwrap();
+                self.low_priority_scene_tx.send(SceneBuilderRequest::Flush(tx)).unwrap();
             }
             ApiMsg::UpdateResources(mut updates) => {
                 self.resource_cache.pre_scene_building_update(
@@ -709,7 +711,7 @@ impl RenderBackend {
             }
             ApiMsg::DeleteDocument(document_id) => {
                 self.documents.remove(&document_id);
-                self.scene_tx.send(
+                self.low_priority_scene_tx.send(
                     SceneBuilderRequest::DeleteDocument(document_id)
                 ).unwrap();
             }
@@ -754,7 +756,7 @@ impl RenderBackend {
                         self.frame_config
                             .dual_source_blending_is_enabled = enable;
 
-                        self.scene_tx.send(SceneBuilderRequest::SetFrameBuilderConfig(
+                        self.low_priority_scene_tx.send(SceneBuilderRequest::SetFrameBuilderConfig(
                             self.frame_config.clone()
                         )).unwrap();
 
@@ -835,6 +837,7 @@ impl RenderBackend {
             blob_requests: Vec::new(),
             resource_updates: transaction_msg.resource_updates,
             frame_ops: transaction_msg.frame_ops,
+            rasterized_blobs: Vec::new(),
             set_root_pipeline: None,
             build_frame: transaction_msg.generate_frame,
             render_frame: transaction_msg.generate_frame,
@@ -892,7 +895,13 @@ impl RenderBackend {
             });
         }
 
-        self.scene_tx.send(SceneBuilderRequest::Transaction(txn)).unwrap();
+        let tx = if transaction_msg.low_priority {
+            &self.low_priority_scene_tx
+        } else {
+            &self.scene_tx
+        };
+
+        tx.send(SceneBuilderRequest::Transaction(txn)).unwrap();
     }
 
     fn update_document(
@@ -1345,7 +1354,7 @@ impl RenderBackend {
         }
 
         if !scenes_to_build.is_empty() {
-            self.scene_tx.send(
+            self.low_priority_scene_tx.send(
                 SceneBuilderRequest::LoadScenes(scenes_to_build)
             ).unwrap();
         }

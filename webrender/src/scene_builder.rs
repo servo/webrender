@@ -27,6 +27,7 @@ pub struct Transaction {
     pub request_scene_build: Option<SceneRequest>,
     pub blob_requests: Vec<BlobImageParams>,
     pub blob_rasterizer: Option<Box<AsyncBlobImageRasterizer>>,
+    pub rasterized_blobs: Vec<(BlobImageRequest, BlobImageResult)>,
     pub resource_updates: Vec<ResourceUpdate>,
     pub frame_ops: Vec<FrameMsg>,
     pub set_root_pipeline: Option<PipelineId>,
@@ -315,18 +316,19 @@ impl SceneBuilder {
         }
 
         let blob_requests = replace(&mut txn.blob_requests, Vec::new());
-        let rasterized_blobs = txn.blob_rasterizer.as_mut().map_or(
+        let mut rasterized_blobs = txn.blob_rasterizer.as_mut().map_or(
             Vec::new(),
             |rasterizer| rasterizer.rasterize(&blob_requests),
         );
+        rasterized_blobs.append(&mut txn.rasterized_blobs);
 
         Box::new(BuiltTransaction {
             document_id: txn.document_id,
             build_frame: txn.build_frame || built_scene.is_some(),
             render_frame: txn.render_frame,
             built_scene,
+            rasterized_blobs,
             resource_updates: replace(&mut txn.resource_updates, Vec::new()),
-            rasterized_blobs: rasterized_blobs,
             blob_rasterizer: replace(&mut txn.blob_rasterizer, None),
             frame_ops: replace(&mut txn.frame_ops, Vec::new()),
             removed_pipelines: replace(&mut txn.removed_pipelines, Vec::new()),
@@ -381,5 +383,52 @@ impl SceneBuilder {
                 hooks.post_resource_update();
             }
         }
+    }
+}
+
+/// A scene builder thread which executes expensive operations such as blob rasterization
+/// with a lower priority than the normal scene builder thread.
+///
+/// After rasterizing blobs, the secene building request is forwarded to the normal scene
+/// builder where the FrameBuilder is generated.
+pub struct LowPrioritySceneBuilder {
+    pub rx: Receiver<SceneBuilderRequest>,
+    pub tx: Sender<SceneBuilderRequest>,
+}
+
+impl LowPrioritySceneBuilder {
+    pub fn run(&mut self) {
+        loop {
+            match self.rx.recv() {
+                Ok(SceneBuilderRequest::Transaction(txn)) => {
+                    let txn = self.process_transaction(txn);
+                    self.tx.send(SceneBuilderRequest::Transaction(txn)).unwrap();
+                }
+                Ok(SceneBuilderRequest::DeleteDocument(document_id)) => {
+                    self.tx.send(SceneBuilderRequest::DeleteDocument(document_id)).unwrap();
+                }
+                Ok(SceneBuilderRequest::Stop) => {
+                    self.tx.send(SceneBuilderRequest::Stop).unwrap();
+                    break;
+                }
+                Ok(other) => {
+                    self.tx.send(other).unwrap();
+                }
+                Err(_) => {
+                    break;
+                }
+            }
+        }
+    }
+
+    fn process_transaction(&mut self, mut txn: Box<Transaction>) -> Box<Transaction> {
+        let blob_requests = replace(&mut txn.blob_requests, Vec::new());
+        let mut more_rasterized_blobs = txn.blob_rasterizer.as_mut().map_or(
+            Vec::new(),
+            |rasterizer| rasterizer.rasterize(&blob_requests),
+        );
+        txn.rasterized_blobs.append(&mut more_rasterized_blobs);
+
+        txn
     }
 }

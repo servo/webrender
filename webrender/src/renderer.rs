@@ -44,7 +44,7 @@ use device::query::GpuProfiler;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use record::ApiRecordingReceiver;
 use render_backend::RenderBackend;
-use scene_builder::SceneBuilder;
+use scene_builder::{SceneBuilder, LowPrioritySceneBuilder};
 use shade::Shaders;
 use render_task::{RenderTask, RenderTaskKind, RenderTaskTree};
 use resource_cache::ResourceCache;
@@ -1714,9 +1714,11 @@ impl Renderer {
         let blob_image_handler = options.blob_image_handler.take();
         let thread_listener_for_render_backend = thread_listener.clone();
         let thread_listener_for_scene_builder = thread_listener.clone();
+        let thread_listener_for_lp_scene_builder = thread_listener.clone();
         let scene_builder_hooks = options.scene_builder_hooks;
         let rb_thread_name = format!("WRRenderBackend#{}", options.renderer_id.unwrap_or(0));
         let scene_thread_name = format!("WRSceneBuilder#{}", options.renderer_id.unwrap_or(0));
+        let lp_scene_thread_name = format!("WRSceneBuilderLP#{}", options.renderer_id.unwrap_or(0));
         let glyph_rasterizer = GlyphRasterizer::new(workers)?;
 
         let (scene_builder, scene_tx, scene_rx) = SceneBuilder::new(
@@ -1737,6 +1739,32 @@ impl Renderer {
             }
         })?;
 
+        let low_priority_scene_tx = if options.support_low_priority_transactions {
+            let (low_priority_scene_tx, low_priority_scene_rx) = channel();
+            let lp_builder = LowPrioritySceneBuilder {
+                rx: low_priority_scene_rx,
+                tx: scene_tx.clone(),
+            };
+
+            thread::Builder::new().name(lp_scene_thread_name.clone()).spawn(move || {
+                register_thread_with_profiler(lp_scene_thread_name.clone());
+                if let Some(ref thread_listener) = *thread_listener_for_lp_scene_builder {
+                    thread_listener.thread_started(&lp_scene_thread_name);
+                }
+
+                let mut scene_builder = lp_builder;
+                scene_builder.run();
+
+                if let Some(ref thread_listener) = *thread_listener_for_lp_scene_builder {
+                    thread_listener.thread_stopped(&lp_scene_thread_name);
+                }
+            })?;
+
+            low_priority_scene_tx
+        } else {
+            scene_tx.clone()
+        };
+
         thread::Builder::new().name(rb_thread_name.clone()).spawn(move || {
             register_thread_with_profiler(rb_thread_name.clone());
             if let Some(ref thread_listener) = *thread_listener_for_render_backend {
@@ -1755,6 +1783,7 @@ impl Renderer {
                 payload_rx_for_backend,
                 result_tx,
                 scene_tx,
+                low_priority_scene_tx,
                 scene_rx,
                 device_pixel_ratio,
                 resource_cache,
@@ -4222,6 +4251,7 @@ pub struct RendererOptions {
     pub scene_builder_hooks: Option<Box<SceneBuilderHooks + Send>>,
     pub sampler: Option<Box<AsyncPropertySampler + Send>>,
     pub chase_primitive: ChasePrimitive,
+    pub support_low_priority_transactions: bool,
 }
 
 impl Default for RendererOptions {
@@ -4256,6 +4286,7 @@ impl Default for RendererOptions {
             scene_builder_hooks: None,
             sampler: None,
             chase_primitive: ChasePrimitive::Nothing,
+            support_low_priority_transactions: false,
         }
     }
 }
