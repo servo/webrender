@@ -603,6 +603,7 @@ impl RenderBackend {
                             txn.document_id,
                                 replace(&mut txn.resource_updates, Vec::new()),
                                 replace(&mut txn.frame_ops, Vec::new()),
+                                replace(&mut txn.notifications, Vec::new()),
                                 txn.build_frame,
                                 txn.render_frame,
                                 &mut frame_counter,
@@ -839,6 +840,7 @@ impl RenderBackend {
             resource_updates: transaction_msg.resource_updates,
             frame_ops: transaction_msg.frame_ops,
             rasterized_blobs: Vec::new(),
+            notifications: Vec::new(),
             set_root_pipeline: None,
             build_frame: transaction_msg.generate_frame,
             render_frame: transaction_msg.generate_frame,
@@ -874,6 +876,7 @@ impl RenderBackend {
                 txn.document_id,
                 replace(&mut txn.resource_updates, Vec::new()),
                 replace(&mut txn.frame_ops, Vec::new()),
+                replace(&mut txn.notifications, Vec::new()),
                 txn.build_frame,
                 txn.render_frame,
                 frame_counter,
@@ -910,6 +913,7 @@ impl RenderBackend {
         document_id: DocumentId,
         resource_updates: Vec<ResourceUpdate>,
         mut frame_ops: Vec<FrameMsg>,
+        notifications: Vec<ExternalEvent>,
         mut build_frame: bool,
         mut render_frame: bool,
         frame_counter: &mut u32,
@@ -1022,6 +1026,10 @@ impl RenderBackend {
             // new_frame_ready callback below) has the right flags.
             let msg = ResultMsg::PublishPipelineInfo(doc.updated_pipeline_info());
             self.result_tx.send(msg).unwrap();
+        }
+
+        for evt in notifications {
+            self.notifier.external_event(evt)
         }
 
         if render_frame {
