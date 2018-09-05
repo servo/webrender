@@ -508,3 +508,67 @@ pub fn world_rect_to_device_pixels(
     let device_rect = rect * device_pixel_scale;
     device_rect.round_out()
 }
+
+/// Run the first callback over all elements in the array. If the callback returns true,
+/// the element is removed from the array and moved to a second callback.
+///
+/// This is a simple implementation waiting for Vec::drain_filter to be stable.
+/// When that happens, code like:
+///
+/// ```
+/// let filter = |op| {
+///     match *op {
+///         Foo | Bar => true,
+///         Baz => false,
+///     }
+/// };
+/// drain_filter(
+///     &mut ops,
+///     filter,
+///     |op| {
+///         match op {
+///             Foo => { foo(); }
+///             Bar => { bar(); }
+///             Baz => { unreachable!(); }
+///         }
+///     },
+/// );
+/// ```
+///
+/// Can be rewritten as:
+///
+/// ```
+/// let filter = |op| {
+///     match *op {
+///         Foo | Bar => true,
+///         Baz => false,
+///     }
+/// };
+/// for op in ops.drain_filter(filter) {
+///     match op {
+///         Foo => { foo(); }
+///         Bar => { bar(); }
+///         Baz => { unreachable!(); }
+///     }
+/// }
+/// ```
+///
+/// See https://doc.rust-lang.org/std/vec/struct.Vec.html#method.drain_filter
+pub fn drain_filter<T, Filter, Action>(
+    vec: &mut Vec<T>,
+    mut filter: Filter,
+    mut action: Action,
+)
+where
+    Filter: FnMut(&mut T) -> bool,
+    Action: FnMut(T)
+{
+    let mut i = 0;
+    while i != vec.len() {
+        if filter(&mut vec[i]) {
+            action(vec.remove(i));
+        } else {
+            i += 1;
+        }
+    }
+}
