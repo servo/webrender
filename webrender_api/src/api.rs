@@ -48,6 +48,8 @@ pub struct Transaction {
     // Additional display list data.
     payloads: Vec<Payload>,
 
+    notifications: Vec<ExternalEvent>,
+
     // Resource updates are applied after scene building.
     pub resource_updates: Vec<ResourceUpdate>,
 
@@ -67,6 +69,7 @@ impl Transaction {
             frame_ops: Vec::new(),
             resource_updates: Vec::new(),
             payloads: Vec::new(),
+            notifications: Vec::new(),
             use_scene_builder_thread: true,
             generate_frame: false,
             low_priority: false,
@@ -88,7 +91,8 @@ impl Transaction {
         !self.generate_frame &&
             self.scene_ops.is_empty() &&
             self.frame_ops.is_empty() &&
-            self.resource_updates.is_empty()
+            self.resource_updates.is_empty() &&
+            self.notifications.is_empty()
     }
 
     pub fn update_epoch(&mut self, pipeline_id: PipelineId, epoch: Epoch) {
@@ -169,6 +173,10 @@ impl Transaction {
 
     pub fn update_resources(&mut self, resources: Vec<ResourceUpdate>) {
         self.merge(resources);
+    }
+
+    pub fn notify(&mut self, event: ExternalEvent) {
+        self.notifications.push(event);
     }
 
     pub fn set_window_parameters(
@@ -257,6 +265,7 @@ impl Transaction {
                 scene_ops: self.scene_ops,
                 frame_ops: self.frame_ops,
                 resource_updates: self.resource_updates,
+                notifications: self.notifications,
                 use_scene_builder_thread: self.use_scene_builder_thread,
                 generate_frame: self.generate_frame,
                 low_priority: self.low_priority,
@@ -364,6 +373,7 @@ pub struct TransactionMsg {
     pub scene_ops: Vec<SceneMsg>,
     pub frame_ops: Vec<FrameMsg>,
     pub resource_updates: Vec<ResourceUpdate>,
+    pub notifications: Vec<ExternalEvent>,
     pub generate_frame: bool,
     pub use_scene_builder_thread: bool,
     pub low_priority: bool,
@@ -374,7 +384,8 @@ impl TransactionMsg {
         !self.generate_frame &&
             self.scene_ops.is_empty() &&
             self.frame_ops.is_empty() &&
-            self.resource_updates.is_empty()
+            self.resource_updates.is_empty() &&
+            self.notifications.is_empty()
     }
 
     // TODO: We only need this for a few RenderApi methods which we should remove.
@@ -383,6 +394,7 @@ impl TransactionMsg {
             scene_ops: Vec::new(),
             frame_ops: vec![msg],
             resource_updates: Vec::new(),
+            notifications: Vec::new(),
             generate_frame: false,
             use_scene_builder_thread: false,
             low_priority: false,
@@ -394,6 +406,7 @@ impl TransactionMsg {
             scene_ops: vec![msg],
             frame_ops: Vec::new(),
             resource_updates: Vec::new(),
+            notifications: Vec::new(),
             generate_frame: false,
             use_scene_builder_thread: false,
             low_priority: false,
