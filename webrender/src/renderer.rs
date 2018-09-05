@@ -3368,9 +3368,32 @@ impl Renderer {
         self.handle_blits(&target.blits, render_tasks);
 
         // Draw any borders for this target.
-        if !target.border_segments.is_empty() {
+        if !target.border_segments_solid.is_empty() ||
+           !target.border_segments_complex.is_empty() {
             let _timer = self.gpu_profile.start_timer(GPU_TAG_CACHE_BORDER);
+        }
 
+        if !target.border_segments_solid.is_empty() {
+            self.set_blend(true, FramebufferKind::Other);
+            self.set_blend_mode_premultiplied_alpha(FramebufferKind::Other);
+
+            self.shaders.cs_border_solid.bind(
+                &mut self.device,
+                &projection,
+                &mut self.renderer_errors,
+            );
+
+            self.draw_instanced_batch(
+                &target.border_segments_solid,
+                VertexArrayKind::Border,
+                &BatchTextures::no_texture(),
+                stats,
+            );
+
+            self.set_blend(false, FramebufferKind::Other);
+        }
+
+        if !target.border_segments_complex.is_empty() {
             self.set_blend(true, FramebufferKind::Other);
             self.set_blend_mode_premultiplied_alpha(FramebufferKind::Other);
 
@@ -3381,7 +3404,7 @@ impl Renderer {
             );
 
             self.draw_instanced_batch(
-                &target.border_segments,
+                &target.border_segments_complex,
                 VertexArrayKind::Border,
                 &BatchTextures::no_texture(),
                 stats,

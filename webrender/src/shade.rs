@@ -433,6 +433,7 @@ pub struct Shaders {
     pub cs_blur_a8: LazilyCompiledShader,
     pub cs_blur_rgba8: LazilyCompiledShader,
     pub cs_border_segment: LazilyCompiledShader,
+    pub cs_border_solid: LazilyCompiledShader,
 
     // Brush shaders
     brush_solid: BrushShader,
@@ -663,6 +664,14 @@ impl Shaders {
              options.precache_shaders,
         )?;
 
+        let cs_border_solid = LazilyCompiledShader::new(
+            ShaderKind::Cache(VertexArrayKind::Border),
+            "cs_border_solid",
+            &[],
+            device,
+            options.precache_shaders,
+        )?;
+
         let ps_split_composite = LazilyCompiledShader::new(
             ShaderKind::Primitive,
             "ps_split_composite",
@@ -679,6 +688,7 @@ impl Shaders {
             cs_blur_a8,
             cs_blur_rgba8,
             cs_border_segment,
+            cs_border_solid,
             brush_solid,
             brush_image,
             brush_blend,
@@ -776,6 +786,7 @@ impl Shaders {
                 shader.deinit(device);
             }
         }
+        self.cs_border_solid.deinit(device);
         self.cs_border_segment.deinit(device);
         self.ps_split_composite.deinit(device);
     }

@@ -51,6 +51,10 @@ const SHADERS: &[Shader] = &[
         name: "cs_border_segment",
         features: CACHE_FEATURES,
     },
+    Shader {
+        name: "cs_border_solid",
+        features: CACHE_FEATURES,
+    },
     // Prim shaders
     Shader {
         name: "ps_split_composite",
