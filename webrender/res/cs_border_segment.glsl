@@ -94,7 +94,7 @@ vec2 get_outer_corner_scale(int segment) {
             p = vec2(0.0, 1.0);
             break;
         default:
-            // Should never get hit
+            // The result is only used for non-default segment cases
             p = vec2(0.0);
             break;
     }
