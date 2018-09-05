@@ -9,6 +9,7 @@ use api::{DeviceIntPoint, DevicePixelScale, DeviceUintPoint, DeviceUintRect, Dev
 use api::{DocumentId, DocumentLayer, ExternalScrollId, FrameMsg, HitTestFlags, HitTestResult};
 use api::{IdNamespace, LayoutPoint, PipelineId, RenderNotifier, SceneMsg, ScrollClamping};
 use api::{ScrollLocation, ScrollNodeState, TransactionMsg, ResourceUpdate, ImageKey};
+use api::ExternalEvent;
 use api::channel::{MsgReceiver, Payload};
 #[cfg(feature = "capture")]
 use api::CaptureBits;
