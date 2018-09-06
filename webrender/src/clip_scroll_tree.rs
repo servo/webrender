@@ -5,7 +5,6 @@
 use api::{ExternalScrollId, LayoutPoint, LayoutRect, LayoutVector2D, LayoutVector3D};
 use api::{PipelineId, ScrollClamping, ScrollNodeState, ScrollLocation};
 use api::{LayoutSize, LayoutTransform, PropertyBinding, ScrollSensitivity, WorldPoint};
-use clip::{ClipStore};
 use gpu_types::TransformPalette;
 use internal_types::{FastHashMap, FastHashSet};
 use print_tree::{PrintTree, PrintTreePrinter};
@@ -148,7 +147,7 @@ impl ClipScrollTree {
                                  .pre_mul(&coord_system.transform);
         }
 
-        let transform = transform.post_translate(
+        let transform = transform.pre_translate(
             LayoutVector3D::new(
                 child.coordinate_system_relative_offset.x,
                 child.coordinate_system_relative_offset.y,
@@ -415,7 +414,6 @@ impl ClipScrollTree {
         &self,
         index: SpatialNodeIndex,
         pt: &mut T,
-        clip_store: &ClipStore
     ) {
         let node = &self.spatial_nodes[index.0];
         match node.node_type {
@@ -442,23 +440,23 @@ impl ClipScrollTree {
         pt.add_item(format!("coordinate_system_id: {:?}", node.coordinate_system_id));
 
         for child_index in &node.children {
-            self.print_node(*child_index, pt, clip_store);
+            self.print_node(*child_index, pt);
         }
 
         pt.end_level();
     }
 
     #[allow(dead_code)]
-    pub fn print(&self, clip_store: &ClipStore) {
+    pub fn print(&self) {
         if !self.spatial_nodes.is_empty() {
             let mut pt = PrintTree::new("clip_scroll tree");
-            self.print_with(clip_store, &mut pt);
+            self.print_with(&mut pt);
         }
     }
 
-    pub fn print_with<T: PrintTreePrinter>(&self, clip_store: &ClipStore, pt: &mut T) {
+    pub fn print_with<T: PrintTreePrinter>(&self, pt: &mut T) {
         if !self.spatial_nodes.is_empty() {
-            self.print_node(self.root_reference_frame_index(), pt, clip_store);
+            self.print_node(self.root_reference_frame_index(), pt);
         }
     }
 }
@@ -649,8 +647,8 @@ fn test_cst_scale_translation() {
     test_pt(100.0, 100.0, &cst, child2, child1, 200.0, 400.0);
     test_pt(200.0, 400.0, &cst, child1, child2, 100.0, 100.0);
 
-    test_pt(100.0, 100.0, &cst, child3, child1, 400.0, 300.0);
-    test_pt(400.0, 300.0, &cst, child1, child3, 100.0, 100.0);
+    test_pt(100.0, 100.0, &cst, child3, child1, 600.0, 0.0);
+    test_pt(400.0, 300.0, &cst, child1, child3, 0.0, 175.0);
 }
 
 #[test]

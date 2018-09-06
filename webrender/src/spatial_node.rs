@@ -5,7 +5,7 @@
 
 use api::{ExternalScrollId, LayoutPixel, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform};
 use api::{LayoutVector2D, PipelineId, PropertyBinding, ScrollClamping, ScrollLocation};
-use api::{ScrollSensitivity, StickyOffsetBounds, LayoutVector3D};
+use api::{ScrollSensitivity, StickyOffsetBounds, LayoutVector3D, PicturePixel};
 use clip_scroll_tree::{CoordinateSystem, CoordinateSystemId, SpatialNodeIndex, TransformUpdateState};
 use euclid::SideOffsets2D;
 use gpu_types::TransformPalette;
@@ -203,12 +203,15 @@ impl SpatialNode {
         transform_palette: &mut TransformPalette,
         node_index: SpatialNodeIndex,
     ) {
-        if !self.invertible {
-            transform_palette.invalidate(node_index);
-            return;
+        if self.invertible {
+            transform_palette.set_world_transform(
+                node_index,
+                self.world_content_transform
+                    .to_transform()
+                    .into_owned()
+                    .with_destination::<PicturePixel>(),
+            );
         }
-
-        transform_palette.set(node_index, &self.world_content_transform);
     }
 
     pub fn update(

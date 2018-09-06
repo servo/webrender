@@ -14,10 +14,11 @@ platform(linux,mac) == coord-system.yaml coord-system.png
 platform(linux,mac) zoom(4) == border-zoom.yaml border-zoom.png
 platform(linux) fuzzy(1,520) == perspective-origin.yaml perspective-origin.png
 platform(linux,mac) color_targets(2) alpha_targets(0) fuzzy(1,180) == screen-space-blit.yaml screen-space-blit.png
-platform(linux,mac) color_targets(1) alpha_targets(0) fuzzy(128,800) == screen-space-blit-trivial.yaml screen-space-blit.png
+platform(linux,mac) color_targets(1) alpha_targets(0) == screen-space-blit-trivial.yaml screen-space-blit-trivial.png
 platform(linux) fuzzy(11,4592) == screen-space-blur.yaml screen-space-blur.png
 platform(linux,mac) == nested-rotate-x.yaml nested-rotate-x.png
 platform(linux,mac) == nested-preserve-3d.yaml nested-preserve-3d.png
 platform(linux,mac) == near-plane-clip.yaml near-plane-clip.png
 platform(linux,mac) == perspective-mask.yaml perspective-mask.png
 rotate-clip.yaml rotate-clip-ref.yaml
+platform(linux,mac) == perspective-clip.yaml perspective-clip.png
