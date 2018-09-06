@@ -2,13 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{DevicePoint, DeviceSize, DeviceRect, LayoutRect, LayoutToWorldTransform};
-use api::{PremultipliedColorF, WorldToLayoutTransform};
-use clip_scroll_tree::SpatialNodeIndex;
+use api::{DevicePoint, DeviceSize, DeviceRect, LayoutRect, LayoutToWorldTransform, LayoutTransform};
+use api::{PremultipliedColorF, LayoutToPictureTransform, PictureToLayoutTransform, PicturePixel, WorldPixel};
+use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
 use gpu_cache::{GpuCacheAddress, GpuDataRequest};
-use prim_store::{EdgeAaSegmentMask, Transform};
+use internal_types::FastHashMap;
+use prim_store::EdgeAaSegmentMask;
 use render_task::RenderTaskAddress;
-use util::{LayoutToWorldFastTransform, TransformedRectKind};
+use util::{TransformedRectKind, MatrixHelpers};
 
 // Contains type that must exactly match the same structures declared in GLSL.
 
@@ -115,7 +116,8 @@ pub struct BorderInstance {
 #[repr(C)]
 pub struct ClipMaskInstance {
     pub render_task_address: RenderTaskAddress,
-    pub transform_id: TransformPaletteId,
+    pub clip_transform_id: TransformPaletteId,
+    pub prim_transform_id: TransformPaletteId,
     pub segment: i32,
     pub clip_data_address: GpuCacheAddress,
     pub resource_address: GpuCacheAddress,
@@ -260,23 +262,26 @@ impl GlyphInstance {
 
 pub struct SplitCompositeInstance {
     pub task_address: RenderTaskAddress,
-    pub src_task_address: RenderTaskAddress,
+    pub uv_rect_address: GpuCacheAddress,
     pub polygons_address: GpuCacheAddress,
     pub z: ZBufferId,
+    pub transform_id: TransformPaletteId,
 }
 
 impl SplitCompositeInstance {
     pub fn new(
         task_address: RenderTaskAddress,
-        src_task_address: RenderTaskAddress,
+        uv_rect_address: GpuCacheAddress,
         polygons_address: GpuCacheAddress,
         z: ZBufferId,
+        transform_id: TransformPaletteId,
     ) -> Self {
         SplitCompositeInstance {
             task_address,
-            src_task_address,
+            uv_rect_address,
             polygons_address,
             z,
+            transform_id,
         }
     }
 }
@@ -285,10 +290,10 @@ impl From<SplitCompositeInstance> for PrimitiveInstance {
     fn from(instance: SplitCompositeInstance) -> Self {
         PrimitiveInstance {
             data: [
-                instance.task_address.0 as i32,
-                instance.src_task_address.0 as i32,
+                ((instance.z.0 << 16) | instance.task_address.0 as i32),
                 instance.polygons_address.as_int(),
-                instance.z.0,
+                instance.uv_rect_address.as_int(),
+                instance.transform_id.0 as i32
             ],
         }
     }
@@ -353,11 +358,6 @@ impl TransformPaletteId {
     /// Identity transform ID.
     pub const IDENTITY: Self = TransformPaletteId(0);
 
-    /// Extract the spatial node index from the id.
-    pub fn spatial_node_index(&self) -> SpatialNodeIndex {
-        SpatialNodeIndex(self.0 as usize & 0xFFFFFF)
-    }
-
     /// Extract the transform kind from the id.
     pub fn transform_kind(&self) -> TransformedRectKind {
         if (self.0 >> 24) == 0 {
@@ -369,27 +369,42 @@ impl TransformPaletteId {
 }
 
 // The GPU data payload for a transform palette entry.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(C)]
 pub struct TransformData {
-    transform: LayoutToWorldTransform,
-    inv_transform: WorldToLayoutTransform,
+    transform: LayoutToPictureTransform,
+    inv_transform: PictureToLayoutTransform,
 }
 
 impl TransformData {
     fn invalid() -> Self {
         TransformData {
-            transform: LayoutToWorldTransform::identity(),
-            inv_transform: WorldToLayoutTransform::identity(),
+            transform: LayoutToPictureTransform::identity(),
+            inv_transform: PictureToLayoutTransform::identity(),
         }
     }
 }
 
 // Extra data stored about each transform palette entry.
+#[derive(Clone)]
 pub struct TransformMetadata {
     transform_kind: TransformedRectKind,
+}
+
+impl TransformMetadata {
+    pub fn invalid() -> Self {
+        TransformMetadata {
+            transform_kind: TransformedRectKind::AxisAligned,
+        }
+    }
+}
+
+#[derive(Debug, Hash, Eq, PartialEq)]
+struct RelativeTransformKey {
+    index: SpatialNodeIndex,
+    root_index: SpatialNodeIndex,
 }
 
 // Stores a contiguous list of TransformData structs, that
@@ -402,89 +417,79 @@ pub struct TransformMetadata {
 pub struct TransformPalette {
     pub transforms: Vec<TransformData>,
     metadata: Vec<TransformMetadata>,
+    map: FastHashMap<RelativeTransformKey, usize>,
 }
 
 impl TransformPalette {
     pub fn new(spatial_node_count: usize) -> Self {
         TransformPalette {
-            transforms: Vec::with_capacity(spatial_node_count),
-            metadata: Vec::with_capacity(spatial_node_count),
+            transforms: vec![TransformData::invalid(); spatial_node_count],
+            metadata: vec![TransformMetadata::invalid(); spatial_node_count],
+            map: FastHashMap::default(),
         }
     }
 
-    #[inline]
-    fn grow(&mut self, index: SpatialNodeIndex) {
-        // Pad the vectors out if they are not long enough to
-        // account for this index. This can occur, for instance,
-        // when we stop recursing down the CST due to encountering
-        // a node with an invalid transform.
-        while self.transforms.len() <= index.0 as usize {
-            self.transforms.push(TransformData::invalid());
-            self.metadata.push(TransformMetadata {
-                transform_kind: TransformedRectKind::AxisAligned,
-            });
+    pub fn set_world_transform(
+        &mut self,
+        index: SpatialNodeIndex,
+        transform: LayoutToPictureTransform,
+    ) {
+        register_transform(
+            &mut self.metadata,
+            &mut self.transforms,
+            SpatialNodeIndex(0),
+            index,
+            transform,
+        );
+    }
+
+    fn get_index(
+        &mut self,
+        root_index: SpatialNodeIndex,
+        spatial_node_index: SpatialNodeIndex,
+        clip_scroll_tree: &ClipScrollTree,
+    ) -> usize {
+        if root_index == SpatialNodeIndex(0) {
+            spatial_node_index.0
+        } else if spatial_node_index == root_index {
+            0
+        } else {
+            let key = RelativeTransformKey {
+                index: spatial_node_index,
+                root_index,
+            };
+
+            let metadata = &mut self.metadata;
+            let transforms = &mut self.transforms;
+
+            *self.map
+                .entry(key)
+                .or_insert_with(|| {
+                    let transform = clip_scroll_tree.get_relative_transform(
+                        root_index,
+                        spatial_node_index,
+                    )
+                    .unwrap_or(LayoutTransform::identity())
+                    .with_destination::<PicturePixel>();
+
+                    register_transform(
+                        metadata,
+                        transforms,
+                        root_index,
+                        spatial_node_index,
+                        transform,
+                    )
+                })
         }
     }
 
-    pub fn invalidate(&mut self, index: SpatialNodeIndex) {
-        self.grow(index);
-        self.metadata[index.0 as usize] = TransformMetadata {
-            transform_kind: TransformedRectKind::AxisAligned,
-        };
-        self.transforms[index.0 as usize] = TransformData::invalid();
-    }
-
-    // Set the local -> world transform for a given spatial
-    // node in the transform palette.
-    pub fn set(
-        &mut self, index: SpatialNodeIndex, fast_transform: &LayoutToWorldFastTransform,
-    ) -> bool {
-        self.grow(index);
-
-        match fast_transform.inverse() {
-            Some(inverted) => {
-                // Store the transform itself, along with metadata about it.
-                self.metadata[index.0 as usize] = TransformMetadata {
-                    transform_kind: fast_transform.kind()
-                };
-                // Write the data that will be made available to the GPU for this node.
-                self.transforms[index.0 as usize] = TransformData {
-                    transform: fast_transform.to_transform().into_owned(),
-                    inv_transform: inverted.to_transform().into_owned(),
-                };
-                true
-            }
-            None => {
-                self.invalidate(index);
-                false
-            }
-        }
-    }
-
-    // Get the relevant information about a given transform that is
-    // used by the CPU code during culling and primitive prep pass.
-    // TODO(gw): In the future, it will be possible to specify
-    //           a coordinate system id here, to allow retrieving
-    //           transforms in the local space of a given spatial node.
-    pub fn get_transform(
+    pub fn get_world_transform(
         &self,
         index: SpatialNodeIndex,
-    ) -> Transform {
-        let data = &self.transforms[index.0 as usize];
-        let metadata = &self.metadata[index.0 as usize];
-
-        Transform {
-            m: data.transform,
-            transform_kind: metadata.transform_kind,
-            backface_is_visible: data.transform.is_backface_visible(),
-        }
-    }
-
-    pub fn get_transform_by_id(
-        &self,
-        id: TransformPaletteId,
-    ) -> Transform {
-        self.get_transform(id.spatial_node_index())
+    ) -> LayoutToWorldTransform {
+        self.transforms[index.0]
+            .transform
+            .with_destination::<WorldPixel>()
     }
 
     // Get a transform palette id for the given spatial node.
@@ -492,12 +497,19 @@ impl TransformPalette {
     //           a coordinate system id here, to allow retrieving
     //           transforms in the local space of a given spatial node.
     pub fn get_id(
-        &self,
-        index: SpatialNodeIndex,
+        &mut self,
+        root_index: SpatialNodeIndex,
+        spatial_node_index: SpatialNodeIndex,
+        clip_scroll_tree: &ClipScrollTree,
     ) -> TransformPaletteId {
-        let transform_kind = self.metadata[index.0 as usize].transform_kind as u32;
+        let index = self.get_index(
+            root_index,
+            spatial_node_index,
+            clip_scroll_tree,
+        );
+        let transform_kind = self.metadata[index].transform_kind as u32;
         TransformPaletteId(
-            (index.0 as u32) |
+            (index as u32) |
             (transform_kind << 24)
         )
     }
@@ -568,5 +580,41 @@ impl ImageSource {
                 bottom_right.y,
             ]);
         }
+    }
+}
+
+// Set the local -> world transform for a given spatial
+// node in the transform palette.
+fn register_transform(
+    metadatas: &mut Vec<TransformMetadata>,
+    transforms: &mut Vec<TransformData>,
+    root_index: SpatialNodeIndex,
+    index: SpatialNodeIndex,
+    transform: LayoutToPictureTransform,
+) -> usize {
+    // TODO(gw): This shouldn't ever happen - should be eliminated before
+    //           we get an uninvertible transform here. But maybe do
+    //           some investigation on if this ever happens?
+    let inv_transform = transform.inverse()
+                                 .unwrap_or(PictureToLayoutTransform::identity());
+
+    let metadata = TransformMetadata {
+        transform_kind: transform.transform_kind()
+    };
+    let data = TransformData {
+        transform,
+        inv_transform,
+    };
+
+    if root_index == SpatialNodeIndex(0) {
+        let index = index.0 as usize;
+        metadatas[index] = metadata;
+        transforms[index] = data;
+        index
+    } else {
+        let index = transforms.len();
+        metadatas.push(metadata);
+        transforms.push(data);
+        index
     }
 }
