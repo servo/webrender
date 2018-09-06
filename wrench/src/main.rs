@@ -497,7 +497,15 @@ fn main() {
             _ => panic!("Unknown surface argument value")
         };
         let reader = YamlFrameReader::new_from_args(subargs);
-        png::png(&mut wrench, surface, &mut window, reader, rx.unwrap());
+        let output_path = match subargs.value_of("OUTPUT") {
+            Some(path) => PathBuf::from(path),
+            None => {
+                let mut path = reader.yaml_path().clone();
+                path.set_extension("png");
+                path
+            }
+        };
+        png::png(&mut wrench, surface, &mut window, output_path, reader, rx.unwrap());
     } else if let Some(subargs) = args.subcommand_matches("reftest") {
         // Exit with an error code in order to ensure the CI job fails.
         process::exit(reftest(wrench, &mut window, subargs, rx.unwrap()) as _);
