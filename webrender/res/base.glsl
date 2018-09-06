@@ -35,3 +35,19 @@
     precision highp float;
     #define varying in
 #endif
+
+#ifdef WR_RENDERER_ANGLE
+    #ifdef WR_VERTEX_SHADER
+        #define flat_varying out
+    #endif
+    #ifdef WR_FRAGMENT_SHADER
+        #define flat_varying in
+    #endif
+#else // !WR_RENDERER_ANGLE
+    #ifdef WR_VERTEX_SHADER
+        #define flat_varying flat out
+    #endif
+    #ifdef WR_FRAGMENT_SHADER
+        #define flat_varying flat in
+    #endif
+#endif

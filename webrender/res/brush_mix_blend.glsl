@@ -8,7 +8,7 @@
 
 varying vec3 vSrcUv;
 varying vec3 vBackdropUv;
-flat varying int vOp;
+flat_varying int vOp;
 
 #ifdef WR_VERTEX_SHADER
 

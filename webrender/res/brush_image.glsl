@@ -14,15 +14,15 @@ varying vec2 vLocalPos;
 // W is 1 when perspective interpolation is enabled.
 varying vec4 vUv;
 // Normalized bounds of the source image in the texture.
-flat varying vec4 vUvBounds;
+flat_varying vec4 vUvBounds;
 // Normalized bounds of the source image in the texture, adjusted to avoid
 // sampling artifacts.
-flat varying vec4 vUvSampleBounds;
+flat_varying vec4 vUvSampleBounds;
 
 #ifdef WR_FEATURE_ALPHA_PASS
-flat varying vec4 vColor;
-flat varying vec2 vMaskSwizzle;
-flat varying vec2 vTileRepeat;
+flat_varying vec4 vColor;
+flat_varying vec2 vMaskSwizzle;
+flat_varying vec2 vTileRepeat;
 #endif
 
 #ifdef WR_VERTEX_SHADER

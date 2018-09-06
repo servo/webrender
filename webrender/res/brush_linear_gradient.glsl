@@ -6,21 +6,21 @@
 
 #include shared,prim_shared,brush
 
-flat varying int vGradientAddress;
-flat varying float vGradientRepeat;
+flat_varying int vGradientAddress;
+flat_varying float vGradientRepeat;
 
-flat varying vec2 vScaledDir;
-flat varying vec2 vStartPoint;
+flat_varying vec2 vScaledDir;
+flat_varying vec2 vStartPoint;
 // Size of the gradient pattern's rectangle, used to compute horizontal and vertical
 // repetitions. Not to be confused with another kind of repetition of the pattern
 // which happens along the gradient stops.
-flat varying vec2 vRepeatedSize;
+flat_varying vec2 vRepeatedSize;
 
 varying vec2 vPos;
 
 #ifdef WR_FEATURE_ALPHA_PASS
 varying vec2 vLocalPos;
-flat varying vec2 vTileRepeat;
+flat_varying vec2 vTileRepeat;
 #endif
 
 #ifdef WR_VERTEX_SHADER

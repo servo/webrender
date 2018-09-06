@@ -7,9 +7,9 @@
 varying vec3 vPos;
 varying vec3 vClipMaskImageUv;
 
-flat varying vec4 vClipMaskUvRect;
-flat varying vec4 vClipMaskUvInnerRect;
-flat varying float vLayer;
+flat_varying vec4 vClipMaskUvRect;
+flat_varying vec4 vClipMaskUvInnerRect;
+flat_varying float vLayer;
 
 #ifdef WR_VERTEX_SHADER
 struct ImageMaskData {

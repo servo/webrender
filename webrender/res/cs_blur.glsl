@@ -5,10 +5,10 @@
 #include shared,prim_shared
 
 varying vec3 vUv;
-flat varying vec4 vUvRect;
-flat varying vec2 vOffsetScale;
-flat varying float vSigma;
-flat varying int vBlurRadius;
+flat_varying vec4 vUvRect;
+flat_varying vec2 vOffsetScale;
+flat_varying float vSigma;
+flat_varying int vBlurRadius;
 
 #ifdef WR_VERTEX_SHADER
 // Applies a separable gaussian blur in one direction, as specified
