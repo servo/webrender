@@ -21,3 +21,4 @@ platform(linux,mac) == nested-preserve-3d.yaml nested-preserve-3d.png
 platform(linux,mac) == near-plane-clip.yaml near-plane-clip.png
 platform(linux,mac) == perspective-mask.yaml perspective-mask.png
 rotate-clip.yaml rotate-clip-ref.yaml
+clip-translate.yaml clip-translate-ref.yaml
