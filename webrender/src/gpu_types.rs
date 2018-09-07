@@ -403,8 +403,8 @@ impl TransformMetadata {
 
 #[derive(Debug, Hash, Eq, PartialEq)]
 struct RelativeTransformKey {
-    index: SpatialNodeIndex,
-    root_index: SpatialNodeIndex,
+    from_index: SpatialNodeIndex,
+    to_index: SpatialNodeIndex,
 }
 
 // Stores a contiguous list of TransformData structs, that
@@ -437,26 +437,26 @@ impl TransformPalette {
         register_transform(
             &mut self.metadata,
             &mut self.transforms,
-            SpatialNodeIndex(0),
             index,
+            SpatialNodeIndex(0),
             transform,
         );
     }
 
     fn get_index(
         &mut self,
-        root_index: SpatialNodeIndex,
-        spatial_node_index: SpatialNodeIndex,
+        from_index: SpatialNodeIndex,
+        to_index: SpatialNodeIndex,
         clip_scroll_tree: &ClipScrollTree,
     ) -> usize {
-        if root_index == SpatialNodeIndex(0) {
-            spatial_node_index.0
-        } else if spatial_node_index == root_index {
+        if to_index == SpatialNodeIndex(0) {
+            from_index.0
+        } else if from_index == to_index {
             0
         } else {
             let key = RelativeTransformKey {
-                index: spatial_node_index,
-                root_index,
+                from_index,
+                to_index,
             };
 
             let metadata = &mut self.metadata;
@@ -466,8 +466,8 @@ impl TransformPalette {
                 .entry(key)
                 .or_insert_with(|| {
                     let transform = clip_scroll_tree.get_relative_transform(
-                        root_index,
-                        spatial_node_index,
+                        from_index,
+                        to_index,
                     )
                     .unwrap_or(LayoutTransform::identity())
                     .with_destination::<PicturePixel>();
@@ -475,8 +475,8 @@ impl TransformPalette {
                     register_transform(
                         metadata,
                         transforms,
-                        root_index,
-                        spatial_node_index,
+                        from_index,
+                        to_index,
                         transform,
                     )
                 })
@@ -498,13 +498,13 @@ impl TransformPalette {
     //           transforms in the local space of a given spatial node.
     pub fn get_id(
         &mut self,
-        root_index: SpatialNodeIndex,
-        spatial_node_index: SpatialNodeIndex,
+        from_index: SpatialNodeIndex,
+        to_index: SpatialNodeIndex,
         clip_scroll_tree: &ClipScrollTree,
     ) -> TransformPaletteId {
         let index = self.get_index(
-            root_index,
-            spatial_node_index,
+            from_index,
+            to_index,
             clip_scroll_tree,
         );
         let transform_kind = self.metadata[index].transform_kind as u32;
@@ -588,8 +588,8 @@ impl ImageSource {
 fn register_transform(
     metadatas: &mut Vec<TransformMetadata>,
     transforms: &mut Vec<TransformData>,
-    root_index: SpatialNodeIndex,
-    index: SpatialNodeIndex,
+    from_index: SpatialNodeIndex,
+    to_index: SpatialNodeIndex,
     transform: LayoutToPictureTransform,
 ) -> usize {
     // TODO(gw): This shouldn't ever happen - should be eliminated before
@@ -606,8 +606,8 @@ fn register_transform(
         inv_transform,
     };
 
-    if root_index == SpatialNodeIndex(0) {
-        let index = index.0 as usize;
+    if to_index == SpatialNodeIndex(0) {
+        let index = from_index.0 as usize;
         metadatas[index] = metadata;
         transforms[index] = data;
         index
