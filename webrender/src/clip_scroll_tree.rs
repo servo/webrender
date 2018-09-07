@@ -48,7 +48,7 @@ impl CoordinateSystem {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct SpatialNodeIndex(pub usize);
 
-const ROOT_REFERENCE_FRAME_INDEX: SpatialNodeIndex = SpatialNodeIndex(0);
+pub const ROOT_SPATIAL_NODE_INDEX: SpatialNodeIndex = SpatialNodeIndex(0);
 const TOPMOST_SCROLL_NODE_INDEX: SpatialNodeIndex = SpatialNodeIndex(1);
 
 impl CoordinateSystemId {
@@ -167,7 +167,7 @@ impl ClipScrollTree {
     pub fn root_reference_frame_index(&self) -> SpatialNodeIndex {
         // TODO(mrobinson): We should eventually make this impossible to misuse.
         debug_assert!(!self.spatial_nodes.is_empty());
-        ROOT_REFERENCE_FRAME_INDEX
+        ROOT_SPATIAL_NODE_INDEX
     }
 
     /// The root scroll node which is the first child of the root reference frame.

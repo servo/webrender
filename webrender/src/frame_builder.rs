@@ -6,7 +6,7 @@ use api::{ColorF, DeviceIntPoint, DevicePixelScale, LayoutPixel, PicturePixel, R
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentLayer, FontRenderMode, PictureRect};
 use api::{LayoutPoint, LayoutRect, LayoutSize, PipelineId, WorldPoint, WorldRect, WorldPixel};
 use clip::{ClipStore};
-use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
+use clip_scroll_tree::{ClipScrollTree, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
 use display_list_flattener::{DisplayListFlattener};
 use gpu_cache::GpuCache;
 use gpu_types::{PrimitiveHeaders, TransformPalette, UvRectKind};
@@ -274,7 +274,7 @@ impl FrameBuilder {
         pic.raster_config = Some(RasterConfig {
             composite_mode: PictureCompositeMode::Blit,
             surface: Some(PictureSurface::RenderTask(render_task_id)),
-            raster_spatial_node_index: SpatialNodeIndex(0),
+            raster_spatial_node_index: ROOT_SPATIAL_NODE_INDEX,
         });
         Some(render_task_id)
     }

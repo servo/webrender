@@ -5,7 +5,7 @@
 
 use api::{ExternalScrollId, LayoutPixel, LayoutPoint, LayoutRect, LayoutSize, LayoutTransform};
 use api::{LayoutVector2D, PipelineId, PropertyBinding, ScrollClamping, ScrollLocation};
-use api::{ScrollSensitivity, StickyOffsetBounds, LayoutVector3D, PicturePixel};
+use api::{ScrollSensitivity, StickyOffsetBounds, LayoutVector3D};
 use clip_scroll_tree::{CoordinateSystem, CoordinateSystemId, SpatialNodeIndex, TransformUpdateState};
 use euclid::SideOffsets2D;
 use gpu_types::TransformPalette;
@@ -209,7 +209,6 @@ impl SpatialNode {
                 self.world_content_transform
                     .to_transform()
                     .into_owned()
-                    .with_destination::<PicturePixel>(),
             );
         }
     }

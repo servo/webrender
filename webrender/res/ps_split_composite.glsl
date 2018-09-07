@@ -96,9 +96,11 @@ void main(void) {
 
     vec2 f = (local_pos - geometry.local_rect.p0) / geometry.local_rect.size;
 
-    vec2 x = mix(extra_data.st_tl, extra_data.st_tr, f.x);
-    vec2 y = mix(extra_data.st_bl, extra_data.st_br, f.x);
-    f = mix(x, y, f.y);
+    f = bilerp(
+        extra_data.st_tl, extra_data.st_tr,
+        extra_data.st_bl, extra_data.st_br,
+        f.y, f.x
+    );
     vec2 uv = mix(uv0, uv1, f);
 
     vUv = vec3(uv / texture_size, res.layer);
