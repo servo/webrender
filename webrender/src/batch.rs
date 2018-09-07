@@ -476,8 +476,8 @@ impl AlphaBatchBuilder {
             }
             let transform = transforms.get_world_transform(pic_metadata.spatial_node_index).inverse().unwrap();
             let transform_id = transforms.get_id(
-                SpatialNodeIndex(0),
                 pic_metadata.spatial_node_index,
+                SpatialNodeIndex(0),
                 ctx.clip_scroll_tree,
             );
             let mut local_points = [
@@ -556,8 +556,8 @@ impl AlphaBatchBuilder {
             if metadata.clipped_world_rect.is_some() {
                 let transform_id = transforms
                     .get_id(
-                        root_spatial_node_index,
                         metadata.spatial_node_index,
+                        root_spatial_node_index,
                         ctx.clip_scroll_tree,
                     );
 
@@ -1726,14 +1726,14 @@ impl ClipBatcher {
             let (clip_node, flags) = clip_store.get_node_from_range(&clip_node_range, i);
 
             let clip_transform_id = transforms.get_id(
-                SpatialNodeIndex(0),
                 clip_node.spatial_node_index,
+                SpatialNodeIndex(0),
                 clip_scroll_tree,
             );
 
             let prim_transform_id = transforms.get_id(
-                SpatialNodeIndex(0),
                 root_spatial_node_index,
+                SpatialNodeIndex(0),
                 clip_scroll_tree,
             );
 
