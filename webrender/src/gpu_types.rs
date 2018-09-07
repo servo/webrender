@@ -4,7 +4,7 @@
 
 use api::{DevicePoint, DeviceSize, DeviceRect, LayoutRect, LayoutToWorldTransform, LayoutTransform};
 use api::{PremultipliedColorF, LayoutToPictureTransform, PictureToLayoutTransform, PicturePixel, WorldPixel};
-use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
+use clip_scroll_tree::{ClipScrollTree, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
 use gpu_cache::{GpuCacheAddress, GpuDataRequest};
 use internal_types::FastHashMap;
 use prim_store::EdgeAaSegmentMask;
@@ -432,14 +432,15 @@ impl TransformPalette {
     pub fn set_world_transform(
         &mut self,
         index: SpatialNodeIndex,
-        transform: LayoutToPictureTransform,
+        transform: LayoutToWorldTransform,
     ) {
         register_transform(
             &mut self.metadata,
             &mut self.transforms,
             index,
-            SpatialNodeIndex(0),
-            transform,
+            ROOT_SPATIAL_NODE_INDEX,
+            // We know the root picture space == world space
+            transform.with_destination::<PicturePixel>(),
         );
     }
 
@@ -449,7 +450,7 @@ impl TransformPalette {
         to_index: SpatialNodeIndex,
         clip_scroll_tree: &ClipScrollTree,
     ) -> usize {
-        if to_index == SpatialNodeIndex(0) {
+        if to_index == ROOT_SPATIAL_NODE_INDEX {
             from_index.0
         } else if from_index == to_index {
             0
@@ -595,8 +596,13 @@ fn register_transform(
     // TODO(gw): This shouldn't ever happen - should be eliminated before
     //           we get an uninvertible transform here. But maybe do
     //           some investigation on if this ever happens?
-    let inv_transform = transform.inverse()
-                                 .unwrap_or(PictureToLayoutTransform::identity());
+    let inv_transform = match transform.inverse() {
+        Some(inv_transform) => inv_transform,
+        None => {
+            error!("Unable to get inverse transform");
+            PictureToLayoutTransform::identity()
+        }
+    };
 
     let metadata = TransformMetadata {
         transform_kind: transform.transform_kind()
@@ -606,7 +612,7 @@ fn register_transform(
         inv_transform,
     };
 
-    if to_index == SpatialNodeIndex(0) {
+    if to_index == ROOT_SPATIAL_NODE_INDEX {
         let index = from_index.0 as usize;
         metadatas[index] = metadata;
         transforms[index] = data;

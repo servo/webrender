@@ -6,7 +6,7 @@ use api::{AlphaType, ClipMode, DeviceIntRect, DeviceIntSize};
 use api::{DeviceUintRect, DeviceUintPoint, ExternalImageType, FilterOp, ImageRendering};
 use api::{YuvColorSpace, YuvFormat, WorldPixel, WorldRect};
 use clip::{ClipNodeFlags, ClipNodeRange, ClipItem, ClipStore};
-use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
+use clip_scroll_tree::{ClipScrollTree, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
 use euclid::vec3;
 use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheHandle, GpuCacheAddress};
@@ -477,7 +477,7 @@ impl AlphaBatchBuilder {
             let transform = transforms.get_world_transform(pic_metadata.spatial_node_index).inverse().unwrap();
             let transform_id = transforms.get_id(
                 pic_metadata.spatial_node_index,
-                SpatialNodeIndex(0),
+                ROOT_SPATIAL_NODE_INDEX,
                 ctx.clip_scroll_tree,
             );
             let mut local_points = [
@@ -1727,13 +1727,13 @@ impl ClipBatcher {
 
             let clip_transform_id = transforms.get_id(
                 clip_node.spatial_node_index,
-                SpatialNodeIndex(0),
+                ROOT_SPATIAL_NODE_INDEX,
                 clip_scroll_tree,
             );
 
             let prim_transform_id = transforms.get_id(
                 root_spatial_node_index,
-                SpatialNodeIndex(0),
+                ROOT_SPATIAL_NODE_INDEX,
                 clip_scroll_tree,
             );
 

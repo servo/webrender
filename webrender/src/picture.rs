@@ -6,7 +6,7 @@ use api::{DeviceRect, FilterOp, MixBlendMode, PipelineId, PremultipliedColorF, P
 use api::{DeviceIntRect, DeviceIntSize, DevicePoint, LayoutRect, PictureToRasterTransform};
 use api::{DevicePixelScale, PictureIntPoint, PictureIntRect, PictureIntSize, RasterRect};
 use box_shadow::{BLUR_SAMPLE_SCALE};
-use clip_scroll_tree::SpatialNodeIndex;
+use clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
 use euclid::TypedScale;
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState};
 use frame_builder::{PictureContext, PrimitiveContext};
@@ -39,6 +39,8 @@ pub struct RasterConfig {
     // the associated target information.
     pub surface: Option<PictureSurface>,
 
+    // The spatial node of the rasterization root
+    // for this picture.
     pub raster_spatial_node_index: SpatialNodeIndex,
 }
 
@@ -250,7 +252,7 @@ impl PicturePrimitive {
         };
 
         let map_pic_to_world = SpaceMapper::new_with_target(
-            SpatialNodeIndex(0),
+            ROOT_SPATIAL_NODE_INDEX,
             surface_spatial_node_index,
             frame_context.world_rect,
             frame_context.clip_scroll_tree,
@@ -265,7 +267,7 @@ impl PicturePrimitive {
         );
 
         let map_raster_to_world = SpaceMapper::new_with_target(
-            SpatialNodeIndex(0),
+            ROOT_SPATIAL_NODE_INDEX,
             raster_spatial_node_index,
             frame_context.world_rect,
             frame_context.clip_scroll_tree,
@@ -407,7 +409,7 @@ impl PicturePrimitive {
         match self.raster_config {
             Some(ref mut raster_config) => {
                 let map_to_world = SpaceMapper::new_with_target(
-                    SpatialNodeIndex(0),
+                    ROOT_SPATIAL_NODE_INDEX,
                     raster_config.raster_spatial_node_index,
                     frame_context.world_rect,
                     frame_context.clip_scroll_tree,

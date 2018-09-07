@@ -8,7 +8,7 @@ use api::{BoxShadowClipMode, LayoutToWorldScale, LineOrientation, LineStyle, Pic
 use api::{PictureRect, LayoutPixel, WorldPoint, WorldSize, WorldRect, LayoutToWorldTransform};
 use border::{ensure_no_corner_overlap};
 use box_shadow::{BLUR_SAMPLE_SCALE, BoxShadowClipSource, BoxShadowCacheKey};
-use clip_scroll_tree::{ClipScrollTree, CoordinateSystemId, SpatialNodeIndex};
+use clip_scroll_tree::{ClipScrollTree, CoordinateSystemId, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
 use ellipse::Ellipse;
 use gpu_cache::{GpuCache, GpuCacheHandle, ToGpuBlocks};
 use gpu_types::{BoxShadowStretchMode};
@@ -459,7 +459,7 @@ impl ClipStore {
                 } else {
                     let xf = clip_scroll_tree.get_relative_transform(
                         clip_node.spatial_node_index,
-                        SpatialNodeIndex(0),
+                        ROOT_SPATIAL_NODE_INDEX,
                     );
 
                     xf.map(|xf| {

@@ -51,6 +51,9 @@ pub type PicturePoint3D = TypedPoint3D<f32, PicturePixel>;
 pub type PictureVector2D = TypedVector2D<f32, PicturePixel>;
 pub type PictureVector3D = TypedVector3D<f32, PicturePixel>;
 
+/// Geometry gets rasterized in a given root coordinate space. This
+/// is often the root spatial node (screen space), but may be a local
+/// space for a variety of reasons (e.g. perspective).
 #[derive(Hash, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct RasterPixel;
 
