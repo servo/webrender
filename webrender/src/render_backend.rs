@@ -720,14 +720,7 @@ impl RenderBackend {
             }
             ApiMsg::ClearNamespace(namespace_id) => {
                 self.resource_cache.clear_namespace(namespace_id);
-                let document_ids = self.documents
-                    .keys()
-                    .filter(|did| did.0 == namespace_id)
-                    .cloned()
-                    .collect::<Vec<_>>();
-                for document in document_ids {
-                    self.documents.remove(&document);
-                }
+                self.documents.retain(|did, _doc| did.0 != namespace_id);
             }
             ApiMsg::MemoryPressure => {
                 // This is drastic. It will basically flush everything out of the cache,
