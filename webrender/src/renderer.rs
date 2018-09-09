@@ -458,48 +458,6 @@ pub(crate) mod desc {
         ],
     };
 
-    pub const BORDER_CORNER_DASH_AND_DOT: VertexDescriptor = VertexDescriptor {
-        vertex_attributes: &[
-            VertexAttribute {
-                name: "aPosition",
-                count: 2,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-        instance_attributes: &[
-            VertexAttribute {
-                name: "aClipRenderTaskAddress",
-                count: 1,
-                kind: VertexAttributeKind::I32,
-            },
-            VertexAttribute {
-                name: "aScrollNodeId",
-                count: 1,
-                kind: VertexAttributeKind::I32,
-            },
-            VertexAttribute {
-                name: "aClipSegment",
-                count: 1,
-                kind: VertexAttributeKind::I32,
-            },
-            VertexAttribute {
-                name: "aClipDataResourceAddress",
-                count: 4,
-                kind: VertexAttributeKind::U16,
-            },
-            VertexAttribute {
-                name: "aDashOrDot0",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-            VertexAttribute {
-                name: "aDashOrDot1",
-                count: 4,
-                kind: VertexAttributeKind::F32,
-            },
-        ],
-    };
-
     pub const GPU_CACHE_UPDATE: VertexDescriptor = VertexDescriptor {
         vertex_attributes: &[
             VertexAttribute {
@@ -1349,7 +1307,6 @@ pub struct RendererVAOs {
     prim_vao: VAO,
     blur_vao: VAO,
     clip_vao: VAO,
-    dash_and_dot_vao: VAO,
     border_vao: VAO,
 }
 
@@ -1646,8 +1603,6 @@ impl Renderer {
         let clip_vao = device.create_vao_with_new_instances(&desc::CLIP, &prim_vao);
         let border_vao =
             device.create_vao_with_new_instances(&desc::BORDER, &prim_vao);
-        let dash_and_dot_vao =
-            device.create_vao_with_new_instances(&desc::BORDER_CORNER_DASH_AND_DOT, &prim_vao);
         let texture_cache_upload_pbo = device.create_pbo();
 
         let texture_resolver = SourceTextureResolver::new(&mut device);
@@ -1836,7 +1791,6 @@ impl Renderer {
                 prim_vao,
                 blur_vao,
                 clip_vao,
-                dash_and_dot_vao,
                 border_vao,
             },
             transforms_texture,
@@ -4060,7 +4014,6 @@ impl Renderer {
         self.device.delete_vao(self.vaos.prim_vao);
         self.device.delete_vao(self.vaos.clip_vao);
         self.device.delete_vao(self.vaos.blur_vao);
-        self.device.delete_vao(self.vaos.dash_and_dot_vao);
         self.device.delete_vao(self.vaos.border_vao);
 
         #[cfg(feature = "debug_renderer")]
