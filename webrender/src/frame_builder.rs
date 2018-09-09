@@ -5,7 +5,7 @@
 use api::{ColorF, DeviceIntPoint, DevicePixelScale, LayoutPixel, PicturePixel, RasterPixel};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentLayer, FontRenderMode, PictureRect};
 use api::{LayoutPoint, LayoutRect, LayoutSize, PipelineId, WorldPoint, WorldRect, WorldPixel};
-use clip::{ClipStore};
+use clip::ClipStore;
 use clip_scroll_tree::{ClipScrollTree, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
 use display_list_flattener::{DisplayListFlattener};
 use gpu_cache::GpuCache;
@@ -93,6 +93,7 @@ pub struct PictureContext {
     pub inflation_factor: f32,
     pub allow_subpixel_aa: bool,
     pub is_passthrough: bool,
+    pub establishes_raster_root: bool,
 }
 
 #[derive(Debug)]
@@ -234,6 +235,7 @@ impl FrameBuilder {
                 root_spatial_node_index,
                 root_spatial_node_index,
                 true,
+                &mut frame_state,
                 &frame_context,
                 false,
             )
@@ -256,6 +258,7 @@ impl FrameBuilder {
             pic_context,
             pic_state,
             Some(pic_rect),
+            &mut frame_state,
         );
 
         let pic_state = pic.take_state();

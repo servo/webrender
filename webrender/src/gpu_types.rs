@@ -261,27 +261,21 @@ impl GlyphInstance {
 }
 
 pub struct SplitCompositeInstance {
-    pub task_address: RenderTaskAddress,
-    pub uv_rect_address: GpuCacheAddress,
+    pub prim_header_index: PrimitiveHeaderIndex,
     pub polygons_address: GpuCacheAddress,
     pub z: ZBufferId,
-    pub transform_id: TransformPaletteId,
 }
 
 impl SplitCompositeInstance {
     pub fn new(
-        task_address: RenderTaskAddress,
-        uv_rect_address: GpuCacheAddress,
+        prim_header_index: PrimitiveHeaderIndex,
         polygons_address: GpuCacheAddress,
         z: ZBufferId,
-        transform_id: TransformPaletteId,
     ) -> Self {
         SplitCompositeInstance {
-            task_address,
-            uv_rect_address,
+            prim_header_index,
             polygons_address,
             z,
-            transform_id,
         }
     }
 }
@@ -290,10 +284,10 @@ impl From<SplitCompositeInstance> for PrimitiveInstance {
     fn from(instance: SplitCompositeInstance) -> Self {
         PrimitiveInstance {
             data: [
-                ((instance.z.0 << 16) | instance.task_address.0 as i32),
+                instance.prim_header_index.0,
                 instance.polygons_address.as_int(),
-                instance.uv_rect_address.as_int(),
-                instance.transform_id.0 as i32
+                instance.z.0,
+                0,
             ],
         }
     }
