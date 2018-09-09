@@ -59,6 +59,10 @@ ClipVertexInfo write_clip_tile_vertex(RectWithSize local_clip_rect,
     vec2 device_pos = area.screen_origin +
                       aPosition.xy * area.common_data.task_rect.size;
 
+    // TODO(gw): We only check the clip transform matrix here. We should
+    //           probably also be checking the prim_transform matrix. I
+    //           have left it as is for now, since that matches the
+    //           previous behavior.
     if (clip_transform.is_axis_aligned) {
         vec4 snap_positions = compute_snap_positions(
             clip_transform.m,

@@ -2904,35 +2904,20 @@ pub fn get_raster_rects(
     prim_bounding_rect: WorldRect,
     device_pixel_scale: DevicePixelScale,
 ) -> Option<(DeviceIntRect, DeviceRect, PictureToRasterTransform)> {
-    let unclipped_raster_rect = match map_to_raster.map(&pic_rect) {
-        Some(rect) => rect,
-        None => return None,
-    };
+    let unclipped_raster_rect = map_to_raster.map(&pic_rect)?;
 
     let unclipped = raster_rect_to_device_pixels(
         unclipped_raster_rect,
         device_pixel_scale,
     );
 
-    let unclipped_world_rect = match map_to_world.map(&unclipped_raster_rect) {
-        Some(rect) => rect,
-        None => return None,
-    };
+    let unclipped_world_rect = map_to_world.map(&unclipped_raster_rect)?;
 
-    let clipped_world_rect = match unclipped_world_rect.intersection(&prim_bounding_rect) {
-        Some(rect) => rect,
-        None => return None,
-    };
+    let clipped_world_rect = unclipped_world_rect.intersection(&prim_bounding_rect)?;
 
-    let clipped_raster_rect = match map_to_world.unmap(&clipped_world_rect) {
-        Some(rect) => rect,
-        None => return None,
-    };
+    let clipped_raster_rect = map_to_world.unmap(&clipped_world_rect)?;
 
-    let clipped_raster_rect = match clipped_raster_rect.intersection(&unclipped_raster_rect) {
-        Some(rect) => rect,
-        None => return None,
-    };
+    let clipped_raster_rect = clipped_raster_rect.intersection(&unclipped_raster_rect)?;
 
     let clipped = raster_rect_to_device_pixels(
         clipped_raster_rect,

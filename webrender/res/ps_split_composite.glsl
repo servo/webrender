@@ -75,7 +75,7 @@ void main(void) {
     vec4 world_pos = transform.m * vec4(local_pos, 0.0, 1.0);
 
     vec4 final_pos = vec4(
-        dest_origin + world_pos.xy * uDevicePixelRatio,
+        dest_origin * world_pos.w + world_pos.xy * uDevicePixelRatio,
         world_pos.w * ci.z,
         world_pos.w
     );

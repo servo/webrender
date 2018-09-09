@@ -5,6 +5,7 @@
 use api::{DeviceRect, FilterOp, MixBlendMode, PipelineId, PremultipliedColorF, PictureRect, PicturePoint};
 use api::{DeviceIntRect, DeviceIntSize, DevicePoint, LayoutRect, PictureToRasterTransform};
 use api::{DevicePixelScale, PictureIntPoint, PictureIntRect, PictureIntSize, RasterRect};
+use api::{PicturePixel, RasterPixel, WorldPixel};
 use box_shadow::{BLUR_SAMPLE_SCALE};
 use clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
 use euclid::TypedScale;
@@ -266,21 +267,10 @@ impl PicturePrimitive {
             pic_bounds,
         );
 
-        let map_raster_to_world = SpaceMapper::new_with_target(
-            ROOT_SPATIAL_NODE_INDEX,
-            raster_spatial_node_index,
-            frame_context.world_rect,
-            frame_context.clip_scroll_tree,
-        );
-
-        let raster_bounds = map_raster_to_world.unmap(&frame_context.world_rect)
-                                               .unwrap_or(RasterRect::max_rect());
-
-        let map_pic_to_raster = SpaceMapper::new_with_target(
-            raster_spatial_node_index,
+        let (map_raster_to_world, map_pic_to_raster) = create_raster_mappers(
             surface_spatial_node_index,
-            raster_bounds,
-            frame_context.clip_scroll_tree,
+            raster_spatial_node_index,
+            frame_context,
         );
 
         self.raster_config = actual_composite_mode.map(|composite_mode| {
@@ -408,29 +398,18 @@ impl PicturePrimitive {
 
         match self.raster_config {
             Some(ref mut raster_config) => {
-                let map_to_world = SpaceMapper::new_with_target(
-                    ROOT_SPATIAL_NODE_INDEX,
-                    raster_config.raster_spatial_node_index,
-                    frame_context.world_rect,
-                    frame_context.clip_scroll_tree,
-                );
-
-                let raster_bounds = map_to_world.unmap(&frame_context.world_rect)
-                                               .unwrap_or(RasterRect::max_rect());
-
-                let map_to_raster = SpaceMapper::new_with_target(
-                    raster_config.raster_spatial_node_index,
+                let (map_raster_to_world, map_pic_to_raster) = create_raster_mappers(
                     prim_metadata.spatial_node_index,
-                    raster_bounds,
-                    frame_context.clip_scroll_tree,
+                    raster_config.raster_spatial_node_index,
+                    frame_context,
                 );
 
                 let pic_rect = PictureRect::from_untyped(&prim_metadata.local_rect.to_untyped());
 
                 let (clipped, unclipped, transform) = match get_raster_rects(
                     pic_rect,
-                    &map_to_raster,
-                    &map_to_world,
+                    &map_pic_to_raster,
+                    &map_raster_to_world,
                     prim_metadata.clipped_world_rect.expect("bug1"),
                     frame_context.device_pixel_scale,
                 ) {
@@ -825,4 +804,29 @@ fn calculate_uv_rect_kind(
         bottom_left,
         bottom_right,
     }
+}
+
+fn create_raster_mappers(
+    surface_spatial_node_index: SpatialNodeIndex,
+    raster_spatial_node_index: SpatialNodeIndex,
+    frame_context: &FrameBuildingContext,
+) -> (SpaceMapper<RasterPixel, WorldPixel>, SpaceMapper<PicturePixel, RasterPixel>) {
+    let map_raster_to_world = SpaceMapper::new_with_target(
+        ROOT_SPATIAL_NODE_INDEX,
+        raster_spatial_node_index,
+        frame_context.world_rect,
+        frame_context.clip_scroll_tree,
+    );
+
+    let raster_bounds = map_raster_to_world.unmap(&frame_context.world_rect)
+                                           .unwrap_or(RasterRect::max_rect());
+
+    let map_pic_to_raster = SpaceMapper::new_with_target(
+        raster_spatial_node_index,
+        surface_spatial_node_index,
+        raster_bounds,
+        frame_context.clip_scroll_tree,
+    );
+
+    (map_raster_to_world, map_pic_to_raster)
 }

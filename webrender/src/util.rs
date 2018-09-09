@@ -65,7 +65,7 @@ impl<Src, Dst> MatrixHelpers<Src, Dst> for TypedTransform3D<f32, Src, Dst> {
          self.m14.abs() > NEARLY_ZERO ||
          self.m24.abs() > NEARLY_ZERO ||
          self.m34.abs() > NEARLY_ZERO ||
-         (self.m44.abs() - 1.0) > NEARLY_ZERO
+         (self.m44 - 1.0).abs() > NEARLY_ZERO
     }
 
     fn has_2d_inverse(&self) -> bool {
