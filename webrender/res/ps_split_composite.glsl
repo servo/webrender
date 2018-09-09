@@ -39,21 +39,17 @@ vec2 bilerp(vec2 a, vec2 b, vec2 c, vec2 d, float s, float t) {
 }
 
 struct SplitCompositeInstance {
-    int render_task_index;
+    int prim_header_index;
     int polygons_address;
     float z;
-    int uv_address;
-    int transform_id;
 };
 
 SplitCompositeInstance fetch_composite_instance() {
     SplitCompositeInstance ci;
 
-    ci.render_task_index = aData.x & 0xffff;
-    ci.z = float(aData.x >> 16);
+    ci.prim_header_index = aData.x;
     ci.polygons_address = aData.y;
-    ci.uv_address = aData.z;
-    ci.transform_id = aData.w;
+    ci.z = float(aData.z);
 
     return ci;
 }
@@ -61,10 +57,12 @@ SplitCompositeInstance fetch_composite_instance() {
 void main(void) {
     SplitCompositeInstance ci = fetch_composite_instance();
     SplitGeometry geometry = fetch_split_geometry(ci.polygons_address);
-    PictureTask dest_task = fetch_picture_task(ci.render_task_index);
-    Transform transform = fetch_transform(ci.transform_id);
-    ImageResource res = fetch_image_resource(ci.uv_address);
-    ImageResourceExtra extra_data = fetch_image_resource_extra(ci.uv_address);
+    PrimitiveHeader ph = fetch_prim_header(ci.prim_header_index);
+    PictureTask dest_task = fetch_picture_task(ph.render_task_index);
+    Transform transform = fetch_transform(ph.transform_id);
+    ImageResource res = fetch_image_resource(ph.user_data.x);
+    ImageResourceExtra extra_data = fetch_image_resource_extra(ph.user_data.x);
+    ClipArea clip_area = fetch_clip_area(ph.clip_task_index);
 
     vec2 dest_origin = dest_task.common_data.task_rect.p0 -
                        dest_task.content_origin;
@@ -78,6 +76,11 @@ void main(void) {
         dest_origin * world_pos.w + world_pos.xy * uDevicePixelRatio,
         world_pos.w * ci.z,
         world_pos.w
+    );
+
+    write_clip(
+        world_pos,
+        clip_area
     );
 
     gl_Position = uTransform * final_pos;
@@ -109,7 +112,8 @@ void main(void) {
 
 #ifdef WR_FRAGMENT_SHADER
 void main(void) {
+    float alpha = do_clip();
     vec2 uv = clamp(vUv.xy, vUvSampleBounds.xy, vUvSampleBounds.zw);
-    oFragColor = textureLod(sCacheRGBA8, vec3(uv, vUv.z), 0.0);
+    oFragColor = alpha * textureLod(sCacheRGBA8, vec3(uv, vUv.z), 0.0);
 }
 #endif

@@ -480,6 +480,41 @@ impl AlphaBatchBuilder {
                 ROOT_SPATIAL_NODE_INDEX,
                 ctx.clip_scroll_tree,
             );
+
+            let clip_task_address = pic_metadata
+                .clip_task_id
+                .map_or(OPAQUE_TASK_ADDRESS, |id| render_tasks.get_task_address(id));
+
+            let prim_header = PrimitiveHeader {
+                local_rect: pic_metadata.local_rect,
+                local_clip_rect: pic_metadata.combined_local_clip_rect,
+                task_address,
+                specific_prim_address: GpuCacheAddress::invalid(),
+                clip_task_address,
+                transform_id,
+            };
+
+            let pic = ctx.prim_store.get_pic(prim_index);
+
+            let (uv_rect_address, _) = pic
+                .raster_config
+                .as_ref()
+                .expect("BUG: no raster config")
+                .surface
+                .as_ref()
+                .expect("BUG: no surface")
+                .resolve(
+                    render_tasks,
+                    ctx.resource_cache,
+                    gpu_cache,
+                );
+
+            let prim_header_index = prim_headers.push(&prim_header, [
+                uv_rect_address.as_int(),
+                0,
+                0,
+            ]);
+
             let mut local_points = [
                 transform.transform_point3d(&poly.points[0].cast()).unwrap(),
                 transform.transform_point3d(&poly.points[1].cast()).unwrap(),
@@ -498,34 +533,18 @@ impl AlphaBatchBuilder {
                 BlendMode::PremultipliedAlpha,
                 BatchTextures::no_texture(),
             );
-            let pic = ctx.prim_store.get_pic(prim_index);
             let batch = self.batch_list
                             .get_suitable_batch(
                                 key,
                                 &pic_metadata.clipped_world_rect.as_ref().expect("bug"),
                             );
 
-            let (uv_rect_address, _) = pic
-                .raster_config
-                .as_ref()
-                .expect("BUG: no raster config")
-                .surface
-                .as_ref()
-                .expect("BUG: no surface")
-                .resolve(
-                    render_tasks,
-                    ctx.resource_cache,
-                    gpu_cache,
-                );
-
             let gpu_address = gpu_cache.get_address(&gpu_handle);
 
             let instance = SplitCompositeInstance::new(
-                task_address,
-                uv_rect_address,
+                prim_header_index,
                 gpu_address,
                 prim_headers.z_generator.next(),
-                transform_id,
             );
 
             batch.push(PrimitiveInstance::from(instance));
@@ -672,26 +691,37 @@ impl AlphaBatchBuilder {
                             debug_assert!(picture.raster_config.is_some());
                             let transform = transforms.get_world_transform(prim_metadata.spatial_node_index);
 
-                            match transform.transform_kind() {
-                                TransformedRectKind::AxisAligned => {
-                                    let polygon = Polygon::from_transformed_rect(
-                                        prim_metadata.local_rect.cast(),
-                                        transform.cast(),
-                                        prim_index.0,
-                                    ).unwrap();
-                                    splitter.add(polygon);
-                                }
-                                TransformedRectKind::Complex => {
-                                    let mut clipper = Clipper::new();
-                                    let matrix = transform.cast();
-                                    let results = clipper.clip_transformed(
-                                        Polygon::from_rect(prim_metadata.local_rect.cast(), prim_index.0),
-                                        &matrix,
-                                        Some(bounding_rect.to_f64()),
-                                    );
-                                    if let Ok(results) = results {
-                                        for poly in results {
-                                            splitter.add(poly);
+                            // Apply the local clip rect here, before splitting. This is
+                            // because the local clip rect can't be applied in the vertex
+                            // shader for split composites, since we are drawing polygons
+                            // rather that rectangles. The interpolation still works correctly
+                            // since we determine the UVs by doing a bilerp with a factor
+                            // from the original local rect.
+                            let local_rect = prim_metadata.local_rect
+                                                          .intersection(&prim_metadata.combined_local_clip_rect);
+
+                            if let Some(local_rect) = local_rect {
+                                match transform.transform_kind() {
+                                    TransformedRectKind::AxisAligned => {
+                                        let polygon = Polygon::from_transformed_rect(
+                                            local_rect.cast(),
+                                            transform.cast(),
+                                            prim_index.0,
+                                        ).unwrap();
+                                        splitter.add(polygon);
+                                    }
+                                    TransformedRectKind::Complex => {
+                                        let mut clipper = Clipper::new();
+                                        let matrix = transform.cast();
+                                        let results = clipper.clip_transformed(
+                                            Polygon::from_rect(local_rect.cast(), prim_index.0),
+                                            &matrix,
+                                            Some(bounding_rect.to_f64()),
+                                        );
+                                        if let Ok(results) = results {
+                                            for poly in results {
+                                                splitter.add(poly);
+                                            }
                                         }
                                     }
                                 }

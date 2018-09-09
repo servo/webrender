@@ -11,7 +11,7 @@ use api::{BorderWidths, BoxShadowClipMode, LayoutToWorldScale, NormalBorder, Wor
 use app_units::Au;
 use border::{BorderCacheKey, BorderRenderTaskInfo};
 use clip_scroll_tree::{ClipScrollTree, CoordinateSystemId, SpatialNodeIndex};
-use clip::{ClipNodeFlags, ClipChainId, ClipChainInstance, ClipItem};
+use clip::{ClipNodeFlags, ClipChainId, ClipChainInstance, ClipItem, ClipNodeCollector};
 use euclid::{TypedVector2D, TypedTransform3D, TypedRect};
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
 use frame_builder::PrimitiveContext;
@@ -1615,6 +1615,7 @@ impl PrimitiveStore {
                         pic_state.surface_spatial_node_index,
                         pic_state.raster_spatial_node_index,
                         pic_context.allow_subpixel_aa,
+                        frame_state,
                         frame_context,
                         is_chased,
                     ) {
@@ -1629,7 +1630,7 @@ impl PrimitiveStore {
             }
         };
 
-        let is_passthrough = match pic_info {
+        let (is_passthrough, clip_node_collector) = match pic_info {
             Some((pic_context_for_children, mut pic_state_for_children)) => {
                 // Mark whether this picture has a complex coordinate system.
                 let is_passthrough = pic_context_for_children.is_passthrough;
@@ -1654,12 +1655,13 @@ impl PrimitiveStore {
 
                 // Restore the dependencies (borrow check dance)
                 let prim = &mut self.primitives[prim_index.0];
-                let new_local_rect = prim
+                let (new_local_rect, clip_node_collector) = prim
                     .as_pic_mut()
                     .restore_context(
                         pic_context_for_children,
                         pic_state_for_children,
                         pic_rect,
+                        frame_state,
                     );
 
                 if new_local_rect != prim.metadata.local_rect {
@@ -1668,10 +1670,10 @@ impl PrimitiveStore {
                     pic_state.local_rect_changed = true;
                 }
 
-                is_passthrough
+                (is_passthrough, clip_node_collector)
             }
             None => {
-                false
+                (false, None)
             }
         };
 
@@ -1722,6 +1724,7 @@ impl PrimitiveStore {
                     frame_state.resource_cache,
                     frame_context.device_pixel_scale,
                     &frame_context.world_rect,
+                    &clip_node_collector,
                 );
 
             let clip_chain = match clip_chain {
@@ -1787,6 +1790,7 @@ impl PrimitiveStore {
                 frame_context,
                 frame_state,
                 is_chased,
+                &clip_node_collector,
             );
 
             if cfg!(debug_assertions) && is_chased {
@@ -2199,6 +2203,7 @@ impl Primitive {
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
+        clip_node_collector: &Option<ClipNodeCollector>,
     ) -> bool {
         let brush = match self.details {
             PrimitiveDetails::Brush(ref mut brush) => brush,
@@ -2235,6 +2240,7 @@ impl Primitive {
                     frame_state.resource_cache,
                     frame_context.device_pixel_scale,
                     &frame_context.world_rect,
+                    clip_node_collector,
                 );
 
             match segment_clip_chain {
@@ -2760,6 +2766,7 @@ impl Primitive {
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
         is_chased: bool,
+        clip_node_collector: &Option<ClipNodeCollector>,
     ) {
         if cfg!(debug_assertions) && is_chased {
             println!("\tupdating clip task with pic rect {:?}", clip_chain.pic_clip_rect);
@@ -2779,6 +2786,7 @@ impl Primitive {
             pic_state,
             frame_context,
             frame_state,
+            clip_node_collector,
         ) {
             if cfg!(debug_assertions) && is_chased {
                 println!("\tsegment tasks have been created for clipping");

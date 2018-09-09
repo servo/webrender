@@ -7,6 +7,7 @@ use api::{DeviceIntRect, DeviceIntSize, DevicePoint, LayoutRect, PictureToRaster
 use api::{DevicePixelScale, PictureIntPoint, PictureIntRect, PictureIntSize, RasterRect};
 use api::{PicturePixel, RasterPixel, WorldPixel};
 use box_shadow::{BLUR_SAMPLE_SCALE};
+use clip::ClipNodeCollector;
 use clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
 use euclid::TypedScale;
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState};
@@ -215,6 +216,7 @@ impl PicturePrimitive {
         surface_spatial_node_index: SpatialNodeIndex,
         raster_spatial_node_index: SpatialNodeIndex,
         parent_allows_subpixel_aa: bool,
+        frame_state: &mut FrameBuildingState,
         frame_context: &FrameBuildingContext,
         is_chased: bool,
     ) -> Option<(PictureContext, PictureState)> {
@@ -251,6 +253,11 @@ impl PicturePrimitive {
         } else {
             raster_spatial_node_index
         };
+
+        if establishes_raster_root {
+            frame_state.clip_store
+                       .push_raster_root(raster_spatial_node_index);
+        }
 
         let map_pic_to_world = SpaceMapper::new_with_target(
             ROOT_SPATIAL_NODE_INDEX,
@@ -316,6 +323,7 @@ impl PicturePrimitive {
             inflation_factor,
             allow_subpixel_aa,
             is_passthrough: self.raster_config.is_none(),
+            establishes_raster_root,
         };
 
         Some((context, state))
@@ -343,11 +351,12 @@ impl PicturePrimitive {
         context: PictureContext,
         state: PictureState,
         local_rect: Option<PictureRect>,
-    ) -> LayoutRect {
+        frame_state: &mut FrameBuildingState,
+    ) -> (LayoutRect, Option<ClipNodeCollector>) {
         self.runs = context.prim_runs;
         self.state = Some(state);
 
-        match local_rect {
+        let local_rect = match local_rect {
             Some(local_rect) => {
                 let local_content_rect = LayoutRect::from_untyped(&local_rect.to_untyped());
 
@@ -379,7 +388,15 @@ impl PicturePrimitive {
                 assert!(self.raster_config.is_none());
                 LayoutRect::zero()
             }
-        }
+        };
+
+        let clip_node_collector = if context.establishes_raster_root {
+            Some(frame_state.clip_store.pop_raster_root())
+        } else {
+            None
+        };
+
+        (local_rect, clip_node_collector)
     }
 
     pub fn take_state(&mut self) -> PictureState {
