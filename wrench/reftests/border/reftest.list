@@ -22,3 +22,4 @@ platform(linux,mac) == dotted-corner-small-radius.yaml dotted-corner-small-radiu
 == overlapping.yaml overlapping.png
 == zero-width.yaml blank.yaml
 platform(linux,mac) == small-dotted-border.yaml small-dotted-border.png
+== discontinued-dash.yaml discontinued-dash.png
