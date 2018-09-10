@@ -352,7 +352,6 @@ impl BorderCornerClipSource {
 
         match self.kind {
             BorderCornerClipKind::Dash => {
-
                 // Get the correct half-dash arc length.
                 let half_dash_arc_length =
                     self.ellipse.total_arc_length / max_clip_count as f32;
@@ -363,12 +362,8 @@ impl BorderCornerClipSource {
                 // made in non-rounded segments by BrushFlags::DASH_OFFSET.
                 let mut current_length = -half_dash_arc_length;
 
-                // This is a bit hacky: we want half of the dash to be in the
-                // corner, and since we're walking backwards the segment would
-                // be clipped, then not-clipped. So we need to calculate the
-                // clip as if it was past the end.
-                dot_dash_data.reserve(max_clip_count);
-                while current_length < self.ellipse.total_arc_length {
+                dot_dash_data.reserve(max_clip_count / 4);
+                for _ in 0 .. (max_clip_count / 4) {
                     let arc_length0 = current_length;
                     current_length += dash_length;
 
@@ -572,7 +567,7 @@ impl EdgeInfo {
 // the 'on' segment) and the count of them for a given segment.
 fn compute_half_dash(side_width: f32, total_size: f32) -> (f32, u32) {
     let half_dash = side_width * 1.5;
-    let num_half_dashes = (total_size / half_dash).floor().max(1.0) as u32;
+    let num_half_dashes = (total_size / half_dash).ceil() as u32;
 
     // TODO(emilio): Gecko has some other heuristics here to start with a full
     // dash when the border side is zero, for example. We might consider those
