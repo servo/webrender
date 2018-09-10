@@ -6,19 +6,19 @@
 
 #include shared,prim_shared,brush
 
-flat varying int vGradientAddress;
-flat varying float vGradientRepeat;
+flat_varying int vGradientAddress;
+flat_varying float vGradientRepeat;
 
-flat varying vec2 vCenter;
-flat varying float vStartRadius;
-flat varying float vEndRadius;
+flat_varying vec2 vCenter;
+flat_varying float vStartRadius;
+flat_varying float vEndRadius;
 
 varying vec2 vPos;
-flat varying vec2 vRepeatedSize;
+flat_varying vec2 vRepeatedSize;
 
 #ifdef WR_FEATURE_ALPHA_PASS
 varying vec2 vLocalPos;
-flat varying vec2 vTileRepeat;
+flat_varying vec2 vTileRepeat;
 #endif
 
 #ifdef WR_VERTEX_SHADER

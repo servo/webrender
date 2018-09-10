@@ -11,10 +11,10 @@
 
 varying vec3 vLocalPos;
 
-flat varying int vStyle;
-flat varying float vAxisSelect;
-flat varying vec4 vParams;
-flat varying vec2 vLocalOrigin;
+flat_varying int vStyle;
+flat_varying float vAxisSelect;
+flat_varying vec4 vParams;
+flat_varying vec2 vLocalOrigin;
 
 #ifdef WR_VERTEX_SHADER
 

@@ -6,36 +6,36 @@
 
 // For edges, the colors are the same. For corners, these
 // are the colors of each edge making up the corner.
-flat varying vec4 vColor00;
-flat varying vec4 vColor01;
-flat varying vec4 vColor10;
-flat varying vec4 vColor11;
+flat_varying vec4 vColor00;
+flat_varying vec4 vColor01;
+flat_varying vec4 vColor10;
+flat_varying vec4 vColor11;
 
 // A point + tangent defining the line where the edge
 // transition occurs. Used for corners only.
-flat varying vec4 vColorLine;
+flat_varying vec4 vColorLine;
 
 // x = segment, y = styles, z = edge axes, w = clip mode
-flat varying ivec4 vConfig;
+flat_varying ivec4 vConfig;
 
 // xy = Local space position of the clip center.
 // zw = Scale the rect origin by this to get the outer
 // corner from the segment rectangle.
-flat varying vec4 vClipCenter_Sign;
+flat_varying vec4 vClipCenter_Sign;
 
 // An outer and inner elliptical radii for border
 // corner clipping.
-flat varying vec4 vClipRadii;
+flat_varying vec4 vClipRadii;
 
 // Reference point for determine edge clip lines.
-flat varying vec4 vEdgeReference;
+flat_varying vec4 vEdgeReference;
 
 // Stores widths/2 and widths/3 to save doing this in FS.
-flat varying vec4 vPartialWidths;
+flat_varying vec4 vPartialWidths;
 
 // Clipping parameters for dot or dash.
-flat varying vec4 vClipParams1;
-flat varying vec4 vClipParams2;
+flat_varying vec4 vClipParams1;
+flat_varying vec4 vClipParams2;
 
 // Local space position
 varying vec2 vPos;

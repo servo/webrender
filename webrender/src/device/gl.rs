@@ -54,6 +54,7 @@ const GL_FORMAT_BGRA_GLES: gl::GLuint = gl::BGRA_EXT;
 const SHADER_VERSION_GL: &str = "#version 150\n";
 const SHADER_VERSION_GLES: &str = "#version 300 es\n";
 
+const SHADER_RENDERER_ANGLE: &str = "#define WR_RENDERER_ANGLE\n";
 const SHADER_KIND_VERTEX: &str = "#define WR_VERTEX_SHADER\n";
 const SHADER_KIND_FRAGMENT: &str = "#define WR_FRAGMENT_SHADER\n";
 const SHADER_IMPORT: &str = "#include ";
@@ -192,6 +193,7 @@ pub fn build_shader_strings(
     features: &str,
     base_filename: &str,
     override_path: &Option<PathBuf>,
+    is_angle: bool,
 ) -> (String, String) {
     // Construct a list of strings to be passed to the shader compiler.
     let mut vs_source = String::new();
@@ -206,6 +208,12 @@ pub fn build_shader_strings(
     vs_source.push_str(&name_string);
     fs_source.push_str(&name_string);
 
+    // Define a constant dependig on where we are compiling for ANGLE or not.
+    if is_angle {
+        vs_source.push_str(SHADER_RENDERER_ANGLE);
+        fs_source.push_str(SHADER_RENDERER_ANGLE);
+    }
+    
     // Define a constant depending on whether we are compiling VS or FS.
     vs_source.push_str(SHADER_KIND_VERTEX);
     fs_source.push_str(SHADER_KIND_FRAGMENT);
@@ -1418,12 +1426,15 @@ impl Device {
         debug_assert!(self.inside_frame);
 
         let gl_version_string = get_shader_version(&*self.gl);
-
+        // TODO(djg): Should this be contains()?
+        let is_angle = self.renderer_name.starts_with("ANGLE");
+        
         let (vs_source, fs_source) = build_shader_strings(
             gl_version_string,
             features,
             base_filename,
             &self.resource_override_path,
+            is_angle,
         );
 
         let sources = ProgramSources::new(self.renderer_name.clone(), vs_source, fs_source);

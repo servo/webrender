@@ -8,11 +8,11 @@
 
 varying vec3 vUv;
 
-flat varying float vAmount;
-flat varying int vOp;
-flat varying mat3 vColorMat;
-flat varying vec3 vColorOffset;
-flat varying vec4 vUvClipBounds;
+flat_varying float vAmount;
+flat_varying int vOp;
+flat_varying mat3 vColorMat;
+flat_varying vec3 vColorOffset;
+flat_varying vec4 vUvClipBounds;
 
 #ifdef WR_VERTEX_SHADER
 

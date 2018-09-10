@@ -26,7 +26,7 @@ vec2 clamp_rect(vec2 pt, RectWithSize rect) {
 }
 
 // TODO: convert back to RectWithEndPoint if driver issues are resolved, if ever.
-flat varying vec4 vClipMaskUvBounds;
+flat_varying vec4 vClipMaskUvBounds;
 // XY and W are homogeneous coordinates, Z is the layer index
 varying vec4 vClipMaskUv;
 

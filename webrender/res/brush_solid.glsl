@@ -6,7 +6,7 @@
 
 #include shared,prim_shared,brush
 
-flat varying vec4 vColor;
+flat_varying vec4 vColor;
 
 #ifdef WR_FEATURE_ALPHA_PASS
 varying vec2 vLocalPos;
