@@ -1044,12 +1044,16 @@ fn add_segment(
                     //           so that we don't allocate a Vec here.
                     let clip_list = clip_source.write(segment);
 
-                    for params in clip_list {
-                        instances.push(BorderInstance {
-                            flags: base_flags | ((clip_kind as i32) << 24),
-                            clip_params: params,
-                            ..base_instance
-                        });
+                    if clip_list.is_empty() {
+                        instances.push(base_instance);
+                    } else {
+                        for params in clip_list {
+                            instances.push(BorderInstance {
+                                flags: base_flags | ((clip_kind as i32) << 24),
+                                clip_params: params,
+                                ..base_instance
+                            });
+                        }
                     }
                 }
                 None => {
