@@ -1665,7 +1665,6 @@ impl Renderer {
                 Arc::new(worker.unwrap())
             });
         let sampler = options.sampler;
-        let enable_render_on_scroll = options.enable_render_on_scroll;
 
         let blob_image_handler = options.blob_image_handler.take();
         let thread_listener_for_render_backend = thread_listener.clone();
@@ -1747,7 +1746,6 @@ impl Renderer {
                 config,
                 recorder,
                 sampler,
-                enable_render_on_scroll,
             );
             backend.run(backend_profile_counters);
             if let Some(ref thread_listener) = *thread_listener_for_render_backend {
@@ -4193,7 +4191,6 @@ pub struct RendererOptions {
     pub blob_image_handler: Option<Box<BlobImageHandler>>,
     pub recorder: Option<Box<ApiRecordingReceiver>>,
     pub thread_listener: Option<Box<ThreadListener + Send + Sync>>,
-    pub enable_render_on_scroll: bool,
     pub cached_programs: Option<Rc<ProgramCache>>,
     pub debug_flags: DebugFlags,
     pub renderer_id: Option<u64>,
@@ -4229,7 +4226,6 @@ impl Default for RendererOptions {
             blob_image_handler: None,
             recorder: None,
             thread_listener: None,
-            enable_render_on_scroll: true,
             renderer_id: None,
             cached_programs: None,
             disable_dual_source_blending: false,
