@@ -9,7 +9,7 @@ use api::{DeviceIntPoint, DevicePixelScale, DeviceUintPoint, DeviceUintRect, Dev
 use api::{DocumentId, DocumentLayer, ExternalScrollId, FrameMsg, HitTestFlags, HitTestResult};
 use api::{IdNamespace, LayoutPoint, PipelineId, RenderNotifier, SceneMsg, ScrollClamping};
 use api::{ScrollLocation, ScrollNodeState, TransactionMsg, ResourceUpdate, ImageKey};
-use api::ExternalEvent;
+use api::{NotificationRequest, CheckPoint};
 use api::channel::{MsgReceiver, Payload};
 #[cfg(feature = "capture")]
 use api::CaptureBits;
@@ -45,6 +45,7 @@ use std::u32;
 #[cfg(feature = "replay")]
 use tiling::Frame;
 use time::precise_time_ns;
+use util::drain_filter;
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -840,7 +841,7 @@ impl RenderBackend {
             resource_updates: transaction_msg.resource_updates,
             frame_ops: transaction_msg.frame_ops,
             rasterized_blobs: Vec::new(),
-            notifications: Vec::new(),
+            notifications: transaction_msg.notifications,
             set_root_pipeline: None,
             build_frame: transaction_msg.generate_frame,
             render_frame: transaction_msg.generate_frame,
@@ -913,7 +914,7 @@ impl RenderBackend {
         document_id: DocumentId,
         resource_updates: Vec<ResourceUpdate>,
         mut frame_ops: Vec<FrameMsg>,
-        notifications: Vec<ExternalEvent>,
+        mut notifications: Vec<NotificationRequest>,
         mut build_frame: bool,
         mut render_frame: bool,
         frame_counter: &mut u32,
@@ -1028,9 +1029,11 @@ impl RenderBackend {
             self.result_tx.send(msg).unwrap();
         }
 
-        for evt in notifications {
-            self.notifier.external_event(evt)
-        }
+        drain_filter(
+            &mut notifications,
+            |n| { n.when() == CheckPoint::AfterFrameBuilding },
+            |n| { n.notify(); },
+        );
 
         if render_frame {
             self.notifier.new_frame_ready(document_id, scroll, render_frame, frame_build_time);

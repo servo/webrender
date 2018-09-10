@@ -10,6 +10,7 @@ use std::cell::Cell;
 use std::fmt;
 use std::marker::PhantomData;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::u32;
 use {BuiltDisplayList, BuiltDisplayListDescriptor, ColorF, DeviceIntPoint, DeviceUintRect};
 use {DeviceUintSize, ExternalScrollId, FontInstanceKey, FontInstanceOptions};
@@ -48,7 +49,7 @@ pub struct Transaction {
     // Additional display list data.
     payloads: Vec<Payload>,
 
-    notifications: Vec<ExternalEvent>,
+    notifications: Vec<NotificationRequest>,
 
     // Resource updates are applied after scene building.
     pub resource_updates: Vec<ResourceUpdate>,
@@ -178,12 +179,15 @@ impl Transaction {
     // Note: Gecko uses this to get notified when a transaction that contains
     // potentially long blob rasterization or scene build is ready to be rendered.
     // so that the tab-switching integration can react adequately when tab
-    // switching takes too long. For this use case what matters is that the
+    // switching takes too long. For this use case when matters is that the
     // notification doesn't fire before scene building and blob rasterization.
 
-    /// Trigger the external event notification when the transaction gets passed
-    /// the frame building stage.
-    pub fn notify(&mut self, event: ExternalEvent) {
+    /// Trigger a notification at a certain stage of the rendering pipeline.
+    ///
+    /// Not that notification requests are skipped during serialization, so is is
+    /// best to use them for synchronization purposes and not for things that could
+    /// affect the WebRender's state.
+    pub fn notify(&mut self, event: NotificationRequest) {
         self.notifications.push(event);
     }
 
@@ -235,7 +239,7 @@ impl Transaction {
     /// in `webrender::Renderer`, [new_frame_ready()][notifier] gets called.
     /// Note that the notifier is called even if the frame generation was a
     /// no-op; the arguments passed to `new_frame_ready` will provide information
-    /// as to what happened.
+    /// as to when happened.
     ///
     /// [notifier]: trait.RenderNotifier.html#tymethod.new_frame_ready
     pub fn generate_frame(&mut self) {
@@ -385,10 +389,12 @@ pub struct TransactionMsg {
     pub scene_ops: Vec<SceneMsg>,
     pub frame_ops: Vec<FrameMsg>,
     pub resource_updates: Vec<ResourceUpdate>,
-    pub notifications: Vec<ExternalEvent>,
     pub generate_frame: bool,
     pub use_scene_builder_thread: bool,
     pub low_priority: bool,
+
+    #[serde(skip)]
+    pub notifications: Vec<NotificationRequest>,
 }
 
 impl TransactionMsg {
@@ -1160,4 +1166,49 @@ pub trait RenderNotifier: Send {
         unimplemented!()
     }
     fn shut_down(&self) {}
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CheckPoint {
+    AfterSceneBuilding,
+    AfterFrameBuilding,
+    /// NotificationRequests get notified with this if they get dropped without having been
+    /// notified. This provides the guarantee that if a request is created it will get notified.
+    TransactionDropped,
+}
+
+pub trait NotificationHandler : Send + Sync {
+    fn notify(&self, when: CheckPoint);
+}
+
+#[derive(Clone)]
+pub struct NotificationRequest {
+    handler: Arc<NotificationHandler>,
+    when: CheckPoint,
+    done: bool,
+}
+
+impl NotificationRequest {
+    pub fn new(when: CheckPoint, handler: Arc<NotificationHandler>) -> Self {
+        NotificationRequest {
+            handler,
+            when,
+            done: false,
+        }
+    }
+
+    pub fn when(&self) -> CheckPoint { self.when }
+
+    pub fn notify(mut self) {
+        self.handler.notify(self.when);
+        self.done = true;
+    }
+}
+
+impl Drop for NotificationRequest {
+    fn drop(&mut self) {
+        if !self.done {
+            self.handler.notify(CheckPoint::TransactionDropped);
+        }
+    }
 }
