@@ -334,6 +334,10 @@ impl BorderCornerClipSource {
     pub fn write(self, segment: BorderSegment) -> Vec<[f32; 8]> {
         let mut dot_dash_data = Vec::new();
 
+        if self.max_clip_count == 0 {
+            return dot_dash_data;
+        }
+
         let outer_scale = match segment {
             BorderSegment::TopLeft => DeviceVector2D::new(0.0, 0.0),
             BorderSegment::TopRight => DeviceVector2D::new(1.0, 0.0),
@@ -363,12 +367,16 @@ impl BorderCornerClipSource {
                 // Start with at least half a dash at each side to match the
                 // code for non-rounded corners. This matches the adjustment
                 // made in non-rounded segments by BrushFlags::DASH_OFFSET.
-                let mut current_length = -half_dash_arc_length;
+                let mut current_length = 0.;
 
                 dot_dash_data.reserve(max_clip_count / 4);
-                for _ in 0 .. (max_clip_count / 4) {
+                for i in 0 .. (max_clip_count / 4 + 1) {
                     let arc_length0 = current_length;
-                    current_length += dash_length;
+                    current_length += if i == 0 {
+                        half_dash_arc_length
+                    } else {
+                        dash_length
+                    };
 
                     let arc_length1 = current_length;
                     current_length += dash_length;
@@ -571,6 +579,10 @@ impl EdgeInfo {
 fn compute_half_dash(side_width: f32, total_size: f32) -> (f32, u32) {
     let half_dash = side_width * 1.5;
     let num_half_dashes = (total_size / half_dash).ceil() as u32;
+
+    if num_half_dashes == 0 {
+        return (0., 0);
+    }
 
     // TODO(emilio): Gecko has some other heuristics here to start with a full
     // dash when the border side is zero, for example. We might consider those
