@@ -235,9 +235,10 @@ impl BorderSideHelpers for BorderSide {
 /// The kind of border corner clip.
 #[repr(C)]
 #[derive(Copy, Debug, Clone, PartialEq)]
-pub enum BorderCornerClipKind {
-    Dash = 1,
+pub enum BorderClipKind {
+    DashCorner = 1,
     Dot = 2,
+    DashEdge = 3,
 }
 
 /// The source data for a border corner clip mask.
@@ -246,7 +247,7 @@ struct BorderCornerClipSource {
     // XXX this makes no sense as a name for dashed borders now that it
     // represents half-dashes.
     max_clip_count: usize,
-    kind: BorderCornerClipKind,
+    kind: BorderClipKind,
     widths: DeviceSize,
     radius: DeviceSize,
     ellipse: Ellipse<DevicePixel>,
@@ -256,7 +257,7 @@ impl BorderCornerClipSource {
     pub fn new(
         corner_radius: DeviceSize,
         widths: DeviceSize,
-        kind: BorderCornerClipKind,
+        kind: BorderClipKind,
     ) -> BorderCornerClipSource {
         // Work out a dash length (and therefore dash count)
         // based on the width of the border edges. The "correct"
@@ -267,7 +268,8 @@ impl BorderCornerClipSource {
         //           uses for dash length.
 
         let (ellipse, max_clip_count) = match kind {
-            BorderCornerClipKind::Dash => {
+            BorderClipKind::DashEdge => unreachable!("not for corners"),
+            BorderClipKind::DashCorner => {
                 let ellipse = Ellipse::new(corner_radius);
 
                 let average_border_width = 0.5 * (widths.width + widths.height);
@@ -280,7 +282,7 @@ impl BorderCornerClipSource {
                 // the last half-dash of the arc.
                 (ellipse, num_half_dashes as usize)
             }
-            BorderCornerClipKind::Dot => {
+            BorderClipKind::Dot => {
                 let mut corner_radius = corner_radius;
                 if corner_radius.width < (widths.width / 2.0) {
                     corner_radius.width = 0.0;
@@ -351,7 +353,8 @@ impl BorderCornerClipSource {
         let max_clip_count = self.max_clip_count.min(MAX_DASH_COUNT);
 
         match self.kind {
-            BorderCornerClipKind::Dash => {
+            BorderClipKind::DashEdge => unreachable!("not for corners"),
+            BorderClipKind::DashCorner => {
                 // Get the correct half-dash arc length.
                 let half_dash_arc_length =
                     self.ellipse.total_arc_length / max_clip_count as f32;
@@ -408,14 +411,14 @@ impl BorderCornerClipSource {
                     ]);
                 }
             }
-            BorderCornerClipKind::Dot if max_clip_count == 1 => {
+            BorderClipKind::Dot if max_clip_count == 1 => {
                 let dot_diameter = lerp(self.widths.width, self.widths.height, 0.5);
                 dot_dash_data.push([
                     self.widths.width / 2.0, self.widths.height / 2.0, 0.5 * dot_diameter, 0.,
                     0., 0., 0., 0.,
                 ]);
             }
-            BorderCornerClipKind::Dot => {
+            BorderClipKind::Dot => {
                 let mut forward_dots = Vec::with_capacity(max_clip_count / 2 + 1);
                 let mut back_dots = Vec::with_capacity(max_clip_count / 2 + 1);
                 let mut leftover_arc_length = 0.0;
@@ -1031,8 +1034,8 @@ fn add_segment(
             }
 
             let clip_kind = match style0 {
-                BorderStyle::Dashed => Some(BorderCornerClipKind::Dash),
-                BorderStyle::Dotted => Some(BorderCornerClipKind::Dot),
+                BorderStyle::Dashed => Some(BorderClipKind::DashCorner),
+                BorderStyle::Dotted => Some(BorderClipKind::Dot),
                 _ => None,
             };
 
@@ -1074,32 +1077,19 @@ fn add_segment(
 
             match style0 {
                 BorderStyle::Dashed => {
-                    let rect = if is_vertical {
-                        let half_dash_size = task_rect.size.height * 0.5;
-                        let y0 = task_rect.origin.y;
-                        let y1 = y0 + half_dash_size.round();
-
-                        DeviceRect::from_floats(
-                            task_rect.origin.x,
-                            y0,
-                            task_rect.origin.x + task_rect.size.width,
-                            y1,
-                        )
+                    let (x, y) = if is_vertical {
+                        let half_dash_size = task_rect.size.height * 0.25;
+                        (0., half_dash_size)
                     } else {
-                        let half_dash_size = task_rect.size.width * 0.5;
-                        let x0 = task_rect.origin.x;
-                        let x1 = x0 + half_dash_size.round();
-
-                        DeviceRect::from_floats(
-                            x0,
-                            task_rect.origin.y,
-                            x1,
-                            task_rect.origin.y + task_rect.size.height,
-                        )
+                        let half_dash_size = task_rect.size.width * 0.25;
+                        (half_dash_size, 0.)
                     };
 
                     instances.push(BorderInstance {
-                        local_rect: rect,
+                        flags: base_flags | ((BorderClipKind::DashEdge as i32) << 24),
+                        clip_params: [
+                            x, y, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                        ],
                         ..base_instance
                     });
                 }
@@ -1115,7 +1105,7 @@ fn add_segment(
                     };
 
                     instances.push(BorderInstance {
-                        flags: base_flags | ((BorderCornerClipKind::Dot as i32) << 24),
+                        flags: base_flags | ((BorderClipKind::Dot as i32) << 24),
                         clip_params: [
                             x, y, r, 0.0, 0.0, 0.0, 0.0, 0.0,
                         ],
@@ -1177,7 +1167,7 @@ fn add_edge_segment(
     segment: BorderSegment,
     edge_flags: EdgeAaSegmentMask,
     border_segments: &mut Vec<BorderSegmentInfo>,
-    mut brush_flags: BrushFlags,
+    brush_flags: BrushFlags,
     brush_segments: &mut Vec<BrushSegment>,
 ) {
     if side.color.a <= 0.0 {
@@ -1194,10 +1184,6 @@ fn add_edge_segment(
         radius: DeviceSize::zero(),
         widths: task_rect.size,
     });
-
-    if side.style == BorderStyle::Dashed {
-        brush_flags |= BrushFlags::DASH_OFFSET;
-    }
 
     add_brush_segment(
         image_rect,
