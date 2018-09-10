@@ -307,6 +307,8 @@ bitflags! {
         const SEGMENT_REPEAT_X = 0x4;
         /// Repeat UVs vertically.
         const SEGMENT_REPEAT_Y = 0x8;
+        /// Offset the uv to -1/4 of the rect. Used for dashed borders.
+        const DASH_OFFSET = 0x16;
     }
 }
 

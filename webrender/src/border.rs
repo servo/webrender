@@ -242,8 +242,8 @@ pub enum BorderCornerClipKind {
 
 /// The source data for a border corner clip mask.
 #[derive(Debug, Clone)]
-pub struct BorderCornerClipSource {
-    pub max_clip_count: usize,
+struct BorderCornerClipSource {
+    max_clip_count: usize,
     kind: BorderCornerClipKind,
     widths: DeviceSize,
     radius: DeviceSize,
@@ -539,13 +539,14 @@ pub struct BorderRenderTaskInfo {
     pub size: DeviceIntSize,
 }
 
-// Information needed to place and draw a border edge.
+/// Information needed to place and draw a border edge.
+#[derive(Debug)]
 struct EdgeInfo {
-    // Offset in local space to place the edge from origin.
+    /// Offset in local space to place the edge from origin.
     local_offset: f32,
-    // Size of the edge in local space.
+    /// Size of the edge in local space.
     local_size: f32,
-    // Size in device pixels needed in the render task.
+    /// Size in device pixels needed in the render task.
     device_size: f32,
 }
 
@@ -579,14 +580,26 @@ fn get_edge_info(
 
     match style {
         BorderStyle::Dashed => {
-            let dash_size = 3.0 * side_width;
-            let approx_dash_count = (avail_size - dash_size) / dash_size;
-            let dash_count = 1.0 + 2.0 * (approx_dash_count / 2.0).floor();
-            let used_size = dash_count * dash_size;
-            let extra_space = avail_size - used_size;
-            let device_size = 2.0 * dash_size * scale;
-            let offset = (extra_space * 0.5).round();
-            EdgeInfo::new(offset, used_size, device_size)
+            let half_dash = side_width * 1.5;
+            let num_half_dashes = (avail_size / half_dash).floor().max(1.0) as u32;
+
+            // TODO(emilio): Gecko has (way) more complex logic here depending
+            // on whether the previous side counter-clock-wise is dashed or not,
+            // which we may or may not want or need.
+            //
+            // For example, we should paint a full segment at the start if the
+            // previous border is dashed or zero-width.
+            let num_half_dashes = if num_half_dashes % 4 != 0 {
+                num_half_dashes + 4 - num_half_dashes % 4
+            } else {
+                num_half_dashes
+            };
+
+            let half_dash = avail_size / num_half_dashes as f32;
+
+            // Basically, two times the dash size.
+            let device_size = 2.0 * 2.0 * half_dash * scale;
+            EdgeInfo::new(0., avail_size, device_size)
         }
         BorderStyle::Dotted => {
             let dot_and_space_size = 2.0 * side_width;
@@ -960,7 +973,7 @@ fn add_brush_segment(
     brush_segments.push(
         BrushSegment::new(
             image_rect,
-            true,
+            /* may_need_clip_mask = */ true,
             edge_flags,
             [
                 task_rect.origin.x,
@@ -1156,7 +1169,7 @@ fn add_edge_segment(
     segment: BorderSegment,
     edge_flags: EdgeAaSegmentMask,
     border_segments: &mut Vec<BorderSegmentInfo>,
-    brush_flags: BrushFlags,
+    mut brush_flags: BrushFlags,
     brush_segments: &mut Vec<BrushSegment>,
 ) {
     if side.color.a <= 0.0 {
@@ -1173,6 +1186,10 @@ fn add_edge_segment(
         radius: DeviceSize::zero(),
         widths: task_rect.size,
     });
+
+    if side.style == BorderStyle::Dashed {
+        brush_flags |= BrushFlags::DASH_OFFSET;
+    }
 
     add_brush_segment(
         image_rect,
