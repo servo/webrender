@@ -570,18 +570,16 @@ impl RenderBackend {
                             self.resource_cache.set_blob_rasterizer(rasterizer);
                         }
 
-                        if txn.build_frame || !txn.resource_updates.is_empty() || !txn.frame_ops.is_empty() {
-                            self.update_document(
+                        self.update_document(
                             txn.document_id,
-                                replace(&mut txn.resource_updates, Vec::new()),
-                                replace(&mut txn.frame_ops, Vec::new()),
-                                txn.build_frame,
-                                txn.render_frame,
-                                &mut frame_counter,
-                                &mut profile_counters,
-                                has_built_scene,
-                            );
-                        }
+                            replace(&mut txn.resource_updates, Vec::new()),
+                            replace(&mut txn.frame_ops, Vec::new()),
+                            txn.build_frame,
+                            txn.render_frame,
+                            &mut frame_counter,
+                            &mut profile_counters,
+                            has_built_scene,
+                        );
                     },
                     SceneBuilderResult::FlushComplete(tx) => {
                         tx.send(()).ok();
@@ -880,6 +878,7 @@ impl RenderBackend {
         profile_counters: &mut BackendProfileCounters,
         has_built_scene: bool,
     ) {
+        let requested_frame = render_frame;
         self.resource_cache.post_scene_building_update(
             resource_updates,
             &mut profile_counters.resources,
@@ -982,7 +981,10 @@ impl RenderBackend {
             self.result_tx.send(msg).unwrap();
         }
 
-        if render_frame {
+        // Always forward the transaction to the renderer if a frame was requested,
+        // otherwise gecko can get into a state where it waits (forever) for the
+        // transaction to complete before sending new work.
+        if requested_frame {
             self.notifier.new_frame_ready(document_id, scroll, render_frame, frame_build_time);
         }
     }
