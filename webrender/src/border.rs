@@ -243,6 +243,8 @@ pub enum BorderCornerClipKind {
 /// The source data for a border corner clip mask.
 #[derive(Debug, Clone)]
 struct BorderCornerClipSource {
+    // XXX this makes no sense as a name for dashed borders now that it
+    // represents half-dashes.
     max_clip_count: usize,
     kind: BorderCornerClipKind,
     widths: DeviceSize,
@@ -268,19 +270,15 @@ impl BorderCornerClipSource {
             BorderCornerClipKind::Dash => {
                 let ellipse = Ellipse::new(corner_radius);
 
-                // The desired dash length is ~3x the border width.
                 let average_border_width = 0.5 * (widths.width + widths.height);
-                let desired_dash_arc_length = average_border_width * 3.0;
 
-                // Get the ideal number of dashes for that arc length.
-                // This is scaled by 0.5 since there is an on/off length
-                // for each dash.
-                let desired_count = 0.5 * ellipse.total_arc_length / desired_dash_arc_length;
+                let (_half_dash, num_half_dashes) =
+                    compute_half_dash(average_border_width, ellipse.total_arc_length);
 
                 // Round that up to the nearest integer, so that the dash length
                 // doesn't exceed the ratio above. Add one extra dash to cover
                 // the last half-dash of the arc.
-                (ellipse, desired_count.ceil() as usize)
+                (ellipse, num_half_dashes as usize)
             }
             BorderCornerClipKind::Dot => {
                 let mut corner_radius = corner_radius;
@@ -354,28 +352,34 @@ impl BorderCornerClipSource {
 
         match self.kind {
             BorderCornerClipKind::Dash => {
-                // Get the correct dash arc length.
-                let dash_arc_length =
-                    0.5 * self.ellipse.total_arc_length / max_clip_count as f32;
-                // Start the first dash at one quarter the length of a single dash
-                // along the arc line. This is arbitrary but looks reasonable in
-                // most cases. We need to spend some time working on a more
-                // sophisticated dash placement algorithm that takes into account
-                // the offset of the dashes along edge segments.
-                let mut current_arc_length = 0.25 * dash_arc_length;
-                dot_dash_data.reserve(max_clip_count);
-                for _ in 0 .. max_clip_count {
-                    let arc_length0 = current_arc_length;
-                    current_arc_length += dash_arc_length;
 
-                    let arc_length1 = current_arc_length;
-                    current_arc_length += dash_arc_length;
+                // Get the correct half-dash arc length.
+                let half_dash_arc_length =
+                    self.ellipse.total_arc_length / max_clip_count as f32;
+                let dash_length = 2. * half_dash_arc_length;
+
+                // Start with at least half a dash at each side to match the
+                // code for non-rounded corners. This matches the adjustment
+                // made in non-rounded segments by BrushFlags::DASH_OFFSET.
+                let mut current_length = -half_dash_arc_length;
+
+                // This is a bit hacky: we want half of the dash to be in the
+                // corner, and since we're walking backwards the segment would
+                // be clipped, then not-clipped. So we need to calculate the
+                // clip as if it was past the end.
+                dot_dash_data.reserve(max_clip_count);
+                while current_length < self.ellipse.total_arc_length {
+                    let arc_length0 = current_length;
+                    current_length += dash_length;
+
+                    let arc_length1 = current_length;
+                    current_length += dash_length;
 
                     let alpha = self.ellipse.find_angle_for_arc_length(arc_length0);
-                    let beta =  self.ellipse.find_angle_for_arc_length(arc_length1);
+                    let beta = self.ellipse.find_angle_for_arc_length(arc_length1);
 
-                    let (point0, tangent0) =  self.ellipse.get_point_and_tangent(alpha);
-                    let (point1, tangent1) =  self.ellipse.get_point_and_tangent(beta);
+                    let (point0, tangent0) = self.ellipse.get_point_and_tangent(alpha);
+                    let (point1, tangent1) = self.ellipse.get_point_and_tangent(beta);
 
                     let point0 = DevicePoint::new(
                         outer.x + clip_sign.x * (self.radius.width - point0.x),
@@ -564,6 +568,26 @@ impl EdgeInfo {
     }
 }
 
+// Given a side width and the available space, compute the half-dash (half of
+// the 'on' segment) and the count of them for a given segment.
+fn compute_half_dash(side_width: f32, total_size: f32) -> (f32, u32) {
+    let half_dash = side_width * 1.5;
+    let num_half_dashes = (total_size / half_dash).floor().max(1.0) as u32;
+
+    // TODO(emilio): Gecko has some other heuristics here to start with a full
+    // dash when the border side is zero, for example. We might consider those
+    // in the future.
+    let num_half_dashes = if num_half_dashes % 4 != 0 {
+        num_half_dashes + 4 - num_half_dashes % 4
+    } else {
+        num_half_dashes
+    };
+
+    let half_dash = total_size / num_half_dashes as f32;
+    (half_dash, num_half_dashes)
+}
+
+
 // Get the needed size in device pixels for an edge,
 // based on the border style of that edge. This is used
 // to determine how big the render task should be.
@@ -580,24 +604,9 @@ fn get_edge_info(
 
     match style {
         BorderStyle::Dashed => {
-            let half_dash = side_width * 1.5;
-            let num_half_dashes = (avail_size / half_dash).floor().max(1.0) as u32;
-
-            // TODO(emilio): Gecko has (way) more complex logic here depending
-            // on whether the previous side counter-clock-wise is dashed or not,
-            // which we may or may not want or need.
-            //
-            // For example, we should paint a full segment at the start if the
-            // previous border is dashed or zero-width.
-            let num_half_dashes = if num_half_dashes % 4 != 0 {
-                num_half_dashes + 4 - num_half_dashes % 4
-            } else {
-                num_half_dashes
-            };
-
-            let half_dash = avail_size / num_half_dashes as f32;
-
             // Basically, two times the dash size.
+            let (half_dash, _num_half_dashes) =
+                compute_half_dash(side_width, avail_size);
             let device_size = 2.0 * 2.0 * half_dash * scale;
             EdgeInfo::new(0., avail_size, device_size)
         }
