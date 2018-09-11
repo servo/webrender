@@ -617,7 +617,7 @@ fn get_edge_info(
             // Basically, two times the dash size.
             let (half_dash, _num_half_dashes) =
                 compute_half_dash(side_width, avail_size);
-            let device_size = 2.0 * 2.0 * half_dash * scale;
+            let device_size = (2.0 * 2.0 * half_dash * scale).round();
             EdgeInfo::new(0., avail_size, device_size)
         }
         BorderStyle::Dotted => {
