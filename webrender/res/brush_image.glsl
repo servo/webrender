@@ -92,28 +92,15 @@ void brush_vs(
         local_rect = segment_rect;
         stretch_size = local_rect.size;
 
-        bool needs_dash_offset = (brush_flags & BRUSH_FLAG_SEGMENT_DASH_OFFSET) != 0;
-
         // Note: Here we can assume that texels in device
         //       space map to local space, due to how border-image
         //       works. That assumption may not hold if this
         //       is used for other purposes in the future.
-        if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_X) != 0) {
+        if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_X) != 0)
             stretch_size.x = (texel_rect.z - texel_rect.x) / uDevicePixelRatio;
-            if (needs_dash_offset) {
-                local_pos.x += 0.25 * stretch_size.x;
-                if (local_pos.x > local_rect.p0.x + local_rect.size.x)
-                    local_pos.x -= stretch_size.x;
-            }
-        }
-        if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_Y) != 0) {
+
+        if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_Y) != 0)
             stretch_size.y = (texel_rect.w - texel_rect.y) / uDevicePixelRatio;
-            if (needs_dash_offset) {
-                local_pos.y += 0.25 * stretch_size.y;
-                if (local_pos.y > local_rect.p0.y + local_rect.size.y)
-                    local_pos.y -= stretch_size.y;
-            }
-        }
 
         uv0 = res.uv_rect.p0 + texel_rect.xy;
         uv1 = res.uv_rect.p0 + texel_rect.zw;

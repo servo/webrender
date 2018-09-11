@@ -364,9 +364,6 @@ impl BorderCornerClipSource {
                     self.ellipse.total_arc_length / max_clip_count as f32;
                 let dash_length = 2. * half_dash_arc_length;
 
-                // Start with at least half a dash at each side to match the
-                // code for non-rounded corners. This matches the adjustment
-                // made in non-rounded segments by BrushFlags::DASH_OFFSET.
                 let mut current_length = 0.;
 
                 dot_dash_data.reserve(max_clip_count / 4);
