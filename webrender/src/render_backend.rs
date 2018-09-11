@@ -956,8 +956,9 @@ impl RenderBackend {
             render_frame = false;
         }
 
-        // If we don't generate a frame it makes no sense to render.
-        debug_assert!(build_frame || !render_frame);
+        if doc.frame_is_valid {
+            build_frame = false;
+        }
 
         let mut frame_build_time = None;
         if build_frame && doc.has_pixels() {
