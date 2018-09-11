@@ -237,15 +237,15 @@ impl BorderSideHelpers for BorderSide {
 #[derive(Copy, Debug, Clone, PartialEq)]
 pub enum BorderClipKind {
     DashCorner = 1,
-    Dot = 2,
-    DashEdge = 3,
+    DashEdge = 2,
+    Dot = 3,
 }
 
 /// The source data for a border corner clip mask.
 #[derive(Debug, Clone)]
 struct BorderCornerClipSource {
-    // XXX this makes no sense as a name for dashed borders now that it
-    // represents half-dashes.
+    // FIXME(emilio): the `max_clip_count` name makes no sense for dashed
+    // borders now that it represents half-dashes.
     max_clip_count: usize,
     kind: BorderClipKind,
     widths: DeviceSize,
@@ -366,7 +366,7 @@ impl BorderCornerClipSource {
 
                 let mut current_length = 0.;
 
-                dot_dash_data.reserve(max_clip_count / 4);
+                dot_dash_data.reserve(max_clip_count / 4 + 1);
                 for i in 0 .. (max_clip_count / 4 + 1) {
                     let arc_length0 = current_length;
                     current_length += if i == 0 {

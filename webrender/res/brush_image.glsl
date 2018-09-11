@@ -96,11 +96,13 @@ void brush_vs(
         //       space map to local space, due to how border-image
         //       works. That assumption may not hold if this
         //       is used for other purposes in the future.
-        if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_X) != 0)
+        if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_X) != 0) {
             stretch_size.x = (texel_rect.z - texel_rect.x) / uDevicePixelRatio;
+        }
 
-        if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_Y) != 0)
+        if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_Y) != 0) {
             stretch_size.y = (texel_rect.w - texel_rect.y) / uDevicePixelRatio;
+        }
 
         uv0 = res.uv_rect.p0 + texel_rect.xy;
         uv1 = res.uv_rect.p0 + texel_rect.zw;

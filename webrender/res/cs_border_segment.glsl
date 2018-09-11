@@ -63,8 +63,8 @@ varying vec2 vPos;
 
 #define CLIP_NONE        0
 #define CLIP_DASH_CORNER 1
-#define CLIP_DOT         2
-#define CLIP_DASH_EDGE   3
+#define CLIP_DASH_EDGE   2
+#define CLIP_DOT         3
 
 #ifdef WR_VERTEX_SHADER
 
@@ -364,9 +364,8 @@ void main(void) {
             // +---+---+---+---+
             // |xxx|   |   |xxx|
             // +---+---+---+---+
-            bool in_dash = is_vertical
-                ? (vPos.y < half_dash || vPos.y > 3.0 * half_dash)
-                : (vPos.x < half_dash || vPos.x > 3.0 * half_dash);
+            float pos = is_vertical ? vPos.y : vPos.x;
+            bool in_dash = pos < half_dash || pos > 3.0 * half_dash;
             if (!in_dash) {
                 d = 1.;
             }
