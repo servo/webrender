@@ -580,6 +580,10 @@ fn compute_half_dash(side_width: f32, total_size: f32) -> (f32, u32) {
     let half_dash = side_width * 1.5;
     let num_half_dashes = (total_size / half_dash).ceil() as u32;
 
+    if num_half_dashes == 0 {
+        return (0., 0);
+    }
+
     // TODO(emilio): Gecko has some other heuristics here to start with a full
     // dash when the border side is zero, for example. We might consider those
     // in the future.
