@@ -39,7 +39,6 @@ pub struct Transaction {
     pub frame_ops: Vec<FrameMsg>,
     pub notifications: Vec<NotificationRequest>,
     pub set_root_pipeline: Option<PipelineId>,
-    pub build_frame: bool,
     pub render_frame: bool,
 }
 
@@ -73,7 +72,6 @@ pub struct BuiltTransaction {
     pub clip_updates: Option<ClipDataUpdateList>,
     pub scene_build_start_time: u64,
     pub scene_build_end_time: u64,
-    pub build_frame: bool,
     pub render_frame: bool,
 }
 
@@ -307,7 +305,6 @@ impl SceneBuilder {
 
             let txn = Box::new(BuiltTransaction {
                 document_id: item.document_id,
-                build_frame: true,
                 render_frame: item.build_frame,
                 built_scene,
                 resource_updates: Vec::new(),
@@ -408,7 +405,6 @@ impl SceneBuilder {
 
         Box::new(BuiltTransaction {
             document_id: txn.document_id,
-            build_frame: txn.build_frame || built_scene.is_some(),
             render_frame: txn.render_frame,
             built_scene,
             rasterized_blobs,
