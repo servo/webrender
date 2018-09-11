@@ -243,7 +243,6 @@ pub fn main_wrapper<E: Example>(
                     2.0
                 ),
                 winit::VirtualKeyCode::M => api.notify_memory_pressure(),
-                #[cfg(feature = "capture")]
                 winit::VirtualKeyCode::C => {
                     let path: PathBuf = "../captures/example".into();
                     //TODO: switch between SCENE/FRAME capture types
