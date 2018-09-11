@@ -1029,6 +1029,21 @@ impl<'a> DisplayListFlattener<'a> {
             None
         };
 
+        // preserve-3d's semantics are to hoist all your children to be your siblings
+        // when doing backface-visibility checking, so we need to grab the backface-visibility
+        // of the lowest ancestor which *doesn't* preserve-3d, and AND it in with ours.
+        //
+        // No this isn't obvious or clear, it's just what we worked out over a day of testing.
+        // There's probably a bug in here, but I couldn't find it with the examples and tests
+        // at my disposal!
+        let mut ancestor_is_backface_visible = is_backface_visible;
+        for sc in self.sc_stack.iter().rev() {
+            if sc.transform_style == TransformStyle::Flat {
+                ancestor_is_backface_visible = sc.is_backface_visible;
+                break;
+            }
+        }
+
         let mut parent_prim_index = if !establishes_3d_context && participating_in_3d_context {
             // If we're in a 3D context, we will parent the picture
             // to the first stacking context we find that is a
@@ -1161,6 +1176,8 @@ impl<'a> DisplayListFlattener<'a> {
 
         // Add this as the top-most picture for primitives to be added to.
         self.picture_stack.push(sc_prim_index);
+
+        let is_backface_visible = is_backface_visible && ancestor_is_backface_visible;
 
         // Push the SC onto the stack, so we know how to handle things in
         // pop_stacking_context.
