@@ -9,6 +9,7 @@ use api::{DeviceIntPoint, DevicePixelScale, DeviceUintPoint, DeviceUintRect, Dev
 use api::{DocumentId, DocumentLayer, ExternalScrollId, FrameMsg, HitTestFlags, HitTestResult};
 use api::{IdNamespace, LayoutPoint, PipelineId, RenderNotifier, SceneMsg, ScrollClamping};
 use api::{ScrollLocation, ScrollNodeState, TransactionMsg, ResourceUpdate, ImageKey};
+use api::{NotificationRequest, Checkpoint};
 use api::channel::{MsgReceiver, Payload};
 #[cfg(feature = "capture")]
 use api::CaptureBits;
@@ -44,6 +45,7 @@ use std::u32;
 #[cfg(feature = "replay")]
 use tiling::Frame;
 use time::precise_time_ns;
+use util::drain_filter;
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -594,6 +596,7 @@ impl RenderBackend {
                             txn.document_id,
                             replace(&mut txn.resource_updates, Vec::new()),
                             replace(&mut txn.frame_ops, Vec::new()),
+                            replace(&mut txn.notifications, Vec::new()),
                             txn.build_frame,
                             txn.render_frame,
                             &mut frame_counter,
@@ -845,6 +848,7 @@ impl RenderBackend {
             resource_updates: transaction_msg.resource_updates,
             frame_ops: transaction_msg.frame_ops,
             rasterized_blobs: Vec::new(),
+            notifications: transaction_msg.notifications,
             set_root_pipeline: None,
             build_frame: transaction_msg.generate_frame,
             render_frame: transaction_msg.generate_frame,
@@ -880,6 +884,7 @@ impl RenderBackend {
                 txn.document_id,
                 replace(&mut txn.resource_updates, Vec::new()),
                 replace(&mut txn.frame_ops, Vec::new()),
+                replace(&mut txn.notifications, Vec::new()),
                 txn.build_frame,
                 txn.render_frame,
                 frame_counter,
@@ -916,6 +921,7 @@ impl RenderBackend {
         document_id: DocumentId,
         resource_updates: Vec<ResourceUpdate>,
         mut frame_ops: Vec<FrameMsg>,
+        mut notifications: Vec<NotificationRequest>,
         mut build_frame: bool,
         mut render_frame: bool,
         frame_counter: &mut u32,
@@ -1034,6 +1040,12 @@ impl RenderBackend {
             let msg = ResultMsg::PublishPipelineInfo(doc.updated_pipeline_info());
             self.result_tx.send(msg).unwrap();
         }
+
+        drain_filter(
+            &mut notifications,
+            |n| { n.when() == Checkpoint::FrameBuilt },
+            |n| { n.notify(); },
+        );
 
         // Always forward the transaction to the renderer if a frame was requested,
         // otherwise gecko can get into a state where it waits (forever) for the
