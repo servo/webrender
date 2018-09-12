@@ -105,6 +105,11 @@ struct Document {
     /// Properties that are resolved during frame building and can be changed at any time
     /// without requiring the scene to be re-built.
     dynamic_properties: SceneProperties,
+
+    /// Track whether the last built frame is up to date or if it will need to be re-built
+    /// before rendering again.
+    frame_is_valid: bool,
+    hit_tester_is_valid: bool,
 }
 
 impl Document {
@@ -131,6 +136,8 @@ impl Document {
             output_pipelines: FastHashSet::default(),
             hit_tester: None,
             dynamic_properties: SceneProperties::new(),
+            frame_is_valid: false,
+            hit_tester_is_valid: false,
         }
     }
 
@@ -173,7 +180,10 @@ impl Document {
                 };
 
                 if self.hit_tester.is_some() {
-                    let _scrolled = self.scroll_nearest_scrolling_ancestor(delta, node_index);
+                    if self.scroll_nearest_scrolling_ancestor(delta, node_index) {
+                        self.hit_tester_is_valid = false;
+                        self.frame_is_valid = false;
+                    }
                 }
 
                 return DocumentOps {
@@ -195,12 +205,19 @@ impl Document {
                 tx.send(result).unwrap();
             }
             FrameMsg::SetPan(pan) => {
-                self.view.pan = pan;
+                if self.view.pan != pan {
+                    self.view.pan = pan;
+                    self.hit_tester_is_valid = false;
+                    self.frame_is_valid = false;
+                }
             }
             FrameMsg::ScrollNodeWithId(origin, id, clamp) => {
                 profile_scope!("ScrollNodeWithScrollId");
 
-                let _scrolled = self.scroll_node(origin, id, clamp);
+                if self.scroll_node(origin, id, clamp) {
+                    self.hit_tester_is_valid = false;
+                    self.frame_is_valid = false;
+                }
 
                 return DocumentOps {
                     scroll: true,
@@ -251,6 +268,9 @@ impl Document {
             frame
         };
 
+        self.frame_is_valid = true;
+        self.hit_tester_is_valid = true;
+
         RenderedDocument {
             frame,
             is_new_scene,
@@ -295,6 +315,8 @@ impl Document {
 
     pub fn new_async_scene_ready(&mut self, built_scene: BuiltScene) {
         self.scene = built_scene.scene;
+        self.frame_is_valid = false;
+        self.hit_tester_is_valid = false;
 
         self.frame_builder = Some(built_scene.frame_builder);
 
@@ -310,7 +332,6 @@ impl Document {
 struct DocumentOps {
     scroll: bool,
     build_frame: bool,
-    render_frame: bool,
 }
 
 impl DocumentOps {
@@ -318,7 +339,6 @@ impl DocumentOps {
         DocumentOps {
             scroll: false,
             build_frame: false,
-            render_frame: false,
         }
     }
 }
@@ -903,10 +923,6 @@ impl RenderBackend {
         has_built_scene: bool,
     ) {
         let requested_frame = render_frame;
-        self.resource_cache.post_scene_building_update(
-            resource_updates,
-            &mut profile_counters.resources,
-        );
 
         // If we have a sampler, get more frame ops from it and add them
         // to the transaction. This is a hook to allow the WR user code to
@@ -919,17 +935,28 @@ impl RenderBackend {
             }
         }
 
-
         let doc = self.documents.get_mut(&document_id).unwrap();
 
+        // TODO: this scroll variable doesn't necessarily mean we scrolled. It is only used
+        // for something wrench specific and we should remove it.
         let mut scroll = false;
         for frame_msg in frame_ops {
             let _timer = profile_counters.total_time.timer();
             let op = doc.process_frame_msg(frame_msg);
             build_frame |= op.build_frame;
-            render_frame |= op.render_frame;
             scroll |= op.scroll;
         }
+
+        for update in &resource_updates {
+            if let ResourceUpdate::UpdateImage(..) = update {
+                doc.frame_is_valid = false;
+            }
+        }
+
+        self.resource_cache.post_scene_building_update(
+            resource_updates,
+            &mut profile_counters.resources,
+        );
 
         // After applying the new scene we need to
         // rebuild the hit-tester, so we trigger a frame generation
@@ -940,6 +967,8 @@ impl RenderBackend {
         build_frame |= has_built_scene;
 
         if doc.dynamic_properties.flush_pending_updates() {
+            doc.frame_is_valid = false;
+            doc.hit_tester_is_valid = false;
             build_frame = true;
         }
 
@@ -951,8 +980,9 @@ impl RenderBackend {
             render_frame = false;
         }
 
-        // If we don't generate a frame it makes no sense to render.
-        debug_assert!(build_frame || !render_frame);
+        if doc.frame_is_valid {
+            build_frame = false;
+        }
 
         let mut frame_build_time = None;
         if build_frame && doc.has_pixels() {
@@ -996,7 +1026,7 @@ impl RenderBackend {
             );
             self.result_tx.send(msg).unwrap();
             profile_counters.reset();
-        } else if build_frame {
+        } else if requested_frame {
             // WR-internal optimization to avoid doing a bunch of render work if
             // there's no pixels. We still want to pretend to render and request
             // a render to make sure that the callbacks (particularly the
@@ -1287,6 +1317,8 @@ impl RenderBackend {
                 output_pipelines: FastHashSet::default(),
                 dynamic_properties: SceneProperties::new(),
                 hit_tester: None,
+                frame_is_valid: false,
+                hit_tester_is_valid: false,
             };
 
             let frame_name = format!("frame-{}-{}", (id.0).0, id.1);
