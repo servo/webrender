@@ -1653,6 +1653,10 @@ impl PrimitiveStore {
                     Some(pic_rect)
                 };
 
+                if !pic_state_for_children.is_cacheable {
+                  pic_state.is_cacheable = false;
+                }
+
                 // Restore the dependencies (borrow check dance)
                 let prim = &mut self.primitives[prim_index.0];
                 let (new_local_rect, clip_node_collector) = prim
@@ -1678,6 +1682,46 @@ impl PrimitiveStore {
         };
 
         let prim = &mut self.primitives[prim_index.0];
+
+        let image_key = match prim.details {
+          PrimitiveDetails::Brush(BrushPrimitive { kind: BrushKind::Image{ request, ..  }, .. }) => {
+            let props = frame_state.resource_cache.get_image_properties(request.key);
+            let is_external = {
+              match props {
+                Some(props) => {
+                  match props.external_image {
+                    Some(_) => { true }
+                    None => { false }
+                  }
+                }
+                None => { false }
+              }
+            };
+            if is_external {
+              pic_state.has_non_root_coord_system = true;
+            }
+            Some(request.key)
+          }
+          PrimitiveDetails::Brush(BrushPrimitive { kind: BrushKind::YuvImage{ yuv_key, .. }, .. }) => {
+            Some(yuv_key[0])
+          }
+          PrimitiveDetails::Brush(_) |
+          PrimitiveDetails::TextRun(..) => {
+            None
+          }
+        };
+        match image_key {
+          Some(image_key) => {
+            match frame_state.resource_cache.get_image_properties(image_key) {
+              Some(ImageProperties { external_image: Some(_), .. }) => {
+                pic_state.is_cacheable = false;
+              }
+              Some(_) |
+              None => {}
+            }
+          }
+          None => {}
+        }
 
         if is_passthrough {
             prim.metadata.clipped_world_rect = Some(pic_state.map_pic_to_world.bounds);
