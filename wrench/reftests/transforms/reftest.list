@@ -23,3 +23,4 @@ platform(linux,mac) == perspective-mask.yaml perspective-mask.png
 rotate-clip.yaml rotate-clip-ref.yaml
 clip-translate.yaml clip-translate-ref.yaml
 platform(linux,mac) == perspective-clip.yaml perspective-clip.png
+== complex-preserve-3d.yaml blank.yaml
