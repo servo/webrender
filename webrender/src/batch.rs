@@ -24,7 +24,7 @@ use prim_store::{BorderSource, Primitive, PrimitiveDetails};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskTree};
 use renderer::{BlendMode, ImageBufferKind, ShaderColorMode};
 use renderer::BLOCKS_PER_UV_RECT;
-use resource_cache::{CacheItem, GlyphFetchResult, ImageRequest, ResourceCache};
+use resource_cache::{CacheItem, GlyphFetchResult, ImageRequest, ResourceCache, ImageProperties};
 use scene::FilterOpHelpers;
 use std::{f32, i32};
 use tiling::{RenderTargetContext};
@@ -1601,6 +1601,33 @@ impl Primitive {
                         BlendMode::PremultipliedAlpha
                     }
                 }
+            }
+        }
+    }
+
+    pub fn is_cacheable(
+        &self,
+        resource_cache: &mut ResourceCache
+    ) -> bool {
+        let image_key = match self.details {
+            PrimitiveDetails::Brush(BrushPrimitive { kind: BrushKind::Image{ request, ..  }, .. }) => {
+                request.key
+            }
+            PrimitiveDetails::Brush(BrushPrimitive { kind: BrushKind::YuvImage{ yuv_key, .. }, .. }) => {
+                yuv_key[0]
+            }
+            PrimitiveDetails::Brush(_) |
+            PrimitiveDetails::TextRun(..) => {
+                return true
+            }
+        };
+        match resource_cache.get_image_properties(image_key) {
+            Some(ImageProperties { external_image: Some(_), .. }) => {
+                false
+            }
+            Some(_) |
+            None => {
+                true
             }
         }
     }

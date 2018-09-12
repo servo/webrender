@@ -1653,6 +1653,10 @@ impl PrimitiveStore {
                     Some(pic_rect)
                 };
 
+                if !pic_state_for_children.is_cacheable {
+                  pic_state.is_cacheable = false;
+                }
+
                 // Restore the dependencies (borrow check dance)
                 let prim = &mut self.primitives[prim_index.0];
                 let (new_local_rect, clip_node_collector) = prim
@@ -1678,6 +1682,10 @@ impl PrimitiveStore {
         };
 
         let prim = &mut self.primitives[prim_index.0];
+
+        if !prim.is_cacheable(frame_state.resource_cache) {
+            pic_state.is_cacheable = false;
+        }
 
         if is_passthrough {
             prim.metadata.clipped_world_rect = Some(pic_state.map_pic_to_world.bounds);
