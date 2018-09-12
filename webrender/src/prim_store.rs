@@ -147,7 +147,7 @@ impl<F, T> SpaceMapper<F, T> where F: fmt::Debug {
             } else if ref_spatial_node.coordinate_system_id == target_spatial_node.coordinate_system_id {
                 CoordinateSpaceMapping::ScaleOffset(
                     ref_spatial_node.coordinate_system_relative_scale_offset
-                        .subtract(
+                        .difference(
                             &target_spatial_node.coordinate_system_relative_scale_offset
                         )
                 )
@@ -184,7 +184,7 @@ impl<F, T> SpaceMapper<F, T> where F: fmt::Debug {
                 Some(TypedRect::from_untyped(&rect.to_untyped()))
             }
             CoordinateSpaceMapping::ScaleOffset(ref scale_offset) => {
-                Some(scale_offset.unmap(rect))
+                Some(scale_offset.unmap_rect(rect))
             }
             CoordinateSpaceMapping::Transform(ref transform) => {
                 transform.inverse_rect_footprint(rect)
@@ -198,7 +198,7 @@ impl<F, T> SpaceMapper<F, T> where F: fmt::Debug {
                 Some(TypedRect::from_untyped(&rect.to_untyped()))
             }
             CoordinateSpaceMapping::ScaleOffset(ref scale_offset) => {
-                Some(scale_offset.map(rect))
+                Some(scale_offset.map_rect(rect))
             }
             CoordinateSpaceMapping::Transform(ref transform) => {
                 match project_rect(transform, rect, &self.bounds) {

@@ -540,7 +540,7 @@ impl ClipStore {
                 }
                 ClipSpaceConversion::ScaleOffset(ref scale_offset) => {
                     has_non_local_clips = true;
-                    node.item.get_clip_result(&scale_offset.unmap(&local_bounding_rect))
+                    node.item.get_clip_result(&scale_offset.unmap_rect(&local_bounding_rect))
                 }
                 ClipSpaceConversion::Transform(ref transform) => {
                     has_non_local_clips = true;
@@ -1158,7 +1158,7 @@ fn add_clip_node_to_current_chain(
     } else if ref_spatial_node.coordinate_system_id == clip_spatial_node.coordinate_system_id {
         let scale_offset = ref_spatial_node
             .coordinate_system_relative_scale_offset
-            .subtract(
+            .difference(
                 &clip_spatial_node.coordinate_system_relative_scale_offset
             );
         Some(ClipSpaceConversion::ScaleOffset(scale_offset))
@@ -1185,7 +1185,7 @@ fn add_clip_node_to_current_chain(
                     };
                 }
                 ClipSpaceConversion::ScaleOffset(ref scale_offset) => {
-                    let clip_rect = scale_offset.map(&clip_rect);
+                    let clip_rect = scale_offset.map_rect(&clip_rect);
                     *local_clip_rect = match local_clip_rect.intersection(&clip_rect) {
                         Some(rect) => rect,
                         None => return false,

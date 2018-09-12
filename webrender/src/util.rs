@@ -14,6 +14,10 @@ use std::borrow::Cow;
 // Matches the definition of SK_ScalarNearlyZero in Skia.
 const NEARLY_ZERO: f32 = 1.0 / 4096.0;
 
+// Represents an optimized transform where there is only
+// a scale and translation (which are guaranteed to maintain
+// an axis align rectangle under transformation). The
+// scaling is applied first, followed by the translation.
 // TODO(gw): We should try and incorporate F <-> T units here,
 //           but it's a bit tricky to do that now with the
 //           way the current clip-scroll tree works.
@@ -40,14 +44,14 @@ impl ScaleOffset {
         // To check that we have a pure scale / translation:
         // Every field must match an identity matrix, except:
         //  - Any value present in tx,ty
-        //  - Any positive value present in sx,sy (avoid negative for reflection/rotation)
+        //  - Any non-neg value present in sx,sy (avoid negative for reflection/rotation)
 
-        if m.m11 < NEARLY_ZERO ||
+        if m.m11 < 0.0 ||
            m.m12.abs() > NEARLY_ZERO ||
            m.m13.abs() > NEARLY_ZERO ||
            m.m14.abs() > NEARLY_ZERO ||
            m.m21.abs() > NEARLY_ZERO ||
-           m.m22 < NEARLY_ZERO ||
+           m.m22 < 0.0 ||
            m.m23.abs() > NEARLY_ZERO ||
            m.m24.abs() > NEARLY_ZERO ||
            m.m31.abs() > NEARLY_ZERO ||
@@ -65,6 +69,19 @@ impl ScaleOffset {
         })
     }
 
+    pub fn inverse(&self) -> Self {
+        ScaleOffset {
+            scale: Vector2D::new(
+                1.0 / self.scale.x,
+                1.0 / self.scale.y,
+            ),
+            offset: Vector2D::new(
+                -self.offset.x / self.scale.x,
+                -self.offset.y / self.scale.y,
+            ),
+        }
+    }
+
     pub fn offset(&self, offset: Vector2D<f32>) -> Self {
         ScaleOffset {
             scale: self.scale,
@@ -72,6 +89,9 @@ impl ScaleOffset {
         }
     }
 
+    // Produce a ScaleOffset that includes both self
+    // and other. The 'self' ScaleOffset is applied
+    // after other.
     pub fn accumulate(&self, other: &ScaleOffset) -> Self {
         ScaleOffset {
             scale: Vector2D::new(
@@ -85,7 +105,8 @@ impl ScaleOffset {
         }
     }
 
-    pub fn subtract(&self, other: &ScaleOffset) -> Self {
+    // Find the difference between two ScaleOffset types.
+    pub fn difference(&self, other: &ScaleOffset) -> Self {
         ScaleOffset {
             scale: Vector2D::new(
                 other.scale.x / self.scale.x,
@@ -98,7 +119,7 @@ impl ScaleOffset {
         }
     }
 
-    pub fn map<F, T>(&self, rect: &TypedRect<f32, F>) -> TypedRect<f32, T> {
+    pub fn map_rect<F, T>(&self, rect: &TypedRect<f32, F>) -> TypedRect<f32, T> {
         TypedRect::new(
             TypedPoint2D::new(
                 rect.origin.x * self.scale.x + self.offset.x,
@@ -111,7 +132,7 @@ impl ScaleOffset {
         )
     }
 
-    pub fn unmap<F, T>(&self, rect: &TypedRect<f32, F>) -> TypedRect<f32, T> {
+    pub fn unmap_rect<F, T>(&self, rect: &TypedRect<f32, F>) -> TypedRect<f32, T> {
         TypedRect::new(
             TypedPoint2D::new(
                 (rect.origin.x - self.offset.x) / self.scale.x,
@@ -143,30 +164,6 @@ impl ScaleOffset {
 
             self.offset.x,
             self.offset.y,
-            0.0,
-            1.0,
-        )
-    }
-
-    pub fn to_inverse_transform<F, T>(&self) -> TypedTransform3D<f32, F, T> {
-        TypedTransform3D::row_major(
-            1.0 / self.scale.x,
-            0.0,
-            0.0,
-            0.0,
-
-            0.0,
-            1.0 / self.scale.y,
-            0.0,
-            0.0,
-
-            0.0,
-            0.0,
-            1.0,
-            0.0,
-
-            -self.offset.x,
-            -self.offset.y,
             0.0,
             1.0,
         )

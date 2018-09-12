@@ -134,7 +134,8 @@ impl ClipScrollTree {
         nodes.reverse();
 
         let mut transform = parent.coordinate_system_relative_scale_offset
-                                  .to_inverse_transform();
+                                  .inverse()
+                                  .to_transform();
 
         for node in nodes {
             let coord_system = &self.coord_systems[node.0 as usize];
