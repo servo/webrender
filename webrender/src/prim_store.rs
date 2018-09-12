@@ -529,7 +529,8 @@ impl BrushSegment {
         edge_flags: EdgeAaSegmentMask,
         extra_data: [f32; 4],
         brush_flags: BrushFlags,
-    ) -> BrushSegment {
+    ) -> Self {
+        debug_assert!(rect.size.width > 0.0 && rect.size.height > 0.0);
         BrushSegment {
             local_rect: rect,
             clip_task_id: BrushSegmentTaskId::Opaque,

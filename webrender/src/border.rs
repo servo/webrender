@@ -271,16 +271,17 @@ impl BorderCornerClipSource {
             BorderClipKind::DashEdge => unreachable!("not for corners"),
             BorderClipKind::DashCorner => {
                 let ellipse = Ellipse::new(corner_radius);
-
                 let average_border_width = 0.5 * (widths.width + widths.height);
 
-                let (_half_dash, num_half_dashes) =
-                    compute_half_dash(average_border_width, ellipse.total_arc_length);
+                let num_half_dashes = match compute_half_dash(average_border_width, ellipse.total_arc_length) {
+                    // Round that up to the nearest integer, so that the dash length
+                    // doesn't exceed the ratio above. Add one extra dash to cover
+                    // the last half-dash of the arc.
+                    Some((_half_dash, num)) => num as usize,
+                    None => 0,
+                };
 
-                // Round that up to the nearest integer, so that the dash length
-                // doesn't exceed the ratio above. Add one extra dash to cover
-                // the last half-dash of the arc.
-                (ellipse, num_half_dashes as usize)
+                (ellipse, num_half_dashes)
             }
             BorderClipKind::Dot => {
                 let mut corner_radius = corner_radius;
@@ -562,7 +563,8 @@ impl EdgeInfo {
         local_offset: f32,
         local_size: f32,
         device_size: f32,
-    ) -> EdgeInfo {
+    ) -> Self {
+        debug_assert!(local_size > 0.0);
         EdgeInfo {
             local_offset,
             local_size,
@@ -573,25 +575,22 @@ impl EdgeInfo {
 
 // Given a side width and the available space, compute the half-dash (half of
 // the 'on' segment) and the count of them for a given segment.
-fn compute_half_dash(side_width: f32, total_size: f32) -> (f32, u32) {
+fn compute_half_dash(side_width: f32, total_size: f32) -> Option<(f32, u32)> {
+    debug_assert!(side_width > 0.0 && total_size >= 0.0);
     let half_dash = side_width * 1.5;
     let num_half_dashes = (total_size / half_dash).ceil() as u32;
 
     if num_half_dashes == 0 {
-        return (0., 0);
-    }
-
-    // TODO(emilio): Gecko has some other heuristics here to start with a full
-    // dash when the border side is zero, for example. We might consider those
-    // in the future.
-    let num_half_dashes = if num_half_dashes % 4 != 0 {
-        num_half_dashes + 4 - num_half_dashes % 4
+        None
     } else {
-        num_half_dashes
-    };
+        // TODO(emilio): Gecko has some other heuristics here to start with a full
+        // dash when the border side is zero, for example. We might consider those
+        // in the future.
+        let num_half_dashes = (num_half_dashes + 3) & !3;
 
-    let half_dash = total_size / num_half_dashes as f32;
-    (half_dash, num_half_dashes)
+        let half_dash = total_size / num_half_dashes as f32;
+        Some((half_dash, num_half_dashes))
+    }
 }
 
 
@@ -603,24 +602,24 @@ fn get_edge_info(
     side_width: f32,
     avail_size: f32,
     scale: f32,
-) -> EdgeInfo {
+) -> Option<EdgeInfo> {
     // To avoid division by zero below.
-    if side_width <= 0.0 {
-        return EdgeInfo::new(0.0, 0.0, 0.0);
+    if side_width <= 0.0 || avail_size <= 0.0 {
+        return None;
     }
 
-    match style {
+    Some(match style {
         BorderStyle::Dashed => {
             // Basically, two times the dash size.
             let (half_dash, _num_half_dashes) =
-                compute_half_dash(side_width, avail_size);
+                compute_half_dash(side_width, avail_size)?;
             let device_size = (2.0 * 2.0 * half_dash * scale).round();
             EdgeInfo::new(0., avail_size, device_size)
         }
         BorderStyle::Dotted => {
             let dot_and_space_size = 2.0 * side_width;
             if avail_size < dot_and_space_size * 0.75 {
-                return EdgeInfo::new(0.0, 0.0, 0.0);
+                return None;
             }
             let approx_dot_count = avail_size / dot_and_space_size;
             let dot_count = approx_dot_count.floor().max(1.0);
@@ -633,7 +632,7 @@ fn get_edge_info(
         _ => {
             EdgeInfo::new(0.0, avail_size, 8.0)
         }
-    }
+    })
 }
 
 impl BorderRenderTaskInfo {
@@ -642,6 +641,7 @@ impl BorderRenderTaskInfo {
         border: &NormalBorder,
         widths: &BorderWidths,
         scale: LayoutToDeviceScale,
+        // TODO: return Vec<BrushSegment>
         brush_segments: &mut Vec<BrushSegment>,
     ) -> Option<Self> {
         let mut border_segments = Vec::new();
@@ -702,7 +702,12 @@ impl BorderRenderTaskInfo {
             rect.size.width - local_size_bl.width - local_size_br.width,
             scale.0,
         );
-        let inner_width = top_edge_info.device_size.max(bottom_edge_info.device_size).ceil();
+        let inner_width = top_edge_info
+            .as_ref()
+            .into_iter()
+            .chain(bottom_edge_info.as_ref())
+            .fold(0f32, |max, ei| max.max(ei.device_size))
+            .ceil();
 
         let left_edge_info = get_edge_info(
             border.left.style,
@@ -716,7 +721,12 @@ impl BorderRenderTaskInfo {
             rect.size.height - local_size_tr.height - local_size_br.height,
             scale.0,
         );
-        let inner_height = left_edge_info.device_size.max(right_edge_info.device_size).ceil();
+        let inner_height = left_edge_info
+            .as_ref()
+            .into_iter()
+            .chain(right_edge_info.as_ref())
+            .fold(0f32, |max, ei| max.max(ei.device_size))
+            .ceil();
 
         let size = DeviceSize::new(
             dp_size_tl.width.max(dp_size_bl.width) + inner_width + dp_size_tr.width.max(dp_size_br.width),
@@ -727,89 +737,97 @@ impl BorderRenderTaskInfo {
             return None;
         }
 
-        add_edge_segment(
-            LayoutRect::from_floats(
-                rect.origin.x,
-                rect.origin.y + local_size_tl.height + left_edge_info.local_offset,
-                rect.origin.x + widths.left,
-                rect.origin.y + local_size_tl.height + left_edge_info.local_offset + left_edge_info.local_size,
-            ),
-            DeviceRect::from_floats(
-                0.0,
-                dp_size_tl.height,
-                dp_width_left,
-                dp_size_tl.height + left_edge_info.device_size,
-            ),
-            &border.left,
-            BorderSegment::Left,
-            EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::RIGHT,
-            &mut border_segments,
-            BrushFlags::SEGMENT_RELATIVE | BrushFlags::SEGMENT_REPEAT_Y,
-            brush_segments,
-        );
+        if let Some(ei) = left_edge_info {
+            add_edge_segment(
+                LayoutRect::from_floats(
+                    rect.origin.x,
+                    rect.origin.y + local_size_tl.height + ei.local_offset,
+                    rect.origin.x + widths.left,
+                    rect.origin.y + local_size_tl.height + ei.local_offset + ei.local_size,
+                ),
+                DeviceRect::from_floats(
+                    0.0,
+                    dp_size_tl.height,
+                    dp_width_left,
+                    dp_size_tl.height + ei.device_size,
+                ),
+                &border.left,
+                BorderSegment::Left,
+                EdgeAaSegmentMask::LEFT | EdgeAaSegmentMask::RIGHT,
+                &mut border_segments,
+                BrushFlags::SEGMENT_RELATIVE | BrushFlags::SEGMENT_REPEAT_Y,
+                brush_segments,
+            );
+        }
 
-        add_edge_segment(
-            LayoutRect::from_floats(
-                rect.origin.x + local_size_tl.width + top_edge_info.local_offset,
-                rect.origin.y,
-                rect.origin.x + local_size_tl.width + top_edge_info.local_offset + top_edge_info.local_size,
-                rect.origin.y + widths.top,
-            ),
-            DeviceRect::from_floats(
-                dp_size_tl.width,
-                0.0,
-                dp_size_tl.width + top_edge_info.device_size,
-                dp_width_top,
-            ),
-            &border.top,
-            BorderSegment::Top,
-            EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::BOTTOM,
-            &mut border_segments,
-            BrushFlags::SEGMENT_RELATIVE | BrushFlags::SEGMENT_REPEAT_X,
-            brush_segments,
-        );
+        if let Some(ei) = top_edge_info {
+            add_edge_segment(
+                LayoutRect::from_floats(
+                    rect.origin.x + local_size_tl.width + ei.local_offset,
+                    rect.origin.y,
+                    rect.origin.x + local_size_tl.width + ei.local_offset + ei.local_size,
+                    rect.origin.y + widths.top,
+                ),
+                DeviceRect::from_floats(
+                    dp_size_tl.width,
+                    0.0,
+                    dp_size_tl.width + ei.device_size,
+                    dp_width_top,
+                ),
+                &border.top,
+                BorderSegment::Top,
+                EdgeAaSegmentMask::TOP | EdgeAaSegmentMask::BOTTOM,
+                &mut border_segments,
+                BrushFlags::SEGMENT_RELATIVE | BrushFlags::SEGMENT_REPEAT_X,
+                brush_segments,
+            );
+        }
 
-        add_edge_segment(
-            LayoutRect::from_floats(
-                rect.origin.x + rect.size.width - widths.right,
-                rect.origin.y + local_size_tr.height + right_edge_info.local_offset,
-                rect.origin.x + rect.size.width,
-                rect.origin.y + local_size_tr.height + right_edge_info.local_offset + right_edge_info.local_size,
-            ),
-            DeviceRect::from_floats(
-                size.width - dp_width_right,
-                dp_size_tr.height,
-                size.width,
-                dp_size_tr.height + right_edge_info.device_size,
-            ),
-            &border.right,
-            BorderSegment::Right,
-            EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::LEFT,
-            &mut border_segments,
-            BrushFlags::SEGMENT_RELATIVE | BrushFlags::SEGMENT_REPEAT_Y,
-            brush_segments,
-        );
+        if let Some(ei) = right_edge_info {
+            add_edge_segment(
+                LayoutRect::from_floats(
+                    rect.origin.x + rect.size.width - widths.right,
+                    rect.origin.y + local_size_tr.height + ei.local_offset,
+                    rect.origin.x + rect.size.width,
+                    rect.origin.y + local_size_tr.height + ei.local_offset + ei.local_size,
+                ),
+                DeviceRect::from_floats(
+                    size.width - dp_width_right,
+                    dp_size_tr.height,
+                    size.width,
+                    dp_size_tr.height + ei.device_size,
+                ),
+                &border.right,
+                BorderSegment::Right,
+                EdgeAaSegmentMask::RIGHT | EdgeAaSegmentMask::LEFT,
+                &mut border_segments,
+                BrushFlags::SEGMENT_RELATIVE | BrushFlags::SEGMENT_REPEAT_Y,
+                brush_segments,
+            );
+        }
 
-        add_edge_segment(
-            LayoutRect::from_floats(
-                rect.origin.x + local_size_bl.width + bottom_edge_info.local_offset,
-                rect.origin.y + rect.size.height - widths.bottom,
-                rect.origin.x + local_size_bl.width + bottom_edge_info.local_offset + bottom_edge_info.local_size,
-                rect.origin.y + rect.size.height,
-            ),
-            DeviceRect::from_floats(
-                dp_size_bl.width,
-                size.height - dp_width_bottom,
-                dp_size_bl.width + bottom_edge_info.device_size,
-                size.height,
-            ),
-            &border.bottom,
-            BorderSegment::Bottom,
-            EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::TOP,
-            &mut border_segments,
-            BrushFlags::SEGMENT_RELATIVE | BrushFlags::SEGMENT_REPEAT_X,
-            brush_segments,
-        );
+        if let Some(ei) = bottom_edge_info {
+            add_edge_segment(
+                LayoutRect::from_floats(
+                    rect.origin.x + local_size_bl.width + ei.local_offset,
+                    rect.origin.y + rect.size.height - widths.bottom,
+                    rect.origin.x + local_size_bl.width + ei.local_offset + ei.local_size,
+                    rect.origin.y + rect.size.height,
+                ),
+                DeviceRect::from_floats(
+                    dp_size_bl.width,
+                    size.height - dp_width_bottom,
+                    dp_size_bl.width + ei.device_size,
+                    size.height,
+                ),
+                &border.bottom,
+                BorderSegment::Bottom,
+                EdgeAaSegmentMask::BOTTOM | EdgeAaSegmentMask::TOP,
+                &mut border_segments,
+                BrushFlags::SEGMENT_RELATIVE | BrushFlags::SEGMENT_REPEAT_X,
+                brush_segments,
+            );
+        }
 
         add_corner_segment(
             LayoutRect::from_floats(
@@ -1141,15 +1159,12 @@ fn add_corner_segment(
     border_segments: &mut Vec<BorderSegmentInfo>,
     brush_segments: &mut Vec<BrushSegment>,
 ) {
-    if side0.color.a <= 0.0 && side1.color.a <= 0.0 {
-        return;
-    }
-
-    if widths.width <= 0.0 && widths.height <= 0.0 {
-        return;
-    }
-
-    if side0.style.is_hidden() && side1.style.is_hidden() {
+    if (side0.color.a <= 0.0 && side1.color.a <= 0.0) ||
+        (widths.width <= 0.0 && widths.height <= 0.0) ||
+        (side0.style.is_hidden() && side1.style.is_hidden()) ||
+        image_rect.size.width <= 0.0 || image_rect.size.height <= 0.0
+    {
+        debug_assert!(image_rect.size.width >= 0.0 && image_rect.size.height >= 0.0);
         return;
     }
 
@@ -1179,11 +1194,10 @@ fn add_edge_segment(
     brush_flags: BrushFlags,
     brush_segments: &mut Vec<BrushSegment>,
 ) {
-    if side.color.a <= 0.0 {
-        return;
-    }
-
-    if side.style.is_hidden() {
+    if side.color.a <= 0.0 || side.style.is_hidden() ||
+        image_rect.size.width <= 0.0 || image_rect.size.height <= 0.0
+    {
+        debug_assert!(image_rect.size.width >= 0.0 && image_rect.size.height >= 0.0);
         return;
     }
 

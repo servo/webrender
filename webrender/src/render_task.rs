@@ -38,8 +38,8 @@ pub const MAX_BLUR_STD_DEVIATION: f32 = 4.0;
 pub const MIN_DOWNSCALING_RT_SIZE: i32 = 128;
 
 fn render_task_sanity_check(size: &DeviceIntSize) {
-    if size.width > RENDER_TASK_SIZE_SANITY_CHECK ||
-        size.height > RENDER_TASK_SIZE_SANITY_CHECK {
+    if size.width < 0 || size.width > RENDER_TASK_SIZE_SANITY_CHECK ||
+        size.height < 0 || size.height > RENDER_TASK_SIZE_SANITY_CHECK {
         error!("Attempting to create a render task of size {}x{}", size.width, size.height);
         panic!();
     }
