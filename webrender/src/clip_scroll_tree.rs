@@ -249,10 +249,14 @@ impl ClipScrollTree {
         &mut self,
         pan: WorldPoint,
         scene_properties: &SceneProperties,
-    ) -> TransformPalette {
-        let mut transform_palette = TransformPalette::new(self.spatial_nodes.len());
+        mut transform_palette: Option<&mut TransformPalette>,
+    ) {
         if self.spatial_nodes.is_empty() {
-            return transform_palette;
+            return;
+        }
+
+        if let Some(ref mut palette) = transform_palette {
+            palette.reserve(self.spatial_nodes.len());
         }
 
         self.coord_systems.clear();
@@ -275,36 +279,38 @@ impl ClipScrollTree {
             &mut transform_palette,
             scene_properties,
         );
-
-        transform_palette
     }
 
     fn update_node(
         &mut self,
         node_index: SpatialNodeIndex,
         state: &mut TransformUpdateState,
-        transform_palette: &mut TransformPalette,
+        transform_palette: &mut Option<&mut TransformPalette>,
         scene_properties: &SceneProperties,
     ) {
         // TODO(gw): This is an ugly borrow check workaround to clone these.
         //           Restructure this to avoid the clones!
         let mut state = state.clone();
-        let node_children = {
+        let mut node_children: SmallVec<[SpatialNodeIndex; 4]> = SmallVec::new();
+
+        {
             let node = match self.spatial_nodes.get_mut(node_index.0) {
                 Some(node) => node,
                 None => return,
             };
 
             node.update(&mut state, &mut self.coord_systems, scene_properties);
-            node.push_gpu_data(transform_palette, node_index);
+            if let Some(palette) = transform_palette {
+                node.push_gpu_data(palette, node_index);
+            }
 
             if node.children.is_empty() {
                 return;
             }
 
             node.prepare_state_for_children(&mut state);
-            node.children.clone()
-        };
+            node_children.extend_from_slice(&node.children);
+        }
 
         for child_node_index in node_children {
             self.update_node(
@@ -525,7 +531,7 @@ fn test_cst_simple_translation() {
         LayoutVector2D::zero(),
     );
 
-    cst.update_tree(WorldPoint::zero(), &SceneProperties::new());
+    cst.update_tree(WorldPoint::zero(), &SceneProperties::new(), None);
 
     test_pt(100.0, 100.0, &cst, child1, root, 200.0, 100.0);
     test_pt(100.0, 100.0, &cst, root, child1, 0.0, 100.0);
@@ -570,7 +576,7 @@ fn test_cst_simple_scale() {
         LayoutVector2D::zero(),
     );
 
-    cst.update_tree(WorldPoint::zero(), &SceneProperties::new());
+    cst.update_tree(WorldPoint::zero(), &SceneProperties::new(), None);
 
     test_pt(100.0, 100.0, &cst, child1, root, 400.0, 100.0);
     test_pt(100.0, 100.0, &cst, root, child1, 25.0, 100.0);
@@ -624,7 +630,7 @@ fn test_cst_scale_translation() {
         LayoutVector2D::zero(),
     );
 
-    cst.update_tree(WorldPoint::zero(), &SceneProperties::new());
+    cst.update_tree(WorldPoint::zero(), &SceneProperties::new(), None);
 
     test_pt(100.0, 100.0, &cst, child1, root, 200.0, 150.0);
     test_pt(100.0, 100.0, &cst, child2, root, 300.0, 450.0);
@@ -663,7 +669,7 @@ fn test_cst_translation_rotate() {
         LayoutVector2D::zero(),
     );
 
-    cst.update_tree(WorldPoint::zero(), &SceneProperties::new());
+    cst.update_tree(WorldPoint::zero(), &SceneProperties::new(), None);
 
     test_pt(100.0, 0.0, &cst, child1, root, 0.0, -100.0);
 }
