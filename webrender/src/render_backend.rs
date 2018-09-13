@@ -284,10 +284,10 @@ impl Document {
             let accumulated_scale_factor = self.view.accumulated_scale_factor();
             let pan = self.view.pan.to_f32() / accumulated_scale_factor;
 
-            // TODO: do we need to do something with the transform palette?
-            let _palette = self.clip_scroll_tree.update_tree(
+            self.clip_scroll_tree.update_tree(
                 pan,
                 &self.dynamic_properties,
+                None,
             );
 
             self.hit_tester = Some(frame_builder.create_hit_tester(&self.clip_scroll_tree));
