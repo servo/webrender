@@ -597,6 +597,11 @@ fn get_edge_info(
         return EdgeInfo::new(0.0, 0.0, 0.0);
     }
 
+    // No point on this. This can happen with huge radii, for example.
+    if avail_size <= 0.0 {
+        return EdgeInfo::new(0.0, 0.0, 0.0);
+    }
+
     match style {
         BorderStyle::Dashed => {
             // Basically, two times the dash size.
@@ -1124,11 +1129,11 @@ fn add_corner_segment(
         return;
     }
 
-    if widths.width <= 0.0 && widths.height <= 0.0 {
+    if side0.style.is_hidden() && side1.style.is_hidden() {
         return;
     }
 
-    if side0.style.is_hidden() && side1.style.is_hidden() {
+    if image_rect.size.width <= 0. || image_rect.size.height <= 0. {
         return;
     }
 
@@ -1163,6 +1168,10 @@ fn add_edge_segment(
     }
 
     if side.style.is_hidden() {
+        return;
+    }
+
+    if image_rect.size.width <= 0. || image_rect.size.height <= 0. {
         return;
     }
 
