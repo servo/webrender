@@ -6,6 +6,7 @@ use api::{BorderRadius, ClipMode, ComplexClipRegion, DeviceIntRect, DevicePixelS
 use api::{ImageRendering, LayoutRect, LayoutSize, LayoutPoint, LayoutVector2D, LocalClip};
 use api::{BoxShadowClipMode, LayoutToWorldScale, LineOrientation, LineStyle, PicturePixel, WorldPixel};
 use api::{PictureRect, LayoutPixel, WorldPoint, WorldSize, WorldRect, LayoutToWorldTransform};
+use api::{VoidPtrToSizeFn};
 use border::{ensure_no_corner_overlap};
 use box_shadow::{BLUR_SAMPLE_SCALE, BoxShadowClipSource, BoxShadowCacheKey};
 use clip_scroll_tree::{ClipScrollTree, CoordinateSystemId, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
@@ -17,6 +18,7 @@ use prim_store::{ClipData, ImageMaskData, SpaceMapper};
 use render_task::to_cache_size;
 use resource_cache::{ImageRequest, ResourceCache};
 use std::{cmp, u32};
+use std::os::raw::c_void;
 use util::{extract_inner_rect_safe, pack_as_float, project_rect, recycle_vec, ScaleOffset};
 
 /*
@@ -628,6 +630,18 @@ impl ClipStore {
             pic_clip_rect,
             needs_mask,
         })
+    }
+
+    /// Reports the heap usage of this clip store.
+    pub fn malloc_size_of(&self, op: VoidPtrToSizeFn) -> usize {
+        let mut size = 0;
+        unsafe {
+            size += op(self.clip_nodes.as_ptr() as *const c_void);
+            size += op(self.clip_chain_nodes.as_ptr() as *const c_void);
+            size += op(self.clip_node_indices.as_ptr() as *const c_void);
+            size += op(self.clip_node_info.as_ptr() as *const c_void);
+        }
+        size
     }
 }
 

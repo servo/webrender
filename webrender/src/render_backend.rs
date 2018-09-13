@@ -8,6 +8,7 @@ use api::{BuiltDisplayListIter, SpecificDisplayItem};
 use api::{DeviceIntPoint, DevicePixelScale, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{DocumentId, DocumentLayer, ExternalScrollId, FrameMsg, HitTestFlags, HitTestResult};
 use api::{IdNamespace, LayoutPoint, PipelineId, RenderNotifier, SceneMsg, ScrollClamping};
+use api::{MemoryReport, VoidPtrToSizeFn};
 use api::{ScrollLocation, ScrollNodeState, TransactionMsg, ResourceUpdate, ImageKey};
 use api::{NotificationRequest, Checkpoint};
 use api::channel::{MsgReceiver, Payload};
@@ -40,6 +41,7 @@ use serde_json;
 use std::path::PathBuf;
 use std::sync::atomic::{ATOMIC_USIZE_INIT, AtomicUsize, Ordering};
 use std::mem::replace;
+use std::os::raw::c_void;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::u32;
 #[cfg(feature = "replay")]
@@ -397,6 +399,7 @@ pub struct RenderBackend {
     notifier: Box<RenderNotifier>,
     recorder: Option<Box<ApiRecordingReceiver>>,
     sampler: Option<Box<AsyncPropertySampler + Send>>,
+    size_of_op: Option<VoidPtrToSizeFn>,
 
     last_scene_id: u64,
 }
@@ -415,6 +418,7 @@ impl RenderBackend {
         frame_config: FrameBuilderConfig,
         recorder: Option<Box<ApiRecordingReceiver>>,
         sampler: Option<Box<AsyncPropertySampler + Send>>,
+        size_of_op: Option<VoidPtrToSizeFn>,
     ) -> RenderBackend {
         // The namespace_id should start from 1.
         NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed);
@@ -435,6 +439,7 @@ impl RenderBackend {
             notifier,
             recorder,
             sampler,
+            size_of_op,
             last_scene_id: 0,
         }
     }
@@ -745,6 +750,9 @@ impl RenderBackend {
                 };
                 self.result_tx.send(msg).unwrap();
                 self.notifier.wake_up();
+            }
+            ApiMsg::ReportMemory(tx) => {
+                tx.send(self.report_memory()).unwrap();
             }
             ApiMsg::DebugCommand(option) => {
                 let msg = match option {
@@ -1139,6 +1147,27 @@ impl RenderBackend {
         }
 
         serde_json::to_string(&debug_root).unwrap()
+    }
+
+    fn size_of<T>(&self, ptr: *const T) -> usize {
+        let op = self.size_of_op.as_ref().unwrap();
+        unsafe { op(ptr as *const c_void) }
+    }
+
+    fn report_memory(&self) -> MemoryReport {
+        let mut report = MemoryReport::default();
+        let op = self.size_of_op.as_ref().unwrap();
+        report.gpu_cache_metadata = self.gpu_cache.malloc_size_of(*op);
+        for (_id, doc) in &self.documents {
+            if let Some(ref fb) = doc.frame_builder {
+                report.primitive_stores += self.size_of(fb.prim_store.primitives.as_ptr());
+                report.clip_stores += fb.clip_store.malloc_size_of(*op);
+            }
+            report.hit_testers +=
+                doc.hit_tester.as_ref().map_or(0, |ht| ht.malloc_size_of(*op));
+        }
+
+        report
     }
 }
 
