@@ -415,17 +415,12 @@ pub struct TransformPalette {
 }
 
 impl TransformPalette {
-    pub fn new() -> Self {
+    pub fn new(spatial_node_count: usize) -> Self {
         TransformPalette {
-            transforms: Vec::new(),
-            metadata: Vec::new(),
+            transforms: vec![TransformData::invalid(); spatial_node_count],
+            metadata: vec![TransformMetadata::invalid(); spatial_node_count],
             map: FastHashMap::default(),
         }
-    }
-
-    pub fn reserve(&mut self, count: usize) {
-        self.transforms = vec![TransformData::invalid(); count];
-        self.metadata = vec![TransformMetadata::invalid(); count];
     }
 
     pub fn set_world_transform(
