@@ -289,9 +289,7 @@ impl ClipScrollTree {
         // TODO(gw): This is an ugly borrow check workaround to clone these.
         //           Restructure this to avoid the clones!
         let mut state = state.clone();
-        let mut node_children: SmallVec<[SpatialNodeIndex; 4]> = SmallVec::new();
-
-        {
+        let node_children = {
             let node = match self.spatial_nodes.get_mut(node_index.0) {
                 Some(node) => node,
                 None => return,
@@ -305,8 +303,8 @@ impl ClipScrollTree {
             }
 
             node.prepare_state_for_children(&mut state);
-            node_children.extend_from_slice(&node.children);
-        }
+            node.children.clone()
+        };
 
         for child_node_index in node_children {
             self.update_node(
