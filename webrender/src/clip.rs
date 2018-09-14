@@ -19,7 +19,7 @@ use render_task::to_cache_size;
 use resource_cache::{ImageRequest, ResourceCache};
 use std::{cmp, u32};
 use std::os::raw::c_void;
-use util::{extract_inner_rect_safe, pack_as_float, project_rect, recycle_vec, ScaleOffset};
+use util::{extract_inner_rect_safe, pack_as_float, project_rect, ScaleOffset};
 
 /*
 
@@ -346,16 +346,6 @@ impl ClipStore {
             clip_node_indices: Vec::new(),
             clip_node_info: Vec::new(),
             clip_node_collectors: Vec::new(),
-        }
-    }
-
-    pub fn recycle(self) -> Self {
-        ClipStore {
-            clip_nodes: recycle_vec(self.clip_nodes),
-            clip_chain_nodes: recycle_vec(self.clip_chain_nodes),
-            clip_node_indices: recycle_vec(self.clip_node_indices),
-            clip_node_info: recycle_vec(self.clip_node_info),
-            clip_node_collectors: recycle_vec(self.clip_node_collectors),
         }
     }
 
