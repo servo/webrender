@@ -281,21 +281,6 @@ impl Document {
         }
     }
 
-    fn rebuild_hit_tester(&mut self) {
-        if let Some(ref mut frame_builder) = self.frame_builder {
-            let accumulated_scale_factor = self.view.accumulated_scale_factor();
-            let pan = self.view.pan.to_f32() / accumulated_scale_factor;
-
-            // TODO: do we need to do something with the transform palette?
-            let _palette = self.clip_scroll_tree.update_tree(
-                pan,
-                &self.dynamic_properties,
-            );
-
-            self.hit_tester = Some(frame_builder.create_hit_tester(&self.clip_scroll_tree));
-        }
-    }
-
     pub fn updated_pipeline_info(&mut self) -> PipelineInfo {
         let removed_pipelines = replace(&mut self.removed_pipelines, Vec::new());
         PipelineInfo {
