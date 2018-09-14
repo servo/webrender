@@ -6,8 +6,7 @@ use api::{ColorF, ColorU, DevicePoint};
 use api::{FontInstanceFlags, FontInstancePlatformOptions};
 use api::{FontKey, FontRenderMode, FontTemplate, FontVariation};
 use api::{GlyphIndex, GlyphDimensions, SyntheticItalics};
-use api::{LayoutPoint, LayoutToWorldTransform, WorldPoint};
-use app_units::Au;
+use api::{LayoutPoint, Au, LayoutToWorldTransform, WorldPoint};
 use euclid::approxeq::ApproxEq;
 use internal_types::ResourceCacheError;
 use platform::font::FontContext;
@@ -698,13 +697,11 @@ mod test_glyph_rasterizer {
         use glyph_cache::GlyphCache;
         use gpu_cache::GpuCache;
         use tiling::SpecialRenderPasses;
-        use api::DeviceIntSize;
         use render_task::{RenderTaskCache, RenderTaskTree};
         use profiler::TextureCacheProfileCounters;
-        use api::{FontKey, FontTemplate, FontRenderMode,
+        use api::{FontKey, FontTemplate, FontRenderMode, DeviceIntSize, Au,
                   IdNamespace, ColorF, ColorU, DevicePoint};
         use render_backend::FrameId;
-        use app_units::Au;
         use thread_profiler::register_thread_with_profiler;
         use std::sync::Arc;
         use glyph_rasterizer::{FontInstance, GlyphKey, GlyphRasterizer};

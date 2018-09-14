@@ -4,7 +4,6 @@
 
 extern crate yaml_rust;
 
-use app_units::Au;
 use euclid::{TypedPoint2D, TypedRect, TypedSize2D, TypedTransform3D, TypedVector2D};
 use image::{save_buffer, ColorType};
 use premultiply::unpremultiply;

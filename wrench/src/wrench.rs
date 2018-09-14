@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 
-use app_units::Au;
 use blob;
 use crossbeam::sync::chase_lev;
 #[cfg(windows)]

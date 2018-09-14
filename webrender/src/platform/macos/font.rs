@@ -2,9 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ColorU, FontKey, FontRenderMode, GlyphDimensions};
+use api::{ColorU, Au, FontKey, FontRenderMode, GlyphDimensions};
 use api::{FontInstanceFlags, FontVariation, NativeFontHandle};
-use app_units::Au;
 use core_foundation::array::{CFArray, CFArrayRef};
 use core_foundation::base::TCFType;
 use core_foundation::dictionary::CFDictionary;

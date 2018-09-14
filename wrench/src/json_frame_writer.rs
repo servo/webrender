@@ -6,7 +6,6 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
-use app_units::Au;
 use image::{save_buffer, ColorType};
 use premultiply::unpremultiply;
 use serde_json;

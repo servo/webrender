@@ -57,7 +57,6 @@ path = "yuv.rs"
 debug = ["webrender/capture", "webrender/debugger", "webrender/profiler", "webrender/debug_renderer"]
 
 [dependencies]
-app_units = "0.7"
 env_logger = "0.5"
 euclid = "0.19"
 gleam = "0.6"

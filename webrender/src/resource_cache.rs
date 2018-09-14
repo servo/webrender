@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{AddFont, BlobImageResources, AsyncBlobImageRasterizer, ResourceUpdate};
+use api::{AddFont, Au, BlobImageResources, AsyncBlobImageRasterizer, ResourceUpdate};
 use api::{BlobImageDescriptor, BlobImageHandler, BlobImageRequest};
 use api::{ClearCache, ColorF, DevicePoint, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{FontInstanceKey, FontKey, FontTemplate, GlyphIndex};
@@ -11,7 +11,6 @@ use api::{FontInstanceData, FontInstanceOptions, FontInstancePlatformOptions, Fo
 use api::{GlyphDimensions, IdNamespace};
 use api::{ImageData, ImageDescriptor, ImageKey, ImageRendering};
 use api::{TileOffset, TileSize, TileRange, NormalizedRect, BlobImageData};
-use app_units::Au;
 #[cfg(feature = "capture")]
 use capture::ExternalCaptureImage;
 #[cfg(feature = "replay")]

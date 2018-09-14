@@ -12,9 +12,9 @@
 //! The terms "layer" and "stacking context" can be used interchangeably
 //! in the context of coordinate systems.
 
-use app_units::Au;
 use euclid::{Length, TypedRect, TypedScale, TypedSize2D, TypedTransform3D};
 use euclid::{TypedPoint2D, TypedPoint3D, TypedVector2D, TypedVector3D, TypedSideOffsets2D};
+pub use app_units::{Au, MIN_AU, MAX_AU, AU_PER_PX};
 
 /// Geometry in the coordinate system of the render target (screen or intermediate
 /// surface) in physical pixels.
@@ -152,5 +152,16 @@ impl TexelRect {
             uv0: DevicePoint::new(-1.0, -1.0),
             uv1: DevicePoint::new(-1.0, -1.0),
         }
+    }
+}
+
+/// Creates a `Au` struct from a pixel value. Returns `None` if
+/// the value is larger than `MAX_AU` or smaller than `MIN_AU`
+pub fn create_app_units_from_px(value: i32) -> Option<Au> {
+    let value = Au(value * AU_PER_PX);
+    if value < MIN_AU || value > MAX_AU {
+        None
+    } else {
+        Some(value)
     }
 }

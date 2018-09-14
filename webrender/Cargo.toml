@@ -19,7 +19,6 @@ pathfinder = ["pathfinder_font_renderer", "pathfinder_gfx_utils", "pathfinder_pa
 serialize_program = ["serde"]
 
 [dependencies]
-app_units = "0.7"
 base64 = { optional = true, version = "0.6" }
 bincode = "1.0"
 bitflags = "1.0"
