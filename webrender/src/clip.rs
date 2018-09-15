@@ -102,15 +102,6 @@ enum ClipResult {
     Partial,
 }
 
-// A clip item range represents one or more ClipItem structs.
-// They are stored in a contiguous array inside the ClipStore,
-// and identified by an (offset, count).
-#[derive(Debug, Copy, Clone)]
-pub struct ClipItemRange {
-    pub index: ClipNodeIndex,
-    pub count: u32,
-}
-
 // A clip node is a single clip source, along with some
 // positioning information and implementation details
 // that control where the GPU data for this clip source
@@ -147,7 +138,7 @@ impl ClipChainId {
 // and a link to a parent clip chain node, or ClipChainId::NONE.
 #[derive(Clone)]
 pub struct ClipChainNode {
-    pub clip_item_range: ClipItemRange,
+    pub clip_node_index: ClipNodeIndex,
     pub parent_clip_chain_id: ClipChainId,
 }
 
@@ -349,6 +340,11 @@ impl ClipStore {
         }
     }
 
+    pub fn get_clip_chain(&self, clip_chain_id: ClipChainId) -> &ClipChainNode {
+        &self.clip_chain_nodes[clip_chain_id.0 as usize]
+    }
+
+/*
     pub fn add_clip_items(
         &mut self,
         clip_items: Vec<ClipItem>,
@@ -374,22 +370,38 @@ impl ClipStore {
         self.clip_nodes.extend(nodes);
         range
     }
+*/
 
-    pub fn get_clip_chain(&self, clip_chain_id: ClipChainId) -> &ClipChainNode {
-        &self.clip_chain_nodes[clip_chain_id.0 as usize]
-    }
-
-    pub fn add_clip_chain(
+    pub fn add_clip_chain_node_index(
         &mut self,
-        clip_item_range: ClipItemRange,
+        clip_node_index: ClipNodeIndex,
         parent_clip_chain_id: ClipChainId,
     ) -> ClipChainId {
         let id = ClipChainId(self.clip_chain_nodes.len() as u32);
         self.clip_chain_nodes.push(ClipChainNode {
-            clip_item_range,
+            clip_node_index,
             parent_clip_chain_id,
         });
         id
+    }
+
+    pub fn add_clip_chain_node(
+        &mut self,
+        item: ClipItem,
+        spatial_node_index: SpatialNodeIndex,
+        parent_clip_chain_id: ClipChainId,
+    ) -> ClipChainId {
+        let clip_node_index = ClipNodeIndex(self.clip_nodes.len() as u32);
+        self.clip_nodes.push(ClipNode {
+            item,
+            spatial_node_index,
+            gpu_cache_handle: GpuCacheHandle::new(),
+        });
+
+        self.add_clip_chain_node_index(
+            clip_node_index,
+            parent_clip_chain_id,
+        )
     }
 
     pub fn get_node_from_range(
@@ -457,32 +469,26 @@ impl ClipStore {
         // for each clip chain node
         while current_clip_chain_id != ClipChainId::NONE {
             let clip_chain_node = &self.clip_chain_nodes[current_clip_chain_id.0 as usize];
-            let node_count = clip_chain_node.clip_item_range.count;
+            let clip_node = &self.clip_nodes[clip_chain_node.clip_node_index.0 as usize];
 
-            // for each clip node (clip source) in this clip chain node
-            for i in 0 .. node_count {
-                let clip_node_index = ClipNodeIndex(clip_chain_node.clip_item_range.index.0 + i);
-                let clip_node = &self.clip_nodes[clip_node_index.0 as usize];
-
-                // Check if any clip node index should actually be
-                // handled during compositing of a rasterization root.
-                match self.clip_node_collectors.iter_mut().find(|c| {
-                    clip_node.spatial_node_index < c.raster_root
-                }) {
-                    Some(collector) => {
-                        collector.insert(clip_node_index);
-                    }
-                    None => {
-                        if !add_clip_node_to_current_chain(
-                            clip_node_index,
-                            spatial_node_index,
-                            &mut local_clip_rect,
-                            &mut self.clip_node_info,
-                            &self.clip_nodes,
-                            clip_scroll_tree,
-                        ) {
-                            return None;
-                        }
+            // Check if any clip node index should actually be
+            // handled during compositing of a rasterization root.
+            match self.clip_node_collectors.iter_mut().find(|c| {
+                clip_node.spatial_node_index < c.raster_root
+            }) {
+                Some(collector) => {
+                    collector.insert(clip_chain_node.clip_node_index);
+                }
+                None => {
+                    if !add_clip_node_to_current_chain(
+                        clip_chain_node.clip_node_index,
+                        spatial_node_index,
+                        &mut local_clip_rect,
+                        &mut self.clip_node_info,
+                        &self.clip_nodes,
+                        clip_scroll_tree,
+                    ) {
+                        return None;
                     }
                 }
             }

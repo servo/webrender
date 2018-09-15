@@ -32,7 +32,7 @@ use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest};
 use scene::{Scene, ScenePipeline, StackingContextHelpers};
 use spatial_node::{SpatialNodeType, StickyFrameInfo};
-use std::{f32, iter, mem};
+use std::{f32, mem};
 use tiling::{CompositeOps, ScrollbarPrimitive};
 use util::{MaxRect, RectHelpers};
 
@@ -684,15 +684,18 @@ impl<'a> DisplayListFlattener<'a> {
                         .id_to_index_mapper
                         .get_clip_chain_id(&item);
                     // Get the id of the clip sources entry for that clip chain node.
-                    let clip_item_range = self
+                    let clip_node_index = self
                         .clip_store
                         .get_clip_chain(item_clip_chain_id)
-                        .clip_item_range;
+                        .clip_node_index;
                     // Add a new clip chain node, which references the same clip sources, and
                     // parent it to the current parent.
                     clip_chain_id = self
                         .clip_store
-                        .add_clip_chain(clip_item_range, parent_clip_chain_id);
+                        .add_clip_chain_node_index(
+                            clip_node_index,
+                            parent_clip_chain_id,
+                        );
                     // For the next clip node, use this new clip chain node as the parent,
                     // to form a linked list.
                     parent_clip_chain_id = clip_chain_id;
@@ -750,16 +753,18 @@ impl<'a> DisplayListFlattener<'a> {
         if clip_items.is_empty() {
             parent_clip_chain_id
         } else {
-            // Add a range of clip sources.
-            let clip_item_range = self
-                .clip_store
-                .add_clip_items(clip_items, spatial_node_index);
+            let mut clip_chain_id = parent_clip_chain_id;
 
-            // Add clip chain node that references the clip source range.
-            self.clip_store.add_clip_chain(
-                clip_item_range,
-                parent_clip_chain_id,
-            )
+            for item in clip_items {
+                clip_chain_id = self.clip_store
+                                    .add_clip_chain_node(
+                                        item,
+                                        spatial_node_index,
+                                        clip_chain_id,
+                                    );
+            }
+
+            clip_chain_id
         }
     }
 
@@ -1235,44 +1240,55 @@ impl<'a> DisplayListFlattener<'a> {
         // and the positioning node associated with those clip sources.
 
         // Map from parent ClipId to existing clip-chain.
-        let parent_clip_chain_index = self
+        let mut parent_clip_chain_index = self
             .id_to_index_mapper
             .get_clip_chain_id(&parent_id);
         // Map the ClipId for the positioning node to a spatial node index.
         let spatial_node = self.id_to_index_mapper.get_spatial_node_index(parent_id);
 
-        // Build the clip sources from the supplied region.
-        // TODO(gw): We should fix this up to take advantage of the recent
-        //           work to avoid heap allocations where possible!
-        let clip_rect = iter::once(ClipItem::Rectangle(clip_region.main, ClipMode::Clip));
-        let clip_image = clip_region.image_mask.map(ClipItem::Image);
-        let clips_complex = clip_region.complex_clips
-            .into_iter()
-            .map(|complex| ClipItem::new_rounded_rect(
-                complex.rect,
-                complex.radii,
-                complex.mode,
-            ));
-        let clips = clip_rect.chain(clip_image).chain(clips_complex).collect();
-
-        // Add those clip sources to the clip store.
-        let clip_item_range = self
-            .clip_store
-            .add_clip_items(clips, spatial_node);
-
         // Add a mapping for this ClipId in case it's referenced as a positioning node.
         self.id_to_index_mapper
             .map_spatial_node(new_node_id, spatial_node);
 
-        // Add the new clip chain entry
-        let clip_chain_id = self
+        // Build the clip sources from the supplied region.
+        parent_clip_chain_index = self
             .clip_store
-            .add_clip_chain(clip_item_range, parent_clip_chain_index);
+            .add_clip_chain_node(
+                ClipItem::Rectangle(clip_region.main, ClipMode::Clip),
+                spatial_node,
+                parent_clip_chain_index,
+            );
+
+        if let Some(image_mask) = clip_region.image_mask {
+            parent_clip_chain_index = self
+                .clip_store
+                .add_clip_chain_node(
+                    ClipItem::Image(image_mask),
+                    spatial_node,
+                    parent_clip_chain_index,
+                );
+        }
+
+        for region in clip_region.complex_clips {
+            let clip_item = ClipItem::new_rounded_rect(
+                region.rect,
+                region.radii,
+                region.mode,
+            );
+
+            parent_clip_chain_index = self
+                .clip_store
+                .add_clip_chain_node(
+                    clip_item,
+                    spatial_node,
+                    parent_clip_chain_index,
+                );
+        }
 
         // Map the supplied ClipId -> clip chain id.
-        self.id_to_index_mapper.add_clip_chain(new_node_id, clip_chain_id);
+        self.id_to_index_mapper.add_clip_chain(new_node_id, parent_clip_chain_index);
 
-        clip_chain_id
+        parent_clip_chain_index
     }
 
     pub fn add_scroll_frame(

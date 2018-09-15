@@ -179,12 +179,9 @@ impl HitTester {
             return false;
         }
 
-        for i in 0 .. descriptor.clip_item_range.count {
-            let clip_node_index = ClipNodeIndex(descriptor.clip_item_range.index.0 + i);
-            if !self.is_point_clipped_in_for_clip_node(point, clip_node_index, test) {
-                test.set_in_clip_chain_cache(clip_chain_id, ClippedIn::NotClippedIn);
-                return false;
-            }
+        if !self.is_point_clipped_in_for_clip_node(point, descriptor.clip_node_index, test) {
+            test.set_in_clip_chain_cache(clip_chain_id, ClippedIn::NotClippedIn);
+            return false;
         }
 
         test.set_in_clip_chain_cache(clip_chain_id, ClippedIn::ClippedIn);
