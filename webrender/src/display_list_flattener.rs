@@ -684,16 +684,21 @@ impl<'a> DisplayListFlattener<'a> {
                         .id_to_index_mapper
                         .get_clip_chain_id(&item);
                     // Get the id of the clip sources entry for that clip chain node.
-                    let clip_node_index = self
-                        .clip_store
-                        .get_clip_chain(item_clip_chain_id)
-                        .clip_node_index;
+                    let (clip_node_index, spatial_node_index) = {
+                        let clip_chain = self
+                            .clip_store
+                            .get_clip_chain(item_clip_chain_id);
+
+                        (clip_chain.clip_node_index, clip_chain.spatial_node_index)
+                    };
+
                     // Add a new clip chain node, which references the same clip sources, and
                     // parent it to the current parent.
                     clip_chain_id = self
                         .clip_store
                         .add_clip_chain_node_index(
                             clip_node_index,
+                            spatial_node_index,
                             parent_clip_chain_id,
                         );
                     // For the next clip node, use this new clip chain node as the parent,
