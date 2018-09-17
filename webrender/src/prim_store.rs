@@ -522,14 +522,14 @@ pub struct BrushSegment {
 
 impl BrushSegment {
     pub fn new(
-        rect: LayoutRect,
+        local_rect: LayoutRect,
         may_need_clip_mask: bool,
         edge_flags: EdgeAaSegmentMask,
         extra_data: [f32; 4],
         brush_flags: BrushFlags,
-    ) -> BrushSegment {
-        BrushSegment {
-            local_rect: rect,
+    ) -> Self {
+        Self {
+            local_rect,
             clip_task_id: BrushSegmentTaskId::Opaque,
             may_need_clip_mask,
             edge_flags,
@@ -2851,14 +2851,21 @@ impl Primitive {
             let max_scale = BorderRenderTaskInfo::get_max_scale(&border.radius, &widths);
             scale.0 = scale.0.min(max_scale.0);
             let scale_au = Au::from_f32_px(scale.0);
+
+            // NOTE(emilio): This `needs_update` relies on the local rect for a
+            // given primitive being immutable. If that changes, this code
+            // should probably handle changes to it as well, retaining the old
+            // size in cache_key.
             let needs_update = scale_au != cache_key.scale;
+
             let mut new_segments = Vec::new();
 
+            let local_rect = &self.metadata.local_rect;
             if needs_update {
                 cache_key.scale = scale_au;
 
                 *task_info = BorderRenderTaskInfo::new(
-                    &self.metadata.local_rect,
+                    local_rect,
                     border,
                     widths,
                     scale,
@@ -2869,7 +2876,7 @@ impl Primitive {
             *handle = task_info.as_ref().map(|task_info| {
                 frame_state.resource_cache.request_render_task(
                     RenderTaskCacheKey {
-                        size: DeviceIntSize::zero(),
+                        size: task_info.cache_key_size(&local_rect.size, scale),
                         kind: RenderTaskCacheKeyKind::Border(cache_key.clone()),
                     },
                     frame_state.gpu_cache,
