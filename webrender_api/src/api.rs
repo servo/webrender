@@ -608,6 +608,8 @@ pub enum DebugCommand {
     EnableTextureCacheDebug(bool),
     /// Display intermediate render targets on screen.
     EnableRenderTargetDebug(bool),
+    /// Display the contents of GPU cache.
+    EnableGpuCacheDebug(bool),
     /// Display GPU timing results.
     EnableGpuTimeQueries(bool),
     /// Display GPU overdraw results
