@@ -228,12 +228,7 @@ impl Example for App {
             color: ColorF::new(0.0, 0.0, 1.0, 1.0),
             style: BorderStyle::Groove,
         };
-        let border_widths = BorderWidths {
-            top: 10.0,
-            left: 10.0,
-            bottom: 10.0,
-            right: 10.0,
-        };
+        let border_widths = LayoutSideOffsets::new_all_same(10.0);
         let border_details = BorderDetails::Normal(NormalBorder {
             top: border_side,
             right: border_side,

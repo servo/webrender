@@ -5,9 +5,10 @@
 use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipMode, ColorF, PictureRect};
 use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, ExtendMode, DeviceRect, PictureToRasterTransform};
 use api::{FilterOp, GlyphInstance, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, TileOffset};
-use api::{GlyphRasterSpace, LayoutPoint, LayoutRect, LayoutSize, LayoutToWorldTransform, LayoutVector2D};
-use api::{PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat, DeviceIntSideOffsets, WorldPixel};
-use api::{BorderWidths, BoxShadowClipMode, LayoutToWorldScale, NormalBorder, WorldRect, PicturePixel, RasterPixel};
+use api::{GlyphRasterSpace, LayoutPoint, LayoutRect, LayoutSideOffsets, LayoutSize, LayoutToWorldTransform};
+use api::{LayoutVector2D, PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat};
+use api::{DeviceIntSideOffsets, WorldPixel, BoxShadowClipMode, LayoutToWorldScale, NormalBorder, WorldRect};
+use api::{PicturePixel, RasterPixel};
 use app_units::Au;
 use border::{BorderCacheKey, BorderRenderTaskInfo};
 use clip_scroll_tree::{ClipScrollTree, CoordinateSystemId, SpatialNodeIndex};
@@ -350,7 +351,7 @@ pub enum BorderSource {
         cache_key: BorderCacheKey,
         task_info: Option<BorderRenderTaskInfo>,
         border: NormalBorder,
-        widths: BorderWidths,
+        widths: LayoutSideOffsets,
     },
 }
 
@@ -442,7 +443,7 @@ impl BrushKind {
 
     // Construct a brush that is a border with `border` style and `widths`
     // dimensions.
-    pub fn new_border(mut border: NormalBorder, widths: BorderWidths) -> BrushKind {
+    pub fn new_border(mut border: NormalBorder, widths: LayoutSideOffsets) -> BrushKind {
         // FIXME(emilio): Is this the best place to do this?
         border.normalize(&widths);
 
