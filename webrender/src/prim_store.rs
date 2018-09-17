@@ -2073,7 +2073,9 @@ fn write_brush_segment_description(
     // Segment the primitive on all the local-space clip sources that we can.
     let mut local_clip_count = 0;
     for i in 0 .. clip_chain.clips_range.count {
-        let (clip_node, flags) = frame_state.clip_store.get_node_from_range(&clip_chain.clips_range, i);
+        let (clip_node, flags, _) = frame_state
+            .clip_store
+            .get_node_from_range(&clip_chain.clips_range, i);
 
         // If this clip item is positioned by another positioning node, its relative position
         // could change during scrolling. This means that we would need to resegment. Instead
