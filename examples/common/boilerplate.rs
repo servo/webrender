@@ -232,6 +232,15 @@ pub fn main_wrapper<E: Example>(
                 winit::VirtualKeyCode::Q => renderer.toggle_debug_flags(
                     webrender::DebugFlags::GPU_TIME_QUERIES | webrender::DebugFlags::GPU_SAMPLE_QUERIES
                 ),
+                winit::VirtualKeyCode::F => renderer.toggle_debug_flags(
+                    webrender::DebugFlags::NEW_FRAME_INDICATOR | webrender::DebugFlags::NEW_SCENE_INDICATOR
+                ),
+                winit::VirtualKeyCode::G => api.send_debug_cmd(
+                    // go through the API so that we reach the render backend
+                    DebugCommand::EnableGpuCacheDebug(
+                        !renderer.get_debug_flags().contains(webrender::DebugFlags::GPU_CACHE_DBG)
+                    ),
+                ),
                 winit::VirtualKeyCode::Key1 => txn.set_window_parameters(
                     framebuffer_size,
                     DeviceUintRect::new(DeviceUintPoint::zero(), framebuffer_size),
