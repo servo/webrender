@@ -43,24 +43,48 @@ static DEFAULT_SCROLLBAR_COLOR: ColorF = ColorF {
     a: 0.6,
 };
 
+#[derive(Debug, Copy, Clone)]
+struct ClipNode {
+    id: ClipChainId,
+    count: usize,
+}
+
+impl ClipNode {
+    fn new(id: ClipChainId, count: usize) -> ClipNode {
+        ClipNode {
+            id,
+            count,
+        }
+    }
+}
+
 /// A data structure that keeps track of mapping between API ClipIds and the indices used
 /// internally in the ClipScrollTree to avoid having to do HashMap lookups. ClipIdToIndexMapper is
 /// responsible for mapping both ClipId to ClipChainIndex and ClipId to SpatialNodeIndex.
 #[derive(Default)]
 pub struct ClipIdToIndexMapper {
-    clip_chain_map: FastHashMap<ClipId, ClipChainId>,
+    clip_node_map: FastHashMap<ClipId, ClipNode>,
     spatial_node_map: FastHashMap<ClipId, SpatialNodeIndex>,
 }
 
 impl ClipIdToIndexMapper {
-    pub fn add_clip_chain(&mut self, id: ClipId, index: ClipChainId) {
-        let _old_value = self.clip_chain_map.insert(id, index);
+    pub fn add_clip_chain(
+        &mut self,
+        id: ClipId,
+        index: ClipChainId,
+        count: usize,
+    ) {
+        let _old_value = self.clip_node_map.insert(id, ClipNode::new(index, count));
         debug_assert!(_old_value.is_none());
     }
 
-    pub fn map_to_parent_clip_chain(&mut self, id: ClipId, parent_id: &ClipId) {
-        let parent_chain_id = self.get_clip_chain_id(parent_id);
-        self.add_clip_chain(id, parent_chain_id);
+    pub fn map_to_parent_clip_chain(
+        &mut self,
+        id: ClipId,
+        parent_id: &ClipId,
+    ) {
+        let parent_node = self.clip_node_map[parent_id];
+        self.add_clip_chain(id, parent_node.id, parent_node.count);
     }
 
     pub fn map_spatial_node(&mut self, id: ClipId, index: SpatialNodeIndex) {
@@ -68,8 +92,12 @@ impl ClipIdToIndexMapper {
         debug_assert!(_old_value.is_none());
     }
 
+    fn get_clip_node(&self, id: &ClipId) -> ClipNode {
+        self.clip_node_map[id]
+    }
+
     pub fn get_clip_chain_id(&self, id: &ClipId) -> ClipChainId {
-        self.clip_chain_map[id]
+        self.clip_node_map[id].id
     }
 
     pub fn get_spatial_node_index(&self, id: ClipId) -> SpatialNodeIndex {
@@ -674,41 +702,53 @@ impl<'a> DisplayListFlattener<'a> {
                 // the parent clip chain node found above. For this API, the clip
                 // id that is specified for an existing clip chain node is used to
                 // get the index of the clip sources that define that clip node.
-
                 let mut clip_chain_id = parent_clip_chain_id;
 
                 // For each specified clip id
                 for item in self.get_clip_chain_items(pipeline_id, item.clip_chain_items()) {
                     // Map the ClipId to an existing clip chain node.
-                    let item_clip_chain_id = self
+                    let item_clip_node = self
                         .id_to_index_mapper
-                        .get_clip_chain_id(&item);
-                    // Get the id of the clip sources entry for that clip chain node.
-                    let (clip_node_index, spatial_node_index) = {
-                        let clip_chain = self
+                        .get_clip_node(&item);
+
+                    let mut clip_node_clip_chain_id = item_clip_node.id;
+
+                    // Each 'clip node' (as defined by the WR API) can contain one or
+                    // more clip items (e.g. rects, image masks, rounded rects). When
+                    // each of these clip nodes is stored internally, they are stored
+                    // as a clip chain (one clip item per node), eventually parented
+                    // to the parent clip node. For a user defined clip chain, we will
+                    // need to walk the linked list of clip chain nodes for each clip
+                    // node, accumulating them into one clip chain that is then
+                    // parented to the clip chain parent.
+
+                    for _ in 0 .. item_clip_node.count {
+                        // Get the id of the clip sources entry for that clip chain node.
+                        let (clip_node_index, spatial_node_index) = {
+                            let clip_chain = self
+                                .clip_store
+                                .get_clip_chain(clip_node_clip_chain_id);
+
+                            clip_node_clip_chain_id = clip_chain.parent_clip_chain_id;
+
+                            (clip_chain.clip_node_index, clip_chain.spatial_node_index)
+                        };
+
+                        // Add a new clip chain node, which references the same clip sources, and
+                        // parent it to the current parent.
+                        clip_chain_id = self
                             .clip_store
-                            .get_clip_chain(item_clip_chain_id);
-
-                        (clip_chain.clip_node_index, clip_chain.spatial_node_index)
-                    };
-
-                    // Add a new clip chain node, which references the same clip sources, and
-                    // parent it to the current parent.
-                    clip_chain_id = self
-                        .clip_store
-                        .add_clip_chain_node_index(
-                            clip_node_index,
-                            spatial_node_index,
-                            parent_clip_chain_id,
-                        );
-                    // For the next clip node, use this new clip chain node as the parent,
-                    // to form a linked list.
-                    parent_clip_chain_id = clip_chain_id;
+                            .add_clip_chain_node_index(
+                                clip_node_index,
+                                spatial_node_index,
+                                clip_chain_id,
+                            );
+                    }
                 }
 
                 // Map the last entry in the clip chain to the supplied ClipId. This makes
                 // this ClipId available as a source to other user defined clip chains.
-                self.id_to_index_mapper.add_clip_chain(ClipId::ClipChain(info.id), clip_chain_id);
+                self.id_to_index_mapper.add_clip_chain(ClipId::ClipChain(info.id), clip_chain_id, 0);
             },
             SpecificDisplayItem::ScrollFrame(ref info) => {
                 self.flatten_scroll_frame(
@@ -1187,7 +1227,7 @@ impl<'a> DisplayListFlattener<'a> {
         match parent_id {
             Some(ref parent_id) =>
                 self.id_to_index_mapper.map_to_parent_clip_chain(reference_frame_id, parent_id),
-            _ => self.id_to_index_mapper.add_clip_chain(reference_frame_id, ClipChainId::NONE),
+            _ => self.id_to_index_mapper.add_clip_chain(reference_frame_id, ClipChainId::NONE, 0),
         }
         index
     }
@@ -1255,6 +1295,8 @@ impl<'a> DisplayListFlattener<'a> {
         self.id_to_index_mapper
             .map_spatial_node(new_node_id, spatial_node);
 
+        let mut clip_count = 0;
+
         // Build the clip sources from the supplied region.
         parent_clip_chain_index = self
             .clip_store
@@ -1263,6 +1305,7 @@ impl<'a> DisplayListFlattener<'a> {
                 spatial_node,
                 parent_clip_chain_index,
             );
+        clip_count += 1;
 
         if let Some(image_mask) = clip_region.image_mask {
             parent_clip_chain_index = self
@@ -1272,6 +1315,7 @@ impl<'a> DisplayListFlattener<'a> {
                     spatial_node,
                     parent_clip_chain_index,
                 );
+            clip_count += 1;
         }
 
         for region in clip_region.complex_clips {
@@ -1288,10 +1332,15 @@ impl<'a> DisplayListFlattener<'a> {
                     spatial_node,
                     parent_clip_chain_index,
                 );
+            clip_count += 1;
         }
 
         // Map the supplied ClipId -> clip chain id.
-        self.id_to_index_mapper.add_clip_chain(new_node_id, parent_clip_chain_index);
+        self.id_to_index_mapper.add_clip_chain(
+            new_node_id,
+            parent_clip_chain_index,
+            clip_count,
+        );
 
         parent_clip_chain_index
     }
