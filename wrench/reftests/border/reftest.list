@@ -23,3 +23,4 @@ platform(linux,mac) == dotted-corner-small-radius.yaml dotted-corner-small-radiu
 == zero-width.yaml blank.yaml
 platform(linux,mac) == small-dotted-border.yaml small-dotted-border.png
 == discontinued-dash.yaml discontinued-dash.png
+== border-dashed-dotted-caching.yaml border-dashed-dotted-caching.png
