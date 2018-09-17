@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{BorderRadius, BorderSide, BorderStyle, BorderWidths, ColorF};
-use api::{ColorU, DeviceRect, DeviceSize, LayoutSizeAu, LayoutPrimitiveInfo, LayoutToDeviceScale};
+use api::{BorderRadius, BorderSide, BorderStyle, ColorF, ColorU, DeviceRect, DeviceSize};
+use api::{LayoutSizeAu, LayoutSideOffsets, LayoutPrimitiveInfo, LayoutToDeviceScale};
 use api::{DeviceVector2D, DevicePoint, DeviceIntSize, LayoutRect, LayoutSize, NormalBorder};
 use app_units::Au;
 use ellipse::Ellipse;
@@ -75,8 +75,8 @@ pub struct BorderWidthsAu {
     pub bottom: Au,
 }
 
-impl From<BorderWidths> for BorderWidthsAu {
-    fn from(widths: BorderWidths) -> Self {
+impl From<LayoutSideOffsets> for BorderWidthsAu {
+    fn from(widths: LayoutSideOffsets) -> Self {
         BorderWidthsAu {
             left: Au::from_f32_px(widths.left),
             top: Au::from_f32_px(widths.top),
@@ -117,7 +117,7 @@ pub struct BorderCacheKey {
 }
 
 impl BorderCacheKey {
-    pub fn new(border: &NormalBorder, widths: &BorderWidths) -> Self {
+    pub fn new(border: &NormalBorder, widths: &LayoutSideOffsets) -> Self {
         BorderCacheKey {
             left: border.left.into(),
             top: border.top.into(),
@@ -180,7 +180,7 @@ impl<'a> DisplayListFlattener<'a> {
         &mut self,
         info: &LayoutPrimitiveInfo,
         border: &NormalBorder,
-        widths: &BorderWidths,
+        widths: &LayoutSideOffsets,
         clip_and_scroll: ScrollNodeAndClipChain,
     ) {
         let mut border = *border;
@@ -628,7 +628,7 @@ impl BorderRenderTaskInfo {
     pub fn new(
         rect: &LayoutRect,
         border: &NormalBorder,
-        widths: &BorderWidths,
+        widths: &LayoutSideOffsets,
         scale: LayoutToDeviceScale,
         brush_segments: &mut Vec<BrushSegment>,
     ) -> Option<Self> {
@@ -948,7 +948,7 @@ impl BorderRenderTaskInfo {
     /// blurrier.
     pub fn get_max_scale(
         radii: &BorderRadius,
-        widths: &BorderWidths
+        widths: &LayoutSideOffsets
     ) -> LayoutToDeviceScale {
         let r = radii.top_left.width
             .max(radii.top_left.height)
