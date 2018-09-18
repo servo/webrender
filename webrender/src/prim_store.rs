@@ -2078,7 +2078,7 @@ fn write_brush_segment_description(
         let clip_instance = frame_state
             .clip_store
             .get_instance_from_range(&clip_chain.clips_range, i);
-        let clip_node = frame_state.clip_data_store.get(&clip_instance.handle);
+        let clip_node = &frame_state.clip_data_store[clip_instance.handle];
 
         // If this clip item is positioned by another positioning node, its relative position
         // could change during scrolling. This means that we would need to resegment. Instead

@@ -168,7 +168,7 @@ impl HitTester {
         // For each clip chain node, extract the clip node from the clip
         // data store, and store it inline with the clip chain node.
         for node in &clip_store.clip_chain_nodes {
-            let clip_node = clip_data_store.get(&node.handle);
+            let clip_node = &clip_data_store[node.handle];
             self.clip_chains.push(HitTestClipChainNode {
                 region: HitTestClipNode::new(clip_node),
                 spatial_node_index: node.spatial_node_index,

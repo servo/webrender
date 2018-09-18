@@ -6,8 +6,7 @@ use api::{BorderRadius, ClipMode, ComplexClipRegion, DeviceIntRect, DevicePixelS
 use api::{ImageRendering, LayoutRect, LayoutSize, LayoutPoint, LayoutVector2D, LocalClip};
 use api::{BoxShadowClipMode, LayoutToWorldScale, LineOrientation, LineStyle, PicturePixel, WorldPixel};
 use api::{PictureRect, LayoutPixel, WorldPoint, WorldSize, WorldRect, LayoutToWorldTransform};
-use api::{VoidPtrToSizeFn, LayoutRectAu, ImageKey};
-use api::{AuRectHelpers, AuVectorHelpers};
+use api::{VoidPtrToSizeFn, LayoutRectAu, ImageKey, AuHelpers};
 use app_units::Au;
 use border::{ensure_no_corner_overlap, BorderRadiusAu};
 use box_shadow::{BLUR_SAMPLE_SCALE, BoxShadowClipSource, BoxShadowCacheKey};
@@ -537,7 +536,7 @@ impl ClipStore {
 
         // For each potential clip node
         for node_info in self.clip_node_info.drain(..) {
-            let node = clip_data_store.get_mut(&node_info.handle);
+            let node = &mut clip_data_store[node_info.handle];
 
             // See how this clip affects the prim region.
             let clip_result = match node_info.conversion {
@@ -1221,7 +1220,7 @@ fn add_clip_node_to_current_chain(
     clip_data_store: &ClipDataStore,
     clip_scroll_tree: &ClipScrollTree,
 ) -> bool {
-    let clip_node = clip_data_store.get(&handle);
+    let clip_node = &clip_data_store[handle];
     let clip_spatial_node = &clip_scroll_tree.spatial_nodes[clip_spatial_node_index.0];
     let ref_spatial_node = &clip_scroll_tree.spatial_nodes[spatial_node_index.0];
 

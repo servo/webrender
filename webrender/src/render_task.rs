@@ -447,7 +447,7 @@ impl RenderTask {
         //           this iteration for the majority of cases.
         for i in 0 .. clip_node_range.count {
             let clip_instance = clip_store.get_instance_from_range(&clip_node_range, i);
-            let clip_node = clip_data_store.get_mut(&clip_instance.handle);
+            let clip_node = &mut clip_data_store[clip_instance.handle];
             match clip_node.item {
                 ClipItem::BoxShadow(ref mut info) => {
                     let (cache_size, cache_key) = info.cache_key

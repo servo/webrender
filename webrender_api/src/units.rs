@@ -158,12 +158,12 @@ impl TexelRect {
 
 const MAX_AU_FLOAT: f32 = 1.0e6;
 
-pub trait AuSizeHelpers {
-    fn from_au(size: LayoutSizeAu) -> Self;
-    fn to_au(&self) -> LayoutSizeAu;
+pub trait AuHelpers<T> {
+    fn from_au(data: T) -> Self;
+    fn to_au(&self) -> T;
 }
 
-impl AuSizeHelpers for LayoutSize {
+impl AuHelpers<LayoutSizeAu> for LayoutSize {
     fn from_au(size: LayoutSizeAu) -> Self {
         LayoutSize::new(
             size.width.to_f32_px(),
@@ -182,11 +182,14 @@ impl AuSizeHelpers for LayoutSize {
     }
 }
 
-pub trait AuVectorHelpers {
-    fn to_au(&self) -> LayoutVector2DAu;
-}
+impl AuHelpers<LayoutVector2DAu> for LayoutVector2D {
+    fn from_au(size: LayoutVector2DAu) -> Self {
+        LayoutVector2D::new(
+            size.x.to_f32_px(),
+            size.y.to_f32_px(),
+        )
+    }
 
-impl AuVectorHelpers for LayoutVector2D {
     fn to_au(&self) -> LayoutVector2DAu {
         LayoutVector2DAu::new(
             Au::from_f32_px(self.x),
@@ -195,12 +198,7 @@ impl AuVectorHelpers for LayoutVector2D {
     }
 }
 
-pub trait AuPointHelpers {
-    fn from_au(point: LayoutPointAu) -> Self;
-    fn to_au(&self) -> LayoutPointAu;
-}
-
-impl AuPointHelpers for LayoutPoint {
+impl AuHelpers<LayoutPointAu> for LayoutPoint {
     fn from_au(point: LayoutPointAu) -> Self {
         LayoutPoint::new(
             point.x.to_f32_px(),
@@ -219,12 +217,7 @@ impl AuPointHelpers for LayoutPoint {
     }
 }
 
-pub trait AuRectHelpers {
-    fn from_au(rect: LayoutRectAu) -> Self;
-    fn to_au(&self) -> LayoutRectAu;
-}
-
-impl AuRectHelpers for LayoutRect {
+impl AuHelpers<LayoutRectAu> for LayoutRect {
     fn from_au(rect: LayoutRectAu) -> Self {
         LayoutRect::new(
             LayoutPoint::from_au(rect.origin),

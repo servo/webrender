@@ -356,7 +356,7 @@ impl SceneBuilder {
                 );
 
                 // Retrieve the list of updates from the clip interner.
-                clip_updates = Some(doc.clip_interner.get_updates());
+                clip_updates = Some(doc.clip_interner.end_frame_and_get_pending_updates());
 
                 built_scene = Some(BuiltScene {
                     scene: new_scene,

@@ -5,7 +5,7 @@
 use api::{BorderRadius, BorderSide, BorderStyle, ColorF, ColorU, DeviceRect, DeviceSize};
 use api::{LayoutSideOffsets, LayoutSizeAu, LayoutPrimitiveInfo, LayoutToDeviceScale};
 use api::{DeviceVector2D, DevicePoint, DeviceIntSize, LayoutRect, LayoutSize, NormalBorder};
-use api::{AuSizeHelpers};
+use api::{AuHelpers};
 use app_units::Au;
 use ellipse::Ellipse;
 use display_list_flattener::DisplayListFlattener;
