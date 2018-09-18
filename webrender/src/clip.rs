@@ -765,11 +765,14 @@ impl ClipItem {
 
     pub fn new_box_shadow(
         shadow_rect: LayoutRect,
-        shadow_radius: BorderRadius,
+        mut shadow_radius: BorderRadius,
         prim_shadow_rect: LayoutRect,
         blur_radius: f32,
         clip_mode: BoxShadowClipMode,
     ) -> Self {
+        // Make sure corners don't overlap.
+        ensure_no_corner_overlap(&mut shadow_radius, &shadow_rect);
+
         // Get the fractional offsets required to match the
         // source rect with a minimal rect.
         let fract_offset = LayoutPoint::new(
