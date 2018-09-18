@@ -1093,11 +1093,30 @@ impl ResourceCache {
                     );
                 });
             } else {
-                let needs_upload = match self.cached_images.try_get(&key) {
+                let mut needs_upload = match self.cached_images.try_get(&key) {
                     Some(&ImageResult::UntiledAuto(ref entry)) => {
                         self.texture_cache.needs_upload(&entry.texture_cache_handle)
                     }
                     _ => true,
+                };
+
+                // If the queue of ratserized updates is growing it probably means that
+                // the texture is not getting uploaded because the display item is off-screen.
+                // In that case we are better off
+                // - Either not kicking rasterization for that image (avoid wasted cpu work
+                //   but will jank next time the item is visible because of lazy rasterization.
+                // - Clobber the update queue by pushing an update with a larger dirty rect
+                //   to prevent it from accumulating.
+                //
+                // We do the latter here but it's not ideal and might want to revisit and do
+                // the former instead.
+                match self.rasterized_blob_images.get_mut(&key) {
+                    Some(RasterizedBlob::NonTiled(ref queue)) => {
+                        if queue.len() > 2 {
+                            needs_upload = true;
+                        }
+                    }
+                    _ => {},
                 };
 
                 let dirty_rect = if needs_upload {
