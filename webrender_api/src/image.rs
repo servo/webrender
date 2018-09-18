@@ -253,8 +253,6 @@ pub struct RasterizedBlobImage {
 #[derive(Clone, Debug)]
 pub enum BlobImageError {
     Oom,
-    InvalidKey,
-    InvalidData,
     Other(String),
 }
 
