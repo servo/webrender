@@ -7,6 +7,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::mem;
+use std::ops;
 use std::u64;
 
 /*
@@ -39,6 +40,11 @@ use std::u64;
 
  */
 
+/// The epoch is incremented each time a scene is
+/// built. The most recently used scene epoch is
+/// stored inside each item and handle. This is
+/// then used for cache invalidation (item) and
+/// correctness validation (handle).
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -48,12 +54,12 @@ impl Epoch {
     pub const INVALID: Self = Epoch(u64::MAX);
 }
 
-// A list of updates to be applied to the data store,
-// provided by the interning structure.
+/// A list of updates to be applied to the data store,
+/// provided by the interning structure.
 pub struct UpdateList<S> {
-    // The current epoch of the scene builder.
+    /// The current epoch of the scene builder.
     epoch: Epoch,
-    // The additions and removals to apply.
+    /// The additions and removals to apply.
     updates: Vec<Update<S>>,
 }
 
@@ -81,8 +87,8 @@ pub struct Update<S> {
     kind: UpdateKind<S>,
 }
 
-// The data item is stored with an epoch, for validating
-// correct access patterns.
+/// The data item is stored with an epoch, for validating
+/// correct access patterns.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 struct Item<T> {
@@ -90,8 +96,8 @@ struct Item<T> {
     data: T,
 }
 
-// The data store lives in the frame builder thread. It
-// contains a free-list of items for fast access.
+/// The data store lives in the frame builder thread. It
+/// contains a free-list of items for fast access.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct DataStore<S, T, M> {
@@ -101,7 +107,7 @@ pub struct DataStore<S, T, M> {
 }
 
 impl<S, T, M> DataStore<S, T, M> where S: Debug, T: From<S>, M: Debug {
-    // Construct a new data store
+    /// Construct a new data store
     pub fn new() -> Self {
         DataStore {
             items: Vec::new(),
@@ -110,8 +116,8 @@ impl<S, T, M> DataStore<S, T, M> where S: Debug, T: From<S>, M: Debug {
         }
     }
 
-    // Apply any updates from the scene builder thread to
-    // this data store.
+    /// Apply any updates from the scene builder thread to
+    /// this data store.
     pub fn apply_updates(
         &mut self,
         update_list: UpdateList<S>,
@@ -138,44 +144,50 @@ impl<S, T, M> DataStore<S, T, M> where S: Debug, T: From<S>, M: Debug {
             }
         }
     }
+}
 
-    // Retrieve an item from the store via handle
-    pub fn get(&self, handle: &Handle<M>) -> &T {
+/// Retrieve an item from the store via handle
+impl<S, T, M> ops::Index<Handle<M>> for DataStore<S, T, M> {
+    type Output = T;
+    fn index(&self, handle: Handle<M>) -> &T {
         let item = &self.items[handle.index];
         assert_eq!(item.epoch, handle.epoch);
         &item.data
     }
+}
 
-    // Retrieve a mutable item from the store via handle
-    pub fn get_mut(&mut self, handle: &Handle<M>) -> &mut T {
+/// Retrieve a mutable item from the store via handle
+/// Retrieve an item from the store via handle
+impl<S, T, M> ops::IndexMut<Handle<M>> for DataStore<S, T, M> {
+    fn index_mut(&mut self, handle: Handle<M>) -> &mut T {
         let item = &mut self.items[handle.index];
         assert_eq!(item.epoch, handle.epoch);
         &mut item.data
     }
 }
 
-// The main interning data structure. This lives in the
-// scene builder thread, and handles hashing and interning
-// unique data structures. It also manages a free-list for
-// the items in the data store, which is synchronized via
-// an update list of additions / removals.
+/// The main interning data structure. This lives in the
+/// scene builder thread, and handles hashing and interning
+/// unique data structures. It also manages a free-list for
+/// the items in the data store, which is synchronized via
+/// an update list of additions / removals.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct Interner<S : Eq + Hash + Clone + Debug, M> {
-    // Uniquely map an interning key to a handle
+    /// Uniquely map an interning key to a handle
     map: FastHashMap<S, Handle<M>>,
-    // List of free slots in the data store for re-used.
+    /// List of free slots in the data store for re-use.
     free_list: Vec<usize>,
-    // The next index to append items to if free-list is empty.
+    /// The next index to append items to if free-list is empty.
     next_index: usize,
-    // Pending list of updates that need to be applied.
+    /// Pending list of updates that need to be applied.
     updates: Vec<Update<S>>,
-    // The current epoch for the interner.
+    /// The current epoch for the interner.
     current_epoch: Epoch,
 }
 
 impl<S, M> Interner<S, M> where S: Eq + Hash + Clone + Debug, M: Copy + Debug {
-    // Construct a new interner
+    /// Construct a new interner
     pub fn new() -> Self {
         Interner {
             map: FastHashMap::default(),
@@ -186,10 +198,10 @@ impl<S, M> Interner<S, M> where S: Eq + Hash + Clone + Debug, M: Copy + Debug {
         }
     }
 
-    // Intern a data structure, and return a handle to
-    // that data. The handle can then be stored in the
-    // frame builder, and safely accessed via the data
-    // store that lives in the frame builder thread.
+    /// Intern a data structure, and return a handle to
+    /// that data. The handle can then be stored in the
+    /// frame builder, and safely accessed via the data
+    /// store that lives in the frame builder thread.
     pub fn intern(
         &mut self,
         data: &S,
@@ -244,9 +256,10 @@ impl<S, M> Interner<S, M> where S: Eq + Hash + Clone + Debug, M: Copy + Debug {
         handle
     }
 
-    // Retrieve the pending list of updates for an interner
-    // that need to be applied to the data store.
-    pub fn get_updates(&mut self) -> UpdateList<S> {
+    /// Retrieve the pending list of updates for an interner
+    /// that need to be applied to the data store. Also run
+    /// a GC step that removes old entries.
+    pub fn end_frame_and_get_pending_updates(&mut self) -> UpdateList<S> {
         let mut updates = mem::replace(&mut self.updates, Vec::new());
         let free_list = &mut self.free_list;
         let current_epoch = self.current_epoch.0;

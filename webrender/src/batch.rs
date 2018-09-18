@@ -1779,7 +1779,7 @@ impl ClipBatcher {
     ) {
         for i in 0 .. clip_node_range.count {
             let clip_instance = clip_store.get_instance_from_range(&clip_node_range, i);
-            let clip_node = clip_data_store.get(&clip_instance.handle);
+            let clip_node = &clip_data_store[clip_instance.handle];
 
             let clip_transform_id = transforms.get_id(
                 clip_instance.spatial_node_index,
