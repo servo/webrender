@@ -640,6 +640,12 @@ pub enum DebugCommand {
     ClearCaches(ClearCache),
     /// Invalidate GPU cache, forcing the update from the CPU mirror.
     InvalidateGpuCache,
+    /// Causes the scene builder to pause for a given amount of miliseconds each time it
+    /// processes a transaction.
+    SimulateLongSceneBuild(u32),
+    /// Causes the low priority scene builder to pause for a given amount of miliseconds
+    /// each time it processes a transaction.
+    SimulateLongLowPrioritySceneBuild(u32),
 }
 
 #[derive(Clone, Deserialize, Serialize)]

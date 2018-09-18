@@ -1716,6 +1716,7 @@ impl Renderer {
             let lp_builder = LowPrioritySceneBuilder {
                 rx: low_priority_scene_rx,
                 tx: scene_tx.clone(),
+                simulate_slow_ms: 0,
             };
 
             thread::Builder::new().name(lp_scene_thread_name.clone()).spawn(move || {
@@ -2201,7 +2202,9 @@ impl Renderer {
             DebugCommand::LoadCapture(..) => {
                 panic!("Capture commands are not welcome here! Did you build with 'capture' feature?")
             }
-            DebugCommand::ClearCaches(_) => {}
+            DebugCommand::ClearCaches(_)
+            | DebugCommand::SimulateLongSceneBuild(_)
+            | DebugCommand::SimulateLongLowPrioritySceneBuild(_) => {}
             DebugCommand::InvalidateGpuCache => {
                 match self.gpu_cache_texture.bus {
                     CacheBus::PixelBuffer { ref mut rows, .. } => {

@@ -821,6 +821,16 @@ impl RenderBackend {
                         self.resource_cache.clear(mask);
                         return true;
                     }
+                    DebugCommand::SimulateLongSceneBuild(time_ms) => {
+                        self.scene_tx.send(SceneBuilderRequest::SimulateLongSceneBuild(time_ms)).unwrap();
+                        return true;
+                    }
+                    DebugCommand::SimulateLongLowPrioritySceneBuild(time_ms) => {
+                        self.low_priority_scene_tx.send(
+                            SceneBuilderRequest::SimulateLongLowPrioritySceneBuild(time_ms)
+                        ).unwrap();
+                        return true;
+                    }
                     _ => ResultMsg::DebugCommand(option),
                 };
                 self.result_tx.send(msg).unwrap();
