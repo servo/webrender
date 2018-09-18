@@ -24,3 +24,4 @@ rotate-clip.yaml rotate-clip-ref.yaml
 clip-translate.yaml clip-translate-ref.yaml
 platform(linux,mac) == perspective-clip.yaml perspective-clip.png
 == complex-preserve-3d.yaml blank.yaml
+platform(linux,mac) fuzzy(9,348) == perspective-border-radius.yaml perspective-border-radius.png
