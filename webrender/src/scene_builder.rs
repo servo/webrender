@@ -6,6 +6,8 @@ use api::{AsyncBlobImageRasterizer, BlobImageRequest, BlobImageParams, BlobImage
 use api::{DocumentId, PipelineId, ApiMsg, FrameMsg, ResourceUpdate, Epoch};
 use api::{BuiltDisplayList, ColorF, LayoutSize, NotificationRequest, Checkpoint};
 use api::channel::MsgSender;
+#[cfg(feature = "capture")]
+use capture::CaptureConfig;
 use frame_builder::{FrameBuilderConfig, FrameBuilder};
 use clip::{ClipDataInterner, ClipDataUpdateList};
 use clip_scroll_tree::ClipScrollTree;
@@ -121,6 +123,8 @@ pub enum SceneBuilderRequest {
     SimulateLongSceneBuild(u32),
     SimulateLongLowPrioritySceneBuild(u32),
     Stop,
+    #[cfg(feature = "capture")]
+    SaveScene(CaptureConfig),
     #[cfg(feature = "replay")]
     LoadScenes(Vec<LoadScene>),
 }
@@ -220,6 +224,10 @@ impl SceneBuilder {
                 Ok(SceneBuilderRequest::LoadScenes(msg)) => {
                     self.load_scenes(msg);
                 }
+                #[cfg(feature = "capture")]
+                Ok(SceneBuilderRequest::SaveScene(config)) => {
+                    self.save_scene(config);
+                }
                 Ok(SceneBuilderRequest::Stop) => {
                     self.tx.send(SceneBuilderResult::Stopped).unwrap();
                     // We don't need to send a WakeUp to api_tx because we only
@@ -245,6 +253,14 @@ impl SceneBuilder {
         }
     }
 
+    #[cfg(feature = "capture")]
+    fn save_scene(&mut self, config: CaptureConfig) {
+        for (id, doc) in &self.documents {
+            let clip_interner_name = format!("clip-interner-{}-{}", (id.0).0, id.1);
+            config.serialize(&doc.clip_interner, clip_interner_name);
+        }
+    }
+
     #[cfg(feature = "replay")]
     fn load_scenes(&mut self, scenes: Vec<LoadScene>) {
         for mut item in scenes {
@@ -253,6 +269,8 @@ impl SceneBuilder {
             let scene_build_start_time = precise_time_ns();
 
             let mut built_scene = None;
+            let mut clip_updates = None;
+
             if item.scene.has_root_pipeline() {
                 let mut clip_scroll_tree = ClipScrollTree::new();
                 let mut new_scene = Scene::new();
@@ -270,6 +288,8 @@ impl SceneBuilder {
                     &mut item.clip_interner,
                 );
 
+                clip_updates = Some(item.clip_interner.end_frame_and_get_pending_updates());
+
                 built_scene = Some(BuiltScene {
                     scene: new_scene,
                     frame_builder,
@@ -279,7 +299,10 @@ impl SceneBuilder {
 
             self.documents.insert(
                 item.document_id,
-                Document::new(item.scene),
+                Document {
+                    scene: item.scene,
+                    clip_interner: item.clip_interner,
+                },
             );
 
             let txn = Box::new(BuiltTransaction {
@@ -295,7 +318,7 @@ impl SceneBuilder {
                 notifications: Vec::new(),
                 scene_build_start_time,
                 scene_build_end_time: precise_time_ns(),
-                clip_updates: None,
+                clip_updates,
             });
 
             self.forward_built_transaction(txn);

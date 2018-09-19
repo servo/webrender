@@ -1302,11 +1302,12 @@ impl RenderBackend {
                 config.serialize(&rendered_document.frame, file_name);
             }
 
-            // TODO(gw): Work out serializing the clip interner / store.
-            //let clip_interner_name = format!("clip-interner-{}-{}", (id.0).0, id.1);
-            // let clip_data_name = format!("clip-data-{}-{}", (id.0).0, id.1);
-            // config.serialize(&doc.clip_data_store, clip_data_name);
+            let clip_data_name = format!("clip-data-{}-{}", (id.0).0, id.1);
+            config.serialize(&doc.clip_data_store, clip_data_name);
         }
+
+        debug!("\tscene builder");
+        self.scene_tx.send(SceneBuilderRequest::SaveScene(config.clone())).unwrap();
 
         debug!("\tresource cache");
         let (resources, deferred) = self.resource_cache.save_capture(&config.root);
