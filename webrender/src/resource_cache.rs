@@ -614,6 +614,8 @@ impl ResourceCache {
                 }
             };
 
+            // First make sure we have an entry for this key (using a placeholder
+            // if need be).
             let image = self.rasterized_blob_images.entry(request.key).or_insert_with(
                 || { RasterizedBlob::Tiled(FastHashMap::default()) }
             );
@@ -1130,7 +1132,7 @@ impl ResourceCache {
                 //
                 // We do the latter here but it's not ideal and might want to revisit and do
                 // the former instead.
-                match self.rasterized_blob_images.get_mut(&key) {
+                match self.rasterized_blob_images.get(&key) {
                     Some(RasterizedBlob::NonTiled(ref queue)) => {
                         if queue.len() > 2 {
                             needs_upload = true;
@@ -1483,7 +1485,7 @@ impl ResourceCache {
                         (RasterizedBlob::NonTiled(ref mut queue), None) => {
                             for img in queue.drain(..) {
                                 updates.push((
-                                    ImageData::Raw(Arc::clone(&img.data)),
+                                    ImageData::Raw(img.data),
                                     Some(img.rasterized_rect)
                                 ));
                             }
