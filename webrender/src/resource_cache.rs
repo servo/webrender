@@ -1483,15 +1483,8 @@ impl ResourceCache {
                     ImageResult::Err(_) => panic!("Update requested for invalid entry")
                 };
 
-                match (blob_rasterized_rect, entry.dirty_rect) {
-                    (Some(rasterized), Some(dirty)) => {
-                        debug_assert!(request.tile.is_some() || rasterized.contains_rect(&dirty));
-                    }
-                    _ => {}
-                }
-
                 let mut descriptor = image_template.descriptor.clone();
-                let local_dirty_rect;
+                let mut local_dirty_rect;
 
                 if let Some(tile) = request.tile {
                     let tile_size = image_template.tiling.unwrap();
@@ -1524,6 +1517,13 @@ impl ResourceCache {
                     descriptor.size = clipped_tile_size;
                 } else {
                     local_dirty_rect = entry.dirty_rect.take();
+                }
+
+                // If we are uploading the dirty region of a blob image we might have several
+                // rects to upload so we use each of these rasterized rects rather than the
+                // overall dirty rect of the image.
+                if blob_rasterized_rect.is_some() {
+                    local_dirty_rect = blob_rasterized_rect;
                 }
 
                 let filter = match request.rendering {
