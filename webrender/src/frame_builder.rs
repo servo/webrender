@@ -32,6 +32,7 @@ use util;
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum ChasePrimitive {
     Nothing,
+    Index(PrimitiveIndex),
     LocalRect(LayoutRect),
 }
 

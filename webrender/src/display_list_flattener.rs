@@ -816,6 +816,9 @@ impl<'a> DisplayListFlattener<'a> {
     ) {
         // Add primitive to the top-most Picture on the stack.
         let pic_prim_index = self.sc_stack.last().unwrap().leaf_prim_index;
+        if cfg!(debug_assertions) && self.prim_store.chase_id == Some(prim_index) {
+            println!("\tadded to picture primitive {:?}", pic_prim_index);
+        }
         let pic = self.prim_store.get_pic_mut(pic_prim_index);
         pic.add_primitive(prim_index);
     }
@@ -878,7 +881,7 @@ impl<'a> DisplayListFlattener<'a> {
                 container,
             );
             if cfg!(debug_assertions) && ChasePrimitive::LocalRect(info.rect) == self.config.chase_primitive {
-                println!("Chasing {:?}", prim_index);
+                println!("Chasing {:?} by local rect", prim_index);
                 self.prim_store.chase_id = Some(prim_index);
             }
             self.add_primitive_to_hit_testing_list(info, clip_and_scroll);
@@ -1202,6 +1205,11 @@ impl<'a> DisplayListFlattener<'a> {
         viewport_size: &LayoutSize,
         content_size: &LayoutSize,
     ) {
+        if let ChasePrimitive::Index(prim_index) = self.config.chase_primitive {
+            println!("Chasing {:?} by index", prim_index);
+            self.prim_store.chase_id = Some(prim_index);
+        }
+
         self.push_reference_frame(
             ClipId::root_reference_frame(pipeline_id),
             None,
