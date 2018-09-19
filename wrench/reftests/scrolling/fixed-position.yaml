@@ -17,7 +17,7 @@ root:
     - type: stacking-context
       bounds: [0, 0, 50, 50]
       transform: translate(60, 100)
-      reference-frame-id: 100
+      id: 100
       items:
         - type: stacking-context
           bounds: [0, 0, 50, 50]
@@ -31,7 +31,7 @@ root:
     - type: stacking-context
       bounds: [120, 0, 50, 200]
       transform: translate(0, 0)
-      reference-frame-id: 101
+      id: 101
       items:
         - type: stacking-context
           bounds: [0, 0, 50, 200]
@@ -44,7 +44,7 @@ root:
     - type: stacking-context
       bounds: [180, 0, 50, 200]
       perspective: 1
-      reference-frame-id: 102
+      id: 102
       items:
         - type: stacking-context
           bounds: [0, 0, 50, 200]

@@ -106,6 +106,7 @@ enum ClipResult {
 // positioning information and implementation details
 // that control where the GPU data for this clip source
 // can be found.
+#[derive(Debug)]
 pub struct ClipNode {
     pub item: ClipItem,
     pub gpu_cache_handle: GpuCacheHandle,

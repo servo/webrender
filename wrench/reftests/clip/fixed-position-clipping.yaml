@@ -35,7 +35,7 @@ root:
         bounds: [110, 10, 100, 100]
         clip-rect: [110, 10, 100, 100]
         clip-and-scroll: root-reference-frame
-        reference-frame-id: 4
+        id: 4
         type: stacking-context
         transform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
         items:
