@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AsyncBlobImageRasterizer, BlobImageRequest, BlobImageParams, BlobImageResult};
-use api::{DocumentId, PipelineId, ApiMsg, FrameMsg, ResourceUpdate, Epoch};
+use api::{DocumentId, PipelineId, ApiMsg, FrameMsg, ResourceUpdate, ExternalEvent, Epoch};
 use api::{BuiltDisplayList, ColorF, LayoutSize, NotificationRequest, Checkpoint};
 use api::channel::MsgSender;
 #[cfg(feature = "capture")]
@@ -114,6 +114,7 @@ pub struct BuiltScene {
 // Message from render backend to scene builder.
 pub enum SceneBuilderRequest {
     Transaction(Box<Transaction>),
+    ExternalEvent(ExternalEvent),
     DeleteDocument(DocumentId),
     WakeUp,
     Flush(MsgSender<()>),
@@ -130,6 +131,7 @@ pub enum SceneBuilderRequest {
 // Message from scene builder to render backend.
 pub enum SceneBuilderResult {
     Transaction(Box<BuiltTransaction>, Option<Sender<SceneSwapResult>>),
+    ExternalEvent(ExternalEvent),
     FlushComplete(MsgSender<()>),
     Stopped,
 }
@@ -225,6 +227,10 @@ impl SceneBuilder {
                 #[cfg(feature = "capture")]
                 Ok(SceneBuilderRequest::SaveScene(config)) => {
                     self.save_scene(config);
+                }
+                Ok(SceneBuilderRequest::ExternalEvent(evt)) => {
+                    self.tx.send(SceneBuilderResult::ExternalEvent(evt)).unwrap();
+                    self.api_tx.send(ApiMsg::WakeUp).unwrap();
                 }
                 Ok(SceneBuilderRequest::Stop) => {
                     self.tx.send(SceneBuilderResult::Stopped).unwrap();

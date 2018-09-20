@@ -206,6 +206,9 @@ impl Document {
                 };
             }
             FrameMsg::HitTest(pipeline_id, point, flags, tx) => {
+                if !self.hit_tester_is_valid {
+                    self.rebuild_hit_tester();
+                }
 
                 let result = match self.hit_tester {
                     Some(ref hit_tester) => {
@@ -640,6 +643,9 @@ impl RenderBackend {
                     SceneBuilderResult::FlushComplete(tx) => {
                         tx.send(()).ok();
                     }
+                    SceneBuilderResult::ExternalEvent(evt) => {
+                        self.notifier.external_event(evt);
+                    }
                     SceneBuilderResult::Stopped => {
                         panic!("We haven't sent a Stop yet, how did we get a Stopped back?");
                     }
@@ -742,7 +748,7 @@ impl RenderBackend {
                 ).unwrap();
             }
             ApiMsg::ExternalEvent(evt) => {
-                self.notifier.external_event(evt);
+                self.low_priority_scene_tx.send(SceneBuilderRequest::ExternalEvent(evt)).unwrap();
             }
             ApiMsg::ClearNamespace(namespace_id) => {
                 self.resource_cache.clear_namespace(namespace_id);
@@ -984,7 +990,7 @@ impl RenderBackend {
         // fiddle with things after a potentially long scene build, but just
         // before rendering. This is useful for rendering with the latest
         // async transforms.
-        if requested_frame {
+        if requested_frame || has_built_scene {
             if let Some(ref sampler) = self.sampler {
                 frame_ops.append(&mut sampler.sample());
             }
