@@ -34,7 +34,7 @@ use render_task::{RenderTaskCache, RenderTaskCacheKey, RenderTaskId};
 use render_task::{RenderTaskCacheEntry, RenderTaskCacheEntryHandle, RenderTaskTree};
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry::{self, Occupied, Vacant};
-use std::collections::hash_map::ValuesMut;
+use std::collections::hash_map::IterMut;
 use std::{cmp, mem};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -245,8 +245,8 @@ where
         self.resources.entry(key)
     }
 
-    pub fn values_mut(&mut self) -> ValuesMut<K, V> {
-        self.resources.values_mut()
+    pub fn iter_mut(&mut self) -> IterMut<K, V> {
+        self.resources.iter_mut()
     }
 
     pub fn clear(&mut self) {
@@ -753,8 +753,21 @@ impl ResourceCache {
                 entry.dirty_rect = merge_dirty_rect(&entry.dirty_rect, &dirty_rect, &descriptor);
             }
             Some(&mut ImageResult::Multi(ref mut entries)) => {
-                for entry in entries.values_mut() {
-                    entry.dirty_rect = merge_dirty_rect(&entry.dirty_rect, &dirty_rect, &descriptor);
+                for (key, entry) in entries.iter_mut() {
+                    let merged_rect = merge_dirty_rect(&entry.dirty_rect, &dirty_rect, &descriptor);
+
+                    entry.dirty_rect = match (key.tile, merged_rect) {
+                        (Some(tile), Some(rect)) => {
+                            let tile_size = image.tiling.unwrap();
+                            let clipped_tile_size = compute_tile_size(&descriptor, tile_size, tile);
+
+                            rect.intersection(&DeviceUintRect::new(
+                                DeviceUintPoint::new(tile.x as u32, tile.y as u32) * tile_size as u32,
+                                clipped_tile_size,
+                            ))
+                        }
+                        _ => merged_rect,
+                    };
                 }
             }
             _ => {}
