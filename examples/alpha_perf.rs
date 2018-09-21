@@ -38,7 +38,7 @@ impl Example for App {
             TransformStyle::Flat,
             MixBlendMode::Normal,
             Vec::new(),
-            GlyphRasterSpace::Screen,
+            RasterSpace::Screen,
         );
 
         for _ in 0 .. self.rect_count {

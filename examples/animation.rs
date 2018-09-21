@@ -63,7 +63,7 @@ impl Example for App {
             TransformStyle::Flat,
             MixBlendMode::Normal,
             filters,
-            GlyphRasterSpace::Screen,
+            RasterSpace::Screen,
         );
 
         let complex_clip = ComplexClipRegion {

@@ -218,7 +218,7 @@ impl Example for App {
             api::TransformStyle::Flat,
             api::MixBlendMode::Normal,
             Vec::new(),
-            api::GlyphRasterSpace::Screen,
+            api::RasterSpace::Screen,
         );
 
         let info = api::LayoutPrimitiveInfo::new((30, 30).by(500, 500));

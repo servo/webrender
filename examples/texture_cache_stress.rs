@@ -102,7 +102,7 @@ impl Example for App {
             TransformStyle::Flat,
             MixBlendMode::Normal,
             Vec::new(),
-            GlyphRasterSpace::Screen,
+            RasterSpace::Screen,
         );
 
         let x0 = 50.0;

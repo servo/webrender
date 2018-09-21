@@ -39,7 +39,7 @@ impl Example for App {
             TransformStyle::Flat,
             MixBlendMode::Normal,
             Vec::new(),
-            GlyphRasterSpace::Screen,
+            RasterSpace::Screen,
         );
 
         if true {
@@ -52,7 +52,7 @@ impl Example for App {
                 TransformStyle::Flat,
                 MixBlendMode::Normal,
                 Vec::new(),
-                GlyphRasterSpace::Screen,
+                RasterSpace::Screen,
             );
             // set the scrolling clip
             let clip_id = builder.define_scroll_frame(
