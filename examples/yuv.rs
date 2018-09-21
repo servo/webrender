@@ -99,7 +99,7 @@ impl Example for App {
             TransformStyle::Flat,
             MixBlendMode::Normal,
             Vec::new(),
-            GlyphRasterSpace::Screen,
+            RasterSpace::Screen,
         );
 
         let yuv_chanel1 = api.generate_image_key();

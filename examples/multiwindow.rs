@@ -194,7 +194,7 @@ impl Window {
             TransformStyle::Flat,
             MixBlendMode::Normal,
             Vec::new(),
-            GlyphRasterSpace::Screen,
+            RasterSpace::Screen,
         );
 
         let info = LayoutPrimitiveInfo::new(LayoutRect::new(

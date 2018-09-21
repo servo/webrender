@@ -3,7 +3,7 @@ root:
     - type: stacking-context
       transform: scale(5.0) rotate(45)
       transform-origin: 300 300
-      glyph-raster-space: local(1.0)
+      raster-space: local(1.0)
       items:
       - text: "Local"
         origin: 20 50
