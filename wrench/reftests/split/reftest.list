@@ -9,3 +9,6 @@
 #== cross.yaml cross-ref.yaml #TODO: investigate sub-pixel differences
 == ordering.yaml ordering-ref.yaml
 fuzzy(1,20) == near-plane.yaml near-plane.png
+# Note: on windows the image is rendered at a slightly different spot.
+# similarly, a lot of tests in "transform" are non-windows. TODO: investigate
+platform(linux,mac) fuzzy(1,20) == same-plane.yaml same-plane.png
