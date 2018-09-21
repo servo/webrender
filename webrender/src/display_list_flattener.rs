@@ -25,7 +25,7 @@ use image::simplify_repeated_primitive;
 use internal_types::{FastHashMap, FastHashSet};
 use picture::{PictureCompositeMode, PictureIdGenerator, PicturePrimitive};
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor};
-use prim_store::{EdgeAaSegmentMask, ImageSource};
+use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveOpacity};
 use prim_store::{BorderSource, BrushSegment, PrimitiveContainer, PrimitiveIndex, PrimitiveStore};
 use prim_store::{OpacityBinding, ScrollNodeAndClipChain, TextRunPrimitive};
 use render_backend::{DocumentView};
@@ -591,7 +591,7 @@ impl<'a> DisplayListFlattener<'a> {
                 );
             }
             SpecificDisplayItem::Gradient(ref info) => {
-                let brush_kind = self.create_brush_kind_for_gradient(
+                if let Some(brush_kind) = self.create_brush_kind_for_gradient(
                     &prim_info,
                     info.gradient.start_point,
                     info.gradient.end_point,
@@ -599,9 +599,11 @@ impl<'a> DisplayListFlattener<'a> {
                     info.gradient.extend_mode,
                     info.tile_size,
                     info.tile_spacing,
-                );
-                let prim = PrimitiveContainer::Brush(BrushPrimitive::new(brush_kind, None));
-                self.add_primitive(clip_and_scroll, &prim_info, Vec::new(), prim);
+                    pipeline_id,
+                ) {
+                    let prim = PrimitiveContainer::Brush(BrushPrimitive::new(brush_kind, None));
+                    self.add_primitive(clip_and_scroll, &prim_info, Vec::new(), prim);
+                }
             }
             SpecificDisplayItem::RadialGradient(ref info) => {
                 let brush_kind = self.create_brush_kind_for_radial_gradient(
@@ -641,6 +643,7 @@ impl<'a> DisplayListFlattener<'a> {
                     &prim_info,
                     info,
                     item.gradient_stops(),
+                    pipeline_id,
                 );
             }
             SpecificDisplayItem::PushStackingContext(ref info) => {
@@ -1580,6 +1583,7 @@ impl<'a> DisplayListFlattener<'a> {
         info: &LayoutPrimitiveInfo,
         border_item: &BorderDisplayItem,
         gradient_stops: ItemRange<GradientStop>,
+        pipeline_id: PipelineId,
     ) {
         let rect = info.rect;
         match border_item.details {
@@ -1756,7 +1760,7 @@ impl<'a> DisplayListFlattener<'a> {
                         }
                     }
                     NinePatchBorderSource::Gradient(gradient) => {
-                        self.create_brush_kind_for_gradient(
+                        match self.create_brush_kind_for_gradient(
                             &info,
                             gradient.start_point,
                             gradient.end_point,
@@ -1764,7 +1768,11 @@ impl<'a> DisplayListFlattener<'a> {
                             gradient.extend_mode,
                             LayoutSize::new(border.height as f32, border.width as f32),
                             LayoutSize::zero(),
-                        )
+                            pipeline_id,
+                        ) {
+                            Some(brush_kind) => brush_kind,
+                            None => return,
+                        }
                     }
                     NinePatchBorderSource::RadialGradient(gradient) => {
                         self.create_brush_kind_for_radial_gradient(
@@ -1801,9 +1809,33 @@ impl<'a> DisplayListFlattener<'a> {
         extend_mode: ExtendMode,
         stretch_size: LayoutSize,
         mut tile_spacing: LayoutSize,
-    ) -> BrushKind {
+        pipeline_id: PipelineId,
+    ) -> Option<BrushKind> {
         let mut prim_rect = info.rect;
         simplify_repeated_primitive(&stretch_size, &mut tile_spacing, &mut prim_rect);
+
+        // TODO(gw): It seems like we should be able to look this up once in
+        //           flatten_root() and pass to all children here to avoid
+        //           some hash lookups?
+        let display_list = self.scene.get_display_list_for_pipeline(pipeline_id);
+
+        let mut max_alpha: f32 = 0.0;
+        let mut min_alpha: f32 = 1.0;
+        for stop in display_list.get(stops) {
+            max_alpha = max_alpha.max(stop.color.a);
+            min_alpha = min_alpha.min(stop.color.a);
+        }
+
+        // If all the stops have no alpha, then this
+        // gradient can't contribute to the scene.
+        if max_alpha <= 0.0 {
+            return None;
+        }
+
+        // Save opacity of the stops for use in
+        // selecting which pass this gradient
+        // should be drawn in.
+        let stops_opacity = PrimitiveOpacity::from_alpha(min_alpha);
 
         // Try to ensure that if the gradient is specified in reverse, then so long as the stops
         // are also supplied in reverse that the rendered result will be equivalent. To do this,
@@ -1823,7 +1855,7 @@ impl<'a> DisplayListFlattener<'a> {
             (start_point, end_point)
         };
 
-        BrushKind::LinearGradient {
+        Some(BrushKind::LinearGradient {
             stops_range: stops,
             extend_mode,
             reverse_stops,
@@ -1833,7 +1865,8 @@ impl<'a> DisplayListFlattener<'a> {
             stretch_size,
             tile_spacing,
             visible_tiles: Vec::new(),
-        }
+            stops_opacity,
+        })
     }
 
     pub fn create_brush_kind_for_radial_gradient(
