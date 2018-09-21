@@ -88,7 +88,7 @@ impl PrimitiveOpacity {
 
     pub fn from_alpha(alpha: f32) -> PrimitiveOpacity {
         PrimitiveOpacity {
-            is_opaque: alpha == 1.0,
+            is_opaque: alpha >= 1.0,
         }
     }
 }
@@ -402,6 +402,7 @@ pub enum BrushKind {
         stretch_size: LayoutSize,
         tile_spacing: LayoutSize,
         visible_tiles: Vec<VisibleGradientTile>,
+        stops_opacity: PrimitiveOpacity,
     },
     Border {
         source: BorderSource,
@@ -1430,7 +1431,20 @@ impl PrimitiveStore {
                     BrushKind::Image { .. } => PrimitiveOpacity::translucent(),
                     BrushKind::YuvImage { .. } => PrimitiveOpacity::opaque(),
                     BrushKind::RadialGradient { .. } => PrimitiveOpacity::translucent(),
-                    BrushKind::LinearGradient { .. } => PrimitiveOpacity::translucent(),
+                    BrushKind::LinearGradient { stretch_size, tile_spacing, stops_opacity, .. } => {
+                        // If the coverage of the gradient extends to or beyond
+                        // the primitive rect, then the opacity can be determined
+                        // by the colors of the stops. If we have tiling / spacing
+                        // then we just assume the gradient is translucent for now.
+                        // (In the future we could consider segmenting in some cases).
+                        let stride = stretch_size + tile_spacing;
+                        if stride.width >= local_rect.size.width &&
+                           stride.height >= local_rect.size.height {
+                            stops_opacity
+                        } else {
+                            PrimitiveOpacity::translucent()
+                        }
+                    }
                     BrushKind::Picture { .. } => PrimitiveOpacity::translucent(),
                     BrushKind::Border { .. } => PrimitiveOpacity::translucent(),
                 };
