@@ -5,7 +5,7 @@
 use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipMode, ColorF, PictureRect};
 use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, ExtendMode, DeviceRect, PictureToRasterTransform};
 use api::{FilterOp, GlyphInstance, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, TileOffset};
-use api::{GlyphRasterSpace, LayoutPoint, LayoutRect, LayoutSideOffsets, LayoutSize, LayoutToWorldTransform};
+use api::{RasterSpace, LayoutPoint, LayoutRect, LayoutSideOffsets, LayoutSize, LayoutToWorldTransform};
 use api::{LayoutVector2D, PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat};
 use api::{DeviceIntSideOffsets, WorldPixel, BoxShadowClipMode, LayoutToWorldScale, NormalBorder, WorldRect};
 use api::{PicturePixel, RasterPixel};
@@ -891,7 +891,6 @@ pub struct TextRunPrimitive {
     pub glyph_keys: Vec<GlyphKey>,
     pub glyph_gpu_blocks: Vec<GpuBlockData>,
     pub shadow: bool,
-    pub glyph_raster_space: GlyphRasterSpace,
 }
 
 impl TextRunPrimitive {
@@ -901,7 +900,6 @@ impl TextRunPrimitive {
         glyph_range: ItemRange<GlyphInstance>,
         glyph_keys: Vec<GlyphKey>,
         shadow: bool,
-        glyph_raster_space: GlyphRasterSpace,
     ) -> Self {
         TextRunPrimitive {
             specified_font: font.clone(),
@@ -911,7 +909,6 @@ impl TextRunPrimitive {
             glyph_keys,
             glyph_gpu_blocks: Vec::new(),
             shadow,
-            glyph_raster_space,
         }
     }
 
@@ -920,6 +917,7 @@ impl TextRunPrimitive {
         device_pixel_scale: DevicePixelScale,
         transform: &LayoutToWorldTransform,
         allow_subpixel_aa: bool,
+        raster_space: RasterSpace,
     ) -> bool {
         // Get the current font size in device pixels
         let device_font_size = self.specified_font.size.scale_by(device_pixel_scale.0);
@@ -931,7 +929,7 @@ impl TextRunPrimitive {
            // Font sizes larger than the limit need to be scaled, thus can't use subpixels.
            transform.exceeds_2d_scale(FONT_SIZE_LIMIT / device_font_size.to_f64_px()) ||
            // Otherwise, ensure the font is rasterized in screen-space.
-           self.glyph_raster_space != GlyphRasterSpace::Screen {
+           raster_space != RasterSpace::Screen {
             false
         } else {
             true
@@ -980,6 +978,7 @@ impl TextRunPrimitive {
         device_pixel_scale: DevicePixelScale,
         transform: &LayoutToWorldTransform,
         allow_subpixel_aa: bool,
+        raster_space: RasterSpace,
         display_list: &BuiltDisplayList,
         frame_building_state: &mut FrameBuildingState,
     ) {
@@ -987,6 +986,7 @@ impl TextRunPrimitive {
             device_pixel_scale,
             transform,
             allow_subpixel_aa,
+            raster_space,
         );
 
         // Cache the glyph positions, if not in the cache already.
@@ -1292,7 +1292,6 @@ impl PrimitiveContainer {
                     info.glyph_range,
                     info.glyph_keys.clone(),
                     true,
-                    info.glyph_raster_space,
                 ))
             }
             PrimitiveContainer::Brush(ref brush) => {
@@ -2340,6 +2339,7 @@ impl Primitive {
                     frame_context.device_pixel_scale,
                     &transform,
                     pic_context.allow_subpixel_aa,
+                    pic_context.raster_space,
                     display_list,
                     frame_state,
                 );

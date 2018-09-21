@@ -118,7 +118,7 @@ impl App {
             TransformStyle::Flat,
             MixBlendMode::Normal,
             Vec::new(),
-            GlyphRasterSpace::Screen,
+            RasterSpace::Screen,
         );
 
         builder.push_rect(&info, ColorF::new(1.0, 1.0, 0.0, 1.0));
@@ -161,7 +161,7 @@ impl Example for App {
             TransformStyle::Flat,
             MixBlendMode::Normal,
             Vec::new(),
-            GlyphRasterSpace::Screen,
+            RasterSpace::Screen,
         );
 
         builder.push_image(

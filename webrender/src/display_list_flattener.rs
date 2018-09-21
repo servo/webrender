@@ -6,7 +6,7 @@
 use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayListIter, ClipAndScrollInfo};
 use api::{ClipId, ColorF, ComplexClipRegion, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::{DevicePixelScale, DeviceUintRect, DisplayItemRef, ExtendMode, ExternalScrollId};
-use api::{FilterOp, FontInstanceKey, GlyphInstance, GlyphOptions, GlyphRasterSpace, GradientStop};
+use api::{FilterOp, FontInstanceKey, GlyphInstance, GlyphOptions, RasterSpace, GradientStop};
 use api::{IframeDisplayItem, ImageKey, ImageRendering, ItemRange, LayoutPoint};
 use api::{LayoutPrimitiveInfo, LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D};
 use api::{LineOrientation, LineStyle, LocalClip, NinePatchBorderSource, PipelineId};
@@ -265,7 +265,7 @@ impl<'a> DisplayListFlattener<'a> {
             true,
             root_scroll_node,
             None,
-            GlyphRasterSpace::Screen,
+            RasterSpace::Screen,
         );
 
         // For the root pipeline, there's no need to add a full screen rectangle
@@ -455,7 +455,7 @@ impl<'a> DisplayListFlattener<'a> {
             false,
             scroll_node_id,
             stacking_context.clip_node_id,
-            stacking_context.glyph_raster_space,
+            stacking_context.raster_space,
         );
 
         self.flatten_items(
@@ -959,7 +959,7 @@ impl<'a> DisplayListFlattener<'a> {
         is_pipeline_root: bool,
         spatial_node: ClipId,
         clipping_node: Option<ClipId>,
-        glyph_raster_space: GlyphRasterSpace,
+        requested_raster_space: RasterSpace,
     ) {
         let spatial_node_index = self.id_to_index_mapper.get_spatial_node_index(spatial_node);
         let clip_chain_id = match clipping_node {
@@ -1035,6 +1035,7 @@ impl<'a> DisplayListFlattener<'a> {
             pipeline_id,
             frame_output_pipeline_id,
             true,
+            requested_raster_space,
         );
 
         // Create a brush primitive that draws this picture.
@@ -1064,6 +1065,7 @@ impl<'a> DisplayListFlattener<'a> {
                 pipeline_id,
                 None,
                 true,
+                requested_raster_space,
             );
 
             filter_picture.add_primitive(current_prim_index);
@@ -1089,6 +1091,7 @@ impl<'a> DisplayListFlattener<'a> {
                 pipeline_id,
                 None,
                 true,
+                requested_raster_space,
             );
 
             blend_picture.add_primitive(current_prim_index);
@@ -1116,6 +1119,7 @@ impl<'a> DisplayListFlattener<'a> {
                 pipeline_id,
                 None,
                 true,
+                requested_raster_space,
             );
 
             container_picture.add_primitive(current_prim_index);
@@ -1158,7 +1162,6 @@ impl<'a> DisplayListFlattener<'a> {
             participating_in_3d_context,
             leaf_prim_index,
             root_prim_index: current_prim_index,
-            glyph_raster_space,
             has_mix_blend_mode: composite_ops.mix_blend_mode.is_some(),
         };
 
@@ -1414,7 +1417,18 @@ impl<'a> DisplayListFlattener<'a> {
         // into the parent picture surface, instead of allocating and drawing
         // into an intermediate surface. In this case, we will need to apply
         // the local clip rect to primitives.
-        let apply_local_clip_rect = shadow.blur_radius == 0.0;
+        let is_passthrough = shadow.blur_radius == 0.0;
+
+        // shadows always rasterize in local space.
+        // TODO(gw): expose API for clients to specify a raster scale
+        let raster_space = if is_passthrough {
+            let parent_pic_prim_index = self.sc_stack.last().unwrap().leaf_prim_index;
+            self.prim_store
+                .get_pic(parent_pic_prim_index)
+                .requested_raster_space
+        } else {
+            RasterSpace::Local(1.0)
+        };
 
         // Create a picture that the shadow primitives will be added to. If the
         // blur radius is 0, the code in Picture::prepare_for_render will
@@ -1426,7 +1440,8 @@ impl<'a> DisplayListFlattener<'a> {
             false,
             pipeline_id,
             None,
-            apply_local_clip_rect,
+            is_passthrough,
+            raster_space,
         );
 
         // Create the primitive to draw the shadow picture into the scene.
@@ -1903,11 +1918,6 @@ impl<'a> DisplayListFlattener<'a> {
                 flags |= options.flags;
             }
 
-            let glyph_raster_space = match self.sc_stack.last() {
-                Some(stacking_context) => stacking_context.glyph_raster_space,
-                None => GlyphRasterSpace::Screen,
-            };
-
             let prim_font = FontInstance::new(
                 font_instance.font_key,
                 font_instance.size,
@@ -1925,7 +1935,6 @@ impl<'a> DisplayListFlattener<'a> {
                 glyph_range,
                 Vec::new(),
                 false,
-                glyph_raster_space,
             )
         };
 
@@ -2050,10 +2059,6 @@ struct FlattenedStackingContext {
 
     /// If true, visible when backface is visible.
     is_backface_visible: bool,
-
-    /// The rasterization mode for any text runs that are part
-    /// of this stacking context.
-    glyph_raster_space: GlyphRasterSpace,
 
     /// CSS transform-style property.
     transform_style: TransformStyle,
