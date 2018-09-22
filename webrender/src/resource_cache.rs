@@ -1620,6 +1620,9 @@ impl ResourceCache {
         }
 
         // Mesure rasterized blobs.
+        // TODO(gw): Temporarily disabled while we roll back a crash. We can re-enable
+        //           these when that crash is fixed.
+        /*
         for (_, image) in self.rasterized_blob_images.iter() {
             let mut accumulate = |b: &RasterizedBlobImage| {
                 report.rasterized_blobs += unsafe { op(b.data.as_ptr() as *const c_void) };
@@ -1629,6 +1632,7 @@ impl ResourceCache {
                 RasterizedBlob::NonTiled(vec) => vec.iter().for_each(&mut accumulate),
             };
         }
+        */
 
         report
     }
