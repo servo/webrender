@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{AddFont, BlobImageResources, AsyncBlobImageRasterizer, ResourceUpdate};
-use api::{BlobImageDescriptor, BlobImageHandler, BlobImageRequest, RasterizedBlobImage};
+use api::{BlobImageDescriptor, BlobImageHandler, BlobImageRequest};
 use api::{ClearCache, ColorF, DevicePoint, DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{FontInstanceKey, FontKey, FontTemplate, GlyphIndex};
 use api::{ExternalImageData, ExternalImageType, BlobImageResult, BlobImageParams};
@@ -100,9 +100,8 @@ enum State {
 }
 
 /// Post scene building state.
-enum RasterizedBlob {
-    Tiled(FastHashMap<TileOffset, RasterizedBlobImage>),
-    NonTiled(RasterizedBlobImage),
+struct RasterizedBlobImage {
+    data: FastHashMap<Option<TileOffset>, BlobImageResult>,
 }
 
 /// Pre scene building state.
@@ -406,7 +405,7 @@ pub struct ResourceCache {
     pending_image_requests: FastHashSet<ImageRequest>,
 
     blob_image_handler: Option<Box<BlobImageHandler>>,
-    rasterized_blob_images: FastHashMap<ImageKey, RasterizedBlob>,
+    rasterized_blob_images: FastHashMap<ImageKey, RasterizedBlobImage>,
     blob_image_templates: FastHashMap<ImageKey, BlobImageTemplate>,
 
     // If while building a frame we encounter blobs that we didn't already
@@ -605,29 +604,10 @@ impl ResourceCache {
 
     pub fn add_rasterized_blob_images(&mut self, images: Vec<(BlobImageRequest, BlobImageResult)>) {
         for (request, result) in images {
-            let data = match result {
-                Ok(data) => data,
-                Err(..) => {
-                    warn!("Failed to rasterize a blob image");
-                    continue;
-                }
-            };
-
             let image = self.rasterized_blob_images.entry(request.key).or_insert_with(
-                || { RasterizedBlob::Tiled(FastHashMap::default()) }
+                || { RasterizedBlobImage { data: FastHashMap::default() } }
             );
-
-            if let Some(tile) = request.tile {
-                if let RasterizedBlob::NonTiled(..) = *image {
-                    *image = RasterizedBlob::Tiled(FastHashMap::default());
-                }
-
-                if let RasterizedBlob::Tiled(ref mut tiles) = *image {
-                    tiles.insert(tile, data);
-                }
-            } else {
-                *image = RasterizedBlob::NonTiled(data);
-            }
+            image.data.insert(request.tile, result);
         }
     }
 
@@ -965,10 +945,9 @@ impl ResourceCache {
 
         if template.data.is_blob() {
             let request: BlobImageRequest = request.into();
-            let missing = match (self.rasterized_blob_images.get(&request.key), request.tile) {
-                (Some(RasterizedBlob::Tiled(tiles)), Some(tile)) => !tiles.contains_key(&tile),
-                (Some(RasterizedBlob::NonTiled(..)), None) => false,
-                _ => true,
+            let missing = match self.rasterized_blob_images.get(&request.key) {
+                Some(img) => !img.data.contains_key(&request.tile),
+                None => true,
             };
 
             // For some reason the blob image is missing. We'll fall back to
@@ -1155,19 +1134,28 @@ impl ResourceCache {
             Some(size) => size,
             None => { return; }
         };
-
-        let tiles = match self.rasterized_blob_images.get_mut(&key) {
-            Some(RasterizedBlob::Tiled(tiles)) => tiles,
-            _ => { return; }
+        let image = match self.rasterized_blob_images.get_mut(&key) {
+            Some(image) => image,
+            None => {
+                //println!("Missing rasterized blob (key={:?})!", key);
+                return;
+            }
         };
-
         let tile_range = compute_tile_range(
             &area,
             &template.descriptor.size,
             tile_size,
         );
-
-        tiles.retain(|tile, _| { tile_range.contains(tile) });
+        image.data.retain(|tile, _| {
+            match *tile {
+                Some(offset) => tile_range.contains(&offset),
+                // This would be a bug. If we get here the blob should be tiled.
+                None => {
+                    error!("Blob image template and image data tiling don't match.");
+                    false
+                }
+            }
+        });
     }
 
     pub fn request_glyphs(
@@ -1440,22 +1428,20 @@ impl ResourceCache {
                     image_template.data.clone()
                 }
                 ImageData::Blob(..) => {
-
-
                     let blob_image = self.rasterized_blob_images.get(&request.key).unwrap();
-                    match (blob_image, request.tile) {
-                        (RasterizedBlob::Tiled(ref tiles), Some(tile)) => {
-                            let img = &tiles[&tile];
-                            blob_rasterized_rect = Some(img.rasterized_rect);
+                    match blob_image.data.get(&request.tile) {
+                        Some(result) => {
+                            let result = result
+                                .as_ref()
+                                .expect("Failed to render a blob image");
 
-                            ImageData::Raw(Arc::clone(&img.data))
-                        }
-                        (RasterizedBlob::NonTiled(ref img), None) => {
-                            blob_rasterized_rect = Some(img.rasterized_rect);
+                            // TODO: we may want to not panic and show a placeholder instead.
 
-                            ImageData::Raw(Arc::clone(&img.data))
+                            blob_rasterized_rect = Some(result.rasterized_rect);
+
+                            ImageData::Raw(Arc::clone(&result.data))
                         }
-                        _ =>  {
+                        None => {
                             debug_assert!(false, "invalid blob image request during frame building");
                             continue;
                         }
