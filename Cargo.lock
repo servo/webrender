@@ -334,15 +334,6 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "dwrite-sys"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "winapi 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "winapi-build 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "dwrote"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -902,28 +893,25 @@ dependencies = [
 [[package]]
 name = "pathfinder_font_renderer"
 version = "0.5.0"
-source = "git+https://github.com/pcwalton/pathfinder?branch=webrender#d6a4ade138f665c8f773f65c3afd683fa5cae013"
+source = "git+https://github.com/pcwalton/pathfinder?branch=webrender#e8805413321edf85870deee5678751746ed61316"
 dependencies = [
  "app_units 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "core-graphics 0.17.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "core-text 13.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "dwrite-sys 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "euclid 0.19.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "freetype 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "kernel32-sys 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.42 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "lyon_path 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.66 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.66 (git+https://github.com/servo/serde?branch=deserialize_from_enums8)",
- "uuid-sys 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "winapi 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "winapi 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "pathfinder_gfx_utils"
 version = "0.2.0"
-source = "git+https://github.com/pcwalton/pathfinder?branch=webrender#d6a4ade138f665c8f773f65c3afd683fa5cae013"
+source = "git+https://github.com/pcwalton/pathfinder?branch=webrender#e8805413321edf85870deee5678751746ed61316"
 dependencies = [
  "euclid 0.19.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -931,7 +919,7 @@ dependencies = [
 [[package]]
 name = "pathfinder_partitioner"
 version = "0.2.0"
-source = "git+https://github.com/pcwalton/pathfinder?branch=webrender#d6a4ade138f665c8f773f65c3afd683fa5cae013"
+source = "git+https://github.com/pcwalton/pathfinder?branch=webrender#e8805413321edf85870deee5678751746ed61316"
 dependencies = [
  "arrayvec 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "bincode 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -951,7 +939,7 @@ dependencies = [
 [[package]]
 name = "pathfinder_path_utils"
 version = "0.2.0"
-source = "git+https://github.com/pcwalton/pathfinder?branch=webrender#d6a4ade138f665c8f773f65c3afd683fa5cae013"
+source = "git+https://github.com/pcwalton/pathfinder?branch=webrender#e8805413321edf85870deee5678751746ed61316"
 dependencies = [
  "arrayvec 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "lyon_path 0.12.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1399,15 +1387,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "uuid-sys"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "winapi 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "winapi-build 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "vec_map"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1729,7 +1708,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum dlib 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)" = "77e51249a9d823a4cb79e3eca6dcd756153e8ed0157b6c04775d04bf1b13b76a"
 "checksum downcast-rs 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)" = "18df8ce4470c189d18aa926022da57544f31e154631eb4cfe796aea97051fe6c"
 "checksum dtoa 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "09c3753c3db574d215cba4ea76018483895d7bff25a31b49ba45db21c48e50ab"
-"checksum dwrite-sys 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "a7918280f33862bc8542212d74f2149b1a87ab402fd15f4ce9a1c56582958d6e"
 "checksum dwrote 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)" = "30a998e9ff70cd208ccdc4f864e998688bf61d7b897dccec8e17a884d17358bf"
 "checksum either 1.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "3be565ca5c557d7f59e7cfcf1844f9e3033650c929c6566f511e8005f205c1d0"
 "checksum env_logger 0.5.10 (registry+https://github.com/rust-lang/crates.io-index)" = "0e6e40ebb0e66918a37b38c7acab4e10d299e0463fe2af5d29b9cc86710cfd2a"
@@ -1853,7 +1831,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum user32-sys 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "4ef4711d107b21b410a3a974b1204d9accc8b10dad75d8324b5d755de1617d47"
 "checksum utf8-ranges 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "662fab6525a98beff2921d7f61a39e7d59e0b425ebc7d0d9e66d316e55124122"
 "checksum uuid 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)" = "e1436e58182935dcd9ce0add9ea0b558e8a87befe01c1a301e6020aeb0876363"
-"checksum uuid-sys 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)" = "383cea1fd3b68c33bbdd25af09bc50e70f4c9f1d9b18e39e514e4acf760ec5d2"
 "checksum vec_map 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)" = "05c78687fb1a80548ae3250346c3db86a80a7cdd77bda190189f2d0a0987c81a"
 "checksum void 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)" = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 "checksum wayland-client 0.20.10 (registry+https://github.com/rust-lang/crates.io-index)" = "0f3ed65542a0be13ea0fdcc55c9a011fcc44c3882e6e1a9b4dfddb25182897dd"
