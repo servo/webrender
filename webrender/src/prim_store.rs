@@ -55,23 +55,6 @@ impl ScrollNodeAndClipChain {
     }
 }
 
-#[derive(Debug)]
-pub struct PrimitiveRun {
-    pub base_prim_index: PrimitiveIndex,
-    pub count: usize,
-}
-
-impl PrimitiveRun {
-    pub fn is_chasing(&self, index: Option<PrimitiveIndex>) -> bool {
-        match index {
-            Some(id) if cfg!(debug_assertions) => {
-                self.base_prim_index <= id && id.0 < self.base_prim_index.0 + self.count
-            }
-            _ => false,
-        }
-    }
-}
-
 #[derive(Debug, Copy, Clone)]
 pub struct PrimitiveOpacity {
     pub is_opaque: bool,
@@ -1481,22 +1464,18 @@ impl PrimitiveStore {
     // that can be the target for collapsing parent opacity filters into.
     fn get_opacity_collapse_prim(
         &self,
-        prim_index: PrimitiveIndex,
+        pic_prim_index: PrimitiveIndex,
     ) -> Option<PrimitiveIndex> {
-        let pic = self.get_pic(prim_index);
+        let pic = self.get_pic(pic_prim_index);
 
         // We can only collapse opacity if there is a single primitive, otherwise
         // the opacity needs to be applied to the primitives as a group.
-        if pic.runs.len() != 1 {
+        if pic.prim_indices.len() != 1 {
             return None;
         }
 
-        let run = &pic.runs[0];
-        if run.count != 1 {
-            return None;
-        }
-
-        let prim = &self.primitives[run.base_prim_index.0];
+        let prim_index = pic.prim_indices[0];
+        let prim = &self.primitives[prim_index.0];
 
         // For now, we only support opacity collapse on solid rects and images.
         // This covers the most common types of opacity filters that can be
@@ -1510,13 +1489,13 @@ impl PrimitiveStore {
                         // (i.e. no composite mode), then we can recurse into
                         // that to try and find a primitive to collapse to.
                         if pic.requested_composite_mode.is_none() {
-                            return self.get_opacity_collapse_prim(run.base_prim_index);
+                            return self.get_opacity_collapse_prim(prim_index);
                         }
                     }
                     // If we find a single rect or image, we can use that
                     // as the primitive to collapse the opacity into.
                     BrushKind::Solid { .. } | BrushKind::Image { .. } => {
-                        return Some(run.base_prim_index)
+                        return Some(prim_index)
                     }
                     BrushKind::Border { .. } |
                     BrushKind::YuvImage { .. } |
@@ -1643,7 +1622,7 @@ impl PrimitiveStore {
                     prim_context.spatial_node.coordinate_system_id != CoordinateSystemId::root();
 
                 let mut pic_rect = PictureRect::zero();
-                self.prepare_prim_runs(
+                self.prepare_primitives(
                     &pic_context_for_children,
                     &mut pic_state_for_children,
                     frame_context,
@@ -1836,7 +1815,7 @@ impl PrimitiveStore {
         }
     }
 
-    pub fn prepare_prim_runs(
+    pub fn prepare_primitives(
         &mut self,
         pic_context: &PictureContext,
         pic_state: &mut PictureState,
@@ -1850,75 +1829,73 @@ impl PrimitiveStore {
             .expect("No display list?")
             .display_list;
 
-        for run in &pic_context.prim_runs {
-            if run.is_chasing(self.chase_id) {
-                println!("\tpreparing a run of length {} in pipeline {:?}",
-                    run.count, pic_context.pipeline_id);
+        for prim_index in &pic_context.prim_indices {
+            let prim_index = *prim_index;
+            let is_chased = Some(prim_index) == self.chase_id;
+
+            if is_chased {
+                println!("\tpreparing prim {:?} in pipeline {:?}",
+                    prim_index, pic_context.pipeline_id);
             }
 
-            for i in 0 .. run.count {
-                let prim_index = PrimitiveIndex(run.base_prim_index.0 + i);
-                let is_chased = Some(prim_index) == self.chase_id;
+            // TODO(gw): These workarounds for borrowck are unfortunate. We
+            //           should see if we can re-structure these to avoid so
+            //           many special borrow blocks.
+            let (spatial_node_index, is_backface_visible) = {
+                let prim = &self.primitives[prim_index.0];
+                (prim.metadata.spatial_node_index, prim.metadata.is_backface_visible)
+            };
 
-                // TODO(gw): These workarounds for borrowck are unfortunate. We
-                //           should see if we can re-structure these to avoid so
-                //           many special borrow blocks.
-                let (spatial_node_index, is_backface_visible) = {
-                    let prim = &self.primitives[prim_index.0];
-                    (prim.metadata.spatial_node_index, prim.metadata.is_backface_visible)
-                };
+            let spatial_node = &frame_context
+                .clip_scroll_tree
+                .spatial_nodes[spatial_node_index.0];
 
-                let spatial_node = &frame_context
-                    .clip_scroll_tree
-                    .spatial_nodes[spatial_node_index.0];
+            // TODO(gw): Although constructing these is cheap, they are often
+            //           the same for many consecutive primitives, so it may
+            //           be worth caching the most recent context.
+            let prim_context = PrimitiveContext::new(
+                spatial_node,
+                spatial_node_index,
+            );
 
-                // TODO(gw): Although constructing these is cheap, they are often
-                //           the same for many consecutive primitives, so it may
-                //           be worth caching the most recent context.
-                let prim_context = PrimitiveContext::new(
-                    spatial_node,
-                    spatial_node_index,
-                );
-
-                // Do some basic checks first, that can early out
-                // without even knowing the local rect.
-                if !is_backface_visible && spatial_node.world_content_transform.is_backface_visible() {
-                    if cfg!(debug_assertions) && is_chased {
-                        println!("\tculled for not having visible back faces");
-                    }
-                    continue;
+            // Do some basic checks first, that can early out
+            // without even knowing the local rect.
+            if !is_backface_visible && spatial_node.world_content_transform.is_backface_visible() {
+                if cfg!(debug_assertions) && is_chased {
+                    println!("\tculled for not having visible back faces");
                 }
+                continue;
+            }
 
-                if !spatial_node.invertible {
-                    if cfg!(debug_assertions) && is_chased {
-                        println!("\tculled for the scroll node transform being invertible");
-                    }
-                    continue;
+            if !spatial_node.invertible {
+                if cfg!(debug_assertions) && is_chased {
+                    println!("\tculled for the scroll node transform being invertible");
                 }
+                continue;
+            }
 
-                // Mark whether this picture contains any complex coordinate
-                // systems, due to either the scroll node or the clip-chain.
-                pic_state.has_non_root_coord_system |=
-                    spatial_node.coordinate_system_id != CoordinateSystemId::root();
+            // Mark whether this picture contains any complex coordinate
+            // systems, due to either the scroll node or the clip-chain.
+            pic_state.has_non_root_coord_system |=
+                spatial_node.coordinate_system_id != CoordinateSystemId::root();
 
-                pic_state.map_local_to_pic.set_target_spatial_node(
-                    spatial_node_index,
-                    frame_context.clip_scroll_tree,
-                );
+            pic_state.map_local_to_pic.set_target_spatial_node(
+                spatial_node_index,
+                frame_context.clip_scroll_tree,
+            );
 
-                if self.prepare_prim_for_render(
-                    prim_index,
-                    &prim_context,
-                    pic_context,
-                    pic_state,
-                    frame_context,
-                    frame_state,
-                    display_list,
-                    is_chased,
-                    current_pic_rect,
-                ) {
-                    frame_state.profile_counters.visible_primitives.inc();
-                }
+            if self.prepare_prim_for_render(
+                prim_index,
+                &prim_context,
+                pic_context,
+                pic_state,
+                frame_context,
+                frame_state,
+                display_list,
+                is_chased,
+                current_pic_rect,
+            ) {
+                frame_state.profile_counters.visible_primitives.inc();
             }
         }
     }

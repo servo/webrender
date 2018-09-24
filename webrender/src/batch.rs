@@ -19,7 +19,7 @@ use picture::{PictureCompositeMode, PicturePrimitive, PictureSurface};
 use plane_split::{BspSplitter, Clipper, Polygon, Splitter};
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentTaskId, DeferredResolve};
 use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveIndex};
-use prim_store::{PrimitiveMetadata, PrimitiveRun, VisibleGradientTile};
+use prim_store::{PrimitiveMetadata, VisibleGradientTile};
 use prim_store::{BorderSource, Primitive, PrimitiveDetails};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskTree};
 use renderer::{BlendMode, ImageBufferKind, ShaderColorMode};
@@ -450,9 +450,11 @@ impl AlphaBatchBuilder {
         let mut splitter = BspSplitter::new();
 
         // Add each run in this picture to the batch.
-        for run in &pic.runs {
-            self.add_run_to_batch(
-                run,
+        for prim_index in &pic.prim_indices {
+            let prim_index = *prim_index;
+
+            self.add_prim_to_batch(
+                prim_index,
                 ctx,
                 gpu_cache,
                 render_tasks,
@@ -551,60 +553,12 @@ impl AlphaBatchBuilder {
         }
     }
 
-    // Helper to add an entire primitive run to a batch list.
-    // TODO(gw): Restructure this so the param list isn't quite
-    //           so daunting!
-    fn add_run_to_batch(
-        &mut self,
-        run: &PrimitiveRun,
-        ctx: &RenderTargetContext,
-        gpu_cache: &mut GpuCache,
-        render_tasks: &RenderTaskTree,
-        task_id: RenderTaskId,
-        task_address: RenderTaskAddress,
-        deferred_resolves: &mut Vec<DeferredResolve>,
-        splitter: &mut BspSplitter<f64, WorldPixel>,
-        prim_headers: &mut PrimitiveHeaders,
-        transforms: &mut TransformPalette,
-        root_spatial_node_index: SpatialNodeIndex,
-    ) {
-        for i in 0 .. run.count {
-            let prim_index = PrimitiveIndex(run.base_prim_index.0 + i);
-            let metadata = &ctx.prim_store.primitives[prim_index.0].metadata;
-
-            if metadata.clipped_world_rect.is_some() {
-                let transform_id = transforms
-                    .get_id(
-                        metadata.spatial_node_index,
-                        root_spatial_node_index,
-                        ctx.clip_scroll_tree,
-                    );
-
-                self.add_prim_to_batch(
-                    transform_id,
-                    prim_index,
-                    ctx,
-                    gpu_cache,
-                    render_tasks,
-                    task_id,
-                    task_address,
-                    deferred_resolves,
-                    splitter,
-                    prim_headers,
-                    transforms,
-                    root_spatial_node_index,
-                );
-            }
-        }
-    }
-
     // Adds a primitive to a batch.
     // It can recursively call itself in some situations, for
     // example if it encounters a picture where the items
     // in that picture are being drawn into the same target.
     fn add_prim_to_batch(
         &mut self,
-        transform_id: TransformPaletteId,
         prim_index: PrimitiveIndex,
         ctx: &RenderTargetContext,
         gpu_cache: &mut GpuCache,
@@ -619,8 +573,20 @@ impl AlphaBatchBuilder {
     ) {
         let prim = &ctx.prim_store.primitives[prim_index.0];
         let prim_metadata = &prim.metadata;
+
+        if prim_metadata.clipped_world_rect.is_none() {
+            return;
+        }
+
         #[cfg(debug_assertions)] //TODO: why is this needed?
         debug_assert_eq!(prim_metadata.prepared_frame_id, render_tasks.frame_id());
+
+        let transform_id = transforms
+            .get_id(
+                prim_metadata.spatial_node_index,
+                root_spatial_node_index,
+                ctx.clip_scroll_tree,
+            );
 
         // TODO(gw): Calculating this for every primitive is a bit
         //           wasteful. We should probably cache this in
