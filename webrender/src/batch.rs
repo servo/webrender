@@ -12,7 +12,7 @@ use glyph_rasterizer::GlyphFormat;
 use gpu_cache::{GpuCache, GpuCacheHandle, GpuCacheAddress};
 use gpu_types::{BrushFlags, BrushInstance, PrimitiveHeaders};
 use gpu_types::{ClipMaskInstance, SplitCompositeInstance};
-use gpu_types::{PrimitiveInstance, RasterizationSpace, GlyphInstance};
+use gpu_types::{PrimitiveInstanceData, RasterizationSpace, GlyphInstance};
 use gpu_types::{PrimitiveHeader, PrimitiveHeaderIndex, TransformPaletteId, TransformPalette};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::{PictureCompositeMode, PicturePrimitive, PictureSurface};
@@ -141,7 +141,7 @@ impl AlphaBatchList {
         &mut self,
         key: BatchKey,
         bounding_rect: &WorldRect,
-    ) -> &mut Vec<PrimitiveInstance> {
+    ) -> &mut Vec<PrimitiveInstanceData> {
         let mut selected_batch_index = None;
 
         match key.blend_mode {
@@ -213,7 +213,7 @@ impl OpaqueBatchList {
         &mut self,
         key: BatchKey,
         bounding_rect: &WorldRect,
-    ) -> &mut Vec<PrimitiveInstance> {
+    ) -> &mut Vec<PrimitiveInstanceData> {
         let mut selected_batch_index = None;
         let item_area = bounding_rect.size.area();
 
@@ -282,7 +282,7 @@ impl BatchList {
         &mut self,
         key: BatchKey,
         bounding_rect: &WorldRect,
-    ) -> &mut Vec<PrimitiveInstance> {
+    ) -> &mut Vec<PrimitiveInstanceData> {
         match key.blend_mode {
             BlendMode::None => {
                 self.opaque_batch_list
@@ -327,7 +327,7 @@ impl BatchList {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveBatch {
     pub key: BatchKey,
-    pub instances: Vec<PrimitiveInstance>,
+    pub instances: Vec<PrimitiveInstanceData>,
 }
 
 impl PrimitiveBatch {
@@ -549,7 +549,7 @@ impl AlphaBatchBuilder {
                 prim_headers.z_generator.next(),
             );
 
-            batch.push(PrimitiveInstance::from(instance));
+            batch.push(PrimitiveInstanceData::from(instance));
         }
     }
 
@@ -737,7 +737,7 @@ impl AlphaBatchBuilder {
                                                     brush_flags: BrushFlags::empty(),
                                                     clip_task_address,
                                                 };
-                                                batch.push(PrimitiveInstance::from(instance));
+                                                batch.push(PrimitiveInstanceData::from(instance));
                                             }
                                             FilterOp::DropShadow(offset, ..) => {
                                                 // Draw an instance of the shadow first, following by the content.
@@ -821,11 +821,11 @@ impl AlphaBatchBuilder {
 
                                                 self.batch_list
                                                     .get_suitable_batch(shadow_key, bounding_rect)
-                                                    .push(PrimitiveInstance::from(shadow_instance));
+                                                    .push(PrimitiveInstanceData::from(shadow_instance));
 
                                                 self.batch_list
                                                     .get_suitable_batch(content_key, bounding_rect)
-                                                    .push(PrimitiveInstance::from(content_instance));
+                                                    .push(PrimitiveInstanceData::from(content_instance));
                                             }
                                             _ => {
                                                 let filter_mode = match filter {
@@ -895,7 +895,7 @@ impl AlphaBatchBuilder {
                                                 };
 
                                                 let batch = self.batch_list.get_suitable_batch(key, bounding_rect);
-                                                batch.push(PrimitiveInstance::from(instance));
+                                                batch.push(PrimitiveInstanceData::from(instance));
                                             }
                                         }
                                     }
@@ -931,7 +931,7 @@ impl AlphaBatchBuilder {
                                             brush_flags: BrushFlags::empty(),
                                         };
 
-                                        batch.push(PrimitiveInstance::from(instance));
+                                        batch.push(PrimitiveInstanceData::from(instance));
                                     }
                                     PictureCompositeMode::Blit => {
                                         let cache_task_id = surface.resolve_render_task_id();
@@ -965,7 +965,7 @@ impl AlphaBatchBuilder {
                                             edge_flags: EdgeAaSegmentMask::empty(),
                                             brush_flags: BrushFlags::empty(),
                                         };
-                                        batch.push(PrimitiveInstance::from(instance));
+                                        batch.push(PrimitiveInstanceData::from(instance));
                                     }
                                 }
                             }
@@ -1190,7 +1190,7 @@ impl AlphaBatchBuilder {
             textures,
         };
         let batch = self.batch_list.get_suitable_batch(batch_key, bounding_rect);
-        batch.push(PrimitiveInstance::from(base_instance));
+        batch.push(PrimitiveInstanceData::from(base_instance));
     }
 
     fn add_brush_to_batch(
@@ -1252,7 +1252,7 @@ impl AlphaBatchBuilder {
                         BrushSegmentTaskId::Empty => continue,
                     };
 
-                    let instance = PrimitiveInstance::from(BrushInstance {
+                    let instance = PrimitiveInstanceData::from(BrushInstance {
                         segment_index: i as i32,
                         edge_flags: segment.edge_flags,
                         clip_task_address,
@@ -1274,7 +1274,7 @@ impl AlphaBatchBuilder {
                     textures,
                 };
                 let batch = self.batch_list.get_suitable_batch(batch_key, bounding_rect);
-                batch.push(PrimitiveInstance::from(base_instance));
+                batch.push(PrimitiveInstanceData::from(base_instance));
             }
         }
 
@@ -1314,7 +1314,7 @@ fn add_gradient_tiles(
         };
         let prim_header_index = prim_headers.push(&prim_header, user_data);
 
-        batch.push(PrimitiveInstance::from(
+        batch.push(PrimitiveInstanceData::from(
             BrushInstance {
                 prim_header_index,
                 clip_task_address,
