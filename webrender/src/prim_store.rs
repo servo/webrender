@@ -1355,6 +1355,11 @@ impl Primitive {
     }
 }
 
+#[derive(Debug)]
+pub struct PrimitiveInstance {
+    pub prim_index: PrimitiveIndex,
+}
+
 pub struct PrimitiveStore {
     pub primitives: Vec<Primitive>,
 
@@ -1470,12 +1475,12 @@ impl PrimitiveStore {
 
         // We can only collapse opacity if there is a single primitive, otherwise
         // the opacity needs to be applied to the primitives as a group.
-        if pic.prim_indices.len() != 1 {
+        if pic.prim_instances.len() != 1 {
             return None;
         }
 
-        let prim_index = pic.prim_indices[0];
-        let prim = &self.primitives[prim_index.0];
+        let prim_instance = &pic.prim_instances[0];
+        let prim = &self.primitives[prim_instance.prim_index.0];
 
         // For now, we only support opacity collapse on solid rects and images.
         // This covers the most common types of opacity filters that can be
@@ -1489,13 +1494,13 @@ impl PrimitiveStore {
                         // (i.e. no composite mode), then we can recurse into
                         // that to try and find a primitive to collapse to.
                         if pic.requested_composite_mode.is_none() {
-                            return self.get_opacity_collapse_prim(prim_index);
+                            return self.get_opacity_collapse_prim(prim_instance.prim_index);
                         }
                     }
                     // If we find a single rect or image, we can use that
                     // as the primitive to collapse the opacity into.
                     BrushKind::Solid { .. } | BrushKind::Image { .. } => {
-                        return Some(prim_index)
+                        return Some(prim_instance.prim_index)
                     }
                     BrushKind::Border { .. } |
                     BrushKind::YuvImage { .. } |
@@ -1829,8 +1834,8 @@ impl PrimitiveStore {
             .expect("No display list?")
             .display_list;
 
-        for prim_index in &pic_context.prim_indices {
-            let prim_index = *prim_index;
+        for prim_instance in &pic_context.prim_instances {
+            let prim_index = prim_instance.prim_index;
             let is_chased = Some(prim_index) == self.chase_id;
 
             if is_chased {

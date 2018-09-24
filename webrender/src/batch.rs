@@ -450,11 +450,9 @@ impl AlphaBatchBuilder {
         let mut splitter = BspSplitter::new();
 
         // Add each run in this picture to the batch.
-        for prim_index in &pic.prim_indices {
-            let prim_index = *prim_index;
-
+        for prim_instance in &pic.prim_instances {
             self.add_prim_to_batch(
-                prim_index,
+                prim_instance.prim_index,
                 ctx,
                 gpu_cache,
                 render_tasks,

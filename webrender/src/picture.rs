@@ -14,7 +14,7 @@ use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState};
 use frame_builder::{PictureContext, PrimitiveContext};
 use gpu_cache::{GpuCacheHandle};
 use gpu_types::UvRectKind;
-use prim_store::{PrimitiveIndex, SpaceMapper};
+use prim_store::{PrimitiveIndex, PrimitiveInstance, SpaceMapper};
 use prim_store::{PrimitiveMetadata, get_raster_rects};
 use render_task::{ClearMode, RenderTask, RenderTaskCacheEntryHandle};
 use render_task::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId, RenderTaskLocation};
@@ -157,7 +157,7 @@ pub struct PictureCacheKey {
 #[derive(Debug)]
 pub struct PicturePrimitive {
     // List of primitive runs that make up this picture.
-    pub prim_indices: Vec<PrimitiveIndex>,
+    pub prim_instances: Vec<PrimitiveInstance>,
     pub state: Option<PictureState>,
 
     // The pipeline that the primitives on this picture belong to.
@@ -224,7 +224,7 @@ impl PicturePrimitive {
         requested_raster_space: RasterSpace,
     ) -> Self {
         PicturePrimitive {
-            prim_indices: Vec::new(),
+            prim_instances: Vec::new(),
             state: None,
             secondary_render_task_id: None,
             requested_composite_mode,
@@ -357,7 +357,7 @@ impl PicturePrimitive {
 
         let context = PictureContext {
             pipeline_id: self.pipeline_id,
-            prim_indices: mem::replace(&mut self.prim_indices, Vec::new()),
+            prim_instances: mem::replace(&mut self.prim_instances, Vec::new()),
             apply_local_clip_rect: self.apply_local_clip_rect,
             inflation_factor,
             allow_subpixel_aa,
@@ -373,7 +373,9 @@ impl PicturePrimitive {
         &mut self,
         prim_index: PrimitiveIndex,
     ) {
-        self.prim_indices.push(prim_index);
+        self.prim_instances.push(PrimitiveInstance {
+            prim_index,
+        });
     }
 
     pub fn restore_context(
@@ -383,7 +385,7 @@ impl PicturePrimitive {
         local_rect: Option<PictureRect>,
         frame_state: &mut FrameBuildingState,
     ) -> (LayoutRect, Option<ClipNodeCollector>) {
-        self.prim_indices = context.prim_indices;
+        self.prim_instances = context.prim_instances;
         self.state = Some(state);
 
         let local_rect = match local_rect {
