@@ -9,7 +9,7 @@ use std::ops::Not;
 use {ColorF, FontInstanceKey, GlyphOptions, ImageKey, LayoutPixel, LayoutPoint};
 use {LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D, PipelineId, PropertyBinding};
 use LayoutSideOffsets;
-
+use image::ColorDepth;
 
 // NOTE: some of these structs have an "IMPLICIT" comment.
 // This indicates that the BuiltDisplayList will have serialized
@@ -622,6 +622,7 @@ pub enum AlphaType {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct YuvImageDisplayItem {
     pub yuv_data: YuvData,
+    pub color_depth: ColorDepth,
     pub color_space: YuvColorSpace,
     pub image_rendering: ImageRendering,
 }

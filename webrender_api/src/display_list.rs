@@ -24,7 +24,7 @@ use {PipelineId, PropertyBinding, PushReferenceFrameDisplayListItem};
 use {PushStackingContextDisplayItem, RadialGradient, RadialGradientDisplayItem};
 use {RectangleDisplayItem, ReferenceFrame, ScrollFrameDisplayItem, ScrollSensitivity, Shadow};
 use {SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, StickyOffsetBounds};
-use {TextDisplayItem, TransformStyle, YuvColorSpace, YuvData, YuvImageDisplayItem};
+use {TextDisplayItem, TransformStyle, YuvColorSpace, YuvData, YuvImageDisplayItem, ColorDepth};
 
 // We don't want to push a long text-run. If a text-run is too long, split it into several parts.
 // This needs to be set to (renderer::MAX_VERTEX_TEXTURE_WIDTH - VECS_PER_TEXT_RUN) * 2
@@ -1090,11 +1090,13 @@ impl DisplayListBuilder {
         &mut self,
         info: &LayoutPrimitiveInfo,
         yuv_data: YuvData,
+        color_depth: ColorDepth,
         color_space: YuvColorSpace,
         image_rendering: ImageRendering,
     ) {
         let item = SpecificDisplayItem::YuvImage(YuvImageDisplayItem {
             yuv_data,
+            color_depth,
             color_space,
             image_rendering,
         });

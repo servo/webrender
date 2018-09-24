@@ -8,7 +8,7 @@ use api::{FilterOp, GlyphInstance, GradientStop, ImageKey, ImageRendering, ItemR
 use api::{RasterSpace, LayoutPoint, LayoutRect, LayoutSideOffsets, LayoutSize, LayoutToWorldTransform};
 use api::{LayoutVector2D, PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat};
 use api::{DeviceIntSideOffsets, WorldPixel, BoxShadowClipMode, LayoutToWorldScale, NormalBorder, WorldRect};
-use api::{PicturePixel, RasterPixel};
+use api::{PicturePixel, RasterPixel, ColorDepth};
 use app_units::Au;
 use border::{BorderCacheKey, BorderRenderTaskInfo};
 use clip_scroll_tree::{ClipScrollTree, CoordinateSystemId, SpatialNodeIndex};
@@ -377,6 +377,7 @@ pub enum BrushKind {
     YuvImage {
         yuv_key: [ImageKey; 3],
         format: YuvFormat,
+        color_depth: ColorDepth,
         color_space: YuvColorSpace,
         image_rendering: ImageRendering,
     },
@@ -601,7 +602,14 @@ impl BrushPrimitive {
                     0.0,
                 ]);
             }
-            BrushKind::YuvImage { .. } => {}
+            BrushKind::YuvImage { color_depth, .. } => {
+                request.push([
+                    color_depth.rescaling_factor(),
+                    0.0,
+                    0.0,
+                    0.0
+                ]);
+            }
             BrushKind::Picture { .. } => {
                 request.push(PremultipliedColorF::WHITE);
                 request.push(PremultipliedColorF::WHITE);
