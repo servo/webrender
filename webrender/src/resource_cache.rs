@@ -979,7 +979,7 @@ impl ResourceCache {
             let request: BlobImageRequest = request.into();
             let missing = match (self.rasterized_blob_images.get(&request.key), request.tile) {
                 (Some(RasterizedBlob::Tiled(tiles)), Some(tile)) => !tiles.contains_key(&tile),
-                (Some(RasterizedBlob::NonTiled(..)), None) => false,
+                (Some(RasterizedBlob::NonTiled(ref queue)), None) => queue.is_empty(),
                 _ => true,
             };
 
