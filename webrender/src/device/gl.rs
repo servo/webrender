@@ -2222,6 +2222,11 @@ impl Device {
                 external: gl::RED,
                 pixel_type: gl::UNSIGNED_BYTE,
             },
+            ImageFormat::R16 => FormatDesc {
+                internal: gl::RED as _,
+                external: gl::RED,
+                pixel_type: gl::UNSIGNED_SHORT,
+            },
             ImageFormat::BGRA8 => {
                 let external = self.bgra_format;
                 FormatDesc {
@@ -2378,6 +2383,7 @@ impl<'a> UploadTarget<'a> {
     fn update_impl(&mut self, chunk: UploadChunk) {
         let (gl_format, bpp, data_type) = match self.texture.format {
             ImageFormat::R8 => (gl::RED, 1, gl::UNSIGNED_BYTE),
+            ImageFormat::R16 => (gl::RED, 2, gl::UNSIGNED_SHORT),
             ImageFormat::BGRA8 => (self.bgra_format, 4, gl::UNSIGNED_BYTE),
             ImageFormat::RG8 => (gl::RG, 2, gl::UNSIGNED_BYTE),
             ImageFormat::RGBAF32 => (gl::RGBA, 16, gl::FLOAT),

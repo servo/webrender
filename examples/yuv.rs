@@ -162,6 +162,7 @@ impl Example for App {
         builder.push_yuv_image(
             &info,
             YuvData::NV12(yuv_chanel1, yuv_chanel2),
+            ColorDepth::Color8,
             YuvColorSpace::Rec601,
             ImageRendering::Auto,
         );
@@ -173,6 +174,7 @@ impl Example for App {
         builder.push_yuv_image(
             &info,
             YuvData::PlanarYCbCr(yuv_chanel1, yuv_chanel2_1, yuv_chanel3),
+            ColorDepth::Color8,
             YuvColorSpace::Rec601,
             ImageRendering::Auto,
         );
