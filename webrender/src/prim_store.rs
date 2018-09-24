@@ -1620,7 +1620,7 @@ impl PrimitiveStore {
         };
 
         let (is_passthrough, clip_node_collector) = match pic_info {
-            Some((pic_context_for_children, mut pic_state_for_children)) => {
+            Some((pic_context_for_children, mut pic_state_for_children, mut prim_instances)) => {
                 // Mark whether this picture has a complex coordinate system.
                 let is_passthrough = pic_context_for_children.is_passthrough;
                 pic_state_for_children.has_non_root_coord_system |=
@@ -1628,6 +1628,7 @@ impl PrimitiveStore {
 
                 let mut pic_rect = PictureRect::zero();
                 self.prepare_primitives(
+                    &mut prim_instances,
                     &pic_context_for_children,
                     &mut pic_state_for_children,
                     frame_context,
@@ -1651,6 +1652,7 @@ impl PrimitiveStore {
                 let (new_local_rect, clip_node_collector) = prim
                     .as_pic_mut()
                     .restore_context(
+                        prim_instances,
                         pic_context_for_children,
                         pic_state_for_children,
                         pic_rect,
@@ -1822,6 +1824,7 @@ impl PrimitiveStore {
 
     pub fn prepare_primitives(
         &mut self,
+        prim_instances: &mut Vec<PrimitiveInstance>,
         pic_context: &PictureContext,
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
@@ -1834,7 +1837,7 @@ impl PrimitiveStore {
             .expect("No display list?")
             .display_list;
 
-        for prim_instance in &pic_context.prim_instances {
+        for prim_instance in prim_instances {
             let prim_index = prim_instance.prim_index;
             let is_chased = Some(prim_index) == self.chase_id;
 

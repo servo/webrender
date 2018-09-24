@@ -248,7 +248,7 @@ impl PicturePrimitive {
         frame_state: &mut FrameBuildingState,
         frame_context: &FrameBuildingContext,
         is_chased: bool,
-    ) -> Option<(PictureContext, PictureState)> {
+    ) -> Option<(PictureContext, PictureState, Vec<PrimitiveInstance>)> {
         if !self.resolve_scene_properties(frame_context.scene_properties) {
             if cfg!(debug_assertions) && is_chased {
                 println!("\tculled for carrying an invisible composite filter");
@@ -357,7 +357,6 @@ impl PicturePrimitive {
 
         let context = PictureContext {
             pipeline_id: self.pipeline_id,
-            prim_instances: mem::replace(&mut self.prim_instances, Vec::new()),
             apply_local_clip_rect: self.apply_local_clip_rect,
             inflation_factor,
             allow_subpixel_aa,
@@ -366,7 +365,9 @@ impl PicturePrimitive {
             raster_space,
         };
 
-        Some((context, state))
+        let instances = mem::replace(&mut self.prim_instances, Vec::new());
+
+        Some((context, state, instances))
     }
 
     pub fn add_primitive(
@@ -380,12 +381,13 @@ impl PicturePrimitive {
 
     pub fn restore_context(
         &mut self,
+        prim_instances: Vec<PrimitiveInstance>,
         context: PictureContext,
         state: PictureState,
         local_rect: Option<PictureRect>,
         frame_state: &mut FrameBuildingState,
     ) -> (LayoutRect, Option<ClipNodeCollector>) {
-        self.prim_instances = context.prim_instances;
+        self.prim_instances = prim_instances;
         self.state = Some(state);
 
         let local_rect = match local_rect {

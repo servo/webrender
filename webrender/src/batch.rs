@@ -19,7 +19,7 @@ use picture::{PictureCompositeMode, PicturePrimitive, PictureSurface};
 use plane_split::{BspSplitter, Clipper, Polygon, Splitter};
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentTaskId, DeferredResolve};
 use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveIndex};
-use prim_store::{PrimitiveMetadata, VisibleGradientTile};
+use prim_store::{PrimitiveMetadata, VisibleGradientTile, PrimitiveInstance};
 use prim_store::{BorderSource, Primitive, PrimitiveDetails};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskTree};
 use renderer::{BlendMode, ImageBufferKind, ShaderColorMode};
@@ -452,7 +452,7 @@ impl AlphaBatchBuilder {
         // Add each run in this picture to the batch.
         for prim_instance in &pic.prim_instances {
             self.add_prim_to_batch(
-                prim_instance.prim_index,
+                prim_instance,
                 ctx,
                 gpu_cache,
                 render_tasks,
@@ -557,7 +557,7 @@ impl AlphaBatchBuilder {
     // in that picture are being drawn into the same target.
     fn add_prim_to_batch(
         &mut self,
-        prim_index: PrimitiveIndex,
+        prim_instance: &PrimitiveInstance,
         ctx: &RenderTargetContext,
         gpu_cache: &mut GpuCache,
         render_tasks: &RenderTaskTree,
@@ -569,7 +569,7 @@ impl AlphaBatchBuilder {
         transforms: &mut TransformPalette,
         root_spatial_node_index: SpatialNodeIndex,
     ) {
-        let prim = &ctx.prim_store.primitives[prim_index.0];
+        let prim = &ctx.prim_store.primitives[prim_instance.prim_index.0];
         let prim_metadata = &prim.metadata;
 
         if prim_metadata.clipped_world_rect.is_none() {
@@ -638,7 +638,7 @@ impl AlphaBatchBuilder {
             transform_id,
         };
 
-        if cfg!(debug_assertions) && ctx.prim_store.chase_id == Some(prim_index) {
+        if cfg!(debug_assertions) && ctx.prim_store.chase_id == Some(prim_instance.prim_index) {
             println!("\ttask target {:?}", self.target_rect);
             println!("\t{:?}", prim_header);
         }
@@ -672,7 +672,7 @@ impl AlphaBatchBuilder {
                                             local_rect.cast(),
                                             &transform.cast(),
                                             &inv_transform.cast(),
-                                            prim_index.0,
+                                            prim_instance.prim_index.0,
                                         ).unwrap();
                                         splitter.add(polygon);
                                     }
@@ -680,7 +680,10 @@ impl AlphaBatchBuilder {
                                         let mut clipper = Clipper::new();
                                         let matrix = transform.cast();
                                         let results = clipper.clip_transformed(
-                                            Polygon::from_rect(local_rect.cast(), prim_index.0),
+                                            Polygon::from_rect(
+                                                local_rect.cast(),
+                                                prim_instance.prim_index.0,
+                                            ),
                                             &matrix,
                                             Some(bounding_rect.to_f64()),
                                         );
@@ -1046,10 +1049,10 @@ impl AlphaBatchBuilder {
                                 ctx.resource_cache,
                                 gpu_cache,
                                 deferred_resolves,
-                                ctx.prim_store.chase_id == Some(prim_index),
+                                ctx.prim_store.chase_id == Some(prim_instance.prim_index),
                         ) {
                             let prim_header_index = prim_headers.push(&prim_header, user_data);
-                            if cfg!(debug_assertions) && ctx.prim_store.chase_id == Some(prim_index) {
+                            if cfg!(debug_assertions) && ctx.prim_store.chase_id == Some(prim_instance.prim_index) {
                                 println!("\t{:?} {:?}, task relative bounds {:?}",
                                     batch_kind, prim_header_index, bounding_rect);
                             }
