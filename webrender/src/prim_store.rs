@@ -252,10 +252,6 @@ pub struct PrimitiveMetadata {
     pub local_rect: LayoutRect,
     pub local_clip_rect: LayoutRect,
 
-    // The current combined local clip for this primitive, from
-    // the primitive local clip above and the current clip chain.
-    pub combined_local_clip_rect: LayoutRect,
-
     pub is_backface_visible: bool,
     pub clipped_world_rect: Option<WorldRect>,
 
@@ -1358,6 +1354,10 @@ impl Primitive {
 #[derive(Debug)]
 pub struct PrimitiveInstance {
     pub prim_index: PrimitiveIndex,
+
+    // The current combined local clip for this primitive, from
+    // the primitive local clip above and the current clip chain.
+    pub combined_local_clip_rect: LayoutRect,
 }
 
 pub struct PrimitiveStore {
@@ -1402,7 +1402,6 @@ impl PrimitiveStore {
             spatial_node_index,
             local_rect: *local_rect,
             local_clip_rect: *local_clip_rect,
-            combined_local_clip_rect: *local_clip_rect,
             is_backface_visible,
             clipped_world_rect: None,
             tag,
@@ -1581,7 +1580,7 @@ impl PrimitiveStore {
 
     pub fn prepare_prim_for_render(
         &mut self,
-        prim_index: PrimitiveIndex,
+        prim_instance: &mut PrimitiveInstance,
         prim_context: &PrimitiveContext,
         pic_context: &PictureContext,
         pic_state: &mut PictureState,
@@ -1597,7 +1596,7 @@ impl PrimitiveStore {
         // local space, which may force us to render this item on a larger
         // picture target, if being composited.
         let pic_info = {
-            match self.primitives[prim_index.0].details {
+            match self.primitives[prim_instance.prim_index.0].details {
                 PrimitiveDetails::Brush(BrushPrimitive { kind: BrushKind::Picture(ref mut pic), .. }) => {
                     match pic.take_context(
                         prim_context,
@@ -1648,7 +1647,7 @@ impl PrimitiveStore {
                 }
 
                 // Restore the dependencies (borrow check dance)
-                let prim = &mut self.primitives[prim_index.0];
+                let prim = &mut self.primitives[prim_instance.prim_index.0];
                 let (new_local_rect, clip_node_collector) = prim
                     .as_pic_mut()
                     .restore_context(
@@ -1672,7 +1671,7 @@ impl PrimitiveStore {
             }
         };
 
-        let prim = &mut self.primitives[prim_index.0];
+        let prim = &mut self.primitives[prim_instance.prim_index.0];
 
         if !prim.is_cacheable(frame_state.resource_cache) {
             pic_state.is_cacheable = false;
@@ -1744,7 +1743,7 @@ impl PrimitiveStore {
 
             pic_state.has_non_root_coord_system |= clip_chain.has_non_root_coord_system;
 
-            prim.metadata.combined_local_clip_rect = if pic_context.apply_local_clip_rect {
+            prim_instance.combined_local_clip_rect = if pic_context.apply_local_clip_rect {
                 clip_chain.local_clip_rect
             } else {
                 prim.metadata.local_clip_rect
@@ -1801,7 +1800,7 @@ impl PrimitiveStore {
         }
 
         prim.prepare_prim_for_render_inner(
-            prim_index,
+            prim_instance,
             prim_context,
             pic_context,
             pic_state,
@@ -1843,14 +1842,14 @@ impl PrimitiveStore {
 
             if is_chased {
                 println!("\tpreparing prim {:?} in pipeline {:?}",
-                    prim_index, pic_context.pipeline_id);
+                    prim_instance.prim_index, pic_context.pipeline_id);
             }
 
             // TODO(gw): These workarounds for borrowck are unfortunate. We
             //           should see if we can re-structure these to avoid so
             //           many special borrow blocks.
             let (spatial_node_index, is_backface_visible) = {
-                let prim = &self.primitives[prim_index.0];
+                let prim = &self.primitives[prim_instance.prim_index.0];
                 (prim.metadata.spatial_node_index, prim.metadata.is_backface_visible)
             };
 
@@ -1893,7 +1892,7 @@ impl PrimitiveStore {
             );
 
             if self.prepare_prim_for_render(
-                prim_index,
+                prim_instance,
                 &prim_context,
                 pic_context,
                 pic_state,
@@ -1930,6 +1929,7 @@ fn build_gradient_stops_request(
 
 fn decompose_repeated_primitive(
     visible_tiles: &mut Vec<VisibleGradientTile>,
+    instance: &PrimitiveInstance,
     metadata: &mut PrimitiveMetadata,
     stretch_size: &LayoutSize,
     tile_spacing: &LayoutSize,
@@ -1942,7 +1942,7 @@ fn decompose_repeated_primitive(
     // Tighten the clip rect because decomposing the repeated image can
     // produce primitives that are partially covering the original image
     // rect and we want to clip these extra parts out.
-    let tight_clip_rect = metadata
+    let tight_clip_rect = instance
         .combined_local_clip_rect
         .intersection(&metadata.local_rect).unwrap();
 
@@ -2314,7 +2314,7 @@ impl Primitive {
 
     fn prepare_prim_for_render_inner(
         &mut self,
-        prim_index: PrimitiveIndex,
+        prim_instance: &PrimitiveInstance,
         prim_context: &PrimitiveContext,
         pic_context: &PictureContext,
         pic_state: &mut PictureState,
@@ -2483,7 +2483,7 @@ impl Primitive {
                                 // Tighten the clip rect because decomposing the repeated image can
                                 // produce primitives that are partially covering the original image
                                 // rect and we want to clip these extra parts out.
-                                let tight_clip_rect = metadata
+                                let tight_clip_rect = prim_instance
                                     .combined_local_clip_rect
                                     .intersection(&metadata.local_rect).unwrap();
 
@@ -2624,6 +2624,7 @@ impl Primitive {
 
                             decompose_repeated_primitive(
                                 visible_tiles,
+                                prim_instance,
                                 metadata,
                                 &stretch_size,
                                 &tile_spacing,
@@ -2673,6 +2674,7 @@ impl Primitive {
 
                             decompose_repeated_primitive(
                                 visible_tiles,
+                                prim_instance,
                                 metadata,
                                 &stretch_size,
                                 &tile_spacing,
@@ -2698,7 +2700,7 @@ impl Primitive {
                     }
                     BrushKind::Picture(ref mut pic) => {
                         if !pic.prepare_for_render(
-                            prim_index,
+                            prim_instance.prim_index,
                             metadata,
                             pic_state,
                             frame_context,

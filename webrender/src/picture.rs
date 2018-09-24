@@ -376,6 +376,7 @@ impl PicturePrimitive {
     ) {
         self.prim_instances.push(PrimitiveInstance {
             prim_index,
+            combined_local_clip_rect: LayoutRect::zero(),
         });
     }
 

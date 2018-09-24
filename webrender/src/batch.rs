@@ -18,7 +18,7 @@ use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use picture::{PictureCompositeMode, PicturePrimitive, PictureSurface};
 use plane_split::{BspSplitter, Clipper, Polygon, Splitter};
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentTaskId, DeferredResolve};
-use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveIndex};
+use prim_store::{EdgeAaSegmentMask, ImageSource};
 use prim_store::{PrimitiveMetadata, VisibleGradientTile, PrimitiveInstance};
 use prim_store::{BorderSource, Primitive, PrimitiveDetails};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskTree};
@@ -450,7 +450,7 @@ impl AlphaBatchBuilder {
         let mut splitter = BspSplitter::new();
 
         // Add each run in this picture to the batch.
-        for prim_instance in &pic.prim_instances {
+        for (anchor, prim_instance) in pic.prim_instances.iter().enumerate() {
             self.add_prim_to_batch(
                 prim_instance,
                 ctx,
@@ -463,13 +463,15 @@ impl AlphaBatchBuilder {
                 prim_headers,
                 transforms,
                 root_spatial_node_index,
+                anchor,
             );
         }
 
         // Flush the accumulated plane splits onto the task tree.
         // Z axis is directed at the screen, `sort` is ascending, and we need back-to-front order.
         for poly in splitter.sort(vec3(0.0, 0.0, 1.0)) {
-            let prim_index = PrimitiveIndex(poly.anchor);
+            let prim_instance = &pic.prim_instances[poly.anchor];
+            let prim_index = prim_instance.prim_index;
             let pic_metadata = &ctx.prim_store.primitives[prim_index.0].metadata;
             if cfg!(debug_assertions) && ctx.prim_store.chase_id == Some(prim_index) {
                 println!("\t\tsplit polygon {:?}", poly.points);
@@ -487,7 +489,7 @@ impl AlphaBatchBuilder {
 
             let prim_header = PrimitiveHeader {
                 local_rect: pic_metadata.local_rect,
-                local_clip_rect: pic_metadata.combined_local_clip_rect,
+                local_clip_rect: prim_instance.combined_local_clip_rect,
                 task_address,
                 specific_prim_address: GpuCacheAddress::invalid(),
                 clip_task_address,
@@ -568,6 +570,7 @@ impl AlphaBatchBuilder {
         prim_headers: &mut PrimitiveHeaders,
         transforms: &mut TransformPalette,
         root_spatial_node_index: SpatialNodeIndex,
+        anchor: usize,
     ) {
         let prim = &ctx.prim_store.primitives[prim_instance.prim_index.0];
         let prim_metadata = &prim.metadata;
@@ -631,7 +634,7 @@ impl AlphaBatchBuilder {
 
         let prim_header = PrimitiveHeader {
             local_rect: prim_metadata.local_rect,
-            local_clip_rect: prim_metadata.combined_local_clip_rect,
+            local_clip_rect: prim_instance.combined_local_clip_rect,
             task_address,
             specific_prim_address: prim_cache_address,
             clip_task_address,
@@ -662,7 +665,7 @@ impl AlphaBatchBuilder {
                             // since we determine the UVs by doing a bilerp with a factor
                             // from the original local rect.
                             let local_rect = prim_metadata.local_rect
-                                                          .intersection(&prim_metadata.combined_local_clip_rect);
+                                                          .intersection(&prim_instance.combined_local_clip_rect);
 
                             if let Some(local_rect) = local_rect {
                                 match transform.transform_kind() {
@@ -672,7 +675,7 @@ impl AlphaBatchBuilder {
                                             local_rect.cast(),
                                             &transform.cast(),
                                             &inv_transform.cast(),
-                                            prim_instance.prim_index.0,
+                                            anchor,
                                         ).unwrap();
                                         splitter.add(polygon);
                                     }
@@ -682,7 +685,7 @@ impl AlphaBatchBuilder {
                                         let results = clipper.clip_transformed(
                                             Polygon::from_rect(
                                                 local_rect.cast(),
-                                                prim_instance.prim_index.0,
+                                                anchor,
                                             ),
                                             &matrix,
                                             Some(bounding_rect.to_f64()),
