@@ -181,21 +181,26 @@ pub struct SegmentBuilder {
 impl SegmentBuilder {
     // Create a new segment builder, supplying the primitive
     // local rect and associated local clip rect.
-    pub fn new(
+    pub fn new() -> SegmentBuilder {
+        SegmentBuilder {
+            items: Vec::with_capacity(4),
+            bounding_rect: None,
+            inner_rect: None,
+        }
+    }
+
+    pub fn initialize(
+        &mut self,
         local_rect: LayoutRect,
         inner_rect: Option<LayoutRect>,
         local_clip_rect: LayoutRect,
-    ) -> SegmentBuilder {
-        let mut builder = SegmentBuilder {
-            items: Vec::new(),
-            bounding_rect: Some(local_rect),
-            inner_rect,
-        };
+    ) {
+      self.items.clear();
+      self.inner_rect = inner_rect;
+      self.bounding_rect = Some(local_rect);
 
-        builder.push_clip_rect(local_rect, None, ClipMode::Clip);
-        builder.push_clip_rect(local_clip_rect, None, ClipMode::Clip);
-
-        builder
+      self.push_clip_rect(local_rect, None, ClipMode::Clip);
+      self.push_clip_rect(local_clip_rect, None, ClipMode::Clip);
     }
 
     // Push a region defined by an inner and outer rect where there
@@ -389,23 +394,22 @@ impl SegmentBuilder {
     }
 
     // Consume this segment builder and produce a list of segments.
-    pub fn build<F>(self, mut f: F) where F: FnMut(&Segment) {
+    pub fn build<F>(&mut self, mut f: F) where F: FnMut(&Segment) {
         let bounding_rect = match self.bounding_rect {
             Some(bounding_rect) => bounding_rect,
             None => return,
         };
 
-        let mut items = self.items;
 
         // First, filter out any items that don't intersect
         // with the visible bounding rect.
-        items.retain(|item| item.rect.intersects(&bounding_rect));
+        self.items.retain(|item| item.rect.intersects(&bounding_rect));
 
         // Create events for each item
         let mut x_events = Vec::new();
         let mut y_events = Vec::new();
 
-        for (item_index, item) in items.iter().enumerate() {
+        for (item_index, item) in self.items.iter().enumerate() {
             let p0 = item.rect.origin;
             let p1 = item.rect.bottom_right();
 
@@ -478,7 +482,7 @@ impl SegmentBuilder {
                             cur_y,
                             region_x,
                             region_y,
-                            &items,
+                            &self.items,
                         ));
 
                         prev_x = cur_x;
@@ -489,7 +493,7 @@ impl SegmentBuilder {
 
                     ex.update(
                         ItemFlags::X_ACTIVE,
-                        &mut items,
+                        &mut self.items,
                         &mut region_x,
                     );
                 }
@@ -500,7 +504,7 @@ impl SegmentBuilder {
 
             ey.update(
                 ItemFlags::Y_ACTIVE,
-                &mut items,
+                &mut self.items,
                 &mut region_y,
             );
         }
@@ -650,7 +654,8 @@ mod test {
         clips: &[(LayoutRect, Option<BorderRadius>, ClipMode)],
         expected_segments: &mut [Segment]
     ) {
-        let mut sb = SegmentBuilder::new(
+        let mut sb = SegmentBuilder::new();
+        sb.initialize(
             local_rect,
             inner_rect,
             local_clip_rect,

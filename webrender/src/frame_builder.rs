@@ -19,6 +19,7 @@ use render_backend::FrameId;
 use render_task::{RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree};
 use resource_cache::{ResourceCache};
 use scene::{ScenePipeline, SceneProperties};
+use segment::SegmentBuilder;
 use spatial_node::SpatialNode;
 use std::f32;
 use std::sync::Arc;
@@ -85,6 +86,7 @@ pub struct FrameBuildingState<'a> {
     pub special_render_passes: &'a mut SpecialRenderPasses,
     pub transforms: &'a mut TransformPalette,
     pub clip_data_store: &'a mut ClipDataStore,
+    pub segment_builder: SegmentBuilder,
 }
 
 pub struct PictureContext {
@@ -224,6 +226,7 @@ impl FrameBuilder {
             special_render_passes,
             transforms: transform_palette,
             clip_data_store,
+            segment_builder: SegmentBuilder::new(),
         };
 
         let prim_context = PrimitiveContext::new(
