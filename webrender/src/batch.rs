@@ -4,7 +4,7 @@
 
 use api::{AlphaType, ClipMode, DeviceIntRect, DeviceIntSize};
 use api::{DeviceUintRect, DeviceUintPoint, ExternalImageType, FilterOp, ImageRendering};
-use api::{YuvColorSpace, YuvFormat, WorldPixel, WorldRect};
+use api::{YuvColorSpace, YuvFormat, WorldPixel, WorldRect, ColorDepth};
 use clip::{ClipDataStore, ClipNodeFlags, ClipNodeRange, ClipItem, ClipStore};
 use clip_scroll_tree::{ClipScrollTree, ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
 use euclid::vec3;
@@ -46,7 +46,7 @@ pub enum BrushBatchKind {
         source_id: RenderTaskId,
         backdrop_id: RenderTaskId,
     },
-    YuvImage(ImageBufferKind, YuvFormat, YuvColorSpace),
+    YuvImage(ImageBufferKind, YuvFormat, ColorDepth, YuvColorSpace),
     RadialGradient,
     LinearGradient,
 }
@@ -1487,7 +1487,7 @@ impl BrushPrimitive {
                     ],
                 ))
             }
-            BrushKind::YuvImage { format, yuv_key, image_rendering, color_space } => {
+            BrushKind::YuvImage { format, yuv_key, image_rendering, color_depth, color_space } => {
                 let mut textures = BatchTextures::no_texture();
                 let mut uv_rect_addresses = [0; 3];
 
@@ -1528,6 +1528,7 @@ impl BrushPrimitive {
                 let kind = BrushBatchKind::YuvImage(
                     buffer_kind,
                     format,
+                    color_depth,
                     color_space,
                 );
 

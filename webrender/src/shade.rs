@@ -764,7 +764,7 @@ impl Shaders {
                     BrushBatchKind::LinearGradient => {
                         &mut self.brush_linear_gradient
                     }
-                    BrushBatchKind::YuvImage(image_buffer_kind, format, color_space) => {
+                    BrushBatchKind::YuvImage(image_buffer_kind, format, _color_depth, color_space) => {
                         let shader_index =
                             Self::get_yuv_shader_index(image_buffer_kind, format, color_space);
                         self.brush_yuv_image[shader_index]
