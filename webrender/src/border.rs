@@ -11,7 +11,7 @@ use ellipse::Ellipse;
 use euclid::SideOffsets2D;
 use display_list_flattener::DisplayListFlattener;
 use gpu_types::{BorderInstance, BorderSegment, BrushFlags};
-use prim_store::{BrushKind, BrushPrimitive, BrushSegment};
+use prim_store::{BrushKind, BrushPrimitive, BrushSegment, BrushSegmentVec};
 use prim_store::{EdgeAaSegmentMask, PrimitiveContainer, ScrollNodeAndClipChain};
 use util::{lerp, RectHelpers};
 
@@ -682,7 +682,7 @@ impl BorderRenderTaskInfo {
         border: &NormalBorder,
         widths: &LayoutSideOffsets,
         scale: LayoutToDeviceScale,
-        brush_segments: &mut Vec<BrushSegment>,
+        brush_segments: &mut BrushSegmentVec,
     ) -> Option<Self> {
         let mut border_segments = Vec::new();
 
@@ -1062,7 +1062,7 @@ fn add_brush_segment(
     task_rect: DeviceRect,
     brush_flags: BrushFlags,
     edge_flags: EdgeAaSegmentMask,
-    brush_segments: &mut Vec<BrushSegment>,
+    brush_segments: &mut BrushSegmentVec,
 ) {
     if image_rect.size.width <= 0. || image_rect.size.width <= 0. {
         return;
@@ -1212,7 +1212,7 @@ fn add_corner_segment(
     segment: BorderSegment,
     edge_flags: EdgeAaSegmentMask,
     border_segments: &mut Vec<BorderSegmentInfo>,
-    brush_segments: &mut Vec<BrushSegment>,
+    brush_segments: &mut BrushSegmentVec,
 ) {
     if side0.color.a <= 0.0 && side1.color.a <= 0.0 {
         return;
@@ -1250,7 +1250,7 @@ fn add_edge_segment(
     edge_flags: EdgeAaSegmentMask,
     border_segments: &mut Vec<BorderSegmentInfo>,
     brush_flags: BrushFlags,
-    brush_segments: &mut Vec<BrushSegment>,
+    brush_segments: &mut BrushSegmentVec,
 ) {
     if side.color.a <= 0.0 {
         return;

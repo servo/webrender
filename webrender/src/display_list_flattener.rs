@@ -26,7 +26,7 @@ use internal_types::{FastHashMap, FastHashSet};
 use picture::{PictureCompositeMode, PictureIdGenerator, PicturePrimitive};
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor};
 use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveOpacity};
-use prim_store::{BorderSource, BrushSegment, PrimitiveContainer, PrimitiveIndex, PrimitiveStore};
+use prim_store::{BorderSource, BrushSegment, BrushSegmentVec, PrimitiveContainer, PrimitiveIndex, PrimitiveStore};
 use prim_store::{OpacityBinding, ScrollNodeAndClipChain, TextRunPrimitive};
 use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest};
@@ -1648,7 +1648,7 @@ impl<'a> DisplayListFlattener<'a> {
                 let br_inner = br_outer - vec2(border_item.widths.right, border_item.widths.bottom);
 
                 fn add_segment(
-                    segments: &mut Vec<BrushSegment>,
+                    segments: &mut BrushSegmentVec,
                     rect: LayoutRect,
                     uv_rect: TexelRect,
                     repeat_horizontal: RepeatMode,
@@ -1687,7 +1687,7 @@ impl<'a> DisplayListFlattener<'a> {
                 }
 
                 // Build the list of image segments
-                let mut segments = vec![];
+                let mut segments = BrushSegmentVec::new();
 
                 // Top left
                 add_segment(

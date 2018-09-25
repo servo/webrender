@@ -31,6 +31,7 @@ use resource_cache::{ImageProperties, ImageRequest, ResourceCache};
 use scene::SceneProperties;
 use std::{cmp, fmt, mem, usize};
 use util::{ScaleOffset, MatrixHelpers, pack_as_float, project_rect, raster_rect_to_device_pixels};
+use smallvec::SmallVec;
 
 
 const MIN_BRUSH_SPLIT_AREA: f32 = 256.0 * 256.0;
@@ -540,9 +541,11 @@ impl BrushSegment {
     }
 }
 
+pub type BrushSegmentVec = SmallVec<[BrushSegment; 8]>;
+
 #[derive(Debug)]
 pub struct BrushSegmentDescriptor {
-    pub segments: Vec<BrushSegment>,
+    pub segments: BrushSegmentVec,
 }
 
 #[derive(Debug)]
@@ -2188,7 +2191,7 @@ fn write_brush_segment_description(
                 //           patterns of this and the segment
                 //           builder significantly better, by
                 //           retaining it across primitives.
-                let mut segments = Vec::new();
+                let mut segments = BrushSegmentVec::new();
 
                 segment_builder.build(|segment| {
                     segments.push(
@@ -2880,7 +2883,7 @@ impl Primitive {
             // size in cache_key.
             let needs_update = scale_au != cache_key.scale;
 
-            let mut new_segments = Vec::new();
+            let mut new_segments = BrushSegmentVec::new();
 
             let local_rect = &self.metadata.local_rect;
             if needs_update {

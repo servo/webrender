@@ -7,6 +7,7 @@ use app_units::Au;
 use prim_store::EdgeAaSegmentMask;
 use std::{cmp, usize};
 use util::{extract_inner_rect_safe, RectHelpers};
+use smallvec::SmallVec;
 
 bitflags! {
     pub struct ItemFlags: u8 {
@@ -417,8 +418,8 @@ impl SegmentBuilder {
         self.items.retain(|item| item.rect.intersects(&bounding_rect));
 
         // Create events for each item
-        let mut x_events = Vec::new();
-        let mut y_events = Vec::new();
+        let mut x_events : SmallVec<[Event; 4]> = SmallVec::new();
+        let mut y_events : SmallVec<[Event; 4]> = SmallVec::new();
 
         for (item_index, item) in self.items.iter().enumerate() {
             let p0 = item.rect.origin;
@@ -471,7 +472,7 @@ impl SegmentBuilder {
 
         let mut prev_y = clamp(p0.y, y_events[0].value, p1.y);
         let mut region_y = 0;
-        let mut segments = Vec::new();
+        let mut segments : SmallVec<[_; 4]> = SmallVec::new();
         let mut x_count = 0;
         let mut y_count = 0;
 
