@@ -1,5 +1,5 @@
 == filter-grayscale.yaml filter-grayscale-ref.yaml
-platform(linux,mac) == draw_calls(4) color_targets(5) alpha_targets(0) filter-blur.yaml filter-blur.png
+platform(linux,mac) == draw_calls(6) color_targets(5) alpha_targets(0) filter-blur.yaml filter-blur.png
 == isolated.yaml isolated-ref.yaml
 == invisible.yaml invisible-ref.yaml
 color_targets(1) alpha_targets(0) == opacity.yaml opacity-ref.yaml

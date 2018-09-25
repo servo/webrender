@@ -369,6 +369,7 @@ fn create_prim_shader(
         VertexArrayKind::VectorStencil => desc::VECTOR_STENCIL,
         VertexArrayKind::VectorCover => desc::VECTOR_COVER,
         VertexArrayKind::Border => desc::BORDER,
+        VertexArrayKind::Scale => desc::SCALE,
     };
 
     let program = device.create_program(name, &prefix, &vertex_descriptor);
@@ -425,7 +426,8 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program
     program
 }
 
-
+// NB: If you add a new shader here, make sure to deinitialize it
+// in `Shaders::deinit()` below.
 pub struct Shaders {
     // These are "cache shaders". These shaders are used to
     // draw intermediate results to cache targets. The results
@@ -434,6 +436,8 @@ pub struct Shaders {
     pub cs_blur_rgba8: LazilyCompiledShader,
     pub cs_border_segment: LazilyCompiledShader,
     pub cs_border_solid: LazilyCompiledShader,
+    pub cs_scale_a8: LazilyCompiledShader,
+    pub cs_scale_rgba8: LazilyCompiledShader,
 
     // Brush shaders
     brush_solid: BrushShader,
@@ -576,6 +580,22 @@ impl Shaders {
             options.precache_shaders,
         )?;
 
+        let cs_scale_a8 = LazilyCompiledShader::new(
+            ShaderKind::Cache(VertexArrayKind::Scale),
+            "cs_scale",
+            &["ALPHA_TARGET"],
+            device,
+            options.precache_shaders,
+        )?;
+
+        let cs_scale_rgba8 = LazilyCompiledShader::new(
+            ShaderKind::Cache(VertexArrayKind::Scale),
+            "cs_scale",
+            &["COLOR_TARGET"],
+            device,
+            options.precache_shaders,
+        )?;
+
         let ps_text_run = TextShader::new("ps_text_run",
             device,
             &[],
@@ -689,6 +709,8 @@ impl Shaders {
             cs_blur_rgba8,
             cs_border_segment,
             cs_border_solid,
+            cs_scale_a8,
+            cs_scale_rgba8,
             brush_solid,
             brush_image,
             brush_blend,
@@ -763,6 +785,8 @@ impl Shaders {
     }
 
     pub fn deinit(self, device: &mut Device) {
+        self.cs_scale_a8.deinit(device);
+        self.cs_scale_rgba8.deinit(device);
         self.cs_blur_a8.deinit(device);
         self.cs_blur_rgba8.deinit(device);
         self.brush_solid.deinit(device);
