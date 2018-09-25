@@ -1069,9 +1069,11 @@ impl<'a> DisplayListFlattener<'a> {
 
         // For each filter, create a new image with that composite mode.
         for filter in &composite_ops.filters {
+            let filter = filter.sanitize();
+
             let mut filter_picture = PicturePrimitive::new_image(
                 self.picture_id_generator.next(),
-                Some(PictureCompositeMode::Filter(*filter)),
+                Some(PictureCompositeMode::Filter(filter)),
                 false,
                 pipeline_id,
                 None,
