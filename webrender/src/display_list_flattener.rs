@@ -162,6 +162,9 @@ pub struct DisplayListFlattener<'a> {
 
     /// Reference to the clip interner for this document.
     clip_interner: &'a mut ClipDataInterner,
+
+    /// The estimated count of primtives we expect to encounter during flattening.
+    prim_count_estimate: usize,
 }
 
 impl<'a> DisplayListFlattener<'a> {
@@ -201,6 +204,7 @@ impl<'a> DisplayListFlattener<'a> {
             clip_store: ClipStore::new(),
             picture_id_generator,
             clip_interner,
+            prim_count_estimate: 0,
         };
 
         flattener.push_root(
@@ -285,6 +289,9 @@ impl<'a> DisplayListFlattener<'a> {
                 }
             }
         }
+
+        self.prim_count_estimate += pipeline.display_list.prim_count_estimate();
+        self.prim_store.primitives.reserve(self.prim_count_estimate);
 
         self.flatten_items(&mut pipeline.display_list.iter(), pipeline_id, LayoutVector2D::zero());
 
