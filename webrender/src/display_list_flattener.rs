@@ -35,6 +35,7 @@ use spatial_node::{SpatialNodeType, StickyFrameInfo};
 use std::{f32, mem};
 use tiling::{CompositeOps, ScrollbarPrimitive};
 use util::{MaxRect, RectHelpers};
+use smallvec::SmallVec;
 
 static DEFAULT_SCROLLBAR_COLOR: ColorF = ColorF {
     r: 0.3,
@@ -1650,7 +1651,7 @@ impl<'a> DisplayListFlattener<'a> {
                 let br_inner = br_outer - vec2(border_item.widths.right, border_item.widths.bottom);
 
                 fn add_segment(
-                    segments: &mut Vec<BrushSegment>,
+                    segments: &mut SmallVec<[BrushSegment; 4]>,
                     rect: LayoutRect,
                     uv_rect: TexelRect,
                     repeat_horizontal: RepeatMode,
@@ -1689,7 +1690,7 @@ impl<'a> DisplayListFlattener<'a> {
                 }
 
                 // Build the list of image segments
-                let mut segments = vec![];
+                let mut segments : SmallVec<[BrushSegment; 4]> = SmallVec::new();
 
                 // Top left
                 add_segment(
