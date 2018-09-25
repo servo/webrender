@@ -487,6 +487,17 @@ impl Texture {
         self.last_frame_used == frame_id
     }
 
+    /// Returns the number of bytes (generally in GPU memory) that this texture
+    /// consumes.
+    pub fn size_in_bytes(&self) -> usize {
+        assert!(self.layer_count > 0 || self.width + self.height == 0);
+        let bpp = self.format.bytes_per_pixel() as usize;
+        let w = self.width as usize;
+        let h = self.height as usize;
+        let count = self.layer_count as usize;
+        bpp * w * h * count
+    }
+
     #[cfg(feature = "replay")]
     pub fn into_external(mut self) -> ExternalTexture {
         let ext = ExternalTexture {

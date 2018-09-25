@@ -896,6 +896,21 @@ impl SourceTextureResolver {
             }
         }
     }
+
+    fn report_memory(&self) -> MemoryReport {
+        let mut report = MemoryReport::default();
+
+        // We're reporting GPU memory rather than heap-allocations, so we don't
+        // use size_of_op.
+        for t in self.cache_texture_map.iter() {
+            report.texture_cache_textures += t.size_in_bytes();
+        }
+        for t in self.render_target_pool.iter() {
+            report.render_target_textures += t.size_in_bytes();
+        }
+
+        report
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -4176,14 +4191,29 @@ impl Renderer {
     /// Collects a memory report.
     pub fn report_memory(&self) -> MemoryReport {
         let mut report = MemoryReport::default();
+
+        // GPU cache CPU memory.
         if let CacheBus::PixelBuffer{ref cpu_blocks, ..} = self.gpu_cache_texture.bus {
             report.gpu_cache_cpu_mirror += self.size_of(cpu_blocks.as_ptr());
         }
 
+        // GPU cache GPU memory.
+        report.gpu_cache_textures += self.gpu_cache_texture.texture.size_in_bytes();
+
+        // Render task CPU memory.
         for (_id, doc) in &self.active_documents {
             report.render_tasks += self.size_of(doc.frame.render_tasks.tasks.as_ptr());
             report.render_tasks += self.size_of(doc.frame.render_tasks.task_data.as_ptr());
         }
+
+        // Vertex data GPU memory.
+        report.vertex_data_textures += self.prim_header_f_texture.texture.size_in_bytes();
+        report.vertex_data_textures += self.prim_header_i_texture.texture.size_in_bytes();
+        report.vertex_data_textures += self.transforms_texture.texture.size_in_bytes();
+        report.vertex_data_textures += self.render_task_texture.texture.size_in_bytes();
+
+        // Texture cache and render target GPU memory.
+        report += self.texture_resolver.report_memory();
 
         report
     }
