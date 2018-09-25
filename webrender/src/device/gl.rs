@@ -487,6 +487,12 @@ impl Texture {
         self.last_frame_used == frame_id
     }
 
+    /// Returns true if this texture was used within `threshold` frames of
+    /// the current frame.
+    pub fn used_recently(&self, current_frame_id: FrameId, threshold: usize) -> bool {
+        self.last_frame_used + threshold >= current_frame_id
+    }
+
     /// Returns the number of bytes (generally in GPU memory) that this texture
     /// consumes.
     pub fn size_in_bytes(&self) -> usize {
