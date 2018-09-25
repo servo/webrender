@@ -660,7 +660,7 @@ impl TextureCache {
         // anything not used this frame).
         for handle in self.shared_entry_handles.drain(..) {
             let entry = self.entries.get(&handle);
-            if entry.last_access == self.frame_id {
+            if entry.eviction == Eviction::Manual || entry.last_access == self.frame_id {
                 retained_entries.push(handle);
             } else {
                 eviction_candidates.push(handle);
