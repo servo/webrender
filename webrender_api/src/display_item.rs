@@ -11,6 +11,10 @@ use {LayoutRect, LayoutSize, LayoutTransform, LayoutVector2D, PipelineId, Proper
 use LayoutSideOffsets;
 use image::ColorDepth;
 
+// Maximum blur radius.
+// Taken from nsCSSRendering.cpp in Gecko.
+pub const MAX_BLUR_RADIUS: f32 = 300.;
+
 // NOTE: some of these structs have an "IMPLICIT" comment.
 // This indicates that the BuiltDisplayList will have serialized
 // a list of values nearby that this item consumes. The traversal
@@ -608,6 +612,24 @@ pub enum FilterOp {
     Sepia(f32),
     DropShadow(LayoutVector2D, f32, ColorF),
     ColorMatrix([f32; 20]),
+}
+
+impl FilterOp {
+    /// Ensure that the parameters for a filter operation
+    /// are sensible.
+    pub fn sanitize(self) -> FilterOp {
+        match self {
+            FilterOp::Blur(radius) => {
+                let radius = radius.min(MAX_BLUR_RADIUS);
+                FilterOp::Blur(radius)
+            }
+            FilterOp::DropShadow(offset, radius, color) => {
+                let radius = radius.min(MAX_BLUR_RADIUS);
+                FilterOp::DropShadow(offset, radius, color)
+            }
+            filter => filter,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
