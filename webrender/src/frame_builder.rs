@@ -13,7 +13,7 @@ use gpu_types::{PrimitiveHeaders, TransformPalette, UvRectKind};
 use hit_test::{HitTester, HitTestingRun};
 use internal_types::{FastHashMap};
 use picture::{PictureCompositeMode, PictureSurface, RasterConfig};
-use prim_store::{PrimitiveIndex, PrimitiveRun, PrimitiveStore, SpaceMapper};
+use prim_store::{PrimitiveIndex, PrimitiveStore, SpaceMapper};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_backend::FrameId;
 use render_task::{RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree};
@@ -89,7 +89,6 @@ pub struct FrameBuildingState<'a> {
 
 pub struct PictureContext {
     pub pipeline_id: PipelineId,
-    pub prim_runs: Vec<PrimitiveRun>,
     pub apply_local_clip_rect: bool,
     pub inflation_factor: f32,
     pub allow_subpixel_aa: bool,
@@ -231,7 +230,7 @@ impl FrameBuilder {
             root_spatial_node_index,
         );
 
-        let (pic_context, mut pic_state) = self
+        let (pic_context, mut pic_state, mut instances) = self
             .prim_store
             .get_pic_mut(root_prim_index)
             .take_context(
@@ -247,7 +246,8 @@ impl FrameBuilder {
 
         let mut pic_rect = PictureRect::zero();
 
-        self.prim_store.prepare_prim_runs(
+        self.prim_store.prepare_primitives(
+            &mut instances,
             &pic_context,
             &mut pic_state,
             &frame_context,
@@ -259,6 +259,7 @@ impl FrameBuilder {
             .prim_store
             .get_pic_mut(root_prim_index);
         pic.restore_context(
+            instances,
             pic_context,
             pic_state,
             Some(pic_rect),
