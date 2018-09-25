@@ -6,7 +6,7 @@ license = "MPL-2.0"
 
 [target.'cfg(windows)'.dependencies]
 euclid = "0.19"
-gleam = "0.6"
+gleam = "0.6.2"
 mozangle = {version = "0.1", features = ["egl"]}
 webrender = {path = "../webrender"}
 winapi = {version = "0.3", features = ["winerror", "d3d11", "dcomp"]}
