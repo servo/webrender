@@ -29,7 +29,6 @@ use render_task::{RenderTaskCacheKeyKind, RenderTaskId, RenderTaskCacheEntryHand
 use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
 use resource_cache::{ImageProperties, ImageRequest, ResourceCache};
 use scene::SceneProperties;
-use segment::SegmentBuilder;
 use std::{cmp, fmt, mem, usize};
 use util::{ScaleOffset, MatrixHelpers, pack_as_float, project_rect, raster_rect_to_device_pixels};
 
@@ -2079,7 +2078,8 @@ fn write_brush_segment_description(
     //           the clip sources here.
     let mut rect_clips_only = true;
 
-    let mut segment_builder = SegmentBuilder::new(
+    let segment_builder = &mut frame_state.segment_builder;
+    segment_builder.initialize(
         metadata.local_rect,
         None,
         metadata.local_clip_rect
