@@ -26,7 +26,7 @@ use internal_types::{FastHashMap, FastHashSet};
 use picture::{PictureCompositeMode, PictureIdGenerator, PicturePrimitive};
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor};
 use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveOpacity};
-use prim_store::{BorderSource, BrushSegment, PrimitiveContainer, PrimitiveIndex, PrimitiveStore};
+use prim_store::{BorderSource, BrushSegment, BrushSegmentVec, PrimitiveContainer, PrimitiveIndex, PrimitiveStore};
 use prim_store::{OpacityBinding, ScrollNodeAndClipChain, TextRunPrimitive};
 use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest};
@@ -162,6 +162,9 @@ pub struct DisplayListFlattener<'a> {
 
     /// Reference to the clip interner for this document.
     clip_interner: &'a mut ClipDataInterner,
+
+    /// The estimated count of primtives we expect to encounter during flattening.
+    prim_count_estimate: usize,
 }
 
 impl<'a> DisplayListFlattener<'a> {
@@ -201,6 +204,7 @@ impl<'a> DisplayListFlattener<'a> {
             clip_store: ClipStore::new(),
             picture_id_generator,
             clip_interner,
+            prim_count_estimate: 0,
         };
 
         flattener.push_root(
@@ -285,6 +289,9 @@ impl<'a> DisplayListFlattener<'a> {
                 }
             }
         }
+
+        self.prim_count_estimate += pipeline.display_list.prim_count_estimate();
+        self.prim_store.primitives.reserve(self.prim_count_estimate);
 
         self.flatten_items(&mut pipeline.display_list.iter(), pipeline_id, LayoutVector2D::zero());
 
@@ -1642,7 +1649,7 @@ impl<'a> DisplayListFlattener<'a> {
                 let br_inner = br_outer - vec2(border_item.widths.right, border_item.widths.bottom);
 
                 fn add_segment(
-                    segments: &mut Vec<BrushSegment>,
+                    segments: &mut BrushSegmentVec,
                     rect: LayoutRect,
                     uv_rect: TexelRect,
                     repeat_horizontal: RepeatMode,
@@ -1681,7 +1688,7 @@ impl<'a> DisplayListFlattener<'a> {
                 }
 
                 // Build the list of image segments
-                let mut segments = vec![];
+                let mut segments = BrushSegmentVec::new();
 
                 // Top left
                 add_segment(
