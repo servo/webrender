@@ -30,7 +30,7 @@ use render_task::{RenderTaskCacheKeyKind, RenderTaskId, RenderTaskCacheEntryHand
 use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
 use resource_cache::{ImageProperties, ImageRequest, ResourceCache};
 use scene::SceneProperties;
-use std::{cmp, fmt, mem, usize};
+use std::{cmp, fmt, mem, ops, usize};
 use util::{ScaleOffset, MatrixHelpers, pack_as_float, project_rect, raster_rect_to_device_pixels};
 use smallvec::SmallVec;
 
@@ -73,6 +73,22 @@ impl PrimitiveOpacity {
     pub fn from_alpha(alpha: f32) -> PrimitiveOpacity {
         PrimitiveOpacity {
             is_opaque: alpha >= 1.0,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum VisibleFace {
+    Front,
+    Back,
+}
+
+impl ops::Not for VisibleFace {
+    type Output = Self;
+    fn not(self) -> Self {
+        match self {
+            VisibleFace::Front => VisibleFace::Back,
+            VisibleFace::Back => VisibleFace::Front,
         }
     }
 }
@@ -195,6 +211,20 @@ impl<F, T> SpaceMapper<F, T> where F: fmt::Debug {
                         warn!("parent relative transform can't transform the primitive rect for {:?}", rect);
                         None
                     }
+                }
+            }
+        }
+    }
+
+    pub fn visible_face(&self) -> VisibleFace {
+        match self.kind {
+            CoordinateSpaceMapping::Local => VisibleFace::Front,
+            CoordinateSpaceMapping::ScaleOffset(_) => VisibleFace::Front,
+            CoordinateSpaceMapping::Transform(ref transform) => {
+                if transform.is_backface_visible() {
+                    VisibleFace::Back
+                } else {
+                    VisibleFace::Front
                 }
             }
         }
@@ -363,7 +393,6 @@ pub enum BorderSource {
     },
 }
 
-#[derive(Debug)]
 pub enum BrushKind {
     Solid {
         color: ColorF,
@@ -621,7 +650,6 @@ pub struct BrushSegmentDescriptor {
     pub segments: BrushSegmentVec,
 }
 
-#[derive(Debug)]
 pub struct BrushPrimitive {
     pub kind: BrushKind,
     pub segment_desc: Option<BrushSegmentDescriptor>,
@@ -1368,7 +1396,6 @@ impl ClipData {
     }
 }
 
-#[derive(Debug)]
 pub enum PrimitiveContainer {
     TextRun(TextRunPrimitive),
     Brush(BrushPrimitive),
@@ -1771,6 +1798,7 @@ impl PrimitiveStore {
                         prim_context,
                         pic_state.surface_spatial_node_index,
                         pic_state.raster_spatial_node_index,
+                        &mut pic_state.plane_splitter,
                         pic_context.allow_subpixel_aa,
                         frame_state,
                         frame_context,
@@ -1822,6 +1850,7 @@ impl PrimitiveStore {
                         prim_instances,
                         pic_context_for_children,
                         pic_state_for_children,
+                        &mut pic_state.plane_splitter,
                         pic_rect,
                         frame_state,
                     );
@@ -1979,7 +2008,7 @@ impl PrimitiveStore {
 
     pub fn prepare_primitives(
         &mut self,
-        prim_instances: &mut Vec<PrimitiveInstance>,
+        prim_instances: &mut [PrimitiveInstance],
         pic_context: &PictureContext,
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
@@ -2003,14 +2032,48 @@ impl PrimitiveStore {
                     prim_instance.prim_index, pic_context.pipeline_id);
             }
 
-            let is_backface_visible = frame_state
+            // Do some basic checks first, that can early out
+            // without even knowing the local rect.
+            if !frame_state
                 .resources
                 .prim_data_store[prim_instance.prim_data_handle]
-                .is_backface_visible;
+                .is_backface_visible
+            {
+                pic_state.map_local_to_containing_block.set_target_spatial_node(
+                    prim_instance.spatial_node_index,
+                    frame_context.clip_scroll_tree,
+                );
+
+                match pic_state.map_local_to_containing_block.visible_face() {
+                    VisibleFace::Back => {
+                        if cfg!(debug_assertions) && is_chased {
+                            println!("\tculled for not having visible back faces, transform {:?}",
+                                pic_state.map_local_to_containing_block);
+                        }
+                        continue;
+                    }
+                    VisibleFace::Front => {
+                        if cfg!(debug_assertions) && is_chased {
+                            println!("\tprim {:?} is not culled for visible face {:?}, transform {:?}",
+                                prim_index,
+                                pic_state.map_local_to_containing_block.visible_face(),
+                                pic_state.map_local_to_containing_block);
+                            println!("\tpicture context {:?}", pic_context);
+                        }
+                    }
+                }
+            }
 
             let spatial_node = &frame_context
                 .clip_scroll_tree
                 .spatial_nodes[prim_instance.spatial_node_index.0];
+
+            if !spatial_node.invertible {
+                if cfg!(debug_assertions) && is_chased {
+                    println!("\tculled for the scroll node transform being invertible");
+                }
+                continue;
+            }
 
             // TODO(gw): Although constructing these is cheap, they are often
             //           the same for many consecutive primitives, so it may
@@ -2019,22 +2082,6 @@ impl PrimitiveStore {
                 spatial_node,
                 prim_instance.spatial_node_index,
             );
-
-            // Do some basic checks first, that can early out
-            // without even knowing the local rect.
-            if !is_backface_visible && spatial_node.world_content_transform.is_backface_visible() {
-                if cfg!(debug_assertions) && is_chased {
-                    println!("\tculled for not having visible back faces");
-                }
-                continue;
-            }
-
-            if !spatial_node.invertible {
-                if cfg!(debug_assertions) && is_chased {
-                    println!("\tculled for the scroll node transform being invertible");
-                }
-                continue;
-            }
 
             // Mark whether this picture contains any complex coordinate
             // systems, due to either the scroll node or the clip-chain.

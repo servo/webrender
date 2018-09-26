@@ -1,13 +1,14 @@
+# In this test we ensure that "backface-visiblity" property
+# is not inherited, and the red rect rotated by 180 degrees
+# is still rendered.
 ---
 root:
   items:
     - type: stacking-context
       items:
         - type: stacking-context
-          transform: rotate-y(180)
           transform-style: preserve-3d
           backface-visible: false
-          transform-origin: 50 50
           items:
             - type: stacking-context
               transform: rotate-y(180)
