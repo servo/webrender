@@ -2223,7 +2223,7 @@ impl Device {
                 pixel_type: gl::UNSIGNED_BYTE,
             },
             ImageFormat::R16 => FormatDesc {
-                internal: gl::RED as _,
+                internal: gl::R16 as _,
                 external: gl::RED,
                 pixel_type: gl::UNSIGNED_SHORT,
             },
