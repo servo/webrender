@@ -42,7 +42,7 @@ use serde::{Serialize, Deserialize};
 use serde_json;
 #[cfg(any(feature = "capture", feature = "replay"))]
 use std::path::PathBuf;
-use std::sync::atomic::{ATOMIC_USIZE_INIT, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::mem::replace;
 use std::os::raw::c_void;
 use std::sync::mpsc::{channel, Sender, Receiver};
@@ -360,7 +360,8 @@ impl DocumentOps {
 }
 
 /// The unique id for WR resource identification.
-static NEXT_NAMESPACE_ID: AtomicUsize = ATOMIC_USIZE_INIT;
+/// The namespace_id should start from 1.
+static NEXT_NAMESPACE_ID: AtomicUsize = AtomicUsize::new(1);
 
 #[cfg(any(feature = "capture", feature = "replay"))]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -419,9 +420,6 @@ impl RenderBackend {
         sampler: Option<Box<AsyncPropertySampler + Send>>,
         size_of_op: Option<VoidPtrToSizeFn>,
     ) -> RenderBackend {
-        // The namespace_id should start from 1.
-        NEXT_NAMESPACE_ID.fetch_add(1, Ordering::Relaxed);
-
         RenderBackend {
             api_rx,
             payload_rx,
