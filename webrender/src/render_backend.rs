@@ -206,6 +206,9 @@ impl Document {
                 };
             }
             FrameMsg::HitTest(pipeline_id, point, flags, tx) => {
+                if !self.hit_tester_is_valid {
+                    self.rebuild_hit_tester();
+                }
 
                 let result = match self.hit_tester {
                     Some(ref hit_tester) => {
@@ -293,6 +296,24 @@ impl Document {
         }
     }
 
+    fn rebuild_hit_tester(&mut self) {
+        if let Some(ref mut frame_builder) = self.frame_builder {
+            let accumulated_scale_factor = self.view.accumulated_scale_factor();
+            let pan = self.view.pan.to_f32() / accumulated_scale_factor;
+
+            self.clip_scroll_tree.update_tree(
+                pan,
+                &self.dynamic_properties,
+                None,
+            );
+
+            self.hit_tester = Some(frame_builder.create_hit_tester(
+                &self.clip_scroll_tree,
+                &self.clip_data_store,
+            ));
+        }
+    }
+
     pub fn updated_pipeline_info(&mut self) -> PipelineInfo {
         let removed_pipelines = replace(&mut self.removed_pipelines, Vec::new());
         PipelineInfo {
@@ -347,14 +368,12 @@ impl Document {
 
 struct DocumentOps {
     scroll: bool,
-    build_frame: bool,
 }
 
 impl DocumentOps {
     fn nop() -> Self {
         DocumentOps {
             scroll: false,
-            build_frame: false,
         }
     }
 }
@@ -613,7 +632,6 @@ impl RenderBackend {
                             txn.clip_updates.take(),
                             replace(&mut txn.frame_ops, Vec::new()),
                             replace(&mut txn.notifications, Vec::new()),
-                            txn.build_frame,
                             txn.render_frame,
                             &mut frame_counter,
                             &mut profile_counters,
@@ -622,6 +640,9 @@ impl RenderBackend {
                     },
                     SceneBuilderResult::FlushComplete(tx) => {
                         tx.send(()).ok();
+                    }
+                    SceneBuilderResult::ExternalEvent(evt) => {
+                        self.notifier.external_event(evt);
                     }
                     SceneBuilderResult::Stopped => {
                         panic!("We haven't sent a Stop yet, how did we get a Stopped back?");
@@ -725,7 +746,7 @@ impl RenderBackend {
                 ).unwrap();
             }
             ApiMsg::ExternalEvent(evt) => {
-                self.notifier.external_event(evt);
+                self.low_priority_scene_tx.send(SceneBuilderRequest::ExternalEvent(evt)).unwrap();
             }
             ApiMsg::ClearNamespace(namespace_id) => {
                 self.resource_cache.clear_namespace(namespace_id);
@@ -883,7 +904,6 @@ impl RenderBackend {
             rasterized_blobs: Vec::new(),
             notifications: transaction_msg.notifications,
             set_root_pipeline: None,
-            build_frame: transaction_msg.generate_frame,
             render_frame: transaction_msg.generate_frame,
         });
 
@@ -919,7 +939,6 @@ impl RenderBackend {
                 None,
                 replace(&mut txn.frame_ops, Vec::new()),
                 replace(&mut txn.notifications, Vec::new()),
-                txn.build_frame,
                 txn.render_frame,
                 frame_counter,
                 profile_counters,
@@ -957,7 +976,6 @@ impl RenderBackend {
         clip_updates: Option<ClipDataUpdateList>,
         mut frame_ops: Vec<FrameMsg>,
         mut notifications: Vec<NotificationRequest>,
-        mut build_frame: bool,
         mut render_frame: bool,
         frame_counter: &mut u32,
         profile_counters: &mut BackendProfileCounters,
@@ -970,7 +988,7 @@ impl RenderBackend {
         // fiddle with things after a potentially long scene build, but just
         // before rendering. This is useful for rendering with the latest
         // async transforms.
-        if build_frame {
+        if requested_frame || has_built_scene {
             if let Some(ref sampler) = self.sampler {
                 frame_ops.append(&mut sampler.sample());
             }
@@ -990,7 +1008,6 @@ impl RenderBackend {
         for frame_msg in frame_ops {
             let _timer = profile_counters.total_time.timer();
             let op = doc.process_frame_msg(frame_msg);
-            build_frame |= op.build_frame;
             scroll |= op.scroll;
         }
 
@@ -1005,31 +1022,20 @@ impl RenderBackend {
             &mut profile_counters.resources,
         );
 
-        // After applying the new scene we need to
-        // rebuild the hit-tester, so we trigger a frame generation
-        // step.
-        //
-        // TODO: We could avoid some the cost of building the frame by only
-        // building the information required for hit-testing (See #2807).
-        build_frame |= has_built_scene;
-
         if doc.dynamic_properties.flush_pending_updates() {
             doc.frame_is_valid = false;
             doc.hit_tester_is_valid = false;
-            build_frame = true;
         }
 
         if !doc.can_render() {
             // TODO: this happens if we are building the first scene asynchronously and
             // scroll at the same time. we should keep track of the fact that we skipped
             // composition here and do it as soon as we receive the scene.
-            build_frame = false;
             render_frame = false;
         }
 
-        if doc.frame_is_valid {
-            build_frame = false;
-        }
+        // Avoid re-building the frame if the current built frame is still valid.
+        let build_frame = render_frame && !doc.frame_is_valid;
 
         let mut frame_build_time = None;
         if build_frame && doc.has_pixels() {
@@ -1097,6 +1103,10 @@ impl RenderBackend {
         // transaction to complete before sending new work.
         if requested_frame {
             self.notifier.new_frame_ready(document_id, scroll, render_frame, frame_build_time);
+        }
+
+        if !doc.hit_tester_is_valid {
+            doc.rebuild_hit_tester();
         }
     }
 
