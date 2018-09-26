@@ -15,7 +15,7 @@ use gpu_types::{ClipMaskInstance, SplitCompositeInstance};
 use gpu_types::{PrimitiveInstanceData, RasterizationSpace, GlyphInstance};
 use gpu_types::{PrimitiveHeader, PrimitiveHeaderIndex, TransformPaletteId, TransformPalette};
 use internal_types::{FastHashMap, SavedTargetIndex, TextureSource};
-use picture::{PictureCompositeMode, PicturePrimitive, PictureSurface};
+use picture::{Picture3DContext, PictureCompositeMode, PicturePrimitive, PictureSurface};
 use plane_split::{BspSplitter, Clipper, Polygon, Splitter};
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentTaskId, DeferredResolve};
 use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveIndex};
@@ -687,7 +687,7 @@ impl AlphaBatchBuilder {
                         // If this picture is participating in a 3D rendering context,
                         // then don't add it to any batches here. Instead, create a polygon
                         // for it and add it to the current plane splitter.
-                        if picture.is_in_3d_context {
+                        if let Picture3DContext::In { .. } = picture.context_3d {
                             // Push into parent plane splitter.
                             debug_assert!(picture.raster_config.is_some());
                             let transform = transforms.get_world_transform(prim_instance.spatial_node_index);

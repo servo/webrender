@@ -572,7 +572,8 @@ impl<Src, Dst> FastTransform<Src, Dst> {
     pub fn is_backface_visible(&self) -> bool {
         match *self {
             FastTransform::Offset(..) => false,
-            FastTransform::Transform { ref transform, .. } => transform.is_backface_visible(),
+            FastTransform::Transform { inverse: None, .. } => false,
+            FastTransform::Transform { inverse: Some(ref inverse), .. } => inverse.m33 < 0.0,
         }
     }
 

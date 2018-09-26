@@ -1,3 +1,6 @@
+# This test is similar to "backface-leaf.yaml" but with the whole
+# stacking context (containing a green rect) turning invisible
+# because of the "rotate-x(180)" transform.
 ---
 root:
   items:
