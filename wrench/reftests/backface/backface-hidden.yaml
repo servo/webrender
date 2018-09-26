@@ -10,8 +10,9 @@ root:
     - type: stacking-context
       bounds: 0 0 1024 768
       transform: rotate-x(180)
+      transform-style: preserve-3d
       items:
         - type: rect
-          bounds: 0 0 200 200
+          bounds: 0 0 1024 768
           color: green
           backface-visible: false

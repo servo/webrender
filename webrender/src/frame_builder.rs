@@ -11,7 +11,7 @@ use display_list_flattener::{DisplayListFlattener};
 use gpu_cache::GpuCache;
 use gpu_types::{PrimitiveHeaders, TransformPalette, UvRectKind};
 use hit_test::{HitTester, HitTestingRun};
-use internal_types::{FastHashMap};
+use internal_types::{FastHashMap, PlaneSplitter};
 use picture::{PictureCompositeMode, PictureSurface, RasterConfig};
 use prim_store::{PrimitiveIndex, PrimitiveStore, SpaceMapper, PictureIndex};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
@@ -87,6 +87,7 @@ pub struct FrameBuildingState<'a> {
     pub segment_builder: SegmentBuilder,
 }
 
+#[derive(Debug)]
 pub struct PictureContext {
     pub pic_index: PictureIndex,
     pub pipeline_id: PipelineId,
@@ -97,7 +98,6 @@ pub struct PictureContext {
     pub raster_space: RasterSpace,
 }
 
-#[derive(Debug)]
 pub struct PictureState {
     pub tasks: Vec<RenderTaskId>,
     pub has_non_root_coord_system: bool,
@@ -107,8 +107,14 @@ pub struct PictureState {
     pub map_pic_to_world: SpaceMapper<PicturePixel, WorldPixel>,
     pub map_pic_to_raster: SpaceMapper<PicturePixel, RasterPixel>,
     pub map_raster_to_world: SpaceMapper<RasterPixel, WorldPixel>,
+    /// Mapping from local space to the containing block, which is the root for
+    /// plane splitting and affects backface visibility.
+    pub map_local_to_containing_block: SpaceMapper<LayoutPixel, LayoutPixel>,
     pub surface_spatial_node_index: SpatialNodeIndex,
     pub raster_spatial_node_index: SpatialNodeIndex,
+    /// If the plane splitter, the primitives get added to it insted of
+    /// batching into their parent pictures.
+    pub plane_splitter: Option<PlaneSplitter>,
 }
 
 pub struct PrimitiveContext<'a> {
@@ -235,6 +241,7 @@ impl FrameBuilder {
                 &prim_context,
                 root_spatial_node_index,
                 root_spatial_node_index,
+                &mut None,
                 true,
                 &mut frame_state,
                 &frame_context,
@@ -258,6 +265,7 @@ impl FrameBuilder {
             instances,
             pic_context,
             pic_state,
+            &mut None,
             Some(pic_rect),
             &mut frame_state,
         );

@@ -19,7 +19,7 @@ wrench/ron_frames
 # Gradle
 .gradle
 
-# VSCode
+# VS (+Code)
 .vscode
 .vs
 
