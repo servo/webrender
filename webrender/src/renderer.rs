@@ -52,6 +52,7 @@ use record::ApiRecordingReceiver;
 use render_backend::RenderBackend;
 use scene_builder::{SceneBuilder, LowPrioritySceneBuilder};
 use shade::Shaders;
+use smallvec::SmallVec;
 use render_task::{RenderTask, RenderTaskKind, RenderTaskTree};
 use resource_cache::ResourceCache;
 use util::drain_filter;
@@ -786,13 +787,38 @@ impl SourceTextureResolver {
         assert!(self.saved_textures.is_empty());
     }
 
-    fn end_frame(&mut self) {
+    fn end_frame(&mut self, device: &mut Device, frame_id: FrameId) {
         // return the cached targets to the pool
         self.end_pass(None, None);
         // return the global alpha texture
         self.render_target_pool.extend(self.shared_alpha_texture.take());
         // return the saved targets as well
         self.render_target_pool.extend(self.saved_textures.drain(..));
+
+        // GC the render target pool.
+        //
+        // We use a simple scheme whereby we drop any texture that hasn't been used
+        // in the last 30 frames. This should generally prevent any sustained build-
+        // up of unused textures, unless we don't generate frames for a long period.
+        // This can happen when the window is minimized, and we probably want to
+        // flush all the WebRender caches in that case [1].
+        //
+        // [1] https://bugzilla.mozilla.org/show_bug.cgi?id=1494099
+        self.retain_targets(device, |texture| texture.used_recently(frame_id, 30));
+    }
+
+    /// Drops all targets from the render target pool that do not satisfy the predicate.
+    pub fn retain_targets<F: Fn(&Texture) -> bool>(&mut self, device: &mut Device, f: F) {
+        // We can't just use retain() because `Texture` requires manual cleanup.
+        let mut tmp = SmallVec::<[Texture; 8]>::new();
+        for target in self.render_target_pool.drain(..) {
+            if f(&target) {
+                tmp.push(target);
+            } else {
+                device.delete_texture(target);
+            }
+        }
+        self.render_target_pool.extend(tmp);
     }
 
     fn end_pass(
@@ -895,6 +921,21 @@ impl SourceTextureResolver {
                 Some(&self.saved_textures[saved_index.0])
             }
         }
+    }
+
+    fn report_memory(&self) -> MemoryReport {
+        let mut report = MemoryReport::default();
+
+        // We're reporting GPU memory rather than heap-allocations, so we don't
+        // use size_of_op.
+        for t in self.cache_texture_map.iter() {
+            report.texture_cache_textures += t.size_in_bytes();
+        }
+        for t in self.render_target_pool.iter() {
+            report.render_target_textures += t.size_in_bytes();
+        }
+
+        report
     }
 }
 
@@ -1970,17 +2011,27 @@ impl Renderer {
                 }
                 ResultMsg::UpdateResources {
                     updates,
-                    cancel_rendering,
+                    memory_pressure,
                 } => {
                     self.pending_texture_updates.push(updates);
                     self.device.begin_frame();
                     self.update_texture_cache();
+
+                    // Flush the render target pool on memory pressure.
+                    //
+                    // This needs to be separate from the block below because
+                    // the device module asserts if we delete textures while
+                    // not in a frame.
+                    if memory_pressure {
+                        self.texture_resolver.retain_targets(&mut self.device, |_| false);
+                    }
+
                     self.device.end_frame();
                     // If we receive a `PublishDocument` message followed by this one
                     // within the same update we need to cancel the frame because we
                     // might have deleted the resources in use in the frame due to a
                     // memory pressure event.
-                    if cancel_rendering {
+                    if memory_pressure {
                         self.active_documents.clear();
                     }
                 }
@@ -3869,7 +3920,7 @@ impl Renderer {
             );
         }
 
-        self.texture_resolver.end_frame();
+        self.texture_resolver.end_frame(&mut self.device, frame_id);
 
         #[cfg(feature = "debug_renderer")]
         {
@@ -4176,14 +4227,29 @@ impl Renderer {
     /// Collects a memory report.
     pub fn report_memory(&self) -> MemoryReport {
         let mut report = MemoryReport::default();
+
+        // GPU cache CPU memory.
         if let CacheBus::PixelBuffer{ref cpu_blocks, ..} = self.gpu_cache_texture.bus {
             report.gpu_cache_cpu_mirror += self.size_of(cpu_blocks.as_ptr());
         }
 
+        // GPU cache GPU memory.
+        report.gpu_cache_textures += self.gpu_cache_texture.texture.size_in_bytes();
+
+        // Render task CPU memory.
         for (_id, doc) in &self.active_documents {
             report.render_tasks += self.size_of(doc.frame.render_tasks.tasks.as_ptr());
             report.render_tasks += self.size_of(doc.frame.render_tasks.task_data.as_ptr());
         }
+
+        // Vertex data GPU memory.
+        report.vertex_data_textures += self.prim_header_f_texture.texture.size_in_bytes();
+        report.vertex_data_textures += self.prim_header_i_texture.texture.size_in_bytes();
+        report.vertex_data_textures += self.transforms_texture.texture.size_in_bytes();
+        report.vertex_data_textures += self.render_task_texture.texture.size_in_bytes();
+
+        // Texture cache and render target GPU memory.
+        report += self.texture_resolver.report_memory();
 
         report
     }
