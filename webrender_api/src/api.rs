@@ -662,6 +662,8 @@ pub enum ApiMsg {
     GetGlyphIndices(FontKey, String, MsgSender<Vec<Option<u32>>>),
     /// Adds a new document namespace.
     CloneApi(MsgSender<IdNamespace>),
+    /// Adds a new document namespace.
+    CloneApiByClient(IdNamespace),
     /// Adds a new document with given initial size.
     AddDocument(DocumentId, DeviceUintSize, DocumentLayer),
     /// A message targeted at a particular document.
@@ -695,6 +697,7 @@ impl fmt::Debug for ApiMsg {
             ApiMsg::GetGlyphDimensions(..) => "ApiMsg::GetGlyphDimensions",
             ApiMsg::GetGlyphIndices(..) => "ApiMsg::GetGlyphIndices",
             ApiMsg::CloneApi(..) => "ApiMsg::CloneApi",
+            ApiMsg::CloneApiByClient(..) => "ApiMsg::CloneApiByClient",
             ApiMsg::AddDocument(..) => "ApiMsg::AddDocument",
             ApiMsg::UpdateDocument(..) => "ApiMsg::UpdateDocument",
             ApiMsg::DeleteDocument(..) => "ApiMsg::DeleteDocument",
@@ -864,6 +867,23 @@ impl RenderApiSender {
             next_id: Cell::new(ResourceId(0)),
         }
     }
+
+    /// Creates a new resource API object with a dedicated namespace.
+    /// Namespace id is allocated by client.
+    ///
+    /// The function could be used only when RendererOptions::namespace_alloc_by_client is true.
+    /// When the option is true, create_api() could not be used to prvent namespace id conflict.
+    pub fn create_api_by_client(&self, namespace_id: IdNamespace) -> RenderApi {
+        let msg = ApiMsg::CloneApiByClient(namespace_id);
+        self.api_sender.send(msg).expect("Failed to send CloneApiByClient message");
+        RenderApi {
+            api_sender: self.api_sender.clone(),
+            payload_sender: self.payload_sender.clone(),
+            namespace_id,
+            next_id: Cell::new(ResourceId(0)),
+        }
+    }
+
 }
 
 pub struct RenderApi {
