@@ -2,6 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+//! The high-level module responsible for managing the pipeline and preparing
+//! commands to be issued by the `Renderer`.
+//!
+//! See the comment at the top of the `renderer` module for a description of
+//! how these two pieces interact.
+
 use api::{ApiMsg, BuiltDisplayList, ClearCache, DebugCommand};
 #[cfg(feature = "debugger")]
 use api::{BuiltDisplayListIter, SpecificDisplayItem};

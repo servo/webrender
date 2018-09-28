@@ -25,15 +25,12 @@ use tiling;
 pub type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
 pub type FastHashSet<K> = HashSet<K, BuildHasherDefault<FxHasher>>;
 
-// An ID for a texture that is owned by the
-// texture cache module. This can include atlases
-// or standalone textures allocated via the
-// texture cache (e.g. if an image is too large
-// to be added to an atlas). The texture cache
-// manages the allocation and freeing of these
-// IDs, and the rendering thread maintains a
-// map from cache texture ID to native texture.
-
+/// An ID for a texture that is owned by the `texture_cache` module.
+///
+/// This can include atlases or standalone textures allocated via the texture
+/// cache (e.g.  if an image is too large to be added to an atlas). The texture
+/// cache manages the allocation and freeing of these IDs, and the rendering
+/// thread maintains a map from cache texture ID to native texture.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -48,12 +45,10 @@ impl SavedTargetIndex {
     pub const PENDING: Self = SavedTargetIndex(!0);
 }
 
-// Represents the source for a texture.
-// These are passed from throughout the
-// pipeline until they reach the rendering
-// thread, where they are resolved to a
-// native texture ID.
-
+/// Represents a texture that serves as input to a shader.
+///
+/// These are passed from throughout the pipeline until they reach the rendering
+/// thread, where they are resolved to a native texture ID.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
