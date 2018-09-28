@@ -2,12 +2,25 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-//! The webrender API.
+//! The high-level module responsible for interfacing with the GPU.
 //!
-//! The `webrender::renderer` module provides the interface to webrender, which
-//! is accessible through [`Renderer`][renderer]
+//! Much of WebRender's design is driven by separating work into different
+//! threads. To avoid the complexities of multi-threaded GPU access, we restrict
+//! all communication with the GPU to one thread, the render thread. But since
+//! issuing GPU commands is often a bottleneck, we move everything else (i.e.
+//! the computation of what commands to issue) to another thread, the
+//! RenderBackend thread. The RenderBackend, in turn, may delegate work to other
+//! thread (like the SceneBuilder threads or Rayon workers), but the
+//! Render-vs-RenderBackend distinction is the most important.
 //!
-//! [renderer]: struct.Renderer.html
+//! The consumer is responsible for initializing the render thread before
+//! calling into WebRender, which means that this module also serves as the
+//! initial entry point into WebRender, and is responsible for spawning the
+//! various other threads discussed above. That said, WebRender initialization
+//! returns both the `Renderer` instance as well as a channel for communicating
+//! directly with the `RenderBackend`. Aside from a few high-level operations
+//! like 'render now', most of interesting commands from the consumer go over
+//! that channel and operate on the `RenderBackend`.
 
 use api::{BlobImageHandler, ColorF, DeviceIntPoint, DeviceIntRect, DeviceIntSize};
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentId, Epoch, ExternalImageId};
@@ -703,12 +716,23 @@ impl GpuGlyphRenderer {
 #[cfg(not(feature = "pathfinder"))]
 struct StenciledGlyphPage;
 
+/// A Texture that has been initialized by the `device` module and is ready to
+/// be used.
 struct ActiveTexture {
     texture: Texture,
     saved_index: Option<SavedTargetIndex>,
     is_shared: bool,
 }
 
+/// Helper struct for resolving device Textures for use during rendering passes.
+///
+/// Manages the mapping between the at-a-distance texture handles used by the
+/// `RenderBackend` (which does not directly interface with the GPU) and actual
+/// device texture handles.
+///
+/// This struct also manages the allocation of render targets, which (during
+/// the pass in question) are not source textures. As such, this class should
+/// probably be renamed to just "TextureResolver" or split up.
 struct SourceTextureResolver {
     /// A vector for fast resolves of texture cache IDs to
     /// native texture IDs. This maps to a free-list managed
@@ -739,9 +763,20 @@ struct SourceTextureResolver {
     /// Saved cache textures that are to be re-used.
     saved_textures: Vec<Texture>,
 
-    /// General pool of render targets.
-    render_target_pool: Vec<Texture>,
-}
+    /// Pool of idle render target textures ready for re-use.
+    ///
+    /// Naively, it would seem like we only ever need two pairs of (color,
+    /// alpha) render targets: one for the output of the previous pass (serving
+    /// as input to the current pass), and one for the output of the current
+    /// pass. However, there are cases where the output of one pass is used as
+    /// the input to multiple future passes. For example, drop-shadows draw the
+    /// picture in pass X, then reference it in pass X+1 to create the blurred
+    /// shadow, and pass the results of both X and X+1 to pass X+2 draw the
+    /// actual content.
+    ///
+    /// See the comments in `allocate_target_texture` for more insight on why
+    /// reuse is a win.
+    render_target_pool: Vec<Texture>, }
 
 impl SourceTextureResolver {
     fn new(device: &mut Device) -> SourceTextureResolver {
@@ -1397,6 +1432,9 @@ pub struct RendererVAOs {
 
 /// The renderer is responsible for submitting to the GPU the work prepared by the
 /// RenderBackend.
+///
+/// We have a separate `Renderer` instance for each instance of WebRender (generally
+/// one per OS window), and all instances share the same thread.
 pub struct Renderer {
     result_rx: Receiver<ResultMsg>,
     debug_server: DebugServer,
@@ -3660,6 +3698,18 @@ impl Renderer {
         }
     }
 
+    /// Allocates a texture to be used as the output for a rendering pass.
+    ///
+    /// We make an effort to reuse render targe textures across passes and
+    /// across frames. Reusing a texture with the same dimensions (width,
+    /// height, and layer-count) and format is obviously ideal. Reusing a
+    /// texture with different dimensions but the same format can be faster
+    /// than allocating a new texture, since it basically boils down to
+    /// a realloc in GPU memory, which can be very cheap if the existing
+    /// region can be resized. However, some drivers/GPUs require textures
+    /// with different formats to be allocated in different arenas,
+    /// reinitializing with a different format can force a large copy. As
+    /// such, we just allocate a new texture in that case.
     fn allocate_target_texture<T: RenderTarget>(
         &mut self,
         list: &mut RenderTargetList<T>,

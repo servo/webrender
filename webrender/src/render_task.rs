@@ -174,12 +174,29 @@ impl ops::IndexMut<RenderTaskId> for RenderTaskTree {
     }
 }
 
+/// Identifies the output buffer location for a given `RenderTask`.
 #[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum RenderTaskLocation {
+    /// The `RenderTask` should be drawn to a fixed region in a specific render
+    /// target. This is used for the root `RenderTask`, where the main
+    /// framebuffer is used as the render target.
     Fixed(DeviceIntRect),
+    /// The `RenderTask` should be drawn to a target provided by the atlas
+    /// allocator. This is the most common case.
+    ///
+    /// The second member specifies the width and height of the task
+    /// output, and the first member is initially left as `None`. During the
+    /// build phase, we invoke `RenderTargetList::alloc()` and store the
+    /// resulting location in the first member. That location identifies the
+    /// render target and the offset of the allocated region within that target.
     Dynamic(Option<(DeviceIntPoint, RenderTargetIndex)>, DeviceIntSize),
+    /// The output of the `RenderTask` will be persisted beyond this frame, and
+    /// thus should be drawn into the `TextureCache`.
+    ///
+    /// FIXME(bholley): Storing a `SourceTexture` here is a category error, we
+    /// should store a `CacheTextureId` instead.
     TextureCache(SourceTexture, i32, DeviceIntRect),
 }
 
