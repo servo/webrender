@@ -15,7 +15,7 @@ use internal_types::{FastHashMap};
 use picture::{PictureCompositeMode, PictureSurface, RasterConfig};
 use prim_store::{PrimitiveIndex, PrimitiveStore, SpaceMapper};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
-use render_backend::FrameId;
+use render_backend::{FrameResources, FrameId};
 use render_task::{RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree};
 use resource_cache::{ResourceCache};
 use scene::{ScenePipeline, SceneProperties};
@@ -82,7 +82,7 @@ pub struct FrameBuildingState<'a> {
     pub gpu_cache: &'a mut GpuCache,
     pub special_render_passes: &'a mut SpecialRenderPasses,
     pub transforms: &'a mut TransformPalette,
-    pub clip_data_store: &'a mut ClipDataStore,
+    pub resources: &'a mut FrameResources,
     pub segment_builder: SegmentBuilder,
 }
 
@@ -180,7 +180,7 @@ impl FrameBuilder {
         device_pixel_scale: DevicePixelScale,
         scene_properties: &SceneProperties,
         transform_palette: &mut TransformPalette,
-        clip_data_store: &mut ClipDataStore,
+        resources: &mut FrameResources,
     ) -> Option<RenderTaskId> {
         profile_scope!("cull");
 
@@ -218,7 +218,7 @@ impl FrameBuilder {
             gpu_cache,
             special_render_passes,
             transforms: transform_palette,
-            clip_data_store,
+            resources,
             segment_builder: SegmentBuilder::new(),
         };
 
@@ -297,7 +297,7 @@ impl FrameBuilder {
         texture_cache_profile: &mut TextureCacheProfileCounters,
         gpu_cache_profile: &mut GpuCacheProfileCounters,
         scene_properties: &SceneProperties,
-        clip_data_store: &mut ClipDataStore,
+        resources: &mut FrameResources,
     ) -> Frame {
         profile_scope!("build");
         debug_assert!(
@@ -336,7 +336,7 @@ impl FrameBuilder {
             device_pixel_scale,
             scene_properties,
             &mut transform_palette,
-            clip_data_store,
+            resources,
         );
 
         resource_cache.block_until_all_resources_added(gpu_cache,
@@ -380,7 +380,7 @@ impl FrameBuilder {
                 resource_cache,
                 use_dual_source_blending,
                 clip_scroll_tree,
-                clip_data_store,
+                resources,
             };
 
             pass.build(
