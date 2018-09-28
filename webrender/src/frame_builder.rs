@@ -92,7 +92,6 @@ pub struct PictureContext {
     pub inflation_factor: f32,
     pub allow_subpixel_aa: bool,
     pub is_passthrough: bool,
-    pub establishes_raster_root: bool,
     pub raster_space: RasterSpace,
 }
 
