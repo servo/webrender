@@ -33,15 +33,8 @@ use resource_cache::{FontInstanceMap, ImageRequest};
 use scene::{Scene, ScenePipeline, StackingContextHelpers};
 use spatial_node::{SpatialNodeType, StickyFrameInfo};
 use std::{f32, mem};
-use tiling::{CompositeOps, ScrollbarPrimitive};
+use tiling::{CompositeOps};
 use util::{MaxRect, RectHelpers};
-
-static DEFAULT_SCROLLBAR_COLOR: ColorF = ColorF {
-    r: 0.3,
-    g: 0.3,
-    b: 0.3,
-    a: 0.6,
-};
 
 #[derive(Debug, Copy, Clone)]
 struct ClipNode {
@@ -144,9 +137,6 @@ pub struct DisplayListFlattener<'a> {
     /// The stack keeping track of the root clip chains associated with pipelines.
     pipeline_clip_chain_stack: Vec<ClipChainId>,
 
-    /// A list of scrollbar primitives.
-    pub scrollbar_prims: Vec<ScrollbarPrimitive>,
-
     /// The store of primitives.
     pub prim_store: PrimitiveStore,
 
@@ -196,7 +186,6 @@ impl<'a> DisplayListFlattener<'a> {
             output_pipelines,
             id_to_index_mapper: ClipIdToIndexMapper::default(),
             hit_testing_runs: Vec::new(),
-            scrollbar_prims: Vec::new(),
             shadow_stack: Vec::new(),
             sc_stack: Vec::new(),
             pipeline_clip_chain_stack: vec![ClipChainId::NONE],
@@ -259,7 +248,6 @@ impl<'a> DisplayListFlattener<'a> {
         );
 
         let root_scroll_node = ClipId::root_scroll_node(pipeline_id);
-        let scroll_frame_info = self.simple_scroll_and_clip_chain(&root_scroll_node);
 
         self.push_stacking_context(
             pipeline_id,
@@ -294,17 +282,6 @@ impl<'a> DisplayListFlattener<'a> {
         self.prim_store.primitives.reserve(self.prim_count_estimate);
 
         self.flatten_items(&mut pipeline.display_list.iter(), pipeline_id, LayoutVector2D::zero());
-
-        if self.config.enable_scrollbars {
-            let scrollbar_rect = LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(10.0, 70.0));
-            let container_rect = LayoutRect::new(LayoutPoint::zero(), *frame_size);
-            self.add_scroll_bar(
-                reference_frame_info.spatial_node_index,
-                &LayoutPrimitiveInfo::new(scrollbar_rect),
-                DEFAULT_SCROLLBAR_COLOR,
-                ScrollbarInfo(scroll_frame_info.spatial_node_index, container_rect),
-            );
-        }
 
         self.pop_stacking_context();
     }
@@ -1528,40 +1505,6 @@ impl<'a> DisplayListFlattener<'a> {
         );
     }
 
-    pub fn add_scroll_bar(
-        &mut self,
-        spatial_node_index: SpatialNodeIndex,
-        info: &LayoutPrimitiveInfo,
-        color: ColorF,
-        scrollbar_info: ScrollbarInfo,
-    ) {
-        if color.a == 0.0 {
-            return;
-        }
-
-        let prim = BrushPrimitive::new(
-            BrushKind::new_solid(color),
-            None,
-        );
-
-        let prim_index = self.create_primitive(
-            info,
-            ClipChainId::NONE,
-            spatial_node_index,
-            PrimitiveContainer::Brush(prim),
-        );
-
-        self.add_primitive_to_draw_list(
-            prim_index,
-        );
-
-        self.scrollbar_prims.push(ScrollbarPrimitive {
-            prim_index,
-            scroll_frame_index: scrollbar_info.0,
-            frame_rect: scrollbar_info.1,
-        });
-    }
-
     pub fn add_line(
         &mut self,
         clip_and_scroll: ScrollNodeAndClipChain,
@@ -2117,6 +2060,3 @@ struct FlattenedStackingContext {
     participating_in_3d_context: bool,
     has_mix_blend_mode: bool,
 }
-
-#[derive(Debug)]
-pub struct ScrollbarInfo(pub SpatialNodeIndex, pub LayoutRect);
