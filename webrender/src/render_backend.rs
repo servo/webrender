@@ -419,6 +419,7 @@ pub struct RenderBackend {
     recorder: Option<Box<ApiRecordingReceiver>>,
     sampler: Option<Box<AsyncPropertySampler + Send>>,
     size_of_op: Option<VoidPtrToSizeFn>,
+    namespace_alloc_by_client: bool,
 
     last_scene_id: u64,
 }
@@ -438,6 +439,7 @@ impl RenderBackend {
         recorder: Option<Box<ApiRecordingReceiver>>,
         sampler: Option<Box<AsyncPropertySampler + Send>>,
         size_of_op: Option<VoidPtrToSizeFn>,
+        namespace_alloc_by_client: bool,
     ) -> RenderBackend {
         RenderBackend {
             api_rx,
@@ -457,6 +459,7 @@ impl RenderBackend {
             sampler,
             size_of_op,
             last_scene_id: 0,
+            namespace_alloc_by_client,
         }
     }
 
@@ -729,7 +732,12 @@ impl RenderBackend {
                 tx.send(glyph_indices).unwrap();
             }
             ApiMsg::CloneApi(sender) => {
+                assert!(!self.namespace_alloc_by_client);
                 sender.send(self.next_namespace_id()).unwrap();
+            }
+            ApiMsg::CloneApiByClient(namespace_id) => {
+                assert!(self.namespace_alloc_by_client);
+                debug_assert!(!self.documents.iter().any(|(did, _doc)| did.0 == namespace_id));
             }
             ApiMsg::AddDocument(document_id, initial_size, layer) => {
                 let document = Document::new(

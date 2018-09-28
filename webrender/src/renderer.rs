@@ -1758,6 +1758,7 @@ impl Renderer {
             });
         let sampler = options.sampler;
         let size_of_op = options.size_of_op;
+        let namespace_alloc_by_client = options.namespace_alloc_by_client;
 
         let blob_image_handler = options.blob_image_handler.take();
         let thread_listener_for_render_backend = thread_listener.clone();
@@ -1841,6 +1842,7 @@ impl Renderer {
                 recorder,
                 sampler,
                 size_of_op,
+                namespace_alloc_by_client,
             );
             backend.run(backend_profile_counters);
             if let Some(ref thread_listener) = *thread_listener_for_render_backend {
@@ -4420,6 +4422,7 @@ pub struct RendererOptions {
     pub sampler: Option<Box<AsyncPropertySampler + Send>>,
     pub chase_primitive: ChasePrimitive,
     pub support_low_priority_transactions: bool,
+    pub namespace_alloc_by_client: bool,
 }
 
 impl Default for RendererOptions {
@@ -4454,6 +4457,7 @@ impl Default for RendererOptions {
             sampler: None,
             chase_primitive: ChasePrimitive::Nothing,
             support_low_priority_transactions: false,
+            namespace_alloc_by_client: false,
         }
     }
 }
