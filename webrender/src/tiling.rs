@@ -6,7 +6,7 @@ use api::{ColorF, BorderStyle, DeviceIntPoint, DeviceIntRect, DeviceIntSize, Dev
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize, DocumentLayer, FilterOp, ImageFormat};
 use api::{MixBlendMode, PipelineId};
 use batch::{AlphaBatchBuilder, AlphaBatchContainer, ClipBatcher, resolve_image};
-use clip::{ClipDataStore, ClipStore};
+use clip::ClipStore;
 use clip_scroll_tree::{ClipScrollTree};
 use device::{FrameId, Texture};
 #[cfg(feature = "pathfinder")]
@@ -19,6 +19,7 @@ use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 use pathfinder_partitioner::mesh::Mesh;
 use prim_store::{PrimitiveStore, DeferredResolve};
 use profiler::FrameProfileCounters;
+use render_backend::FrameResources;
 use render_task::{BlitSource, RenderTaskAddress, RenderTaskId, RenderTaskKind};
 use render_task::{BlurTask, ClearMode, GlyphTask, RenderTaskLocation, RenderTaskTree, ScalingTask};
 use resource_cache::ResourceCache;
@@ -42,7 +43,7 @@ pub struct RenderTargetContext<'a, 'rc> {
     pub resource_cache: &'rc mut ResourceCache,
     pub use_dual_source_blending: bool,
     pub clip_scroll_tree: &'a ClipScrollTree,
-    pub clip_data_store: &'a ClipDataStore,
+    pub resources: &'a FrameResources,
 }
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -587,7 +588,7 @@ impl RenderTarget for AlphaRenderTarget {
                     clip_store,
                     ctx.clip_scroll_tree,
                     transforms,
-                    ctx.clip_data_store,
+                    &ctx.resources.clip_data_store,
                 );
             }
             RenderTaskKind::ClipRegion(ref task) => {

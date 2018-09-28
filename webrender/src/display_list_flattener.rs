@@ -13,7 +13,7 @@ use api::{LineOrientation, LineStyle, LocalClip, NinePatchBorderSource, Pipeline
 use api::{PropertyBinding, ReferenceFrame, RepeatMode, ScrollFrameDisplayItem, ScrollSensitivity};
 use api::{Shadow, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, TexelRect};
 use api::{ClipMode, TransformStyle, YuvColorSpace, YuvData};
-use clip::{ClipDataInterner, ClipChainId, ClipRegion, ClipItemKey, ClipStore};
+use clip::{ClipChainId, ClipRegion, ClipItemKey, ClipStore};
 use clip_scroll_tree::{ClipScrollTree, SpatialNodeIndex};
 use euclid::vec2;
 use frame_builder::{ChasePrimitive, FrameBuilder, FrameBuilderConfig};
@@ -31,6 +31,7 @@ use prim_store::{OpacityBinding, ScrollNodeAndClipChain, TextRunPrimitive};
 use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest};
 use scene::{Scene, ScenePipeline, StackingContextHelpers};
+use scene_builder::DocumentResources;
 use spatial_node::{SpatialNodeType, StickyFrameInfo};
 use std::{f32, mem};
 use tiling::{CompositeOps};
@@ -150,8 +151,9 @@ pub struct DisplayListFlattener<'a> {
     /// order to determine the default font.
     pub config: FrameBuilderConfig,
 
-    /// Reference to the clip interner for this document.
-    clip_interner: &'a mut ClipDataInterner,
+    /// Reference to the document resources, which contains
+    /// shared (interned) data between display lists.
+    resources: &'a mut DocumentResources,
 
     /// The estimated count of primtives we expect to encounter during flattening.
     prim_count_estimate: usize,
@@ -168,7 +170,7 @@ impl<'a> DisplayListFlattener<'a> {
         new_scene: &mut Scene,
         scene_id: u64,
         picture_id_generator: &mut PictureIdGenerator,
-        clip_interner: &mut ClipDataInterner,
+        resources: &mut DocumentResources,
     ) -> FrameBuilder {
         // We checked that the root pipeline is available on the render backend.
         let root_pipeline_id = scene.root_pipeline_id.unwrap();
@@ -192,7 +194,7 @@ impl<'a> DisplayListFlattener<'a> {
             prim_store: PrimitiveStore::new(),
             clip_store: ClipStore::new(),
             picture_id_generator,
-            clip_interner,
+            resources,
             prim_count_estimate: 0,
         };
 
@@ -796,7 +798,7 @@ impl<'a> DisplayListFlattener<'a> {
             for item in clip_items {
                 // Intern this clip item, and store the handle
                 // in the clip chain node.
-                let handle = self.clip_interner.intern(&item);
+                let handle = self.resources.clip_interner.intern(&item);
 
                 clip_chain_id = self.clip_store
                                     .add_clip_chain_node(
@@ -1314,6 +1316,7 @@ impl<'a> DisplayListFlattener<'a> {
 
         // Build the clip sources from the supplied region.
         let handle = self
+            .resources
             .clip_interner
             .intern(&ClipItemKey::rectangle(clip_region.main, ClipMode::Clip));
 
@@ -1328,6 +1331,7 @@ impl<'a> DisplayListFlattener<'a> {
 
         if let Some(ref image_mask) = clip_region.image_mask {
             let handle = self
+                .resources
                 .clip_interner
                 .intern(&ClipItemKey::image_mask(image_mask));
 
@@ -1343,6 +1347,7 @@ impl<'a> DisplayListFlattener<'a> {
 
         for region in clip_region.complex_clips {
             let handle = self
+                .resources
                 .clip_interner
                 .intern(&ClipItemKey::rounded_rect(region.rect, region.radii, region.mode));
 
