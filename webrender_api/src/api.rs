@@ -17,7 +17,7 @@ use {BuiltDisplayList, BuiltDisplayListDescriptor, ColorF, DeviceIntPoint, Devic
 use {DeviceUintSize, ExternalScrollId, FontInstanceKey, FontInstanceOptions};
 use {FontInstancePlatformOptions, FontKey, FontVariation, GlyphDimensions, GlyphIndex, ImageData};
 use {ImageDescriptor, ImageKey, ItemTag, LayoutPoint, LayoutSize, LayoutTransform, LayoutVector2D};
-use {NativeFontHandle, WorldPoint, NormalizedRect};
+use {NativeFontHandle, WorldPoint};
 
 pub type TileSize = u16;
 /// Documents are rendered in the ascending order of their associated layer values.
@@ -28,7 +28,7 @@ pub enum ResourceUpdate {
     AddImage(AddImage),
     UpdateImage(UpdateImage),
     DeleteImage(ImageKey),
-    SetImageVisibleArea(ImageKey, NormalizedRect),
+    SetImageVisibleArea(ImageKey, DeviceUintRect),
     AddFont(AddFont),
     DeleteFont(FontKey),
     AddFontInstance(AddFontInstance),
@@ -321,7 +321,7 @@ impl Transaction {
         self.resource_updates.push(ResourceUpdate::DeleteImage(key));
     }
 
-    pub fn set_image_visible_area(&mut self, key: ImageKey, area: NormalizedRect) {
+    pub fn set_image_visible_area(&mut self, key: ImageKey, area: DeviceUintRect) {
         self.resource_updates.push(ResourceUpdate::SetImageVisibleArea(key, area))
     }
 
