@@ -1429,9 +1429,10 @@ impl<'a> DisplayListFlattener<'a> {
         // blur radius is 0, the code in Picture::prepare_for_render will
         // detect this and mark the picture to be drawn directly into the
         // parent picture, which avoids an intermediate surface and blur.
+        let blur_filter = FilterOp::Blur(std_deviation).sanitize();
         let shadow_pic = PicturePrimitive::new_image(
             self.picture_id_generator.next(),
-            Some(PictureCompositeMode::Filter(FilterOp::Blur(std_deviation))),
+            Some(PictureCompositeMode::Filter(blur_filter)),
             false,
             pipeline_id,
             None,

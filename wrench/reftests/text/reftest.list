@@ -7,6 +7,7 @@
 != shadow-cover-2.yaml blank.yaml
 
 == shadow.yaml shadow-ref.yaml
+== shadow-huge.yaml shadow-huge-ref.yaml
 != shadow-cover-1.yaml shadow-cover-2.yaml
 != shadow-many.yaml shadow.yaml
 != shadow-complex.yaml shadow-many.yaml
