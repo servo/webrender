@@ -241,8 +241,7 @@ float do_clip() {
         return 1.0;
     }
     // anything outside of the mask is considered transparent
-    //Note: we assume gl_FragCoord.w == interpolated(1 / vClipMaskUv.w)
-    vec2 mask_uv = vClipMaskUv.xy * gl_FragCoord.w;
+    vec2 mask_uv = vClipMaskUv.xy / vClipMaskUv.w;
     bvec2 left = lessThanEqual(vClipMaskUvBounds.xy, mask_uv); // inclusive
     bvec2 right = greaterThan(vClipMaskUvBounds.zw, mask_uv); // non-inclusive
     // bail out if the pixel is outside the valid bounds
