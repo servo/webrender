@@ -121,14 +121,12 @@ VertexInfo write_vertex(RectWithSize instance_rect,
     vec4 world_pos = transform.m * vec4(clamped_local_pos, 0.0, 1.0);
 
     // Convert the world positions to device pixel space.
-    vec2 device_pos = world_pos.xy / world_pos.w * uDevicePixelRatio;
+    vec2 device_pos = world_pos.xy * uDevicePixelRatio;
 
     // Apply offsets for the render task to get correct screen location.
-    vec2 final_pos = device_pos + snap_offset -
-                     task.content_origin +
-                     task.common_data.task_rect.p0;
+    vec2 final_offset = snap_offset - task.content_origin + task.common_data.task_rect.p0;
 
-    gl_Position = uTransform * vec4(final_pos, z, 1.0);
+    gl_Position = uTransform * vec4(device_pos + final_offset, z, world_pos.w);
 
     VertexInfo vi = VertexInfo(
         clamped_local_pos,
@@ -241,7 +239,8 @@ float do_clip() {
         return 1.0;
     }
     // anything outside of the mask is considered transparent
-    vec2 mask_uv = vClipMaskUv.xy / vClipMaskUv.w;
+    //Note: we assume gl_FragCoord.w == interpolated(1 / vClipMaskUv.w)
+    vec2 mask_uv = vClipMaskUv.xy * gl_FragCoord.w;
     bvec2 left = lessThanEqual(vClipMaskUvBounds.xy, mask_uv); // inclusive
     bvec2 right = greaterThan(vClipMaskUvBounds.zw, mask_uv); // non-inclusive
     // bail out if the pixel is outside the valid bounds
