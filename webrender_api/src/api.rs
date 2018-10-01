@@ -11,7 +11,6 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::os::raw::c_void;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::u32;
 use {BuiltDisplayList, BuiltDisplayListDescriptor, ColorF, DeviceIntPoint, DeviceUintRect};
 use {DeviceUintSize, ExternalScrollId, FontInstanceKey, FontInstanceOptions};
@@ -1269,34 +1268,41 @@ pub trait NotificationHandler : Send + Sync {
     fn notify(&self, when: Checkpoint);
 }
 
-#[derive(Clone)]
 pub struct NotificationRequest {
-    handler: Arc<NotificationHandler>,
+    handler: Option<Box<NotificationHandler>>,
     when: Checkpoint,
-    done: bool,
 }
 
 impl NotificationRequest {
-    pub fn new(when: Checkpoint, handler: Arc<NotificationHandler>) -> Self {
+    pub fn new(when: Checkpoint, handler: Box<NotificationHandler>) -> Self {
         NotificationRequest {
-            handler,
+            handler: Some(handler),
             when,
-            done: false,
         }
     }
 
     pub fn when(&self) -> Checkpoint { self.when }
 
     pub fn notify(mut self) {
-        self.handler.notify(self.when);
-        self.done = true;
+        if let Some(handler) = self.handler.take() {
+            handler.notify(self.when);
+        }
     }
 }
 
 impl Drop for NotificationRequest {
     fn drop(&mut self) {
-        if !self.done {
-            self.handler.notify(Checkpoint::TransactionDropped);
+        if let Some(ref mut handler) = self.handler {
+            handler.notify(Checkpoint::TransactionDropped);
+        }
+    }
+}
+
+impl Clone for NotificationRequest {
+    fn clone(&self) -> Self {
+        NotificationRequest {
+            when: self.when,
+            handler: None,
         }
     }
 }
