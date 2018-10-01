@@ -18,9 +18,6 @@
 uniform sampler2DArray sPrevPassAlpha;
 uniform sampler2DArray sPrevPassColor;
 
-// An A8 target for standalone tasks that is available to all passes.
-uniform sampler2DArray sSharedCacheA8;
-
 vec2 clamp_rect(vec2 pt, RectWithSize rect) {
     return clamp(pt, rect.p0, rect.p0 + rect.size);
 }

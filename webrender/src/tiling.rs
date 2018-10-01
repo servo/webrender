@@ -193,7 +193,6 @@ pub struct RenderTargetList<T> {
     pub max_size: DeviceUintSize,
     pub targets: Vec<T>,
     pub saved_index: Option<SavedTargetIndex>,
-    pub is_shared: bool,
 }
 
 impl<T: RenderTarget> RenderTargetList<T> {
@@ -207,7 +206,6 @@ impl<T: RenderTarget> RenderTargetList<T> {
             max_size: DeviceUintSize::new(MIN_TARGET_SIZE, MIN_TARGET_SIZE),
             targets: Vec::new(),
             saved_index: None,
-            is_shared: false,
         }
     }
 
@@ -902,11 +900,6 @@ impl RenderPass {
                 );
             }
             RenderPassKind::OffScreen { ref mut color, ref mut alpha, ref mut texture_cache } => {
-                let is_shared_alpha = self.tasks.iter().any(|&task_id| {
-                    let task = &render_tasks[task_id];
-                    task.is_shared() &&
-                        task.target_kind() == RenderTargetKind::Alpha
-                });
                 let saved_color = if self.tasks.iter().any(|&task_id| {
                     let t = &render_tasks[task_id];
                     t.target_kind() == RenderTargetKind::Color && t.saved_index.is_some()
@@ -1018,7 +1011,6 @@ impl RenderPass {
                     prim_headers,
                     transforms,
                 );
-                alpha.is_shared = is_shared_alpha;
             }
         }
     }

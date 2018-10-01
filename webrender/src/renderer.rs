@@ -298,10 +298,6 @@ pub(crate) enum TextureSampler {
     TransformPalette,
     RenderTasks,
     Dither,
-    // A special sampler that is bound to the A8 output of
-    // the *first* pass. Items rendered in this target are
-    // available as inputs to tasks in any subsequent pass.
-    SharedCacheA8,
     PrimitiveHeadersF,
     PrimitiveHeadersI,
 }
@@ -331,9 +327,8 @@ impl Into<TextureSlot> for TextureSampler {
             TextureSampler::TransformPalette => TextureSlot(6),
             TextureSampler::RenderTasks => TextureSlot(7),
             TextureSampler::Dither => TextureSlot(8),
-            TextureSampler::SharedCacheA8 => TextureSlot(9),
-            TextureSampler::PrimitiveHeadersF => TextureSlot(10),
-            TextureSampler::PrimitiveHeadersI => TextureSlot(11),
+            TextureSampler::PrimitiveHeadersF => TextureSlot(9),
+            TextureSampler::PrimitiveHeadersI => TextureSlot(10),
         }
     }
 }
@@ -721,7 +716,6 @@ struct StenciledGlyphPage;
 struct ActiveTexture {
     texture: Texture,
     saved_index: Option<SavedTargetIndex>,
-    is_shared: bool,
 }
 
 /// Helper struct for resolving device Textures for use during rendering passes.
@@ -751,10 +745,6 @@ struct TextureResolver {
     /// The outputs of the previous pass, if applicable.
     prev_pass_color: Option<ActiveTexture>,
     prev_pass_alpha: Option<ActiveTexture>,
-
-    /// An alpha texture shared between all passes.
-    //TODO: just use the standard texture saving logic instead.
-    shared_alpha_texture: Option<Texture>,
 
     /// Saved cache textures that are to be re-used.
     saved_textures: Vec<Texture>,
@@ -794,7 +784,6 @@ impl TextureResolver {
             dummy_cache_texture,
             prev_pass_alpha: None,
             prev_pass_color: None,
-            shared_alpha_texture: None,
             saved_textures: Vec::default(),
             render_target_pool: Vec::new(),
         }
@@ -821,8 +810,6 @@ impl TextureResolver {
     fn end_frame(&mut self, device: &mut Device, frame_id: FrameId) {
         // return the cached targets to the pool
         self.end_pass(None, None);
-        // return the global alpha texture
-        self.render_target_pool.extend(self.shared_alpha_texture.take());
         // return the saved targets as well
         self.render_target_pool.extend(self.saved_textures.drain(..));
 
@@ -862,7 +849,6 @@ impl TextureResolver {
         // the result of last pass.
         // Note: the order here is important, needs to match the logic in `RenderPass::build()`.
         if let Some(at) = self.prev_pass_color.take() {
-            assert!(!at.is_shared);
             if let Some(index) = at.saved_index {
                 assert_eq!(self.saved_textures.len(), index.0);
                 self.saved_textures.push(at.texture);
@@ -872,12 +858,8 @@ impl TextureResolver {
         }
         if let Some(at) = self.prev_pass_alpha.take() {
             if let Some(index) = at.saved_index {
-                assert!(!at.is_shared);
                 assert_eq!(self.saved_textures.len(), index.0);
                 self.saved_textures.push(at.texture);
-            } else if at.is_shared {
-                assert!(self.shared_alpha_texture.is_none());
-                self.shared_alpha_texture = Some(at.texture);
             } else {
                 self.render_target_pool.push(at.texture);
             }
@@ -3772,7 +3754,6 @@ impl Renderer {
         Some(ActiveTexture {
             texture,
             saved_index: list.saved_index.clone(),
-            is_shared: list.is_shared,
         })
     }
 
@@ -3955,12 +3936,6 @@ impl Renderer {
                     (alpha_tex, color_tex)
                 }
             };
-
-            //Note: the `end_pass` will make sure this texture is not recycled this frame
-            if let Some(ActiveTexture { ref texture, is_shared: true, .. }) = cur_alpha {
-                self.device
-                    .bind_texture(TextureSampler::SharedCacheA8, texture);
-            }
 
             self.texture_resolver.end_pass(
                 cur_alpha,
