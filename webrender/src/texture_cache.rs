@@ -589,7 +589,7 @@ impl TextureCache {
     pub fn get_cache_location(
         &self,
         handle: &TextureCacheHandle,
-    ) -> (TextureSource, i32, DeviceUintRect) {
+    ) -> (CacheTextureId, i32, DeviceUintRect) {
         let handle = handle
             .entry
             .as_ref()
@@ -609,7 +609,7 @@ impl TextureCache {
                 ..
             } => (layer_index, origin),
         };
-        (TextureSource::TextureCache(entry.texture_id),
+        (entry.texture_id,
          layer_index as i32,
          DeviceUintRect::new(origin, entry.size))
     }

@@ -3477,15 +3477,16 @@ impl Renderer {
 
     fn draw_texture_cache_target(
         &mut self,
-        texture: &TextureSource,
+        texture: &CacheTextureId,
         layer: i32,
         target: &TextureCacheRenderTarget,
         render_tasks: &RenderTaskTree,
         stats: &mut RendererStats,
     ) {
+        let texture_source = TextureSource::TextureCache(*texture);
         let (target_size, projection) = {
             let texture = self.texture_resolver
-                .resolve(texture)
+                .resolve(&texture_source)
                 .expect("BUG: invalid target texture");
             let target_size = texture.get_dimensions();
             let projection = Transform3D::ortho(
@@ -3509,7 +3510,7 @@ impl Renderer {
 
         {
             let texture = self.texture_resolver
-                .resolve(texture)
+                .resolve(&texture_source)
                 .expect("BUG: invalid target texture");
             self.device
                 .bind_draw_target(Some((texture, layer)), Some(target_size));

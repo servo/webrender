@@ -16,7 +16,7 @@ use freelist::{FreeList, FreeListHandle, WeakFreeListHandle};
 use glyph_rasterizer::GpuGlyphCacheKey;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use gpu_types::{BorderInstance, ImageSource, RasterizationSpace, UvRectKind};
-use internal_types::{FastHashMap, SavedTargetIndex, TextureSource};
+use internal_types::{CacheTextureId, FastHashMap, SavedTargetIndex};
 #[cfg(feature = "pathfinder")]
 use pathfinder_partitioner::mesh::Mesh;
 use picture::PictureCacheKey;
@@ -194,10 +194,7 @@ pub enum RenderTaskLocation {
     Dynamic(Option<(DeviceIntPoint, RenderTargetIndex)>, DeviceIntSize),
     /// The output of the `RenderTask` will be persisted beyond this frame, and
     /// thus should be drawn into the `TextureCache`.
-    ///
-    /// FIXME(bholley): Storing a `TextureSource` here is a category error, we
-    /// should store a `CacheTextureId` instead.
-    TextureCache(TextureSource, i32, DeviceIntRect),
+    TextureCache(CacheTextureId, i32, DeviceIntRect),
 }
 
 #[derive(Debug)]
