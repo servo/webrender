@@ -287,6 +287,11 @@ impl From<GlyphFormat> for ShaderColorMode {
     }
 }
 
+/// Enumeration of the texture samplers used across the various WebRender shaders.
+///
+/// Each variant corresponds to a uniform declared in shader source. We only bind
+/// the variants we need for a given shader, so not every variant is bound for every
+/// batch.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(crate) enum TextureSampler {
     Color0,
@@ -724,14 +729,12 @@ struct ActiveTexture {
 /// `RenderBackend` (which does not directly interface with the GPU) and actual
 /// device texture handles.
 struct TextureResolver {
-    /// A vector for fast resolves of texture cache IDs to
-    /// native texture IDs. This maps to a free-list managed
-    /// by the backend thread / texture cache. We free the
-    /// texture memory associated with a TextureId when its
-    /// texture cache ID is freed by the texture cache, but
-    /// reuse the TextureId when the texture caches's free
-    /// list reuses the texture cache ID. This saves having to
-    /// use a hashmap, and allows a flat vector for performance.
+    /// A vector for fast resolves of texture cache IDs to native texture IDs.
+    /// This maps to a free-list managed by the backend thread / texture cache.
+    /// We free the texture memory associated with a TextureId when its texture
+    /// cache ID is freed by the texture cache, but reuse the TextureId when the
+    /// texture caches's free list reuses the texture cache ID. This saves
+    /// having to use a hashmap, and allows a flat vector for performance.
     texture_cache_map: Vec<Texture>,
 
     /// Map of external image IDs to native textures.
@@ -746,8 +749,12 @@ struct TextureResolver {
     prev_pass_color: Option<ActiveTexture>,
     prev_pass_alpha: Option<ActiveTexture>,
 
-    /// Saved cache textures that are to be re-used.
-    saved_textures: Vec<Texture>,
+    /// Saved render targets from previous passes. This is used when a pass
+    /// needs access to the result of a pass other than the immediately-preceding
+    /// one. In this case, the `RenderTask` will get a a non-`None` `saved_index`,
+    /// which will cause the resulting render target to be persisted in this list
+    /// (at that index) until the end of the frame.
+    saved_targets: Vec<Texture>,
 
     /// Pool of idle render target textures ready for re-use.
     ///
@@ -762,7 +769,8 @@ struct TextureResolver {
     ///
     /// See the comments in `allocate_target_texture` for more insight on why
     /// reuse is a win.
-    render_target_pool: Vec<Texture>, }
+    render_target_pool: Vec<Texture>,
+}
 
 impl TextureResolver {
     fn new(device: &mut Device) -> TextureResolver {
@@ -784,7 +792,7 @@ impl TextureResolver {
             dummy_cache_texture,
             prev_pass_alpha: None,
             prev_pass_color: None,
-            saved_textures: Vec::default(),
+            saved_targets: Vec::default(),
             render_target_pool: Vec::new(),
         }
     }
@@ -804,14 +812,14 @@ impl TextureResolver {
     fn begin_frame(&mut self) {
         assert!(self.prev_pass_color.is_none());
         assert!(self.prev_pass_alpha.is_none());
-        assert!(self.saved_textures.is_empty());
+        assert!(self.saved_targets.is_empty());
     }
 
     fn end_frame(&mut self, device: &mut Device, frame_id: FrameId) {
         // return the cached targets to the pool
         self.end_pass(None, None);
         // return the saved targets as well
-        self.render_target_pool.extend(self.saved_textures.drain(..));
+        self.render_target_pool.extend(self.saved_targets.drain(..));
 
         // GC the render target pool.
         //
@@ -850,16 +858,16 @@ impl TextureResolver {
         // Note: the order here is important, needs to match the logic in `RenderPass::build()`.
         if let Some(at) = self.prev_pass_color.take() {
             if let Some(index) = at.saved_index {
-                assert_eq!(self.saved_textures.len(), index.0);
-                self.saved_textures.push(at.texture);
+                assert_eq!(self.saved_targets.len(), index.0);
+                self.saved_targets.push(at.texture);
             } else {
                 self.render_target_pool.push(at.texture);
             }
         }
         if let Some(at) = self.prev_pass_alpha.take() {
             if let Some(index) = at.saved_index {
-                assert_eq!(self.saved_textures.len(), index.0);
-                self.saved_textures.push(at.texture);
+                assert_eq!(self.saved_targets.len(), index.0);
+                self.saved_targets.push(at.texture);
             } else {
                 self.render_target_pool.push(at.texture);
             }
@@ -900,7 +908,7 @@ impl TextureResolver {
                 device.bind_texture(sampler, texture);
             }
             TextureSource::RenderTaskCache(saved_index) => {
-                let texture = &self.saved_textures[saved_index.0];
+                let texture = &self.saved_targets[saved_index.0];
                 device.bind_texture(sampler, texture)
             }
         }
@@ -931,7 +939,7 @@ impl TextureResolver {
                 Some(&self.texture_cache_map[index.0])
             }
             TextureSource::RenderTaskCache(saved_index) => {
-                Some(&self.saved_textures[saved_index.0])
+                Some(&self.saved_targets[saved_index.0])
             }
         }
     }

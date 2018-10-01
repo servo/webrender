@@ -182,9 +182,8 @@ pub enum RenderTargetKind {
 /// task to be drawn in a single batch regardless of how many results from the
 /// previous pass it depends on.
 ///
-/// FIXME(bholley): How does the above work with the box-shadow case where we
-/// depend on multiple passes at once? Do we break batching, or bind multiple
-/// texture arrays at once?
+/// Note that in some cases (like drop-shadows), we can depend on the output of
+/// a pass earlier than the immediately-preceding pass. See `SavedTargetIndex`.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct RenderTargetList<T> {

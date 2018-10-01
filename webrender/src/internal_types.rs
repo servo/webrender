@@ -36,6 +36,12 @@ pub type FastHashSet<K> = HashSet<K, BuildHasherDefault<FxHasher>>;
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct CacheTextureId(pub usize);
 
+/// Identifies a render pass target that is persisted until the end of the frame.
+///
+/// By default, only the targets of the immediately-preceding pass are bound as
+/// inputs to the next pass. However, tasks can opt into having their target
+/// preserved in a list until the end of the frame, and this type specifies the
+/// index in that list.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
@@ -50,11 +56,19 @@ impl SavedTargetIndex {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum TextureSource {
+    /// Equivalent to `None`, allowing us to avoid using `Option`s everywhere.
     Invalid,
+    /// An entry in the texture cache.
     TextureCache(CacheTextureId),
+    /// An external image texture, mananged by the embedding.
     External(ExternalImageData),
+    /// The alpha target of the immediately-preceding pass.
     PrevPassAlpha,
+    /// The color target of the immediately-preceding pass.
     PrevPassColor,
+    /// A render target from an earlier pass. Unlike the immediately-preceding
+    /// passes, these are not made available automatically, but are instead
+    /// opt-in by the `RenderTask` (see `mark_for_saving()`).
     RenderTaskCache(SavedTargetIndex),
 }
 
