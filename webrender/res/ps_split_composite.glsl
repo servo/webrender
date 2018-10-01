@@ -86,7 +86,7 @@ void main(void) {
 
     gl_Position = uTransform * final_pos;
 
-    vec2 texture_size = vec2(textureSize(sCacheRGBA8, 0));
+    vec2 texture_size = vec2(textureSize(sPrevPassColor, 0));
     vec2 uv0 = res.uv_rect.p0;
     vec2 uv1 = res.uv_rect.p1;
 
@@ -115,6 +115,6 @@ void main(void) {
 void main(void) {
     float alpha = do_clip();
     vec2 uv = clamp(vUv.xy, vUvSampleBounds.xy, vUvSampleBounds.zw);
-    oFragColor = alpha * textureLod(sCacheRGBA8, vec3(uv, vUv.z), 0.0);
+    oFragColor = alpha * textureLod(sPrevPassColor, vec3(uv, vUv.z), 0.0);
 }
 #endif

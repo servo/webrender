@@ -79,8 +79,8 @@ impl BatchTextures {
     pub fn render_target_cache() -> Self {
         BatchTextures {
             colors: [
-                TextureSource::CacheRGBA8,
-                TextureSource::CacheA8,
+                TextureSource::PrevPassColor,
+                TextureSource::PrevPassAlpha,
                 TextureSource::Invalid,
             ],
         }

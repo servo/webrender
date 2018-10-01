@@ -53,8 +53,8 @@ pub enum TextureSource {
     Invalid,
     TextureCache(CacheTextureId),
     External(ExternalImageData),
-    CacheA8,
-    CacheRGBA8,
+    PrevPassAlpha,
+    PrevPassColor,
     RenderTaskCache(SavedTargetIndex),
 }
 

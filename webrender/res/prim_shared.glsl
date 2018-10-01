@@ -15,8 +15,8 @@
 #define RASTER_LOCAL            0
 #define RASTER_SCREEN           1
 
-uniform sampler2DArray sCacheA8;
-uniform sampler2DArray sCacheRGBA8;
+uniform sampler2DArray sPrevPassAlpha;
+uniform sampler2DArray sPrevPassColor;
 
 // An A8 target for standalone tasks that is available to all passes.
 uniform sampler2DArray sSharedCacheA8;
@@ -254,7 +254,7 @@ float do_clip() {
     // is still interpolated and becomes a subject of precision-caused
     // fluctuations, see https://bugzilla.mozilla.org/show_bug.cgi?id=1491911
     ivec3 tc = ivec3(mask_uv, vClipMaskUv.z + 0.5);
-    return texelFetch(sCacheA8, tc, 0).r;
+    return texelFetch(sPrevPassAlpha, tc, 0).r;
 }
 
 #ifdef WR_FEATURE_DITHERING

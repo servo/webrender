@@ -292,8 +292,8 @@ pub(crate) enum TextureSampler {
     Color0,
     Color1,
     Color2,
-    CacheA8,
-    CacheRGBA8,
+    PrevPassAlpha,
+    PrevPassColor,
     GpuCache,
     TransformPalette,
     RenderTasks,
@@ -325,8 +325,8 @@ impl Into<TextureSlot> for TextureSampler {
             TextureSampler::Color0 => TextureSlot(0),
             TextureSampler::Color1 => TextureSlot(1),
             TextureSampler::Color2 => TextureSlot(2),
-            TextureSampler::CacheA8 => TextureSlot(3),
-            TextureSampler::CacheRGBA8 => TextureSlot(4),
+            TextureSampler::PrevPassAlpha => TextureSlot(3),
+            TextureSampler::PrevPassColor => TextureSlot(4),
             TextureSampler::GpuCache => TextureSlot(5),
             TextureSampler::TransformPalette => TextureSlot(6),
             TextureSampler::RenderTasks => TextureSlot(7),
@@ -743,14 +743,14 @@ struct TextureResolver {
     /// Map of external image IDs to native textures.
     external_images: FastHashMap<(ExternalImageId, u8), ExternalTexture>,
 
-    /// A special 1x1 dummy cache texture used for shaders that expect to work
-    /// with the cache but are actually running in the first pass
-    /// when no target is yet provided as a cache texture input.
+    /// A special 1x1 dummy texture used for shaders that expect to work with
+    /// the output of the previous pass but are actually running in the first
+    /// pass.
     dummy_cache_texture: Texture,
 
-    /// The current cache textures.
-    cache_rgba8_texture: Option<ActiveTexture>,
-    cache_a8_texture: Option<ActiveTexture>,
+    /// The outputs of the previous pass, if applicable.
+    prev_pass_color: Option<ActiveTexture>,
+    prev_pass_alpha: Option<ActiveTexture>,
 
     /// An alpha texture shared between all passes.
     //TODO: just use the standard texture saving logic instead.
@@ -792,8 +792,8 @@ impl TextureResolver {
             texture_cache_map: Vec::new(),
             external_images: FastHashMap::default(),
             dummy_cache_texture,
-            cache_a8_texture: None,
-            cache_rgba8_texture: None,
+            prev_pass_alpha: None,
+            prev_pass_color: None,
             shared_alpha_texture: None,
             saved_textures: Vec::default(),
             render_target_pool: Vec::new(),
@@ -813,8 +813,8 @@ impl TextureResolver {
     }
 
     fn begin_frame(&mut self) {
-        assert!(self.cache_rgba8_texture.is_none());
-        assert!(self.cache_a8_texture.is_none());
+        assert!(self.prev_pass_color.is_none());
+        assert!(self.prev_pass_alpha.is_none());
         assert!(self.saved_textures.is_empty());
     }
 
@@ -861,7 +861,7 @@ impl TextureResolver {
         // Also assign the pool index of those cache textures to last pass's index because this is
         // the result of last pass.
         // Note: the order here is important, needs to match the logic in `RenderPass::build()`.
-        if let Some(at) = self.cache_rgba8_texture.take() {
+        if let Some(at) = self.prev_pass_color.take() {
             assert!(!at.is_shared);
             if let Some(index) = at.saved_index {
                 assert_eq!(self.saved_textures.len(), index.0);
@@ -870,7 +870,7 @@ impl TextureResolver {
                 self.render_target_pool.push(at.texture);
             }
         }
-        if let Some(at) = self.cache_a8_texture.take() {
+        if let Some(at) = self.prev_pass_alpha.take() {
             if let Some(index) = at.saved_index {
                 assert!(!at.is_shared);
                 assert_eq!(self.saved_textures.len(), index.0);
@@ -885,23 +885,23 @@ impl TextureResolver {
 
         // We have another pass to process, make these textures available
         // as inputs to the next pass.
-        self.cache_rgba8_texture = rgba8_texture;
-        self.cache_a8_texture = a8_texture;
+        self.prev_pass_color = rgba8_texture;
+        self.prev_pass_alpha = a8_texture;
     }
 
     // Bind a source texture to the device.
     fn bind(&self, texture_id: &TextureSource, sampler: TextureSampler, device: &mut Device) {
         match *texture_id {
             TextureSource::Invalid => {}
-            TextureSource::CacheA8 => {
-                let texture = match self.cache_a8_texture {
+            TextureSource::PrevPassAlpha => {
+                let texture = match self.prev_pass_alpha {
                     Some(ref at) => &at.texture,
                     None => &self.dummy_cache_texture,
                 };
                 device.bind_texture(sampler, texture);
             }
-            TextureSource::CacheRGBA8 => {
-                let texture = match self.cache_rgba8_texture {
+            TextureSource::PrevPassColor => {
+                let texture = match self.prev_pass_color {
                     Some(ref at) => &at.texture,
                     None => &self.dummy_cache_texture,
                 };
@@ -930,14 +930,14 @@ impl TextureResolver {
     fn resolve(&self, texture_id: &TextureSource) -> Option<&Texture> {
         match *texture_id {
             TextureSource::Invalid => None,
-            TextureSource::CacheA8 => Some(
-                match self.cache_a8_texture {
+            TextureSource::PrevPassAlpha => Some(
+                match self.prev_pass_alpha {
                     Some(ref at) => &at.texture,
                     None => &self.dummy_cache_texture,
                 }
             ),
-            TextureSource::CacheRGBA8 => Some(
-                match self.cache_rgba8_texture {
+            TextureSource::PrevPassColor => Some(
+                match self.prev_pass_color {
                     Some(ref at) => &at.texture,
                     None => &self.dummy_cache_texture,
                 }
@@ -2865,7 +2865,7 @@ impl Renderer {
         }
 
         let cache_texture = self.texture_resolver
-            .resolve(&TextureSource::CacheRGBA8)
+            .resolve(&TextureSource::PrevPassColor)
             .unwrap();
 
         // Before submitting the composite batch, do the
@@ -2943,7 +2943,7 @@ impl Renderer {
                     // TODO(gw): Support R8 format here once we start
                     //           creating mips for alpha masks.
                     let src_texture = self.texture_resolver
-                        .resolve(&TextureSource::CacheRGBA8)
+                        .resolve(&TextureSource::PrevPassColor)
                         .expect("BUG: invalid source texture");
                     let source = &render_tasks[task_id];
                     let (source_rect, layer) = source.get_target_rect();
@@ -2971,12 +2971,12 @@ impl Renderer {
         }
 
         match source {
-            TextureSource::CacheRGBA8 => {
+            TextureSource::PrevPassColor => {
                 self.shaders.cs_scale_rgba8.bind(&mut self.device,
                                                  &projection,
                                                  &mut self.renderer_errors);
             }
-            TextureSource::CacheA8 => {
+            TextureSource::PrevPassAlpha => {
                 self.shaders.cs_scale_a8.bind(&mut self.device,
                                               &projection,
                                               &mut self.renderer_errors);
@@ -3098,7 +3098,7 @@ impl Renderer {
             }
         }
 
-        self.handle_scaling(&target.scalings, TextureSource::CacheRGBA8, projection, stats);
+        self.handle_scaling(&target.scalings, TextureSource::PrevPassColor, projection, stats);
 
         //TODO: record the pixel count for cached primitives
 
@@ -3390,7 +3390,7 @@ impl Renderer {
             }
         }
 
-        self.handle_scaling(&target.scalings, TextureSource::CacheA8, projection, stats);
+        self.handle_scaling(&target.scalings, TextureSource::PrevPassAlpha, projection, stats);
 
         // Draw the clip items into the tiled alpha mask.
         {
@@ -3814,8 +3814,8 @@ impl Renderer {
             &self.render_task_texture.texture,
         );
 
-        debug_assert!(self.texture_resolver.cache_a8_texture.is_none());
-        debug_assert!(self.texture_resolver.cache_rgba8_texture.is_none());
+        debug_assert!(self.texture_resolver.prev_pass_alpha.is_none());
+        debug_assert!(self.texture_resolver.prev_pass_color.is_none());
     }
 
     fn draw_tile_frame(
@@ -3844,13 +3844,13 @@ impl Renderer {
             self.gpu_profile.place_marker(&format!("pass {}", pass_index));
 
             self.texture_resolver.bind(
-                &TextureSource::CacheA8,
-                TextureSampler::CacheA8,
+                &TextureSource::PrevPassAlpha,
+                TextureSampler::PrevPassAlpha,
                 &mut self.device,
             );
             self.texture_resolver.bind(
-                &TextureSource::CacheRGBA8,
-                TextureSampler::CacheRGBA8,
+                &TextureSource::PrevPassColor,
+                TextureSampler::PrevPassColor,
                 &mut self.device,
             );
 
