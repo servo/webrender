@@ -729,11 +729,7 @@ struct ActiveTexture {
 /// Manages the mapping between the at-a-distance texture handles used by the
 /// `RenderBackend` (which does not directly interface with the GPU) and actual
 /// device texture handles.
-///
-/// This struct also manages the allocation of render targets, which (during
-/// the pass in question) are not source textures. As such, this class should
-/// probably be renamed to just "TextureResolver" or split up.
-struct SourceTextureResolver {
+struct TextureResolver {
     /// A vector for fast resolves of texture cache IDs to
     /// native texture IDs. This maps to a free-list managed
     /// by the backend thread / texture cache. We free the
@@ -778,8 +774,8 @@ struct SourceTextureResolver {
     /// reuse is a win.
     render_target_pool: Vec<Texture>, }
 
-impl SourceTextureResolver {
-    fn new(device: &mut Device) -> SourceTextureResolver {
+impl TextureResolver {
+    fn new(device: &mut Device) -> TextureResolver {
         let mut dummy_cache_texture = device
             .create_texture(TextureTarget::Array, ImageFormat::BGRA8);
         device.init_texture::<u8>(
@@ -792,7 +788,7 @@ impl SourceTextureResolver {
             None,
         );
 
-        SourceTextureResolver {
+        TextureResolver {
             cache_texture_map: Vec::new(),
             external_images: FastHashMap::default(),
             dummy_cache_texture,
@@ -1484,7 +1480,7 @@ pub struct Renderer {
     pipeline_info: PipelineInfo,
 
     // Manages and resolves source textures IDs to real texture IDs.
-    texture_resolver: SourceTextureResolver,
+    texture_resolver: TextureResolver,
 
     // A PBO used to do asynchronous texture cache uploads.
     texture_cache_upload_pbo: PBO,
@@ -1736,7 +1732,7 @@ impl Renderer {
         let scale_vao = device.create_vao_with_new_instances(&desc::SCALE, &prim_vao);
         let texture_cache_upload_pbo = device.create_pbo();
 
-        let texture_resolver = SourceTextureResolver::new(&mut device);
+        let texture_resolver = TextureResolver::new(&mut device);
 
         let prim_header_f_texture = VertexDataTexture::new(&mut device, ImageFormat::RGBAF32);
         let prim_header_i_texture = VertexDataTexture::new(&mut device, ImageFormat::RGBAI32);
