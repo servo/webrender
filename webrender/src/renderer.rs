@@ -294,7 +294,7 @@ pub(crate) enum TextureSampler {
     Color2,
     CacheA8,
     CacheRGBA8,
-    ResourceCache,
+    GpuCache,
     TransformPalette,
     RenderTasks,
     Dither,
@@ -327,7 +327,7 @@ impl Into<TextureSlot> for TextureSampler {
             TextureSampler::Color2 => TextureSlot(2),
             TextureSampler::CacheA8 => TextureSlot(3),
             TextureSampler::CacheRGBA8 => TextureSlot(4),
-            TextureSampler::ResourceCache => TextureSlot(5),
+            TextureSampler::GpuCache => TextureSlot(5),
             TextureSampler::TransformPalette => TextureSlot(6),
             TextureSampler::RenderTasks => TextureSlot(7),
             TextureSampler::Dither => TextureSlot(8),
@@ -2685,7 +2685,7 @@ impl Renderer {
         // Note: the texture might have changed during the `update`,
         // so we need to bind it here.
         self.device.bind_texture(
-            TextureSampler::ResourceCache,
+            TextureSampler::GpuCache,
             &self.gpu_cache_texture.texture,
         );
     }

@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include rect,render_task,resource_cache,snap,transform
+#include rect,render_task,gpu_cache,snap,transform
 
 #define EXTEND_MODE_CLAMP  0
 #define EXTEND_MODE_REPEAT 1
@@ -297,7 +297,7 @@ vec4 sample_gradient(int address, float offset, float gradient_repeat) {
     lut_offset = clamp(lut_offset, 0, 2 * (GRADIENT_ENTRIES + 1));
 
     // Fetch the start and end color.
-    vec4 texels[2] = fetch_from_resource_cache_2(address + lut_offset);
+    vec4 texels[2] = fetch_from_gpu_cache_2(address + lut_offset);
 
     // Finally interpolate and apply dithering
     return dither(mix(texels[0], texels[1], fract(x)));
