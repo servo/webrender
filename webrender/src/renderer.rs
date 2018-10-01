@@ -52,7 +52,7 @@ use gpu_cache::GpuDebugChunk;
 #[cfg(feature = "pathfinder")]
 use gpu_glyph_renderer::GpuGlyphRenderer;
 use gpu_types::ScalingInstance;
-use internal_types::{SourceTexture, ORTHO_FAR_PLANE, ORTHO_NEAR_PLANE, ResourceCacheError};
+use internal_types::{TextureSource, ORTHO_FAR_PLANE, ORTHO_NEAR_PLANE, ResourceCacheError};
 use internal_types::{CacheTextureId, DebugOutput, FastHashMap, RenderedDocument, ResultMsg};
 use internal_types::{TextureUpdateList, TextureUpdateOp, TextureUpdateSource};
 use internal_types::{RenderTargetInfo, SavedTargetIndex};
@@ -890,34 +890,34 @@ impl TextureResolver {
     }
 
     // Bind a source texture to the device.
-    fn bind(&self, texture_id: &SourceTexture, sampler: TextureSampler, device: &mut Device) {
+    fn bind(&self, texture_id: &TextureSource, sampler: TextureSampler, device: &mut Device) {
         match *texture_id {
-            SourceTexture::Invalid => {}
-            SourceTexture::CacheA8 => {
+            TextureSource::Invalid => {}
+            TextureSource::CacheA8 => {
                 let texture = match self.cache_a8_texture {
                     Some(ref at) => &at.texture,
                     None => &self.dummy_cache_texture,
                 };
                 device.bind_texture(sampler, texture);
             }
-            SourceTexture::CacheRGBA8 => {
+            TextureSource::CacheRGBA8 => {
                 let texture = match self.cache_rgba8_texture {
                     Some(ref at) => &at.texture,
                     None => &self.dummy_cache_texture,
                 };
                 device.bind_texture(sampler, texture);
             }
-            SourceTexture::External(external_image) => {
+            TextureSource::External(external_image) => {
                 let texture = self.external_images
                     .get(&(external_image.id, external_image.channel_index))
                     .expect(&format!("BUG: External image should be resolved by now"));
                 device.bind_external_texture(sampler, texture);
             }
-            SourceTexture::TextureCache(index) => {
+            TextureSource::TextureCache(index) => {
                 let texture = &self.cache_texture_map[index.0];
                 device.bind_texture(sampler, texture);
             }
-            SourceTexture::RenderTaskCache(saved_index) => {
+            TextureSource::RenderTaskCache(saved_index) => {
                 let texture = &self.saved_textures[saved_index.0];
                 device.bind_texture(sampler, texture)
             }
@@ -927,28 +927,28 @@ impl TextureResolver {
     // Get the real (OpenGL) texture ID for a given source texture.
     // For a texture cache texture, the IDs are stored in a vector
     // map for fast access.
-    fn resolve(&self, texture_id: &SourceTexture) -> Option<&Texture> {
+    fn resolve(&self, texture_id: &TextureSource) -> Option<&Texture> {
         match *texture_id {
-            SourceTexture::Invalid => None,
-            SourceTexture::CacheA8 => Some(
+            TextureSource::Invalid => None,
+            TextureSource::CacheA8 => Some(
                 match self.cache_a8_texture {
                     Some(ref at) => &at.texture,
                     None => &self.dummy_cache_texture,
                 }
             ),
-            SourceTexture::CacheRGBA8 => Some(
+            TextureSource::CacheRGBA8 => Some(
                 match self.cache_rgba8_texture {
                     Some(ref at) => &at.texture,
                     None => &self.dummy_cache_texture,
                 }
             ),
-            SourceTexture::External(..) => {
+            TextureSource::External(..) => {
                 panic!("BUG: External textures cannot be resolved, they can only be bound.");
             }
-            SourceTexture::TextureCache(index) => {
+            TextureSource::TextureCache(index) => {
                 Some(&self.cache_texture_map[index.0])
             }
-            SourceTexture::RenderTaskCache(saved_index) => {
+            TextureSource::RenderTaskCache(saved_index) => {
                 Some(&self.saved_textures[saved_index.0])
             }
         }
@@ -2865,7 +2865,7 @@ impl Renderer {
         }
 
         let cache_texture = self.texture_resolver
-            .resolve(&SourceTexture::CacheRGBA8)
+            .resolve(&TextureSource::CacheRGBA8)
             .unwrap();
 
         // Before submitting the composite batch, do the
@@ -2943,7 +2943,7 @@ impl Renderer {
                     // TODO(gw): Support R8 format here once we start
                     //           creating mips for alpha masks.
                     let src_texture = self.texture_resolver
-                        .resolve(&SourceTexture::CacheRGBA8)
+                        .resolve(&TextureSource::CacheRGBA8)
                         .expect("BUG: invalid source texture");
                     let source = &render_tasks[task_id];
                     let (source_rect, layer) = source.get_target_rect();
@@ -2962,7 +2962,7 @@ impl Renderer {
     fn handle_scaling(
         &mut self,
         scalings: &[ScalingInstance],
-        source: SourceTexture,
+        source: TextureSource,
         projection: &Transform3D<f32>,
         stats: &mut RendererStats,
     ) {
@@ -2971,12 +2971,12 @@ impl Renderer {
         }
 
         match source {
-            SourceTexture::CacheRGBA8 => {
+            TextureSource::CacheRGBA8 => {
                 self.shaders.cs_scale_rgba8.bind(&mut self.device,
                                                  &projection,
                                                  &mut self.renderer_errors);
             }
-            SourceTexture::CacheA8 => {
+            TextureSource::CacheA8 => {
                 self.shaders.cs_scale_a8.bind(&mut self.device,
                                               &projection,
                                               &mut self.renderer_errors);
@@ -3098,7 +3098,7 @@ impl Renderer {
             }
         }
 
-        self.handle_scaling(&target.scalings, SourceTexture::CacheRGBA8, projection, stats);
+        self.handle_scaling(&target.scalings, TextureSource::CacheRGBA8, projection, stats);
 
         //TODO: record the pixel count for cached primitives
 
@@ -3390,7 +3390,7 @@ impl Renderer {
             }
         }
 
-        self.handle_scaling(&target.scalings, SourceTexture::CacheA8, projection, stats);
+        self.handle_scaling(&target.scalings, TextureSource::CacheA8, projection, stats);
 
         // Draw the clip items into the tiled alpha mask.
         {
@@ -3421,8 +3421,8 @@ impl Renderer {
                 let textures = BatchTextures {
                     colors: [
                         mask_texture_id.clone(),
-                        SourceTexture::Invalid,
-                        SourceTexture::Invalid,
+                        TextureSource::Invalid,
+                        TextureSource::Invalid,
                     ],
                 };
                 self.shaders.cs_clip_box_shadow
@@ -3457,8 +3457,8 @@ impl Renderer {
                 let textures = BatchTextures {
                     colors: [
                         mask_texture_id.clone(),
-                        SourceTexture::Invalid,
-                        SourceTexture::Invalid,
+                        TextureSource::Invalid,
+                        TextureSource::Invalid,
                     ],
                 };
                 self.shaders.cs_clip_image
@@ -3477,7 +3477,7 @@ impl Renderer {
 
     fn draw_texture_cache_target(
         &mut self,
-        texture: &SourceTexture,
+        texture: &TextureSource,
         layer: i32,
         target: &TextureCacheRenderTarget,
         render_tasks: &RenderTaskTree,
@@ -3843,12 +3843,12 @@ impl Renderer {
             self.gpu_profile.place_marker(&format!("pass {}", pass_index));
 
             self.texture_resolver.bind(
-                &SourceTexture::CacheA8,
+                &TextureSource::CacheA8,
                 TextureSampler::CacheA8,
                 &mut self.device,
             );
             self.texture_resolver.bind(
-                &SourceTexture::CacheRGBA8,
+                &TextureSource::CacheRGBA8,
                 TextureSampler::CacheRGBA8,
                 &mut self.device,
             );

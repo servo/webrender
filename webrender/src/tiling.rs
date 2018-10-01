@@ -14,7 +14,7 @@ use euclid::{TypedPoint2D, TypedVector2D};
 use gpu_cache::{GpuCache};
 use gpu_types::{BorderInstance, BlurDirection, BlurInstance, PrimitiveHeaders, ScalingInstance};
 use gpu_types::{TransformData, TransformPalette};
-use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
+use internal_types::{FastHashMap, SavedTargetIndex, TextureSource};
 #[cfg(feature = "pathfinder")]
 use pathfinder_partitioner::mesh::Mesh;
 use prim_store::{PrimitiveStore, DeferredResolve};
@@ -310,7 +310,7 @@ pub struct FrameOutput {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum BlitJobSource {
-    Texture(SourceTexture, i32, DeviceIntRect),
+    Texture(TextureSource, i32, DeviceIntRect),
     RenderTask(RenderTaskId),
 }
 
@@ -799,7 +799,7 @@ pub enum RenderPassKind {
     OffScreen {
         alpha: RenderTargetList<AlphaRenderTarget>,
         color: RenderTargetList<ColorRenderTarget>,
-        texture_cache: FastHashMap<(SourceTexture, i32), TextureCacheRenderTarget>,
+        texture_cache: FastHashMap<(TextureSource, i32), TextureCacheRenderTarget>,
     },
 }
 

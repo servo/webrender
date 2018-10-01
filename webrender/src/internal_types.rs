@@ -49,7 +49,7 @@ impl SavedTargetIndex {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-pub enum SourceTexture {
+pub enum TextureSource {
     Invalid,
     TextureCache(CacheTextureId),
     External(ExternalImageData),
