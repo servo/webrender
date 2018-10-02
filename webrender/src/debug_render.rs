@@ -105,10 +105,13 @@ pub struct DebugRenderer {
 
 impl DebugRenderer {
     pub fn new(device: &mut Device) -> Result<Self, ShaderError> {
-        let mut font_program = device.create_program("debug_font", "", &DESC_FONT)?;
+        let mut font_program = device.create_program("debug_font", "")?;
+        device.link_program(&mut font_program, &DESC_FONT)?;
+        device.bind_program(&font_program);
         device.bind_shader_samplers(&mut font_program, &[("sColor0", DebugSampler::Font)]);
 
-        let color_program = device.create_program("debug_color", "", &DESC_COLOR)?;
+        let mut color_program = device.create_program("debug_color", "")?;
+        device.link_program(&mut color_program, &DESC_COLOR)?;
 
         let font_vao = device.create_vao(&DESC_FONT);
         let line_vao = device.create_vao(&DESC_COLOR);
@@ -279,7 +282,7 @@ impl DebugRenderer {
 
             // Triangles
             if !self.tri_vertices.is_empty() {
-                device.bind_program(&mut self.color_program);
+                device.bind_program(&self.color_program);
                 device.set_uniforms(&self.color_program, &projection);
                 device.bind_vao(&self.tri_vao);
                 device.update_vao_indices(&self.tri_vao, &self.tri_indices, VertexUsageHint::Dynamic);
@@ -293,7 +296,7 @@ impl DebugRenderer {
 
             // Lines
             if !self.line_vertices.is_empty() {
-                device.bind_program(&mut self.color_program);
+                device.bind_program(&self.color_program);
                 device.set_uniforms(&self.color_program, &projection);
                 device.bind_vao(&self.line_vao);
                 device.update_vao_main_vertices(
@@ -306,7 +309,7 @@ impl DebugRenderer {
 
             // Glyph
             if !self.font_indices.is_empty() {
-                device.bind_program(&mut self.font_program);
+                device.bind_program(&self.font_program);
                 device.set_uniforms(&self.font_program, &projection);
                 device.bind_texture(DebugSampler::Font, &self.font_texture);
                 device.bind_vao(&self.font_vao);

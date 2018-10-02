@@ -92,9 +92,9 @@ impl LazilyCompiledShader {
 
         if precache {
             let t0 = precise_time_ns();
-            let mut program = shader.get_internal(device, true)?;
+            let program = shader.get_internal(device, true)?;
             let t1 = precise_time_ns();
-            device.bind_program(&mut program);
+            device.bind_program(&program);
             device.draw_triangles_u16(0, 3);
             let t2 = precise_time_ns();
             debug!("[C: {:.1} ms D: {:.1} ms] Precache {} {:?}",
@@ -131,26 +131,22 @@ impl LazilyCompiledShader {
                 ShaderKind::Primitive | ShaderKind::Brush | ShaderKind::Text => {
                     create_prim_shader(self.name,
                                        device,
-                                       &self.features,
-                                       VertexArrayKind::Primitive)
+                                       &self.features)
                 }
-                ShaderKind::Cache(format) => {
+                ShaderKind::Cache(..) => {
                     create_prim_shader(self.name,
                                        device,
-                                       &self.features,
-                                       format)
+                                       &self.features)
                 }
                 ShaderKind::VectorStencil => {
                     create_prim_shader(self.name,
                                        device,
-                                       &self.features,
-                                       VertexArrayKind::VectorStencil)
+                                       &self.features)
                 }
                 ShaderKind::VectorCover => {
                     create_prim_shader(self.name,
                                        device,
-                                       &self.features,
-                                       VertexArrayKind::VectorCover)
+                                       &self.features)
                 }
                 ShaderKind::ClipCache => {
                     create_clip_shader(self.name, device)
@@ -161,7 +157,29 @@ impl LazilyCompiledShader {
 
         if !precache && !self.initialized {
             let mut program = self.program.as_mut().unwrap();
-            device.bind_program(&mut program);
+
+            let vertex_format = match self.kind {
+                ShaderKind::Primitive |
+                ShaderKind::Brush |
+                ShaderKind::Text => VertexArrayKind::Primitive,
+                ShaderKind::Cache(format) => format,
+                ShaderKind::VectorStencil => VertexArrayKind::VectorStencil,
+                ShaderKind::VectorCover => VertexArrayKind::VectorCover,
+                ShaderKind::ClipCache => VertexArrayKind::Clip,
+            };
+
+            let vertex_descriptor = match vertex_format {
+                VertexArrayKind::Primitive => &desc::PRIM_INSTANCES,
+                VertexArrayKind::Blur => &desc::BLUR,
+                VertexArrayKind::Clip => &desc::CLIP,
+                VertexArrayKind::VectorStencil => &desc::VECTOR_STENCIL,
+                VertexArrayKind::VectorCover => &desc::VECTOR_COVER,
+                VertexArrayKind::Border => &desc::BORDER,
+                VertexArrayKind::Scale => &desc::SCALE,
+            };
+
+            device.link_program(program, vertex_descriptor)?;
+            device.bind_program(program);
             match self.kind {
                 ShaderKind::ClipCache => {
                     device.bind_shader_samplers(
@@ -170,8 +188,7 @@ impl LazilyCompiledShader {
                             ("sColor0", TextureSampler::Color0),
                             ("sTransformPalette", TextureSampler::TransformPalette),
                             ("sRenderTasks", TextureSampler::RenderTasks),
-                            ("sResourceCache", TextureSampler::ResourceCache),
-                            ("sSharedCacheA8", TextureSampler::SharedCacheA8),
+                            ("sGpuCache", TextureSampler::GpuCache),
                             ("sPrimitiveHeadersF", TextureSampler::PrimitiveHeadersF),
                             ("sPrimitiveHeadersI", TextureSampler::PrimitiveHeadersI),
                         ],
@@ -185,12 +202,11 @@ impl LazilyCompiledShader {
                             ("sColor1", TextureSampler::Color1),
                             ("sColor2", TextureSampler::Color2),
                             ("sDither", TextureSampler::Dither),
-                            ("sCacheA8", TextureSampler::CacheA8),
-                            ("sCacheRGBA8", TextureSampler::CacheRGBA8),
+                            ("sPrevPassAlpha", TextureSampler::PrevPassAlpha),
+                            ("sPrevPassColor", TextureSampler::PrevPassColor),
                             ("sTransformPalette", TextureSampler::TransformPalette),
                             ("sRenderTasks", TextureSampler::RenderTasks),
-                            ("sResourceCache", TextureSampler::ResourceCache),
-                            ("sSharedCacheA8", TextureSampler::SharedCacheA8),
+                            ("sGpuCache", TextureSampler::GpuCache),
                             ("sPrimitiveHeadersF", TextureSampler::PrimitiveHeadersF),
                             ("sPrimitiveHeadersI", TextureSampler::PrimitiveHeadersI),
                         ],
@@ -395,7 +411,6 @@ fn create_prim_shader(
     name: &'static str,
     device: &mut Device,
     features: &[&'static str],
-    vertex_format: VertexArrayKind,
 ) -> Result<Program, ShaderError> {
     let mut prefix = format!(
         "#define WR_MAX_VERTEX_TEXTURE_WIDTH {}U\n",
@@ -408,17 +423,7 @@ fn create_prim_shader(
 
     debug!("PrimShader {}", name);
 
-    let vertex_descriptor = match vertex_format {
-        VertexArrayKind::Primitive => desc::PRIM_INSTANCES,
-        VertexArrayKind::Blur => desc::BLUR,
-        VertexArrayKind::Clip => desc::CLIP,
-        VertexArrayKind::VectorStencil => desc::VECTOR_STENCIL,
-        VertexArrayKind::VectorCover => desc::VECTOR_COVER,
-        VertexArrayKind::Border => desc::BORDER,
-        VertexArrayKind::Scale => desc::SCALE,
-    };
-
-     device.create_program(name, &prefix, &vertex_descriptor)
+    device.create_program(name, &prefix)
 }
 
 fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program, ShaderError> {
@@ -429,7 +434,7 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program
 
     debug!("ClipShader {}", name);
 
-    device.create_program(name, &prefix, &desc::CLIP)
+    device.create_program(name, &prefix)
 }
 
 // NB: If you add a new shader here, make sure to deinitialize it
