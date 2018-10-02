@@ -71,6 +71,7 @@ pub struct LazilyCompiledShader {
     name: &'static str,
     kind: ShaderKind,
     features: Vec<&'static str>,
+    initialized: bool,
 }
 
 impl LazilyCompiledShader {
@@ -86,13 +87,14 @@ impl LazilyCompiledShader {
             name,
             kind,
             features: features.to_vec(),
+            initialized: false,
         };
 
         if precache {
             let t0 = precise_time_ns();
-            let program = shader.get(device)?;
+            let mut program = shader.get_internal(device, true)?;
             let t1 = precise_time_ns();
-            device.bind_program(program);
+            device.bind_program(&mut program);
             device.draw_triangles_u16(0, 3);
             let t2 = precise_time_ns();
             debug!("[C: {:.1} ms D: {:.1} ms] Precache {} {:?}",
@@ -123,7 +125,7 @@ impl LazilyCompiledShader {
         device.set_uniforms(program, projection);
     }
 
-    fn get(&mut self, device: &mut Device) -> Result<&Program, ShaderError> {
+    fn get_internal(&mut self, device: &mut Device, precache: bool) -> Result<&mut Program, ShaderError> {
         if self.program.is_none() {
             let program = match self.kind {
                 ShaderKind::Primitive | ShaderKind::Brush | ShaderKind::Text => {
@@ -157,7 +159,51 @@ impl LazilyCompiledShader {
             self.program = Some(program?);
         }
 
-        Ok(self.program.as_ref().unwrap())
+        if !precache && !self.initialized {
+            let mut program = self.program.as_mut().unwrap();
+            device.bind_program(&mut program);
+            match self.kind {
+                ShaderKind::ClipCache => {
+                    device.bind_shader_samplers(
+                        &mut program,
+                        &[
+                            ("sColor0", TextureSampler::Color0),
+                            ("sTransformPalette", TextureSampler::TransformPalette),
+                            ("sRenderTasks", TextureSampler::RenderTasks),
+                            ("sResourceCache", TextureSampler::ResourceCache),
+                            ("sSharedCacheA8", TextureSampler::SharedCacheA8),
+                            ("sPrimitiveHeadersF", TextureSampler::PrimitiveHeadersF),
+                            ("sPrimitiveHeadersI", TextureSampler::PrimitiveHeadersI),
+                        ],
+                    );
+                }
+                _ => {
+                    device.bind_shader_samplers(
+                        &mut program,
+                        &[
+                            ("sColor0", TextureSampler::Color0),
+                            ("sColor1", TextureSampler::Color1),
+                            ("sColor2", TextureSampler::Color2),
+                            ("sDither", TextureSampler::Dither),
+                            ("sCacheA8", TextureSampler::CacheA8),
+                            ("sCacheRGBA8", TextureSampler::CacheRGBA8),
+                            ("sTransformPalette", TextureSampler::TransformPalette),
+                            ("sRenderTasks", TextureSampler::RenderTasks),
+                            ("sResourceCache", TextureSampler::ResourceCache),
+                            ("sSharedCacheA8", TextureSampler::SharedCacheA8),
+                            ("sPrimitiveHeadersF", TextureSampler::PrimitiveHeadersF),
+                            ("sPrimitiveHeadersI", TextureSampler::PrimitiveHeadersI),
+                        ],
+                    );
+                }
+            }
+            self.initialized = true;
+        }
+
+        Ok(self.program.as_mut().unwrap())
+    }
+    fn get(&mut self, device: &mut Device) -> Result<&mut Program, ShaderError> {
+        self.get_internal(device, false)
     }
 
     fn deinit(self, device: &mut Device) {
@@ -372,28 +418,7 @@ fn create_prim_shader(
         VertexArrayKind::Scale => desc::SCALE,
     };
 
-    let program = device.create_program(name, &prefix, &vertex_descriptor);
-
-    if let Ok(ref program) = program {
-        device.bind_shader_samplers(
-            program,
-            &[
-                ("sColor0", TextureSampler::Color0),
-                ("sColor1", TextureSampler::Color1),
-                ("sColor2", TextureSampler::Color2),
-                ("sDither", TextureSampler::Dither),
-                ("sPrevPassAlpha", TextureSampler::PrevPassAlpha),
-                ("sPrevPassColor", TextureSampler::PrevPassColor),
-                ("sTransformPalette", TextureSampler::TransformPalette),
-                ("sRenderTasks", TextureSampler::RenderTasks),
-                ("sGpuCache", TextureSampler::GpuCache),
-                ("sPrimitiveHeadersF", TextureSampler::PrimitiveHeadersF),
-                ("sPrimitiveHeadersI", TextureSampler::PrimitiveHeadersI),
-            ],
-        );
-    }
-
-    program
+     device.create_program(name, &prefix, &vertex_descriptor)
 }
 
 fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program, ShaderError> {
@@ -404,23 +429,7 @@ fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program
 
     debug!("ClipShader {}", name);
 
-    let program = device.create_program(name, &prefix, &desc::CLIP);
-
-    if let Ok(ref program) = program {
-        device.bind_shader_samplers(
-            program,
-            &[
-                ("sColor0", TextureSampler::Color0),
-                ("sTransformPalette", TextureSampler::TransformPalette),
-                ("sRenderTasks", TextureSampler::RenderTasks),
-                ("sGpuCache", TextureSampler::GpuCache),
-                ("sPrimitiveHeadersF", TextureSampler::PrimitiveHeadersF),
-                ("sPrimitiveHeadersI", TextureSampler::PrimitiveHeadersI),
-            ],
-        );
-    }
-
-    program
+    device.create_program(name, &prefix, &desc::CLIP)
 }
 
 // NB: If you add a new shader here, make sure to deinitialize it
