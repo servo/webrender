@@ -232,7 +232,10 @@ impl Wrench {
             Box::new(Notifier(data))
         });
 
-        let (renderer, sender) = webrender::Renderer::new(window.clone_gl(), notifier, opts).unwrap();
+        let upload_method = webrender::UploadMethod::PixelBuffer(webrender::VertexUsageHint::Stream);
+        let device = webrender::Device::new(window.clone_gl(), opts.resource_override_path.clone(),
+                                            upload_method, None);
+        let (renderer, sender) = webrender::Renderer::new(device, notifier, opts, None).unwrap();
         let api = sender.create_api();
         let document_id = api.add_document(size, 0);
 

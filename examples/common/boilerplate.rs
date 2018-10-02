@@ -164,7 +164,9 @@ pub fn main_wrapper<E: Example>(
         DeviceUintSize::new(size.width as u32, size.height as u32)
     };
     let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
-    let (mut renderer, sender) = webrender::Renderer::new(gl.clone(), notifier, opts).unwrap();
+    let upload_method = webrender::UploadMethod::PixelBuffer(webrender::VertexUsageHint::Stream);
+    let device = webrender::Device::new(gl.clone(), opts.resource_override_path.clone(), upload_method, None);
+    let (mut renderer, sender) = webrender::Renderer::new(device, notifier, opts, None).unwrap();
     let api = sender.create_api();
     let document_id = api.add_document(framebuffer_size, 0);
 
