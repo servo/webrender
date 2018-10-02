@@ -15,7 +15,7 @@ use euclid::{TypedPoint2D, TypedVector2D};
 use freelist::{FreeList, FreeListHandle, WeakFreeListHandle};
 use glyph_rasterizer::GpuGlyphCacheKey;
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
-use gpu_types::{BorderInstance, ImageSource, RasterizationSpace, UvRectKind};
+use gpu_types::{BorderInstance, ImageSource, UvRectKind};
 use internal_types::{FastHashMap, SavedTargetIndex, SourceTexture};
 #[cfg(feature = "pathfinder")]
 use pathfinder_partitioner::mesh::Mesh;
@@ -727,14 +727,14 @@ impl RenderTask {
                 [
                     task.actual_rect.origin.x as f32,
                     task.actual_rect.origin.y as f32,
-                    RasterizationSpace::Screen as i32 as f32,
+                    0.0,
                 ]
             }
             RenderTaskKind::ClipRegion(..) => {
                 [
                     0.0,
                     0.0,
-                    RasterizationSpace::Local as i32 as f32,
+                    0.0,
                 ]
             }
             RenderTaskKind::VerticalBlur(ref task) |

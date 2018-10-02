@@ -90,7 +90,6 @@ PictureTask fetch_picture_task(int address) {
 struct ClipArea {
     RenderTaskCommonData common_data;
     vec2 screen_origin;
-    bool local_space;
 };
 
 ClipArea fetch_clip_area(int index) {
@@ -101,13 +100,11 @@ ClipArea fetch_clip_area(int index) {
 
         area.common_data = RenderTaskCommonData(rect, 0.0);
         area.screen_origin = vec2(0.0);
-        area.local_space = false;
     } else {
         RenderTaskData task_data = fetch_render_task_data(index);
 
         area.common_data = task_data.common_data;
         area.screen_origin = task_data.data1.xy;
-        area.local_space = task_data.data1.z == 0.0;
     }
 
     return area;
