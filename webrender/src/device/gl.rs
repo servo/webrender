@@ -524,7 +524,6 @@ impl Drop for Texture {
 pub struct Program {
     id: gl::GLuint,
     u_transform: gl::GLint,
-    u_device_pixel_ratio: gl::GLint,
     u_mode: gl::GLint,
 }
 
@@ -1554,13 +1553,11 @@ impl Device {
         }
 
         let u_transform = self.gl.get_uniform_location(pid, "uTransform");
-        let u_device_pixel_ratio = self.gl.get_uniform_location(pid, "uDevicePixelRatio");
         let u_mode = self.gl.get_uniform_location(pid, "uMode");
 
         let program = Program {
             id: pid,
             u_transform,
-            u_device_pixel_ratio,
             u_mode,
         };
 
@@ -1596,8 +1593,6 @@ impl Device {
         debug_assert!(self.inside_frame);
         self.gl
             .uniform_matrix_4fv(program.u_transform, false, &transform.to_row_major_array());
-        self.gl
-            .uniform_1f(program.u_device_pixel_ratio, self.device_pixel_ratio);
     }
 
     pub fn switch_mode(&self, mode: i32) {

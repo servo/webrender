@@ -2,7 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceSize, DeviceIntSideOffsets, ImageDescriptor, ImageFormat};
+use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceSize, DeviceIntSideOffsets};
+use api::{DevicePixelScale, ImageDescriptor, ImageFormat};
 #[cfg(feature = "pathfinder")]
 use api::FontRenderMode;
 use border::BorderCacheKey;
@@ -141,9 +142,9 @@ impl RenderTaskTree {
         RenderTaskAddress(id.0)
     }
 
-    pub fn write_task_data(&mut self) {
+    pub fn write_task_data(&mut self, device_pixel_scale: DevicePixelScale) {
         for task in &self.tasks {
-            self.task_data.push(task.write_task_data());
+            self.task_data.push(task.write_task_data(device_pixel_scale));
         }
     }
 
@@ -705,7 +706,7 @@ impl RenderTask {
     // Write (up to) 8 floats of data specific to the type
     // of render task that is provided to the GPU shaders
     // via a vertex texture.
-    pub fn write_task_data(&self) -> RenderTaskData {
+    pub fn write_task_data(&self, device_pixel_scale: DevicePixelScale) -> RenderTaskData {
         // NOTE: The ordering and layout of these structures are
         //       required to match both the GPU structures declared
         //       in prim_shared.glsl, and also the uses in submit_batch()
@@ -762,7 +763,7 @@ impl RenderTask {
                 target_rect.size.width as f32,
                 target_rect.size.height as f32,
                 target_index.0 as f32,
-                0.0,
+                device_pixel_scale.0,
                 data[0],
                 data[1],
             ]
