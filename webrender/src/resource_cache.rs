@@ -1626,6 +1626,10 @@ impl ResourceCache {
         self.cached_images
             .clear_keys(|key| key.0 == namespace);
 
+        self.blob_image_templates.retain(|key, _| key.0 != namespace);
+
+        self.rasterized_blob_images.retain(|key, _| key.0 != namespace);
+
         self.resources.font_instances
             .write()
             .unwrap()
