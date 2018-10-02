@@ -399,8 +399,7 @@ fn create_prim_shader(
 
 fn create_clip_shader(name: &'static str, device: &mut Device) -> Result<Program, ShaderError> {
     let prefix = format!(
-        "#define WR_MAX_VERTEX_TEXTURE_WIDTH {}U\n
-        #define WR_FEATURE_TRANSFORM\n",
+        "#define WR_MAX_VERTEX_TEXTURE_WIDTH {}U\n",
         MAX_VERTEX_TEXTURE_WIDTH
     );
 
