@@ -35,7 +35,7 @@ use batch::{BatchKind, BatchTextures, BrushBatchKind};
 #[cfg(any(feature = "capture", feature = "replay"))]
 use capture::{CaptureConfig, ExternalCaptureImage, PlainExternalImage};
 use debug_colors;
-use device::{DepthFunction, Device, FrameId, Program, UploadMethod, Texture, PBO};
+use device::{DepthFunction, Device, FrameId, Program, Texture, PBO};
 use device::{ExternalTexture, FBOId, TextureSlot};
 use device::{ShaderError, TextureFilter,
              VertexUsageHint, VAO, VBO, CustomVAO};
@@ -64,7 +64,7 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 use record::ApiRecordingReceiver;
 use render_backend::RenderBackend;
 use scene_builder::{SceneBuilder, LowPrioritySceneBuilder};
-use shade::Shaders;
+use shade::{Shaders, WrShaders};
 use smallvec::SmallVec;
 use render_task::{RenderTask, RenderTaskKind, RenderTaskTree};
 use resource_cache::ResourceCache;
@@ -82,6 +82,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Receiver};
 use std::thread;
+use std::cell::RefCell;
 use texture_cache::TextureCache;
 use thread_profiler::{register_thread_with_profiler, write_profile};
 use tiling::{AlphaRenderTarget, ColorRenderTarget};
@@ -1418,7 +1419,7 @@ pub struct Renderer {
     pending_shader_updates: Vec<PathBuf>,
     active_documents: Vec<(DocumentId, RenderedDocument)>,
 
-    shaders: Shaders,
+    shaders: Rc<RefCell<Shaders>>,
 
     pub gpu_glyph_renderer: GpuGlyphRenderer,
 
@@ -1541,24 +1542,17 @@ impl Renderer {
     /// ```
     /// [rendereroptions]: struct.RendererOptions.html
     pub fn new(
-        gl: Rc<gl::Gl>,
+        mut device: Device,
         notifier: Box<RenderNotifier>,
         mut options: RendererOptions,
+        shaders: Option<&mut WrShaders>
     ) -> Result<(Self, RenderApiSender), RendererError> {
         let (api_tx, api_rx) = channel::msg_channel()?;
         let (payload_tx, payload_rx) = channel::payload_channel()?;
         let (result_tx, result_rx) = channel();
-        let gl_type = gl.get_type();
+        let gl_type = device.gl().get_type();
 
         let debug_server = DebugServer::new(api_tx.clone());
-
-        let mut device = Device::new(
-            gl,
-            options.resource_override_path.clone(),
-            options.upload_method.clone(),
-            options.cached_programs.take(),
-        );
-
         let ext_dual_source_blending = !options.disable_dual_source_blending &&
             device.supports_extension("GL_ARB_blend_func_extended") &&
             device.supports_extension("GL_ARB_explicit_attrib_location");
@@ -1587,7 +1581,10 @@ impl Renderer {
 
         device.begin_frame();
 
-        let shaders = Shaders::new(&mut device, gl_type, &options)?;
+        let shaders = match shaders {
+            Some(shaders) => Rc::clone(&shaders.shaders),
+            None => Rc::new(RefCell::new(Shaders::new(&mut device, gl_type, &options)?)),
+        };
 
         let backend_profile_counters = BackendProfileCounters::new();
 
@@ -2944,14 +2941,14 @@ impl Renderer {
 
         match source {
             TextureSource::PrevPassColor => {
-                self.shaders.cs_scale_rgba8.bind(&mut self.device,
-                                                 &projection,
-                                                 &mut self.renderer_errors);
+                self.shaders.borrow_mut().cs_scale_rgba8.bind(&mut self.device,
+                                                              &projection,
+                                                              &mut self.renderer_errors);
             }
             TextureSource::PrevPassAlpha => {
-                self.shaders.cs_scale_a8.bind(&mut self.device,
-                                              &projection,
-                                              &mut self.renderer_errors);
+                self.shaders.borrow_mut().cs_scale_a8.bind(&mut self.device,
+                                                           &projection,
+                                                           &mut self.renderer_errors);
             }
             _ => unreachable!(),
         }
@@ -3048,7 +3045,7 @@ impl Renderer {
             let _timer = self.gpu_profile.start_timer(GPU_TAG_BLUR);
 
             self.set_blend(false, framebuffer_kind);
-            self.shaders.cs_blur_rgba8
+            self.shaders.borrow_mut().cs_blur_rgba8
                 .bind(&mut self.device, projection, &mut self.renderer_errors);
 
             if !target.vertical_blurs.is_empty() {
@@ -3106,7 +3103,7 @@ impl Renderer {
                     .iter()
                     .rev()
                 {
-                    self.shaders
+                    self.shaders.borrow_mut()
                         .get(&batch.key, self.debug_flags)
                         .bind(
                             &mut self.device, projection,
@@ -3153,7 +3150,7 @@ impl Renderer {
             }
 
             for batch in &alpha_batch_container.alpha_batches {
-                self.shaders
+                self.shaders.borrow_mut()
                     .get(&batch.key, self.debug_flags)
                     .bind(
                         &mut self.device, projection,
@@ -3340,7 +3337,7 @@ impl Renderer {
             let _timer = self.gpu_profile.start_timer(GPU_TAG_BLUR);
 
             self.set_blend(false, FramebufferKind::Other);
-            self.shaders.cs_blur_a8
+            self.shaders.borrow_mut().cs_blur_a8
                 .bind(&mut self.device, projection, &mut self.renderer_errors);
 
             if !target.vertical_blurs.is_empty() {
@@ -3375,7 +3372,7 @@ impl Renderer {
             // draw rounded cornered rectangles
             if !target.clip_batcher.rectangles.is_empty() {
                 let _gm2 = self.gpu_profile.start_marker("clip rectangles");
-                self.shaders.cs_clip_rectangle.bind(
+                self.shaders.borrow_mut().cs_clip_rectangle.bind(
                     &mut self.device,
                     projection,
                     &mut self.renderer_errors,
@@ -3397,7 +3394,7 @@ impl Renderer {
                         TextureSource::Invalid,
                     ],
                 };
-                self.shaders.cs_clip_box_shadow
+                self.shaders.borrow_mut().cs_clip_box_shadow
                     .bind(&mut self.device, projection, &mut self.renderer_errors);
                 self.draw_instanced_batch(
                     items,
@@ -3410,7 +3407,7 @@ impl Renderer {
             // draw line decoration clips
             if !target.clip_batcher.line_decorations.is_empty() {
                 let _gm2 = self.gpu_profile.start_marker("clip lines");
-                self.shaders.cs_clip_line.bind(
+                self.shaders.borrow_mut().cs_clip_line.bind(
                     &mut self.device,
                     projection,
                     &mut self.renderer_errors,
@@ -3433,7 +3430,7 @@ impl Renderer {
                         TextureSource::Invalid,
                     ],
                 };
-                self.shaders.cs_clip_image
+                self.shaders.borrow_mut().cs_clip_image
                     .bind(&mut self.device, projection, &mut self.renderer_errors);
                 self.draw_instanced_batch(
                     items,
@@ -3509,7 +3506,7 @@ impl Renderer {
             self.set_blend_mode_premultiplied_alpha(FramebufferKind::Other);
 
             if !target.border_segments_solid.is_empty() {
-                self.shaders.cs_border_solid.bind(
+                self.shaders.borrow_mut().cs_border_solid.bind(
                     &mut self.device,
                     &projection,
                     &mut self.renderer_errors,
@@ -3524,7 +3521,7 @@ impl Renderer {
             }
 
             if !target.border_segments_complex.is_empty() {
-                self.shaders.cs_border_segment.bind(
+                self.shaders.borrow_mut().cs_border_segment.bind(
                     &mut self.device,
                     &projection,
                     &mut self.renderer_errors,
@@ -3545,10 +3542,13 @@ impl Renderer {
         if !target.horizontal_blurs.is_empty() {
             let _timer = self.gpu_profile.start_timer(GPU_TAG_BLUR);
 
-            match target.target_kind {
-                RenderTargetKind::Alpha => &mut self.shaders.cs_blur_a8,
-                RenderTargetKind::Color => &mut self.shaders.cs_blur_rgba8,
-            }.bind(&mut self.device, &projection, &mut self.renderer_errors);
+            {
+                let mut shaders = self.shaders.borrow_mut();
+                match target.target_kind {
+                    RenderTargetKind::Alpha => &mut shaders.cs_blur_a8,
+                    RenderTargetKind::Color => &mut shaders.cs_blur_rgba8,
+                }.bind(&mut self.device, &projection, &mut self.renderer_errors);
+            }
 
             self.draw_instanced_batch(
                 &target.horizontal_blurs,
@@ -4222,7 +4222,9 @@ impl Renderer {
         for (_, target) in self.output_targets {
             self.device.delete_fbo(target.fbo_id);
         }
-        self.shaders.deinit(&mut self.device);
+        if let Ok(shaders) = Rc::try_unwrap(self.shaders) {
+            shaders.into_inner().deinit(&mut self.device);
+        }
         #[cfg(feature = "capture")]
         self.device.delete_fbo(self.read_fbo);
         #[cfg(feature = "replay")]
@@ -4420,7 +4422,6 @@ pub struct RendererOptions {
     pub enable_clear_scissor: bool,
     pub max_texture_size: Option<u32>,
     pub scatter_gpu_cache_updates: bool,
-    pub upload_method: UploadMethod,
     pub workers: Option<Arc<ThreadPool>>,
     pub blob_image_handler: Option<Box<BlobImageHandler>>,
     pub recorder: Option<Box<ApiRecordingReceiver>>,
@@ -4454,9 +4455,6 @@ impl Default for RendererOptions {
             max_texture_size: None,
             // Scattered GPU cache updates haven't met a test that would show their superiority yet.
             scatter_gpu_cache_updates: false,
-            // This is best as `Immediate` on Angle, or `Pixelbuffer(Dynamic)` on GL,
-            // but we are unable to make this decision here, so picking the reasonable medium.
-            upload_method: UploadMethod::PixelBuffer(VertexUsageHint::Stream),
             workers: None,
             blob_image_handler: None,
             recorder: None,
