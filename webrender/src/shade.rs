@@ -13,8 +13,8 @@ use glyph_rasterizer::GlyphFormat;
 use renderer::{
     desc,
     MAX_VERTEX_TEXTURE_WIDTH,
-    BlendMode, DebugFlags, ImageBufferKind, RendererError, RendererOptions,
-    TextureSampler, VertexArrayKind,
+    BlendMode, DebugFlags, ImageBufferKind, PrecacheShaders, RendererError,
+    RendererOptions, TextureSampler, VertexArrayKind,
 };
 
 use gleam::gl::GlType;
@@ -82,6 +82,7 @@ impl LazilyCompiledShader {
         features: &[&'static str],
         device: &mut Device,
         precache: bool,
+        with_timing: bool,
     ) -> Result<Self, ShaderError> {
         let mut shader = LazilyCompiledShader {
             program: None,
@@ -90,7 +91,7 @@ impl LazilyCompiledShader {
             features: features.to_vec(),
         };
 
-        if precache {
+        if precache && with_timing {
             let t0 = precise_time_ns();
             let program = shader.get(device)?;
             let t1 = precise_time_ns();
@@ -103,6 +104,8 @@ impl LazilyCompiledShader {
                 name,
                 features
             );
+        } else if precache {
+            shader.get(device)?;
         }
 
         Ok(shader)
@@ -192,7 +195,8 @@ impl BrushShader {
         name: &'static str,
         device: &mut Device,
         features: &[&'static str],
-        precache: bool,
+        precache: PrecacheShaders,
+        with_timing: bool,
         dual_source: bool,
     ) -> Result<Self, ShaderError> {
         let opaque = LazilyCompiledShader::new(
@@ -200,7 +204,9 @@ impl BrushShader {
             name,
             features,
             device,
-            precache,
+            precache == PrecacheShaders::Essential ||
+            precache == PrecacheShaders::All,
+            with_timing,
         )?;
 
         let mut alpha_features = features.to_vec();
@@ -211,7 +217,9 @@ impl BrushShader {
             name,
             &alpha_features,
             device,
-            precache,
+            precache == PrecacheShaders::Essential ||
+            precache == PrecacheShaders::All,
+            with_timing,
         )?;
 
         let dual_source = if dual_source {
@@ -223,7 +231,8 @@ impl BrushShader {
                 name,
                 &dual_source_features,
                 device,
-                precache,
+                precache == PrecacheShaders::All,
+                with_timing,
             )?;
 
             Some(shader)
@@ -239,7 +248,8 @@ impl BrushShader {
             name,
             &debug_overdraw_features,
             device,
-            precache,
+            precache == PrecacheShaders::All,
+            with_timing,
         )?;
 
         Ok(BrushShader {
@@ -289,14 +299,17 @@ impl TextShader {
         name: &'static str,
         device: &mut Device,
         features: &[&'static str],
-        precache: bool,
+        precache: PrecacheShaders,
+        with_timing: bool,
     ) -> Result<Self, ShaderError> {
         let simple = LazilyCompiledShader::new(
             ShaderKind::Text,
             name,
             features,
             device,
-            precache,
+            precache == PrecacheShaders::Essential ||
+            precache == PrecacheShaders::All,
+            with_timing,
         )?;
 
         let mut glyph_transform_features = features.to_vec();
@@ -307,7 +320,8 @@ impl TextShader {
             name,
             &glyph_transform_features,
             device,
-            precache,
+            precache == PrecacheShaders::All,
+            with_timing,
         )?;
 
         let mut debug_overdraw_features = features.to_vec();
@@ -318,7 +332,8 @@ impl TextShader {
             name,
             &debug_overdraw_features,
             device,
-            precache,
+            precache == PrecacheShaders::All,
+            with_timing,
         )?;
 
         Ok(TextShader { simple, glyph_transform, debug_overdraw })
@@ -474,8 +489,11 @@ impl Shaders {
         gl_type: GlType,
         options: &RendererOptions,
     ) -> Result<Self, ShaderError> {
+        let ext_dual_source_blending = !options.disable_dual_source_blending &&
+            device.supports_extension("GL_ARB_blend_func_extended");
+
         // needed for the precache fake draws
-        let dummy_vao = if options.precache_shaders {
+        let dummy_vao = if options.precache_with_timing {
             let vao = device.create_custom_vao(&[]);
             device.bind_custom_vao(&vao);
             Some(vao)
@@ -483,11 +501,21 @@ impl Shaders {
             None
         };
 
+         let precache_shaders_all = options.precache_shaders == PrecacheShaders::All;
+         let precache_shaders_essential = precache_shaders_all || options.precache_shaders == PrecacheShaders::Essential;
+         let brush_precache = if precache_shaders_all {
+             PrecacheShaders::All
+         } else {
+             PrecacheShaders::None
+         };
+
+
         let brush_solid = BrushShader::new(
             "brush_solid",
             device,
             &[],
             options.precache_shaders,
+            options.precache_with_timing,
             false,
         )?;
 
@@ -496,6 +524,7 @@ impl Shaders {
             device,
             &[],
             options.precache_shaders,
+            options.precache_with_timing,
             false,
         )?;
 
@@ -503,7 +532,8 @@ impl Shaders {
             "brush_mix_blend",
             device,
             &[],
-            options.precache_shaders,
+            brush_precache,
+            options.precache_with_timing,
             false,
         )?;
 
@@ -515,7 +545,8 @@ impl Shaders {
             } else {
                &[]
             },
-            options.precache_shaders,
+            brush_precache,
+            options.precache_with_timing,
             false,
         )?;
 
@@ -527,7 +558,8 @@ impl Shaders {
             } else {
                &[]
             },
-            options.precache_shaders,
+            brush_precache,
+            options.precache_with_timing,
             false,
         )?;
 
@@ -536,7 +568,8 @@ impl Shaders {
             "cs_blur",
             &["ALPHA_TARGET"],
             device,
-            options.precache_shaders,
+            precache_shaders_essential,
+            options.precache_with_timing,
         )?;
 
         let cs_blur_rgba8 = LazilyCompiledShader::new(
@@ -544,7 +577,8 @@ impl Shaders {
             "cs_blur",
             &["COLOR_TARGET"],
             device,
-            options.precache_shaders,
+            precache_shaders_essential,
+            options.precache_with_timing,
         )?;
 
         let cs_clip_rectangle = LazilyCompiledShader::new(
@@ -552,7 +586,8 @@ impl Shaders {
             "cs_clip_rectangle",
             &[],
             device,
-            options.precache_shaders,
+            precache_shaders_essential,
+            options.precache_with_timing,
         )?;
 
         let cs_clip_box_shadow = LazilyCompiledShader::new(
@@ -560,7 +595,8 @@ impl Shaders {
             "cs_clip_box_shadow",
             &[],
             device,
-            options.precache_shaders,
+            precache_shaders_essential,
+            options.precache_with_timing,
         )?;
 
         let cs_clip_line = LazilyCompiledShader::new(
@@ -568,7 +604,8 @@ impl Shaders {
             "cs_clip_line",
             &[],
             device,
-            options.precache_shaders,
+            precache_shaders_all,
+            options.precache_with_timing,
         )?;
 
         let cs_clip_image = LazilyCompiledShader::new(
@@ -576,7 +613,8 @@ impl Shaders {
             "cs_clip_image",
             &[],
             device,
-            options.precache_shaders,
+            precache_shaders_essential,
+            options.precache_with_timing,
         )?;
 
         let cs_scale_a8 = LazilyCompiledShader::new(
@@ -584,7 +622,8 @@ impl Shaders {
             "cs_scale",
             &["ALPHA_TARGET"],
             device,
-            options.precache_shaders,
+            precache_shaders_all,
+            options.precache_with_timing,
         )?;
 
         let cs_scale_rgba8 = LazilyCompiledShader::new(
@@ -592,19 +631,26 @@ impl Shaders {
             "cs_scale",
             &["COLOR_TARGET"],
             device,
-            options.precache_shaders,
+            precache_shaders_all,
+            options.precache_with_timing,
         )?;
 
         let ps_text_run = TextShader::new("ps_text_run",
             device,
             &[],
             options.precache_shaders,
+            options.precache_with_timing,
         )?;
 
         let ps_text_run_dual_source = TextShader::new("ps_text_run",
             device,
             &[DUAL_SOURCE_FEATURE],
-            options.precache_shaders && !options.disable_dual_source_blending,
+            if ext_dual_source_blending {
+                options.precache_shaders
+            } else {
+                PrecacheShaders::None
+            },
+            options.precache_with_timing,
         )?;
 
         // All image configuration.
@@ -620,12 +666,19 @@ impl Shaders {
                 if feature_string != "" {
                     image_features.push(feature_string);
                 }
+
+                let brush_precache = match IMAGE_BUFFER_KINDS[buffer_kind] {
+                    ImageBufferKind::Texture2DArray => options.precache_shaders,
+                    _ => brush_precache,
+                };
+
                 brush_image[buffer_kind] = Some(BrushShader::new(
                     "brush_image",
                     device,
                     &image_features,
-                    options.precache_shaders,
-                    !options.disable_dual_source_blending,
+                    brush_precache,
+                    options.precache_with_timing,
+                    ext_dual_source_blending,
                 )?);
             }
             image_features.clear();
@@ -660,7 +713,8 @@ impl Shaders {
                             "brush_yuv_image",
                             device,
                             &yuv_features,
-                            options.precache_shaders,
+                            brush_precache,
+                            options.precache_with_timing,
                             false,
                         )?;
                         let index = Self::get_yuv_shader_index(
@@ -680,7 +734,8 @@ impl Shaders {
             "cs_border_segment",
              &[],
              device,
-             options.precache_shaders,
+             precache_shaders_all,
+             options.precache_with_timing,
         )?;
 
         let cs_border_solid = LazilyCompiledShader::new(
@@ -688,7 +743,8 @@ impl Shaders {
             "cs_border_solid",
             &[],
             device,
-            options.precache_shaders,
+            precache_shaders_essential,
+            options.precache_with_timing,
         )?;
 
         let ps_split_composite = LazilyCompiledShader::new(
@@ -696,7 +752,8 @@ impl Shaders {
             "ps_split_composite",
             &[],
             device,
-            options.precache_shaders,
+            precache_shaders_all,
+            options.precache_with_timing,
         )?;
 
         if let Some(vao) = dummy_vao {

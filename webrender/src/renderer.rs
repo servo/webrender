@@ -709,7 +709,7 @@ pub struct GpuGlyphRenderer;
 
 #[cfg(not(feature = "pathfinder"))]
 impl GpuGlyphRenderer {
-    fn new(_: &mut Device, _: &VAO, _: bool) -> Result<GpuGlyphRenderer, RendererError> {
+    fn new(_: &mut Device, _: &VAO, _: bool, _: bool) -> Result<GpuGlyphRenderer, RendererError> {
         Ok(GpuGlyphRenderer)
     }
 }
@@ -1691,9 +1691,11 @@ impl Renderer {
         device.update_vao_indices(&prim_vao, &quad_indices, VertexUsageHint::Static);
         device.update_vao_main_vertices(&prim_vao, &quad_vertices, VertexUsageHint::Static);
 
+        let precache_shaders = options.precache_shaders == PrecacheShaders::All;
         let gpu_glyph_renderer = try!(GpuGlyphRenderer::new(&mut device,
                                                             &prim_vao,
-                                                            options.precache_shaders));
+                                                            precache_shaders,
+                                                            options.precache_with_timing));
 
         let blur_vao = device.create_vao_with_new_instances(&desc::BLUR, &prim_vao);
         let clip_vao = device.create_vao_with_new_instances(&desc::CLIP, &prim_vao);
@@ -4409,13 +4411,21 @@ pub trait AsyncPropertySampler {
     fn deregister(&self);
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PrecacheShaders {
+    None,
+    Essential,
+    All,
+}
+
 pub struct RendererOptions {
     pub device_pixel_ratio: f32,
     pub resource_override_path: Option<PathBuf>,
     pub enable_aa: bool,
     pub enable_dithering: bool,
     pub max_recorded_profiles: usize,
-    pub precache_shaders: bool,
+    pub precache_shaders: PrecacheShaders,
+    pub precache_with_timing: bool,
     pub renderer_kind: RendererKind,
     pub enable_subpixel_aa: bool,
     pub clear_color: Option<ColorF>,
@@ -4447,7 +4457,8 @@ impl Default for RendererOptions {
             enable_dithering: true,
             debug_flags: DebugFlags::empty(),
             max_recorded_profiles: 0,
-            precache_shaders: false,
+            precache_shaders: PrecacheShaders::None,
+            precache_with_timing: false,
             renderer_kind: RendererKind::Native,
             enable_subpixel_aa: false,
             clear_color: Some(ColorF::new(1.0, 1.0, 1.0, 1.0)),
