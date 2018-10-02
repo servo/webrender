@@ -205,6 +205,12 @@ impl Wrench {
         debug_flags.set(DebugFlags::DISABLE_BATCHING, no_batch);
         let callbacks = Arc::new(Mutex::new(blob::BlobCallbacks::new()));
 
+        let precache_shaders = if precache_shaders {
+          webrender::PrecacheShaders::All
+        } else {
+          webrender::PrecacheShaders::None
+        };
+
         let opts = webrender::RendererOptions {
             device_pixel_ratio: dp_ratio,
             resource_override_path: shader_override_path,
@@ -232,7 +238,10 @@ impl Wrench {
             Box::new(Notifier(data))
         });
 
-        let (renderer, sender) = webrender::Renderer::new(window.clone_gl(), notifier, opts).unwrap();
+        let upload_method = webrender::UploadMethod::PixelBuffer(webrender::VertexUsageHint::Stream);
+        let device = webrender::Device::new(window.clone_gl(), opts.resource_override_path.clone(),
+                                            upload_method, None);
+        let (renderer, sender) = webrender::Renderer::new(device, notifier, opts, None).unwrap();
         let api = sender.create_api();
         let document_id = api.add_document(size, 0);
 

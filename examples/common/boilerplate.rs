@@ -68,7 +68,7 @@ impl HandyDandyRectBuilder for (i32, i32) {
 
 pub trait Example {
     const TITLE: &'static str = "WebRender Sample App";
-    const PRECACHE_SHADERS: bool = false;
+    const PRECACHE_SHADERS: webrender::PrecacheShaders = webrender::PrecacheShaders::None;
     const WIDTH: u32 = 1920;
     const HEIGHT: u32 = 1080;
 
@@ -164,7 +164,9 @@ pub fn main_wrapper<E: Example>(
         DeviceUintSize::new(size.width as u32, size.height as u32)
     };
     let notifier = Box::new(Notifier::new(events_loop.create_proxy()));
-    let (mut renderer, sender) = webrender::Renderer::new(gl.clone(), notifier, opts).unwrap();
+    let upload_method = webrender::UploadMethod::PixelBuffer(webrender::VertexUsageHint::Stream);
+    let device = webrender::Device::new(gl.clone(), opts.resource_override_path.clone(), upload_method, None);
+    let (mut renderer, sender) = webrender::Renderer::new(device, notifier, opts, None).unwrap();
     let api = sender.create_api();
     let document_id = api.add_document(framebuffer_size, 0);
 

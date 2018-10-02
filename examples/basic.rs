@@ -177,7 +177,7 @@ struct App {
 
 impl Example for App {
     // Make this the only example to test all shaders for compile errors.
-    const PRECACHE_SHADERS: bool = true;
+    const PRECACHE_SHADERS: webrender::PrecacheShaders = webrender::PrecacheShaders::All;
 
     fn render(
         &mut self,
