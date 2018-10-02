@@ -661,6 +661,10 @@ impl RenderBackend {
                     SceneBuilderResult::ExternalEvent(evt) => {
                         self.notifier.external_event(evt);
                     }
+                    SceneBuilderResult::ClearNamespace(id) => {
+                        self.resource_cache.clear_namespace(id);
+                        self.documents.retain(|doc_id, _doc| doc_id.0 != id);
+                    }
                     SceneBuilderResult::Stopped => {
                         panic!("We haven't sent a Stop yet, how did we get a Stopped back?");
                     }
@@ -770,9 +774,8 @@ impl RenderBackend {
             ApiMsg::ExternalEvent(evt) => {
                 self.low_priority_scene_tx.send(SceneBuilderRequest::ExternalEvent(evt)).unwrap();
             }
-            ApiMsg::ClearNamespace(namespace_id) => {
-                self.resource_cache.clear_namespace(namespace_id);
-                self.documents.retain(|did, _doc| did.0 != namespace_id);
+            ApiMsg::ClearNamespace(id) => {
+                self.low_priority_scene_tx.send(SceneBuilderRequest::ClearNamespace(id)).unwrap();
             }
             ApiMsg::MemoryPressure => {
                 // This is drastic. It will basically flush everything out of the cache,
