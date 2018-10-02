@@ -57,7 +57,7 @@ tasks:
       maxRunTime: 7200
       image: 'staktrace/webrender-test:freetype28'
       env:
-        RUST_BACKTRACE: 1
+        RUST_BACKTRACE: 'full'
         RUSTFLAGS: '--deny warnings'
       command:
         - /bin/bash
@@ -92,7 +92,7 @@ tasks:
       maxRunTime: 7200
       image: 'staktrace/webrender-test:freetype28'
       env:
-        RUST_BACKTRACE: 1
+        RUST_BACKTRACE: 'full'
         RUSTFLAGS: '--deny warnings'
       command:
         - /bin/bash
@@ -148,7 +148,7 @@ tasks:
           git clone {{event.head.repo.url}} webrender && cd webrender &&
           git checkout {{event.head.sha}} &&
           source ../servotidy-venv/bin/activate && servo-tidy &&
-          export RUST_BACKTRACE=1 &&
+          export RUST_BACKTRACE=full &&
           export RUSTFLAGS='--deny warnings' &&
           export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH" &&
           export RUSTC_WRAPPER=sccache &&
@@ -183,7 +183,7 @@ tasks:
           git clone {{event.head.repo.url}} webrender && cd webrender &&
           git checkout {{event.head.sha}} &&
           source ../servotidy-venv/bin/activate && servo-tidy &&
-          export RUST_BACKTRACE=1 &&
+          export RUST_BACKTRACE=full &&
           export RUSTFLAGS='--deny warnings' &&
           export PKG_CONFIG_PATH="/usr/local/opt/zlib/lib/pkgconfig:$PKG_CONFIG_PATH" &&
           export RUSTC_WRAPPER=sccache &&
