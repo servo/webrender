@@ -724,21 +724,12 @@ impl RenderTask {
                 [
                     task.content_origin.x as f32,
                     task.content_origin.y as f32,
-                    0.0,
                 ]
             }
             RenderTaskKind::CacheMask(ref task) => {
                 [
                     task.actual_rect.origin.x as f32,
                     task.actual_rect.origin.y as f32,
-                    0.0,
-                ]
-            }
-            RenderTaskKind::ClipRegion(..) => {
-                [
-                    0.0,
-                    0.0,
-                    0.0,
                 ]
             }
             RenderTaskKind::VerticalBlur(ref task) |
@@ -746,17 +737,17 @@ impl RenderTask {
                 [
                     task.blur_std_deviation,
                     0.0,
-                    0.0,
                 ]
             }
             RenderTaskKind::Glyph(_) => {
-                [1.0, 0.0, 0.0]
+                [1.0, 0.0]
             }
+            RenderTaskKind::ClipRegion(..) |
             RenderTaskKind::Readback(..) |
             RenderTaskKind::Scaling(..) |
             RenderTaskKind::Border(..) |
             RenderTaskKind::Blit(..) => {
-                [0.0; 3]
+                [0.0; 2]
             }
         };
 
@@ -775,9 +766,9 @@ impl RenderTask {
                 target_rect.size.width as f32,
                 target_rect.size.height as f32,
                 target_index.0 as f32,
+                0.0,
                 data[0],
                 data[1],
-                data[2],
             ]
         }
     }
