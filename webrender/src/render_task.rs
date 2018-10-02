@@ -731,14 +731,14 @@ impl RenderTask {
                 [
                     task.actual_rect.origin.x as f32,
                     task.actual_rect.origin.y as f32,
-                    RasterizationSpace::Screen as i32 as f32,
+                    0.0,
                 ]
             }
             RenderTaskKind::ClipRegion(..) => {
                 [
                     0.0,
                     0.0,
-                    RasterizationSpace::Local as i32 as f32,
+                    0.0,
                 ]
             }
             RenderTaskKind::VerticalBlur(ref task) |
