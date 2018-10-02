@@ -114,6 +114,7 @@ impl Rectangle {
                 device_pixel_ratio,
                 ..webrender::RendererOptions::default()
             },
+            None,
         ).unwrap();
         let api = sender.create_api();
 
