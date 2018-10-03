@@ -11,6 +11,7 @@ use std::env;
 use std::path::PathBuf;
 use webrender;
 use winit;
+use webrender::ShaderPrecacheFlags;
 use webrender::api::*;
 
 struct Notifier {
@@ -68,7 +69,7 @@ impl HandyDandyRectBuilder for (i32, i32) {
 
 pub trait Example {
     const TITLE: &'static str = "WebRender Sample App";
-    const PRECACHE_SHADERS: bool = false;
+    const PRECACHE_SHADER_FLAGS: ShaderPrecacheFlags = ShaderPrecacheFlags::EMPTY;
     const WIDTH: u32 = 1920;
     const HEIGHT: u32 = 1080;
 
@@ -148,7 +149,7 @@ pub fn main_wrapper<E: Example>(
     println!("Loading shaders...");
     let opts = webrender::RendererOptions {
         resource_override_path: res_path,
-        precache_shaders: E::PRECACHE_SHADERS,
+        precache_flags: E::PRECACHE_SHADER_FLAGS,
         device_pixel_ratio,
         clear_color: Some(ColorF::new(0.3, 0.0, 0.0, 1.0)),
         //scatter_gpu_cache_updates: false,

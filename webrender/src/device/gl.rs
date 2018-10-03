@@ -1160,7 +1160,6 @@ impl Device {
 
             // If we get here, the link succeeded, so get the uniforms.
             program.u_transform = self.gl.get_uniform_location(program.id, "uTransform");
-            program.u_device_pixel_ratio = self.gl.get_uniform_location(program.id, "uDevicePixelRatio");
             program.u_mode = self.gl.get_uniform_location(program.id, "uMode");
         }
 

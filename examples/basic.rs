@@ -16,6 +16,7 @@ use boilerplate::{Example, HandyDandyRectBuilder};
 use euclid::vec2;
 use winit::TouchPhase;
 use std::collections::HashMap;
+use webrender::ShaderPrecacheFlags;
 use webrender::api::*;
 
 #[derive(Debug)]
@@ -177,7 +178,7 @@ struct App {
 
 impl Example for App {
     // Make this the only example to test all shaders for compile errors.
-    const PRECACHE_SHADERS: bool = true;
+    const PRECACHE_SHADER_FLAGS: ShaderPrecacheFlags = ShaderPrecacheFlags::FULL_COMPILE;
 
     fn render(
         &mut self,
