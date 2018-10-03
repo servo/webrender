@@ -169,7 +169,11 @@ struct Rasterizer {
 }
 
 impl api::AsyncBlobImageRasterizer for Rasterizer {
-    fn rasterize(&mut self, requests: &[api::BlobImageParams]) -> Vec<(api::BlobImageRequest, api::BlobImageResult)> {
+    fn rasterize(
+        &mut self,
+        requests: &[api::BlobImageParams],
+        _low_priority: bool
+    ) -> Vec<(api::BlobImageRequest, api::BlobImageResult)> {
         let requests: Vec<(&api::BlobImageParams, Arc<ImageRenderingCommands>)> = requests.into_iter().map(|params| {
             (params, Arc::clone(&self.image_cmds[&params.request.key]))
         }).collect();
