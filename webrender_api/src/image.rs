@@ -343,7 +343,11 @@ pub trait BlobImageHandler: Send {
 /// A group of rasterization requests to execute synchronously on the scene builder thread.
 pub trait AsyncBlobImageRasterizer : Send {
     /// Rasterize the requests.
-    fn rasterize(&mut self, requests: &[BlobImageParams]) -> Vec<(BlobImageRequest, BlobImageResult)>;
+    fn rasterize(
+        &mut self,
+        requests: &[BlobImageParams],
+        low_priority: bool
+    ) -> Vec<(BlobImageRequest, BlobImageResult)>;
 }
 
 
