@@ -1299,6 +1299,21 @@ impl Device {
         }
     }
 
+    /// Notifies the device that a render target is about to be reused.
+    ///
+    /// This method adds or removes a depth target as necessary.
+    pub fn reuse_render_target<T: Texel>(
+        &mut self,
+        texture: &mut Texture,
+        rt_info: RenderTargetInfo,
+    ) {
+        texture.last_frame_used = self.frame_id;
+        texture.render_target = Some(rt_info);
+        if rt_info.has_depth != texture.has_depth() {
+            self.update_target_storage::<T>(texture, &rt_info, /* is_resized = */ false, None);
+        }
+    }
+
     /// Updates the render target storage for the texture, creating FBOs as required.
     fn update_target_storage<T: Texel>(
         &mut self,

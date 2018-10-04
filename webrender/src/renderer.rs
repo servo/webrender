@@ -3681,20 +3681,20 @@ impl Renderer {
     /// Allocates a texture to be used as the output for a rendering pass.
     ///
     /// We make an effort to reuse render targe textures across passes and
-    /// across frames. Reusing a texture with the same dimensions (width,
-    /// height, and layer-count) and format is obviously ideal. Reusing a
-    /// texture with different dimensions but the same format can be faster
-    /// than allocating a new texture, since it basically boils down to
-    /// a realloc in GPU memory, which can be very cheap if the existing
-    /// region can be resized. However, some drivers/GPUs require textures
-    /// with different formats to be allocated in different arenas,
-    /// reinitializing with a different format can force a large copy. As
-    /// such, we just allocate a new texture in that case.
+    /// across frames when the format and dimensions match. Because we use
+    /// immutable storage, we can't resize textures.
+    ///
+    /// We could consider approaches to re-use part of a larger target, if
+    /// available. However, we'd need to be careful about eviction. Currently,
+    /// render targets are freed if they haven't been used in 30 frames. If we
+    /// used partial targets, we'd need to track how _much_ of the target has
+    /// been used in the last 30 frames, since we could otherwise end up
+    /// keeping an enormous target alive indefinitely by constantly using it
+    /// in situations where a much smaller target would suffice.
     fn allocate_target_texture<T: RenderTarget>(
         &mut self,
         list: &mut RenderTargetList<T>,
         counters: &mut FrameProfileCounters,
-        frame_id: FrameId,
     ) -> Option<ActiveTexture> {
         debug_assert_ne!(list.max_size, DeviceUintSize::zero());
         if list.targets.is_empty() {
@@ -3703,16 +3703,16 @@ impl Renderer {
 
         counters.targets_used.inc();
 
-        // First, try finding a perfect match
+        // Try finding a match in the existing pool. If there's no match, we'll
+        // create a new texture.
         let selector = TargetSelector {
             size: list.max_size,
             num_layers: list.targets.len() as _,
             format: list.format,
         };
-        let mut index = self.texture_resolver.render_target_pool
+        let index = self.texture_resolver.render_target_pool
             .iter()
             .position(|texture| {
-                //TODO: re-use a part of a larger target, if available
                 selector == TargetSelector {
                     size: texture.get_dimensions(),
                     num_layers: texture.get_render_target_layer_count(),
@@ -3720,36 +3720,25 @@ impl Renderer {
                 }
             });
 
-        // Next, try at least finding a matching format
-        if index.is_none() {
-            counters.targets_changed.inc();
-            index = self.texture_resolver.render_target_pool
-                .iter()
-                .position(|texture| texture.get_format() == list.format && !texture.used_in_frame(frame_id));
-        }
-
-        let mut texture = match index {
-            Some(pos) => {
-                self.texture_resolver.render_target_pool.swap_remove(pos)
-            }
-            None => {
-                counters.targets_created.inc();
-                // finally, give up and create a new one
-                self.device.create_texture(TextureTarget::Array, list.format)
-            }
+        let rt_info = RenderTargetInfo { has_depth: list.needs_depth() };
+        let texture = if let Some(idx) = index {
+            let mut t = self.texture_resolver.render_target_pool.swap_remove(idx);
+            self.device.reuse_render_target::<u8>(&mut t, rt_info);
+            t
+        } else {
+            counters.targets_created.inc();
+            let mut t = self.device.create_texture(TextureTarget::Array, list.format);
+            self.device.init_texture::<u8>(
+                &mut t,
+                list.max_size.width,
+                list.max_size.height,
+                TextureFilter::Linear,
+                Some(rt_info),
+                list.targets.len() as _,
+                None,
+            );
+            t
         };
-
-        self.device.init_texture::<u8>(
-            &mut texture,
-            list.max_size.width,
-            list.max_size.height,
-            TextureFilter::Linear,
-            Some(RenderTargetInfo {
-                has_depth: list.needs_depth(),
-            }),
-            list.targets.len() as _,
-            None,
-        );
 
         list.check_ready(&texture);
         Some(ActiveTexture {
@@ -3868,8 +3857,8 @@ impl Renderer {
                     (None, None)
                 }
                 RenderPassKind::OffScreen { ref mut alpha, ref mut color, ref mut texture_cache } => {
-                    let alpha_tex = self.allocate_target_texture(alpha, &mut frame.profile_counters, frame_id);
-                    let color_tex = self.allocate_target_texture(color, &mut frame.profile_counters, frame_id);
+                    let alpha_tex = self.allocate_target_texture(alpha, &mut frame.profile_counters);
+                    let color_tex = self.allocate_target_texture(color, &mut frame.profile_counters);
 
                     // If this frame has already been drawn, then any texture
                     // cache targets have already been updated and can be
