@@ -34,6 +34,7 @@ use scene::{Scene, ScenePipeline, StackingContextHelpers};
 use scene_builder::DocumentResources;
 use spatial_node::{SpatialNodeType, StickyFrameInfo};
 use std::{f32, mem};
+use std::collections::vec_deque::VecDeque;
 use tiling::{CompositeOps};
 use util::{MaxRect, RectHelpers};
 
@@ -132,8 +133,8 @@ pub struct DisplayListFlattener<'a> {
     /// A stack of stacking context properties.
     sc_stack: Vec<FlattenedStackingContext>,
 
-    /// A stack of the currently active shadows
-    shadow_stack: Vec<(Shadow, PrimitiveIndex)>,
+    /// Maintains state for any currently active shadows
+    pending_shadow_items: VecDeque<ShadowItem>,
 
     /// The stack keeping track of the root clip chains associated with pipelines.
     pipeline_clip_chain_stack: Vec<ClipChainId>,
@@ -188,7 +189,7 @@ impl<'a> DisplayListFlattener<'a> {
             output_pipelines,
             id_to_index_mapper: ClipIdToIndexMapper::default(),
             hit_testing_runs: Vec::new(),
-            shadow_stack: Vec::new(),
+            pending_shadow_items: VecDeque::new(),
             sc_stack: Vec::new(),
             pipeline_clip_chain_stack: vec![ClipChainId::NONE],
             prim_store: PrimitiveStore::new(),
@@ -881,62 +882,37 @@ impl<'a> DisplayListFlattener<'a> {
         clip_items: Vec<ClipItemKey>,
         container: PrimitiveContainer,
     ) {
-        if !self.shadow_stack.is_empty() {
-            // TODO(gw): Restructure this so we don't need to move the shadow
-            //           stack out (borrowck due to create_primitive below).
-            let shadow_stack = mem::replace(&mut self.shadow_stack, Vec::new());
-            for &(ref shadow, shadow_pic_prim_index) in &shadow_stack {
-                // Offset the local rect and clip rect by the shadow offset.
-                let mut info = info.clone();
-                info.rect = info.rect.translate(&shadow.offset);
-                info.clip_rect = info.clip_rect.translate(&shadow.offset);
-
-                // Offset any local clip sources by the shadow offset.
-                let clip_items: Vec<ClipItemKey> = clip_items
-                    .iter()
-                    .map(|cs| cs.offset(&shadow.offset))
-                    .collect();
+        // If a shadow context is not active, then add the primitive
+        // directly to the parent picture.
+        if self.pending_shadow_items.is_empty() {
+            if container.is_visible() {
                 let clip_chain_id = self.build_clip_chain(
                     clip_items,
                     clip_and_scroll.spatial_node_index,
                     clip_and_scroll.clip_chain_id,
                 );
-
-                // Construct and add a primitive for the given shadow.
-                let shadow_prim_index = self.create_primitive(
-                    &info,
+                let prim_index = self.create_primitive(
+                    info,
                     clip_chain_id,
                     clip_and_scroll.spatial_node_index,
-                    container.create_shadow(shadow),
+                    container,
                 );
-
-                // Add the new primitive to the shadow picture.
-                let shadow_pic = self.prim_store.get_pic_mut(shadow_pic_prim_index);
-                shadow_pic.add_primitive(shadow_prim_index);
+                if cfg!(debug_assertions) && ChasePrimitive::LocalRect(info.rect) == self.config.chase_primitive {
+                    println!("Chasing {:?} by local rect", prim_index);
+                    self.prim_store.chase_id = Some(prim_index);
+                }
+                self.add_primitive_to_hit_testing_list(info, clip_and_scroll);
+                self.add_primitive_to_draw_list(prim_index);
             }
-            self.shadow_stack = shadow_stack;
-        }
-
-        if container.is_visible() {
-            let clip_chain_id = self.build_clip_chain(
+        } else {
+            // There is an active shadow context. Store as a pending primitive
+            // for processing during pop_all_shadows.
+            self.pending_shadow_items.push_back(ShadowItem::Primitive(PendingPrimitive {
+                clip_and_scroll,
+                info: *info,
                 clip_items,
-                clip_and_scroll.spatial_node_index,
-                clip_and_scroll.clip_chain_id,
-            );
-            let prim_index = self.create_primitive(
-                info,
-                clip_chain_id,
-                clip_and_scroll.spatial_node_index,
                 container,
-            );
-            if cfg!(debug_assertions) && ChasePrimitive::LocalRect(info.rect) == self.config.chase_primitive {
-                println!("Chasing {:?} by local rect", prim_index);
-                self.prim_store.chase_id = Some(prim_index);
-            }
-            self.add_primitive_to_hit_testing_list(info, clip_and_scroll);
-            self.add_primitive_to_draw_list(
-                prim_index,
-            );
+            }));
         }
     }
 
@@ -1207,8 +1183,8 @@ impl<'a> DisplayListFlattener<'a> {
         }
 
         assert!(
-            self.shadow_stack.is_empty(),
-            "Found unpopped text shadows when popping stacking context!"
+            self.pending_shadow_items.is_empty(),
+            "Found unpopped shadows when popping stacking context!"
         );
     }
 
@@ -1400,69 +1376,156 @@ impl<'a> DisplayListFlattener<'a> {
         shadow: Shadow,
         clip_and_scroll: ScrollNodeAndClipChain,
     ) {
-        let pipeline_id = self.sc_stack.last().unwrap().pipeline_id;
-        let max_clip = LayoutRect::max_rect();
-
-        // Quote from https://drafts.csswg.org/css-backgrounds-3/#shadow-blur
-        // "the image that would be generated by applying to the shadow a
-        // Gaussian blur with a standard deviation equal to half the blur radius."
-        let std_deviation = shadow.blur_radius * 0.5;
-
-        // If the shadow has no blur, any elements will get directly rendered
-        // into the parent picture surface, instead of allocating and drawing
-        // into an intermediate surface. In this case, we will need to apply
-        // the local clip rect to primitives.
-        let is_passthrough = shadow.blur_radius == 0.0;
-
-        // shadows always rasterize in local space.
-        // TODO(gw): expose API for clients to specify a raster scale
-        let raster_space = if is_passthrough {
-            let parent_pic_prim_index = self.sc_stack.last().unwrap().leaf_prim_index;
-            self.prim_store
-                .get_pic(parent_pic_prim_index)
-                .requested_raster_space
-        } else {
-            RasterSpace::Local(1.0)
-        };
-
-        // Create a picture that the shadow primitives will be added to. If the
-        // blur radius is 0, the code in Picture::prepare_for_render will
-        // detect this and mark the picture to be drawn directly into the
-        // parent picture, which avoids an intermediate surface and blur.
-        let blur_filter = FilterOp::Blur(std_deviation).sanitize();
-        let shadow_pic = PicturePrimitive::new_image(
-            self.picture_id_generator.next(),
-            Some(PictureCompositeMode::Filter(blur_filter)),
-            false,
-            pipeline_id,
-            None,
-            is_passthrough,
-            raster_space,
-        );
-
-        // Create the primitive to draw the shadow picture into the scene.
-        let shadow_prim = BrushPrimitive::new_picture(shadow_pic);
-        let shadow_prim_index = self.prim_store.add_primitive(
-            &LayoutRect::zero(),
-            &max_clip,
-            true,
-            clip_and_scroll.clip_chain_id,
-            clip_and_scroll.spatial_node_index,
-            None,
-            PrimitiveContainer::Brush(shadow_prim),
-        );
-
-        // Add the shadow primitive. This must be done before pushing this
-        // picture on to the shadow stack, to avoid infinite recursion!
-        self.add_primitive_to_draw_list(
-            shadow_prim_index,
-        );
-        self.shadow_stack.push((shadow, shadow_prim_index));
+        // Store this shadow in the pending list, for processing
+        // during pop_all_shadows.
+        self.pending_shadow_items.push_back(ShadowItem::Shadow(PendingShadow {
+            shadow,
+            clip_and_scroll,
+        }));
     }
 
     pub fn pop_all_shadows(&mut self) {
-        assert!(self.shadow_stack.len() > 0, "popped shadows, but none were present");
-        self.shadow_stack.clear();
+        assert!(!self.pending_shadow_items.is_empty(), "popped shadows, but none were present");
+
+        let pipeline_id = self.sc_stack.last().unwrap().pipeline_id;
+        let max_clip = LayoutRect::max_rect();
+        let mut items = mem::replace(&mut self.pending_shadow_items, VecDeque::new());
+
+        //
+        // The pending_shadow_items queue contains a list of shadows and primitives
+        // that were pushed during the active shadow context. To process these, we:
+        //
+        // Iterate the list, popping an item from the front each iteration.
+        //
+        // If the item is a shadow:
+        //      - Create a shadow picture primitive.
+        //      - Add *any* primitives that remain in the item list to this shadow.
+        // If the item is a primitive:
+        //      - Add that primitive as a normal item (if alpha > 0)
+        //
+
+        while let Some(item) = items.pop_front() {
+            match item {
+                ShadowItem::Shadow(pending_shadow) => {
+                    // Quote from https://drafts.csswg.org/css-backgrounds-3/#shadow-blur
+                    // "the image that would be generated by applying to the shadow a
+                    // Gaussian blur with a standard deviation equal to half the blur radius."
+                    let std_deviation = pending_shadow.shadow.blur_radius * 0.5;
+
+                    // If the shadow has no blur, any elements will get directly rendered
+                    // into the parent picture surface, instead of allocating and drawing
+                    // into an intermediate surface. In this case, we will need to apply
+                    // the local clip rect to primitives.
+                    let is_passthrough = pending_shadow.shadow.blur_radius == 0.0;
+
+                    // shadows always rasterize in local space.
+                    // TODO(gw): expose API for clients to specify a raster scale
+                    let raster_space = if is_passthrough {
+                        let parent_pic_prim_index = self.sc_stack.last().unwrap().leaf_prim_index;
+                        self.prim_store
+                            .get_pic(parent_pic_prim_index)
+                            .requested_raster_space
+                    } else {
+                        RasterSpace::Local(1.0)
+                    };
+
+                    // Create a picture that the shadow primitives will be added to. If the
+                    // blur radius is 0, the code in Picture::prepare_for_render will
+                    // detect this and mark the picture to be drawn directly into the
+                    // parent picture, which avoids an intermediate surface and blur.
+                    let blur_filter = FilterOp::Blur(std_deviation).sanitize();
+                    let mut shadow_pic = PicturePrimitive::new_image(
+                        self.picture_id_generator.next(),
+                        Some(PictureCompositeMode::Filter(blur_filter)),
+                        false,
+                        pipeline_id,
+                        None,
+                        is_passthrough,
+                        raster_space,
+                    );
+
+                    // Add any primitives that come after this shadow in the item
+                    // list to this shadow.
+                    for item in &items {
+                        if let ShadowItem::Primitive(ref pending_primitive) = item {
+                            // Offset the local rect and clip rect by the shadow offset.
+                            let mut info = pending_primitive.info.clone();
+                            info.rect = info.rect.translate(&pending_shadow.shadow.offset);
+                            info.clip_rect = info.clip_rect.translate(&pending_shadow.shadow.offset);
+
+                            // Offset any local clip sources by the shadow offset.
+                            let clip_items: Vec<ClipItemKey> = pending_primitive
+                                .clip_items
+                                .iter()
+                                .map(|cs| cs.offset(&pending_shadow.shadow.offset))
+                                .collect();
+                            let clip_chain_id = self.build_clip_chain(
+                                clip_items,
+                                pending_primitive.clip_and_scroll.spatial_node_index,
+                                pending_primitive.clip_and_scroll.clip_chain_id,
+                            );
+
+                            // Construct and add a primitive for the given shadow.
+                            let shadow_prim_index = self.create_primitive(
+                                &info,
+                                clip_chain_id,
+                                pending_primitive.clip_and_scroll.spatial_node_index,
+                                pending_primitive.container.create_shadow(&pending_shadow.shadow),
+                            );
+
+                            // Add the new primitive to the shadow picture.
+                            shadow_pic.add_primitive(shadow_prim_index);
+                        }
+                    }
+
+                    // No point in adding a shadow here if there were no primitives
+                    // added to the shadow.
+                    if !shadow_pic.is_empty() {
+                        // Create the primitive to draw the shadow picture into the scene.
+                        let shadow_prim = BrushPrimitive::new_picture(shadow_pic);
+                        let shadow_prim_index = self.prim_store.add_primitive(
+                            &LayoutRect::zero(),
+                            &max_clip,
+                            true,
+                            pending_shadow.clip_and_scroll.clip_chain_id,
+                            pending_shadow.clip_and_scroll.spatial_node_index,
+                            None,
+                            PrimitiveContainer::Brush(shadow_prim),
+                        );
+
+                        // Add the shadow primitive. This must be done before pushing this
+                        // picture on to the shadow stack, to avoid infinite recursion!
+                        self.add_primitive_to_draw_list(shadow_prim_index);
+                    }
+                }
+                ShadowItem::Primitive(pending_primitive) => {
+                    // For a normal primitive, if it has alpha > 0, then we add this
+                    // as a normal primitive to the parent picture.
+                    if pending_primitive.container.is_visible() {
+                        let clip_chain_id = self.build_clip_chain(
+                            pending_primitive.clip_items,
+                            pending_primitive.clip_and_scroll.spatial_node_index,
+                            pending_primitive.clip_and_scroll.clip_chain_id,
+                        );
+                        let prim_index = self.create_primitive(
+                            &pending_primitive.info,
+                            clip_chain_id,
+                            pending_primitive.clip_and_scroll.spatial_node_index,
+                            pending_primitive.container,
+                        );
+                        if cfg!(debug_assertions) && ChasePrimitive::LocalRect(pending_primitive.info.rect) == self.config.chase_primitive {
+                            println!("Chasing {:?} by local rect", prim_index);
+                            self.prim_store.chase_id = Some(prim_index);
+                        }
+                        self.add_primitive_to_hit_testing_list(&pending_primitive.info, pending_primitive.clip_and_scroll);
+                        self.add_primitive_to_draw_list(prim_index);
+                    }
+                }
+            }
+        }
+
+        debug_assert!(items.is_empty());
+        self.pending_shadow_items = items;
     }
 
     pub fn add_solid_rectangle(
@@ -2065,4 +2128,26 @@ struct FlattenedStackingContext {
     establishes_3d_context: bool,
     participating_in_3d_context: bool,
     has_mix_blend_mode: bool,
+}
+
+/// A primitive that is added while a shadow context is
+/// active is stored as a pending primitive and only
+/// added to pictures during pop_all_shadows.
+struct PendingPrimitive {
+    clip_and_scroll: ScrollNodeAndClipChain,
+    info: LayoutPrimitiveInfo,
+    clip_items: Vec<ClipItemKey>,
+    container: PrimitiveContainer,
+}
+
+/// As shadows are pushed, they are stored as pending
+/// shadows, and handled at once during pop_all_shadows.
+struct PendingShadow {
+    shadow: Shadow,
+    clip_and_scroll: ScrollNodeAndClipChain,
+}
+
+enum ShadowItem {
+    Shadow(PendingShadow),
+    Primitive(PendingPrimitive),
 }
