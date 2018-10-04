@@ -14,3 +14,4 @@
 == sticky-applied.yaml sticky-applied-ref.yaml
 == sticky-transformed.yaml sticky-transformed-ref.yaml
 == sibling-hidden-clip.yaml sibling-hidden-clip-ref.yaml
+== scale-offsets.yaml scale-offsets-ref.yaml
