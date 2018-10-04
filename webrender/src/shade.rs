@@ -71,7 +71,6 @@ pub struct LazilyCompiledShader {
     name: &'static str,
     kind: ShaderKind,
     features: Vec<&'static str>,
-    initialized: bool,
 }
 
 impl LazilyCompiledShader {
@@ -87,7 +86,6 @@ impl LazilyCompiledShader {
             name,
             kind,
             features: features.to_vec(),
-            initialized: false,
         };
 
         if precache_flags.intersects(ShaderPrecacheFlags::ASYNC_COMPILE | ShaderPrecacheFlags::FULL_COMPILE) {
@@ -155,9 +153,9 @@ impl LazilyCompiledShader {
             self.program = Some(program?);
         }
 
-        if precache_flags.contains(ShaderPrecacheFlags::FULL_COMPILE) && !self.initialized {
-            let mut program = self.program.as_mut().unwrap();
+        let program = self.program.as_mut().unwrap();
 
+        if precache_flags.contains(ShaderPrecacheFlags::FULL_COMPILE) && !program.is_initialized() {
             let vertex_format = match self.kind {
                 ShaderKind::Primitive |
                 ShaderKind::Brush |
@@ -183,7 +181,7 @@ impl LazilyCompiledShader {
             match self.kind {
                 ShaderKind::ClipCache => {
                     device.bind_shader_samplers(
-                        &mut program,
+                        &program,
                         &[
                             ("sColor0", TextureSampler::Color0),
                             ("sTransformPalette", TextureSampler::TransformPalette),
@@ -196,7 +194,7 @@ impl LazilyCompiledShader {
                 }
                 _ => {
                     device.bind_shader_samplers(
-                        &mut program,
+                        &program,
                         &[
                             ("sColor0", TextureSampler::Color0),
                             ("sColor1", TextureSampler::Color1),
@@ -213,10 +211,9 @@ impl LazilyCompiledShader {
                     );
                 }
             }
-            self.initialized = true;
         }
 
-        Ok(self.program.as_mut().unwrap())
+        Ok(program)
     }
 
     fn get(&mut self, device: &mut Device) -> Result<&mut Program, ShaderError> {

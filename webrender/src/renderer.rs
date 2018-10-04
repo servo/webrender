@@ -1024,10 +1024,11 @@ impl GpuCacheTexture {
         let texture = device.create_texture(TextureTarget::Default, ImageFormat::RGBAF32);
 
         let bus = if use_scatter {
-            let mut program = device
-                .create_program("gpu_cache_update", "")?;
-            device.link_program(&mut program, &desc::GPU_CACHE_UPDATE)?;
-            device.bind_program(&program);
+            let program = device.create_program_linked(
+                "gpu_cache_update",
+                "",
+                &desc::GPU_CACHE_UPDATE,
+            )?;
             let buf_position = device.create_vbo();
             let buf_value = device.create_vbo();
             //Note: the vertex attributes have to be supplied in the same order
@@ -4434,7 +4435,7 @@ bitflags! {
         /// Needed for const initialization
         const EMPTY                 = 0;
 
-        /// Only start async compile during startup
+        /// Only start async compile
         const ASYNC_COMPILE         = 1 << 2;
 
         /// Do a full compile/link during startup

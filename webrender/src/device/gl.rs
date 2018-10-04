@@ -526,8 +526,8 @@ impl Drop for Texture {
     }
 }
 
-// Temporary state retained by a program when it
-// is created, discarded when it is linked.
+/// Temporary state retained by a program when it
+/// is created, discarded when it is linked.
 struct ProgramInitState {
     base_filename: String,
     sources: ProgramSources,
@@ -538,6 +538,12 @@ pub struct Program {
     u_transform: gl::GLint,
     u_mode: gl::GLint,
     init_state: Option<ProgramInitState>,
+}
+
+impl Program {
+    pub fn is_initialized(&self) -> bool {
+        self.init_state.is_none()
+    }
 }
 
 impl Drop for Program {
@@ -1053,7 +1059,7 @@ impl Device {
         program: &mut Program,
         descriptor: &VertexDescriptor,
     ) -> Result<(), ShaderError> {
-        if let Some(ref init_state) = program.init_state {
+        if let Some(init_state) = program.init_state.take() {
             let mut build_program = true;
 
             // See if we hit the binary shader cache
@@ -1152,7 +1158,7 @@ impl Device {
                             if let Some(ref program_cache_handler) = cached_programs.program_cache_handler {
                                 program_cache_handler.notify_binary_added(&program_binary);
                             }
-                            cached_programs.binaries.borrow_mut().insert(init_state.sources.clone(), program_binary);
+                            cached_programs.binaries.borrow_mut().insert(init_state.sources, program_binary);
                         }
                     }
                 }
@@ -1163,13 +1169,12 @@ impl Device {
             program.u_mode = self.gl.get_uniform_location(program.id, "uMode");
         }
 
-        // Set init state to None so we don't try and link again.
-        program.init_state = None;
         Ok(())
     }
 
     pub fn bind_program(&mut self, program: &Program) {
         debug_assert!(self.inside_frame);
+        debug_assert!(program.init_state.is_none());
 
         if self.bound_program != program.id {
             self.gl.use_program(program.id);
@@ -1561,6 +1566,18 @@ impl Device {
     pub fn delete_program(&mut self, mut program: Program) {
         self.gl.delete_program(program.id);
         program.id = 0;
+    }
+
+    /// Create a shader program and link it immediately.
+    pub fn create_program_linked(
+        &mut self,
+        base_filename: &str,
+        features: &str,
+        descriptor: &VertexDescriptor,
+    ) -> Result<Program, ShaderError> {
+        let mut program = self.create_program(base_filename, features)?;
+        self.link_program(&mut program, descriptor)?;
+        Ok(program)
     }
 
     /// Create a shader program. This does minimal amount of work
