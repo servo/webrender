@@ -131,7 +131,8 @@ impl<F, T> SpaceMapper<F, T> where F: fmt::Debug {
             } else if ref_spatial_node.coordinate_system_id == target_spatial_node.coordinate_system_id {
                 CoordinateSpaceMapping::ScaleOffset(
                     ref_spatial_node.coordinate_system_relative_scale_offset
-                        .difference(
+                        .inverse()
+                        .accumulate(
                             &target_spatial_node.coordinate_system_relative_scale_offset
                         )
                 )
