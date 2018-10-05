@@ -378,6 +378,11 @@ impl PicturePrimitive {
         Some((context, state, instances))
     }
 
+    /// Return true if this picture doesn't contain any primitives.
+    pub fn is_empty(&self) -> bool {
+        self.prim_instances.is_empty()
+    }
+
     pub fn add_primitive(
         &mut self,
         prim_index: PrimitiveIndex,
