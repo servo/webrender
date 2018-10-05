@@ -222,9 +222,10 @@ impl PicturePrimitive {
         frame_output_pipeline_id: Option<PipelineId>,
         apply_local_clip_rect: bool,
         requested_raster_space: RasterSpace,
+        prim_instances: Vec<PrimitiveInstance>,
     ) -> Self {
         PicturePrimitive {
-            prim_instances: Vec::new(),
+            prim_instances,
             state: None,
             secondary_render_task_id: None,
             requested_composite_mode,
@@ -376,21 +377,6 @@ impl PicturePrimitive {
         let instances = mem::replace(&mut self.prim_instances, Vec::new());
 
         Some((context, state, instances))
-    }
-
-    /// Return true if this picture doesn't contain any primitives.
-    pub fn is_empty(&self) -> bool {
-        self.prim_instances.is_empty()
-    }
-
-    pub fn add_primitive(
-        &mut self,
-        prim_index: PrimitiveIndex,
-    ) {
-        self.prim_instances.push(PrimitiveInstance {
-            prim_index,
-            combined_local_clip_rect: LayoutRect::zero(),
-        });
     }
 
     pub fn restore_context(
