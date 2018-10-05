@@ -1423,6 +1423,17 @@ pub struct PrimitiveInstance {
     pub combined_local_clip_rect: LayoutRect,
 }
 
+impl PrimitiveInstance {
+    pub fn new(
+        prim_index: PrimitiveIndex,
+    ) -> Self {
+        PrimitiveInstance {
+            prim_index,
+            combined_local_clip_rect: LayoutRect::zero(),
+        }
+    }
+}
+
 pub struct PrimitiveStore {
     pub primitives: Vec<Primitive>,
 
