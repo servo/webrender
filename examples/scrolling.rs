@@ -164,6 +164,7 @@ impl Example for App {
                     ScrollLocation::Delta(LayoutVector2D::new(offset.0, offset.1)),
                     self.cursor_position,
                 );
+                txn.generate_frame();
             }
             winit::WindowEvent::CursorMoved { position: LogicalPosition { x, y }, .. } => {
                 self.cursor_position = WorldPoint::new(x as f32, y as f32);
@@ -179,6 +180,7 @@ impl Example for App {
                     ScrollLocation::Delta(LayoutVector2D::new(dx, dy)),
                     self.cursor_position,
                 );
+                txn.generate_frame();
             }
             winit::WindowEvent::MouseInput { .. } => {
                 let results = api.hit_test(
