@@ -189,7 +189,6 @@ impl FrameBuilder {
         if self.prim_store.primitives.is_empty() {
             return None
         }
-        self.prim_store.reset_prim_visibility();
 
         let root_spatial_node_index = clip_scroll_tree.root_reference_frame_index();
 

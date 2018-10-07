@@ -538,7 +538,7 @@ impl AlphaBatchBuilder {
             let batch = self.batch_list
                             .get_suitable_batch(
                                 key,
-                                &pic_metadata.clipped_world_rect.as_ref().expect("bug"),
+                                &prim_instance.clipped_world_rect.as_ref().expect("bug"),
                             );
 
             let gpu_address = gpu_cache.get_address(&gpu_handle);
@@ -575,7 +575,7 @@ impl AlphaBatchBuilder {
         let prim = &ctx.prim_store.primitives[prim_instance.prim_index.0];
         let prim_metadata = &prim.metadata;
 
-        if prim_metadata.clipped_world_rect.is_none() {
+        if prim_instance.clipped_world_rect.is_none() {
             return;
         }
 
@@ -593,7 +593,7 @@ impl AlphaBatchBuilder {
         //           wasteful. We should probably cache this in
         //           the scroll node...
         let transform_kind = transform_id.transform_kind();
-        let bounding_rect = prim_metadata.clipped_world_rect
+        let bounding_rect = prim_instance.clipped_world_rect
                                          .as_ref()
                                          .expect("bug");
 

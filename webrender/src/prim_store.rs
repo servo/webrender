@@ -254,7 +254,6 @@ pub struct PrimitiveMetadata {
     pub local_clip_rect: LayoutRect,
 
     pub is_backface_visible: bool,
-    pub clipped_world_rect: Option<WorldRect>,
 }
 
 // Maintains a list of opacity bindings that have been collapsed into
@@ -1417,6 +1416,8 @@ pub struct PrimitiveInstance {
     /// was prepared for rendering in.
     #[cfg(debug_assertions)]
     pub prepared_frame_id: FrameId,
+
+    pub clipped_world_rect: Option<WorldRect>,
 }
 
 impl PrimitiveInstance {
@@ -1426,6 +1427,7 @@ impl PrimitiveInstance {
         PrimitiveInstance {
             prim_index,
             combined_local_clip_rect: LayoutRect::zero(),
+            clipped_world_rect: None,
             #[cfg(debug_assertions)]
             prepared_frame_id: FrameId(0),
         }
@@ -1474,7 +1476,6 @@ impl PrimitiveStore {
             local_rect: *local_rect,
             local_clip_rect: *local_clip_rect,
             is_backface_visible,
-            clipped_world_rect: None,
             opacity: PrimitiveOpacity::translucent(),
         };
 
@@ -1746,7 +1747,7 @@ impl PrimitiveStore {
         }
 
         if is_passthrough {
-            prim.metadata.clipped_world_rect = Some(pic_state.map_pic_to_world.bounds);
+            prim_instance.clipped_world_rect = Some(pic_state.map_pic_to_world.bounds);
         } else {
             if prim.metadata.local_rect.size.width <= 0.0 ||
                prim.metadata.local_rect.size.height <= 0.0 {
@@ -1797,7 +1798,7 @@ impl PrimitiveStore {
             let clip_chain = match clip_chain {
                 Some(clip_chain) => clip_chain,
                 None => {
-                    prim.metadata.clipped_world_rect = None;
+                    prim_instance.clipped_world_rect = None;
                     return false;
                 }
             };
@@ -1840,7 +1841,7 @@ impl PrimitiveStore {
                 }
             };
 
-            prim.metadata.clipped_world_rect = Some(clipped_world_rect);
+            prim_instance.clipped_world_rect = Some(clipped_world_rect);
 
             prim.build_prim_segments_if_needed(
                 pic_state,
@@ -1881,14 +1882,6 @@ impl PrimitiveStore {
         true
     }
 
-    // TODO(gw): Make this simpler / more efficient by tidying
-    //           up the logic that early outs from prepare_prim_for_render.
-    pub fn reset_prim_visibility(&mut self) {
-        for prim in &mut self.primitives {
-            prim.metadata.clipped_world_rect = None;
-        }
-    }
-
     pub fn prepare_primitives(
         &mut self,
         prim_instances: &mut Vec<PrimitiveInstance>,
@@ -1905,6 +1898,8 @@ impl PrimitiveStore {
             .display_list;
 
         for prim_instance in prim_instances {
+            prim_instance.clipped_world_rect = None;
+
             let prim_index = prim_instance.prim_index;
             let is_chased = Some(prim_index) == self.chase_id;
 
@@ -1997,7 +1992,7 @@ fn build_gradient_stops_request(
 
 fn decompose_repeated_primitive(
     visible_tiles: &mut Vec<VisibleGradientTile>,
-    instance: &PrimitiveInstance,
+    instance: &mut PrimitiveInstance,
     metadata: &mut PrimitiveMetadata,
     stretch_size: &LayoutSize,
     tile_spacing: &LayoutSize,
@@ -2014,7 +2009,7 @@ fn decompose_repeated_primitive(
         .combined_local_clip_rect
         .intersection(&metadata.local_rect).unwrap();
 
-    let clipped_world_rect = &metadata
+    let clipped_world_rect = &instance
         .clipped_world_rect
         .unwrap();
 
@@ -2054,7 +2049,7 @@ fn decompose_repeated_primitive(
         // Clearing the screen rect has the effect of "culling out" the primitive
         // from the point of view of the batch builder, and ensures we don't hit
         // assertions later on because we didn't request any image.
-        metadata.clipped_world_rect = None;
+        instance.clipped_world_rect = None;
     }
 }
 
@@ -2540,7 +2535,7 @@ impl Primitive {
 
                                 let visible_rect = compute_conservative_visible_rect(
                                     prim_context,
-                                    &metadata.clipped_world_rect.unwrap(),
+                                    &prim_instance.clipped_world_rect.unwrap(),
                                     &tight_clip_rect
                                 );
 
@@ -2600,7 +2595,7 @@ impl Primitive {
                                     // Clearing the screen rect has the effect of "culling out" the primitive
                                     // from the point of view of the batch builder, and ensures we don't hit
                                     // assertions later on because we didn't request any image.
-                                    metadata.clipped_world_rect = None;
+                                    prim_instance.clipped_world_rect = None;
                                 }
                             } else if request_source_image {
                                 frame_state.resource_cache.request_image(
@@ -2751,13 +2746,13 @@ impl Primitive {
                     }
                     BrushKind::Picture(ref mut pic) => {
                         if !pic.prepare_for_render(
-                            prim_instance.prim_index,
+                            prim_instance,
                             metadata,
                             pic_state,
                             frame_context,
                             frame_state,
                         ) {
-                            metadata.clipped_world_rect = None;
+                            prim_instance.clipped_world_rect = None;
                         }
                     }
                     BrushKind::Solid { ref color, ref mut opacity_binding, .. } => {
@@ -2873,8 +2868,8 @@ impl Primitive {
 
                 let clip_task_id = frame_state.render_tasks.add(clip_task);
                 if cfg!(debug_assertions) && is_chased {
-                    println!("\tcreated task {:?} with world rect {:?}",
-                        clip_task_id, self.metadata.clipped_world_rect);
+                    println!("\tcreated task {:?} with device rect {:?}",
+                        clip_task_id, device_rect);
                 }
                 self.metadata.clip_task_id = Some(clip_task_id);
                 pic_state.tasks.push(clip_task_id);

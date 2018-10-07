@@ -14,7 +14,7 @@ use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState};
 use frame_builder::{PictureContext, PrimitiveContext};
 use gpu_cache::{GpuCacheHandle};
 use gpu_types::UvRectKind;
-use prim_store::{PrimitiveIndex, PrimitiveInstance, SpaceMapper};
+use prim_store::{PrimitiveInstance, SpaceMapper};
 use prim_store::{PrimitiveMetadata, get_raster_rects};
 use render_task::{ClearMode, RenderTask, RenderTaskCacheEntryHandle};
 use render_task::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId, RenderTaskLocation};
@@ -439,8 +439,8 @@ impl PicturePrimitive {
 
     pub fn prepare_for_render(
         &mut self,
-        prim_index: PrimitiveIndex,
-        prim_metadata: &mut PrimitiveMetadata,
+        prim_instance: &PrimitiveInstance,
+        prim_metadata: &PrimitiveMetadata,
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
@@ -461,7 +461,7 @@ impl PicturePrimitive {
                     pic_rect,
                     &map_pic_to_raster,
                     &map_raster_to_world,
-                    prim_metadata.clipped_world_rect.expect("bug1"),
+                    prim_instance.clipped_world_rect.expect("bug1"),
                     frame_context.device_pixel_scale,
                 ) {
                     Some(info) => info,
@@ -511,7 +511,7 @@ impl PicturePrimitive {
                             let picture_task = RenderTask::new_picture(
                                 RenderTaskLocation::Dynamic(None, device_rect.size),
                                 unclipped.size,
-                                prim_index,
+                                prim_instance.prim_index,
                                 device_rect.origin,
                                 pic_state_for_children.tasks,
                                 uv_rect_kind,
@@ -569,7 +569,7 @@ impl PicturePrimitive {
                                     let picture_task = RenderTask::new_picture(
                                         RenderTaskLocation::Dynamic(None, device_rect.size),
                                         unclipped.size,
-                                        prim_index,
+                                        prim_instance.prim_index,
                                         device_rect.origin,
                                         child_tasks,
                                         uv_rect_kind,
@@ -626,7 +626,7 @@ impl PicturePrimitive {
                         let mut picture_task = RenderTask::new_picture(
                             RenderTaskLocation::Dynamic(None, device_rect.size),
                             unclipped.size,
-                            prim_index,
+                            prim_instance.prim_index,
                             device_rect.origin,
                             pic_state_for_children.tasks,
                             uv_rect_kind,
@@ -697,7 +697,7 @@ impl PicturePrimitive {
                         let picture_task = RenderTask::new_picture(
                             RenderTaskLocation::Dynamic(None, clipped.size),
                             unclipped.size,
-                            prim_index,
+                            prim_instance.prim_index,
                             clipped.origin,
                             pic_state_for_children.tasks,
                             uv_rect_kind,
@@ -734,7 +734,7 @@ impl PicturePrimitive {
                         let picture_task = RenderTask::new_picture(
                             RenderTaskLocation::Dynamic(None, clipped.size),
                             unclipped.size,
-                            prim_index,
+                            prim_instance.prim_index,
                             clipped.origin,
                             pic_state_for_children.tasks,
                             uv_rect_kind,
@@ -756,7 +756,7 @@ impl PicturePrimitive {
                         let picture_task = RenderTask::new_picture(
                             RenderTaskLocation::Dynamic(None, clipped.size),
                             unclipped.size,
-                            prim_index,
+                            prim_instance.prim_index,
                             clipped.origin,
                             pic_state_for_children.tasks,
                             uv_rect_kind,
