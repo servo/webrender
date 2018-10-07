@@ -24,7 +24,7 @@ use hit_test::{HitTestingItem, HitTestingRun};
 use image::simplify_repeated_primitive;
 use internal_types::{FastHashMap, FastHashSet};
 use picture::{PictureCompositeMode, PictureIdGenerator, PicturePrimitive};
-use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor};
+use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor, PrimitiveInstance};
 use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveOpacity};
 use prim_store::{BorderSource, BrushSegment, BrushSegmentVec, PrimitiveContainer, PrimitiveIndex, PrimitiveStore};
 use prim_store::{OpacityBinding, ScrollNodeAndClipChain, TextRunPrimitive};
@@ -158,6 +158,10 @@ pub struct DisplayListFlattener<'a> {
 
     /// The estimated count of primtives we expect to encounter during flattening.
     prim_count_estimate: usize,
+
+    /// The root primitive index for this flattener. This is the primitive
+    /// to start the culling phase from.
+    pub root_prim_index: PrimitiveIndex,
 }
 
 impl<'a> DisplayListFlattener<'a> {
@@ -197,6 +201,7 @@ impl<'a> DisplayListFlattener<'a> {
             picture_id_generator,
             resources,
             prim_count_estimate: 0,
+            root_prim_index: PrimitiveIndex(0),
         };
 
         flattener.push_root(
@@ -864,13 +869,12 @@ impl<'a> DisplayListFlattener<'a> {
         &mut self,
         prim_index: PrimitiveIndex,
     ) {
-        // Add primitive to the top-most Picture on the stack.
-        let pic_prim_index = self.sc_stack.last().unwrap().leaf_prim_index;
+        // Add primitive to the top-most stacking context on the stack.
         if cfg!(debug_assertions) && self.prim_store.chase_id == Some(prim_index) {
-            println!("\tadded to picture primitive {:?}", pic_prim_index);
+            println!("\tadded to stacking context at {}", self.sc_stack.len());
         }
-        let pic = self.prim_store.get_pic_mut(pic_prim_index);
-        pic.add_primitive(prim_index);
+        let stacking_context = self.sc_stack.last_mut().unwrap();
+        stacking_context.normal_primitives.push(PrimitiveInstance::new(prim_index));
     }
 
     /// Convenience interface that creates a primitive entry and adds it
@@ -933,13 +937,13 @@ impl<'a> DisplayListFlattener<'a> {
             None => ClipChainId::NONE,
         };
 
-        // An arbitrary large clip rect. For now, we don't
-        // specify a clip specific to the stacking context.
-        // However, now that they are represented as Picture
-        // primitives, we can apply any kind of clip mask
-        // to them, as for a normal primitive. This is needed
-        // to correctly handle some CSS cases (see #1957).
-        let max_clip = LayoutRect::max_rect();
+        // Check if this stacking context is the root of a pipeline, and the caller
+        // has requested it as an output frame.
+        let frame_output_pipeline_id = if is_pipeline_root && self.output_pipelines.contains(&pipeline_id) {
+            Some(pipeline_id)
+        } else {
+            None
+        };
 
         // Get the transform-style of the parent stacking context,
         // which determines if we *might* need to draw this on
@@ -966,143 +970,11 @@ impl<'a> DisplayListFlattener<'a> {
             participating_in_3d_context &&
             parent_transform_style == TransformStyle::Flat;
 
-        // By default, this picture will be collapsed into
-        // the owning target.
-        let mut composite_mode = None;
-
-        // If this stacking context is the root of a pipeline, and the caller
-        // has requested it as an output frame, create a render task to isolate it.
-        let mut frame_output_pipeline_id = None;
-        if is_pipeline_root && self.output_pipelines.contains(&pipeline_id) {
-            composite_mode = Some(PictureCompositeMode::Blit);
-            frame_output_pipeline_id = Some(pipeline_id);
-        }
-
         // Force an intermediate surface if the stacking context
         // has a clip node. In the future, we may decide during
         // prepare step to skip the intermediate surface if the
         // clip node doesn't affect the stacking context rect.
-        if participating_in_3d_context || clipping_node.is_some() {
-            // TODO(gw): For now, as soon as this picture is in
-            //           a 3D context, we draw it to an intermediate
-            //           surface and apply plane splitting. However,
-            //           there is a large optimization opportunity here.
-            //           During culling, we can check if there is actually
-            //           perspective present, and skip the plane splitting
-            //           completely when that is not the case.
-            composite_mode = Some(PictureCompositeMode::Blit);
-        }
-
-        // Add picture for this actual stacking context contents to render into.
-        let leaf_picture = PicturePrimitive::new_image(
-            self.picture_id_generator.next(),
-            composite_mode,
-            participating_in_3d_context,
-            pipeline_id,
-            frame_output_pipeline_id,
-            true,
-            requested_raster_space,
-        );
-
-        // Create a brush primitive that draws this picture.
-        let leaf_prim = BrushPrimitive::new_picture(leaf_picture);
-
-        // Add the brush to the parent picture.
-        let leaf_prim_index = self.prim_store.add_primitive(
-            &LayoutRect::zero(),
-            &max_clip,
-            true,
-            clip_chain_id,
-            spatial_node_index,
-            None,
-            PrimitiveContainer::Brush(leaf_prim),
-        );
-
-        // Create a chain of pictures based on presence of filters,
-        // mix-blend-mode and/or 3d rendering context containers.
-        let mut current_prim_index = leaf_prim_index;
-
-        // For each filter, create a new image with that composite mode.
-        for filter in &composite_ops.filters {
-            let filter = filter.sanitize();
-
-            let mut filter_picture = PicturePrimitive::new_image(
-                self.picture_id_generator.next(),
-                Some(PictureCompositeMode::Filter(filter)),
-                false,
-                pipeline_id,
-                None,
-                true,
-                requested_raster_space,
-            );
-
-            filter_picture.add_primitive(current_prim_index);
-            let filter_prim = BrushPrimitive::new_picture(filter_picture);
-
-            current_prim_index = self.prim_store.add_primitive(
-                &LayoutRect::zero(),
-                &max_clip,
-                true,
-                clip_chain_id,
-                spatial_node_index,
-                None,
-                PrimitiveContainer::Brush(filter_prim),
-            );
-        }
-
-        // Same for mix-blend-mode.
-        if let Some(mix_blend_mode) = composite_ops.mix_blend_mode {
-            let mut blend_picture = PicturePrimitive::new_image(
-                self.picture_id_generator.next(),
-                Some(PictureCompositeMode::MixBlend(mix_blend_mode)),
-                false,
-                pipeline_id,
-                None,
-                true,
-                requested_raster_space,
-            );
-
-            blend_picture.add_primitive(current_prim_index);
-            let blend_prim = BrushPrimitive::new_picture(blend_picture);
-
-            current_prim_index = self.prim_store.add_primitive(
-                &LayoutRect::zero(),
-                &max_clip,
-                true,
-                clip_chain_id,
-                spatial_node_index,
-                None,
-                PrimitiveContainer::Brush(blend_prim),
-            );
-        }
-
-        if establishes_3d_context {
-            // If establishing a 3d context, we need to add a picture
-            // that will be the container for all the planes and any
-            // un-transformed content.
-            let mut container_picture = PicturePrimitive::new_image(
-                self.picture_id_generator.next(),
-                None,
-                false,
-                pipeline_id,
-                None,
-                true,
-                requested_raster_space,
-            );
-
-            container_picture.add_primitive(current_prim_index);
-            let container_prim = BrushPrimitive::new_picture(container_picture);
-
-            current_prim_index = self.prim_store.add_primitive(
-                &LayoutRect::zero(),
-                &max_clip,
-                true,
-                clip_chain_id,
-                spatial_node_index,
-                None,
-                PrimitiveContainer::Brush(container_prim),
-            );
-        }
+        let should_isolate = clipping_node.is_some();
 
         // preserve-3d's semantics are to hoist all your children to be your siblings
         // when doing backface-visibility checking, so we need to grab the backface-visibility
@@ -1122,65 +994,215 @@ impl<'a> DisplayListFlattener<'a> {
 
         // Push the SC onto the stack, so we know how to handle things in
         // pop_stacking_context.
-        let sc = FlattenedStackingContext {
-            is_backface_visible,
+        self.sc_stack.push(FlattenedStackingContext {
+            preserve3d_primitives: Vec::new(),
+            normal_primitives: Vec::new(),
             pipeline_id,
+            is_backface_visible,
+            requested_raster_space,
+            spatial_node_index,
+            clip_chain_id,
+            frame_output_pipeline_id,
+            composite_ops,
+            should_isolate,
             transform_style,
-            establishes_3d_context,
             participating_in_3d_context,
-            leaf_prim_index,
-            root_prim_index: current_prim_index,
-            has_mix_blend_mode: composite_ops.mix_blend_mode.is_some(),
-        };
-
-        self.sc_stack.push(sc);
+            establishes_3d_context,
+        });
     }
 
     pub fn pop_stacking_context(&mut self) {
-        let sc = self.sc_stack.pop().unwrap();
+        let stacking_context = self.sc_stack.pop().unwrap();
 
-        // Run the optimize pass on each picture in the chain,
-        // to see if we can collapse opacity and avoid drawing
-        // to an off-screen surface.
-        for i in sc.leaf_prim_index.0 .. sc.root_prim_index.0 + 1 {
-            let prim_index = PrimitiveIndex(i);
-            self.prim_store.optimize_picture_if_possible(prim_index);
+        // An arbitrary large clip rect. For now, we don't
+        // specify a clip specific to the stacking context.
+        // However, now that they are represented as Picture
+        // primitives, we can apply any kind of clip mask
+        // to them, as for a normal primitive. This is needed
+        // to correctly handle some CSS cases (see #1957).
+        let max_clip = LayoutRect::max_rect();
+
+        // By default, this picture will be collapsed into
+        // the owning target.
+        let mut composite_mode = if stacking_context.should_isolate {
+            Some(PictureCompositeMode::Blit)
+        } else {
+            None
+        };
+
+        // Force an intermediate surface if the stacking context
+        // has a clip node. In the future, we may decide during
+        // prepare step to skip the intermediate surface if the
+        // clip node doesn't affect the stacking context rect.
+        if stacking_context.participating_in_3d_context {
+            // TODO(gw): For now, as soon as this picture is in
+            //           a 3D context, we draw it to an intermediate
+            //           surface and apply plane splitting. However,
+            //           there is a large optimization opportunity here.
+            //           During culling, we can check if there is actually
+            //           perspective present, and skip the plane splitting
+            //           completely when that is not the case.
+            composite_mode = Some(PictureCompositeMode::Blit);
+        }
+
+        // Add picture for this actual stacking context contents to render into.
+        let leaf_picture = PicturePrimitive::new_image(
+            self.picture_id_generator.next(),
+            composite_mode,
+            stacking_context.participating_in_3d_context,
+            stacking_context.pipeline_id,
+            stacking_context.frame_output_pipeline_id,
+            true,
+            stacking_context.requested_raster_space,
+            stacking_context.normal_primitives,
+        );
+
+        // Create a brush primitive that draws this picture.
+        let leaf_prim = BrushPrimitive::new_picture(leaf_picture);
+
+        // Add the brush to the parent picture.
+        let leaf_prim_index = self.prim_store.add_primitive(
+            &LayoutRect::zero(),
+            &max_clip,
+            true,
+            stacking_context.clip_chain_id,
+            stacking_context.spatial_node_index,
+            None,
+            PrimitiveContainer::Brush(leaf_prim),
+        );
+
+        // Create a chain of pictures based on presence of filters,
+        // mix-blend-mode and/or 3d rendering context containers.
+        let mut current_prim_index = leaf_prim_index;
+
+        // For each filter, create a new image with that composite mode.
+        for filter in &stacking_context.composite_ops.filters {
+            let filter = filter.sanitize();
+
+            let filter_picture = PicturePrimitive::new_image(
+                self.picture_id_generator.next(),
+                Some(PictureCompositeMode::Filter(filter)),
+                false,
+                stacking_context.pipeline_id,
+                None,
+                true,
+                stacking_context.requested_raster_space,
+                vec![PrimitiveInstance::new(current_prim_index)],
+            );
+
+            let filter_prim = BrushPrimitive::new_picture(filter_picture);
+
+            current_prim_index = self.prim_store.add_primitive(
+                &LayoutRect::zero(),
+                &max_clip,
+                true,
+                stacking_context.clip_chain_id,
+                stacking_context.spatial_node_index,
+                None,
+                PrimitiveContainer::Brush(filter_prim),
+            );
+
+            // Run the optimize pass on this picture, to see if we can
+            // collapse opacity and avoid drawing to an off-screen surface.
+            self.prim_store.optimize_picture_if_possible(current_prim_index);
+        }
+
+        // Same for mix-blend-mode.
+        if let Some(mix_blend_mode) = stacking_context.composite_ops.mix_blend_mode {
+            let blend_picture = PicturePrimitive::new_image(
+                self.picture_id_generator.next(),
+                Some(PictureCompositeMode::MixBlend(mix_blend_mode)),
+                false,
+                stacking_context.pipeline_id,
+                None,
+                true,
+                stacking_context.requested_raster_space,
+                vec![PrimitiveInstance::new(current_prim_index)],
+            );
+
+            let blend_prim = BrushPrimitive::new_picture(blend_picture);
+
+            current_prim_index = self.prim_store.add_primitive(
+                &LayoutRect::zero(),
+                &max_clip,
+                true,
+                stacking_context.clip_chain_id,
+                stacking_context.spatial_node_index,
+                None,
+                PrimitiveContainer::Brush(blend_prim),
+            );
+        }
+
+        if stacking_context.establishes_3d_context {
+            // If establishing a 3d context, we need to add a picture
+            // that will be the container for all the planes and any
+            // un-transformed content.
+            let mut prims = vec![PrimitiveInstance::new(current_prim_index)];
+            prims.extend(stacking_context.preserve3d_primitives);
+
+            let container_picture = PicturePrimitive::new_image(
+                self.picture_id_generator.next(),
+                None,
+                false,
+                stacking_context.pipeline_id,
+                None,
+                true,
+                stacking_context.requested_raster_space,
+                prims,
+            );
+
+            let container_prim = BrushPrimitive::new_picture(container_picture);
+
+            current_prim_index = self.prim_store.add_primitive(
+                &LayoutRect::zero(),
+                &max_clip,
+                true,
+                stacking_context.clip_chain_id,
+                stacking_context.spatial_node_index,
+                None,
+                PrimitiveContainer::Brush(container_prim),
+            );
+        } else {
+            debug_assert!(stacking_context.preserve3d_primitives.is_empty());
         }
 
         if self.sc_stack.is_empty() {
             // This must be the root stacking context
+            self.root_prim_index = current_prim_index;
             return;
         }
 
-        let parent_prim_index = if !sc.establishes_3d_context && sc.participating_in_3d_context {
+        let sc_count = self.sc_stack.len();
+
+        if !stacking_context.establishes_3d_context && stacking_context.participating_in_3d_context {
             // If we're in a 3D context, we will parent the picture
             // to the first stacking context we find that is a
             // 3D rendering context container. This follows the spec
             // by hoisting these items out into the same 3D context
             // for plane splitting.
-            self.sc_stack
+            let parent_index = self.sc_stack
                 .iter()
-                .rev()
-                .find(|sc| sc.establishes_3d_context)
-                .map(|sc| sc.root_prim_index)
-                .unwrap()
+                .rposition(|sc| sc.establishes_3d_context)
+                .unwrap();
+
+            let parent_stacking_context = &mut self.sc_stack[parent_index];
+            parent_stacking_context.preserve3d_primitives.push(PrimitiveInstance::new(current_prim_index));
+
         } else {
-            self.sc_stack.last().unwrap().leaf_prim_index
+            let parent_stacking_context = self.sc_stack.last_mut().unwrap();
+
+            // If we have a mix-blend-mode, and we aren't the primary framebuffer,
+            // the stacking context needs to be isolated to blend correctly as per
+            // the CSS spec.
+            // If not already isolated for some other reason,
+            // make this picture as isolated.
+            if stacking_context.composite_ops.mix_blend_mode.is_some() &&
+               sc_count > 2 {
+                parent_stacking_context.should_isolate = true;
+            }
+
+            parent_stacking_context.normal_primitives.push(PrimitiveInstance::new(current_prim_index));
         };
-
-        let parent_pic = self.prim_store.get_pic_mut(parent_prim_index);
-        parent_pic.add_primitive(sc.root_prim_index);
-
-        // If we have a mix-blend-mode, and we aren't the primary framebuffer,
-        // the stacking context needs to be isolated to blend correctly as per
-        // the CSS spec.
-        // If not already isolated for some other reason,
-        // make this picture as isolated.
-        if sc.has_mix_blend_mode &&
-           self.sc_stack.len() > 2 &&
-           parent_pic.requested_composite_mode.is_none() {
-            parent_pic.requested_composite_mode = Some(PictureCompositeMode::Blit);
-        }
 
         assert!(
             self.pending_shadow_items.is_empty(),
@@ -1421,31 +1443,15 @@ impl<'a> DisplayListFlattener<'a> {
                     // shadows always rasterize in local space.
                     // TODO(gw): expose API for clients to specify a raster scale
                     let raster_space = if is_passthrough {
-                        let parent_pic_prim_index = self.sc_stack.last().unwrap().leaf_prim_index;
-                        self.prim_store
-                            .get_pic(parent_pic_prim_index)
-                            .requested_raster_space
+                        self.sc_stack.last().unwrap().requested_raster_space
                     } else {
                         RasterSpace::Local(1.0)
                     };
 
-                    // Create a picture that the shadow primitives will be added to. If the
-                    // blur radius is 0, the code in Picture::prepare_for_render will
-                    // detect this and mark the picture to be drawn directly into the
-                    // parent picture, which avoids an intermediate surface and blur.
-                    let blur_filter = FilterOp::Blur(std_deviation).sanitize();
-                    let mut shadow_pic = PicturePrimitive::new_image(
-                        self.picture_id_generator.next(),
-                        Some(PictureCompositeMode::Filter(blur_filter)),
-                        false,
-                        pipeline_id,
-                        None,
-                        is_passthrough,
-                        raster_space,
-                    );
-
                     // Add any primitives that come after this shadow in the item
                     // list to this shadow.
+                    let mut prims = Vec::new();
+
                     for item in &items {
                         if let ShadowItem::Primitive(ref pending_primitive) = item {
                             // Offset the local rect and clip rect by the shadow offset.
@@ -1474,13 +1480,29 @@ impl<'a> DisplayListFlattener<'a> {
                             );
 
                             // Add the new primitive to the shadow picture.
-                            shadow_pic.add_primitive(shadow_prim_index);
+                            prims.push(PrimitiveInstance::new(shadow_prim_index));
                         }
                     }
 
                     // No point in adding a shadow here if there were no primitives
                     // added to the shadow.
-                    if !shadow_pic.is_empty() {
+                    if !prims.is_empty() {
+                        // Create a picture that the shadow primitives will be added to. If the
+                        // blur radius is 0, the code in Picture::prepare_for_render will
+                        // detect this and mark the picture to be drawn directly into the
+                        // parent picture, which avoids an intermediate surface and blur.
+                        let blur_filter = FilterOp::Blur(std_deviation).sanitize();
+                        let mut shadow_pic = PicturePrimitive::new_image(
+                            self.picture_id_generator.next(),
+                            Some(PictureCompositeMode::Filter(blur_filter)),
+                            false,
+                            pipeline_id,
+                            None,
+                            is_passthrough,
+                            raster_space,
+                            prims,
+                        );
+
                         // Create the primitive to draw the shadow picture into the scene.
                         let shadow_prim = BrushPrimitive::new_picture(shadow_pic);
                         let shadow_prim_index = self.prim_store.add_primitive(
@@ -2111,6 +2133,37 @@ impl<'a> DisplayListFlattener<'a> {
 /// during creation of the scene. These structures are
 /// not persisted after the initial scene build.
 struct FlattenedStackingContext {
+    /// The list of un-transformed content being
+    /// added to this stacking context.
+    normal_primitives: Vec<PrimitiveInstance>,
+
+    /// The list of preserve-3d primitives that
+    /// are being hoisted to this stacking context
+    /// (implies establishes_3d_context).
+    preserve3d_primitives: Vec<PrimitiveInstance>,
+
+    /// Whether or not the caller wants this drawn in
+    /// screen space (quality) or local space (performance)
+    requested_raster_space: RasterSpace,
+
+    /// The positioning node for this stacking context
+    spatial_node_index: SpatialNodeIndex,
+
+    /// The clip chain for this stacking context
+    clip_chain_id: ClipChainId,
+
+    /// If set, this should be provided to caller
+    /// as an output texture.
+    frame_output_pipeline_id: Option<PipelineId>,
+
+    /// The list of filters / mix-blend-mode for this
+    /// stacking context.
+    composite_ops: CompositeOps,
+
+    /// If true, this stacking context should be
+    /// isolated by forcing an off-screen surface.
+    should_isolate: bool,
+
     /// Pipeline this stacking context belongs to.
     pipeline_id: PipelineId,
 
@@ -2120,14 +2173,13 @@ struct FlattenedStackingContext {
     /// CSS transform-style property.
     transform_style: TransformStyle,
 
-    root_prim_index: PrimitiveIndex,
-    leaf_prim_index: PrimitiveIndex,
-
     /// If true, this stacking context establishes a new
     /// 3d rendering context.
     establishes_3d_context: bool,
+
+    /// If true, this stacking context is part of a
+    /// surrounding 3d rendering context.
     participating_in_3d_context: bool,
-    has_mix_blend_mode: bool,
 }
 
 /// A primitive that is added while a shadow context is
