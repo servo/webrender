@@ -483,7 +483,7 @@ impl AlphaBatchBuilder {
                 ctx.clip_scroll_tree,
             );
 
-            let clip_task_address = pic_metadata
+            let clip_task_address = prim_instance
                 .clip_task_id
                 .map_or(OPAQUE_TASK_ADDRESS, |id| render_tasks.get_task_address(id));
 
@@ -618,14 +618,14 @@ impl AlphaBatchBuilder {
             gpu_cache.get_address(&prim_metadata.gpu_location)
         };
 
-        let clip_task_address = prim_metadata
+        let clip_task_address = prim_instance
             .clip_task_id
             .map_or(OPAQUE_TASK_ADDRESS, |id| render_tasks.get_task_address(id));
 
         let specified_blend_mode = prim.get_blend_mode();
 
         let non_segmented_blend_mode = if !prim_metadata.opacity.is_opaque ||
-            prim_metadata.clip_task_id.is_some() ||
+            prim_instance.clip_task_id.is_some() ||
             transform_kind == TransformedRectKind::Complex {
             specified_blend_mode
         } else {

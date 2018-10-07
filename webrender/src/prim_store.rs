@@ -245,7 +245,6 @@ pub struct PrimitiveMetadata {
     pub clip_chain_id: ClipChainId,
     pub spatial_node_index: SpatialNodeIndex,
     pub gpu_location: GpuCacheHandle,
-    pub clip_task_id: Option<RenderTaskId>,
 
     // TODO(gw): In the future, we should just pull these
     //           directly from the DL item, instead of
@@ -1418,6 +1417,8 @@ pub struct PrimitiveInstance {
     pub prepared_frame_id: FrameId,
 
     pub clipped_world_rect: Option<WorldRect>,
+
+    pub clip_task_id: Option<RenderTaskId>,
 }
 
 impl PrimitiveInstance {
@@ -1430,6 +1431,7 @@ impl PrimitiveInstance {
             clipped_world_rect: None,
             #[cfg(debug_assertions)]
             prepared_frame_id: FrameId(0),
+            clip_task_id: None,
         }
     }
 }
@@ -1471,7 +1473,6 @@ impl PrimitiveStore {
         let base_metadata = PrimitiveMetadata {
             clip_chain_id,
             gpu_location: GpuCacheHandle::new(),
-            clip_task_id: None,
             spatial_node_index,
             local_rect: *local_rect,
             local_clip_rect: *local_clip_rect,
@@ -1850,6 +1851,7 @@ impl PrimitiveStore {
             );
 
             prim.update_clip_task(
+                prim_instance,
                 prim_context,
                 clipped_world_rect,
                 pic_state.raster_spatial_node_index,
@@ -2341,8 +2343,11 @@ impl Primitive {
     // Returns true if the primitive *might* need a clip mask. If
     // false, there is no need to even check for clip masks for
     // this primitive.
-    fn reset_clip_task(&mut self) -> bool {
-        self.metadata.clip_task_id = None;
+    fn reset_clip_task(
+        &mut self,
+        prim_instance: &mut PrimitiveInstance,
+    ) -> bool {
+        prim_instance.clip_task_id = None;
         match self.details {
             PrimitiveDetails::Brush(ref mut brush) => {
                 if let Some(ref mut desc) = brush.segment_desc {
@@ -2811,6 +2816,7 @@ impl Primitive {
 
     fn update_clip_task(
         &mut self,
+        prim_instance: &mut PrimitiveInstance,
         prim_context: &PrimitiveContext,
         prim_bounding_rect: WorldRect,
         root_spatial_node_index: SpatialNodeIndex,
@@ -2826,7 +2832,7 @@ impl Primitive {
         }
         // Reset clips from previous frames since we may clip differently each frame.
         // If this primitive never needs clip masks, just return straight away.
-        if !self.reset_clip_task() {
+        if !self.reset_clip_task(prim_instance) {
             return;
         }
 
@@ -2871,7 +2877,7 @@ impl Primitive {
                     println!("\tcreated task {:?} with device rect {:?}",
                         clip_task_id, device_rect);
                 }
-                self.metadata.clip_task_id = Some(clip_task_id);
+                prim_instance.clip_task_id = Some(clip_task_id);
                 pic_state.tasks.push(clip_task_id);
             }
         }
