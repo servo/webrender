@@ -827,16 +827,20 @@ impl<'a> DisplayListFlattener<'a> {
         clip_chain_id: ClipChainId,
         spatial_node_index: SpatialNodeIndex,
         container: PrimitiveContainer,
-    ) -> PrimitiveIndex {
+    ) -> PrimitiveInstance {
         let stacking_context = self.sc_stack.last().expect("bug: no stacking context!");
 
-        self.prim_store.add_primitive(
+        let prim_index = self.prim_store.add_primitive(
             &info.rect,
             &info.clip_rect,
             info.is_backface_visible && stacking_context.is_backface_visible,
-            clip_chain_id,
             spatial_node_index,
             container,
+        );
+
+        PrimitiveInstance::new(
+            prim_index,
+            clip_chain_id,
         )
     }
 
@@ -866,14 +870,14 @@ impl<'a> DisplayListFlattener<'a> {
     /// Add an already created primitive to the draw lists.
     pub fn add_primitive_to_draw_list(
         &mut self,
-        prim_index: PrimitiveIndex,
+        prim_instance: PrimitiveInstance,
     ) {
         // Add primitive to the top-most stacking context on the stack.
-        if cfg!(debug_assertions) && self.prim_store.chase_id == Some(prim_index) {
+        if cfg!(debug_assertions) && self.prim_store.chase_id == Some(prim_instance.prim_index) {
             println!("\tadded to stacking context at {}", self.sc_stack.len());
         }
         let stacking_context = self.sc_stack.last_mut().unwrap();
-        stacking_context.normal_primitives.push(PrimitiveInstance::new(prim_index));
+        stacking_context.normal_primitives.push(prim_instance);
     }
 
     /// Convenience interface that creates a primitive entry and adds it
@@ -894,18 +898,18 @@ impl<'a> DisplayListFlattener<'a> {
                     clip_and_scroll.spatial_node_index,
                     clip_and_scroll.clip_chain_id,
                 );
-                let prim_index = self.create_primitive(
+                let prim_instance = self.create_primitive(
                     info,
                     clip_chain_id,
                     clip_and_scroll.spatial_node_index,
                     container,
                 );
                 if cfg!(debug_assertions) && ChasePrimitive::LocalRect(info.rect) == self.config.chase_primitive {
-                    println!("Chasing {:?} by local rect", prim_index);
-                    self.prim_store.chase_id = Some(prim_index);
+                    println!("Chasing {:?} by local rect", prim_instance.prim_index);
+                    self.prim_store.chase_id = Some(prim_instance.prim_index);
                 }
                 self.add_primitive_to_hit_testing_list(info, clip_and_scroll);
-                self.add_primitive_to_draw_list(prim_index);
+                self.add_primitive_to_draw_list(prim_instance);
             }
         } else {
             // There is an active shadow context. Store as a pending primitive
@@ -1064,7 +1068,6 @@ impl<'a> DisplayListFlattener<'a> {
             &LayoutRect::zero(),
             &max_clip,
             true,
-            stacking_context.clip_chain_id,
             stacking_context.spatial_node_index,
             PrimitiveContainer::Brush(leaf_prim),
         );
@@ -1085,7 +1088,7 @@ impl<'a> DisplayListFlattener<'a> {
                 None,
                 true,
                 stacking_context.requested_raster_space,
-                vec![PrimitiveInstance::new(current_prim_index)],
+                vec![PrimitiveInstance::new(current_prim_index, stacking_context.clip_chain_id)],
             );
 
             let filter_prim = BrushPrimitive::new_picture(filter_picture);
@@ -1094,7 +1097,6 @@ impl<'a> DisplayListFlattener<'a> {
                 &LayoutRect::zero(),
                 &max_clip,
                 true,
-                stacking_context.clip_chain_id,
                 stacking_context.spatial_node_index,
                 PrimitiveContainer::Brush(filter_prim),
             );
@@ -1114,7 +1116,7 @@ impl<'a> DisplayListFlattener<'a> {
                 None,
                 true,
                 stacking_context.requested_raster_space,
-                vec![PrimitiveInstance::new(current_prim_index)],
+                vec![PrimitiveInstance::new(current_prim_index, stacking_context.clip_chain_id)],
             );
 
             let blend_prim = BrushPrimitive::new_picture(blend_picture);
@@ -1123,7 +1125,6 @@ impl<'a> DisplayListFlattener<'a> {
                 &LayoutRect::zero(),
                 &max_clip,
                 true,
-                stacking_context.clip_chain_id,
                 stacking_context.spatial_node_index,
                 PrimitiveContainer::Brush(blend_prim),
             );
@@ -1133,7 +1134,7 @@ impl<'a> DisplayListFlattener<'a> {
             // If establishing a 3d context, we need to add a picture
             // that will be the container for all the planes and any
             // un-transformed content.
-            let mut prims = vec![PrimitiveInstance::new(current_prim_index)];
+            let mut prims = vec![PrimitiveInstance::new(current_prim_index, stacking_context.clip_chain_id)];
             prims.extend(stacking_context.preserve3d_primitives);
 
             let container_picture = PicturePrimitive::new_image(
@@ -1153,7 +1154,6 @@ impl<'a> DisplayListFlattener<'a> {
                 &LayoutRect::zero(),
                 &max_clip,
                 true,
-                stacking_context.clip_chain_id,
                 stacking_context.spatial_node_index,
                 PrimitiveContainer::Brush(container_prim),
             );
@@ -1168,6 +1168,7 @@ impl<'a> DisplayListFlattener<'a> {
         }
 
         let sc_count = self.sc_stack.len();
+        let prim_instance = PrimitiveInstance::new(current_prim_index, stacking_context.clip_chain_id);
 
         if !stacking_context.establishes_3d_context && stacking_context.participating_in_3d_context {
             // If we're in a 3D context, we will parent the picture
@@ -1181,7 +1182,7 @@ impl<'a> DisplayListFlattener<'a> {
                 .unwrap();
 
             let parent_stacking_context = &mut self.sc_stack[parent_index];
-            parent_stacking_context.preserve3d_primitives.push(PrimitiveInstance::new(current_prim_index));
+            parent_stacking_context.preserve3d_primitives.push(prim_instance);
 
         } else {
             let parent_stacking_context = self.sc_stack.last_mut().unwrap();
@@ -1196,7 +1197,7 @@ impl<'a> DisplayListFlattener<'a> {
                 parent_stacking_context.should_isolate = true;
             }
 
-            parent_stacking_context.normal_primitives.push(PrimitiveInstance::new(current_prim_index));
+            parent_stacking_context.normal_primitives.push(prim_instance);
         };
 
         assert!(
@@ -1467,7 +1468,7 @@ impl<'a> DisplayListFlattener<'a> {
                             );
 
                             // Construct and add a primitive for the given shadow.
-                            let shadow_prim_index = self.create_primitive(
+                            let shadow_prim_instance = self.create_primitive(
                                 &info,
                                 clip_chain_id,
                                 pending_primitive.clip_and_scroll.spatial_node_index,
@@ -1475,7 +1476,7 @@ impl<'a> DisplayListFlattener<'a> {
                             );
 
                             // Add the new primitive to the shadow picture.
-                            prims.push(PrimitiveInstance::new(shadow_prim_index));
+                            prims.push(shadow_prim_instance);
                         }
                     }
 
@@ -1504,14 +1505,18 @@ impl<'a> DisplayListFlattener<'a> {
                             &LayoutRect::zero(),
                             &max_clip,
                             true,
-                            pending_shadow.clip_and_scroll.clip_chain_id,
                             pending_shadow.clip_and_scroll.spatial_node_index,
                             PrimitiveContainer::Brush(shadow_prim),
                         );
 
+                        let shadow_prim_instance = PrimitiveInstance::new(
+                            shadow_prim_index,
+                            pending_shadow.clip_and_scroll.clip_chain_id,
+                        );
+
                         // Add the shadow primitive. This must be done before pushing this
                         // picture on to the shadow stack, to avoid infinite recursion!
-                        self.add_primitive_to_draw_list(shadow_prim_index);
+                        self.add_primitive_to_draw_list(shadow_prim_instance);
                     }
                 }
                 ShadowItem::Primitive(pending_primitive) => {
@@ -1523,18 +1528,18 @@ impl<'a> DisplayListFlattener<'a> {
                             pending_primitive.clip_and_scroll.spatial_node_index,
                             pending_primitive.clip_and_scroll.clip_chain_id,
                         );
-                        let prim_index = self.create_primitive(
+                        let prim_instance = self.create_primitive(
                             &pending_primitive.info,
                             clip_chain_id,
                             pending_primitive.clip_and_scroll.spatial_node_index,
                             pending_primitive.container,
                         );
                         if cfg!(debug_assertions) && ChasePrimitive::LocalRect(pending_primitive.info.rect) == self.config.chase_primitive {
-                            println!("Chasing {:?} by local rect", prim_index);
-                            self.prim_store.chase_id = Some(prim_index);
+                            println!("Chasing {:?} by local rect", prim_instance.prim_index);
+                            self.prim_store.chase_id = Some(prim_instance.prim_index);
                         }
                         self.add_primitive_to_hit_testing_list(&pending_primitive.info, pending_primitive.clip_and_scroll);
-                        self.add_primitive_to_draw_list(prim_index);
+                        self.add_primitive_to_draw_list(prim_instance);
                     }
                 }
             }

@@ -241,7 +241,6 @@ impl GpuCacheAddress {
 // TODO(gw): Pack the fields here better!
 #[derive(Debug)]
 pub struct PrimitiveMetadata {
-    pub clip_chain_id: ClipChainId,
     pub spatial_node_index: SpatialNodeIndex,
 
     // TODO(gw): In the future, we should just pull these
@@ -1421,11 +1420,14 @@ pub struct PrimitiveInstance {
     pub gpu_location: GpuCacheHandle,
 
     pub opacity: PrimitiveOpacity,
+
+    pub clip_chain_id: ClipChainId,
 }
 
 impl PrimitiveInstance {
     pub fn new(
         prim_index: PrimitiveIndex,
+        clip_chain_id: ClipChainId,
     ) -> Self {
         PrimitiveInstance {
             prim_index,
@@ -1436,6 +1438,7 @@ impl PrimitiveInstance {
             clip_task_id: None,
             gpu_location: GpuCacheHandle::new(),
             opacity: PrimitiveOpacity::translucent(),
+            clip_chain_id,
         }
     }
 }
@@ -1468,14 +1471,12 @@ impl PrimitiveStore {
         local_rect: &LayoutRect,
         local_clip_rect: &LayoutRect,
         is_backface_visible: bool,
-        clip_chain_id: ClipChainId,
         spatial_node_index: SpatialNodeIndex,
         container: PrimitiveContainer,
     ) -> PrimitiveIndex {
         let prim_index = self.primitives.len();
 
         let base_metadata = PrimitiveMetadata {
-            clip_chain_id,
             spatial_node_index,
             local_rect: *local_rect,
             local_clip_rect: *local_clip_rect,
@@ -1757,7 +1758,7 @@ impl PrimitiveStore {
             let clip_chain = frame_state
                 .clip_store
                 .build_clip_chain_instance(
-                    prim.metadata.clip_chain_id,
+                    prim_instance.clip_chain_id,
                     local_rect,
                     prim.metadata.local_clip_rect,
                     prim_context.spatial_node_index,
@@ -2241,6 +2242,7 @@ fn write_brush_segment_description(
 impl Primitive {
     fn update_clip_task_for_brush(
         &mut self,
+        prim_instance: &PrimitiveInstance,
         root_spatial_node_index: SpatialNodeIndex,
         prim_bounding_rect: WorldRect,
         prim_context: &PrimitiveContext,
@@ -2288,7 +2290,7 @@ impl Primitive {
                 let segment_clip_chain = frame_state
                     .clip_store
                     .build_clip_chain_instance(
-                        self.metadata.clip_chain_id,
+                        prim_instance.clip_chain_id,
                         segment.local_rect,
                         self.metadata.local_clip_rect,
                         prim_context.spatial_node_index,
@@ -2830,6 +2832,7 @@ impl Primitive {
 
         // First try to  render this primitive's mask using optimized brush rendering.
         if self.update_clip_task_for_brush(
+            prim_instance,
             root_spatial_node_index,
             prim_bounding_rect,
             prim_context,
