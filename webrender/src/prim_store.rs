@@ -244,7 +244,6 @@ pub struct PrimitiveMetadata {
     pub opacity: PrimitiveOpacity,
     pub clip_chain_id: ClipChainId,
     pub spatial_node_index: SpatialNodeIndex,
-    pub gpu_location: GpuCacheHandle,
 
     // TODO(gw): In the future, we should just pull these
     //           directly from the DL item, instead of
@@ -1419,6 +1418,8 @@ pub struct PrimitiveInstance {
     pub clipped_world_rect: Option<WorldRect>,
 
     pub clip_task_id: Option<RenderTaskId>,
+
+    pub gpu_location: GpuCacheHandle,
 }
 
 impl PrimitiveInstance {
@@ -1432,6 +1433,7 @@ impl PrimitiveInstance {
             #[cfg(debug_assertions)]
             prepared_frame_id: FrameId(0),
             clip_task_id: None,
+            gpu_location: GpuCacheHandle::new(),
         }
     }
 }
@@ -1472,7 +1474,6 @@ impl PrimitiveStore {
 
         let base_metadata = PrimitiveMetadata {
             clip_chain_id,
-            gpu_location: GpuCacheHandle::new(),
             spatial_node_index,
             local_rect: *local_rect,
             local_clip_rect: *local_clip_rect,
@@ -1730,7 +1731,7 @@ impl PrimitiveStore {
 
                 if new_local_rect != prim.metadata.local_rect {
                     prim.metadata.local_rect = new_local_rect;
-                    frame_state.gpu_cache.invalidate(&mut prim.metadata.gpu_location);
+                    frame_state.gpu_cache.invalidate(&mut prim_instance.gpu_location);
                     pic_state.local_rect_changed = true;
                 }
 
@@ -1845,6 +1846,7 @@ impl PrimitiveStore {
             prim_instance.clipped_world_rect = Some(clipped_world_rect);
 
             prim.build_prim_segments_if_needed(
+                prim_instance,
                 pic_state,
                 frame_state,
                 frame_context,
@@ -2419,7 +2421,7 @@ impl Primitive {
                             // If the opacity changed, invalidate the GPU cache so that
                             // the new color for this primitive gets uploaded.
                             if opacity_binding.update(frame_context.scene_properties) {
-                                frame_state.gpu_cache.invalidate(&mut metadata.gpu_location);
+                                frame_state.gpu_cache.invalidate(&mut prim_instance.gpu_location);
                             }
 
                             // Update opacity for this primitive to ensure the correct
@@ -2767,7 +2769,7 @@ impl Primitive {
                         // will be added to.
                         if opacity_binding.update(frame_context.scene_properties) {
                             metadata.opacity = PrimitiveOpacity::from_alpha(opacity_binding.current * color.a);
-                            frame_state.gpu_cache.invalidate(&mut metadata.gpu_location);
+                            frame_state.gpu_cache.invalidate(&mut prim_instance.gpu_location);
                         }
                     }
                     BrushKind::Clear => {}
@@ -2781,7 +2783,7 @@ impl Primitive {
         }
 
         // Mark this GPU resource as required for this frame.
-        if let Some(mut request) = frame_state.gpu_cache.request(&mut metadata.gpu_location) {
+        if let Some(mut request) = frame_state.gpu_cache.request(&mut prim_instance.gpu_location) {
             match self.details {
                 PrimitiveDetails::TextRun(ref mut text) => {
                     text.write_gpu_blocks(&mut request);
@@ -2885,6 +2887,7 @@ impl Primitive {
 
     fn build_prim_segments_if_needed(
         &mut self,
+        prim_instance: &mut PrimitiveInstance,
         pic_state: &mut PictureState,
         frame_state: &mut FrameBuildingState,
         frame_context: &FrameBuildingContext,
@@ -2966,7 +2969,7 @@ impl Primitive {
 
                 // The segments have changed, so force the GPU cache to
                 // re-upload the primitive information.
-                frame_state.gpu_cache.invalidate(&mut self.metadata.gpu_location);
+                frame_state.gpu_cache.invalidate(&mut prim_instance.gpu_location);
             }
         }
     }

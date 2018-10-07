@@ -615,7 +615,7 @@ impl AlphaBatchBuilder {
         let prim_cache_address = if is_multiple_primitives {
             GpuCacheAddress::invalid()
         } else {
-            gpu_cache.get_address(&prim_metadata.gpu_location)
+            gpu_cache.get_address(&prim_instance.gpu_location)
         };
 
         let clip_task_address = prim_instance
