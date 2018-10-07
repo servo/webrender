@@ -836,7 +836,6 @@ impl<'a> DisplayListFlattener<'a> {
             info.is_backface_visible && stacking_context.is_backface_visible,
             clip_chain_id,
             spatial_node_index,
-            info.tag,
             container,
         )
     }
@@ -1067,7 +1066,6 @@ impl<'a> DisplayListFlattener<'a> {
             true,
             stacking_context.clip_chain_id,
             stacking_context.spatial_node_index,
-            None,
             PrimitiveContainer::Brush(leaf_prim),
         );
 
@@ -1098,7 +1096,6 @@ impl<'a> DisplayListFlattener<'a> {
                 true,
                 stacking_context.clip_chain_id,
                 stacking_context.spatial_node_index,
-                None,
                 PrimitiveContainer::Brush(filter_prim),
             );
 
@@ -1128,7 +1125,6 @@ impl<'a> DisplayListFlattener<'a> {
                 true,
                 stacking_context.clip_chain_id,
                 stacking_context.spatial_node_index,
-                None,
                 PrimitiveContainer::Brush(blend_prim),
             );
         }
@@ -1159,7 +1155,6 @@ impl<'a> DisplayListFlattener<'a> {
                 true,
                 stacking_context.clip_chain_id,
                 stacking_context.spatial_node_index,
-                None,
                 PrimitiveContainer::Brush(container_prim),
             );
         } else {
@@ -1511,7 +1506,6 @@ impl<'a> DisplayListFlattener<'a> {
                             true,
                             pending_shadow.clip_and_scroll.clip_chain_id,
                             pending_shadow.clip_and_scroll.spatial_node_index,
-                            None,
                             PrimitiveContainer::Brush(shadow_prim),
                         );
 

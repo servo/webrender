@@ -4,7 +4,7 @@
 
 use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipMode, ColorF, PictureRect};
 use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, ExtendMode, DeviceRect, PictureToRasterTransform};
-use api::{FilterOp, GlyphInstance, GradientStop, ImageKey, ImageRendering, ItemRange, ItemTag, TileOffset};
+use api::{FilterOp, GlyphInstance, GradientStop, ImageKey, ImageRendering, ItemRange, TileOffset};
 use api::{RasterSpace, LayoutPoint, LayoutRect, LayoutSideOffsets, LayoutSize, LayoutToWorldTransform};
 use api::{LayoutVector2D, PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat};
 use api::{DeviceIntSideOffsets, WorldPixel, BoxShadowClipMode, LayoutToWorldScale, NormalBorder, WorldRect};
@@ -255,10 +255,6 @@ pub struct PrimitiveMetadata {
 
     pub is_backface_visible: bool,
     pub clipped_world_rect: Option<WorldRect>,
-
-    /// A tag used to identify this primitive outside of WebRender. This is
-    /// used for returning useful data during hit testing.
-    pub tag: Option<ItemTag>,
 }
 
 // Maintains a list of opacity bindings that have been collapsed into
@@ -1466,7 +1462,6 @@ impl PrimitiveStore {
         is_backface_visible: bool,
         clip_chain_id: ClipChainId,
         spatial_node_index: SpatialNodeIndex,
-        tag: Option<ItemTag>,
         container: PrimitiveContainer,
     ) -> PrimitiveIndex {
         let prim_index = self.primitives.len();
@@ -1480,7 +1475,6 @@ impl PrimitiveStore {
             local_clip_rect: *local_clip_rect,
             is_backface_visible,
             clipped_world_rect: None,
-            tag,
             opacity: PrimitiveOpacity::translucent(),
         };
 
