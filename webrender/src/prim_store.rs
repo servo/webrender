@@ -241,7 +241,6 @@ impl GpuCacheAddress {
 // TODO(gw): Pack the fields here better!
 #[derive(Debug)]
 pub struct PrimitiveMetadata {
-    pub opacity: PrimitiveOpacity,
     pub clip_chain_id: ClipChainId,
     pub spatial_node_index: SpatialNodeIndex,
 
@@ -1420,6 +1419,8 @@ pub struct PrimitiveInstance {
     pub clip_task_id: Option<RenderTaskId>,
 
     pub gpu_location: GpuCacheHandle,
+
+    pub opacity: PrimitiveOpacity,
 }
 
 impl PrimitiveInstance {
@@ -1434,6 +1435,7 @@ impl PrimitiveInstance {
             prepared_frame_id: FrameId(0),
             clip_task_id: None,
             gpu_location: GpuCacheHandle::new(),
+            opacity: PrimitiveOpacity::translucent(),
         }
     }
 }
@@ -1478,37 +1480,11 @@ impl PrimitiveStore {
             local_rect: *local_rect,
             local_clip_rect: *local_clip_rect,
             is_backface_visible,
-            opacity: PrimitiveOpacity::translucent(),
         };
 
         let prim = match container {
             PrimitiveContainer::Brush(brush) => {
-                let opacity = match brush.kind {
-                    BrushKind::Clear => PrimitiveOpacity::translucent(),
-                    BrushKind::Solid { ref color, .. } => PrimitiveOpacity::from_alpha(color.a),
-                    BrushKind::Image { .. } => PrimitiveOpacity::translucent(),
-                    BrushKind::YuvImage { .. } => PrimitiveOpacity::opaque(),
-                    BrushKind::RadialGradient { .. } => PrimitiveOpacity::translucent(),
-                    BrushKind::LinearGradient { stretch_size, tile_spacing, stops_opacity, .. } => {
-                        // If the coverage of the gradient extends to or beyond
-                        // the primitive rect, then the opacity can be determined
-                        // by the colors of the stops. If we have tiling / spacing
-                        // then we just assume the gradient is translucent for now.
-                        // (In the future we could consider segmenting in some cases).
-                        let stride = stretch_size + tile_spacing;
-                        if stride.width >= local_rect.size.width &&
-                           stride.height >= local_rect.size.height {
-                            stops_opacity
-                        } else {
-                            PrimitiveOpacity::translucent()
-                        }
-                    }
-                    BrushKind::Picture { .. } => PrimitiveOpacity::translucent(),
-                    BrushKind::Border { .. } => PrimitiveOpacity::translucent(),
-                };
-
                 let metadata = PrimitiveMetadata {
-                    opacity,
                     ..base_metadata
                 };
 
@@ -1519,7 +1495,6 @@ impl PrimitiveStore {
             }
             PrimitiveContainer::TextRun(text_cpu) => {
                 let metadata = PrimitiveMetadata {
-                    opacity: PrimitiveOpacity::translucent(),
                     ..base_metadata
                 };
 
@@ -2426,7 +2401,7 @@ impl Primitive {
 
                             // Update opacity for this primitive to ensure the correct
                             // batching parameters are used.
-                            metadata.opacity.is_opaque =
+                            prim_instance.opacity.is_opaque =
                                 image_properties.descriptor.is_opaque &&
                                 opacity_binding.current == 1.0 &&
                                 color.a == 1.0;
@@ -2471,7 +2446,7 @@ impl Primitive {
                                     size.height += padding.vertical();
 
                                     if padding != DeviceIntSideOffsets::zero() {
-                                        metadata.opacity.is_opaque = false;
+                                        prim_instance.opacity.is_opaque = false;
                                     }
 
                                     let image_cache_key = ImageCacheKey {
@@ -2613,6 +2588,8 @@ impl Primitive {
                         }
                     }
                     BrushKind::YuvImage { format, yuv_key, image_rendering, .. } => {
+                        prim_instance.opacity = PrimitiveOpacity::opaque();
+
                         let channel_num = format.get_plane_num();
                         debug_assert!(channel_num <= 3);
                         for channel in 0 .. channel_num {
@@ -2636,7 +2613,7 @@ impl Primitive {
                                 if let Some(image_properties) = image_properties {
                                     // Update opacity for this primitive to ensure the correct
                                     // batching parameters are used.
-                                    metadata.opacity.is_opaque =
+                                    prim_instance.opacity.is_opaque =
                                         image_properties.descriptor.is_opaque;
 
                                     frame_state.resource_cache.request_image(
@@ -2709,10 +2686,23 @@ impl Primitive {
                         extend_mode,
                         stretch_size,
                         tile_spacing,
+                        stops_opacity,
                         ref mut stops_handle,
                         ref mut visible_tiles,
                         ..
                     } => {
+                        // If the coverage of the gradient extends to or beyond
+                        // the primitive rect, then the opacity can be determined
+                        // by the colors of the stops. If we have tiling / spacing
+                        // then we just assume the gradient is translucent for now.
+                        // (In the future we could consider segmenting in some cases).
+                        let stride = stretch_size + tile_spacing;
+                        prim_instance.opacity = if stride.width >= metadata.local_rect.size.width &&
+                           stride.height >= metadata.local_rect.size.height {
+                            stops_opacity
+                        } else {
+                            PrimitiveOpacity::translucent()
+                        };
 
                         build_gradient_stops_request(
                             stops_handle,
@@ -2768,9 +2758,9 @@ impl Primitive {
                         // the opacity field that controls which batches this primitive
                         // will be added to.
                         if opacity_binding.update(frame_context.scene_properties) {
-                            metadata.opacity = PrimitiveOpacity::from_alpha(opacity_binding.current * color.a);
                             frame_state.gpu_cache.invalidate(&mut prim_instance.gpu_location);
                         }
+                        prim_instance.opacity = PrimitiveOpacity::from_alpha(opacity_binding.current * color.a);
                     }
                     BrushKind::Clear => {}
                 }

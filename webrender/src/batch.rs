@@ -19,7 +19,7 @@ use picture::{PictureCompositeMode, PicturePrimitive, PictureSurface};
 use plane_split::{BspSplitter, Clipper, Polygon, Splitter};
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentTaskId, DeferredResolve};
 use prim_store::{EdgeAaSegmentMask, ImageSource};
-use prim_store::{PrimitiveMetadata, VisibleGradientTile, PrimitiveInstance};
+use prim_store::{VisibleGradientTile, PrimitiveInstance};
 use prim_store::{BorderSource, Primitive, PrimitiveDetails};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskTree};
 use renderer::{BlendMode, ImageBufferKind, ShaderColorMode};
@@ -624,7 +624,7 @@ impl AlphaBatchBuilder {
 
         let specified_blend_mode = prim.get_blend_mode();
 
-        let non_segmented_blend_mode = if !prim_metadata.opacity.is_opaque ||
+        let non_segmented_blend_mode = if !prim_instance.opacity.is_opaque ||
             prim_instance.clip_task_id.is_some() ||
             transform_kind == TransformedRectKind::Complex {
             specified_blend_mode
@@ -1062,7 +1062,7 @@ impl AlphaBatchBuilder {
 
                             self.add_brush_to_batch(
                                 brush,
-                                prim_metadata,
+                                prim_instance,
                                 batch_kind,
                                 specified_blend_mode,
                                 non_segmented_blend_mode,
@@ -1200,7 +1200,7 @@ impl AlphaBatchBuilder {
     fn add_brush_to_batch(
         &mut self,
         brush: &BrushPrimitive,
-        prim_metadata: &PrimitiveMetadata,
+        prim_instance: &PrimitiveInstance,
         batch_kind: BrushBatchKind,
         alpha_blend_mode: BlendMode,
         non_segmented_blend_mode: BlendMode,
@@ -1245,7 +1245,7 @@ impl AlphaBatchBuilder {
 
                 for (i, segment) in segment_desc.segments.iter().enumerate() {
                     let is_inner = segment.edge_flags.is_empty();
-                    let needs_blending = !prim_metadata.opacity.is_opaque ||
+                    let needs_blending = !prim_instance.opacity.is_opaque ||
                                          segment.clip_task_id.needs_blending() ||
                                          (!is_inner && transform_kind == TransformedRectKind::Complex);
 
