@@ -1400,10 +1400,13 @@ impl Primitive {
 
 #[derive(Debug)]
 pub struct PrimitiveInstance {
+    /// Index into the prim store containing information about
+    /// the specific primitive. This will be removed once all
+    /// primitive data is interned.
     pub prim_index: PrimitiveIndex,
 
-    // The current combined local clip for this primitive, from
-    // the primitive local clip above and the current clip chain.
+    /// The current combined local clip for this primitive, from
+    /// the primitive local clip above and the current clip chain.
     pub combined_local_clip_rect: LayoutRect,
 
     /// The last frame ID (of the `RenderTaskTree`) this primitive
@@ -1411,16 +1414,29 @@ pub struct PrimitiveInstance {
     #[cfg(debug_assertions)]
     pub prepared_frame_id: FrameId,
 
+    /// The current world rect of this primitive, clipped to the
+    /// world rect of the screen. None means the primitive is
+    /// completely off-screen.
     pub clipped_world_rect: Option<WorldRect>,
 
+    /// If this primitive has a global clip mask, this identifies
+    /// the render task for it.
     pub clip_task_id: Option<RenderTaskId>,
 
+    /// The main GPU cache handle that this primitive uses to
+    /// store data accessible to shaders. This should be moved
+    /// into the interned data in order to retain this between
+    /// display list changes, but needs to be split into shared
+    /// and per-instance data.
     pub gpu_location: GpuCacheHandle,
 
+    /// The current opacity of the primitive contents.
     pub opacity: PrimitiveOpacity,
 
+    /// ID of the clip chain that this primitive is clipped by.
     pub clip_chain_id: ClipChainId,
 
+    /// ID of the spatial node that this primitive is positioned by.
     pub spatial_node_index: SpatialNodeIndex,
 }
 
