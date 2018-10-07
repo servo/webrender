@@ -241,8 +241,6 @@ impl GpuCacheAddress {
 // TODO(gw): Pack the fields here better!
 #[derive(Debug)]
 pub struct PrimitiveMetadata {
-    pub spatial_node_index: SpatialNodeIndex,
-
     // TODO(gw): In the future, we should just pull these
     //           directly from the DL item, instead of
     //           storing them here.
@@ -1422,12 +1420,15 @@ pub struct PrimitiveInstance {
     pub opacity: PrimitiveOpacity,
 
     pub clip_chain_id: ClipChainId,
+
+    pub spatial_node_index: SpatialNodeIndex,
 }
 
 impl PrimitiveInstance {
     pub fn new(
         prim_index: PrimitiveIndex,
         clip_chain_id: ClipChainId,
+        spatial_node_index: SpatialNodeIndex,
     ) -> Self {
         PrimitiveInstance {
             prim_index,
@@ -1439,6 +1440,7 @@ impl PrimitiveInstance {
             gpu_location: GpuCacheHandle::new(),
             opacity: PrimitiveOpacity::translucent(),
             clip_chain_id,
+            spatial_node_index,
         }
     }
 }
@@ -1471,13 +1473,11 @@ impl PrimitiveStore {
         local_rect: &LayoutRect,
         local_clip_rect: &LayoutRect,
         is_backface_visible: bool,
-        spatial_node_index: SpatialNodeIndex,
         container: PrimitiveContainer,
     ) -> PrimitiveIndex {
         let prim_index = self.primitives.len();
 
         let base_metadata = PrimitiveMetadata {
-            spatial_node_index,
             local_rect: *local_rect,
             local_clip_rect: *local_clip_rect,
             is_backface_visible,
@@ -1891,21 +1891,21 @@ impl PrimitiveStore {
             // TODO(gw): These workarounds for borrowck are unfortunate. We
             //           should see if we can re-structure these to avoid so
             //           many special borrow blocks.
-            let (spatial_node_index, is_backface_visible) = {
+            let is_backface_visible = {
                 let prim = &self.primitives[prim_instance.prim_index.0];
-                (prim.metadata.spatial_node_index, prim.metadata.is_backface_visible)
+                prim.metadata.is_backface_visible
             };
 
             let spatial_node = &frame_context
                 .clip_scroll_tree
-                .spatial_nodes[spatial_node_index.0];
+                .spatial_nodes[prim_instance.spatial_node_index.0];
 
             // TODO(gw): Although constructing these is cheap, they are often
             //           the same for many consecutive primitives, so it may
             //           be worth caching the most recent context.
             let prim_context = PrimitiveContext::new(
                 spatial_node,
-                spatial_node_index,
+                prim_instance.spatial_node_index,
             );
 
             // Do some basic checks first, that can early out
@@ -1930,7 +1930,7 @@ impl PrimitiveStore {
                 spatial_node.coordinate_system_id != CoordinateSystemId::root();
 
             pic_state.map_local_to_pic.set_target_spatial_node(
-                spatial_node_index,
+                prim_instance.spatial_node_index,
                 frame_context.clip_scroll_tree,
             );
 

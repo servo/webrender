@@ -476,9 +476,9 @@ impl AlphaBatchBuilder {
             if cfg!(debug_assertions) && ctx.prim_store.chase_id == Some(prim_index) {
                 println!("\t\tsplit polygon {:?}", poly.points);
             }
-            let transform = transforms.get_world_transform(pic_metadata.spatial_node_index).inverse().unwrap();
+            let transform = transforms.get_world_transform(prim_instance.spatial_node_index).inverse().unwrap();
             let transform_id = transforms.get_id(
-                pic_metadata.spatial_node_index,
+                prim_instance.spatial_node_index,
                 ROOT_SPATIAL_NODE_INDEX,
                 ctx.clip_scroll_tree,
             );
@@ -584,7 +584,7 @@ impl AlphaBatchBuilder {
 
         let transform_id = transforms
             .get_id(
-                prim_metadata.spatial_node_index,
+                prim_instance.spatial_node_index,
                 root_spatial_node_index,
                 ctx.clip_scroll_tree,
             );
@@ -656,7 +656,7 @@ impl AlphaBatchBuilder {
                         if picture.is_in_3d_context {
                             // Push into parent plane splitter.
                             debug_assert!(picture.raster_config.is_some());
-                            let transform = transforms.get_world_transform(prim_metadata.spatial_node_index);
+                            let transform = transforms.get_world_transform(prim_instance.spatial_node_index);
 
                             // Apply the local clip rect here, before splitting. This is
                             // because the local clip rect can't be applied in the vertex
@@ -670,7 +670,7 @@ impl AlphaBatchBuilder {
                             if let Some(local_rect) = local_rect {
                                 match transform.transform_kind() {
                                     TransformedRectKind::AxisAligned => {
-                                        let inv_transform = transforms.get_world_inv_transform(prim_metadata.spatial_node_index);
+                                        let inv_transform = transforms.get_world_inv_transform(prim_instance.spatial_node_index);
                                         let polygon = Polygon::from_transformed_rect_with_inverse(
                                             local_rect.cast(),
                                             &transform.cast(),

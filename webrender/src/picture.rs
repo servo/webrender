@@ -450,7 +450,7 @@ impl PicturePrimitive {
         match self.raster_config {
             Some(ref mut raster_config) => {
                 let (map_raster_to_world, map_pic_to_raster) = create_raster_mappers(
-                    prim_metadata.spatial_node_index,
+                    prim_instance.spatial_node_index,
                     raster_config.raster_spatial_node_index,
                     frame_context,
                 );

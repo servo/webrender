@@ -834,13 +834,13 @@ impl<'a> DisplayListFlattener<'a> {
             &info.rect,
             &info.clip_rect,
             info.is_backface_visible && stacking_context.is_backface_visible,
-            spatial_node_index,
             container,
         );
 
         PrimitiveInstance::new(
             prim_index,
             clip_chain_id,
+            spatial_node_index,
         )
     }
 
@@ -1068,7 +1068,6 @@ impl<'a> DisplayListFlattener<'a> {
             &LayoutRect::zero(),
             &max_clip,
             true,
-            stacking_context.spatial_node_index,
             PrimitiveContainer::Brush(leaf_prim),
         );
 
@@ -1088,7 +1087,13 @@ impl<'a> DisplayListFlattener<'a> {
                 None,
                 true,
                 stacking_context.requested_raster_space,
-                vec![PrimitiveInstance::new(current_prim_index, stacking_context.clip_chain_id)],
+                vec![
+                    PrimitiveInstance::new(
+                        current_prim_index,
+                        stacking_context.clip_chain_id,
+                        stacking_context.spatial_node_index,
+                    ),
+                ],
             );
 
             let filter_prim = BrushPrimitive::new_picture(filter_picture);
@@ -1097,7 +1102,6 @@ impl<'a> DisplayListFlattener<'a> {
                 &LayoutRect::zero(),
                 &max_clip,
                 true,
-                stacking_context.spatial_node_index,
                 PrimitiveContainer::Brush(filter_prim),
             );
 
@@ -1116,7 +1120,13 @@ impl<'a> DisplayListFlattener<'a> {
                 None,
                 true,
                 stacking_context.requested_raster_space,
-                vec![PrimitiveInstance::new(current_prim_index, stacking_context.clip_chain_id)],
+                vec![
+                    PrimitiveInstance::new(
+                        current_prim_index,
+                        stacking_context.clip_chain_id,
+                        stacking_context.spatial_node_index,
+                    ),
+                ],
             );
 
             let blend_prim = BrushPrimitive::new_picture(blend_picture);
@@ -1125,7 +1135,6 @@ impl<'a> DisplayListFlattener<'a> {
                 &LayoutRect::zero(),
                 &max_clip,
                 true,
-                stacking_context.spatial_node_index,
                 PrimitiveContainer::Brush(blend_prim),
             );
         }
@@ -1134,7 +1143,13 @@ impl<'a> DisplayListFlattener<'a> {
             // If establishing a 3d context, we need to add a picture
             // that will be the container for all the planes and any
             // un-transformed content.
-            let mut prims = vec![PrimitiveInstance::new(current_prim_index, stacking_context.clip_chain_id)];
+            let mut prims = vec![
+                PrimitiveInstance::new(
+                    current_prim_index,
+                    stacking_context.clip_chain_id,
+                    stacking_context.spatial_node_index,
+                ),
+            ];
             prims.extend(stacking_context.preserve3d_primitives);
 
             let container_picture = PicturePrimitive::new_image(
@@ -1154,7 +1169,6 @@ impl<'a> DisplayListFlattener<'a> {
                 &LayoutRect::zero(),
                 &max_clip,
                 true,
-                stacking_context.spatial_node_index,
                 PrimitiveContainer::Brush(container_prim),
             );
         } else {
@@ -1168,7 +1182,11 @@ impl<'a> DisplayListFlattener<'a> {
         }
 
         let sc_count = self.sc_stack.len();
-        let prim_instance = PrimitiveInstance::new(current_prim_index, stacking_context.clip_chain_id);
+        let prim_instance = PrimitiveInstance::new(
+            current_prim_index,
+            stacking_context.clip_chain_id,
+            stacking_context.spatial_node_index,
+        );
 
         if !stacking_context.establishes_3d_context && stacking_context.participating_in_3d_context {
             // If we're in a 3D context, we will parent the picture
@@ -1505,13 +1523,13 @@ impl<'a> DisplayListFlattener<'a> {
                             &LayoutRect::zero(),
                             &max_clip,
                             true,
-                            pending_shadow.clip_and_scroll.spatial_node_index,
                             PrimitiveContainer::Brush(shadow_prim),
                         );
 
                         let shadow_prim_instance = PrimitiveInstance::new(
                             shadow_prim_index,
                             pending_shadow.clip_and_scroll.clip_chain_id,
+                            pending_shadow.clip_and_scroll.spatial_node_index,
                         );
 
                         // Add the shadow primitive. This must be done before pushing this
