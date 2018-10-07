@@ -259,11 +259,6 @@ pub struct PrimitiveMetadata {
     /// A tag used to identify this primitive outside of WebRender. This is
     /// used for returning useful data during hit testing.
     pub tag: Option<ItemTag>,
-
-    /// The last frame ID (of the `RenderTaskTree`) this primitive
-    /// was prepared for rendering in.
-    #[cfg(debug_assertions)]
-    pub prepared_frame_id: FrameId,
 }
 
 // Maintains a list of opacity bindings that have been collapsed into
@@ -1421,6 +1416,11 @@ pub struct PrimitiveInstance {
     // The current combined local clip for this primitive, from
     // the primitive local clip above and the current clip chain.
     pub combined_local_clip_rect: LayoutRect,
+
+    /// The last frame ID (of the `RenderTaskTree`) this primitive
+    /// was prepared for rendering in.
+    #[cfg(debug_assertions)]
+    pub prepared_frame_id: FrameId,
 }
 
 impl PrimitiveInstance {
@@ -1430,6 +1430,8 @@ impl PrimitiveInstance {
         PrimitiveInstance {
             prim_index,
             combined_local_clip_rect: LayoutRect::zero(),
+            #[cfg(debug_assertions)]
+            prepared_frame_id: FrameId(0),
         }
     }
 }
@@ -1480,8 +1482,6 @@ impl PrimitiveStore {
             clipped_world_rect: None,
             tag,
             opacity: PrimitiveOpacity::translucent(),
-            #[cfg(debug_assertions)]
-            prepared_frame_id: FrameId(0),
         };
 
         let prim = match container {
@@ -2371,7 +2371,7 @@ impl Primitive {
 
     fn prepare_prim_for_render_inner(
         &mut self,
-        prim_instance: &PrimitiveInstance,
+        prim_instance: &mut PrimitiveInstance,
         prim_context: &PrimitiveContext,
         pic_context: &PictureContext,
         pic_state: &mut PictureState,
@@ -2384,7 +2384,7 @@ impl Primitive {
         let metadata = &mut self.metadata;
         #[cfg(debug_assertions)]
         {
-            metadata.prepared_frame_id = frame_state.render_tasks.frame_id();
+            prim_instance.prepared_frame_id = frame_state.render_tasks.frame_id();
         }
 
         match self.details {

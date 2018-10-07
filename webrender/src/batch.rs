@@ -580,7 +580,7 @@ impl AlphaBatchBuilder {
         }
 
         #[cfg(debug_assertions)] //TODO: why is this needed?
-        debug_assert_eq!(prim_metadata.prepared_frame_id, render_tasks.frame_id());
+        debug_assert_eq!(prim_instance.prepared_frame_id, render_tasks.frame_id());
 
         let transform_id = transforms
             .get_id(
