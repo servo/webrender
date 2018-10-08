@@ -25,7 +25,7 @@ use image::simplify_repeated_primitive;
 use internal_types::{FastHashMap, FastHashSet};
 use picture::{PictureCompositeMode, PictureIdGenerator, PicturePrimitive};
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor, PrimitiveInstance};
-use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveOpacity};
+use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveOpacity, PrimitiveKey};
 use prim_store::{BorderSource, BrushSegment, BrushSegmentVec, PrimitiveContainer, PrimitiveIndex, PrimitiveStore};
 use prim_store::{OpacityBinding, ScrollNodeAndClipChain, TextRunPrimitive};
 use render_backend::{DocumentView};
@@ -830,15 +830,21 @@ impl<'a> DisplayListFlattener<'a> {
     ) -> PrimitiveInstance {
         let stacking_context = self.sc_stack.last().expect("bug: no stacking context!");
 
+        let prim_key = PrimitiveKey::new(
+            info.is_backface_visible && stacking_context.is_backface_visible,
+        );
+
+        let prim_data_handle = self.resources.prim_interner.intern(&prim_key);
+
         let prim_index = self.prim_store.add_primitive(
             &info.rect,
             &info.clip_rect,
-            info.is_backface_visible && stacking_context.is_backface_visible,
             container,
         );
 
         PrimitiveInstance::new(
             prim_index,
+            prim_data_handle,
             clip_chain_id,
             spatial_node_index,
         )
@@ -1048,6 +1054,9 @@ impl<'a> DisplayListFlattener<'a> {
             composite_mode = Some(PictureCompositeMode::Blit);
         }
 
+        let prim_key = PrimitiveKey::new(true);
+        let prim_data_handle = self.resources.prim_interner.intern(&prim_key);
+
         // Add picture for this actual stacking context contents to render into.
         let leaf_picture = PicturePrimitive::new_image(
             self.picture_id_generator.next(),
@@ -1067,7 +1076,6 @@ impl<'a> DisplayListFlattener<'a> {
         let leaf_prim_index = self.prim_store.add_primitive(
             &LayoutRect::zero(),
             &max_clip,
-            true,
             PrimitiveContainer::Brush(leaf_prim),
         );
 
@@ -1090,6 +1098,7 @@ impl<'a> DisplayListFlattener<'a> {
                 vec![
                     PrimitiveInstance::new(
                         current_prim_index,
+                        prim_data_handle,
                         stacking_context.clip_chain_id,
                         stacking_context.spatial_node_index,
                     ),
@@ -1101,7 +1110,6 @@ impl<'a> DisplayListFlattener<'a> {
             current_prim_index = self.prim_store.add_primitive(
                 &LayoutRect::zero(),
                 &max_clip,
-                true,
                 PrimitiveContainer::Brush(filter_prim),
             );
 
@@ -1123,6 +1131,7 @@ impl<'a> DisplayListFlattener<'a> {
                 vec![
                     PrimitiveInstance::new(
                         current_prim_index,
+                        prim_data_handle,
                         stacking_context.clip_chain_id,
                         stacking_context.spatial_node_index,
                     ),
@@ -1134,7 +1143,6 @@ impl<'a> DisplayListFlattener<'a> {
             current_prim_index = self.prim_store.add_primitive(
                 &LayoutRect::zero(),
                 &max_clip,
-                true,
                 PrimitiveContainer::Brush(blend_prim),
             );
         }
@@ -1146,6 +1154,7 @@ impl<'a> DisplayListFlattener<'a> {
             let mut prims = vec![
                 PrimitiveInstance::new(
                     current_prim_index,
+                    prim_data_handle,
                     stacking_context.clip_chain_id,
                     stacking_context.spatial_node_index,
                 ),
@@ -1168,7 +1177,6 @@ impl<'a> DisplayListFlattener<'a> {
             current_prim_index = self.prim_store.add_primitive(
                 &LayoutRect::zero(),
                 &max_clip,
-                true,
                 PrimitiveContainer::Brush(container_prim),
             );
         } else {
@@ -1184,6 +1192,7 @@ impl<'a> DisplayListFlattener<'a> {
         let sc_count = self.sc_stack.len();
         let prim_instance = PrimitiveInstance::new(
             current_prim_index,
+            prim_data_handle,
             stacking_context.clip_chain_id,
             stacking_context.spatial_node_index,
         );
@@ -1522,12 +1531,15 @@ impl<'a> DisplayListFlattener<'a> {
                         let shadow_prim_index = self.prim_store.add_primitive(
                             &LayoutRect::zero(),
                             &max_clip,
-                            true,
                             PrimitiveContainer::Brush(shadow_prim),
                         );
 
+                        let shadow_prim_key = PrimitiveKey::new(true);
+                        let shadow_prim_data_handle = self.resources.prim_interner.intern(&shadow_prim_key);
+
                         let shadow_prim_instance = PrimitiveInstance::new(
                             shadow_prim_index,
+                            shadow_prim_data_handle,
                             pending_shadow.clip_and_scroll.clip_chain_id,
                             pending_shadow.clip_and_scroll.spatial_node_index,
                         );

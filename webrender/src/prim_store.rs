@@ -21,6 +21,7 @@ use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuData
                 ToGpuBlocks};
 use gpu_types::BrushFlags;
 use image::{for_each_tile, for_each_repetition};
+use intern;
 use picture::{PictureCompositeMode, PicturePrimitive};
 #[cfg(debug_assertions)]
 use render_backend::FrameId;
@@ -238,16 +239,53 @@ impl GpuCacheAddress {
     }
 }
 
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct PrimitiveKey {
+    pub is_backface_visible: bool,
+}
+
+impl PrimitiveKey {
+    pub fn new(
+        is_backface_visible: bool,
+    ) -> Self {
+        PrimitiveKey {
+            is_backface_visible,
+        }
+    }
+}
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct PrimitiveTemplate {
+    pub is_backface_visible: bool,
+}
+
+impl From<PrimitiveKey> for PrimitiveTemplate {
+    fn from(item: PrimitiveKey) -> Self {
+        PrimitiveTemplate {
+            is_backface_visible: item.is_backface_visible,
+        }
+    }
+}
+
+// Type definitions for interning primitives.
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+#[derive(Clone, Copy, Debug)]
+pub struct PrimitiveDataMarker;
+
+pub type PrimitiveDataStore = intern::DataStore<PrimitiveKey, PrimitiveTemplate, PrimitiveDataMarker>;
+pub type PrimitiveDataHandle = intern::Handle<PrimitiveDataMarker>;
+pub type PrimitiveDataUpdateList = intern::UpdateList<PrimitiveKey>;
+pub type PrimitiveDataInterner = intern::Interner<PrimitiveKey, PrimitiveDataMarker>;
+
 // TODO(gw): Pack the fields here better!
 #[derive(Debug)]
 pub struct PrimitiveMetadata {
-    // TODO(gw): In the future, we should just pull these
-    //           directly from the DL item, instead of
-    //           storing them here.
     pub local_rect: LayoutRect,
     pub local_clip_rect: LayoutRect,
-
-    pub is_backface_visible: bool,
 }
 
 // Maintains a list of opacity bindings that have been collapsed into
@@ -1405,6 +1443,9 @@ pub struct PrimitiveInstance {
     /// primitive data is interned.
     pub prim_index: PrimitiveIndex,
 
+    /// Handle to the common interned data for this primitive.
+    pub prim_data_handle: PrimitiveDataHandle,
+
     /// The current combined local clip for this primitive, from
     /// the primitive local clip above and the current clip chain.
     pub combined_local_clip_rect: LayoutRect,
@@ -1443,11 +1484,13 @@ pub struct PrimitiveInstance {
 impl PrimitiveInstance {
     pub fn new(
         prim_index: PrimitiveIndex,
+        prim_data_handle: PrimitiveDataHandle,
         clip_chain_id: ClipChainId,
         spatial_node_index: SpatialNodeIndex,
     ) -> Self {
         PrimitiveInstance {
             prim_index,
+            prim_data_handle,
             combined_local_clip_rect: LayoutRect::zero(),
             clipped_world_rect: None,
             #[cfg(debug_assertions)]
@@ -1488,7 +1531,6 @@ impl PrimitiveStore {
         &mut self,
         local_rect: &LayoutRect,
         local_clip_rect: &LayoutRect,
-        is_backface_visible: bool,
         container: PrimitiveContainer,
     ) -> PrimitiveIndex {
         let prim_index = self.primitives.len();
@@ -1496,7 +1538,6 @@ impl PrimitiveStore {
         let base_metadata = PrimitiveMetadata {
             local_rect: *local_rect,
             local_clip_rect: *local_clip_rect,
-            is_backface_visible,
         };
 
         let prim = match container {
@@ -1904,13 +1945,10 @@ impl PrimitiveStore {
                     prim_instance.prim_index, pic_context.pipeline_id);
             }
 
-            // TODO(gw): These workarounds for borrowck are unfortunate. We
-            //           should see if we can re-structure these to avoid so
-            //           many special borrow blocks.
-            let is_backface_visible = {
-                let prim = &self.primitives[prim_instance.prim_index.0];
-                prim.metadata.is_backface_visible
-            };
+            let is_backface_visible = frame_state
+                .resources
+                .prim_data_store[prim_instance.prim_data_handle]
+                .is_backface_visible;
 
             let spatial_node = &frame_context
                 .clip_scroll_tree
