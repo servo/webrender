@@ -14,6 +14,7 @@ use clip_scroll_tree::ClipScrollTree;
 use display_list_flattener::DisplayListFlattener;
 use internal_types::{FastHashMap, FastHashSet};
 use picture::PictureIdGenerator;
+use prim_store::{PrimitiveDataInterner, PrimitiveDataUpdateList};
 use resource_cache::FontInstanceMap;
 use render_backend::DocumentView;
 use renderer::{PipelineInfo, SceneBuilderHooks};
@@ -27,6 +28,7 @@ use std::time::Duration;
 
 pub struct DocumentResourceUpdates {
     pub clip_updates: ClipDataUpdateList,
+    pub prim_updates: PrimitiveDataUpdateList,
 }
 
 /// Represents the work associated to a transaction before scene building.
@@ -162,12 +164,14 @@ pub enum SceneSwapResult {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct DocumentResources {
     pub clip_interner: ClipDataInterner,
+    pub prim_interner: PrimitiveDataInterner,
 }
 
 impl DocumentResources {
     fn new() -> Self {
         DocumentResources {
             clip_interner: ClipDataInterner::new(),
+            prim_interner: PrimitiveDataInterner::new(),
         }
     }
 }
@@ -336,9 +340,15 @@ impl SceneBuilder {
                     .clip_interner
                     .end_frame_and_get_pending_updates();
 
+                let prim_updates = item
+                    .doc_resources
+                    .prim_interner
+                    .end_frame_and_get_pending_updates();
+
                 doc_resource_updates = Some(
                     DocumentResourceUpdates {
                         clip_updates,
+                        prim_updates,
                     }
                 );
 
@@ -436,9 +446,15 @@ impl SceneBuilder {
                     .clip_interner
                     .end_frame_and_get_pending_updates();
 
+                let prim_updates = doc
+                    .resources
+                    .prim_interner
+                    .end_frame_and_get_pending_updates();
+
                 doc_resource_updates = Some(
                     DocumentResourceUpdates {
                         clip_updates,
+                        prim_updates,
                     }
                 );
 
