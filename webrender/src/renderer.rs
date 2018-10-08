@@ -1304,7 +1304,8 @@ impl GpuCacheTexture {
 }
 
 struct VertexDataTexture {
-    texture: Texture,
+    texture: Option<Texture>,
+    format: ImageFormat,
     pbo: PBO,
 }
 
@@ -1313,13 +1314,18 @@ impl VertexDataTexture {
         device: &mut Device,
         format: ImageFormat,
     ) -> VertexDataTexture {
-        let texture = device.create_texture(
-            TextureTarget::Default,
-            format,
-        );
         let pbo = device.create_pbo();
+        VertexDataTexture { texture: None, format, pbo }
+    }
 
-        VertexDataTexture { texture, pbo }
+    /// Returns a borrow of the GPU texture. Panics if it hasn't been initialized.
+    fn texture(&self) -> &Texture {
+        self.texture.as_ref().unwrap()
+    }
+
+    /// Returns an estimate of the GPU memory consumed by this VertexDataTexture.
+    fn size_in_bytes(&self) -> usize {
+        self.texture.as_ref().map_or(0, |t| t.size_in_bytes())
     }
 
     fn update<T>(&mut self, device: &mut Device, data: &mut Vec<T>) {
@@ -1343,15 +1349,19 @@ impl VertexDataTexture {
         let width =
             (MAX_VERTEX_TEXTURE_WIDTH - (MAX_VERTEX_TEXTURE_WIDTH % texels_per_item)) as u32;
         let needed_height = (data.len() / items_per_row) as u32;
+        let existing_height = self.texture.as_ref().map_or(0, |t| t.get_dimensions().height);
 
-        // Determine if the texture needs to be resized.
-        let texture_size = self.texture.get_dimensions();
-
-        if needed_height > texture_size.height {
+        // Create a new texture if needed.
+        if needed_height > existing_height {
+            // Drop the existing texture, if any.
+            if let Some(t) = self.texture.take() {
+                device.delete_texture(t);
+            }
             let new_height = (needed_height + 127) & !127;
 
+            let mut texture = device.create_texture(TextureTarget::Default, self.format);
             device.init_texture::<u8>(
-                &mut self.texture,
+                &mut texture,
                 width,
                 new_height,
                 TextureFilter::Nearest,
@@ -1359,6 +1369,7 @@ impl VertexDataTexture {
                 1,
                 None,
             );
+            self.texture = Some(texture);
         }
 
         let rect = DeviceUintRect::new(
@@ -1366,13 +1377,15 @@ impl VertexDataTexture {
             DeviceUintSize::new(width, needed_height),
         );
         device
-            .upload_texture(&self.texture, &self.pbo, 0)
+            .upload_texture(self.texture(), &self.pbo, 0)
             .upload(rect, 0, None, data);
     }
 
-    fn deinit(self, device: &mut Device) {
+    fn deinit(mut self, device: &mut Device) {
         device.delete_pbo(self.pbo);
-        device.delete_texture(self.texture);
+        if let Some(t) = self.texture.take() {
+            device.delete_texture(t);
+        }
     }
 }
 
@@ -3791,7 +3804,7 @@ impl Renderer {
         );
         self.device.bind_texture(
             TextureSampler::PrimitiveHeadersF,
-            &self.prim_header_f_texture.texture,
+            &self.prim_header_f_texture.texture(),
         );
 
         self.prim_header_i_texture.update(
@@ -3800,7 +3813,7 @@ impl Renderer {
         );
         self.device.bind_texture(
             TextureSampler::PrimitiveHeadersI,
-            &self.prim_header_i_texture.texture,
+            &self.prim_header_i_texture.texture(),
         );
 
         self.transforms_texture.update(
@@ -3809,14 +3822,14 @@ impl Renderer {
         );
         self.device.bind_texture(
             TextureSampler::TransformPalette,
-            &self.transforms_texture.texture,
+            &self.transforms_texture.texture(),
         );
 
         self.render_task_texture
             .update(&mut self.device, &mut frame.render_tasks.task_data);
         self.device.bind_texture(
             TextureSampler::RenderTasks,
-            &self.render_task_texture.texture,
+            &self.render_task_texture.texture(),
         );
 
         debug_assert!(self.texture_resolver.prev_pass_alpha.is_none());
@@ -4294,10 +4307,10 @@ impl Renderer {
         }
 
         // Vertex data GPU memory.
-        report.vertex_data_textures += self.prim_header_f_texture.texture.size_in_bytes();
-        report.vertex_data_textures += self.prim_header_i_texture.texture.size_in_bytes();
-        report.vertex_data_textures += self.transforms_texture.texture.size_in_bytes();
-        report.vertex_data_textures += self.render_task_texture.texture.size_in_bytes();
+        report.vertex_data_textures += self.prim_header_f_texture.size_in_bytes();
+        report.vertex_data_textures += self.prim_header_i_texture.size_in_bytes();
+        report.vertex_data_textures += self.transforms_texture.size_in_bytes();
+        report.vertex_data_textures += self.render_task_texture.size_in_bytes();
 
         // Texture cache and render target GPU memory.
         report += self.texture_resolver.report_memory();
