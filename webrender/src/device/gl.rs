@@ -1182,12 +1182,18 @@ impl Device {
         }
     }
 
-    pub fn create_texture(
+    pub fn create_texture<T: Texel>(
         &mut self,
         target: TextureTarget,
         format: ImageFormat,
+        width: u32,
+        height: u32,
+        filter: TextureFilter,
+        render_target: Option<RenderTargetInfo>,
+        layer_count: i32,
+        pixels: Option<&[T]>,
     ) -> Texture {
-        Texture {
+        let mut t = Texture {
             id: self.gl.gen_textures(1)[0],
             target: get_gl_target(target),
             width: 0,
@@ -1199,7 +1205,9 @@ impl Device {
             fbo_ids: vec![],
             depth_rb: None,
             last_frame_used: self.frame_id,
-        }
+        };
+        self.init_texture(&mut t, width, height, filter, render_target, layer_count, pixels);
+        t
     }
 
     fn set_texture_parameters(&mut self, target: gl::GLuint, filter: TextureFilter) {
@@ -1244,7 +1252,7 @@ impl Device {
         self.bind_read_target(None);
     }
 
-    pub fn init_texture<T: Texel>(
+    fn init_texture<T: Texel>(
         &mut self,
         texture: &mut Texture,
         mut width: u32,
