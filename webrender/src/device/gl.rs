@@ -1506,7 +1506,7 @@ impl Device {
         }
     }
 
-    pub fn free_texture_storage(&mut self, texture: &mut Texture) {
+    fn free_texture_storage(&mut self, texture: &mut Texture) {
         debug_assert!(self.inside_frame);
 
         if texture.width + texture.height == 0 {

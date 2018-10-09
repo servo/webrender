@@ -730,13 +730,8 @@ struct ActiveTexture {
 /// `RenderBackend` (which does not directly interface with the GPU) and actual
 /// device texture handles.
 struct TextureResolver {
-    /// A vector for fast resolves of texture cache IDs to native texture IDs.
-    /// This maps to a free-list managed by the backend thread / texture cache.
-    /// We free the texture memory associated with a TextureId when its texture
-    /// cache ID is freed by the texture cache, but reuse the TextureId when the
-    /// texture caches's free list reuses the texture cache ID. This saves
-    /// having to use a hashmap, and allows a flat vector for performance.
-    texture_cache_map: Vec<Texture>,
+    /// A map to resolve texture cache IDs to native textures.
+    texture_cache_map: FastHashMap<CacheTextureId, Texture>,
 
     /// Map of external image IDs to native textures.
     external_images: FastHashMap<(ExternalImageId, u8), ExternalTexture>,
@@ -788,7 +783,7 @@ impl TextureResolver {
         );
 
         TextureResolver {
-            texture_cache_map: Vec::new(),
+            texture_cache_map: FastHashMap::default(),
             external_images: FastHashMap::default(),
             dummy_cache_texture,
             prev_pass_alpha: None,
@@ -801,7 +796,7 @@ impl TextureResolver {
     fn deinit(self, device: &mut Device) {
         device.delete_texture(self.dummy_cache_texture);
 
-        for texture in self.texture_cache_map {
+        for (_id, texture) in self.texture_cache_map {
             device.delete_texture(texture);
         }
 
@@ -905,7 +900,7 @@ impl TextureResolver {
                 device.bind_external_texture(sampler, texture);
             }
             TextureSource::TextureCache(index) => {
-                let texture = &self.texture_cache_map[index.0];
+                let texture = &self.texture_cache_map[&index];
                 device.bind_texture(sampler, texture);
             }
             TextureSource::RenderTaskCache(saved_index) => {
@@ -937,7 +932,7 @@ impl TextureResolver {
                 panic!("BUG: External textures cannot be resolved, they can only be bound.");
             }
             TextureSource::TextureCache(index) => {
-                Some(&self.texture_cache_map[index.0])
+                Some(&self.texture_cache_map[&index])
             }
             TextureSource::RenderTaskCache(saved_index) => {
                 Some(&self.saved_targets[saved_index.0])
@@ -950,7 +945,7 @@ impl TextureResolver {
 
         // We're reporting GPU memory rather than heap-allocations, so we don't
         // use size_of_op.
-        for t in self.texture_cache_map.iter() {
+        for t in self.texture_cache_map.values() {
             report.texture_cache_textures += t.size_in_bytes();
         }
         for t in self.render_target_pool.iter() {
@@ -2732,20 +2727,13 @@ impl Renderer {
                         filter,
                         render_target,
                     } => {
-                        let CacheTextureId(cache_texture_index) = update.id;
-                        if self.texture_resolver.texture_cache_map.len() == cache_texture_index {
-                            // Create a new native texture, as requested by the texture cache.
-                            let texture = self.device.create_texture(TextureTarget::Array, format);
-                            self.texture_resolver.texture_cache_map.push(texture);
-                        }
-                        let texture =
-                            &mut self.texture_resolver.texture_cache_map[cache_texture_index];
-                        assert_eq!(texture.get_format(), format);
-
+                        // Create a new native texture, as requested by the texture cache.
+                        //
                         // Ensure no PBO is bound when creating the texture storage,
                         // or GL will attempt to read data from there.
+                        let mut texture = self.device.create_texture(TextureTarget::Array, format);
                         self.device.init_texture::<u8>(
-                            texture,
+                            &mut texture,
                             width,
                             height,
                             filter,
@@ -2753,6 +2741,7 @@ impl Renderer {
                             layer_count,
                             None,
                         );
+                        self.texture_resolver.texture_cache_map.insert(update.id, texture);
                     }
                     TextureUpdateOp::Update {
                         rect,
@@ -2761,7 +2750,7 @@ impl Renderer {
                         layer_index,
                         offset,
                     } => {
-                        let texture = &self.texture_resolver.texture_cache_map[update.id.0];
+                        let texture = &self.texture_resolver.texture_cache_map[&update.id];
                         let mut uploader = self.device.upload_texture(
                             texture,
                             &self.texture_cache_upload_pbo,
@@ -2809,8 +2798,8 @@ impl Renderer {
                         self.profile_counters.texture_data_uploaded.add(bytes_uploaded >> 10);
                     }
                     TextureUpdateOp::Free => {
-                        let texture = &mut self.texture_resolver.texture_cache_map[update.id.0];
-                        self.device.free_texture_storage(texture);
+                        let texture = self.texture_resolver.texture_cache_map.remove(&update.id).unwrap();
+                        self.device.delete_texture(texture);
                     }
                 }
             }
@@ -4099,7 +4088,7 @@ impl Renderer {
         let fb_width = framebuffer_size.width as i32;
         let num_layers: i32 = self.texture_resolver
             .texture_cache_map
-            .iter()
+            .values()
             .map(|texture| texture.get_layer_count())
             .sum();
 
@@ -4110,7 +4099,7 @@ impl Renderer {
         }
 
         let mut i = 0;
-        for texture in &self.texture_resolver.texture_cache_map {
+        for texture in self.texture_resolver.texture_cache_map.values() {
             let y = spacing + if self.debug_flags.contains(DebugFlags::RENDER_TARGET_DBG) {
                 528
             } else {
@@ -4592,7 +4581,7 @@ struct PlainTexture {
 struct PlainRenderer {
     gpu_cache: PlainTexture,
     gpu_cache_frame_id: FrameId,
-    textures: Vec<PlainTexture>,
+    textures: FastHashMap<CacheTextureId, PlainTexture>,
     external_images: Vec<ExternalCaptureImage>
 }
 
@@ -4813,16 +4802,16 @@ impl Renderer {
                     "gpu", &config.root, &mut self.device,
                 ),
                 gpu_cache_frame_id: self.gpu_cache_frame_id,
-                textures: Vec::new(),
+                textures: FastHashMap::default(),
                 external_images: deferred_images,
             };
 
             info!("saving cached textures");
-            for texture in &self.texture_resolver.texture_cache_map {
+            for (id, texture) in &self.texture_resolver.texture_cache_map {
                 let file_name = format!("cache-{}", plain_self.textures.len() + 1);
                 info!("\t{}", file_name);
                 let plain = Self::save_texture(texture, &file_name, &config.root, &mut self.device);
-                plain_self.textures.push(plain);
+                plain_self.textures.insert(*id, plain);
             }
 
             config.serialize(&plain_self, "renderer");
@@ -4872,14 +4861,14 @@ impl Renderer {
             info!("loading cached textures");
             self.device.begin_frame();
 
-            for texture in self.texture_resolver.texture_cache_map.drain(..) {
+            for (_id, texture) in self.texture_resolver.texture_cache_map.drain() {
                 self.device.delete_texture(texture);
             }
-            for texture in renderer.textures {
+            for (id, texture) in renderer.textures {
                 info!("\t{}", texture.data);
                 let mut t = self.device.create_texture(TextureTarget::Array, texture.format);
                 Self::load_texture(&mut t, &texture, &root, &mut self.device);
-                self.texture_resolver.texture_cache_map.push(t);
+                self.texture_resolver.texture_cache_map.insert(id, t);
             }
 
             info!("loading gpu cache");
