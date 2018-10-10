@@ -161,7 +161,7 @@ Fragment brush_fs() {
         case 11: {
             // sRGB to linear
             vec3 c1 = color / 12.92;
-            vec3 c2 = pow((color + vec3(0.055)) / 1.055, vec3(2.4));
+            vec3 c2 = pow(color / 1.055 + vec3(0.055 / 1.055), vec3(2.4));
             color = mix(c1, c2, lessThanEqual(color, vec3(0.04045)));
             break;
         }
