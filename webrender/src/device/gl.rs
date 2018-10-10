@@ -1225,7 +1225,7 @@ impl Device {
                 self.gl.tex_image_3d(
                     gl::TEXTURE_2D_ARRAY,
                     0,
-                    desc.internal,
+                    desc.internal as gl::GLint,
                     texture.width as _,
                     texture.height as _,
                     texture.layer_count,
@@ -1240,7 +1240,7 @@ impl Device {
                 self.gl.tex_image_2d(
                     texture.target,
                     0,
-                    desc.internal,
+                    desc.internal as gl::GLint,
                     texture.width as _,
                     texture.height as _,
                     0,
@@ -1613,7 +1613,7 @@ impl Device {
             ReadPixelsFormat::Rgba8 => {
                 (4, FormatDesc {
                     external: gl::RGBA,
-                    internal: gl::RGBA8 as _,
+                    internal: gl::RGBA8,
                     pixel_type: gl::UNSIGNED_BYTE,
                 })
             }
@@ -2170,12 +2170,12 @@ impl Device {
     fn gl_describe_format(&self, format: ImageFormat) -> FormatDesc {
         match format {
             ImageFormat::R8 => FormatDesc {
-                internal: gl::R8 as _,
+                internal: gl::R8,
                 external: gl::RED,
                 pixel_type: gl::UNSIGNED_BYTE,
             },
             ImageFormat::R16 => FormatDesc {
-                internal: gl::R16 as _,
+                internal: gl::R16,
                 external: gl::RED,
                 pixel_type: gl::UNSIGNED_SHORT,
             },
@@ -2183,25 +2183,25 @@ impl Device {
                 let external = self.bgra_format;
                 FormatDesc {
                     internal: match self.gl.get_type() {
-                        gl::GlType::Gl => gl::RGBA as _,
-                        gl::GlType::Gles => external as _,
+                        gl::GlType::Gl => gl::RGBA,
+                        gl::GlType::Gles => external,
                     },
                     external,
                     pixel_type: gl::UNSIGNED_BYTE,
                 }
             },
             ImageFormat::RGBAF32 => FormatDesc {
-                internal: gl::RGBA32F as _,
+                internal: gl::RGBA32F,
                 external: gl::RGBA,
                 pixel_type: gl::FLOAT,
             },
             ImageFormat::RGBAI32 => FormatDesc {
-                internal: gl::RGBA32I as _,
+                internal: gl::RGBA32I,
                 external: gl::RGBA_INTEGER,
                 pixel_type: gl::INT,
             },
             ImageFormat::RG8 => FormatDesc {
-                internal: gl::RG8 as _,
+                internal: gl::RG8,
                 external: gl::RG,
                 pixel_type: gl::UNSIGNED_BYTE,
             },
@@ -2210,7 +2210,7 @@ impl Device {
 }
 
 struct FormatDesc {
-    internal: gl::GLint,
+    internal: gl::GLenum,
     external: gl::GLuint,
     pixel_type: gl::GLuint,
 }
