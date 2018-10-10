@@ -154,6 +154,24 @@ Fragment brush_fs() {
         case 8: // Opacity
             alpha *= vAmount;
             break;
+        // Based on the Gecko's implementation in
+        // https://hg.mozilla.org/mozilla-central/file/tip/gfx/src/FilterSupport.cpp#l24
+        // These could be made faster by sampling a lookup table stored in a float texture
+        // with linear interpolation.
+        case 11: {
+            // sRGB to linear
+            vec3 c1 = color / 12.92;
+            vec3 c2 = pow((color + vec3(0.055)) / 1.055, vec3(2.4));
+            color = mix(c1, c2, lessThanEqual(color, vec3(0.04045)));
+            break;
+        }
+        case 12: {
+            // Linear to sRGB
+            vec3 c1 = color * 12.92;
+            vec3 c2 = vec3(1.055) * pow(color, vec3(1.0 / 2.4)) - vec3(0.055);
+            color = mix(c1, c2, lessThanEqual(color, vec3(0.0031308)));
+            break;
+        }
         default:
             color = vColorMat * color + vColorOffset;
     }
