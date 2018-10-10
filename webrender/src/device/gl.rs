@@ -1415,59 +1415,9 @@ impl Device {
         );
     }
 
-    fn free_texture_storage_impl(&mut self, target: gl::GLenum, desc: FormatDesc) {
-        match target {
-            gl::TEXTURE_2D_ARRAY => {
-                self.gl.tex_image_3d(
-                    gl::TEXTURE_2D_ARRAY,
-                    0,
-                    desc.internal,
-                    0,
-                    0,
-                    0,
-                    0,
-                    desc.external,
-                    desc.pixel_type,
-                    None,
-                );
-            }
-            _ => {
-                self.gl.tex_image_2d(
-                    target,
-                    0,
-                    desc.internal,
-                    0,
-                    0,
-                    0,
-                    desc.external,
-                    desc.pixel_type,
-                    None,
-                );
-            }
-        }
-    }
-
-    fn free_texture_storage(&mut self, texture: &mut Texture) {
-        debug_assert!(self.inside_frame);
-
-        if texture.width + texture.height == 0 {
-            return;
-        }
-
-        self.bind_texture(DEFAULT_TEXTURE, texture);
-        let desc = self.gl_describe_format(texture.format);
-
-        self.free_texture_storage_impl(texture.target, desc);
-
-        self.deinit_fbos(texture);
-
-        texture.width = 0;
-        texture.height = 0;
-        texture.layer_count = 0;
-    }
-
     pub fn delete_texture(&mut self, mut texture: Texture) {
-        self.free_texture_storage(&mut texture);
+        debug_assert!(self.inside_frame);
+        self.deinit_fbos(&mut texture);
         self.gl.delete_textures(&[texture.id]);
 
         for bound_texture in &mut self.bound_textures {
@@ -1476,18 +1426,12 @@ impl Device {
             }
         }
 
+        // Disarm the assert in Texture::drop().
         texture.id = 0;
     }
 
     #[cfg(feature = "replay")]
     pub fn delete_external_texture(&mut self, mut external: ExternalTexture) {
-        self.bind_external_texture(DEFAULT_TEXTURE, &external);
-        //Note: the format descriptor here doesn't really matter
-        self.free_texture_storage_impl(external.target, FormatDesc {
-            internal: gl::R8 as _,
-            external: gl::RED,
-            pixel_type: gl::UNSIGNED_BYTE,
-        });
         self.gl.delete_textures(&[external.id]);
         external.id = 0;
     }
