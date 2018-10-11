@@ -854,9 +854,11 @@ impl TextureResolver {
 
     fn end_frame(&mut self, device: &mut Device, frame_id: FrameId) {
         // return the cached targets to the pool
-        self.end_pass(None, None);
+        self.end_pass(device, None, None);
         // return the saved targets as well
-        self.render_target_pool.extend(self.saved_targets.drain(..));
+        while let Some(target) = self.saved_targets.pop() {
+            self.return_to_pool(device, target);
+        }
 
         // GC the render target pool.
         //
@@ -868,6 +870,12 @@ impl TextureResolver {
         //
         // [1] https://bugzilla.mozilla.org/show_bug.cgi?id=1494099
         self.retain_targets(device, |texture| texture.used_recently(frame_id, 30));
+    }
+
+    /// Transfers ownership of a render target back to the pool.
+    fn return_to_pool(&mut self, device: &mut Device, target: Texture) {
+        device.invalidate_render_target(&target);
+        self.render_target_pool.push(target);
     }
 
     /// Drops all targets from the render target pool that do not satisfy the predicate.
@@ -886,6 +894,7 @@ impl TextureResolver {
 
     fn end_pass(
         &mut self,
+        device: &mut Device,
         a8_texture: Option<ActiveTexture>,
         rgba8_texture: Option<ActiveTexture>,
     ) {
@@ -898,7 +907,7 @@ impl TextureResolver {
                 assert_eq!(self.saved_targets.len(), index.0);
                 self.saved_targets.push(at.texture);
             } else {
-                self.render_target_pool.push(at.texture);
+                self.return_to_pool(device, at.texture);
             }
         }
         if let Some(at) = self.prev_pass_alpha.take() {
@@ -906,7 +915,7 @@ impl TextureResolver {
                 assert_eq!(self.saved_targets.len(), index.0);
                 self.saved_targets.push(at.texture);
             } else {
-                self.render_target_pool.push(at.texture);
+                self.return_to_pool(device, at.texture);
             }
         }
 
@@ -4010,6 +4019,7 @@ impl Renderer {
             };
 
             self.texture_resolver.end_pass(
+                &mut self.device,
                 cur_alpha,
                 cur_color,
             );

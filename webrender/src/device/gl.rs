@@ -1357,6 +1357,26 @@ impl Device {
         self.bind_read_target(None);
     }
 
+    /// Notifies the device that the contents of a render target are no longer
+    /// needed.
+    pub fn invalidate_render_target(&mut self, texture: &Texture) {
+        let attachments: &[gl::GLenum] = if texture.has_depth() {
+            &[gl::COLOR_ATTACHMENT0, gl::DEPTH_ATTACHMENT]
+        } else {
+            &[gl::COLOR_ATTACHMENT0]
+        };
+
+        let original_bound_fbo = self.bound_draw_fbo;
+        for fbo_id in texture.fbo_ids.iter() {
+            // Note: The invalidate extension may not be supported, in which
+            // case this is a no-op. That's ok though, because it's just a
+            // hint.
+            self.bind_external_draw_target(*fbo_id);
+            self.gl.invalidate_framebuffer(gl::FRAMEBUFFER, attachments);
+        }
+        self.bind_external_draw_target(original_bound_fbo);
+    }
+
     /// Notifies the device that a render target is about to be reused.
     ///
     /// This method adds or removes a depth target as necessary.
