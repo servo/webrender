@@ -1182,7 +1182,7 @@ impl Device {
         }
     }
 
-    pub fn create_texture<T: Texel>(
+    pub fn create_texture(
         &mut self,
         target: TextureTarget,
         format: ImageFormat,
@@ -1191,7 +1191,6 @@ impl Device {
         filter: TextureFilter,
         render_target: Option<RenderTargetInfo>,
         layer_count: i32,
-        pixels: Option<&[T]>,
     ) -> Texture {
         debug_assert!(self.inside_frame);
 
@@ -1232,7 +1231,7 @@ impl Device {
                     0,
                     desc.external,
                     desc.pixel_type,
-                    pixels.map(texels_to_u8_slice),
+                    None,
                 )
             }
             gl::TEXTURE_2D | gl::TEXTURE_RECTANGLE | gl::TEXTURE_EXTERNAL_OES => {
@@ -1246,7 +1245,7 @@ impl Device {
                     0,
                     desc.external,
                     desc.pixel_type,
-                    pixels.map(texels_to_u8_slice),
+                    None,
                 )
             },
             _ => panic!("BUG: Unexpected texture target!"),
@@ -1584,6 +1583,45 @@ impl Device {
             },
             buffer,
             marker: PhantomData,
+        }
+    }
+
+    /// Performs an immediate (non-PBO) texture upload.
+    pub fn upload_texture_immediate<T: Texel>(
+        &mut self,
+        texture: &Texture,
+        pixels: &[T]
+    ) {
+        self.bind_texture(DEFAULT_TEXTURE, texture);
+        let desc = self.gl_describe_format(texture.format);
+        match texture.target {
+            gl::TEXTURE_2D | gl::TEXTURE_RECTANGLE | gl::TEXTURE_EXTERNAL_OES =>
+                self.gl.tex_sub_image_2d(
+                    texture.target,
+                    0,
+                    0,
+                    0,
+                    texture.width as gl::GLint,
+                    texture.height as gl::GLint,
+                    desc.external,
+                    desc.pixel_type,
+                    texels_to_u8_slice(pixels),
+                ),
+            gl::TEXTURE_2D_ARRAY =>
+                self.gl.tex_sub_image_3d(
+                    texture.target,
+                    0,
+                    0,
+                    0,
+                    0,
+                    texture.width as gl::GLint,
+                    texture.height as gl::GLint,
+                    texture.layer_count as gl::GLint,
+                    desc.external,
+                    desc.pixel_type,
+                    texels_to_u8_slice(pixels),
+                ),
+            _ => panic!("BUG: Unexpected texture target!"),
         }
     }
 

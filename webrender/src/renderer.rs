@@ -813,7 +813,7 @@ struct TextureResolver {
 impl TextureResolver {
     fn new(device: &mut Device) -> TextureResolver {
         let dummy_cache_texture = device
-            .create_texture::<u8>(
+            .create_texture(
                 TextureTarget::Array,
                 ImageFormat::BGRA8,
                 1,
@@ -821,7 +821,6 @@ impl TextureResolver {
                 TextureFilter::Linear,
                 None,
                 1,
-                None,
             );
 
         TextureResolver {
@@ -1103,7 +1102,7 @@ impl GpuCacheTexture {
         }
 
         // Create the new texture.
-        let mut texture = device.create_texture::<u8>(
+        let mut texture = device.create_texture(
             TextureTarget::Default,
             ImageFormat::RGBAF32,
             new_size.width,
@@ -1111,7 +1110,6 @@ impl GpuCacheTexture {
             TextureFilter::Nearest,
             rt_info,
             1,
-            None,
         );
 
         // Blit the contents of the previous texture, if applicable.
@@ -1400,7 +1398,7 @@ impl VertexDataTexture {
             }
             let new_height = (needed_height + 127) & !127;
 
-            let texture = device.create_texture::<u8>(
+            let texture = device.create_texture(
                 TextureTarget::Default,
                 self.format,
                 width,
@@ -1408,7 +1406,6 @@ impl VertexDataTexture {
                 TextureFilter::Nearest,
                 None,
                 1,
-                None,
             );
             self.texture = Some(texture);
         }
@@ -1756,7 +1753,7 @@ impl Renderer {
                 21,
             ];
 
-            let mut texture = device.create_texture::<u8>(
+            let mut texture = device.create_texture(
                 TextureTarget::Default,
                 ImageFormat::R8,
                 8,
@@ -1764,8 +1761,8 @@ impl Renderer {
                 TextureFilter::Nearest,
                 None,
                 1,
-                Some(&dither_matrix),
             );
+            device.upload_texture_immediate(&texture, &dither_matrix);
 
             Some(texture)
         } else {
@@ -2774,7 +2771,7 @@ impl Renderer {
                         //
                         // Ensure no PBO is bound when creating the texture storage,
                         // or GL will attempt to read data from there.
-                        let texture = self.device.create_texture::<u8>(
+                        let texture = self.device.create_texture(
                             TextureTarget::Array,
                             format,
                             width,
@@ -2782,7 +2779,6 @@ impl Renderer {
                             filter,
                             render_target,
                             layer_count,
-                            None,
                         );
                         self.texture_resolver.texture_cache_map.insert(update.id, texture);
                     }
@@ -3815,7 +3811,7 @@ impl Renderer {
             t
         } else {
             counters.targets_created.inc();
-            let mut t = self.device.create_texture::<u8>(
+            self.device.create_texture(
                 TextureTarget::Array,
                 list.format,
                 list.max_size.width,
@@ -3823,9 +3819,7 @@ impl Renderer {
                 TextureFilter::Linear,
                 Some(rt_info),
                 list.targets.len() as _,
-                None,
-            );
-            t
+            )
         };
 
         list.check_ready(&texture);
@@ -4763,8 +4757,8 @@ impl Renderer {
             plain.filter,
             plain.render_target,
             plain.size.2,
-            Some(texels.as_slice()),
         );
+        device.upload_texture_immediate(&texture, &texels);
 
         (texture, texels)
     }
