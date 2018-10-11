@@ -36,5 +36,7 @@ platform(linux,mac) == blend-clipped.yaml blend-clipped.png
 == filter-segments.yaml filter-segments-ref.yaml
 == iframe-dropshadow.yaml iframe-dropshadow-ref.yaml
 == filter-mix-blend-mode.yaml filter-mix-blend-mode-ref.yaml
+== fuzzy(3,20000) srgb-to-linear.yaml srgb-to-linear-ref.yaml
+!= srgb-to-linear-2.yaml srgb-to-linear-ref.yaml
 != filter-blur-huge.yaml blank.yaml
 != filter-drop-shadow-huge.yaml blank.yaml
