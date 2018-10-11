@@ -1324,10 +1324,6 @@ impl VertexDataTexture {
     }
 
     fn update<T>(&mut self, device: &mut Device, data: &mut Vec<T>) {
-        if data.is_empty() {
-            return;
-        }
-
         debug_assert!(mem::size_of::<T>() % 16 == 0);
         let texels_per_item = mem::size_of::<T>() / 16;
         let items_per_row = MAX_VERTEX_TEXTURE_WIDTH / texels_per_item;
@@ -1347,7 +1343,7 @@ impl VertexDataTexture {
         let existing_height = self.texture.as_ref().map_or(0, |t| t.get_dimensions().height);
 
         // Create a new texture if needed.
-        if needed_height > existing_height {
+        if needed_height > existing_height || self.texture.is_none() {
             // Drop the existing texture, if any.
             if let Some(t) = self.texture.take() {
                 device.delete_texture(t);

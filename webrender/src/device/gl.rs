@@ -1232,7 +1232,7 @@ impl Device {
                     0,
                     desc.external,
                     desc.pixel_type,
-                    pixels.map(texels_to_u8_slice),
+                    pixels.and_then(texels_to_u8_slice),
                 )
             }
             gl::TEXTURE_2D | gl::TEXTURE_RECTANGLE | gl::TEXTURE_EXTERNAL_OES => {
@@ -1246,7 +1246,7 @@ impl Device {
                     0,
                     desc.external,
                     desc.pixel_type,
-                    pixels.map(texels_to_u8_slice),
+                    pixels.and_then(texels_to_u8_slice),
                 )
             },
             _ => panic!("BUG: Unexpected texture target!"),
@@ -2401,8 +2401,13 @@ impl<'a> UploadTarget<'a> {
     }
 }
 
-fn texels_to_u8_slice<T: Texel>(texels: &[T]) -> &[u8] {
-    unsafe {
-        slice::from_raw_parts(texels.as_ptr() as *const u8, texels.len() * mem::size_of::<T>())
+fn texels_to_u8_slice<T: Texel>(texels: &[T]) -> Option<&[u8]> {
+    if texels.is_empty() {
+        // TODO(emilio): This check should probably be done by gleam instead.
+        return None;
     }
+
+    Some(unsafe {
+        slice::from_raw_parts(texels.as_ptr() as *const u8, texels.len() * mem::size_of::<T>())
+    })
 }
