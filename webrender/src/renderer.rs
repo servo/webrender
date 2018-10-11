@@ -1324,13 +1324,17 @@ impl VertexDataTexture {
     }
 
     fn update<T>(&mut self, device: &mut Device, data: &mut Vec<T>) {
-        if data.is_empty() {
-            return;
-        }
-
         debug_assert!(mem::size_of::<T>() % 16 == 0);
         let texels_per_item = mem::size_of::<T>() / 16;
         let items_per_row = MAX_VERTEX_TEXTURE_WIDTH / texels_per_item;
+
+        // Ensure we always end up with a texture when leaving this method.
+        if data.is_empty() {
+            if self.texture.is_some() {
+                return;
+            }
+            data.push(unsafe { mem::uninitialized() });
+        }
 
         // Extend the data array to be a multiple of the row size.
         // This ensures memory safety when the array is passed to
