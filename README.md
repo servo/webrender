@@ -28,3 +28,12 @@ where `<path>` is the path to your local copy of WebRender.
 
 The Wiki has a [few pages](https://github.com/servo/webrender/wiki/) describing the internals and conventions of WebRender.
 
+## Testing
+
+Tests run using OSMesa to get consistent rendering across platforms.
+
+Still there may be differences depending on font libraries on your system, for
+example.
+
+See [this gist](https://gist.github.com/finalfantasia/129cae811e02bf4551ac) for
+how to make the text tests useful in Fedora, for example.
