@@ -10,7 +10,7 @@
 #define LINE_STYLE_WAVY         3
 
 // Local space position
-varying vec2 vPos;
+varying vec2 vLocalPos;
 
 flat varying float vAxisSelect;
 flat varying int vStyle;
@@ -86,7 +86,7 @@ void main(void) {
             vParams = vec4(0.0);
     }
 
-    vPos = aPosition.xy * aLocalSize;
+    vLocalPos = aPosition.xy * aLocalSize;
 
     gl_Position = uTransform * vec4(aTaskRect.xy + aTaskRect.zw * aPosition.xy, 0.0, 1.0);
 }
@@ -98,7 +98,7 @@ void main(void) {
 
 void main(void) {
     // Find the appropriate distance to apply the step over.
-    vec2 local_pos = vPos;
+    vec2 local_pos = vLocalPos;
     float aa_range = compute_aa_range(local_pos);
     float alpha = 1.0;
 

@@ -1612,15 +1612,11 @@ impl<'a> DisplayListFlattener<'a> {
         color: &ColorF,
         style: LineStyle,
     ) {
-        let prim = BrushPrimitive::new(
-            BrushKind::LineDecoration {
-                orientation,
-                style,
-                wavy_line_thickness,
-                color: *color,
-                handle: None,
-            },
-            None,
+        let prim = BrushPrimitive::new_line_decoration(
+            *color,
+            style,
+            orientation,
+            wavy_line_thickness,
         );
 
         self.add_primitive(

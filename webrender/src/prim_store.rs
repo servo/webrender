@@ -13,7 +13,7 @@ use app_units::Au;
 use border::{BorderCacheKey, BorderRenderTaskInfo};
 use clip_scroll_tree::{ClipScrollTree, CoordinateSystemId, SpatialNodeIndex};
 use clip::{ClipNodeFlags, ClipChainId, ClipChainInstance, ClipItem, ClipNodeCollector};
-use euclid::{TypedTransform3D, TypedRect};
+use euclid::{TypedTransform3D, TypedRect, TypedScale};
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureContext, PictureState};
 use frame_builder::PrimitiveContext;
 use glyph_rasterizer::{FontInstance, FontTransform, GlyphKey, FONT_SIZE_LIMIT};
@@ -645,6 +645,24 @@ impl BrushPrimitive {
             kind: BrushKind::Picture(prim),
             segment_desc: None,
         }
+    }
+
+    pub fn new_line_decoration(
+        color: ColorF,
+        style: LineStyle,
+        orientation: LineOrientation,
+        wavy_line_thickness: f32,
+    ) -> Self {
+        BrushPrimitive::new(
+            BrushKind::LineDecoration {
+                color,
+                style,
+                orientation,
+                wavy_line_thickness,
+                handle: None,
+            },
+            None,
+        )
     }
 
     fn write_gpu_blocks(
@@ -1440,15 +1458,11 @@ impl PrimitiveContainer {
                         ))
                     }
                     BrushKind::LineDecoration { style, orientation, wavy_line_thickness, .. } => {
-                        PrimitiveContainer::Brush(BrushPrimitive::new(
-                            BrushKind::LineDecoration {
-                                color: shadow.color,
-                                style,
-                                orientation,
-                                wavy_line_thickness,
-                                handle: None,
-                            },
-                            None,
+                        PrimitiveContainer::Brush(BrushPrimitive::new_line_decoration(
+                            shadow.color,
+                            style,
+                            orientation,
+                            wavy_line_thickness,
                         ))
                     }
                     BrushKind::Image { request, stretch_size, .. } => {
@@ -2753,10 +2767,10 @@ impl Primitive {
                                     .unwrap_or(LayoutRect::zero());
                             }
 
-                            let task_size = DeviceIntSize::new(
-                                (size.width * frame_context.device_pixel_scale.0).ceil() as i32,
-                                (size.height * frame_context.device_pixel_scale.0).ceil() as i32,
-                            );
+                            // TODO(gw): Do we ever need / want to support scales for text decorations
+                            //           based on the current transform?
+                            let scale_factor = TypedScale::new(1.0) * frame_context.device_pixel_scale;
+                            let task_size = (size * scale_factor).ceil().to_i32();
 
                             let cache_key = LineDecorationCacheKey {
                                 style,
@@ -3218,25 +3232,23 @@ fn get_line_decoration_sizes(
     //           shader code. They give reasonable results for most inputs,
     //           but could definitely do with a detailed pass to get better
     //           quality on a wider range of inputs!
+    //           See nsCSSRendering::PaintDecorationLine in Gecko.
 
     match style {
         LineStyle::Solid => {
             None
         }
-
         LineStyle::Dashed => {
             let dash_length = (3.0 * h).min(64.0).max(1.0);
 
             Some((2.0 * dash_length, 4.0))
         }
-
         LineStyle::Dotted => {
             let diameter = h.min(64.0).max(1.0);
             let period = 2.0 * diameter;
 
             Some((period, diameter))
         }
-
         LineStyle::Wavy => {
             let line_thickness = wavy_line_thickness.max(1.0);
             let slope_length = h - line_thickness;

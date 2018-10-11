@@ -118,7 +118,7 @@ impl RenderTaskTree {
             }
         }
 
-        let pass_index = if task.should_draw_in_first_pass() {
+        let pass_index = if task.is_global_cached_task() {
             0
         } else {
             pass_index
@@ -912,7 +912,7 @@ impl RenderTask {
     /// If true, draw this task in the first pass. This is useful
     /// for simple texture cached render tasks that we want to be made
     /// available to all subsequent render passes.
-    pub fn should_draw_in_first_pass(&self) -> bool {
+    pub fn is_global_cached_task(&self) -> bool {
         match self.kind {
             RenderTaskKind::LineDecoration(..) => {
                 true
