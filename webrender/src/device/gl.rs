@@ -14,6 +14,7 @@ use internal_types::{FastHashMap, RenderTargetInfo};
 use log::Level;
 use smallvec::SmallVec;
 use std::cell::RefCell;
+use std::cmp;
 use std::fs::File;
 use std::io::Read;
 use std::marker::PhantomData;
@@ -748,6 +749,12 @@ pub struct Device {
     // frames and GPU frames.
     frame_id: FrameId,
 
+    /// Whether glTexStorage* is supported. We prefer this over glTexImage*
+    /// because it guarantees that mipmaps won't be generated (which they
+    /// otherwise are on some drivers, particularly ANGLE), If it's not
+    /// supported, we fall back to glTexImage*.
+    supports_texture_storage: bool,
+
     // GL extensions
     extensions: Vec<String>,
 }
@@ -800,6 +807,11 @@ impl Device {
             (gl::RGBA8, gl::BGRA)
         };
 
+        let supports_texture_storage = match gl.get_type() {
+            gl::GlType::Gl => supports_extension(&extensions, "GL_ARB_texture_storage"),
+            gl::GlType::Gles => true,
+        };
+
         Device {
             gl,
             resource_override_path,
@@ -831,6 +843,7 @@ impl Device {
             cached_programs,
             frame_id: FrameId(0),
             extensions,
+            supports_texture_storage,
         }
     }
 
@@ -1229,36 +1242,69 @@ impl Device {
 
         // Allocate storage.
         let desc = self.gl_describe_format(texture.format);
-        match texture.target {
-            gl::TEXTURE_2D_ARRAY => {
+        let is_array = match texture.target {
+            gl::TEXTURE_2D_ARRAY => true,
+            gl::TEXTURE_2D | gl::TEXTURE_RECTANGLE | gl::TEXTURE_EXTERNAL_OES => false,
+            _ => panic!("BUG: Unexpected texture target!"),
+        };
+        assert!(is_array || texture.layer_count == 1);
+
+        // Firefox doesn't use mipmaps, but Servo uses them for standalone image
+        // textures images larger than 512 pixels. This is the only case where
+        // we set the filter to trilinear.
+        let mipmap_levels =  if texture.filter == TextureFilter::Trilinear {
+            let max_dimension = cmp::max(width, height);
+            ((max_dimension) as f64).log2() as gl::GLint + 1
+        } else {
+            1
+        };
+
+        // Use glTexStorage where available, since it avoids allocating
+        // unnecessary mipmap storage and generally improves performance with
+        // stronger invariants.
+        match (self.supports_texture_storage, is_array) {
+            (true, true) =>
+                self.gl.tex_storage_3d(
+                    gl::TEXTURE_2D_ARRAY,
+                    mipmap_levels,
+                    desc.internal,
+                    texture.width as gl::GLint,
+                    texture.height as gl::GLint,
+                    texture.layer_count,
+                ),
+            (true, false) =>
+                self.gl.tex_storage_2d(
+                    texture.target,
+                    mipmap_levels,
+                    desc.internal,
+                    texture.width as gl::GLint,
+                    texture.height as gl::GLint,
+                ),
+            (false, true) =>
                 self.gl.tex_image_3d(
                     gl::TEXTURE_2D_ARRAY,
                     0,
                     desc.internal as gl::GLint,
-                    texture.width as _,
-                    texture.height as _,
+                    texture.width as gl::GLint,
+                    texture.height as gl::GLint,
                     texture.layer_count,
                     0,
                     desc.external,
                     desc.pixel_type,
                     None,
-                )
-            }
-            gl::TEXTURE_2D | gl::TEXTURE_RECTANGLE | gl::TEXTURE_EXTERNAL_OES => {
-                assert_eq!(texture.layer_count, 1);
+                ),
+            (false, false) =>
                 self.gl.tex_image_2d(
                     texture.target,
                     0,
                     desc.internal as gl::GLint,
-                    texture.width as _,
-                    texture.height as _,
+                    texture.width as gl::GLint,
+                    texture.height as gl::GLint,
                     0,
                     desc.external,
                     desc.pixel_type,
                     None,
-                )
-            },
-            _ => panic!("BUG: Unexpected texture target!"),
+                ),
         }
 
         // Set up FBOs, if required.
