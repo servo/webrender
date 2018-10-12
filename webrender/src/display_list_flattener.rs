@@ -1141,12 +1141,15 @@ impl<'a> DisplayListFlattener<'a> {
         }
 
         let parent_context = match stacking_context.context_3d {
+            Picture3DContext::In { is_root: true, .. } => {
+                self.sc_stack.last_mut()
+            }
             // If we're in a 3D context, we will parent the picture
             // to the first stacking context we find that is a
             // 3D rendering context container. This follows the spec
             // by hoisting these items out into the same 3D context
             // for plane splitting.
-            Picture3DContext::In { .. } => {
+            Picture3DContext::In { is_root: false, .. } => {
                 self.sc_stack
                     .iter_mut()
                     .rfind(|sc| match sc.context_3d {
