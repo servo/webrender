@@ -102,6 +102,8 @@ pub struct PictureState {
     pub has_non_root_coord_system: bool,
     pub is_cacheable: bool,
     pub local_rect_changed: bool,
+    /// Union rectangle of all the items in this picture.
+    pub rect: PictureRect,
     pub map_local_to_pic: SpaceMapper<LayoutPixel, PicturePixel>,
     pub map_pic_to_world: SpaceMapper<PicturePixel, WorldPixel>,
     pub map_pic_to_raster: SpaceMapper<PicturePixel, RasterPixel>,
@@ -247,17 +249,15 @@ impl FrameBuilder {
             )
             .unwrap();
 
-        let mut pic_rect = PictureRect::zero();
-
         self.prim_store.prepare_primitives(
             &mut instances,
             &pic_context,
             &mut pic_state,
             &frame_context,
             &mut frame_state,
-            &mut pic_rect,
         );
 
+        let pic_rect = Some(pic_state.rect);
         let pic = self
             .prim_store
             .get_pic_mut(self.root_prim_index);
@@ -266,7 +266,7 @@ impl FrameBuilder {
             pic_context,
             pic_state,
             &mut None,
-            Some(pic_rect),
+            pic_rect,
             &mut frame_state,
         );
 

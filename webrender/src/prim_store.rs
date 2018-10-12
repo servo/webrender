@@ -1817,7 +1817,6 @@ impl PrimitiveStore {
         frame_state: &mut FrameBuildingState,
         display_list: &BuiltDisplayList,
         is_chased: bool,
-        current_pic_rect: &mut PictureRect,
     ) -> bool {
         // If we have dependencies, we need to prepare them first, in order
         // to know the actual rect of this primitive.
@@ -1855,21 +1854,19 @@ impl PrimitiveStore {
                 pic_state_for_children.has_non_root_coord_system |=
                     prim_context.spatial_node.coordinate_system_id != CoordinateSystemId::root();
 
-                let mut pic_rect = PictureRect::zero();
                 self.prepare_primitives(
                     &mut prim_instances,
                     &pic_context_for_children,
                     &mut pic_state_for_children,
                     frame_context,
                     frame_state,
-                    &mut pic_rect,
                 );
 
                 let pic_rect = if is_passthrough {
-                    *current_pic_rect = current_pic_rect.union(&pic_rect);
+                    pic_state.rect = pic_state.rect.union(&pic_state_for_children.rect);
                     None
                 } else {
-                    Some(pic_rect)
+                    Some(pic_state_for_children.rect)
                 };
 
                 if !pic_state_for_children.is_cacheable {
@@ -1980,16 +1977,20 @@ impl PrimitiveStore {
                 prim.metadata.local_clip_rect
             };
 
-            let pic_rect = match pic_state.map_local_to_pic
-                                          .map(&prim.metadata.local_rect) {
+            let pic_rect = match pic_state
+                .map_local_to_pic
+                .map(&prim.metadata.local_rect)
+            {
                 Some(pic_rect) => pic_rect,
                 None => return false,
             };
 
             // Check if the clip bounding rect (in pic space) is visible on screen
             // This includes both the prim bounding rect + local prim clip rect!
-            let world_rect = match pic_state.map_pic_to_world
-                                            .map(&clip_chain.pic_clip_rect) {
+            let world_rect = match pic_state
+                .map_pic_to_world
+                .map(&clip_chain.pic_clip_rect)
+            {
                 Some(world_rect) => world_rect,
                 None => {
                     return false;
@@ -2022,7 +2023,7 @@ impl PrimitiveStore {
                 println!("\tconsidered visible and ready with local rect {:?}", local_rect);
             }
 
-            *current_pic_rect = current_pic_rect.union(&pic_rect);
+            pic_state.rect = pic_state.rect.union(&pic_rect);
         }
 
         prim.prepare_prim_for_render_inner(
@@ -2046,7 +2047,6 @@ impl PrimitiveStore {
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
-        current_pic_rect: &mut PictureRect,
     ) {
         let display_list = &frame_context
             .pipelines
@@ -2135,7 +2135,6 @@ impl PrimitiveStore {
                 frame_state,
                 display_list,
                 is_chased,
-                current_pic_rect,
             ) {
                 frame_state.profile_counters.visible_primitives.inc();
             }
