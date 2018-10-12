@@ -377,6 +377,7 @@ impl PicturePrimitive {
             has_non_root_coord_system: false,
             is_cacheable: true,
             local_rect_changed: false,
+            rect: PictureRect::zero(),
             raster_spatial_node_index,
             surface_spatial_node_index,
             map_local_to_pic,
