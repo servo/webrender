@@ -45,12 +45,6 @@ impl Add<usize> for FrameId {
     }
 }
 
-const GL_FORMAT_RGBA: gl::GLuint = gl::RGBA;
-
-const GL_FORMAT_BGRA_GL: gl::GLuint = gl::BGRA;
-
-const GL_FORMAT_BGRA_GLES: gl::GLuint = gl::BGRA_EXT;
-
 const SHADER_VERSION_GL: &str = "#version 150\n";
 const SHADER_VERSION_GLES: &str = "#version 300 es\n";
 
@@ -737,7 +731,8 @@ pub struct Device {
     #[cfg(feature = "debug_renderer")]
     capabilities: Capabilities,
 
-    bgra_format: gl::GLuint,
+    bgra_format_internal: gl::GLuint,
+    bgra_format_external: gl::GLuint,
 
     // debug
     inside_frame: bool,
@@ -781,14 +776,28 @@ impl Device {
             extensions.push(gl.get_string_i(gl::EXTENSIONS, i));
         }
 
+        // Our common-case image data in Firefox is BGRA, so we make an effort
+        // to use BGRA as the internal texture storage format to avoid the need
+        // to swizzle during upload. Currently we only do this on GLES (and thus
+        // for Windows, via ANGLE).
+        //
+        // On Mac, Apple docs [1] claim that BGRA is a more efficient internal
+        // format, so we may want to consider doing that at some point, since it
+        // would give us both a more efficient internal format and avoid the
+        // swizzling in the common case.
+        //
+        // We also need our internal format types to be sized, since glTexStorage*
+        // will reject non-sized internal format types.
+        //
+        // [1] https://developer.apple.com/library/archive/documentation/
+        //     GraphicsImaging/Conceptual/OpenGL-MacProgGuide/opengl_texturedata/
+        //     opengl_texturedata.html#//apple_ref/doc/uid/TP40001987-CH407-SW22
         let supports_bgra = supports_extension(&extensions, "GL_EXT_texture_format_BGRA8888");
-        let bgra_format = match gl.get_type() {
-            gl::GlType::Gl => GL_FORMAT_BGRA_GL,
-            gl::GlType::Gles => if supports_bgra {
-                GL_FORMAT_BGRA_GLES
-            } else {
-                GL_FORMAT_RGBA
-            }
+        let (bgra_format_internal, bgra_format_external) = if supports_bgra {
+            assert_eq!(gl.get_type(), gl::GlType::Gles, "gleam only detects bgra on gles");
+            (gl::BGRA8_EXT, gl::BGRA_EXT)
+        } else {
+            (gl::RGBA8, gl::BGRA)
         };
 
         Device {
@@ -805,7 +814,8 @@ impl Device {
                 supports_multisampling: false, //TODO
             },
 
-            bgra_format,
+            bgra_format_internal,
+            bgra_format_external,
 
             bound_textures: [0; 16],
             bound_program: 0,
@@ -1578,7 +1588,7 @@ impl Device {
         TextureUploader {
             target: UploadTarget {
                 gl: &*self.gl,
-                bgra_format: self.bgra_format,
+                bgra_format: self.bgra_format_external,
                 texture,
             },
             buffer,
@@ -2218,13 +2228,9 @@ impl Device {
                 pixel_type: gl::UNSIGNED_SHORT,
             },
             ImageFormat::BGRA8 => {
-                let external = self.bgra_format;
                 FormatDesc {
-                    internal: match self.gl.get_type() {
-                        gl::GlType::Gl => gl::RGBA,
-                        gl::GlType::Gles => external,
-                    },
-                    external,
+                    internal: self.bgra_format_internal,
+                    external: self.bgra_format_external,
                     pixel_type: gl::UNSIGNED_BYTE,
                 }
             },
