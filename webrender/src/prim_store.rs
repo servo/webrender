@@ -1559,7 +1559,7 @@ impl Primitive {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PrimitiveInstance {
     /// Index into the prim store containing information about
     /// the specific primitive. This will be removed once all

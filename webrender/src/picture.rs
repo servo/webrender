@@ -157,19 +157,31 @@ pub struct PictureCacheKey {
 
 /// Enum value describing the place of a picture in a 3D context.
 #[derive(Clone, Debug)]
-pub enum Picture3DContext {
+pub enum Picture3DContext<R> {
     /// The picture is not a part of 3D context sub-hierarchy.
     Out,
     /// The picture is a part of 3D context.
     In {
-        /// True if this picture starts a 3D context sub-hierarchy.
-        is_root: bool,
+        /// Additional data for the case of this a root of 3D hierarchy.
+        root_data: Option<R>,
         /// The spatial node index of an "ancestor" element, i.e. one
         /// that establishes the transformed element’s containing block.
         ///
         /// See CSS spec draft for more details:
         /// https://drafts.csswg.org/css-transforms-2/#accumulated-3d-transformation-matrix-computation
         ancestor_index: SpatialNodeIndex,
+    },
+}
+
+impl<R> Picture3DContext<R> {
+    pub fn without_root_data(&self) -> Picture3DContext<()> {
+        match *self {
+            Picture3DContext::Out => Picture3DContext::Out,
+            Picture3DContext::In { ref root_data, ancestor_index } => Picture3DContext::In {
+                root_data: root_data.as_ref().map(|_| ()),
+                ancestor_index,
+            },
+        }
     }
 }
 
@@ -200,7 +212,7 @@ pub struct PicturePrimitive {
     pub requested_raster_space: RasterSpace,
 
     pub raster_config: Option<RasterConfig>,
-    pub context_3d: Picture3DContext,
+    pub context_3d: Picture3DContext<()>,
 
     // If requested as a frame output (for rendering
     // pages to a texture), this is the pipeline this
@@ -235,7 +247,7 @@ impl PicturePrimitive {
     pub fn new_image(
         id: PictureId,
         requested_composite_mode: Option<PictureCompositeMode>,
-        context_3d: Picture3DContext,
+        context_3d: Picture3DContext<()>,
         pipeline_id: PipelineId,
         frame_output_pipeline_id: Option<PipelineId>,
         apply_local_clip_rect: bool,
@@ -348,15 +360,16 @@ impl PicturePrimitive {
         );
 
         let (containing_block_index, plane_splitter) = match self.context_3d {
-            Picture3DContext::Out => (surface_spatial_node_index, None),
-            Picture3DContext::In { ancestor_index, .. } => (
-                ancestor_index,
-                Some(
-                    parent_plane_splitter
-                        .take()
-                        .unwrap_or_else(PlaneSplitter::new)
-                ),
-            ),
+            Picture3DContext::Out => {
+                (surface_spatial_node_index, None)
+            }
+            Picture3DContext::In { root_data: Some(_), ancestor_index } => {
+                assert!(parent_plane_splitter.is_none());
+                (ancestor_index, Some(PlaneSplitter::new()))
+            }
+            Picture3DContext::In { root_data: None, ancestor_index } => {
+                (ancestor_index, parent_plane_splitter.take())
+            }
         };
 
         let map_local_to_containing_block = SpaceMapper::new(
