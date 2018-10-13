@@ -23,7 +23,7 @@ use gpu_types::BrushFlags;
 use hit_test::{HitTestingItem, HitTestingRun};
 use image::simplify_repeated_primitive;
 use internal_types::{FastHashMap, FastHashSet};
-use picture::{Picture3DContext, PictureCompositeMode, PictureId, PictureIdGenerator, PicturePrimitive};
+use picture::{Picture3DContext, PictureCompositeMode, PictureIdGenerator, PicturePrimitive};
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor, PrimitiveInstance};
 use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveOpacity, PrimitiveKey};
 use prim_store::{BorderSource, BrushSegment, BrushSegmentVec};
@@ -955,7 +955,7 @@ impl<'a> DisplayListFlattener<'a> {
                 // Cut the sequence of flat children before starting a child stacking context,
                 // so that the relative order between them and our current SC is preserved.
                 let extra_instance = sc.cut_flat_item_sequence(
-                    self.picture_id_generator.next(),
+                    &mut self.picture_id_generator,
                     &mut self.prim_store,
                 );
                 (sc.transform_style, extra_instance)
@@ -1034,7 +1034,7 @@ impl<'a> DisplayListFlattener<'a> {
         // to correctly handle some CSS cases (see #1957).
         let max_clip = LayoutRect::max_rect();
 
-        let (leaf_context_3d, composite_mode) = match stacking_context.context_3d {
+        let (leaf_context_3d, leaf_composite_mode, leaf_output_pipeline_id) = match stacking_context.context_3d {
             // TODO(gw): For now, as soon as this picture is in
             //           a 3D context, we draw it to an intermediate
             //           surface and apply plane splitting. However,
@@ -1045,27 +1045,29 @@ impl<'a> DisplayListFlattener<'a> {
             Picture3DContext::In { ancestor_index, .. } => (
                 Picture3DContext::In { root_data: None, ancestor_index },
                 Some(PictureCompositeMode::Blit),
+                None,
             ),
-            // Add a dummy composite filter if the SC has to be isolated.
-            Picture3DContext::Out if stacking_context.should_isolate => (
-                Picture3DContext::Out,
-                Some(PictureCompositeMode::Blit),
-            ),
-            // By default, this picture will be collapsed into
-            // the owning target.
             Picture3DContext::Out => (
                 Picture3DContext::Out,
-                None,
+                if stacking_context.should_isolate {
+                    // Add a dummy composite filter if the SC has to be isolated.
+                    Some(PictureCompositeMode::Blit)
+                } else {
+                    // By default, this picture will be collapsed into
+                    // the owning target.
+                    None
+                },
+                stacking_context.frame_output_pipeline_id
             ),
         };
 
         // Add picture for this actual stacking context contents to render into.
         let leaf_picture = PicturePrimitive::new_image(
             self.picture_id_generator.next(),
-            composite_mode,
+            leaf_composite_mode,
             leaf_context_3d,
             stacking_context.pipeline_id,
-            stacking_context.frame_output_pipeline_id,
+            leaf_output_pipeline_id,
             true,
             stacking_context.requested_raster_space,
             stacking_context.primitives,
@@ -1110,7 +1112,7 @@ impl<'a> DisplayListFlattener<'a> {
                     ancestor_index,
                 },
                 stacking_context.pipeline_id,
-                None,
+                stacking_context.frame_output_pipeline_id,
                 true,
                 stacking_context.requested_raster_space,
                 prims,
@@ -2171,7 +2173,7 @@ impl FlattenedStackingContext {
     /// recorded so far and generate a picture from them.
     pub fn cut_flat_item_sequence(
         &mut self,
-        new_picture_id: PictureId,
+        picture_id_generator: &mut PictureIdGenerator,
         prim_store: &mut PrimitiveStore,
     ) -> Option<PrimitiveInstance> {
         if self.transform_style != TransformStyle::Preserve3D || self.primitives.is_empty() {
@@ -2186,7 +2188,7 @@ impl FlattenedStackingContext {
         };
 
         let container_picture = PicturePrimitive::new_image(
-            new_picture_id,
+            picture_id_generator.next(),
             Some(PictureCompositeMode::Blit),
             flat_items_context_3d,
             self.pipeline_id,
@@ -2202,6 +2204,7 @@ impl FlattenedStackingContext {
             &LayoutRect::max_rect(),
             PrimitiveContainer::Brush(container_prim),
         );
+
         Some(PrimitiveInstance::new(
             cut_prim_index,
             self.primitive_data_handle,
