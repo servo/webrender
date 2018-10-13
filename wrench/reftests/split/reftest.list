@@ -6,10 +6,11 @@
 == intermediate-1.yaml intermediate-1-ref.yaml
 == intermediate-2.yaml intermediate-1-ref.yaml
 == split-intersect1.yaml split-intersect1-ref.yaml
-#== cross.yaml cross-ref.yaml #TODO: https://github.com/servo/webrender/issues/2946
 == ordering.yaml ordering-ref.yaml
 fuzzy(1,20) == near-plane.yaml near-plane.png
 # Note: on windows the image is rendered at a slightly different spot.
 # similarly, a lot of tests in "transform" are non-windows. TODO: investigate
 platform(linux,mac) fuzzy(1,20) == same-plane.yaml same-plane.png
+#TODO: https://github.com/servo/webrender/issues/2946
+#== cross.yaml cross-ref.yaml
 == mixed-order.yaml mixed-order-ref.yaml
