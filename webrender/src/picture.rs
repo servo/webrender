@@ -172,18 +172,6 @@ pub enum Picture3DContext<R> {
     },
 }
 
-impl<R> Picture3DContext<R> {
-    pub fn without_root_data(&self) -> Picture3DContext<()> {
-        match *self {
-            Picture3DContext::Out => Picture3DContext::Out,
-            Picture3DContext::In { ref root_data, ancestor_index } => Picture3DContext::In {
-                root_data: root_data.as_ref().map(|_| ()),
-                ancestor_index,
-            },
-        }
-    }
-}
-
 pub struct PicturePrimitive {
     // List of primitive runs that make up this picture.
     pub prim_instances: Vec<PrimitiveInstance>,
@@ -364,7 +352,6 @@ impl PicturePrimitive {
                 (surface_spatial_node_index, None)
             }
             Picture3DContext::In { root_data: Some(_), ancestor_index } => {
-                assert!(parent_plane_splitter.is_none());
                 (ancestor_index, Some(PlaneSplitter::new()))
             }
             Picture3DContext::In { root_data: None, ancestor_index } => {
@@ -441,14 +428,9 @@ impl PicturePrimitive {
         local_rect: Option<PictureRect>,
         frame_state: &mut FrameBuildingState,
     ) -> (LayoutRect, Option<ClipNodeCollector>) {
-        match self.context_3d {
-            Picture3DContext::Out => {}
-            Picture3DContext::In {..} => {
-                assert!(parent_plane_splitter.is_none());
-                *parent_plane_splitter = state.plane_splitter.take();
-            }
+        if parent_plane_splitter.is_none() {
+            *parent_plane_splitter = state.plane_splitter.take();
         }
-
         self.prim_instances = prim_instances;
         self.state = Some(state);
 
