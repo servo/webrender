@@ -23,6 +23,7 @@ use gpu_types::BrushFlags;
 use image::{for_each_tile, for_each_repetition};
 use intern;
 use picture::{PictureCompositeMode, PicturePrimitive};
+use plane_split::{Clipper, Polygon, Splitter};
 #[cfg(debug_assertions)]
 use render_backend::FrameId;
 use render_task::{BlitSource, RenderTask, RenderTaskCacheKey, to_cache_size};
@@ -31,7 +32,8 @@ use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
 use resource_cache::{ImageProperties, ImageRequest, ResourceCache};
 use scene::SceneProperties;
 use std::{cmp, fmt, mem, ops, usize};
-use util::{ScaleOffset, MatrixHelpers, pack_as_float, project_rect, raster_rect_to_device_pixels};
+use util::{ScaleOffset, MatrixHelpers, TransformedRectKind};
+use util::{pack_as_float, project_rect, raster_rect_to_device_pixels};
 use smallvec::SmallVec;
 
 
@@ -1780,6 +1782,7 @@ impl PrimitiveStore {
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
         display_list: &BuiltDisplayList,
+        plane_split_anchor: usize,
         is_chased: bool,
     ) -> bool {
         // If we have dependencies, we need to prepare them first, in order
@@ -1999,6 +2002,7 @@ impl PrimitiveStore {
             frame_context,
             frame_state,
             display_list,
+            plane_split_anchor,
             is_chased,
         );
 
@@ -2019,7 +2023,7 @@ impl PrimitiveStore {
             .expect("No display list?")
             .display_list;
 
-        for prim_instance in prim_instances {
+        for (plane_split_anchor, prim_instance) in prim_instances.iter_mut().enumerate() {
             prim_instance.clipped_world_rect = None;
 
             let prim_index = prim_instance.prim_index;
@@ -2099,6 +2103,7 @@ impl PrimitiveStore {
                 frame_context,
                 frame_state,
                 display_list,
+                plane_split_anchor,
                 is_chased,
             ) {
                 frame_state.profile_counters.visible_primitives.inc();
@@ -2505,6 +2510,7 @@ impl Primitive {
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
         display_list: &BuiltDisplayList,
+        plane_split_anchor: usize,
         is_chased: bool,
     ) {
         let mut is_tiled = false;
@@ -3014,7 +3020,7 @@ impl Primitive {
                     }
                     BrushKind::Picture { pic_index, .. } => {
                         let pic = &mut pictures[pic_index.0];
-                        if !pic.prepare_for_render(
+                        if pic.prepare_for_render(
                             pic_index,
                             prim_instance,
                             &self.local_rect,
@@ -3022,6 +3028,54 @@ impl Primitive {
                             frame_context,
                             frame_state,
                         ) {
+                            if let Some(ref mut splitter) = pic_state.plane_splitter {
+                                // Push into parent plane splitter.
+                                let transform = frame_state.transforms
+                                    .get_world_transform(prim_instance.spatial_node_index);
+
+                                // Apply the local clip rect here, before splitting. This is
+                                // because the local clip rect can't be applied in the vertex
+                                // shader for split composites, since we are drawing polygons
+                                // rather that rectangles. The interpolation still works correctly
+                                // since we determine the UVs by doing a bilerp with a factor
+                                // from the original local rect.
+                                let local_rect = self.local_rect
+                                        .intersection(&prim_instance.combined_local_clip_rect);
+
+                                if let Some(local_rect) = local_rect {
+                                    match transform.transform_kind() {
+                                        TransformedRectKind::AxisAligned => {
+                                            let inv_transform = frame_state.transforms
+                                                .get_world_inv_transform(prim_instance.spatial_node_index);
+                                            let polygon = Polygon::from_transformed_rect_with_inverse(
+                                                local_rect.cast(),
+                                                &transform.cast(),
+                                                &inv_transform.cast(),
+                                                plane_split_anchor,
+                                            ).unwrap();
+                                            splitter.add(polygon);
+                                        }
+                                        TransformedRectKind::Complex => {
+                                            let mut clipper = Clipper::new();
+                                            let matrix = transform.cast();
+                                            let results = clipper.clip_transformed(
+                                                Polygon::from_rect(
+                                                    local_rect.cast(),
+                                                    plane_split_anchor,
+                                                ),
+                                                &matrix,
+                                                prim_instance.clipped_world_rect.map(|r| r.to_f64()),
+                                            );
+                                            if let Ok(results) = results {
+                                                for poly in results {
+                                                    splitter.add(poly);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
                             prim_instance.clipped_world_rect = None;
                         }
                     }
