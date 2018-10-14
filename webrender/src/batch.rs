@@ -689,7 +689,7 @@ impl AlphaBatchBuilder {
                         // for it and add it to the current plane splitter.
                         if let Picture3DContext::In { .. } = picture.context_3d {
                             // Push into parent plane splitter.
-                            debug_assert!(picture.raster_config.is_some());
+                            //debug_assert!(picture.raster_config.is_some());
                             let transform = transforms.get_world_transform(prim_instance.spatial_node_index);
 
                             // Apply the local clip rect here, before splitting. This is

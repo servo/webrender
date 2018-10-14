@@ -1106,7 +1106,7 @@ impl<'a> DisplayListFlattener<'a> {
             // This is the acttual picture representing our 3D hierarchy root.
             let container_picture = PicturePrimitive::new_image(
                 self.picture_id_generator.next(),
-                Some(PictureCompositeMode::Blit),
+                None,
                 Picture3DContext::In {
                     root_data: Some(()),
                     ancestor_index,
