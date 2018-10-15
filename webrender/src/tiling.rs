@@ -286,7 +286,7 @@ impl<T: RenderTarget> RenderTargetList<T> {
         assert_eq!(t.get_dimensions(), self.max_size);
         assert_eq!(t.get_format(), self.format);
         assert_eq!(t.get_layer_count() as usize, self.targets.len());
-        assert_eq!(t.has_depth(), self.needs_depth());
+        assert!(t.supports_depth() >= self.needs_depth());
     }
 }
 
