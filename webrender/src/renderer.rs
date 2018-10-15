@@ -3812,7 +3812,7 @@ impl Renderer {
         // create a new texture.
         let selector = TargetSelector {
             size: list.max_size,
-            num_layers: list.targets.len() as _,
+            num_layers: list.targets.len(),
             format: list.format,
         };
         let index = self.texture_resolver.render_target_pool
@@ -3820,7 +3820,7 @@ impl Renderer {
             .position(|texture| {
                 selector == TargetSelector {
                     size: texture.get_dimensions(),
-                    num_layers: texture.get_render_target_layer_count(),
+                    num_layers: texture.get_layer_count() as usize,
                     format: texture.get_format(),
                 }
             });
@@ -4125,7 +4125,7 @@ impl Renderer {
         let fb_width = framebuffer_size.width as i32;
         let num_layers: i32 = self.texture_resolver.render_target_pool
             .iter()
-            .map(|texture| texture.get_render_target_layer_count() as i32)
+            .map(|texture| texture.get_layer_count() as i32)
             .sum();
 
         if num_layers * (size + spacing) > fb_width {
@@ -4139,7 +4139,7 @@ impl Renderer {
             let dimensions = texture.get_dimensions();
             let src_rect = DeviceIntRect::new(DeviceIntPoint::zero(), dimensions.to_i32());
 
-            let layer_count = texture.get_render_target_layer_count();
+            let layer_count = texture.get_layer_count() as usize;
             for layer in 0 .. layer_count {
                 self.device.bind_read_target(Some(TextureReadTarget { texture, layer }));
                 let x = fb_width - (spacing + size) * (target_index + 1);

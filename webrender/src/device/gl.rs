@@ -452,10 +452,6 @@ impl Texture {
         DeviceUintSize::new(self.width, self.height)
     }
 
-    pub fn get_render_target_layer_count(&self) -> usize {
-        self.fbo_ids.len()
-    }
-
     pub fn get_layer_count(&self) -> i32 {
         self.layer_count
     }
