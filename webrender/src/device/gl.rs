@@ -10,7 +10,7 @@ use api::TextureTarget;
 use api::ImageDescriptor;
 use euclid::Transform3D;
 use gleam::gl;
-use internal_types::{FastHashMap, RenderTargetInfo};
+use internal_types::{FastHashMap, LayerIndex, RenderTargetInfo};
 use log::Level;
 use smallvec::SmallVec;
 use std::cell::RefCell;
@@ -759,6 +759,35 @@ pub struct Device {
     extensions: Vec<String>,
 }
 
+/// Contains the parameters necessary to bind a texture-backed draw target.
+#[derive(Clone, Copy)]
+pub struct TextureDrawTarget<'a> {
+    /// The target texture.
+    pub texture: &'a Texture,
+    /// The slice within the texture array to draw to.
+    pub layer: LayerIndex,
+    /// Whether to draw with the texture's associated depth target.
+    pub with_depth: bool,
+}
+
+/// Contains the parameters necessary to bind a texture-backed read target.
+#[derive(Clone, Copy)]
+pub struct TextureReadTarget<'a> {
+    /// The source texture.
+    pub texture: &'a Texture,
+    /// The slice within the texture array to read from.
+    pub layer: LayerIndex,
+}
+
+impl<'a> From<TextureDrawTarget<'a>> for TextureReadTarget<'a> {
+    fn from(t: TextureDrawTarget<'a>) -> Self {
+        TextureReadTarget {
+            texture: t.texture,
+            layer: t.layer,
+        }
+    }
+}
+
 impl Device {
     pub fn new(
         gl: Rc<gl::Gl>,
@@ -1006,9 +1035,9 @@ impl Device {
         }
     }
 
-    pub fn bind_read_target(&mut self, texture_and_layer: Option<(&Texture, i32)>) {
-        let fbo_id = texture_and_layer.map_or(FBOId(self.default_read_fbo), |texture_and_layer| {
-            texture_and_layer.0.fbo_ids[texture_and_layer.1 as usize]
+    pub fn bind_read_target(&mut self, texture_target: Option<TextureReadTarget>) {
+        let fbo_id = texture_target.map_or(FBOId(self.default_read_fbo), |target| {
+            target.texture.fbo_ids[target.layer]
         });
 
         self.bind_read_target_impl(fbo_id)
@@ -1025,11 +1054,11 @@ impl Device {
 
     pub fn bind_draw_target(
         &mut self,
-        texture_and_layer: Option<(&Texture, i32)>,
+        texture_target: Option<TextureDrawTarget>,
         dimensions: Option<DeviceUintSize>,
     ) {
-        let fbo_id = texture_and_layer.map_or(FBOId(self.default_draw_fbo), |texture_and_layer| {
-            texture_and_layer.0.fbo_ids[texture_and_layer.1 as usize]
+        let fbo_id = texture_target.map_or(FBOId(self.default_draw_fbo), |target| {
+            target.texture.fbo_ids[target.layer]
         });
 
         self.bind_draw_target_impl(fbo_id);

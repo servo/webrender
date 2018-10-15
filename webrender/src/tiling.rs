@@ -821,7 +821,7 @@ pub enum RenderPassKind {
     OffScreen {
         alpha: RenderTargetList<AlphaRenderTarget>,
         color: RenderTargetList<ColorRenderTarget>,
-        texture_cache: FastHashMap<(CacheTextureId, i32), TextureCacheRenderTarget>,
+        texture_cache: FastHashMap<(CacheTextureId, usize), TextureCacheRenderTarget>,
     },
 }
 
@@ -950,8 +950,8 @@ impl RenderPass {
                         // Find a target to assign this task to, or create a new
                         // one if required.
                         let texture_target = match task.location {
-                            RenderTaskLocation::TextureCache(texture_id, layer, _) => {
-                                Some((texture_id, layer))
+                            RenderTaskLocation::TextureCache { texture, layer, .. } => {
+                                Some((texture, layer))
                             }
                             RenderTaskLocation::Fixed(..) => {
                                 None
