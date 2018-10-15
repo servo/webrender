@@ -752,8 +752,7 @@ impl AlphaBatchBuilder {
                                                     textures,
                                                 );
                                                 let prim_header_index = prim_headers.push(&prim_header, [
-                                                    uv_rect_address.as_int(),
-                                                    (ShaderColorMode::Image as i32) << 16 |
+                                                    ShaderColorMode::Image as i32,
                                                     RasterizationSpace::Screen as i32,
                                                     0,
                                                 ]);
@@ -764,6 +763,7 @@ impl AlphaBatchBuilder {
                                                     edge_flags: EdgeAaSegmentMask::empty(),
                                                     brush_flags: BrushFlags::empty(),
                                                     clip_task_address,
+                                                    user_data: uv_rect_address.as_int(),
                                                 };
 
                                                 self.batch_list.push_single_instance(
@@ -814,8 +814,7 @@ impl AlphaBatchBuilder {
                                                 let shadow_prim_address = gpu_cache.get_address(&picture.extra_gpu_data_handle);
 
                                                 let content_prim_header_index = prim_headers.push(&prim_header, [
-                                                    content_uv_rect_address,
-                                                    (ShaderColorMode::Image as i32) << 16 |
+                                                    ShaderColorMode::Image as i32,
                                                     RasterizationSpace::Screen as i32,
                                                     0,
                                                 ]);
@@ -831,8 +830,7 @@ impl AlphaBatchBuilder {
                                                 };
 
                                                 let shadow_prim_header_index = prim_headers.push(&shadow_prim_header, [
-                                                    shadow_uv_rect_address,
-                                                    (ShaderColorMode::Alpha as i32) << 16 |
+                                                    ShaderColorMode::Alpha as i32,
                                                     RasterizationSpace::Screen as i32,
                                                     0,
                                                 ]);
@@ -843,6 +841,7 @@ impl AlphaBatchBuilder {
                                                     segment_index: 0,
                                                     edge_flags: EdgeAaSegmentMask::empty(),
                                                     brush_flags: BrushFlags::empty(),
+                                                    user_data: shadow_uv_rect_address,
                                                 };
 
                                                 let content_instance = BrushInstance {
@@ -851,6 +850,7 @@ impl AlphaBatchBuilder {
                                                     segment_index: 0,
                                                     edge_flags: EdgeAaSegmentMask::empty(),
                                                     brush_flags: BrushFlags::empty(),
+                                                    user_data: content_uv_rect_address,
                                                 };
 
                                                 self.batch_list.push_single_instance(
@@ -935,6 +935,7 @@ impl AlphaBatchBuilder {
                                                     segment_index: 0,
                                                     edge_flags: EdgeAaSegmentMask::empty(),
                                                     brush_flags: BrushFlags::empty(),
+                                                    user_data: 0,
                                                 };
 
                                                 self.batch_list.push_single_instance(
@@ -975,6 +976,7 @@ impl AlphaBatchBuilder {
                                             segment_index: 0,
                                             edge_flags: EdgeAaSegmentMask::empty(),
                                             brush_flags: BrushFlags::empty(),
+                                            user_data: 0,
                                         };
 
                                         self.batch_list.push_single_instance(
@@ -999,8 +1001,7 @@ impl AlphaBatchBuilder {
                                             .get_texture_address(gpu_cache)
                                             .as_int();
                                         let prim_header_index = prim_headers.push(&prim_header, [
-                                            uv_rect_address,
-                                            (ShaderColorMode::Image as i32) << 16 |
+                                            ShaderColorMode::Image as i32,
                                             RasterizationSpace::Screen as i32,
                                             0,
                                         ]);
@@ -1011,6 +1012,7 @@ impl AlphaBatchBuilder {
                                             segment_index: 0,
                                             edge_flags: EdgeAaSegmentMask::empty(),
                                             brush_flags: BrushFlags::empty(),
+                                            user_data: uv_rect_address,
                                         };
 
                                         self.batch_list.push_single_instance(
@@ -1041,7 +1043,7 @@ impl AlphaBatchBuilder {
                     }
                     BrushKind::Image { request, ref visible_tiles, .. } if !visible_tiles.is_empty() => {
                         for tile in visible_tiles {
-                            if let Some((batch_kind, textures, user_data)) = get_image_tile_params(
+                            if let Some((batch_kind, textures, user_data, uv_rect_address)) = get_image_tile_params(
                                     ctx.resource_cache,
                                     gpu_cache,
                                     deferred_resolves,
@@ -1064,7 +1066,8 @@ impl AlphaBatchBuilder {
                                     prim_header_index,
                                     clip_task_address,
                                     bounding_rect,
-                                    tile.edge_flags
+                                    tile.edge_flags,
+                                    uv_rect_address,
                                 );
                             }
                         }
@@ -1100,7 +1103,13 @@ impl AlphaBatchBuilder {
                         );
                     }
                     _ => {
-                        if let Some((batch_kind, textures, user_data)) = brush.get_batch_params(
+                        // TODO(gw): As an interim step, just return one value for the
+                        //           per-segment user data. In the future, this method
+                        //           will be expanded to optionally return a list of
+                        //           (BatchTextures, user_data) per segment, which will
+                        //           allow a different texture / render task to be used
+                        //           per segment.
+                        if let Some((batch_kind, textures, user_data, segment_user_data)) = brush.get_batch_params(
                                 ctx.resource_cache,
                                 gpu_cache,
                                 deferred_resolves,
@@ -1124,6 +1133,7 @@ impl AlphaBatchBuilder {
                                 bounding_rect,
                                 transform_kind,
                                 render_tasks,
+                                segment_user_data,
                             );
                         }
                     }
@@ -1236,6 +1246,7 @@ impl AlphaBatchBuilder {
         clip_task_address: RenderTaskAddress,
         bounding_rect: &WorldRect,
         edge_flags: EdgeAaSegmentMask,
+        uv_rect_address: GpuCacheAddress,
     ) {
         let base_instance = BrushInstance {
             prim_header_index,
@@ -1243,6 +1254,7 @@ impl AlphaBatchBuilder {
             segment_index: 0,
             edge_flags,
             brush_flags: BrushFlags::PERSPECTIVE_INTERPOLATION,
+            user_data: uv_rect_address.as_int(),
         };
 
         let batch_key = BatchKey {
@@ -1271,6 +1283,7 @@ impl AlphaBatchBuilder {
         bounding_rect: &WorldRect,
         transform_kind: TransformedRectKind,
         render_tasks: &RenderTaskTree,
+        user_data: i32,
     ) {
         let base_instance = BrushInstance {
             prim_header_index,
@@ -1278,6 +1291,7 @@ impl AlphaBatchBuilder {
             segment_index: 0,
             edge_flags: EdgeAaSegmentMask::all(),
             brush_flags: BrushFlags::PERSPECTIVE_INTERPOLATION,
+            user_data,
         };
 
         match brush.segment_desc {
@@ -1375,6 +1389,7 @@ fn add_gradient_tiles(
                 segment_index: 0,
                 edge_flags: EdgeAaSegmentMask::all(),
                 brush_flags: BrushFlags::PERSPECTIVE_INTERPOLATION,
+                user_data: 0,
             }
         ));
     }
@@ -1385,7 +1400,7 @@ fn get_image_tile_params(
     gpu_cache: &mut GpuCache,
     deferred_resolves: &mut Vec<DeferredResolve>,
     request: ImageRequest,
-) -> Option<(BrushBatchKind, BatchTextures, [i32; 3])> {
+) -> Option<(BrushBatchKind, BatchTextures, [i32; 3], GpuCacheAddress)> {
 
     let cache_item = resolve_image(
         request,
@@ -1402,11 +1417,11 @@ fn get_image_tile_params(
             BrushBatchKind::Image(get_buffer_kind(cache_item.texture_id)),
             textures,
             [
-                cache_item.uv_rect_handle.as_int(gpu_cache),
-                (ShaderColorMode::Image as i32) << 16 |
-                     RasterizationSpace::Local as i32,
+                ShaderColorMode::Image as i32,
+                RasterizationSpace::Local as i32,
                 0,
             ],
+            gpu_cache.get_address(&cache_item.uv_rect_handle),
         ))
     }
 }
@@ -1418,7 +1433,7 @@ impl BrushPrimitive {
         gpu_cache: &mut GpuCache,
         deferred_resolves: &mut Vec<DeferredResolve>,
         is_chased: bool,
-    ) -> Option<(BrushBatchKind, BatchTextures, [i32; 3])> {
+    ) -> Option<(BrushBatchKind, BatchTextures, [i32; 3], i32)> {
         match self.kind {
             BrushKind::Image { request, ref source, .. } => {
                 let cache_item = match *source {
@@ -1452,11 +1467,11 @@ impl BrushPrimitive {
                         BrushBatchKind::Image(get_buffer_kind(cache_item.texture_id)),
                         textures,
                         [
-                            cache_item.uv_rect_handle.as_int(gpu_cache),
-                            (ShaderColorMode::Image as i32) << 16|
-                             RasterizationSpace::Local as i32,
+                            ShaderColorMode::Image as i32,
+                            RasterizationSpace::Local as i32,
                             0,
                         ],
+                        cache_item.uv_rect_handle.as_int(gpu_cache),
                     ))
                 }
             }
@@ -1467,6 +1482,7 @@ impl BrushPrimitive {
                             BrushBatchKind::Solid,
                             BatchTextures::no_texture(),
                             [0; 3],
+                            0,
                         ))
                     }
                     LineStyle::Dotted |
@@ -1480,11 +1496,11 @@ impl BrushPrimitive {
                             BrushBatchKind::Image(get_buffer_kind(cache_item.texture_id)),
                             textures,
                             [
-                                cache_item.uv_rect_handle.as_int(gpu_cache),
-                                (ShaderColorMode::Image as i32) << 16|
-                                 RasterizationSpace::Local as i32,
+                                ShaderColorMode::Image as i32,
+                                RasterizationSpace::Local as i32,
                                 0,
                             ],
+                            cache_item.uv_rect_handle.as_int(gpu_cache),
                         ))
                     }
                 }
@@ -1519,11 +1535,11 @@ impl BrushPrimitive {
                         BrushBatchKind::Image(get_buffer_kind(cache_item.texture_id)),
                         textures,
                         [
-                            cache_item.uv_rect_handle.as_int(gpu_cache),
-                            (ShaderColorMode::Image as i32) << 16|
-                             RasterizationSpace::Local as i32,
+                            ShaderColorMode::Image as i32,
+                            RasterizationSpace::Local as i32,
                             0,
                         ],
+                        cache_item.uv_rect_handle.as_int(gpu_cache),
                     ))
                 }
             }
@@ -1535,6 +1551,7 @@ impl BrushPrimitive {
                     BrushBatchKind::Solid,
                     BatchTextures::no_texture(),
                     [0; 3],
+                    0,
                 ))
             }
             BrushKind::Clear => {
@@ -1542,6 +1559,7 @@ impl BrushPrimitive {
                     BrushBatchKind::Solid,
                     BatchTextures::no_texture(),
                     [0; 3],
+                    0,
                 ))
             }
             BrushKind::RadialGradient { ref stops_handle, .. } => {
@@ -1553,6 +1571,7 @@ impl BrushPrimitive {
                         0,
                         0,
                     ],
+                    0,
                 ))
             }
             BrushKind::LinearGradient { ref stops_handle, .. } => {
@@ -1564,6 +1583,7 @@ impl BrushPrimitive {
                         0,
                         0,
                     ],
+                    0,
                 ))
             }
             BrushKind::YuvImage { format, yuv_key, image_rendering, color_depth, color_space } => {
@@ -1619,6 +1639,7 @@ impl BrushPrimitive {
                         uv_rect_addresses[1],
                         uv_rect_addresses[2],
                     ],
+                    0,
                 ))
             }
         }
