@@ -18,7 +18,7 @@ use internal_types::{FastHashMap, SavedTargetIndex, TextureSource};
 use picture::{PictureCompositeMode, PicturePrimitive, PictureSurface};
 use plane_split::{BspSplitter, Clipper, Polygon, Splitter};
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentTaskId, DeferredResolve};
-use prim_store::{EdgeAaSegmentMask, ImageSource};
+use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveIndex};
 use prim_store::{VisibleGradientTile, PrimitiveInstance};
 use prim_store::{BorderSource, Primitive, PrimitiveDetails};
 use render_task::{RenderTaskAddress, RenderTaskId, RenderTaskTree};
@@ -26,7 +26,7 @@ use renderer::{BlendMode, ImageBufferKind, ShaderColorMode};
 use renderer::BLOCKS_PER_UV_RECT;
 use resource_cache::{CacheItem, GlyphFetchResult, ImageRequest, ResourceCache, ImageProperties};
 use scene::FilterOpHelpers;
-use std::{f32, i32};
+use std::{f32, i32, usize};
 use tiling::{RenderTargetContext};
 use util::{MatrixHelpers, TransformedRectKind};
 
@@ -127,6 +127,8 @@ fn textures_compatible(t1: TextureSource, t2: TextureSource) -> bool {
 pub struct AlphaBatchList {
     pub batches: Vec<PrimitiveBatch>,
     pub item_rects: Vec<Vec<WorldRect>>,
+    current_batch_index: usize,
+    current_prim_index: PrimitiveIndex,
 }
 
 impl AlphaBatchList {
@@ -134,71 +136,81 @@ impl AlphaBatchList {
         AlphaBatchList {
             batches: Vec::new(),
             item_rects: Vec::new(),
+            current_prim_index: PrimitiveIndex(usize::MAX),
+            current_batch_index: usize::MAX,
         }
     }
 
-    pub fn get_suitable_batch(
+    pub fn set_params_and_get_batch(
         &mut self,
         key: BatchKey,
         bounding_rect: &WorldRect,
+        prim_index: PrimitiveIndex,
     ) -> &mut Vec<PrimitiveInstanceData> {
-        let mut selected_batch_index = None;
+        if prim_index != self.current_prim_index ||
+           self.current_batch_index == usize::MAX ||
+           !self.batches[self.current_batch_index].key.is_compatible_with(&key) {
+            let mut selected_batch_index = None;
 
-        match key.blend_mode {
-            BlendMode::SubpixelWithBgColor => {
-                'outer_multipass: for (batch_index, batch) in self.batches.iter().enumerate().rev().take(10) {
-                    // Some subpixel batches are drawn in two passes. Because of this, we need
-                    // to check for overlaps with every batch (which is a bit different
-                    // than the normal batching below).
-                    for item_rect in &self.item_rects[batch_index] {
-                        if item_rect.intersects(bounding_rect) {
-                            break 'outer_multipass;
+            match key.blend_mode {
+                BlendMode::SubpixelWithBgColor => {
+                    'outer_multipass: for (batch_index, batch) in self.batches.iter().enumerate().rev().take(10) {
+                        // Some subpixel batches are drawn in two passes. Because of this, we need
+                        // to check for overlaps with every batch (which is a bit different
+                        // than the normal batching below).
+                        for item_rect in &self.item_rects[batch_index] {
+                            if item_rect.intersects(bounding_rect) {
+                                break 'outer_multipass;
+                            }
                         }
-                    }
 
-                    if batch.key.is_compatible_with(&key) {
-                        selected_batch_index = Some(batch_index);
-                        break;
-                    }
-                }
-            }
-            _ => {
-                'outer_default: for (batch_index, batch) in self.batches.iter().enumerate().rev().take(10) {
-                    // For normal batches, we only need to check for overlaps for batches
-                    // other than the first batch we consider. If the first batch
-                    // is compatible, then we know there isn't any potential overlap
-                    // issues to worry about.
-                    if batch.key.is_compatible_with(&key) {
-                        selected_batch_index = Some(batch_index);
-                        break;
-                    }
-
-                    // check for intersections
-                    for item_rect in &self.item_rects[batch_index] {
-                        if item_rect.intersects(bounding_rect) {
-                            break 'outer_default;
+                        if batch.key.is_compatible_with(&key) {
+                            selected_batch_index = Some(batch_index);
+                            break;
                         }
                     }
                 }
+                _ => {
+                    'outer_default: for (batch_index, batch) in self.batches.iter().enumerate().rev().take(10) {
+                        // For normal batches, we only need to check for overlaps for batches
+                        // other than the first batch we consider. If the first batch
+                        // is compatible, then we know there isn't any potential overlap
+                        // issues to worry about.
+                        if batch.key.is_compatible_with(&key) {
+                            selected_batch_index = Some(batch_index);
+                            break;
+                        }
+
+                        // check for intersections
+                        for item_rect in &self.item_rects[batch_index] {
+                            if item_rect.intersects(bounding_rect) {
+                                break 'outer_default;
+                            }
+                        }
+                    }
+                }
             }
+
+            if selected_batch_index.is_none() {
+                let new_batch = PrimitiveBatch::new(key);
+                selected_batch_index = Some(self.batches.len());
+                self.batches.push(new_batch);
+                self.item_rects.push(Vec::new());
+            }
+
+            self.current_batch_index = selected_batch_index.unwrap();
+            self.item_rects[self.current_batch_index].push(*bounding_rect);
+            self.current_prim_index = prim_index;
         }
 
-        if selected_batch_index.is_none() {
-            let new_batch = PrimitiveBatch::new(key);
-            selected_batch_index = Some(self.batches.len());
-            self.batches.push(new_batch);
-            self.item_rects.push(Vec::new());
-        }
-
-        let selected_batch_index = selected_batch_index.unwrap();
-        self.item_rects[selected_batch_index].push(*bounding_rect);
-        &mut self.batches[selected_batch_index].instances
+        &mut self.batches[self.current_batch_index].instances
     }
 }
 
 pub struct OpaqueBatchList {
     pub pixel_area_threshold_for_new_batch: f32,
     pub batches: Vec<PrimitiveBatch>,
+    pub current_batch_index: usize,
 }
 
 impl OpaqueBatchList {
@@ -206,46 +218,50 @@ impl OpaqueBatchList {
         OpaqueBatchList {
             batches: Vec::new(),
             pixel_area_threshold_for_new_batch,
+            current_batch_index: usize::MAX,
         }
     }
 
-    pub fn get_suitable_batch(
+    pub fn set_params_and_get_batch(
         &mut self,
         key: BatchKey,
         bounding_rect: &WorldRect,
     ) -> &mut Vec<PrimitiveInstanceData> {
-        let mut selected_batch_index = None;
-        let item_area = bounding_rect.size.area();
+        if self.current_batch_index == usize::MAX ||
+           !self.batches[self.current_batch_index].key.is_compatible_with(&key) {
+            let mut selected_batch_index = None;
+            let item_area = bounding_rect.size.area();
 
-        // If the area of this primitive is larger than the given threshold,
-        // then it is large enough to warrant breaking a batch for. In this
-        // case we just see if it can be added to the existing batch or
-        // create a new one.
-        if item_area > self.pixel_area_threshold_for_new_batch {
-            if let Some(batch) = self.batches.last() {
-                if batch.key.is_compatible_with(&key) {
-                    selected_batch_index = Some(self.batches.len() - 1);
+            // If the area of this primitive is larger than the given threshold,
+            // then it is large enough to warrant breaking a batch for. In this
+            // case we just see if it can be added to the existing batch or
+            // create a new one.
+            if item_area > self.pixel_area_threshold_for_new_batch {
+                if let Some(batch) = self.batches.last() {
+                    if batch.key.is_compatible_with(&key) {
+                        selected_batch_index = Some(self.batches.len() - 1);
+                    }
+                }
+            } else {
+                // Otherwise, look back through a reasonable number of batches.
+                for (batch_index, batch) in self.batches.iter().enumerate().rev().take(10) {
+                    if batch.key.is_compatible_with(&key) {
+                        selected_batch_index = Some(batch_index);
+                        break;
+                    }
                 }
             }
-        } else {
-            // Otherwise, look back through a reasonable number of batches.
-            for (batch_index, batch) in self.batches.iter().enumerate().rev().take(10) {
-                if batch.key.is_compatible_with(&key) {
-                    selected_batch_index = Some(batch_index);
-                    break;
-                }
+
+            if selected_batch_index.is_none() {
+                let new_batch = PrimitiveBatch::new(key);
+                selected_batch_index = Some(self.batches.len());
+                self.batches.push(new_batch);
             }
+
+            self.current_batch_index = selected_batch_index.unwrap();
         }
 
-        if selected_batch_index.is_none() {
-            let new_batch = PrimitiveBatch::new(key);
-            selected_batch_index = Some(self.batches.len());
-            self.batches.push(new_batch);
-        }
-
-        let batch = &mut self.batches[selected_batch_index.unwrap()];
-
-        &mut batch.instances
+        &mut self.batches[self.current_batch_index].instances
     }
 
     fn finalize(&mut self) {
@@ -278,15 +294,18 @@ impl BatchList {
         }
     }
 
-    pub fn get_suitable_batch(
+    pub fn push_single_instance(
         &mut self,
         key: BatchKey,
         bounding_rect: &WorldRect,
-    ) -> &mut Vec<PrimitiveInstanceData> {
+        prim_index: PrimitiveIndex,
+        instance: PrimitiveInstanceData,
+    ) {
         match key.blend_mode {
             BlendMode::None => {
                 self.opaque_batch_list
-                    .get_suitable_batch(key, bounding_rect)
+                    .set_params_and_get_batch(key, bounding_rect)
+                    .push(instance);
             }
             BlendMode::Alpha |
             BlendMode::PremultipliedAlpha |
@@ -295,26 +314,32 @@ impl BatchList {
             BlendMode::SubpixelWithBgColor |
             BlendMode::SubpixelDualSource => {
                 self.alpha_batch_list
-                    .get_suitable_batch(key, bounding_rect)
+                    .set_params_and_get_batch(key, bounding_rect, prim_index)
+                    .push(instance);
             }
         }
     }
 
-    // Remove any batches that were added but didn't get any instances
-    // added to them.
-    fn remove_unused_batches(&mut self) {
-        if self.opaque_batch_list
-               .batches
-               .last()
-               .map_or(false, |batch| batch.instances.is_empty()) {
-            self.opaque_batch_list.batches.pop().unwrap();
-        }
-
-        if self.alpha_batch_list
-               .batches
-               .last()
-               .map_or(false, |batch| batch.instances.is_empty()) {
-            self.alpha_batch_list.batches.pop().unwrap();
+    pub fn set_params_and_get_batch(
+        &mut self,
+        key: BatchKey,
+        bounding_rect: &WorldRect,
+        prim_index: PrimitiveIndex,
+    ) -> &mut Vec<PrimitiveInstanceData> {
+        match key.blend_mode {
+            BlendMode::None => {
+                self.opaque_batch_list
+                    .set_params_and_get_batch(key, bounding_rect)
+            }
+            BlendMode::Alpha |
+            BlendMode::PremultipliedAlpha |
+            BlendMode::PremultipliedDestOut |
+            BlendMode::SubpixelConstantTextColor(..) |
+            BlendMode::SubpixelWithBgColor |
+            BlendMode::SubpixelDualSource => {
+                self.alpha_batch_list
+                    .set_params_and_get_batch(key, bounding_rect, prim_index)
+            }
         }
     }
 
@@ -535,11 +560,6 @@ impl AlphaBatchBuilder {
                 BlendMode::PremultipliedAlpha,
                 BatchTextures::no_texture(),
             );
-            let batch = self.batch_list
-                            .get_suitable_batch(
-                                key,
-                                &prim_instance.clipped_world_rect.as_ref().expect("bug"),
-                            );
 
             let gpu_address = gpu_cache.get_address(&gpu_handle);
 
@@ -549,7 +569,12 @@ impl AlphaBatchBuilder {
                 prim_headers.z_generator.next(),
             );
 
-            batch.push(PrimitiveInstanceData::from(instance));
+            self.batch_list.push_single_instance(
+                key,
+                &prim_instance.clipped_world_rect.as_ref().expect("bug"),
+                prim_instance.prim_index,
+                PrimitiveInstanceData::from(instance),
+            );
         }
     }
 
@@ -726,7 +751,6 @@ impl AlphaBatchBuilder {
                                                     non_segmented_blend_mode,
                                                     textures,
                                                 );
-                                                let batch = self.batch_list.get_suitable_batch(key, bounding_rect);
                                                 let prim_header_index = prim_headers.push(&prim_header, [
                                                     uv_rect_address.as_int(),
                                                     (ShaderColorMode::Image as i32) << 16 |
@@ -741,7 +765,13 @@ impl AlphaBatchBuilder {
                                                     brush_flags: BrushFlags::empty(),
                                                     clip_task_address,
                                                 };
-                                                batch.push(PrimitiveInstanceData::from(instance));
+
+                                                self.batch_list.push_single_instance(
+                                                    key,
+                                                    bounding_rect,
+                                                    prim_instance.prim_index,
+                                                    PrimitiveInstanceData::from(instance),
+                                                );
                                             }
                                             FilterOp::DropShadow(offset, ..) => {
                                                 // Draw an instance of the shadow first, following by the content.
@@ -823,13 +853,19 @@ impl AlphaBatchBuilder {
                                                     brush_flags: BrushFlags::empty(),
                                                 };
 
-                                                self.batch_list
-                                                    .get_suitable_batch(shadow_key, bounding_rect)
-                                                    .push(PrimitiveInstanceData::from(shadow_instance));
+                                                self.batch_list.push_single_instance(
+                                                    shadow_key,
+                                                    bounding_rect,
+                                                    prim_instance.prim_index,
+                                                    PrimitiveInstanceData::from(shadow_instance),
+                                                );
 
-                                                self.batch_list
-                                                    .get_suitable_batch(content_key, bounding_rect)
-                                                    .push(PrimitiveInstanceData::from(content_instance));
+                                                self.batch_list.push_single_instance(
+                                                    content_key,
+                                                    bounding_rect,
+                                                    prim_instance.prim_index,
+                                                    PrimitiveInstanceData::from(content_instance),
+                                                );
                                             }
                                             _ => {
                                                 let filter_mode = match filter {
@@ -901,8 +937,12 @@ impl AlphaBatchBuilder {
                                                     brush_flags: BrushFlags::empty(),
                                                 };
 
-                                                let batch = self.batch_list.get_suitable_batch(key, bounding_rect);
-                                                batch.push(PrimitiveInstanceData::from(instance));
+                                                self.batch_list.push_single_instance(
+                                                    key,
+                                                    bounding_rect,
+                                                    prim_instance.prim_index,
+                                                    PrimitiveInstanceData::from(instance),
+                                                );
                                             }
                                         }
                                     }
@@ -921,7 +961,6 @@ impl AlphaBatchBuilder {
                                             BlendMode::PremultipliedAlpha,
                                             BatchTextures::no_texture(),
                                         );
-                                        let batch = self.batch_list.get_suitable_batch(key, bounding_rect);
                                         let backdrop_task_address = render_tasks.get_task_address(backdrop_id);
                                         let source_task_address = render_tasks.get_task_address(cache_task_id);
                                         let prim_header_index = prim_headers.push(&prim_header, [
@@ -938,7 +977,12 @@ impl AlphaBatchBuilder {
                                             brush_flags: BrushFlags::empty(),
                                         };
 
-                                        batch.push(PrimitiveInstanceData::from(instance));
+                                        self.batch_list.push_single_instance(
+                                            key,
+                                            bounding_rect,
+                                            prim_instance.prim_index,
+                                            PrimitiveInstanceData::from(instance),
+                                        );
                                     }
                                     PictureCompositeMode::Blit => {
                                         let cache_task_id = surface.resolve_render_task_id();
@@ -949,10 +993,6 @@ impl AlphaBatchBuilder {
                                             kind,
                                             non_segmented_blend_mode,
                                             BatchTextures::render_target_cache(),
-                                        );
-                                        let batch = self.batch_list.get_suitable_batch(
-                                            key,
-                                            bounding_rect,
                                         );
 
                                         let uv_rect_address = render_tasks[cache_task_id]
@@ -972,7 +1012,13 @@ impl AlphaBatchBuilder {
                                             edge_flags: EdgeAaSegmentMask::empty(),
                                             brush_flags: BrushFlags::empty(),
                                         };
-                                        batch.push(PrimitiveInstanceData::from(instance));
+
+                                        self.batch_list.push_single_instance(
+                                            key,
+                                            bounding_rect,
+                                            prim_instance.prim_index,
+                                            PrimitiveInstanceData::from(instance),
+                                        );
                                     }
                                 }
                             }
@@ -1011,6 +1057,7 @@ impl AlphaBatchBuilder {
                                 let prim_header_index = prim_headers.push(&prim_header, user_data);
 
                                 self.add_image_tile_to_batch(
+                                    prim_instance,
                                     batch_kind,
                                     specified_blend_mode,
                                     textures,
@@ -1024,6 +1071,7 @@ impl AlphaBatchBuilder {
                     }
                     BrushKind::LinearGradient { ref stops_handle, ref visible_tiles, .. } if !visible_tiles.is_empty() => {
                         add_gradient_tiles(
+                            prim_instance,
                             visible_tiles,
                             stops_handle,
                             BrushBatchKind::LinearGradient,
@@ -1038,6 +1086,7 @@ impl AlphaBatchBuilder {
                     }
                     BrushKind::RadialGradient { ref stops_handle, ref visible_tiles, .. } if !visible_tiles.is_empty() => {
                         add_gradient_tiles(
+                            prim_instance,
                             visible_tiles,
                             stops_handle,
                             BrushBatchKind::RadialGradient,
@@ -1084,7 +1133,7 @@ impl AlphaBatchBuilder {
                 let subpx_dir = text_cpu.used_font.get_subpx_dir();
 
                 let glyph_fetch_buffer = &mut self.glyph_fetch_buffer;
-                let batch_list = &mut self.batch_list;
+                let alpha_batch_list = &mut self.batch_list.alpha_batch_list;
 
                 ctx.resource_cache.fetch_glyphs(
                     text_cpu.used_font.clone(),
@@ -1154,9 +1203,13 @@ impl AlphaBatchBuilder {
 
                         let prim_header_index = prim_headers.push(&prim_header, [0; 3]);
                         let key = BatchKey::new(kind, blend_mode, textures);
-                        let batch = batch_list.get_suitable_batch(key, bounding_rect);
                         let base_instance = GlyphInstance::new(
                             prim_header_index,
+                        );
+                        let batch = alpha_batch_list.set_params_and_get_batch(
+                            key,
+                            bounding_rect,
+                            prim_instance.prim_index,
                         );
 
                         for glyph in glyphs {
@@ -1175,6 +1228,7 @@ impl AlphaBatchBuilder {
 
     fn add_image_tile_to_batch(
         &mut self,
+        prim_instance: &PrimitiveInstance,
         batch_kind: BrushBatchKind,
         blend_mode: BlendMode,
         textures: BatchTextures,
@@ -1196,8 +1250,12 @@ impl AlphaBatchBuilder {
             kind: BatchKind::Brush(batch_kind),
             textures,
         };
-        let batch = self.batch_list.get_suitable_batch(batch_key, bounding_rect);
-        batch.push(PrimitiveInstanceData::from(base_instance));
+        self.batch_list.push_single_instance(
+            batch_key,
+            bounding_rect,
+            prim_instance.prim_index,
+            PrimitiveInstanceData::from(base_instance),
+        );
     }
 
     fn add_brush_to_batch(
@@ -1224,28 +1282,6 @@ impl AlphaBatchBuilder {
 
         match brush.segment_desc {
             Some(ref segment_desc) => {
-                let alpha_batch_key = BatchKey {
-                    blend_mode: alpha_blend_mode,
-                    kind: BatchKind::Brush(batch_kind),
-                    textures,
-                };
-
-                let alpha_batch = self.batch_list.alpha_batch_list.get_suitable_batch(
-                    alpha_batch_key,
-                    bounding_rect,
-                );
-
-                let opaque_batch_key = BatchKey {
-                    blend_mode: BlendMode::None,
-                    kind: BatchKind::Brush(batch_kind),
-                    textures,
-                };
-
-                let opaque_batch = self.batch_list.opaque_batch_list.get_suitable_batch(
-                    opaque_batch_key,
-                    bounding_rect,
-                );
-
                 for (i, segment) in segment_desc.segments.iter().enumerate() {
                     let is_inner = segment.edge_flags.is_empty();
                     let needs_blending = !prim_instance.opacity.is_opaque ||
@@ -1267,11 +1303,18 @@ impl AlphaBatchBuilder {
                         ..base_instance
                     });
 
-                    if needs_blending {
-                        alpha_batch.push(instance);
-                    } else {
-                        opaque_batch.push(instance);
-                    }
+                    let batch_key = BatchKey {
+                        blend_mode: if needs_blending { alpha_blend_mode } else { BlendMode::None },
+                        kind: BatchKind::Brush(batch_kind),
+                        textures,
+                    };
+
+                    self.batch_list.push_single_instance(
+                        batch_key,
+                        bounding_rect,
+                        prim_instance.prim_index,
+                        instance,
+                    );
                 }
             }
             None => {
@@ -1280,16 +1323,19 @@ impl AlphaBatchBuilder {
                     kind: BatchKind::Brush(batch_kind),
                     textures,
                 };
-                let batch = self.batch_list.get_suitable_batch(batch_key, bounding_rect);
-                batch.push(PrimitiveInstanceData::from(base_instance));
+                self.batch_list.push_single_instance(
+                    batch_key,
+                    bounding_rect,
+                    prim_instance.prim_index,
+                    PrimitiveInstanceData::from(base_instance),
+                );
             }
         }
-
-        self.batch_list.remove_unused_batches();
     }
 }
 
 fn add_gradient_tiles(
+    prim_instance: &PrimitiveInstance,
     visible_tiles: &[VisibleGradientTile],
     stops_handle: &GpuCacheHandle,
     kind: BrushBatchKind,
@@ -1301,13 +1347,14 @@ fn add_gradient_tiles(
     base_prim_header: &PrimitiveHeader,
     prim_headers: &mut PrimitiveHeaders,
 ) {
-    let batch = batch_list.get_suitable_batch(
+    let batch = batch_list.set_params_and_get_batch(
         BatchKey {
             blend_mode: blend_mode,
             kind: BatchKind::Brush(kind),
             textures: BatchTextures::no_texture(),
         },
         bounding_rect,
+        prim_instance.prim_index,
     );
 
     let user_data = [stops_handle.as_int(gpu_cache), 0, 0];
