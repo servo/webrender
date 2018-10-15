@@ -4649,7 +4649,6 @@ struct PlainTexture {
     size: (u32, u32, i32),
     format: ImageFormat,
     filter: TextureFilter,
-    render_target: Option<RenderTargetInfo>,
 }
 
 
@@ -4759,7 +4758,6 @@ impl Renderer {
             size: (rect.size.width, rect.size.height, texture.get_layer_count()),
             format: texture.get_format(),
             filter: texture.get_filter(),
-            render_target: texture.get_render_target(),
         }
     }
 
@@ -4767,6 +4765,7 @@ impl Renderer {
     fn load_texture(
         target: TextureTarget,
         plain: &PlainTexture,
+        rt_info: Option<RenderTargetInfo>,
         root: &PathBuf,
         device: &mut Device
     ) -> (Texture, Vec<u8>)
@@ -4786,7 +4785,7 @@ impl Renderer {
             plain.size.0,
             plain.size.1,
             plain.filter,
-            plain.render_target,
+            rt_info,
             plain.size.2,
         );
         device.upload_texture_immediate(&texture, &texels);
@@ -4957,6 +4956,7 @@ impl Renderer {
                 let t = Self::load_texture(
                     TextureTarget::Array,
                     &texture,
+                    Some(RenderTargetInfo { has_depth: false }),
                     &root,
                     &mut self.device
                 );
@@ -4970,6 +4970,7 @@ impl Renderer {
             let (t, gpu_cache_data) = Self::load_texture(
                 TextureTarget::Default,
                 &renderer.gpu_cache,
+                Some(RenderTargetInfo { has_depth: false }),
                 &root,
                 &mut self.device,
             );
@@ -5014,11 +5015,11 @@ impl Renderer {
                             size: (descriptor.size.width, descriptor.size.height, layer_count),
                             format: descriptor.format,
                             filter,
-                            render_target: None,
                         };
                         let t = Self::load_texture(
                             target,
                             &plain_tex,
+                            None,
                             &root,
                             &mut self.device
                         );

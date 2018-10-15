@@ -442,7 +442,6 @@ pub struct Texture {
     width: u32,
     height: u32,
     filter: TextureFilter,
-    render_target: Option<RenderTargetInfo>,
     fbo_ids: Vec<FBOId>,
     depth_rb: Option<RBOId>,
     last_frame_used: FrameId,
@@ -470,17 +469,8 @@ impl Texture {
         self.filter
     }
 
-    #[cfg(any(feature = "debug_renderer", feature = "capture"))]
-    pub fn get_render_target(&self) -> Option<RenderTargetInfo> {
-        self.render_target.clone()
-    }
-
     pub fn has_depth(&self) -> bool {
         self.depth_rb.is_some()
-    }
-
-    pub fn get_rt_info(&self) -> Option<&RenderTargetInfo> {
-        self.render_target.as_ref()
     }
 
     pub fn used_in_frame(&self, frame_id: FrameId) -> bool {
@@ -1261,7 +1251,6 @@ impl Device {
             layer_count,
             format,
             filter,
-            render_target,
             fbo_ids: vec![],
             depth_rb: None,
             last_frame_used: self.frame_id,
@@ -1415,7 +1404,6 @@ impl Device {
         rt_info: RenderTargetInfo,
     ) {
         texture.last_frame_used = self.frame_id;
-        texture.render_target = Some(rt_info);
 
         // If the depth target requirements changed, just drop the FBOs and
         // reinitialize.
