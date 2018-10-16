@@ -1027,7 +1027,7 @@ fn add_edge_segment(
             image_rect,
             /* may_need_clip_mask = */ true,
             edge_flags,
-            [size.width, size.height, 0.0, 0.0],
+            [0.0, 0.0, size.width, size.height],
             BrushFlags::SEGMENT_RELATIVE | brush_flags,
         )
     );

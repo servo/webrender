@@ -2868,7 +2868,7 @@ impl Primitive {
                                         frame_state.gpu_cache,
                                         frame_state.render_tasks,
                                         None,
-                                        false,          // todo
+                                        false,          // TODO(gw): We don't calculate opacity for borders yet!
                                         |render_tasks| {
                                             let task = RenderTask::new_border_segment(
                                                 segment.cache_key.size,

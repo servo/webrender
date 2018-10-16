@@ -76,27 +76,17 @@ void brush_vs(
         local_rect = segment_rect;
         stretch_size = local_rect.size;
 
-        // If the extra data is a texel rect, modify the
-        // stretch size and UVs.
-        if ((brush_flags & BRUSH_FLAG_TEXEL_RECT) != 0) {
-            if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_X) != 0) {
-                stretch_size.x = (segment_data.z - segment_data.x);
-            }
-            if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_Y) != 0) {
-                stretch_size.y = (segment_data.w - segment_data.y);
-            }
+        if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_X) != 0) {
+            stretch_size.x = (segment_data.z - segment_data.x);
+        }
+        if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_Y) != 0) {
+            stretch_size.y = (segment_data.w - segment_data.y);
+        }
 
+        // If the extra data is a texel rect, modify the UVs.
+        if ((brush_flags & BRUSH_FLAG_TEXEL_RECT) != 0) {
             uv0 = res.uv_rect.p0 + segment_data.xy;
             uv1 = res.uv_rect.p0 + segment_data.zw;
-        } else {
-            // Otherwise, the segment_data represents a stretch size
-            // in local space.
-            if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_X) != 0) {
-                stretch_size.x = segment_data.x;
-            }
-            if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_Y) != 0) {
-                stretch_size.y = segment_data.y;
-            }
         }
     }
 
