@@ -23,7 +23,6 @@ use gpu_types::BrushFlags;
 use image::{for_each_tile, for_each_repetition};
 use intern;
 use picture::{PictureCompositeMode, PicturePrimitive};
-use plane_split::{Clipper, Polygon, Splitter};
 #[cfg(debug_assertions)]
 use render_backend::FrameId;
 use render_task::{BlitSource, RenderTask, RenderTaskCacheKey, to_cache_size};
@@ -32,7 +31,7 @@ use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
 use resource_cache::{ImageProperties, ImageRequest, ResourceCache};
 use scene::SceneProperties;
 use std::{cmp, fmt, mem, ops, usize};
-use util::{ScaleOffset, MatrixHelpers, TransformedRectKind};
+use util::{ScaleOffset, MatrixHelpers};
 use util::{pack_as_float, project_rect, raster_rect_to_device_pixels};
 use smallvec::SmallVec;
 
@@ -1800,7 +1799,6 @@ impl PrimitiveStore {
                         prim_context,
                         pic_state.surface_spatial_node_index,
                         pic_state.raster_spatial_node_index,
-                        &mut pic_state.plane_splitter,
                         pic_context.allow_subpixel_aa,
                         frame_state,
                         frame_context,
@@ -1850,7 +1848,6 @@ impl PrimitiveStore {
                         prim_instances,
                         pic_context_for_children,
                         pic_state_for_children,
-                        &mut pic_state.plane_splitter,
                         pic_rect,
                         frame_state,
                     );
@@ -3029,51 +3026,13 @@ impl Primitive {
                             frame_state,
                         ) {
                             if let Some(ref mut splitter) = pic_state.plane_splitter {
-                                // Push into parent plane splitter.
-                                let transform = frame_state.transforms
-                                    .get_world_transform(prim_instance.spatial_node_index);
-
-                                // Apply the local clip rect here, before splitting. This is
-                                // because the local clip rect can't be applied in the vertex
-                                // shader for split composites, since we are drawing polygons
-                                // rather that rectangles. The interpolation still works correctly
-                                // since we determine the UVs by doing a bilerp with a factor
-                                // from the original local rect.
-                                let local_rect = self.local_rect
-                                        .intersection(&prim_instance.combined_local_clip_rect);
-
-                                if let Some(local_rect) = local_rect {
-                                    match transform.transform_kind() {
-                                        TransformedRectKind::AxisAligned => {
-                                            let inv_transform = frame_state.transforms
-                                                .get_world_inv_transform(prim_instance.spatial_node_index);
-                                            let polygon = Polygon::from_transformed_rect_with_inverse(
-                                                local_rect.cast(),
-                                                &transform.cast(),
-                                                &inv_transform.cast(),
-                                                plane_split_anchor,
-                                            ).unwrap();
-                                            splitter.add(polygon);
-                                        }
-                                        TransformedRectKind::Complex => {
-                                            let mut clipper = Clipper::new();
-                                            let matrix = transform.cast();
-                                            let results = clipper.clip_transformed(
-                                                Polygon::from_rect(
-                                                    local_rect.cast(),
-                                                    plane_split_anchor,
-                                                ),
-                                                &matrix,
-                                                prim_instance.clipped_world_rect.map(|r| r.to_f64()),
-                                            );
-                                            if let Ok(results) = results {
-                                                for poly in results {
-                                                    splitter.add(poly);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                PicturePrimitive::add_split_plane(
+                                    splitter,
+                                    frame_state.transforms,
+                                    prim_instance,
+                                    self.local_rect,
+                                    plane_split_anchor,
+                                );
                             }
                         } else {
                             prim_instance.clipped_world_rect = None;

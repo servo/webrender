@@ -1109,7 +1109,7 @@ impl<'a> DisplayListFlattener<'a> {
                 self.picture_id_generator.next(),
                 None,
                 Picture3DContext::In {
-                    root_data: Some(()),
+                    root_data: Some(Vec::new()),
                     ancestor_index,
                 },
                 stacking_context.pipeline_id,
