@@ -153,18 +153,30 @@ impl Example for App {
                 ..
             } => {
                 let offset = match key {
-                    winit::VirtualKeyCode::Down => (0.0, -10.0),
-                    winit::VirtualKeyCode::Up => (0.0, 10.0),
-                    winit::VirtualKeyCode::Right => (-10.0, 0.0),
-                    winit::VirtualKeyCode::Left => (10.0, 0.0),
-                    _ => return false,
+                    winit::VirtualKeyCode::Down => Some((0.0, -10.0)),
+                    winit::VirtualKeyCode::Up => Some((0.0, 10.0)),
+                    winit::VirtualKeyCode::Right => Some((-10.0, 0.0)),
+                    winit::VirtualKeyCode::Left => Some((10.0, 0.0)),
+                    _ => None,
+                };
+                let zoom = match key {
+                    winit::VirtualKeyCode::Key0 => Some(1.0),
+                    winit::VirtualKeyCode::Minus => Some(0.8),
+                    winit::VirtualKeyCode::Equals => Some(1.25),
+                    _ => None,
                 };
 
-                txn.scroll(
-                    ScrollLocation::Delta(LayoutVector2D::new(offset.0, offset.1)),
-                    self.cursor_position,
-                );
-                txn.generate_frame();
+                if let Some(offset) = offset {
+                    txn.scroll(
+                        ScrollLocation::Delta(LayoutVector2D::new(offset.0, offset.1)),
+                        self.cursor_position,
+                    );
+                    txn.generate_frame();
+                }
+                if let Some(zoom) = zoom {
+                    txn.set_pinch_zoom(ZoomFactor::new(zoom));
+                    txn.generate_frame();
+                }
             }
             winit::WindowEvent::CursorMoved { position: LogicalPosition { x, y }, .. } => {
                 self.cursor_position = WorldPoint::new(x as f32, y as f32);

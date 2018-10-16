@@ -232,7 +232,7 @@ impl Transaction {
     }
 
     pub fn set_pinch_zoom(&mut self, pinch_zoom: ZoomFactor) {
-        self.scene_ops.push(SceneMsg::SetPinchZoom(pinch_zoom));
+        self.frame_ops.push(FrameMsg::SetPinchZoom(pinch_zoom));
     }
 
     pub fn set_pan(&mut self, pan: DeviceIntPoint) {
@@ -523,7 +523,6 @@ pub struct AddFontInstance {
 pub enum SceneMsg {
     UpdateEpoch(PipelineId, Epoch),
     SetPageZoom(ZoomFactor),
-    SetPinchZoom(ZoomFactor),
     SetRootPipeline(PipelineId),
     RemovePipeline(PipelineId),
     SetDisplayList {
@@ -554,6 +553,7 @@ pub enum FrameMsg {
     GetScrollNodeState(MsgSender<Vec<ScrollNodeState>>),
     UpdateDynamicProperties(DynamicProperties),
     AppendDynamicProperties(DynamicProperties),
+    SetPinchZoom(ZoomFactor),
 }
 
 impl fmt::Debug for SceneMsg {
@@ -562,7 +562,6 @@ impl fmt::Debug for SceneMsg {
             SceneMsg::UpdateEpoch(..) => "SceneMsg::UpdateEpoch",
             SceneMsg::SetDisplayList { .. } => "SceneMsg::SetDisplayList",
             SceneMsg::SetPageZoom(..) => "SceneMsg::SetPageZoom",
-            SceneMsg::SetPinchZoom(..) => "SceneMsg::SetPinchZoom",
             SceneMsg::RemovePipeline(..) => "SceneMsg::RemovePipeline",
             SceneMsg::SetWindowParameters { .. } => "SceneMsg::SetWindowParameters",
             SceneMsg::SetRootPipeline(..) => "SceneMsg::SetRootPipeline",
@@ -582,6 +581,7 @@ impl fmt::Debug for FrameMsg {
             FrameMsg::EnableFrameOutput(..) => "FrameMsg::EnableFrameOutput",
             FrameMsg::UpdateDynamicProperties(..) => "FrameMsg::UpdateDynamicProperties",
             FrameMsg::AppendDynamicProperties(..) => "FrameMsg::AppendDynamicProperties",
+            FrameMsg::SetPinchZoom(..) => "FrameMsg::SetPinchZoom",
         })
     }
 }
