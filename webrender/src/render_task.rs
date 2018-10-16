@@ -7,7 +7,7 @@ use api::{DevicePixelScale, ImageDescriptor, ImageFormat};
 use api::{LineStyle, LineOrientation, LayoutSize};
 #[cfg(feature = "pathfinder")]
 use api::FontRenderMode;
-use border::BorderCacheKey;
+use border::{BorderCornerCacheKey, BorderEdgeCacheKey};
 use box_shadow::{BoxShadowCacheKey};
 use clip::{ClipDataStore, ClipItem, ClipStore, ClipNodeRange};
 use clip_scroll_tree::SpatialNodeIndex;
@@ -655,7 +655,7 @@ impl RenderTask {
         )
     }
 
-    pub fn new_border(
+    pub fn new_border_segment(
         size: DeviceIntSize,
         instances: Vec<BorderInstance>,
     ) -> Self {
@@ -1060,7 +1060,8 @@ pub enum RenderTaskCacheKeyKind {
     #[allow(dead_code)]
     Glyph(GpuGlyphCacheKey),
     Picture(PictureCacheKey),
-    Border(BorderCacheKey),
+    BorderEdge(BorderEdgeCacheKey),
+    BorderCorner(BorderCornerCacheKey),
     LineDecoration(LineDecorationCacheKey),
 }
 
