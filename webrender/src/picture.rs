@@ -8,14 +8,16 @@ use api::{DevicePixelScale, PictureIntPoint, PictureIntRect, PictureIntSize, Ras
 use api::{PicturePixel, RasterPixel, WorldPixel};
 use box_shadow::{BLUR_SAMPLE_SCALE};
 use clip::ClipNodeCollector;
-use clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX, SpatialNodeIndex};
-use euclid::TypedScale;
+use clip_scroll_tree::{ROOT_SPATIAL_NODE_INDEX, ClipScrollTree, SpatialNodeIndex};
+use euclid::{TypedScale, vec3};
 use internal_types::PlaneSplitter;
 use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState};
 use frame_builder::{PictureContext, PrimitiveContext};
-use gpu_cache::{GpuCacheHandle};
-use gpu_types::UvRectKind;
-use prim_store::{PictureIndex, PrimitiveInstance, SpaceMapper, get_raster_rects};
+use gpu_cache::{GpuCacheAddress, GpuCacheHandle};
+use gpu_types::{TransformPalette, TransformPaletteId, UvRectKind};
+use plane_split::{Clipper, Polygon, Splitter};
+use prim_store::{PictureIndex, PrimitiveIndex, PrimitiveInstance, SpaceMapper};
+use prim_store::{get_raster_rects};
 use render_task::{ClearMode, RenderTask, RenderTaskCacheEntryHandle};
 use render_task::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId, RenderTaskLocation};
 use scene::{FilterOpHelpers, SceneProperties};
@@ -172,6 +174,17 @@ pub enum Picture3DContext<R> {
     },
 }
 
+/// Information about a preserve-3D hierarchy child that has been plane-split
+/// and ordered according to the view direction.
+#[derive(Clone, Debug)]
+pub struct OrderedPictureChild {
+    prim_index: PrimitiveIndex,
+    local_clip_rect: LayoutRect,
+    clip_task_id: Option<RenderTaskId>,
+    transform_id: TransformPaletteId,
+    gpu_address: GpuCacheAddress,
+}
+
 pub struct PicturePrimitive {
     // List of primitive runs that make up this picture.
     pub prim_instances: Vec<PrimitiveInstance>,
@@ -199,7 +212,7 @@ pub struct PicturePrimitive {
     pub requested_raster_space: RasterSpace,
 
     pub raster_config: Option<RasterConfig>,
-    pub context_3d: Picture3DContext<()>,
+    pub context_3d: Picture3DContext<Vec<OrderedPictureChild>>,
 
     // If requested as a frame output (for rendering
     // pages to a texture), this is the pipeline this
@@ -234,7 +247,7 @@ impl PicturePrimitive {
     pub fn new_image(
         id: PictureId,
         requested_composite_mode: Option<PictureCompositeMode>,
-        context_3d: Picture3DContext<()>,
+        context_3d: Picture3DContext<Vec<OrderedPictureChild>>,
         pipeline_id: PipelineId,
         frame_output_pipeline_id: Option<PipelineId>,
         apply_local_clip_rect: bool,
@@ -263,7 +276,6 @@ impl PicturePrimitive {
         prim_context: &PrimitiveContext,
         surface_spatial_node_index: SpatialNodeIndex,
         raster_spatial_node_index: SpatialNodeIndex,
-        parent_plane_splitter: &mut Option<PlaneSplitter>,
         parent_allows_subpixel_aa: bool,
         frame_state: &mut FrameBuildingState,
         frame_context: &FrameBuildingContext,
@@ -355,7 +367,7 @@ impl PicturePrimitive {
                 (ancestor_index, Some(PlaneSplitter::new()))
             }
             Picture3DContext::In { root_data: None, ancestor_index } => {
-                (ancestor_index, parent_plane_splitter.take())
+                (ancestor_index, None)
             }
         };
 
@@ -423,14 +435,10 @@ impl PicturePrimitive {
         &mut self,
         prim_instances: Vec<PrimitiveInstance>,
         context: PictureContext,
-        mut state: PictureState,
-        parent_plane_splitter: &mut Option<PlaneSplitter>,
+        state: PictureState,
         local_rect: Option<PictureRect>,
         frame_state: &mut FrameBuildingState,
     ) -> (LayoutRect, Option<ClipNodeCollector>) {
-        if parent_plane_splitter.is_none() {
-            *parent_plane_splitter = state.plane_splitter.take();
-        }
         self.prim_instances = prim_instances;
         self.state = Some(state);
 
@@ -481,6 +489,113 @@ impl PicturePrimitive {
         self.state.take().expect("bug: no state present!")
     }
 
+    /// Add a primitive instance to the plane splitter. The function would generate
+    /// an appropriate polygon, clip it against the frustum, and register with the
+    /// given plane splitter.
+    pub fn add_split_plane(
+        splitter: &mut PlaneSplitter,
+        transforms: &TransformPalette,
+        prim_instance: &PrimitiveInstance,
+        original_local_rect: LayoutRect,
+        plane_split_anchor: usize,
+    ) -> bool {
+        let transform = transforms
+            .get_world_transform(prim_instance.spatial_node_index);
+        let matrix = transform.cast();
+
+        // Apply the local clip rect here, before splitting. This is
+        // because the local clip rect can't be applied in the vertex
+        // shader for split composites, since we are drawing polygons
+        // rather that rectangles. The interpolation still works correctly
+        // since we determine the UVs by doing a bilerp with a factor
+        // from the original local rect.
+        let local_rect = match original_local_rect
+            .intersection(&prim_instance.combined_local_clip_rect)
+        {
+            Some(rect) => rect.cast(),
+            None => return false,
+        };
+
+        match transform.transform_kind() {
+            TransformedRectKind::AxisAligned => {
+                let inv_transform = transforms
+                    .get_world_inv_transform(prim_instance.spatial_node_index);
+                let polygon = Polygon::from_transformed_rect_with_inverse(
+                    local_rect,
+                    &matrix,
+                    &inv_transform.cast(),
+                    plane_split_anchor,
+                ).unwrap();
+                splitter.add(polygon);
+            }
+            TransformedRectKind::Complex => {
+                let mut clipper = Clipper::new();
+                let results = clipper.clip_transformed(
+                    Polygon::from_rect(
+                        local_rect,
+                        plane_split_anchor,
+                    ),
+                    &matrix,
+                    prim_instance.clipped_world_rect.map(|r| r.to_f64()),
+                );
+                if let Ok(results) = results {
+                    for poly in results {
+                        splitter.add(poly);
+                    }
+                }
+            }
+        }
+
+        true
+    }
+
+    pub fn resolve_split_planes(
+        &mut self,
+        splitter: &mut PlaneSplitter,
+        frame_state: &mut FrameBuildingState,
+        clip_scroll_tree: &ClipScrollTree,
+    ) {
+        let ordered = match self.context_3d {
+            Picture3DContext::In { root_data: Some(ref mut list), .. } => list,
+            _ => panic!("Expected to find 3D context root"),
+        };
+        ordered.clear();
+
+        // Process the accumulated split planes and order them for rendering.
+        // Z axis is directed at the screen, `sort` is ascending, and we need back-to-front order.
+        for poly in splitter.sort(vec3(0.0, 0.0, 1.0)) {
+            let prim_instance = &self.prim_instances[poly.anchor];
+
+            let transform = frame_state.transforms.get_world_inv_transform(prim_instance.spatial_node_index);
+            let transform_id = frame_state.transforms.get_id(
+                prim_instance.spatial_node_index,
+                ROOT_SPATIAL_NODE_INDEX,
+                clip_scroll_tree,
+            );
+
+            let local_points = [
+                transform.transform_point3d(&poly.points[0].cast()).unwrap(),
+                transform.transform_point3d(&poly.points[1].cast()).unwrap(),
+                transform.transform_point3d(&poly.points[2].cast()).unwrap(),
+                transform.transform_point3d(&poly.points[3].cast()).unwrap(),
+            ];
+            let gpu_blocks = [
+                [local_points[0].x, local_points[0].y, local_points[1].x, local_points[1].y].into(),
+                [local_points[2].x, local_points[2].y, local_points[3].x, local_points[3].y].into(),
+            ];
+            let gpu_handle = frame_state.gpu_cache.push_per_frame_blocks(&gpu_blocks);
+            let gpu_address = frame_state.gpu_cache.get_address(&gpu_handle);
+
+            ordered.push(OrderedPictureChild {
+                prim_index: prim_instance.prim_index,
+                local_clip_rect: prim_instance.combined_local_clip_rect,
+                clip_task_id: prim_instance.clip_task_id,
+                transform_id,
+                gpu_address,
+            });
+        }
+    }
+
     pub fn prepare_for_render(
         &mut self,
         pic_index: PictureIndex,
@@ -491,6 +606,14 @@ impl PicturePrimitive {
         frame_state: &mut FrameBuildingState,
     ) -> bool {
         let mut pic_state_for_children = self.take_state();
+
+        if let Some(ref mut splitter) = pic_state_for_children.plane_splitter {
+            self.resolve_split_planes(
+                splitter,
+                frame_state,
+                frame_context.clip_scroll_tree,
+            );
+        }
 
         let raster_config = match self.raster_config {
             Some(ref mut raster_config) => raster_config,
