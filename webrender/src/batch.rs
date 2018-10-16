@@ -1338,6 +1338,7 @@ impl AlphaBatchBuilder {
             (Some(ref segment_desc), SegmentDataKind::Instanced(ref segment_data)) => {
                 // In this case, we have both a list of segments, and a list of
                 // per-segment instance data. Zip them together to build batches.
+                debug_assert_eq!(segment_desc.segments.len(), segment_data.len());
                 for (segment_index, (segment, segment_data)) in segment_desc.segments
                     .iter()
                     .zip(segment_data.iter())
@@ -1489,7 +1490,7 @@ fn get_image_tile_params(
 /// or a list of one per segment.
 enum SegmentDataKind {
     Shared(SegmentInstanceData),
-    Instanced(SmallVec<[SegmentInstanceData; 4]>),
+    Instanced(SmallVec<[SegmentInstanceData; 8]>),
 }
 
 /// The parameters that are specific to a kind of brush,
@@ -1506,7 +1507,7 @@ impl BrushBatchParameters {
     fn instanced(
         batch_kind: BrushBatchKind,
         prim_user_data: [i32; 3],
-        segment_data: SmallVec<[SegmentInstanceData; 4]>,
+        segment_data: SmallVec<[SegmentInstanceData; 8]>,
     ) -> Self {
         BrushBatchParameters {
             batch_kind,
@@ -1517,7 +1518,7 @@ impl BrushBatchParameters {
 
     /// This brush instance shares the per-segment data
     /// across all segments.
-    fn simple(
+    fn shared(
         batch_kind: BrushBatchKind,
         textures: BatchTextures,
         prim_user_data: [i32; 3],
@@ -1573,7 +1574,7 @@ impl BrushPrimitive {
                 } else {
                     let textures = BatchTextures::color(cache_item.texture_id);
 
-                    Some(BrushBatchParameters::simple(
+                    Some(BrushBatchParameters::shared(
                         BrushBatchKind::Image(get_buffer_kind(cache_item.texture_id)),
                         textures,
                         [
@@ -1588,7 +1589,7 @@ impl BrushPrimitive {
             BrushKind::LineDecoration { ref handle, style, .. } => {
                 match style {
                     LineStyle::Solid => {
-                        Some(BrushBatchParameters::simple(
+                        Some(BrushBatchParameters::shared(
                             BrushBatchKind::Solid,
                             BatchTextures::no_texture(),
                             [0; 3],
@@ -1602,7 +1603,7 @@ impl BrushPrimitive {
                             .get_cached_render_task(handle.as_ref().unwrap());
                         let cache_item = resource_cache.get_texture_cache_item(&rt_cache_entry.handle);
                         let textures = BatchTextures::color(cache_item.texture_id);
-                        Some(BrushBatchParameters::simple(
+                        Some(BrushBatchParameters::shared(
                             BrushBatchKind::Image(get_buffer_kind(cache_item.texture_id)),
                             textures,
                             [
@@ -1631,7 +1632,7 @@ impl BrushPrimitive {
 
                         let textures = BatchTextures::color(cache_item.texture_id);
 
-                        Some(BrushBatchParameters::simple(
+                        Some(BrushBatchParameters::shared(
                             BrushBatchKind::Image(get_buffer_kind(cache_item.texture_id)),
                             textures,
                             [
@@ -1677,7 +1678,7 @@ impl BrushPrimitive {
                 panic!("bug: get_batch_key is handled at higher level for pictures");
             }
             BrushKind::Solid { .. } => {
-                Some(BrushBatchParameters::simple(
+                Some(BrushBatchParameters::shared(
                     BrushBatchKind::Solid,
                     BatchTextures::no_texture(),
                     [0; 3],
@@ -1685,7 +1686,7 @@ impl BrushPrimitive {
                 ))
             }
             BrushKind::Clear => {
-                Some(BrushBatchParameters::simple(
+                Some(BrushBatchParameters::shared(
                     BrushBatchKind::Solid,
                     BatchTextures::no_texture(),
                     [0; 3],
@@ -1693,7 +1694,7 @@ impl BrushPrimitive {
                 ))
             }
             BrushKind::RadialGradient { ref stops_handle, .. } => {
-                Some(BrushBatchParameters::simple(
+                Some(BrushBatchParameters::shared(
                     BrushBatchKind::RadialGradient,
                     BatchTextures::no_texture(),
                     [
@@ -1705,7 +1706,7 @@ impl BrushPrimitive {
                 ))
             }
             BrushKind::LinearGradient { ref stops_handle, .. } => {
-                Some(BrushBatchParameters::simple(
+                Some(BrushBatchParameters::shared(
                     BrushBatchKind::LinearGradient,
                     BatchTextures::no_texture(),
                     [
@@ -1761,7 +1762,7 @@ impl BrushPrimitive {
                     color_space,
                 );
 
-                Some(BrushBatchParameters::simple(
+                Some(BrushBatchParameters::shared(
                     kind,
                     textures,
                     [
