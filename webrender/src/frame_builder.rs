@@ -241,7 +241,6 @@ impl FrameBuilder {
                 &prim_context,
                 root_spatial_node_index,
                 root_spatial_node_index,
-                &mut None,
                 true,
                 &mut frame_state,
                 &frame_context,
@@ -265,7 +264,6 @@ impl FrameBuilder {
             instances,
             pic_context,
             pic_state,
-            &mut None,
             pic_rect,
             &mut frame_state,
         );
