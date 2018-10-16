@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use super::super::shader_source;
-use api::{ColorF, ImageFormat};
+use api::{ColorF, ImageFormat, MemoryReport};
 use api::{DeviceIntPoint, DeviceIntRect, DeviceUintRect, DeviceUintSize};
 use api::TextureTarget;
 #[cfg(any(feature = "debug_renderer", feature="capture"))]
@@ -2406,6 +2406,18 @@ impl Device {
                 pixel_type: gl::UNSIGNED_BYTE,
             },
         }
+    }
+
+    /// Generates a memory report for the resources managed by the device layer.
+    pub fn report_memory(&self) -> MemoryReport {
+        let mut report = MemoryReport::default();
+        for dim in self.depth_targets.keys() {
+            // DEPTH24 textures generally reserve 3 bytes for depth and 1 byte
+            // for stencil, so we measure them as 32 bytes.
+            let pixels: u32 = dim.width * dim.height;
+            report.depth_target_textures += (pixels as usize) * 4;
+        }
+        report
     }
 }
 

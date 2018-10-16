@@ -4380,6 +4380,9 @@ impl Renderer {
         // Texture cache and render target GPU memory.
         report += self.texture_resolver.report_memory();
 
+        // Textures held internally within the device layer.
+        report += self.device.report_memory();
+
         report
     }
 

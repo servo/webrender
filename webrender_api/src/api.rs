@@ -791,6 +791,7 @@ pub struct MemoryReport {
     pub vertex_data_textures: usize,
     pub render_target_textures: usize,
     pub texture_cache_textures: usize,
+    pub depth_target_textures: usize,
 }
 
 impl ::std::ops::AddAssign for MemoryReport {
@@ -808,6 +809,7 @@ impl ::std::ops::AddAssign for MemoryReport {
         self.vertex_data_textures += other.vertex_data_textures;
         self.render_target_textures += other.render_target_textures;
         self.texture_cache_textures += other.texture_cache_textures;
+        self.depth_target_textures += other.depth_target_textures;
     }
 }
 
