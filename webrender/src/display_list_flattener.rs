@@ -1469,7 +1469,10 @@ impl<'a> DisplayListFlattener<'a> {
                                 &info,
                                 pending_primitive.clip_and_scroll.clip_chain_id,
                                 pending_primitive.clip_and_scroll.spatial_node_index,
-                                pending_primitive.container.create_shadow(&pending_shadow.shadow),
+                                pending_primitive.container.create_shadow(
+                                    &pending_shadow.shadow,
+                                    &info.rect,
+                                ),
                             );
 
                             // Add the new primitive to the shadow picture.
@@ -1672,7 +1675,9 @@ impl<'a> DisplayListFlattener<'a> {
 
                         // Use segment relative interpolation for all
                         // instances in this primitive.
-                        let mut brush_flags = BrushFlags::SEGMENT_RELATIVE;
+                        let mut brush_flags =
+                            BrushFlags::SEGMENT_RELATIVE |
+                            BrushFlags::SEGMENT_TEXEL_RECT;
 
                         // Enable repeat modes on the segment.
                         if repeat_horizontal == RepeatMode::Repeat {
@@ -1830,7 +1835,12 @@ impl<'a> DisplayListFlattener<'a> {
                 self.add_primitive(clip_and_scroll, info, Vec::new(), prim);
             }
             BorderDetails::Normal(ref border) => {
-                self.add_normal_border(info, border, &border_item.widths, clip_and_scroll);
+                self.add_normal_border(
+                    info,
+                    border,
+                    border_item.widths,
+                    clip_and_scroll,
+                );
             }
         }
     }

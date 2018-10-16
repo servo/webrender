@@ -51,7 +51,7 @@ void brush_vs(
     mat4 transform,
     PictureTask pic_task,
     int brush_flags,
-    vec4 texel_rect
+    vec4 segment_data
 ) {
     ImageBrushData image_data = fetch_image_data(prim_address);
 
@@ -76,19 +76,28 @@ void brush_vs(
         local_rect = segment_rect;
         stretch_size = local_rect.size;
 
-        // Note: Here we can assume that texels in device
-        //       space map to local space, due to how border-image
-        //       works. That assumption may not hold if this
-        //       is used for other purposes in the future.
-        if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_X) != 0) {
-            stretch_size.x = (texel_rect.z - texel_rect.x) / pic_task.common_data.device_pixel_scale;
-        }
-        if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_Y) != 0) {
-            stretch_size.y = (texel_rect.w - texel_rect.y) / pic_task.common_data.device_pixel_scale;
-        }
+        // If the extra data is a texel rect, modify the
+        // stretch size and UVs.
+        if ((brush_flags & BRUSH_FLAG_TEXEL_RECT) != 0) {
+            if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_X) != 0) {
+                stretch_size.x = (segment_data.z - segment_data.x);
+            }
+            if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_Y) != 0) {
+                stretch_size.y = (segment_data.w - segment_data.y);
+            }
 
-        uv0 = res.uv_rect.p0 + texel_rect.xy;
-        uv1 = res.uv_rect.p0 + texel_rect.zw;
+            uv0 = res.uv_rect.p0 + segment_data.xy;
+            uv1 = res.uv_rect.p0 + segment_data.zw;
+        } else {
+            // Otherwise, the segment_data represents a stretch size
+            // in local space.
+            if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_X) != 0) {
+                stretch_size.x = segment_data.x;
+            }
+            if ((brush_flags & BRUSH_FLAG_SEGMENT_REPEAT_Y) != 0) {
+                stretch_size.y = segment_data.y;
+            }
+        }
     }
 
     vUv.z = res.layer;
