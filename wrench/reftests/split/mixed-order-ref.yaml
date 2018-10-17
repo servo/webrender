@@ -11,7 +11,7 @@ root:
           color: green
         - type: stacking-context
           bounds: [25, 25, 100, 100]
-          transform: rotate-z(45)
+          #transform: rotate-z(45)
           items:
             - type: rect
               bounds: [0, 0, 100, 100]
