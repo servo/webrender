@@ -16,8 +16,12 @@ wrench/ron_frames
 *.iws
 *.iml
 
-#Gradle
+# Gradle
 .gradle
 
 # VSCode
 .vscode
+.vs
+
+# System
+.fuse_hidden*

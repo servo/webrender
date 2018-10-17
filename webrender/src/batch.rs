@@ -560,7 +560,6 @@ impl AlphaBatchBuilder {
             let gpu_blocks = [
                 [local_points[0].x, local_points[0].y, local_points[1].x, local_points[1].y].into(),
                 [local_points[2].x, local_points[2].y, local_points[3].x, local_points[3].y].into(),
-                pic_metadata.local_rect.into(),
             ];
 
             let gpu_handle = gpu_cache.push_per_frame_blocks(&gpu_blocks);
