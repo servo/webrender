@@ -27,6 +27,12 @@ use std::rc::Rc;
 use std::slice;
 use std::sync::Arc;
 use std::thread;
+use std::usize;
+
+#[derive(Debug)]
+pub enum AllocError {
+    OverBudget(usize),
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, Eq, PartialOrd)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -786,6 +792,11 @@ pub struct Device {
 
     // GL extensions
     extensions: Vec<String>,
+
+    /// Keep track of an approximate total GPU memory allocation for sanity
+    /// checks.
+    allocated_gpu_memory: usize,
+    gpu_memory_budget: usize,
 }
 
 /// Contains the parameters necessary to bind a texture-backed draw target.
@@ -823,6 +834,7 @@ impl Device {
         resource_override_path: Option<PathBuf>,
         upload_method: UploadMethod,
         cached_programs: Option<Rc<ProgramCache>>,
+        gpu_memory_budget: usize,
     ) -> Device {
         let mut max_texture_size = [0];
         unsafe {
@@ -904,6 +916,9 @@ impl Device {
             frame_id: FrameId(0),
             extensions,
             supports_texture_storage,
+
+            allocated_gpu_memory: 0,
+            gpu_memory_budget,
         }
     }
 
@@ -1269,6 +1284,10 @@ impl Device {
         }
     }
 
+    pub fn set_gpu_memory_budget(&mut self, size_in_bytes: usize) {
+        self.gpu_memory_budget = size_in_bytes
+    }
+
     pub fn create_texture(
         &mut self,
         target: TextureTarget,
@@ -1278,7 +1297,7 @@ impl Device {
         filter: TextureFilter,
         render_target: Option<RenderTargetInfo>,
         layer_count: i32,
-    ) -> Texture {
+    ) -> Result<Texture, AllocError> {
         debug_assert!(self.inside_frame);
 
         if width > self.max_texture_size || height > self.max_texture_size {
@@ -1300,6 +1319,13 @@ impl Device {
             fbos_with_depth: vec![],
             last_frame_used: self.frame_id,
         };
+
+        self.allocated_gpu_memory += texture.size_in_bytes();
+        if self.allocated_gpu_memory > self.gpu_memory_budget {
+            self.delete_texture(texture);
+            return Err(AllocError::OverBudget(self.allocated_gpu_memory));;
+        }
+
         self.bind_texture(DEFAULT_TEXTURE, &texture);
         self.set_texture_parameters(texture.target, filter);
 
@@ -1378,7 +1404,7 @@ impl Device {
             }
         }
 
-        texture
+        Ok(texture)
     }
 
     fn set_texture_parameters(&mut self, target: gl::GLuint, filter: TextureFilter) {
@@ -1583,6 +1609,8 @@ impl Device {
             self.release_depth_target(texture.get_dimensions());
         }
 
+        self.deallocated_gpu_memory(texture.size_in_bytes());
+
         self.gl.delete_textures(&[texture.id]);
 
         for bound_texture in &mut self.bound_textures {
@@ -1597,6 +1625,7 @@ impl Device {
 
     #[cfg(feature = "replay")]
     pub fn delete_external_texture(&mut self, mut external: ExternalTexture) {
+
         self.gl.delete_textures(&[external.id]);
         external.id = 0;
     }
@@ -2418,6 +2447,11 @@ impl Device {
             report.depth_target_textures += (pixels as usize) * 4;
         }
         report
+    }
+
+    pub fn deallocated_gpu_memory(&mut self, size_in_bytes: usize) {
+        assert!(self.allocated_gpu_memory >= size_in_bytes);
+        self.allocated_gpu_memory -= size_in_bytes;
     }
 }
 

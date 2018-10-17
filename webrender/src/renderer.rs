@@ -39,7 +39,7 @@ use device::{DepthFunction, Device, FrameId, Program, UploadMethod, Texture, PBO
 use device::{ExternalTexture, FBOId, TextureDrawTarget, TextureReadTarget, TextureSlot};
 use device::{ShaderError, TextureFilter,
              VertexUsageHint, VAO, VBO, CustomVAO};
-use device::{ProgramCache, ReadPixelsFormat};
+use device::{ProgramCache, ReadPixelsFormat, AllocError};
 #[cfg(feature = "debug_renderer")]
 use euclid::rect;
 use euclid::Transform3D;
@@ -91,6 +91,10 @@ use tiling::{Frame, RenderTarget, RenderTargetKind, TextureCacheRenderTarget};
 #[cfg(not(feature = "pathfinder"))]
 use tiling::GlyphJob;
 use time::precise_time_ns;
+
+/// Default per-renderer gpu memory budget.
+/// Can be overridden in `RendererOptions`.
+pub const DEFAULT_GPU_MEMORY_BUDGET: usize = 2_147_483_648; // 2Gb
 
 cfg_if! {
     if #[cfg(feature = "debugger")] {
@@ -812,16 +816,15 @@ struct TextureResolver {
 
 impl TextureResolver {
     fn new(device: &mut Device) -> TextureResolver {
-        let dummy_cache_texture = device
-            .create_texture(
-                TextureTarget::Array,
-                ImageFormat::BGRA8,
-                1,
-                1,
-                TextureFilter::Linear,
-                None,
-                1,
-            );
+        let dummy_cache_texture = device.create_texture(
+            TextureTarget::Array,
+            ImageFormat::BGRA8,
+            1,
+            1,
+            TextureFilter::Linear,
+            None,
+            1,
+        ).unwrap();
 
         TextureResolver {
             texture_cache_map: FastHashMap::default(),
@@ -1119,7 +1122,7 @@ impl GpuCacheTexture {
             TextureFilter::Nearest,
             rt_info,
             1,
-        );
+        ).unwrap();
 
         // Blit the contents of the previous texture, if applicable.
         if let Some(blit_source) = blit_source {
@@ -1419,7 +1422,7 @@ impl VertexDataTexture {
                 TextureFilter::Nearest,
                 None,
                 1,
-            );
+            ).unwrap();
             self.texture = Some(texture);
         }
 
@@ -1661,6 +1664,7 @@ impl Renderer {
             options.resource_override_path.clone(),
             options.upload_method.clone(),
             options.cached_programs.take(),
+            options.gpu_memory_budget,
         );
 
         let ext_dual_source_blending = !options.disable_dual_source_blending &&
@@ -1774,7 +1778,7 @@ impl Renderer {
                 TextureFilter::Nearest,
                 None,
                 1,
-            );
+            ).unwrap();
             device.upload_texture_immediate(&texture, &dither_matrix);
 
             Some(texture)
@@ -2785,7 +2789,7 @@ impl Renderer {
                         //
                         // Ensure no PBO is bound when creating the texture storage,
                         // or GL will attempt to read data from there.
-                        let texture = self.device.create_texture(
+                        let texture = self.create_texture(
                             TextureTarget::Array,
                             format,
                             width,
@@ -3832,7 +3836,7 @@ impl Renderer {
             t
         } else {
             counters.targets_created.inc();
-            self.device.create_texture(
+            self.create_texture(
                 TextureTarget::Array,
                 list.format,
                 list.max_size.width,
@@ -4569,6 +4573,7 @@ pub struct RendererOptions {
     pub chase_primitive: ChasePrimitive,
     pub support_low_priority_transactions: bool,
     pub namespace_alloc_by_client: bool,
+    pub gpu_memory_budget: usize,
 }
 
 impl Default for RendererOptions {
@@ -4604,6 +4609,7 @@ impl Default for RendererOptions {
             chase_primitive: ChasePrimitive::Nothing,
             support_low_priority_transactions: false,
             namespace_alloc_by_client: false,
+            gpu_memory_budget: DEFAULT_GPU_MEMORY_BUDGET,
         }
     }
 }
@@ -4790,7 +4796,12 @@ impl Renderer {
             plain.filter,
             rt_info,
             plain.size.2,
-        );
+        ).unwrap();
+        // This is a bit ugly: We do not track external textures in the GPU
+        // memory budget but in this replay code we use the regular allocation
+        // path which accounts for the allocated memory, so pretend we just
+        // deallocated it to cancel that out.
+        device.deallocated_gpu_memory(texture.size_in_bytes());
         device.upload_texture_immediate(&texture, &texels);
 
         (texture, texels)
@@ -5042,6 +5053,54 @@ impl Renderer {
         self.output_image_handler = Some(Box::new(()) as Box<_>);
         self.external_image_handler = Some(Box::new(image_handler) as Box<_>);
         info!("done.");
+    }
+
+    fn create_texture(
+        &mut self,
+        target: TextureTarget,
+        format: ImageFormat,
+        width: u32,
+        height: u32,
+        filter: TextureFilter,
+        render_target: Option<RenderTargetInfo>,
+        layer_count: i32,
+    ) -> Texture {
+        let alloc = self.device.create_texture(
+            target,
+            format,
+            width,
+            height,
+            filter,
+            render_target,
+            layer_count,
+        );
+
+        match alloc {
+            Ok(texture) => texture,
+            Err(err) => {
+                self.log_allocation_failure(err);
+                panic!();
+            }
+        }
+    }
+
+    fn log_allocation_failure(&self, error: AllocError) {
+        let report = self.report_memory();
+        let AllocError::OverBudget(budget) = error;
+        error!(
+            "Excessive GPU alloc: tex cache:{}, targets:{}, gpu cache:{}, vertex data: {} budget: {}",
+            report.texture_cache_textures,
+            report.render_target_textures,
+            report.gpu_cache_textures,
+            report.vertex_data_textures,
+            budget,
+        );
+    }
+
+    // Set a generous memory budget over which we would rather crash than let the
+    // driver deal with it.
+    pub fn set_gpu_memory_budget(&mut self, size_in_bytes: usize) {
+        self.device.set_gpu_memory_budget(size_in_bytes);
     }
 }
 
