@@ -87,6 +87,7 @@ pub struct FrameBuildingState<'a> {
     pub segment_builder: SegmentBuilder,
 }
 
+/// Immutable context of a picture when processing children.
 #[derive(Debug)]
 pub struct PictureContext {
     pub pipeline_id: PipelineId,
@@ -95,8 +96,13 @@ pub struct PictureContext {
     pub allow_subpixel_aa: bool,
     pub is_passthrough: bool,
     pub raster_space: RasterSpace,
+    pub local_spatial_node_index: SpatialNodeIndex,
+    pub surface_spatial_node_index: SpatialNodeIndex,
+    pub raster_spatial_node_index: SpatialNodeIndex,
 }
 
+/// Mutable state of a picture that gets modified when
+/// the children are processed.
 pub struct PictureState {
     pub tasks: Vec<RenderTaskId>,
     pub has_non_root_coord_system: bool,
@@ -111,8 +117,6 @@ pub struct PictureState {
     /// Mapping from local space to the containing block, which is the root for
     /// plane splitting and affects backface visibility.
     pub map_local_to_containing_block: SpaceMapper<LayoutPixel, LayoutPixel>,
-    pub surface_spatial_node_index: SpatialNodeIndex,
-    pub raster_spatial_node_index: SpatialNodeIndex,
     /// If the plane splitter, the primitives get added to it insted of
     /// batching into their parent pictures.
     pub plane_splitter: Option<PlaneSplitter>,
@@ -241,6 +245,7 @@ impl FrameBuilder {
                 &prim_context,
                 root_spatial_node_index,
                 root_spatial_node_index,
+                root_spatial_node_index,
                 true,
                 &mut frame_state,
                 &frame_context,
@@ -268,7 +273,7 @@ impl FrameBuilder {
             &mut frame_state,
         );
 
-        let pic_state = pic.take_state();
+        let (pic_state, _) = pic.take_state_and_context();
 
         let root_render_task = RenderTask::new_picture(
             RenderTaskLocation::Fixed(self.screen_rect.to_i32()),

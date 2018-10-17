@@ -950,7 +950,7 @@ impl<'a> DisplayListFlattener<'a> {
         // Get the transform-style of the parent stacking context,
         // which determines if we *might* need to draw this on
         // an intermediate surface for plane splitting purposes.
-        let (parent_transform_style, extra_3d_instance) = match self.sc_stack.last_mut() {
+        let (parent_is_3d, extra_3d_instance) = match self.sc_stack.last_mut() {
             Some(sc) => {
                 // Cut the sequence of flat children before starting a child stacking context,
                 // so that the relative order between them and our current SC is preserved.
@@ -958,9 +958,9 @@ impl<'a> DisplayListFlattener<'a> {
                     &mut self.picture_id_generator,
                     &mut self.prim_store,
                 );
-                (sc.transform_style, extra_instance)
+                (sc.is_3d(), extra_instance)
             },
-            None => (TransformStyle::Flat, None),
+            None => (false, None),
         };
 
         if let Some(instance) = extra_3d_instance {
@@ -973,20 +973,20 @@ impl<'a> DisplayListFlattener<'a> {
         // container, so that it's rendered as a sibling with other
         // elements in this context.
         let participating_in_3d_context =
-            composite_ops.count() == 0 &&
-            (parent_transform_style == TransformStyle::Preserve3D ||
-             transform_style == TransformStyle::Preserve3D);
+            composite_ops.is_empty() &&
+            (parent_is_3d || transform_style == TransformStyle::Preserve3D);
 
         let context_3d = if participating_in_3d_context {
             // Find the spatial node index of the containing block, which
             // defines the context of backface-visibility.
             let ancestor_context = self.sc_stack
                 .iter()
-                .rfind(|sc| sc.transform_style == TransformStyle::Flat);
+                .rfind(|sc| !sc.is_3d());
             Picture3DContext::In {
-                root_data: match parent_transform_style {
-                    TransformStyle::Flat => Some(Vec::new()),
-                    TransformStyle::Preserve3D => None,
+                root_data: if parent_is_3d {
+                    None
+                } else {
+                    Some(Vec::new())
                 },
                 ancestor_index: match ancestor_context {
                     Some(sc) => sc.spatial_node_index,
@@ -1189,23 +1189,23 @@ impl<'a> DisplayListFlattener<'a> {
         // The primitive instance for the remainder of flat children of this SC
         // if it's a part of 3D hierarchy but not the root of it.
         let trailing_children_instance = match self.sc_stack.last_mut() {
-            Some(parent_sc) => match parent_sc.transform_style {
-                TransformStyle::Flat => {
-                    // If we have a mix-blend-mode, and we aren't the primary framebuffer,
-                    // the stacking context needs to be isolated to blend correctly as per
-                    // the CSS spec.
-                    // If not already isolated for some other reason,
-                    // make this picture as isolated.
-                    if has_mix_blend_on_secondary_framebuffer {
-                        parent_sc.should_isolate = true;
-                    }
-                    parent_sc.primitives.push(cur_instance);
-                    None
+            // Preserve3D path (only relevant if there are no filters/mix-blend modes)
+            Some(ref parent_sc) if parent_sc.is_3d() => {
+                Some(cur_instance)
+            }
+            // Regular parenting path
+            Some(ref mut parent_sc) => {
+                // If we have a mix-blend-mode, and we aren't the primary framebuffer,
+                // the stacking context needs to be isolated to blend correctly as per
+                // the CSS spec.
+                // If not already isolated for some other reason,
+                // make this picture as isolated.
+                if has_mix_blend_on_secondary_framebuffer {
+                    parent_sc.should_isolate = true;
                 }
-                TransformStyle::Preserve3D => {
-                    Some(cur_instance)
-                }
-            },
+                parent_sc.primitives.push(cur_instance);
+                None
+            }
             // This must be the root stacking context
             None => {
                 self.root_prim_index = cur_instance.prim_index;
@@ -2169,6 +2169,11 @@ struct FlattenedStackingContext {
 }
 
 impl FlattenedStackingContext {
+    /// Return true if the stacking context has a valid preserve-3d property
+    pub fn is_3d(&self) -> bool {
+        self.transform_style == TransformStyle::Preserve3D && self.composite_ops.is_empty()
+    }
+
     /// For a Preserve3D context, cut the sequence of the immediate flat children
     /// recorded so far and generate a picture from them.
     pub fn cut_flat_item_sequence(
@@ -2176,7 +2181,7 @@ impl FlattenedStackingContext {
         picture_id_generator: &mut PictureIdGenerator,
         prim_store: &mut PrimitiveStore,
     ) -> Option<PrimitiveInstance> {
-        if self.transform_style != TransformStyle::Preserve3D || self.primitives.is_empty() {
+        if !self.is_3d() || self.primitives.is_empty() {
             return None
         }
         let flat_items_context_3d = match self.context_3d {

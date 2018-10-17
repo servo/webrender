@@ -1830,8 +1830,9 @@ impl PrimitiveStore {
                 PrimitiveDetails::Brush(BrushPrimitive { kind: BrushKind::Picture(ref mut pic), .. }) => {
                     match pic.take_context(
                         prim_context,
-                        pic_state.surface_spatial_node_index,
-                        pic_state.raster_spatial_node_index,
+                        pic_context.local_spatial_node_index,
+                        pic_context.surface_spatial_node_index,
+                        pic_context.raster_spatial_node_index,
                         pic_context.allow_subpixel_aa,
                         frame_state,
                         frame_context,
@@ -2010,7 +2011,7 @@ impl PrimitiveStore {
                 prim_instance,
                 prim_context,
                 clipped_world_rect,
-                pic_state.raster_spatial_node_index,
+                pic_context.raster_spatial_node_index,
                 &clip_chain,
                 pic_state,
                 frame_context,
