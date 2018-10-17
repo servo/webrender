@@ -426,6 +426,7 @@ impl AlphaBatchContainer {
 struct SegmentInstanceData {
     textures: BatchTextures,
     user_data: i32,
+    is_opaque_override: Option<bool>,
 }
 
 /// Encapsulates the logic of building batches for items that are blended.
@@ -1112,10 +1113,10 @@ impl AlphaBatchBuilder {
                     }
                     _ => {
                         if let Some(params) = brush.get_batch_params(
-                                ctx.resource_cache,
-                                gpu_cache,
-                                deferred_resolves,
-                                ctx.prim_store.chase_id == Some(prim_instance.prim_index),
+                            ctx.resource_cache,
+                            gpu_cache,
+                            deferred_resolves,
+                            ctx.prim_store.chase_id == Some(prim_instance.prim_index),
                         ) {
                             let prim_header_index = prim_headers.push(&prim_header, params.prim_user_data);
                             if cfg!(debug_assertions) && ctx.prim_store.chase_id == Some(prim_instance.prim_index) {
@@ -1291,8 +1292,16 @@ impl AlphaBatchBuilder {
             BrushSegmentTaskId::Empty => return,
         };
 
+        // If the segment instance data specifies opacity for that
+        // segment, use it. Otherwise, assume opacity for the segment
+        // from the overall primitive opacity.
+        let is_segment_opaque = match segment_data.is_opaque_override {
+            Some(is_opaque) => is_opaque,
+            None => prim_instance.opacity.is_opaque,
+        };
+
         let is_inner = segment.edge_flags.is_empty();
-        let needs_blending = !prim_instance.opacity.is_opaque ||
+        let needs_blending = !is_segment_opaque ||
                              segment.clip_task_id.needs_blending() ||
                              (!is_inner && transform_kind == TransformedRectKind::Complex);
 
@@ -1530,6 +1539,7 @@ impl BrushBatchParameters {
                 SegmentInstanceData {
                     textures,
                     user_data: segment_user_data,
+                    is_opaque_override: None,
                 }
             ),
         }
@@ -1657,6 +1667,7 @@ impl BrushPrimitive {
                                 SegmentInstanceData {
                                     textures: BatchTextures::color(cache_item.texture_id),
                                     user_data: cache_item.uv_rect_handle.as_int(gpu_cache),
+                                    is_opaque_override: Some(segment.is_opaque),
                                 }
                             );
                         }
