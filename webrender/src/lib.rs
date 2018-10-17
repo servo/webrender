@@ -188,7 +188,7 @@ pub use renderer::{AsyncPropertySampler, CpuProfile, DebugFlags, OutputImageHand
 pub use renderer::{ExternalImage, ExternalImageHandler, ExternalImageSource, GpuProfile};
 pub use renderer::{GraphicsApi, GraphicsApiInfo, PipelineInfo, Renderer, RendererOptions};
 pub use renderer::{RendererStats, SceneBuilderHooks, ThreadListener, ShaderPrecacheFlags};
-pub use renderer::MAX_VERTEX_TEXTURE_WIDTH;
+pub use renderer::{MAX_VERTEX_TEXTURE_WIDTH, DEFAULT_GPU_MEMORY_BUDGET};
 pub use shade::{Shaders, WrShaders};
 pub use webrender_api as api;
 pub use resource_cache::intersect_for_tile;

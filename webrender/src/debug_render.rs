@@ -131,7 +131,7 @@ impl DebugRenderer {
             TextureFilter::Linear,
             None,
             1,
-        );
+        ).unwrap();
         device.upload_texture_immediate(
             &font_texture,
             &debug_font_data::FONT_BITMAP
