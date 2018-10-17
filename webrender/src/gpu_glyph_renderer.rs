@@ -62,7 +62,7 @@ impl GpuGlyphRenderer {
             TextureFilter::Linear,
             None,
             1,
-        );
+        ).unwrap();
         device.upload_texture_immediate(&area_lut_texture, area_lut_pixels);
 
         let vector_stencil_vao =
@@ -120,7 +120,7 @@ impl Renderer {
                 has_depth: false,
             }),
             1,
-        );
+        ).unwrap();
 
         // Initialize temporary framebuffer.
         // FIXME(pcwalton): Cache this!
@@ -187,7 +187,7 @@ impl Renderer {
             TextureFilter::Nearest,
             None,
             1,
-        );
+        ).unwrap();
         self.device.upload_texture_immediate(&path_info_texture, &path_info_texels);
 
         self.gpu_glyph_renderer.vector_stencil.bind(&mut self.device,
