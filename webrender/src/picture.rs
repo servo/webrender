@@ -16,7 +16,7 @@ use frame_builder::{PictureContext, PrimitiveContext};
 use gpu_cache::{GpuCacheAddress, GpuCacheHandle};
 use gpu_types::{TransformPalette, TransformPaletteId, UvRectKind};
 use plane_split::{Clipper, Polygon, Splitter};
-use prim_store::{PictureIndex, PrimitiveIndex, PrimitiveInstance, SpaceMapper};
+use prim_store::{PictureIndex, PrimitiveInstance, SpaceMapper};
 use prim_store::{get_raster_rects};
 use render_task::{ClearMode, RenderTask, RenderTaskCacheEntryHandle};
 use render_task::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId, RenderTaskLocation};
@@ -178,11 +178,9 @@ pub enum Picture3DContext<R> {
 /// and ordered according to the view direction.
 #[derive(Clone, Debug)]
 pub struct OrderedPictureChild {
-    prim_index: PrimitiveIndex,
-    local_clip_rect: LayoutRect,
-    clip_task_id: Option<RenderTaskId>,
-    transform_id: TransformPaletteId,
-    gpu_address: GpuCacheAddress,
+    pub anchor: usize,
+    pub transform_id: TransformPaletteId,
+    pub gpu_address: GpuCacheAddress,
 }
 
 pub struct PicturePrimitive {
@@ -564,11 +562,11 @@ impl PicturePrimitive {
         // Process the accumulated split planes and order them for rendering.
         // Z axis is directed at the screen, `sort` is ascending, and we need back-to-front order.
         for poly in splitter.sort(vec3(0.0, 0.0, 1.0)) {
-            let prim_instance = &self.prim_instances[poly.anchor];
+            let spatial_node_index = self.prim_instances[poly.anchor].spatial_node_index;
 
-            let transform = frame_state.transforms.get_world_inv_transform(prim_instance.spatial_node_index);
+            let transform = frame_state.transforms.get_world_inv_transform(spatial_node_index);
             let transform_id = frame_state.transforms.get_id(
-                prim_instance.spatial_node_index,
+                spatial_node_index,
                 ROOT_SPATIAL_NODE_INDEX,
                 clip_scroll_tree,
             );
@@ -587,9 +585,7 @@ impl PicturePrimitive {
             let gpu_address = frame_state.gpu_cache.get_address(&gpu_handle);
 
             ordered.push(OrderedPictureChild {
-                prim_index: prim_instance.prim_index,
-                local_clip_rect: prim_instance.combined_local_clip_rect,
-                clip_task_id: prim_instance.clip_task_id,
+                anchor: poly.anchor,
                 transform_id,
                 gpu_address,
             });
