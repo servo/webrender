@@ -611,19 +611,20 @@ impl TextureCache {
             }
         }
 
-        // Sort by access time so we remove the oldest ones first.
-        eviction_candidates.sort_by_key(|handle| {
-            let entry = self.entries.get(handle);
-            entry.last_access
-        });
-
         // We only allow an arbitrary number of unused
         // standalone textures to remain in GPU memory.
         // TODO(gw): We should make this a better heuristic,
         //           for example based on total memory size.
         if eviction_candidates.len() > 32 {
+            // Sort by access time so we remove the oldest ones first.
+            eviction_candidates.sort_by_key(|handle| {
+                let entry = self.entries.get(handle);
+                entry.last_access
+            });
             let entries_to_keep = eviction_candidates.split_off(32);
             retained_entries.extend(entries_to_keep);
+        } else {
+            retained_entries.extend(eviction_candidates.drain(..));
         }
 
         // Free the selected items
