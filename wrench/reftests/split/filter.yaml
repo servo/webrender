@@ -1,5 +1,5 @@
 # This test ensures that an opacity filter forces the flattening of preserve-3D context.
-# The innermost rectangle has backface visibility disabled. If the parent stacing context
+# The innermost rectangle has backface visibility disabled. If the parent stacking context
 # is a part of preserve-3D hierarchy, then the item would be backward-facing, thus invisible.
 # With the opacity filter, it's no longer a part of the preserve-3D, thus visible.
 ---

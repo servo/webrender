@@ -158,13 +158,13 @@ pub struct PictureCacheKey {
 
 /// Enum value describing the place of a picture in a 3D context.
 #[derive(Clone, Debug)]
-pub enum Picture3DContext<R> {
+pub enum Picture3DContext<C> {
     /// The picture is not a part of 3D context sub-hierarchy.
     Out,
     /// The picture is a part of 3D context.
     In {
-        /// Additional data for the case of this a root of 3D hierarchy.
-        root_data: Option<R>,
+        /// Additional data per child for the case of this a root of 3D hierarchy.
+        root_data: Option<Vec<C>>,
         /// The spatial node index of an "ancestor" element, i.e. one
         /// that establishes the transformed element’s containing block.
         ///
@@ -210,7 +210,7 @@ pub struct PicturePrimitive {
     pub requested_raster_space: RasterSpace,
 
     pub raster_config: Option<RasterConfig>,
-    pub context_3d: Picture3DContext<Vec<OrderedPictureChild>>,
+    pub context_3d: Picture3DContext<OrderedPictureChild>,
 
     // If requested as a frame output (for rendering
     // pages to a texture), this is the pipeline this
@@ -245,7 +245,7 @@ impl PicturePrimitive {
     pub fn new_image(
         id: PictureId,
         requested_composite_mode: Option<PictureCompositeMode>,
-        context_3d: Picture3DContext<Vec<OrderedPictureChild>>,
+        context_3d: Picture3DContext<OrderedPictureChild>,
         pipeline_id: PipelineId,
         frame_output_pipeline_id: Option<PipelineId>,
         apply_local_clip_rect: bool,

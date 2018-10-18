@@ -1,4 +1,4 @@
-# In this test, both rectangles have invisible back faces and are are
+# In this test, both rectangles have invisible back faces and are
 # parented to a preserve-3d context that is rotated by 180 degrees.
 # The red one is also rotated 180 degrees, and should be visible.
 ---

@@ -1,4 +1,5 @@
-# The result should be matching the flat ordering.
+# The result should be matching the flat ordering, since there
+# is no variation in Z of the preserve-3D children.
 ---
 root:
   items:
