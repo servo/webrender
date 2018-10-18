@@ -2175,7 +2175,7 @@ struct FlattenedStackingContext {
     transform_style: TransformStyle,
 
     /// Defines the relationship to a preserve-3D hiearachy.
-    context_3d: Picture3DContext<Vec<PrimitiveInstance>>,
+    context_3d: Picture3DContext<PrimitiveInstance>,
 }
 
 impl FlattenedStackingContext {
