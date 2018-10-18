@@ -1,5 +1,6 @@
 == simple.yaml simple-ref.yaml
-== order.yaml order-ref.yaml
+== order-1.yaml order-1-ref.yaml
+== order-2.yaml order-2-ref.yaml
 == nested.yaml nested-ref.yaml
 == nested-preserve3d-crash.yaml nested-preserve3d-crash.yaml
 == perspective-clipping.yaml perspective-clipping-ref.yaml
@@ -14,3 +15,4 @@ platform(linux,mac) fuzzy(1,20) == same-plane.yaml same-plane.png
 #TODO: https://github.com/servo/webrender/issues/2946
 #== cross.yaml cross-ref.yaml
 == mixed-order.yaml mixed-order-ref.yaml
+fuzzy(1,40000) == filter.yaml filter-ref.yaml
