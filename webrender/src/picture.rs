@@ -186,7 +186,7 @@ pub struct OrderedPictureChild {
 pub struct PicturePrimitive {
     // List of primitive runs that make up this picture.
     pub prim_instances: Vec<PrimitiveInstance>,
-    pub state: Option<PictureState>,
+    pub state: Option<(PictureState, PictureContext)>,
 
     // The pipeline that the primitives on this picture belong to.
     pub pipeline_id: PipelineId,
@@ -272,6 +272,7 @@ impl PicturePrimitive {
         &mut self,
         pic_index: PictureIndex,
         prim_context: &PrimitiveContext,
+        parent_spatial_node_index: SpatialNodeIndex,
         surface_spatial_node_index: SpatialNodeIndex,
         raster_spatial_node_index: SpatialNodeIndex,
         parent_allows_subpixel_aa: bool,
@@ -333,7 +334,7 @@ impl PicturePrimitive {
 
         if has_surface {
             frame_state.clip_store
-                       .push_surface(surface_spatial_node_index);
+                .push_surface(surface_spatial_node_index);
         }
 
         let map_pic_to_world = SpaceMapper::new_with_target(
@@ -359,7 +360,7 @@ impl PicturePrimitive {
 
         let (containing_block_index, plane_splitter) = match self.context_3d {
             Picture3DContext::Out => {
-                (surface_spatial_node_index, None)
+                (parent_spatial_node_index, None)
             }
             Picture3DContext::In { root_data: Some(_), ancestor_index } => {
                 (ancestor_index, Some(PlaneSplitter::new()))
@@ -388,8 +389,6 @@ impl PicturePrimitive {
             is_cacheable: true,
             local_rect_changed: false,
             rect: PictureRect::zero(),
-            raster_spatial_node_index,
-            surface_spatial_node_index,
             map_local_to_pic,
             map_pic_to_world,
             map_pic_to_raster,
@@ -422,6 +421,9 @@ impl PicturePrimitive {
             allow_subpixel_aa,
             is_passthrough: self.raster_config.is_none(),
             raster_space,
+            local_spatial_node_index: prim_context.spatial_node_index,
+            raster_spatial_node_index,
+            surface_spatial_node_index,
         };
 
         let instances = mem::replace(&mut self.prim_instances, Vec::new());
@@ -437,9 +439,6 @@ impl PicturePrimitive {
         local_rect: Option<PictureRect>,
         frame_state: &mut FrameBuildingState,
     ) -> (LayoutRect, Option<ClipNodeCollector>) {
-        self.prim_instances = prim_instances;
-        self.state = Some(state);
-
         let local_rect = match local_rect {
             Some(local_rect) => {
                 let local_content_rect = LayoutRect::from_untyped(&local_rect.to_untyped());
@@ -480,10 +479,13 @@ impl PicturePrimitive {
             Some(frame_state.clip_store.pop_surface())
         };
 
+        self.prim_instances = prim_instances;
+        self.state = Some((state, context));
+
         (local_rect, clip_node_collector)
     }
 
-    pub fn take_state(&mut self) -> PictureState {
+    pub fn take_state_and_context(&mut self) -> (PictureState, PictureContext) {
         self.state.take().expect("bug: no state present!")
     }
 
@@ -601,7 +603,7 @@ impl PicturePrimitive {
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
     ) -> bool {
-        let mut pic_state_for_children = self.take_state();
+        let (mut pic_state_for_children, pic_context) = self.take_state_and_context();
 
         if let Some(ref mut splitter) = pic_state_for_children.plane_splitter {
             self.resolve_split_planes(
@@ -685,7 +687,7 @@ impl PicturePrimitive {
                         device_rect.origin,
                         pic_state_for_children.tasks,
                         uv_rect_kind,
-                        pic_state_for_children.raster_spatial_node_index,
+                        pic_context.raster_spatial_node_index,
                     );
 
                     let picture_task_id = frame_state.render_tasks.add(picture_task);
@@ -743,7 +745,7 @@ impl PicturePrimitive {
                                 device_rect.origin,
                                 child_tasks,
                                 uv_rect_kind,
-                                pic_state_for_children.raster_spatial_node_index,
+                                pic_context.raster_spatial_node_index,
                             );
 
                             let picture_task_id = render_tasks.add(picture_task);
@@ -800,7 +802,7 @@ impl PicturePrimitive {
                     device_rect.origin,
                     pic_state_for_children.tasks,
                     uv_rect_kind,
-                    pic_state_for_children.raster_spatial_node_index,
+                    pic_context.raster_spatial_node_index,
                 );
                 picture_task.mark_for_saving();
 
@@ -871,7 +873,7 @@ impl PicturePrimitive {
                     clipped.origin,
                     pic_state_for_children.tasks,
                     uv_rect_kind,
-                    pic_state_for_children.raster_spatial_node_index,
+                    pic_context.raster_spatial_node_index,
                 );
 
                 let readback_task_id = frame_state.render_tasks.add(
@@ -908,7 +910,7 @@ impl PicturePrimitive {
                     clipped.origin,
                     pic_state_for_children.tasks,
                     uv_rect_kind,
-                    pic_state_for_children.raster_spatial_node_index,
+                    pic_context.raster_spatial_node_index,
                 );
 
                 let render_task_id = frame_state.render_tasks.add(picture_task);
@@ -930,7 +932,7 @@ impl PicturePrimitive {
                     clipped.origin,
                     pic_state_for_children.tasks,
                     uv_rect_kind,
-                    pic_state_for_children.raster_spatial_node_index,
+                    pic_context.raster_spatial_node_index,
                 );
 
                 let render_task_id = frame_state.render_tasks.add(picture_task);

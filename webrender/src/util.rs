@@ -573,6 +573,8 @@ impl<Src, Dst> FastTransform<Src, Dst> {
         match *self {
             FastTransform::Offset(..) => false,
             FastTransform::Transform { inverse: None, .. } => false,
+            //TODO: fix this properly by taking "det|M33| * det|M34| > 0"
+            // see https://www.w3.org/Bugs/Public/show_bug.cgi?id=23014
             FastTransform::Transform { inverse: Some(ref inverse), .. } => inverse.m33 < 0.0,
         }
     }
