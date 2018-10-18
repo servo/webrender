@@ -224,6 +224,11 @@ pub struct DeferredResolve {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveIndex(pub usize);
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct PictureIndex(pub usize);
+
 impl GpuCacheHandle {
     pub fn as_int(&self, gpu_cache: &GpuCache) -> i32 {
         gpu_cache.get_address(self).as_int()
@@ -372,7 +377,9 @@ pub enum BrushKind {
         opacity_binding: OpacityBinding,
     },
     Clear,
-    Picture(PicturePrimitive),
+    Picture {
+        pic_index: PictureIndex,
+    },
     Image {
         request: ImageRequest,
         alpha_type: AlphaType,
@@ -638,20 +645,11 @@ impl BrushPrimitive {
         }
     }
 
-    pub fn may_need_clip_mask(&self) -> bool {
-        match self.kind {
-            BrushKind::Picture(ref pic) => {
-                pic.raster_config.is_some()
-            }
-            _ => {
-                true
-            }
-        }
-    }
-
-    pub fn new_picture(prim: PicturePrimitive) -> Self {
+    pub fn new_picture(pic_index: PictureIndex) -> Self {
         BrushPrimitive {
-            kind: BrushKind::Picture(prim),
+            kind: BrushKind::Picture {
+                pic_index,
+            },
             segment_desc: None,
         }
     }
@@ -1512,26 +1510,6 @@ pub struct Primitive {
     pub details: PrimitiveDetails,
 }
 
-impl Primitive {
-    pub fn as_pic(&self) -> &PicturePrimitive {
-        match self.details {
-            PrimitiveDetails::Brush(BrushPrimitive { kind: BrushKind::Picture(ref pic), .. }) => pic,
-            _ => {
-                panic!("bug: not a picture!");
-            }
-        }
-    }
-
-    pub fn as_pic_mut(&mut self) -> &mut PicturePrimitive {
-        match self.details {
-            PrimitiveDetails::Brush(BrushPrimitive { kind: BrushKind::Picture(ref mut pic), .. }) => pic,
-            _ => {
-                panic!("bug: not a picture!");
-            }
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct PrimitiveInstance {
     /// Index into the prim store containing information about
@@ -1602,6 +1580,7 @@ impl PrimitiveInstance {
 
 pub struct PrimitiveStore {
     pub primitives: Vec<Primitive>,
+    pub pictures: Vec<PicturePrimitive>,
 
     /// A primitive index to chase through debugging.
     pub chase_id: Option<PrimitiveIndex>,
@@ -1611,16 +1590,18 @@ impl PrimitiveStore {
     pub fn new() -> PrimitiveStore {
         PrimitiveStore {
             primitives: Vec::new(),
+            pictures: Vec::new(),
             chase_id: None,
         }
     }
 
-    pub fn get_pic(&self, index: PrimitiveIndex) -> &PicturePrimitive {
-        self.primitives[index.0].as_pic()
-    }
-
-    pub fn get_pic_mut(&mut self, index: PrimitiveIndex) -> &mut PicturePrimitive {
-        self.primitives[index.0].as_pic_mut()
+    pub fn create_picture(
+        &mut self,
+        prim: PicturePrimitive,
+    ) -> PictureIndex {
+        let index = PictureIndex(self.pictures.len());
+        self.pictures.push(prim);
+        index
     }
 
     pub fn add_primitive(
@@ -1668,9 +1649,9 @@ impl PrimitiveStore {
     // that can be the target for collapsing parent opacity filters into.
     fn get_opacity_collapse_prim(
         &self,
-        pic_prim_index: PrimitiveIndex,
+        pic_index: PictureIndex,
     ) -> Option<PrimitiveIndex> {
-        let pic = self.get_pic(pic_prim_index);
+        let pic = &self.pictures[pic_index.0];
 
         // We can only collapse opacity if there is a single primitive, otherwise
         // the opacity needs to be applied to the primitives as a group.
@@ -1688,12 +1669,14 @@ impl PrimitiveStore {
         match prim.details {
             PrimitiveDetails::Brush(ref brush) => {
                 match brush.kind {
-                    BrushKind::Picture(ref pic) => {
+                    BrushKind::Picture { pic_index, .. } => {
+                        let pic = &self.pictures[pic_index.0];
+
                         // If we encounter a picture that is a pass-through
                         // (i.e. no composite mode), then we can recurse into
                         // that to try and find a primitive to collapse to.
                         if pic.requested_composite_mode.is_none() {
-                            return self.get_opacity_collapse_prim(prim_instance.prim_index);
+                            return self.get_opacity_collapse_prim(pic_index);
                         }
                     }
                     // If we find a single rect or image, we can use that
@@ -1721,10 +1704,10 @@ impl PrimitiveStore {
     // if that picture contains one compatible primitive.
     pub fn optimize_picture_if_possible(
         &mut self,
-        pic_prim_index: PrimitiveIndex,
+        pic_index: PictureIndex,
     ) {
         // Only handle opacity filters for now.
-        let binding = match self.get_pic(pic_prim_index).requested_composite_mode {
+        let binding = match self.pictures[pic_index.0].requested_composite_mode {
             Some(PictureCompositeMode::Filter(FilterOp::Opacity(binding, _))) => {
                 binding
             }
@@ -1735,7 +1718,7 @@ impl PrimitiveStore {
 
         // See if this picture contains a single primitive that supports
         // opacity collapse.
-        match self.get_opacity_collapse_prim(pic_prim_index) {
+        match self.get_opacity_collapse_prim(pic_index) {
             Some(prim_index) => {
                 let prim = &mut self.primitives[prim_index.0];
                 match prim.details {
@@ -1773,7 +1756,7 @@ impl PrimitiveStore {
         // intermediate surface or incur an extra blend / blit. Instead,
         // the collapsed primitive will be drawn directly into the
         // parent picture.
-        self.get_pic_mut(pic_prim_index).requested_composite_mode = None;
+        self.pictures[pic_index.0].requested_composite_mode = None;
     }
 
     pub fn prim_count(&self) -> usize {
@@ -1799,8 +1782,11 @@ impl PrimitiveStore {
         // picture target, if being composited.
         let pic_info = {
             match self.primitives[prim_instance.prim_index.0].details {
-                PrimitiveDetails::Brush(BrushPrimitive { kind: BrushKind::Picture(ref mut pic), .. }) => {
+                PrimitiveDetails::Brush(BrushPrimitive { kind: BrushKind::Picture { pic_index, .. }, .. }) => {
+                    let pic = &mut self.pictures[pic_index.0];
+
                     match pic.take_context(
+                        pic_index,
                         prim_context,
                         pic_state.surface_spatial_node_index,
                         pic_state.raster_spatial_node_index,
@@ -1845,13 +1831,12 @@ impl PrimitiveStore {
                 };
 
                 if !pic_state_for_children.is_cacheable {
-                  pic_state.is_cacheable = false;
+                    pic_state.is_cacheable = false;
                 }
 
                 // Restore the dependencies (borrow check dance)
-                let prim = &mut self.primitives[prim_instance.prim_index.0];
-                let (new_local_rect, clip_node_collector) = prim
-                    .as_pic_mut()
+                let (new_local_rect, clip_node_collector) = self
+                    .pictures[pic_context_for_children.pic_index.0]
                     .restore_context(
                         prim_instances,
                         pic_context_for_children,
@@ -1860,6 +1845,7 @@ impl PrimitiveStore {
                         frame_state,
                     );
 
+                let prim = &mut self.primitives[prim_instance.prim_index.0];
                 if new_local_rect != prim.metadata.local_rect {
                     prim.metadata.local_rect = new_local_rect;
                     frame_state.gpu_cache.invalidate(&mut prim_instance.gpu_location);
@@ -2001,6 +1987,7 @@ impl PrimitiveStore {
             prim_context,
             pic_context,
             pic_state,
+            &mut self.pictures,
             frame_context,
             frame_state,
             display_list,
@@ -2467,10 +2454,7 @@ impl Primitive {
     // Returns true if the primitive *might* need a clip mask. If
     // false, there is no need to even check for clip masks for
     // this primitive.
-    fn reset_clip_task(
-        &mut self,
-        prim_instance: &mut PrimitiveInstance,
-    ) -> bool {
+    fn reset_clip_task(&mut self, prim_instance: &mut PrimitiveInstance) {
         prim_instance.clip_task_id = None;
         match self.details {
             PrimitiveDetails::Brush(ref mut brush) => {
@@ -2479,11 +2463,8 @@ impl Primitive {
                         segment.clip_task_id = BrushSegmentTaskId::Opaque;
                     }
                 }
-                brush.may_need_clip_mask()
             }
-            PrimitiveDetails::TextRun(..) => {
-                true
-            }
+            PrimitiveDetails::TextRun(..) => {}
         }
     }
 
@@ -2493,6 +2474,7 @@ impl Primitive {
         prim_context: &PrimitiveContext,
         pic_context: &PictureContext,
         pic_state: &mut PictureState,
+        pictures: &mut [PicturePrimitive],
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
         display_list: &BuiltDisplayList,
@@ -3004,8 +2986,10 @@ impl Primitive {
                             );
                         }
                     }
-                    BrushKind::Picture(ref mut pic) => {
+                    BrushKind::Picture { pic_index, .. } => {
+                        let pic = &mut pictures[pic_index.0];
                         if !pic.prepare_for_render(
+                            pic_index,
                             prim_instance,
                             metadata,
                             pic_state,
@@ -3086,10 +3070,7 @@ impl Primitive {
             println!("\tupdating clip task with pic rect {:?}", clip_chain.pic_clip_rect);
         }
         // Reset clips from previous frames since we may clip differently each frame.
-        // If this primitive never needs clip masks, just return straight away.
-        if !self.reset_clip_task(prim_instance) {
-            return;
-        }
+        self.reset_clip_task(prim_instance);
 
         // First try to  render this primitive's mask using optimized brush rendering.
         if self.update_clip_task_for_brush(

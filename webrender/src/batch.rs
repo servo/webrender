@@ -507,7 +507,7 @@ impl AlphaBatchBuilder {
         for poly in splitter.sort(vec3(0.0, 0.0, 1.0)) {
             let prim_instance = &pic.prim_instances[poly.anchor];
             let prim_index = prim_instance.prim_index;
-            let pic_metadata = &ctx.prim_store.primitives[prim_index.0].metadata;
+            let prim = &ctx.prim_store.primitives[prim_index.0];
             if cfg!(debug_assertions) && ctx.prim_store.chase_id == Some(prim_index) {
                 println!("\t\tsplit polygon {:?}", poly.points);
             }
@@ -523,7 +523,7 @@ impl AlphaBatchBuilder {
                 .map_or(OPAQUE_TASK_ADDRESS, |id| render_tasks.get_task_address(id));
 
             let prim_header = PrimitiveHeader {
-                local_rect: pic_metadata.local_rect,
+                local_rect: prim.metadata.local_rect,
                 local_clip_rect: prim_instance.combined_local_clip_rect,
                 task_address,
                 specific_prim_address: GpuCacheAddress::invalid(),
@@ -531,7 +531,18 @@ impl AlphaBatchBuilder {
                 transform_id,
             };
 
-            let pic = ctx.prim_store.get_pic(prim_index);
+            let pic_index = match prim.details {
+                PrimitiveDetails::Brush(ref brush) => {
+                    match brush.kind {
+                        BrushKind::Picture { pic_index, .. } => pic_index,
+                        _ => unreachable!(),
+                    }
+                }
+                PrimitiveDetails::TextRun(..) => {
+                    unreachable!();
+                }
+            };
+            let pic = &ctx.prim_store.pictures[pic_index.0];
 
             let (uv_rect_address, _) = pic
                 .raster_config
@@ -683,7 +694,9 @@ impl AlphaBatchBuilder {
         match prim.details {
             PrimitiveDetails::Brush(ref brush) => {
                 match brush.kind {
-                    BrushKind::Picture(ref picture) => {
+                    BrushKind::Picture { pic_index, .. } => {
+                        let picture = &ctx.prim_store.pictures[pic_index.0];
+
                         // If this picture is participating in a 3D rendering context,
                         // then don't add it to any batches here. Instead, create a polygon
                         // for it and add it to the current plane splitter.
