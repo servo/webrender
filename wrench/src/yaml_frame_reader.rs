@@ -72,12 +72,18 @@ fn broadcast<T: Clone>(base_vals: &[T], num_items: usize) -> Vec<T> {
     vals
 }
 
+enum CheckerboardKind {
+    BlackGrey,
+    BlackTransparent,
+}
+
 fn generate_checkerboard_image(
     border: u32,
     tile_x_size: u32,
     tile_y_size: u32,
     tile_x_count: u32,
     tile_y_count: u32,
+    kind: CheckerboardKind,
 ) -> (ImageDescriptor, ImageData) {
     let width = 2 * border + tile_x_size * tile_x_count;
     let height = 2 * border + tile_y_size * tile_y_count;
@@ -94,11 +100,22 @@ fn generate_checkerboard_image(
             } else {
                 let xon = ((x - border) % (2 * tile_x_size)) < tile_x_size;
                 let yon = ((y - border) % (2 * tile_y_size)) < tile_y_size;
-                let value = if xon ^ yon { 0xff } else { 0x7f };
-                pixels.push(value);
-                pixels.push(value);
-                pixels.push(value);
-                pixels.push(0xff);
+                match kind {
+                    CheckerboardKind::BlackGrey => {
+                        let value = if xon ^ yon { 0xff } else { 0x7f };
+                        pixels.push(value);
+                        pixels.push(value);
+                        pixels.push(value);
+                        pixels.push(0xff);
+                    }
+                    CheckerboardKind::BlackTransparent => {
+                        let value = if xon ^ yon { 0xff } else { 0x00 };
+                        pixels.push(value);
+                        pixels.push(value);
+                        pixels.push(value);
+                        pixels.push(value);
+                    }
+                }
             }
         }
     }
@@ -476,7 +493,8 @@ impl YamlFrameReader {
                         args.get(4).unwrap_or(&"1000").parse::<u32>().unwrap(),
                         args.get(5).unwrap_or(&"1000").parse::<u32>().unwrap(),
                     ),
-                    ("checkerboard", args, _) => {
+                    (name @ "transparent-checkerboard", args, _) |
+                    (name @ "checkerboard", args, _) => {
                         let border = args.get(0).unwrap_or(&"4").parse::<u32>().unwrap();
 
                         let (x_size, y_size, x_count, y_count) = match args.len() {
@@ -497,12 +515,19 @@ impl YamlFrameReader {
                             }
                         };
 
+                        let kind = if name == "transparent-checkerboard" {
+                            CheckerboardKind::BlackTransparent
+                        } else {
+                            CheckerboardKind::BlackGrey
+                        };
+
                         generate_checkerboard_image(
                             border,
                             x_size,
                             y_size,
                             x_count,
                             y_count,
+                            kind,
                         )
                     }
                     _ => {

@@ -11,3 +11,5 @@ platform(linux,mac) fuzzy(1,8750) == mask-atomicity.yaml mask-atomicity-ref.yaml
 platform(linux,mac) fuzzy(1,8750) == mask-atomicity-tiling.yaml mask-atomicity-ref.yaml
 == mask-perspective.yaml mask-perspective.png
 == mask-perspective-tiling.yaml mask-perspective.yaml
+== checkerboard.yaml checkerboard.png
+== checkerboard.yaml checkerboard-tiling.yaml
