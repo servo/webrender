@@ -148,13 +148,86 @@ pub fn repetitions(
     }
 }
 
-pub fn for_each_tile(
+#[derive(Debug)]
+pub struct Tile {
+    pub rect: LayoutRect,
+    pub offset: TileOffset,
+    pub edge_flags: EdgeAaSegmentMask,
+}
+
+pub struct TileIterator {
+    current_x: u16,
+    x_count: u16,
+    current_y: u16,
+    y_count: u16,
+    origin: TileOffset,
+    tile_size: LayoutSize,
+    leftover_offset: TileOffset,
+    leftover_size: LayoutSize,
+    local_origin: LayoutPoint,
+    row_flags: EdgeAaSegmentMask,
+}
+
+impl Iterator for TileIterator {
+    type Item = Tile;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_x == self.x_count {
+            self.current_y += 1;
+            if self.current_y >= self.y_count {
+                return None;
+            }
+            self.current_x = 0;
+            self.row_flags = EdgeAaSegmentMask::empty();
+            if self.current_y == self.y_count - 1 {
+                self.row_flags |= EdgeAaSegmentMask::BOTTOM;
+            }
+        }
+
+        let tile_offset = self.origin + vec2(self.current_x, self.current_y);
+
+        let mut segment_rect = LayoutRect {
+            origin: LayoutPoint::new(
+                self.local_origin.x + tile_offset.x as f32 * self.tile_size.width,
+                self.local_origin.y + tile_offset.y as f32 * self.tile_size.height,
+            ),
+            size: self.tile_size,
+        };
+
+        if tile_offset.x == self.leftover_offset.x {
+            segment_rect.size.width = self.leftover_size.width;
+        }
+
+        if tile_offset.y == self.leftover_offset.y {
+            segment_rect.size.height = self.leftover_size.height;
+        }
+
+        let mut edge_flags = self.row_flags;
+        if self.current_x == 0 {
+            edge_flags |= EdgeAaSegmentMask::LEFT;
+        }
+
+        if self.current_x == self.x_count - 1 {
+            edge_flags |= EdgeAaSegmentMask::RIGHT;
+        }
+
+        let tile = Tile {
+            rect: segment_rect,
+            offset: tile_offset,
+            edge_flags,
+        };
+
+        self.current_x += 1;
+        Some(tile)
+    }
+}
+
+pub fn tiles(
     prim_rect: &LayoutRect,
     visible_rect: &LayoutRect,
     device_image_size: &DeviceUintSize,
     device_tile_size: u32,
-    callback: &mut FnMut(&LayoutRect, TileOffset, EdgeAaSegmentMask),
-) {
+) -> TileIterator {
     // The image resource is tiled. We have to generate an image primitive
     // for each tile.
     // We need to do this because the image is broken up into smaller tiles in the texture
@@ -184,8 +257,21 @@ pub fn for_each_tile(
     // the image in layer space intead of iterating over device tiles.
 
     let visible_rect = match prim_rect.intersection(&visible_rect) {
-       Some(rect) => rect,
-       None => return,
+        Some(rect) => rect,
+        None => {
+            return TileIterator {
+                current_x: 0,
+                current_y: 0,
+                x_count: 0,
+                y_count: 0,
+                row_flags: EdgeAaSegmentMask::empty(),
+                origin: TileOffset::zero(),
+                tile_size: LayoutSize::zero(),
+                leftover_offset: TileOffset::zero(),
+                leftover_size: LayoutSize::zero(),
+                local_origin: LayoutPoint::zero(),
+            }
+        }
     };
 
     let device_tile_size_f32 = device_tile_size as f32;
@@ -237,46 +323,21 @@ pub fn for_each_tile(
     let x_count = f32::ceil((visible_rect.max_x() - prim_rect.origin.x) / layer_tile_size.width) as u16 - t0.x;
     let y_count = f32::ceil((visible_rect.max_y() - prim_rect.origin.y) / layer_tile_size.height) as u16 - t0.y;
 
-    for y in 0..y_count {
-
-        let mut row_flags = EdgeAaSegmentMask::empty();
-        if y == 0 {
-            row_flags |= EdgeAaSegmentMask::TOP;
-        }
-        if y == y_count - 1 {
-            row_flags |= EdgeAaSegmentMask::BOTTOM;
-        }
-
-        for x in 0..x_count {
-            let tile_offset = t0 + vec2(x, y);
-
-
-            let mut segment_rect = LayoutRect {
-                origin: LayoutPoint::new(
-                    prim_rect.origin.x + tile_offset.x as f32 * layer_tile_size.width,
-                    prim_rect.origin.y + tile_offset.y as f32 * layer_tile_size.height,
-                ),
-                size: layer_tile_size,
-            };
-
-            if tile_offset.x == leftover_offset.x {
-                segment_rect.size.width = leftover_layer_size.width;
-            }
-
-            if tile_offset.y == leftover_offset.y {
-                segment_rect.size.height = leftover_layer_size.height;
-            }
-
-            let mut edge_flags = row_flags;
-            if x == 0 {
-                edge_flags |= EdgeAaSegmentMask::LEFT;
-            }
-            if x == x_count - 1 {
-                edge_flags |= EdgeAaSegmentMask::RIGHT;
-            }
-
-            callback(&segment_rect, tile_offset, edge_flags);
-        }
+    let mut row_flags = EdgeAaSegmentMask::TOP;
+    if y_count == 1 {
+        row_flags |= EdgeAaSegmentMask::BOTTOM;
+    }
+    TileIterator {
+        current_x: 0,
+        current_y: 0,
+        x_count,
+        y_count,
+        row_flags,
+        origin: t0,
+        tile_size: layer_tile_size,
+        leftover_offset,
+        leftover_size: leftover_layer_size,
+        local_origin: prim_rect.origin,
     }
 }
 
@@ -331,20 +392,20 @@ mod tests {
         callback: &mut FnMut(&LayoutRect, TileOffset, EdgeAaSegmentMask),
     ) {
         let mut coverage = LayoutRect::zero();
-        let mut tiles = HashSet::new();
-        for_each_tile(prim_rect,
-                      visible_rect,
-                      device_image_size,
-                      device_tile_size,
-                      &mut |tile_rect, tile_offset, tile_flags| {
-                          // make sure we don't get sent duplicate tiles
-                          assert!(!tiles.contains(&tile_offset));
-                          tiles.insert(tile_offset);
-                          coverage = coverage.union(tile_rect);
-                          assert!(prim_rect.contains_rect(&tile_rect));
-                          callback(tile_rect, tile_offset, tile_flags);
-                      },
-        );
+        let mut seen_tiles = HashSet::new();
+        for tile in tiles(
+            prim_rect,
+            visible_rect,
+            device_image_size,
+            device_tile_size,
+        ) {
+            // make sure we don't get sent duplicate tiles
+            assert!(!seen_tiles.contains(&tile.offset));
+            seen_tiles.insert(tile.offset);
+            coverage = coverage.union(&tile.rect);
+            assert!(prim_rect.contains_rect(&tile.rect));
+            callback(&tile.rect, tile.offset, tile.edge_flags);
+        }
         assert!(prim_rect.contains_rect(&coverage));
         assert!(coverage.contains_rect(&visible_rect.intersection(&prim_rect).unwrap_or(LayoutRect::zero())));
     }

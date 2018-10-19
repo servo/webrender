@@ -20,7 +20,7 @@ use glyph_rasterizer::{FontInstance, FontTransform, GlyphKey, FONT_SIZE_LIMIT};
 use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuDataRequest,
                 ToGpuBlocks};
 use gpu_types::BrushFlags;
-use image::{self, Repetition, for_each_tile};
+use image::{self, Repetition};
 use intern;
 use picture::{PictureCompositeMode, PicturePrimitive};
 #[cfg(debug_assertions)]
@@ -2656,34 +2656,35 @@ impl Primitive {
                                         size: stretch_size,
                                     };
 
-                                    for_each_tile(
+                                    let tiles = image::tiles(
                                         &image_rect,
                                         &visible_rect,
                                         &device_image_size,
                                         tile_size as u32,
-                                        &mut |tile_rect, tile_offset, tile_flags| {
-                                            frame_state.resource_cache.request_image(
-                                                request.with_tile(tile_offset),
-                                                frame_state.gpu_cache,
-                                            );
-
-                                            let mut handle = GpuCacheHandle::new();
-                                            if let Some(mut request) = frame_state.gpu_cache.request(&mut handle) {
-                                                request.push(ColorF::new(1.0, 1.0, 1.0, opacity_binding.current).premultiplied());
-                                                request.push(PremultipliedColorF::WHITE);
-                                                request.push([tile_rect.size.width, tile_rect.size.height, 0.0, 0.0]);
-                                                request.write_segment(*tile_rect, [0.0; 4]);
-                                            }
-
-                                            visible_tiles.push(VisibleImageTile {
-                                                tile_offset,
-                                                handle,
-                                                edge_flags: tile_flags & edge_flags,
-                                                local_rect: *tile_rect,
-                                                local_clip_rect: tight_clip_rect,
-                                            });
-                                        }
                                     );
+
+                                    for tile in tiles {
+                                        frame_state.resource_cache.request_image(
+                                            request.with_tile(tile.offset),
+                                            frame_state.gpu_cache,
+                                        );
+
+                                        let mut handle = GpuCacheHandle::new();
+                                        if let Some(mut request) = frame_state.gpu_cache.request(&mut handle) {
+                                            request.push(ColorF::new(1.0, 1.0, 1.0, opacity_binding.current).premultiplied());
+                                            request.push(PremultipliedColorF::WHITE);
+                                            request.push([tile.rect.size.width, tile.rect.size.height, 0.0, 0.0]);
+                                            request.write_segment(tile.rect, [0.0; 4]);
+                                        }
+
+                                        visible_tiles.push(VisibleImageTile {
+                                            tile_offset: tile.offset,
+                                            handle,
+                                            edge_flags: tile.edge_flags & edge_flags,
+                                            local_rect: tile.rect,
+                                            local_clip_rect: tight_clip_rect,
+                                        });
+                                    }
                                 }
 
                                 if visible_tiles.is_empty() {
