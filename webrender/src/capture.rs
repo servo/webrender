@@ -71,7 +71,7 @@ impl CaptureConfig {
             .unwrap();
         match ron::de::from_str(&string) {
             Ok(out) => Some(out),
-            Err(e) => panic!("File {:?} deserilalization failed: {:?}", name.as_ref(), e),
+            Err(e) => panic!("File {:?} deserialization failed: {:?}", name.as_ref(), e),
         }
     }
 
