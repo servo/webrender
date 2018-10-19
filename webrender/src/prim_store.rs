@@ -286,13 +286,6 @@ pub type PrimitiveDataHandle = intern::Handle<PrimitiveDataMarker>;
 pub type PrimitiveDataUpdateList = intern::UpdateList<PrimitiveKey>;
 pub type PrimitiveDataInterner = intern::Interner<PrimitiveKey, PrimitiveDataMarker>;
 
-// TODO(gw): Pack the fields here better!
-#[derive(Debug)]
-pub struct PrimitiveMetadata {
-    pub local_rect: LayoutRect,
-    pub local_clip_rect: LayoutRect,
-}
-
 // Maintains a list of opacity bindings that have been collapsed into
 // the color of a single primitive. This is an important optimization
 // that avoids allocating an intermediate surface for most common
@@ -1506,7 +1499,8 @@ pub enum PrimitiveDetails {
 }
 
 pub struct Primitive {
-    pub metadata: PrimitiveMetadata,
+    pub local_rect: LayoutRect,
+    pub local_clip_rect: LayoutRect,
     pub details: PrimitiveDetails,
 }
 
@@ -1612,32 +1606,19 @@ impl PrimitiveStore {
     ) -> PrimitiveIndex {
         let prim_index = self.primitives.len();
 
-        let base_metadata = PrimitiveMetadata {
-            local_rect: *local_rect,
-            local_clip_rect: *local_clip_rect,
-        };
-
-        let prim = match container {
+        let details = match container {
             PrimitiveContainer::Brush(brush) => {
-                let metadata = PrimitiveMetadata {
-                    ..base_metadata
-                };
-
-                Primitive {
-                    metadata,
-                    details: PrimitiveDetails::Brush(brush),
-                }
+                PrimitiveDetails::Brush(brush)
             }
             PrimitiveContainer::TextRun(text_cpu) => {
-                let metadata = PrimitiveMetadata {
-                    ..base_metadata
-                };
-
-                Primitive {
-                    metadata,
-                    details: PrimitiveDetails::TextRun(text_cpu),
-                }
+                PrimitiveDetails::TextRun(text_cpu)
             }
+        };
+
+        let prim = Primitive {
+            local_rect: *local_rect,
+            local_clip_rect: *local_clip_rect,
+            details,
         };
 
         self.primitives.push(prim);
@@ -1846,8 +1827,8 @@ impl PrimitiveStore {
                     );
 
                 let prim = &mut self.primitives[prim_instance.prim_index.0];
-                if new_local_rect != prim.metadata.local_rect {
-                    prim.metadata.local_rect = new_local_rect;
+                if new_local_rect != prim.local_rect {
+                    prim.local_rect = new_local_rect;
                     frame_state.gpu_cache.invalidate(&mut prim_instance.gpu_location);
                     pic_state.local_rect_changed = true;
                 }
@@ -1868,8 +1849,8 @@ impl PrimitiveStore {
         if is_passthrough {
             prim_instance.clipped_world_rect = Some(pic_state.map_pic_to_world.bounds);
         } else {
-            if prim.metadata.local_rect.size.width <= 0.0 ||
-               prim.metadata.local_rect.size.height <= 0.0 {
+            if prim.local_rect.size.width <= 0.0 ||
+               prim.local_rect.size.height <= 0.0 {
                 if cfg!(debug_assertions) && is_chased {
                     println!("\tculled for zero local rectangle");
                 }
@@ -1881,16 +1862,15 @@ impl PrimitiveStore {
             // is not visible, any effects from the blur radius will be correctly
             // taken into account.
             let local_rect = prim
-                .metadata
                 .local_rect
                 .inflate(pic_context.inflation_factor, pic_context.inflation_factor)
-                .intersection(&prim.metadata.local_clip_rect);
+                .intersection(&prim.local_clip_rect);
             let local_rect = match local_rect {
                 Some(local_rect) => local_rect,
                 None => {
                     if cfg!(debug_assertions) && is_chased {
                         println!("\tculled for being out of the local clip rectangle: {:?}",
-                            prim.metadata.local_clip_rect);
+                            prim.local_clip_rect);
                     }
                     return false;
                 }
@@ -1901,7 +1881,7 @@ impl PrimitiveStore {
                 .build_clip_chain_instance(
                     prim_instance.clip_chain_id,
                     local_rect,
-                    prim.metadata.local_clip_rect,
+                    prim.local_clip_rect,
                     prim_context.spatial_node_index,
                     &pic_state.map_local_to_pic,
                     &pic_state.map_pic_to_world,
@@ -1934,11 +1914,11 @@ impl PrimitiveStore {
             prim_instance.combined_local_clip_rect = if pic_context.apply_local_clip_rect {
                 clip_chain.local_clip_rect
             } else {
-                prim.metadata.local_clip_rect
+                prim.local_clip_rect
             };
 
             let pic_rect = match pic_state.map_local_to_pic
-                                          .map(&prim.metadata.local_rect) {
+                                          .map(&prim.local_rect) {
                 Some(pic_rect) => pic_rect,
                 None => return false,
             };
@@ -2105,7 +2085,7 @@ fn build_gradient_stops_request(
 fn decompose_repeated_primitive(
     visible_tiles: &mut Vec<VisibleGradientTile>,
     instance: &mut PrimitiveInstance,
-    metadata: &mut PrimitiveMetadata,
+    prim_local_rect: &LayoutRect,
     stretch_size: &LayoutSize,
     tile_spacing: &LayoutSize,
     prim_context: &PrimitiveContext,
@@ -2119,7 +2099,7 @@ fn decompose_repeated_primitive(
     // rect and we want to clip these extra parts out.
     let tight_clip_rect = instance
         .combined_local_clip_rect
-        .intersection(&metadata.local_rect).unwrap();
+        .intersection(prim_local_rect).unwrap();
 
     let clipped_world_rect = &instance
         .clipped_world_rect
@@ -2133,7 +2113,7 @@ fn decompose_repeated_primitive(
     let stride = *stretch_size + *tile_spacing;
 
     for_each_repetition(
-        &metadata.local_rect,
+        prim_local_rect,
         &visible_rect,
         &stride,
         &mut |origin, _| {
@@ -2207,165 +2187,168 @@ impl<'a> GpuDataRequest<'a> {
     }
 }
 
-fn write_brush_segment_description(
-    brush: &mut BrushPrimitive,
-    metadata: &PrimitiveMetadata,
-    clip_chain: &ClipChainInstance,
-    frame_state: &mut FrameBuildingState,
-) {
-    match brush.segment_desc {
-        Some(..) => {
-            // If we already have a segment descriptor, skip segment build.
-            return;
-        }
-        None => {
-            // If no segment descriptor built yet, see if it is a brush
-            // type that wants to be segmented.
-            if !brush.kind.supports_segments(frame_state.resource_cache) {
+impl BrushPrimitive {
+    fn write_brush_segment_description(
+        &mut self,
+        prim_local_rect: LayoutRect,
+        prim_local_clip_rect: LayoutRect,
+        clip_chain: &ClipChainInstance,
+        frame_state: &mut FrameBuildingState,
+    ) {
+        match self.segment_desc {
+            Some(..) => {
+                // If we already have a segment descriptor, skip segment build.
                 return;
             }
-        }
-    }
-
-    // If the brush is small, we generally want to skip building segments
-    // and just draw it as a single primitive with clip mask. However,
-    // if the clips are purely rectangles that have no per-fragment
-    // clip masks, we will segment anyway. This allows us to completely
-    // skip allocating a clip mask in these cases.
-    let is_large = metadata.local_rect.size.area() > MIN_BRUSH_SPLIT_AREA;
-
-    // TODO(gw): We should probably detect and store this on each
-    //           ClipSources instance, to avoid having to iterate
-    //           the clip sources here.
-    let mut rect_clips_only = true;
-
-    let segment_builder = &mut frame_state.segment_builder;
-    segment_builder.initialize(
-        metadata.local_rect,
-        None,
-        metadata.local_clip_rect
-    );
-
-    // Segment the primitive on all the local-space clip sources that we can.
-    let mut local_clip_count = 0;
-    for i in 0 .. clip_chain.clips_range.count {
-        let clip_instance = frame_state
-            .clip_store
-            .get_instance_from_range(&clip_chain.clips_range, i);
-        let clip_node = &frame_state.resources.clip_data_store[clip_instance.handle];
-
-        // If this clip item is positioned by another positioning node, its relative position
-        // could change during scrolling. This means that we would need to resegment. Instead
-        // of doing that, only segment with clips that have the same positioning node.
-        // TODO(mrobinson, #2858): It may make sense to include these nodes, resegmenting only
-        // when necessary while scrolling.
-        if !clip_instance.flags.contains(ClipNodeFlags::SAME_SPATIAL_NODE) {
-            continue;
-        }
-
-        local_clip_count += 1;
-
-        let (local_clip_rect, radius, mode) = match clip_node.item {
-            ClipItem::RoundedRectangle(rect, radii, clip_mode) => {
-                rect_clips_only = false;
-                (rect, Some(radii), clip_mode)
-            }
-            ClipItem::Rectangle(rect, mode) => {
-                (rect, None, mode)
-            }
-            ClipItem::BoxShadow(ref info) => {
-                rect_clips_only = false;
-
-                // For inset box shadows, we can clip out any
-                // pixels that are inside the shadow region
-                // and are beyond the inner rect, as they can't
-                // be affected by the blur radius.
-                let inner_clip_mode = match info.clip_mode {
-                    BoxShadowClipMode::Outset => None,
-                    BoxShadowClipMode::Inset => Some(ClipMode::ClipOut),
-                };
-
-                // Push a region into the segment builder where the
-                // box-shadow can have an effect on the result. This
-                // ensures clip-mask tasks get allocated for these
-                // pixel regions, even if no other clips affect them.
-                segment_builder.push_mask_region(
-                    info.prim_shadow_rect,
-                    info.prim_shadow_rect.inflate(
-                        -0.5 * info.shadow_rect_alloc_size.width,
-                        -0.5 * info.shadow_rect_alloc_size.height,
-                    ),
-                    inner_clip_mode,
-                );
-
-                continue;
-            }
-            ClipItem::Image(..) => {
-                rect_clips_only = false;
-                continue;
-            }
-        };
-
-        segment_builder.push_clip_rect(local_clip_rect, radius, mode);
-    }
-
-    if is_large || rect_clips_only {
-        // If there were no local clips, then we will subdivide the primitive into
-        // a uniform grid (up to 8x8 segments). This will typically result in
-        // a significant number of those segments either being completely clipped,
-        // or determined to not need a clip mask for that segment.
-        if local_clip_count == 0 && clip_chain.clips_range.count > 0 {
-            let x_clip_count = cmp::min(8, (metadata.local_rect.size.width / 128.0).ceil() as i32);
-            let y_clip_count = cmp::min(8, (metadata.local_rect.size.height / 128.0).ceil() as i32);
-
-            for y in 0 .. y_clip_count {
-                let y0 = metadata.local_rect.size.height * y as f32 / y_clip_count as f32;
-                let y1 = metadata.local_rect.size.height * (y+1) as f32 / y_clip_count as f32;
-
-                for x in 0 .. x_clip_count {
-                    let x0 = metadata.local_rect.size.width * x as f32 / x_clip_count as f32;
-                    let x1 = metadata.local_rect.size.width * (x+1) as f32 / x_clip_count as f32;
-
-                    let rect = LayoutRect::new(
-                        LayoutPoint::new(
-                            x0 + metadata.local_rect.origin.x,
-                            y0 + metadata.local_rect.origin.y,
-                        ),
-                        LayoutSize::new(
-                            x1 - x0,
-                            y1 - y0,
-                        ),
-                    );
-
-                    segment_builder.push_mask_region(rect, LayoutRect::zero(), None);
+            None => {
+                // If no segment descriptor built yet, see if it is a brush
+                // type that wants to be segmented.
+                if !self.kind.supports_segments(frame_state.resource_cache) {
+                    return;
                 }
             }
         }
 
-        match brush.segment_desc {
-            Some(..) => panic!("bug: should not already have descriptor"),
-            None => {
-                // TODO(gw): We can probably make the allocation
-                //           patterns of this and the segment
-                //           builder significantly better, by
-                //           retaining it across primitives.
-                let mut segments = BrushSegmentVec::new();
+        // If the brush is small, we generally want to skip building segments
+        // and just draw it as a single primitive with clip mask. However,
+        // if the clips are purely rectangles that have no per-fragment
+        // clip masks, we will segment anyway. This allows us to completely
+        // skip allocating a clip mask in these cases.
+        let is_large = prim_local_rect.size.area() > MIN_BRUSH_SPLIT_AREA;
 
-                segment_builder.build(|segment| {
-                    segments.push(
-                        BrushSegment::new(
-                            segment.rect,
-                            segment.has_mask,
-                            segment.edge_flags,
-                            [0.0; 4],
-                            BrushFlags::empty(),
+        // TODO(gw): We should probably detect and store this on each
+        //           ClipSources instance, to avoid having to iterate
+        //           the clip sources here.
+        let mut rect_clips_only = true;
+
+        let segment_builder = &mut frame_state.segment_builder;
+        segment_builder.initialize(
+            prim_local_rect,
+            None,
+            prim_local_clip_rect
+        );
+
+        // Segment the primitive on all the local-space clip sources that we can.
+        let mut local_clip_count = 0;
+        for i in 0 .. clip_chain.clips_range.count {
+            let clip_instance = frame_state
+                .clip_store
+                .get_instance_from_range(&clip_chain.clips_range, i);
+            let clip_node = &frame_state.resources.clip_data_store[clip_instance.handle];
+
+            // If this clip item is positioned by another positioning node, its relative position
+            // could change during scrolling. This means that we would need to resegment. Instead
+            // of doing that, only segment with clips that have the same positioning node.
+            // TODO(mrobinson, #2858): It may make sense to include these nodes, resegmenting only
+            // when necessary while scrolling.
+            if !clip_instance.flags.contains(ClipNodeFlags::SAME_SPATIAL_NODE) {
+                continue;
+            }
+
+            local_clip_count += 1;
+
+            let (local_clip_rect, radius, mode) = match clip_node.item {
+                ClipItem::RoundedRectangle(rect, radii, clip_mode) => {
+                    rect_clips_only = false;
+                    (rect, Some(radii), clip_mode)
+                }
+                ClipItem::Rectangle(rect, mode) => {
+                    (rect, None, mode)
+                }
+                ClipItem::BoxShadow(ref info) => {
+                    rect_clips_only = false;
+
+                    // For inset box shadows, we can clip out any
+                    // pixels that are inside the shadow region
+                    // and are beyond the inner rect, as they can't
+                    // be affected by the blur radius.
+                    let inner_clip_mode = match info.clip_mode {
+                        BoxShadowClipMode::Outset => None,
+                        BoxShadowClipMode::Inset => Some(ClipMode::ClipOut),
+                    };
+
+                    // Push a region into the segment builder where the
+                    // box-shadow can have an effect on the result. This
+                    // ensures clip-mask tasks get allocated for these
+                    // pixel regions, even if no other clips affect them.
+                    segment_builder.push_mask_region(
+                        info.prim_shadow_rect,
+                        info.prim_shadow_rect.inflate(
+                            -0.5 * info.shadow_rect_alloc_size.width,
+                            -0.5 * info.shadow_rect_alloc_size.height,
                         ),
+                        inner_clip_mode,
                     );
-                });
 
-                brush.segment_desc = Some(BrushSegmentDescriptor {
-                    segments,
-                });
+                    continue;
+                }
+                ClipItem::Image(..) => {
+                    rect_clips_only = false;
+                    continue;
+                }
+            };
+
+            segment_builder.push_clip_rect(local_clip_rect, radius, mode);
+        }
+
+        if is_large || rect_clips_only {
+            // If there were no local clips, then we will subdivide the primitive into
+            // a uniform grid (up to 8x8 segments). This will typically result in
+            // a significant number of those segments either being completely clipped,
+            // or determined to not need a clip mask for that segment.
+            if local_clip_count == 0 && clip_chain.clips_range.count > 0 {
+                let x_clip_count = cmp::min(8, (prim_local_rect.size.width / 128.0).ceil() as i32);
+                let y_clip_count = cmp::min(8, (prim_local_rect.size.height / 128.0).ceil() as i32);
+
+                for y in 0 .. y_clip_count {
+                    let y0 = prim_local_rect.size.height * y as f32 / y_clip_count as f32;
+                    let y1 = prim_local_rect.size.height * (y+1) as f32 / y_clip_count as f32;
+
+                    for x in 0 .. x_clip_count {
+                        let x0 = prim_local_rect.size.width * x as f32 / x_clip_count as f32;
+                        let x1 = prim_local_rect.size.width * (x+1) as f32 / x_clip_count as f32;
+
+                        let rect = LayoutRect::new(
+                            LayoutPoint::new(
+                                x0 + prim_local_rect.origin.x,
+                                y0 + prim_local_rect.origin.y,
+                            ),
+                            LayoutSize::new(
+                                x1 - x0,
+                                y1 - y0,
+                            ),
+                        );
+
+                        segment_builder.push_mask_region(rect, LayoutRect::zero(), None);
+                    }
+                }
+            }
+
+            match self.segment_desc {
+                Some(..) => panic!("bug: should not already have descriptor"),
+                None => {
+                    // TODO(gw): We can probably make the allocation
+                    //           patterns of this and the segment
+                    //           builder significantly better, by
+                    //           retaining it across primitives.
+                    let mut segments = BrushSegmentVec::new();
+
+                    segment_builder.build(|segment| {
+                        segments.push(
+                            BrushSegment::new(
+                                segment.rect,
+                                segment.has_mask,
+                                segment.edge_flags,
+                                [0.0; 4],
+                                BrushFlags::empty(),
+                            ),
+                        );
+                    });
+
+                    self.segment_desc = Some(BrushSegmentDescriptor {
+                        segments,
+                    });
+                }
             }
         }
     }
@@ -2389,9 +2372,9 @@ impl Primitive {
             PrimitiveDetails::TextRun(..) => return false,
         };
 
-        write_brush_segment_description(
-            brush,
-            &self.metadata,
+        brush.write_brush_segment_description(
+            self.local_rect,
+            self.local_clip_rect,
             prim_clip_chain,
             frame_state,
         );
@@ -2424,7 +2407,7 @@ impl Primitive {
                     .build_clip_chain_instance(
                         prim_instance.clip_chain_id,
                         segment.local_rect,
-                        self.metadata.local_clip_rect,
+                        self.local_clip_rect,
                         prim_context.spatial_node_index,
                         &pic_state.map_local_to_pic,
                         &pic_state.map_pic_to_world,
@@ -2481,7 +2464,6 @@ impl Primitive {
         is_chased: bool,
     ) {
         let mut is_tiled = false;
-        let metadata = &mut self.metadata;
         #[cfg(debug_assertions)]
         {
             prim_instance.prepared_frame_id = frame_state.render_tasks.frame_id();
@@ -2642,7 +2624,7 @@ impl Primitive {
                                 // rect and we want to clip these extra parts out.
                                 let tight_clip_rect = prim_instance
                                     .combined_local_clip_rect
-                                    .intersection(&metadata.local_rect).unwrap();
+                                    .intersection(&self.local_rect).unwrap();
 
                                 let visible_rect = compute_conservative_visible_rect(
                                     prim_context,
@@ -2657,7 +2639,7 @@ impl Primitive {
                                 visible_tiles.clear();
 
                                 for_each_repetition(
-                                    &metadata.local_rect,
+                                    &self.local_rect,
                                     &visible_rect,
                                     &stride,
                                     &mut |origin, edge_flags| {
@@ -2720,7 +2702,7 @@ impl Primitive {
                         // Work out the device pixel size to be used to cache this line decoration.
 
                         let size = get_line_decoration_sizes(
-                            &metadata.local_rect.size,
+                            &self.local_rect.size,
                             orientation,
                             style,
                             wavy_line_thickness,
@@ -2738,19 +2720,19 @@ impl Primitive {
                                 let clip_size = match orientation {
                                     LineOrientation::Horizontal => {
                                         LayoutSize::new(
-                                            inline_size * (metadata.local_rect.size.width / inline_size).floor(),
-                                            metadata.local_rect.size.height,
+                                            inline_size * (self.local_rect.size.width / inline_size).floor(),
+                                            self.local_rect.size.height,
                                         )
                                     }
                                     LineOrientation::Vertical => {
                                         LayoutSize::new(
-                                            metadata.local_rect.size.width,
-                                            inline_size * (metadata.local_rect.size.height / inline_size).floor(),
+                                            self.local_rect.size.width,
+                                            inline_size * (self.local_rect.size.height / inline_size).floor(),
                                         )
                                     }
                                 };
                                 let clip_rect = LayoutRect::new(
-                                    metadata.local_rect.origin,
+                                    self.local_rect.origin,
                                     clip_size,
                                 );
                                 prim_instance.combined_local_clip_rect = clip_rect
@@ -2900,7 +2882,7 @@ impl Primitive {
                             decompose_repeated_primitive(
                                 visible_tiles,
                                 prim_instance,
-                                metadata,
+                                &self.local_rect,
                                 &stretch_size,
                                 &tile_spacing,
                                 prim_context,
@@ -2942,8 +2924,8 @@ impl Primitive {
                         // then we just assume the gradient is translucent for now.
                         // (In the future we could consider segmenting in some cases).
                         let stride = stretch_size + tile_spacing;
-                        prim_instance.opacity = if stride.width >= metadata.local_rect.size.width &&
-                           stride.height >= metadata.local_rect.size.height {
+                        prim_instance.opacity = if stride.width >= self.local_rect.size.width &&
+                           stride.height >= self.local_rect.size.height {
                             stops_opacity
                         } else {
                             PrimitiveOpacity::translucent()
@@ -2963,7 +2945,7 @@ impl Primitive {
                             decompose_repeated_primitive(
                                 visible_tiles,
                                 prim_instance,
-                                metadata,
+                                &self.local_rect,
                                 &stretch_size,
                                 &tile_spacing,
                                 prim_context,
@@ -2991,7 +2973,7 @@ impl Primitive {
                         if !pic.prepare_for_render(
                             pic_index,
                             prim_instance,
-                            metadata,
+                            &self.local_rect,
                             pic_state,
                             frame_context,
                             frame_state,
@@ -3026,7 +3008,7 @@ impl Primitive {
                     text.write_gpu_blocks(&mut request);
                 }
                 PrimitiveDetails::Brush(ref mut brush) => {
-                    brush.write_gpu_blocks(&mut request, metadata.local_rect);
+                    brush.write_gpu_blocks(&mut request, self.local_rect);
 
                     match brush.segment_desc {
                         Some(ref segment_desc) => {
@@ -3043,7 +3025,7 @@ impl Primitive {
                         }
                         None => {
                             request.write_segment(
-                                metadata.local_rect,
+                                self.local_rect,
                                 [0.0; 4],
                             );
                         }

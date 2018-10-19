@@ -523,7 +523,7 @@ impl AlphaBatchBuilder {
                 .map_or(OPAQUE_TASK_ADDRESS, |id| render_tasks.get_task_address(id));
 
             let prim_header = PrimitiveHeader {
-                local_rect: prim.metadata.local_rect,
+                local_rect: prim.local_rect,
                 local_clip_rect: prim_instance.combined_local_clip_rect,
                 task_address,
                 specific_prim_address: GpuCacheAddress::invalid(),
@@ -618,7 +618,6 @@ impl AlphaBatchBuilder {
         plane_split_anchor: usize,
     ) {
         let prim = &ctx.prim_store.primitives[prim_instance.prim_index.0];
-        let prim_metadata = &prim.metadata;
 
         if prim_instance.clipped_world_rect.is_none() {
             return;
@@ -643,8 +642,7 @@ impl AlphaBatchBuilder {
                                          .expect("bug");
 
         // If the primitive is internally decomposed into multiple sub-primitives we may not
-        // use some of the per-primitive data typically stored in PrimitiveMetadata and get
-        // it from each sub-primitive instead.
+        // use some of the per-primitive data and get it from each sub-primitive instead.
         let is_multiple_primitives = match prim.details {
             PrimitiveDetails::Brush(ref brush) => {
                 match brush.kind {
@@ -678,7 +676,7 @@ impl AlphaBatchBuilder {
         };
 
         let prim_header = PrimitiveHeader {
-            local_rect: prim_metadata.local_rect,
+            local_rect: prim.local_rect,
             local_clip_rect: prim_instance.combined_local_clip_rect,
             task_address,
             specific_prim_address: prim_cache_address,
@@ -711,8 +709,9 @@ impl AlphaBatchBuilder {
                             // rather that rectangles. The interpolation still works correctly
                             // since we determine the UVs by doing a bilerp with a factor
                             // from the original local rect.
-                            let local_rect = prim_metadata.local_rect
-                                                          .intersection(&prim_instance.combined_local_clip_rect);
+                            let local_rect = prim
+                                .local_rect
+                                .intersection(&prim_instance.combined_local_clip_rect);
 
                             if let Some(local_rect) = local_rect {
                                 match transform.transform_kind() {
@@ -841,8 +840,8 @@ impl AlphaBatchBuilder {
                                                     0,
                                                 ]);
 
-                                                let shadow_rect = prim_metadata.local_rect.translate(&offset);
-                                                let shadow_clip_rect = prim_metadata.local_clip_rect.translate(&offset);
+                                                let shadow_rect = prim.local_rect.translate(&offset);
+                                                let shadow_clip_rect = prim.local_clip_rect.translate(&offset);
 
                                                 let shadow_prim_header = PrimitiveHeader {
                                                     local_rect: shadow_rect,

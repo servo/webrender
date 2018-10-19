@@ -14,8 +14,7 @@ use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState};
 use frame_builder::{PictureContext, PrimitiveContext};
 use gpu_cache::{GpuCacheHandle};
 use gpu_types::UvRectKind;
-use prim_store::{PictureIndex, PrimitiveInstance, SpaceMapper};
-use prim_store::{PrimitiveMetadata, get_raster_rects};
+use prim_store::{PictureIndex, PrimitiveInstance, SpaceMapper, get_raster_rects};
 use render_task::{ClearMode, RenderTask, RenderTaskCacheEntryHandle};
 use render_task::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId, RenderTaskLocation};
 use scene::{FilterOpHelpers, SceneProperties};
@@ -443,7 +442,7 @@ impl PicturePrimitive {
         &mut self,
         pic_index: PictureIndex,
         prim_instance: &PrimitiveInstance,
-        prim_metadata: &PrimitiveMetadata,
+        prim_local_rect: &LayoutRect,
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
@@ -458,7 +457,7 @@ impl PicturePrimitive {
                     frame_context,
                 );
 
-                let pic_rect = PictureRect::from_untyped(&prim_metadata.local_rect.to_untyped());
+                let pic_rect = PictureRect::from_untyped(&prim_local_rect.to_untyped());
 
                 let (clipped, unclipped, transform) = match get_raster_rects(
                     pic_rect,
@@ -672,14 +671,14 @@ impl PicturePrimitive {
                             // Basic brush primitive header is (see end of prepare_prim_for_render_inner in prim_store.rs)
                             //  [brush specific data]
                             //  [segment_rect, segment data]
-                            let shadow_rect = prim_metadata.local_rect.translate(&offset);
+                            let shadow_rect = prim_local_rect.translate(&offset);
 
                             // ImageBrush colors
                             request.push(color.premultiplied());
                             request.push(PremultipliedColorF::WHITE);
                             request.push([
-                                prim_metadata.local_rect.size.width,
-                                prim_metadata.local_rect.size.height,
+                                prim_local_rect.size.width,
+                                prim_local_rect.size.height,
                                 0.0,
                                 0.0,
                             ]);
