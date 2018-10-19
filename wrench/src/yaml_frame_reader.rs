@@ -405,10 +405,10 @@ impl YamlFrameReader {
     }
 
     pub fn add_or_get_image(
-            &mut self,
-            file: &Path,
-            tiling: Option<i64>,
-            wrench: &mut Wrench,
+        &mut self,
+        file: &Path,
+        tiling: Option<i64>,
+        wrench: &mut Wrench,
     ) -> (ImageKey, LayoutSize) {
         let key = (file.to_owned(), tiling);
         if let Some(k) = self.image_map.get(&key) {
@@ -600,8 +600,9 @@ impl YamlFrameReader {
             }
         };
 
+        let tiling = item["tile-size"].as_i64();
         let (image_key, image_dims) =
-            self.add_or_get_image(&file, None, wrench);
+            self.add_or_get_image(&file, tiling, wrench);
         let image_rect = item["rect"]
             .as_rect()
             .unwrap_or(LayoutRect::new(LayoutPoint::zero(), image_dims));
