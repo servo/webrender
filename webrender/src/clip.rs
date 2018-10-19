@@ -17,7 +17,7 @@ use gpu_types::{BoxShadowStretchMode};
 use image::{self, Repetition};
 use intern;
 use internal_types::FastHashSet;
-use prim_store::{ClipData, ImageMaskData, SpaceMapper, VisibleImageTile};
+use prim_store::{ClipData, ImageMaskData, SpaceMapper, VisibleMaskImageTile};
 use render_task::to_cache_size;
 use resource_cache::{ImageRequest, ResourceCache};
 use std::{cmp, u32};
@@ -316,12 +316,9 @@ impl ClipNode {
                                     data.write_gpu_blocks(request);
                                 }
 
-                                mask_tiles.push(VisibleImageTile {
+                                mask_tiles.push(VisibleMaskImageTile {
                                     tile_offset: tile.offset,
                                     handle,
-                                    edge_flags: tile.edge_flags,
-                                    local_rect: tile.rect,
-                                    local_clip_rect: visible_rect,
                                 });
                             }
                         }
@@ -821,7 +818,7 @@ impl ClipItemKey {
 pub enum ClipItem {
     Rectangle(LayoutRect, ClipMode),
     RoundedRectangle(LayoutRect, BorderRadius, ClipMode),
-    Image { mask: ImageMask, visible_tiles: Option<Vec<VisibleImageTile>> },
+    Image { mask: ImageMask, visible_tiles: Option<Vec<VisibleMaskImageTile>> },
     BoxShadow(BoxShadowClipSource),
 }
 

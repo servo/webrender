@@ -339,6 +339,14 @@ pub struct VisibleImageTile {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct VisibleMaskImageTile {
+    pub tile_offset: TileOffset,
+    pub handle: GpuCacheHandle,
+}
+
+#[derive(Debug)]
 pub struct VisibleGradientTile {
     pub handle: GpuCacheHandle,
     pub local_rect: LayoutRect,
