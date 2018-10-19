@@ -29,18 +29,85 @@ pub fn simplify_repeated_primitive(
     }
 }
 
-pub fn for_each_repetition(
+pub struct Repetition {
+    pub origin: LayoutPoint,
+    pub edge_flags: EdgeAaSegmentMask,
+}
+
+pub struct RepetitionIterator {
+    current_x: i32,
+    x_count: i32,
+    current_y: i32,
+    y_count: i32,
+    row_flags: EdgeAaSegmentMask,
+    current_origin: LayoutPoint,
+    initial_origin: LayoutPoint,
+    stride: LayoutSize,
+}
+
+impl Iterator for RepetitionIterator {
+    type Item = Repetition;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_x == self.x_count {
+            self.current_y += 1;
+            if self.current_y >= self.y_count {
+                return None;
+            }
+            self.current_x = 0;
+
+            self.row_flags = EdgeAaSegmentMask::empty();
+            if self.current_y == self.y_count - 1 {
+                self.row_flags |= EdgeAaSegmentMask::BOTTOM;
+            }
+
+            self.current_origin.x = self.initial_origin.x;
+            self.current_origin.y += self.stride.height;
+        }
+
+        let mut edge_flags = self.row_flags;
+        if self.current_x == 0 {
+            edge_flags |= EdgeAaSegmentMask::LEFT;
+        }
+
+        if self.current_x == self.x_count - 1 {
+            edge_flags |= EdgeAaSegmentMask::RIGHT;
+        }
+
+        let repetition = Repetition {
+            origin: self.current_origin,
+            edge_flags: edge_flags,
+        };
+
+        self.current_origin.x += self.stride.width;
+        self.current_x += 1;
+
+        Some(repetition)
+    }
+}
+
+pub fn repetitions(
     prim_rect: &LayoutRect,
     visible_rect: &LayoutRect,
-    stride: &LayoutSize,
-    callback: &mut FnMut(&LayoutPoint, EdgeAaSegmentMask),
-) {
+    stride: LayoutSize,
+) -> RepetitionIterator {
     assert!(stride.width > 0.0);
     assert!(stride.height > 0.0);
 
     let visible_rect = match prim_rect.intersection(&visible_rect) {
-       Some(rect) => rect,
-       None => return,
+        Some(rect) => rect,
+        None => {
+            return RepetitionIterator {
+                current_origin: LayoutPoint::zero(),
+                initial_origin: LayoutPoint::zero(),
+                current_x: 0,
+                current_y: 0,
+                x_count: 0,
+                y_count: 0,
+                stride,
+                row_flags: EdgeAaSegmentMask::empty(),
+            }
+        }
     };
 
     let nx = if visible_rect.origin.x > prim_rect.origin.x {
@@ -58,39 +125,26 @@ pub fn for_each_repetition(
     let x0 = prim_rect.origin.x + nx * stride.width;
     let y0 = prim_rect.origin.y + ny * stride.height;
 
-    let mut p = LayoutPoint::new(x0, y0);
-
     let x_most = visible_rect.max_x();
     let y_most = visible_rect.max_y();
 
     let x_count = f32::ceil((x_most - x0) / stride.width) as i32;
     let y_count = f32::ceil((y_most - y0) / stride.height) as i32;
 
-    for y in 0..y_count {
-        let mut row_flags = EdgeAaSegmentMask::empty();
-        if y == 0 {
-            row_flags |= EdgeAaSegmentMask::TOP;
-        }
-        if y == y_count - 1 {
-            row_flags |= EdgeAaSegmentMask::BOTTOM;
-        }
+    let mut row_flags = EdgeAaSegmentMask::TOP;
+    if y_count == 1 {
+        row_flags |= EdgeAaSegmentMask::BOTTOM;
+    }
 
-        for x in 0..x_count {
-            let mut edge_flags = row_flags;
-            if x == 0 {
-                edge_flags |= EdgeAaSegmentMask::LEFT;
-            }
-            if x == x_count - 1 {
-                edge_flags |= EdgeAaSegmentMask::RIGHT;
-            }
-
-            callback(&p, edge_flags);
-
-            p.x += stride.width;
-        }
-
-        p.x = x0;
-        p.y += stride.height;
+    RepetitionIterator {
+        current_origin: LayoutPoint::new(x0, y0),
+        initial_origin: LayoutPoint::new(x0, y0),
+        current_x: 0,
+        current_y: 0,
+        x_count,
+        y_count,
+        row_flags,
+        stride,
     }
 }
 

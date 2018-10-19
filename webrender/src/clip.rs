@@ -14,7 +14,7 @@ use clip_scroll_tree::{ClipScrollTree, CoordinateSystemId, ROOT_SPATIAL_NODE_IND
 use ellipse::Ellipse;
 use gpu_cache::{GpuCache, GpuCacheHandle, ToGpuBlocks};
 use gpu_types::{BoxShadowStretchMode};
-use image::{for_each_tile, for_each_repetition};
+use image::{self, Repetition, for_each_tile};
 use intern;
 use internal_types::FastHashSet;
 use prim_store::{ClipData, ImageMaskData, SpaceMapper, VisibleImageTile};
@@ -284,45 +284,47 @@ impl ClipNode {
                         } else {
                             clipped_rect.intersection(&mask.rect).unwrap()
                         };
-                        for_each_repetition(
+
+                        let repetitions = image::repetitions(
                             &mask.rect,
                             &visible_rect,
-                            &mask.rect.size,
-                            &mut |origin, _| {
-                                let image_rect = LayoutRect {
-                                    origin: *origin,
-                                    size: mask.rect.size,
-                                };
-                                for_each_tile(
-                                    &image_rect,
-                                    &visible_rect,
-                                    &device_image_size,
-                                    tile_size as u32,
-                                    &mut |tile_rect, tile_offset, tile_flags| {
-                                        resource_cache.request_image(
-                                            request.with_tile(tile_offset),
-                                            gpu_cache,
-                                        );
-                                        let mut handle = GpuCacheHandle::new();
-                                        if let Some(request) = gpu_cache.request(&mut handle) {
-                                            let data = ImageMaskData {
-                                                local_mask_rect: mask.rect,
-                                                local_tile_rect: *tile_rect,
-                                            };
-                                            data.write_gpu_blocks(request);
-                                        }
-
-                                        tiles.push(VisibleImageTile {
-                                            tile_offset,
-                                            handle,
-                                            edge_flags: tile_flags,
-                                            local_rect: *tile_rect,
-                                            local_clip_rect: visible_rect,
-                                        });
-                                    },
-                                )
-                            }
+                            mask.rect.size,
                         );
+
+                        for Repetition { origin, .. } in repetitions {
+                            let image_rect = LayoutRect {
+                                origin,
+                                size: mask.rect.size,
+                            };
+                            for_each_tile(
+                                &image_rect,
+                                &visible_rect,
+                                &device_image_size,
+                                tile_size as u32,
+                                &mut |tile_rect, tile_offset, tile_flags| {
+                                    resource_cache.request_image(
+                                        request.with_tile(tile_offset),
+                                        gpu_cache,
+                                    );
+                                    let mut handle = GpuCacheHandle::new();
+                                    if let Some(request) = gpu_cache.request(&mut handle) {
+                                        let data = ImageMaskData {
+                                            local_mask_rect: mask.rect,
+                                            local_tile_rect: *tile_rect,
+                                        };
+                                        data.write_gpu_blocks(request);
+                                    }
+
+                                    tiles.push(VisibleImageTile {
+                                        tile_offset,
+                                        handle,
+                                        edge_flags: tile_flags,
+                                        local_rect: *tile_rect,
+                                        local_clip_rect: visible_rect,
+                                    });
+                                },
+                            )
+                        }
                         *visible_tiles = Some(tiles);
                     } else {
                         if let Some(request) = gpu_cache.request(&mut self.gpu_cache_handle) {
