@@ -367,7 +367,7 @@ pub fn compute_tile_range(
 
 pub fn for_each_tile_in_range(
     range: &TileRange,
-    callback: &mut FnMut(TileOffset),
+    mut callback: impl FnMut(TileOffset),
 ) {
     for y in 0..range.size.height {
         for x in 0..range.size.width {
