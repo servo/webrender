@@ -773,6 +773,8 @@ impl ClipItemKey {
 pub enum ClipItem {
     Rectangle(LayoutRect, ClipMode),
     RoundedRectangle(LayoutRect, BorderRadius, ClipMode),
+    /// The boolean below is a crash workaround for #2852, will be true unless
+    /// the mask is a tiled blob.
     Image(ImageMask, bool),
     BoxShadow(BoxShadowClipSource),
 }
