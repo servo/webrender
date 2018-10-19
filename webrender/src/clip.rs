@@ -14,7 +14,7 @@ use clip_scroll_tree::{ClipScrollTree, CoordinateSystemId, ROOT_SPATIAL_NODE_IND
 use ellipse::Ellipse;
 use gpu_cache::{GpuCache, GpuCacheHandle, ToGpuBlocks};
 use gpu_types::{BoxShadowStretchMode};
-use image::{self, Repetition, for_each_tile};
+use image::{self, Repetition};
 use intern;
 use internal_types::FastHashSet;
 use prim_store::{ClipData, ImageMaskData, SpaceMapper, VisibleImageTile};
@@ -276,7 +276,7 @@ impl ClipNode {
                 *visible_tiles = None;
                 if let Some(props) = resource_cache.get_image_properties(mask.image) {
                     if let Some(tile_size) = props.tiling {
-                        let mut tiles = Vec::new();
+                        let mut mask_tiles = Vec::new();
 
                         let device_image_size = props.descriptor.size;
                         let visible_rect = if mask.repeat {
@@ -296,36 +296,36 @@ impl ClipNode {
                                 origin,
                                 size: mask.rect.size,
                             };
-                            for_each_tile(
+                            let tiles = image::tiles(
                                 &image_rect,
                                 &visible_rect,
                                 &device_image_size,
                                 tile_size as u32,
-                                &mut |tile_rect, tile_offset, tile_flags| {
-                                    resource_cache.request_image(
-                                        request.with_tile(tile_offset),
-                                        gpu_cache,
-                                    );
-                                    let mut handle = GpuCacheHandle::new();
-                                    if let Some(request) = gpu_cache.request(&mut handle) {
-                                        let data = ImageMaskData {
-                                            local_mask_rect: mask.rect,
-                                            local_tile_rect: *tile_rect,
-                                        };
-                                        data.write_gpu_blocks(request);
-                                    }
+                            );
+                            for tile in tiles {
+                                resource_cache.request_image(
+                                    request.with_tile(tile.offset),
+                                    gpu_cache,
+                                );
+                                let mut handle = GpuCacheHandle::new();
+                                if let Some(request) = gpu_cache.request(&mut handle) {
+                                    let data = ImageMaskData {
+                                        local_mask_rect: mask.rect,
+                                        local_tile_rect: tile.rect,
+                                    };
+                                    data.write_gpu_blocks(request);
+                                }
 
-                                    tiles.push(VisibleImageTile {
-                                        tile_offset,
-                                        handle,
-                                        edge_flags: tile_flags,
-                                        local_rect: *tile_rect,
-                                        local_clip_rect: visible_rect,
-                                    });
-                                },
-                            )
+                                mask_tiles.push(VisibleImageTile {
+                                    tile_offset: tile.offset,
+                                    handle,
+                                    edge_flags: tile.edge_flags,
+                                    local_rect: tile.rect,
+                                    local_clip_rect: visible_rect,
+                                });
+                            }
                         }
-                        *visible_tiles = Some(tiles);
+                        *visible_tiles = Some(mask_tiles);
                     } else {
                         if let Some(request) = gpu_cache.request(&mut self.gpu_cache_handle) {
                             let data = ImageMaskData {
