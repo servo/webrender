@@ -14,9 +14,10 @@ use clip_scroll_tree::{ClipScrollTree, CoordinateSystemId, ROOT_SPATIAL_NODE_IND
 use ellipse::Ellipse;
 use gpu_cache::{GpuCache, GpuCacheHandle, ToGpuBlocks};
 use gpu_types::{BoxShadowStretchMode};
+use image::{for_each_tile, for_each_repetition};
 use intern;
 use internal_types::FastHashSet;
-use prim_store::{ClipData, ImageMaskData, SpaceMapper};
+use prim_store::{ClipData, ImageMaskData, SpaceMapper, VisibleImageTile};
 use render_task::to_cache_size;
 use resource_cache::{ImageRequest, ResourceCache};
 use std::{cmp, u32};
@@ -145,11 +146,14 @@ impl From<ClipItemKey> for ClipNode {
                 )
             }
             ClipItemKey::ImageMask(rect, image, repeat) => {
-                ClipItem::Image(ImageMask {
-                    image,
-                    rect: LayoutRect::from_au(rect),
-                    repeat,
-                })
+                ClipItem::Image {
+                    mask: ImageMask {
+                        image,
+                        rect: LayoutRect::from_au(rect),
+                        repeat,
+                    },
+                    visible_tiles: None,
+                }
             }
             ClipItemKey::BoxShadow(shadow_rect, shadow_radius, prim_shadow_rect, blur_radius, clip_mode) => {
                 ClipItem::new_box_shadow(
@@ -260,14 +264,80 @@ impl ClipNode {
         gpu_cache: &mut GpuCache,
         resource_cache: &mut ResourceCache,
         device_pixel_scale: DevicePixelScale,
+        clipped_rect: &LayoutRect,
     ) {
-        if let Some(mut request) = gpu_cache.request(&mut self.gpu_cache_handle) {
-            match self.item {
-                ClipItem::Image(ref mask) => {
-                    let data = ImageMaskData { local_rect: mask.rect };
-                    data.write_gpu_blocks(request);
+        match self.item {
+            ClipItem::Image { ref mask, ref mut visible_tiles } => {
+                let request = ImageRequest {
+                    key: mask.image,
+                    rendering: ImageRendering::Auto,
+                    tile: None,
+                };
+                *visible_tiles = None;
+                if let Some(props) = resource_cache.get_image_properties(mask.image) {
+                    if let Some(tile_size) = props.tiling {
+                        let mut tiles = Vec::new();
+
+                        let device_image_size = props.descriptor.size;
+                        let visible_rect = if mask.repeat {
+                            *clipped_rect
+                        } else {
+                            clipped_rect.intersection(&mask.rect).unwrap()
+                        };
+                        for_each_repetition(
+                            &mask.rect,
+                            &visible_rect,
+                            &mask.rect.size,
+                            &mut |origin, _| {
+                                let image_rect = LayoutRect {
+                                    origin: *origin,
+                                    size: mask.rect.size,
+                                };
+                                for_each_tile(
+                                    &image_rect,
+                                    &visible_rect,
+                                    &device_image_size,
+                                    tile_size as u32,
+                                    &mut |tile_rect, tile_offset, tile_flags| {
+                                        resource_cache.request_image(
+                                            request.with_tile(tile_offset),
+                                            gpu_cache,
+                                        );
+                                        let mut handle = GpuCacheHandle::new();
+                                        if let Some(request) = gpu_cache.request(&mut handle) {
+                                            let data = ImageMaskData {
+                                                local_mask_rect: mask.rect,
+                                                local_tile_rect: *tile_rect,
+                                            };
+                                            data.write_gpu_blocks(request);
+                                        }
+
+                                        tiles.push(VisibleImageTile {
+                                            tile_offset,
+                                            handle,
+                                            edge_flags: tile_flags,
+                                            local_rect: *tile_rect,
+                                            local_clip_rect: visible_rect,
+                                        });
+                                    },
+                                )
+                            }
+                        );
+                        *visible_tiles = Some(tiles);
+                    } else {
+                        if let Some(request) = gpu_cache.request(&mut self.gpu_cache_handle) {
+                            let data = ImageMaskData {
+                                local_mask_rect: mask.rect,
+                                local_tile_rect: mask.rect,
+                            };
+                            data.write_gpu_blocks(request);
+                        }
+                        resource_cache.request_image(request, gpu_cache);
+                    }
                 }
-                ClipItem::BoxShadow(ref info) => {
+            }
+            ClipItem::BoxShadow(ref mut info) => {
+                if let Some(mut request) = gpu_cache.request(&mut self.gpu_cache_handle) {
                     request.push([
                         info.shadow_rect_alloc_size.width,
                         info.shadow_rect_alloc_size.height,
@@ -282,29 +352,7 @@ impl ClipNode {
                     ]);
                     request.push(info.prim_shadow_rect);
                 }
-                ClipItem::Rectangle(rect, mode) => {
-                    let data = ClipData::uniform(rect, 0.0, mode);
-                    data.write(&mut request);
-                }
-                ClipItem::RoundedRectangle(ref rect, ref radius, mode) => {
-                    let data = ClipData::rounded_rect(rect, radius, mode);
-                    data.write(&mut request);
-                }
-            }
-        }
 
-        match self.item {
-            ClipItem::Image(ref mask) => {
-                resource_cache.request_image(
-                    ImageRequest {
-                        key: mask.image,
-                        rendering: ImageRendering::Auto,
-                        tile: None,
-                    },
-                    gpu_cache,
-                );
-            }
-            ClipItem::BoxShadow(ref mut info) => {
                 // Quote from https://drafts.csswg.org/css-backgrounds-3/#shadow-blur
                 // "the image that would be generated by applying to the shadow a
                 // Gaussian blur with a standard deviation equal to half the blur radius."
@@ -335,8 +383,18 @@ impl ClipNode {
                     data.write(&mut request);
                 }
             }
-            ClipItem::Rectangle(..) |
-            ClipItem::RoundedRectangle(..) => {}
+            ClipItem::Rectangle(rect, mode) => {
+                if let Some(mut request) = gpu_cache.request(&mut self.gpu_cache_handle) {
+                    let data = ClipData::uniform(rect, 0.0, mode);
+                    data.write(&mut request);
+                }
+            }
+            ClipItem::RoundedRectangle(ref rect, ref radius, mode) => {
+                if let Some(mut request) = gpu_cache.request(&mut self.gpu_cache_handle) {
+                    let data = ClipData::rounded_rect(rect, radius, mode);
+                    data.write(&mut request);
+                }
+            }
         }
     }
 }
@@ -555,6 +613,7 @@ impl ClipStore {
                         gpu_cache,
                         resource_cache,
                         device_pixel_scale,
+                        &local_bounding_rect,
                     );
 
                     // Calculate some flags that are required for the segment
@@ -580,7 +639,7 @@ impl ClipStore {
                     needs_mask |= match node.item {
                         ClipItem::Rectangle(_, ClipMode::ClipOut) |
                         ClipItem::RoundedRectangle(..) |
-                        ClipItem::Image(..) |
+                        ClipItem::Image { .. } |
                         ClipItem::BoxShadow(..) => {
                             true
                         }
@@ -754,13 +813,13 @@ impl ClipItemKey {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum ClipItem {
     Rectangle(LayoutRect, ClipMode),
     RoundedRectangle(LayoutRect, BorderRadius, ClipMode),
-    Image(ImageMask),
+    Image { mask: ImageMask, visible_tiles: Option<Vec<VisibleImageTile>> },
     BoxShadow(BoxShadowClipSource),
 }
 
@@ -873,8 +932,8 @@ impl ClipItem {
             ClipItem::Rectangle(_, ClipMode::ClipOut) => None,
             ClipItem::RoundedRectangle(clip_rect, _, ClipMode::Clip) => Some(clip_rect),
             ClipItem::RoundedRectangle(_, _, ClipMode::ClipOut) => None,
-            ClipItem::Image(ref mask) if mask.repeat => None,
-            ClipItem::Image(ref mask) => Some(mask.rect),
+            ClipItem::Image { ref mask, .. } if mask.repeat => None,
+            ClipItem::Image { ref mask, .. } => Some(mask.rect),
             ClipItem::BoxShadow(..) => None,
         }
     }
@@ -895,7 +954,7 @@ impl ClipItem {
             }
             ClipItem::Rectangle(_, ClipMode::ClipOut) |
             ClipItem::RoundedRectangle(_, _, ClipMode::ClipOut) |
-            ClipItem::Image(..) |
+            ClipItem::Image { .. } |
             ClipItem::BoxShadow(..) => {
                 return ClipResult::Partial
             }
@@ -1006,7 +1065,7 @@ impl ClipItem {
                     }
                 }
             }
-            ClipItem::Image(ref mask) => {
+            ClipItem::Image { ref mask, .. } => {
                 if mask.repeat {
                     ClipResult::Partial
                 } else {

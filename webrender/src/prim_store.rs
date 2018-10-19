@@ -359,6 +359,8 @@ impl OpacityBinding {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct VisibleImageTile {
     pub tile_offset: TileOffset,
     pub handle: GpuCacheHandle,
@@ -539,6 +541,8 @@ bitflags! {
     ///
     /// *Note*: the bit values have to match the shader logic in
     /// `write_transform_vertex()` function.
+    #[cfg_attr(feature = "capture", derive(Serialize))]
+    #[cfg_attr(feature = "replay", derive(Deserialize))]
     pub struct EdgeAaSegmentMask: u8 {
         const LEFT = 0x1;
         const TOP = 0x2;
@@ -1262,12 +1266,16 @@ impl ClipCorner {
 #[derive(Debug)]
 #[repr(C)]
 pub struct ImageMaskData {
-    pub local_rect: LayoutRect,
+    /// The local rect of the whole masked area.
+    pub local_mask_rect: LayoutRect,
+    /// The local rect of an individual tile.
+    pub local_tile_rect: LayoutRect,
 }
 
 impl ToGpuBlocks for ImageMaskData {
     fn write_gpu_blocks(&self, mut request: GpuDataRequest) {
-        request.push(self.local_rect);
+        request.push(self.local_mask_rect);
+        request.push(self.local_tile_rect);
     }
 }
 
@@ -2329,7 +2337,7 @@ impl BrushPrimitive {
 
                     continue;
                 }
-                ClipItem::Image(..) => {
+                ClipItem::Image { .. } => {
                     rect_clips_only = false;
                     continue;
                 }
@@ -2704,7 +2712,6 @@ impl Primitive {
                                             &device_image_size,
                                             tile_size as u32,
                                             &mut |tile_rect, tile_offset, tile_flags| {
-
                                                 frame_state.resource_cache.request_image(
                                                     request.with_tile(tile_offset),
                                                     frame_state.gpu_cache,
