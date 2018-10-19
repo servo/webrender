@@ -46,9 +46,13 @@ impl<'a> RawtestHarness<'a> {
         self.test_blob_update_test();
         self.test_blob_update_epoch_test();
         self.test_tile_decomposition();
-        self.test_very_large_blob();
-        self.test_insufficient_blob_visible_area();
-        self.test_offscreen_blob();
+        if self.wrench.device_pixel_ratio == 1.0 {
+            self.test_very_large_blob();
+            self.test_insufficient_blob_visible_area();
+            self.test_offscreen_blob();
+        } else {
+            println!("\tWarning: skipped some tests because device_pixel_ratio != 1.0");
+        }
         self.test_save_restore();
         self.test_blur_cache();
         self.test_capture();
@@ -133,7 +137,6 @@ impl<'a> RawtestHarness<'a> {
 
     fn test_very_large_blob(&mut self) {
         println!("\tvery large blob...");
-
         assert_eq!(self.wrench.device_pixel_ratio, 1.);
 
         let window_size = self.window.get_inner_size();
@@ -249,7 +252,6 @@ impl<'a> RawtestHarness<'a> {
         // area for its blob image which is too small, causing frame building to run into
         // missing tiles, and forcing it to exercise the code path where missing tiles are
         // rendered synchronously on demand.
-
         assert_eq!(self.wrench.device_pixel_ratio, 1.);
 
         let window_size = self.window.get_inner_size();
