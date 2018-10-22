@@ -1,5 +1,5 @@
 # The "preserve-3d" context has a "flat" child. Rotation by 180 degrees and positive Z offset
-# should compensate each other, resulting in a gree rectangle.
+# should compensate each other, resulting in a green rectangle.
 ---
 root:
   items:
