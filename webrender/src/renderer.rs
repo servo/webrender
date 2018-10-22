@@ -3110,6 +3110,11 @@ impl Renderer {
                     // GPUs that I have tested with. It's possible it may be a
                     // performance penalty on other GPU types - we should test this
                     // and consider different code paths.
+                    //
+                    // Note: The above measurements were taken when render
+                    // target slices were minimum 2048x2048. Now that we size
+                    // them adaptively, this may be less of a win (except perhaps
+                    // on a mostly-unused last slice of a large texture array).
                     Some(target.used_rect())
                 } else {
                     None
@@ -3795,17 +3800,30 @@ impl Renderer {
         list: &mut RenderTargetList<T>,
         counters: &mut FrameProfileCounters,
     ) -> Option<ActiveTexture> {
-        debug_assert_ne!(list.max_size, DeviceUintSize::zero());
         if list.targets.is_empty() {
             return None
         }
+
+        // Get a bounding rect of all the layers, and round it up to a multiple
+        // of 256. This improves render target reuse when resizing the window,
+        // since we don't need to create a new render target for each slightly-
+        // larger frame.
+        let mut bounding_rect = DeviceIntRect::zero();
+        for t in list.targets.iter() {
+            bounding_rect = t.used_rect().union(&bounding_rect);
+        }
+        debug_assert_eq!(bounding_rect.origin, DeviceIntPoint::zero());
+        let dimensions = DeviceUintSize::new(
+            (bounding_rect.size.width as u32 + 255) & !255,
+            (bounding_rect.size.height as u32 + 255) & !255,
+        );
 
         counters.targets_used.inc();
 
         // Try finding a match in the existing pool. If there's no match, we'll
         // create a new texture.
         let selector = TargetSelector {
-            size: list.max_size,
+            size: dimensions,
             num_layers: list.targets.len(),
             format: list.format,
         };
@@ -3829,8 +3847,8 @@ impl Renderer {
             self.device.create_texture(
                 TextureTarget::Array,
                 list.format,
-                list.max_size.width,
-                list.max_size.height,
+                dimensions.width,
+                dimensions.height,
                 TextureFilter::Linear,
                 Some(rt_info),
                 list.targets.len() as _,
