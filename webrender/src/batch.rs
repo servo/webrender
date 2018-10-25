@@ -1294,7 +1294,8 @@ impl AlphaBatchBuilder {
                 for (segment_index, (segment, segment_data)) in segment_desc.segments
                     .iter()
                     .zip(segment_data.iter())
-                    .enumerate() {
+                    .enumerate()
+                {
                     self.add_segment_to_batch(
                         segment,
                         segment_data,
@@ -1315,7 +1316,8 @@ impl AlphaBatchBuilder {
                 // between all segments.
                 for (segment_index, segment) in segment_desc.segments
                     .iter()
-                    .enumerate() {
+                    .enumerate()
+                {
                     self.add_segment_to_batch(
                         segment,
                         segment_data,
@@ -1333,8 +1335,12 @@ impl AlphaBatchBuilder {
             }
             (None, SegmentDataKind::Shared(ref segment_data)) => {
                 // No segments, and thus no per-segment instance data.
+                let needs_blending = !prim_instance.opacity.is_opaque ||
+                                     clip_task_address != OPAQUE_TASK_ADDRESS ||
+                                     transform_kind == TransformedRectKind::Complex;
+
                 let batch_key = BatchKey {
-                    blend_mode: non_segmented_blend_mode,
+                    blend_mode: if needs_blending { non_segmented_blend_mode } else { BlendMode::None },
                     kind: BatchKind::Brush(params.batch_kind),
                     textures: segment_data.textures,
                 };
