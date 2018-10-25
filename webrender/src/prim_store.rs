@@ -1907,7 +1907,8 @@ impl PrimitiveStore {
             prim_instance.clipped_world_rect = Some(pic_state.map_pic_to_world.bounds);
         } else {
             if prim.local_rect.size.width <= 0.0 ||
-               prim.local_rect.size.height <= 0.0 {
+               prim.local_rect.size.height <= 0.0
+            {
                 if cfg!(debug_assertions) && is_chased {
                     println!("\tculled for zero local rectangle");
                 }
@@ -1954,6 +1955,9 @@ impl PrimitiveStore {
             let clip_chain = match clip_chain {
                 Some(clip_chain) => clip_chain,
                 None => {
+                    if cfg!(debug_assertions) && is_chased {
+                        println!("\tunable to build the clip chain, skipping");
+                    }
                     prim_instance.clipped_world_rect = None;
                     return false;
                 }
@@ -2060,8 +2064,8 @@ impl PrimitiveStore {
             let prim_index = prim_instance.prim_index;
             let is_chased = Some(prim_index) == self.chase_id;
 
-            if is_chased {
-                println!("\tpreparing prim {:?} in pipeline {:?}",
+            if cfg!(debug_assertions) && is_chased {
+                println!("\tpreparing {:?} in {:?}",
                     prim_instance.prim_index, pic_context.pipeline_id);
             }
 
@@ -2784,15 +2788,27 @@ impl PrimitiveInstance {
                             }
                         }
                     }
-                    BrushKind::LineDecoration { ref mut handle, style, orientation, wavy_line_thickness, .. } => {
-                        // Work out the device pixel size to be used to cache this line decoration.
+                    BrushKind::LineDecoration { color, ref mut handle, style, orientation, wavy_line_thickness } => {
+                        // Update opacity for this primitive to ensure the correct
+                        // batching parameters are used.
+                        self.opacity.is_opaque = match style {
+                            LineStyle::Solid => color.a == 1.0,
+                            LineStyle::Dotted |
+                            LineStyle::Dashed |
+                            LineStyle::Wavy => false,
+                        };
 
+                        // Work out the device pixel size to be used to cache this line decoration.
                         let size = get_line_decoration_sizes(
                             &prim_local_rect.size,
                             orientation,
                             style,
                             wavy_line_thickness,
                         );
+
+                        if is_chased {
+                            println!("\tline decoration opaque={}, sizes={:?}", self.opacity.is_opaque, size);
+                        }
 
                         if let Some((inline_size, block_size)) = size {
                             let size = match orientation {
