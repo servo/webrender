@@ -3,14 +3,15 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BorderRadius, BoxShadowClipMode, ClipMode, ColorF, DeviceIntSize, LayoutPrimitiveInfo};
-use api::{LayoutRect, LayoutSize, LayoutVector2D, MAX_BLUR_RADIUS};
+use api::{LayoutRect, LayoutSize, LayoutToDeviceScale, LayoutVector2D, MAX_BLUR_RADIUS};
 use clip::ClipItemKey;
 use display_list_flattener::DisplayListFlattener;
 use gpu_cache::GpuCacheHandle;
 use gpu_types::BoxShadowStretchMode;
 use prim_store::{BrushKind, BrushPrimitive, PrimitiveContainer};
 use prim_store::ScrollNodeAndClipChain;
-use render_task::RenderTaskCacheEntryHandle;
+use render_task::{RENDER_TASK_SIZE_SANITY_CHECK, RenderTaskCacheEntryHandle};
+use resource_cache::ResourceCache;
 use util::RectHelpers;
 
 #[derive(Debug, Clone)]
@@ -284,4 +285,11 @@ fn adjust_radius_for_box_shadow(
     } else {
         0.0
     }
+}
+
+pub fn get_max_scale_for_box_shadow(rect_size: &LayoutSize,
+                                    resource_cache: &ResourceCache) -> LayoutToDeviceScale {
+    let max_size = resource_cache.max_texture_size().min(RENDER_TASK_SIZE_SANITY_CHECK as u32);
+    let r = rect_size.width.max(rect_size.height);
+    LayoutToDeviceScale::new(max_size as f32 / r)
 }

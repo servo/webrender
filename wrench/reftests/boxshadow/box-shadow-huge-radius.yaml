@@ -1,0 +1,18 @@
+---
+root:
+  items:
+    - type: stacking-context
+      bounds: [0, 148, 16000, 16]
+      "clip-rect": [0, 148, 2160, 32]
+      type: "box-shadow"
+      "box-bounds": [0, 148, 16000, 16]
+      offset: [8, 8]
+      color: 0 0 255 1.0000
+      "blur-radius": 6
+      "spread-radius": 0
+      "border-radius":
+        "top-left": [0, 0]
+        "top-right": [16000, 16]
+        "bottom-left": [0, 0]
+        "bottom-right": [0, 0]
+      "clip-mode": outset
