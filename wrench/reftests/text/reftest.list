@@ -58,7 +58,7 @@ platform(linux) == two-shadows.yaml two-shadows.png
 == shadow-clip.yaml shadow-clip-ref.yaml
 == shadow-fast-clip.yaml shadow-fast-clip-ref.yaml
 == shadow-partial-glyph.yaml shadow-partial-glyph-ref.yaml
-fuzzy(1,68) platform(linux) == shadow-transforms.yaml shadow-transforms.png
+fuzzy(1,89) platform(linux) == shadow-transforms.yaml shadow-transforms.png
 fuzzy(1,71) platform(linux) == raster-space.yaml raster-space.png
 != allow-subpixel.yaml allow-subpixel-ref.yaml
 == bg-color.yaml bg-color-ref.yaml
