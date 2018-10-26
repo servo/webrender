@@ -255,20 +255,6 @@ where
         self.resources.clear();
     }
 
-    fn clear_keys<F>(&mut self, key_fun: F)
-    where
-        for<'r> F: Fn(&'r &K) -> bool,
-    {
-        let resources_to_destroy = self.resources
-            .keys()
-            .filter(&key_fun)
-            .cloned()
-            .collect::<Vec<_>>();
-        for key in resources_to_destroy {
-            let _ = self.resources.remove(&key).unwrap();
-        }
-    }
-
     pub fn retain<F>(&mut self, f: F)
     where
         F: FnMut(&K, &mut V) -> bool,
@@ -1620,16 +1606,7 @@ impl ResourceCache {
     }
 
     pub fn clear_namespace(&mut self, namespace: IdNamespace) {
-        self.resources
-            .image_templates
-            .images
-            .retain(|key, _| key.0 != namespace);
-        self.cached_images
-            .clear_keys(|key| key.0 == namespace);
-
-        self.blob_image_templates.retain(|key, _| key.0 != namespace);
-
-        self.rasterized_blob_images.retain(|key, _| key.0 != namespace);
+        self.clear_images(|k| k.0 == namespace);
 
         self.resources.font_instances
             .write()
@@ -1686,6 +1663,22 @@ impl ResourceCache {
         */
 
         report
+    }
+
+    /// Properly deletes all images matching the predicate.
+    fn clear_images<F: Fn(&ImageKey) -> bool>(&mut self, f: F) {
+        let keys = self.resources.image_templates.images.keys().filter(|k| f(*k))
+            .cloned().collect::<SmallVec<[ImageKey; 16]>>();
+
+        for key in keys {
+            self.delete_image_template(key);
+        }
+
+        debug_assert!(!self.resources.image_templates.images.keys().any(&f));
+        debug_assert!(!self.cached_images.resources.keys().any(&f));
+        debug_assert!(!self.blob_image_templates.keys().any(&f));
+        debug_assert!(!self.rasterized_blob_images.keys().any(&f));
+
     }
 }
 
