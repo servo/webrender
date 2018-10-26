@@ -156,6 +156,14 @@ impl ImageTemplates {
 struct CachedImageInfo {
     texture_cache_handle: TextureCacheHandle,
     dirty_rect: Option<DeviceUintRect>,
+    manual_eviction: bool,
+}
+
+#[cfg(debug_assertions)]
+impl Drop for CachedImageInfo {
+    fn drop(&mut self) {
+        debug_assert!(!self.manual_eviction, "Manual eviction requires cleanup");
+    }
 }
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -835,13 +843,15 @@ impl ResourceCache {
     pub fn delete_image_template(&mut self, image_key: ImageKey) {
         let value = self.resources.image_templates.remove(image_key);
 
-        match self.cached_images.try_get(&image_key) {
-            Some(&ImageResult::UntiledAuto(ref entry)) => {
+        match self.cached_images.try_get_mut(&image_key) {
+            Some(&mut ImageResult::UntiledAuto(ref mut entry)) => {
                 self.texture_cache.mark_unused(&entry.texture_cache_handle);
+                entry.manual_eviction = false;
             }
-            Some(&ImageResult::Multi(ref entries)) => {
-                for (_, entry) in &entries.resources {
+            Some(&mut ImageResult::Multi(ref mut entries)) => {
+                for (_, entry) in &mut entries.resources {
                     self.texture_cache.mark_unused(&entry.texture_cache_handle);
+                    entry.manual_eviction = false;
                 }
             }
             _ => {}
@@ -907,6 +917,7 @@ impl ResourceCache {
                             Some(mem::replace(entry, CachedImageInfo {
                                 texture_cache_handle: TextureCacheHandle::new(),
                                 dirty_rect: None,
+                                manual_eviction: false,
                             }))
                         }
                         _ => None
@@ -929,6 +940,7 @@ impl ResourceCache {
                     ImageResult::UntiledAuto(CachedImageInfo {
                         texture_cache_handle: TextureCacheHandle::new(),
                         dirty_rect: Some(template.descriptor.full_rect()),
+                        manual_eviction: false,
                     })
                 } else {
                     ImageResult::Multi(ResourceClassCache::new())
@@ -945,6 +957,7 @@ impl ResourceCache {
                     .or_insert(CachedImageInfo {
                         texture_cache_handle: TextureCacheHandle::new(),
                         dirty_rect: Some(template.descriptor.full_rect()),
+                        manual_eviction: false,
                     })
             },
             ImageResult::Err(_) => panic!("Errors should already have been handled"),
@@ -1557,6 +1570,7 @@ impl ResourceCache {
                 };
 
                 let eviction = if image_template.data.is_blob() {
+                    entry.manual_eviction = true;
                     Eviction::Manual
                 } else {
                     Eviction::Auto
@@ -1679,6 +1693,12 @@ impl ResourceCache {
         debug_assert!(!self.blob_image_templates.keys().any(&f));
         debug_assert!(!self.rasterized_blob_images.keys().any(&f));
 
+    }
+}
+
+impl Drop for ResourceCache {
+    fn drop(&mut self) {
+        self.clear_images(|_| true);
     }
 }
 
