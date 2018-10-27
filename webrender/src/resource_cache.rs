@@ -238,8 +238,8 @@ where
         self.resources.insert(key, value);
     }
 
-    pub fn remove(&mut self, key: &K) {
-        self.resources.remove(key);
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        self.resources.remove(key)
     }
 
     pub fn get_mut(&mut self, key: &K) -> &mut V {
@@ -333,6 +333,25 @@ enum ImageResult {
     UntiledAuto(CachedImageInfo),
     Multi(ResourceClassCache<CachedImageKey, CachedImageInfo, ()>),
     Err(ImageCacheError),
+}
+
+impl ImageResult {
+    /// Releases any texture cache entries held alive by this ImageResult.
+    fn drop_from_cache(&mut self, texture_cache: &mut TextureCache) {
+        match *self {
+            ImageResult::UntiledAuto(ref mut entry) => {
+                texture_cache.mark_unused(&entry.texture_cache_handle);
+                entry.manual_eviction = false;
+            },
+            ImageResult::Multi(ref mut entries) => {
+                for (_, entry) in &mut entries.resources {
+                    texture_cache.mark_unused(&entry.texture_cache_handle);
+                    entry.manual_eviction = false;
+                }
+            },
+            ImageResult::Err(_) => {},
+        }
+    }
 }
 
 type ImageCache = ResourceClassCache<ImageKey, ImageResult, ()>;
@@ -841,23 +860,13 @@ impl ResourceCache {
     }
 
     pub fn delete_image_template(&mut self, image_key: ImageKey) {
+        // Remove the template.
         let value = self.resources.image_templates.remove(image_key);
 
-        match self.cached_images.try_get_mut(&image_key) {
-            Some(&mut ImageResult::UntiledAuto(ref mut entry)) => {
-                self.texture_cache.mark_unused(&entry.texture_cache_handle);
-                entry.manual_eviction = false;
-            }
-            Some(&mut ImageResult::Multi(ref mut entries)) => {
-                for (_, entry) in &mut entries.resources {
-                    self.texture_cache.mark_unused(&entry.texture_cache_handle);
-                    entry.manual_eviction = false;
-                }
-            }
-            _ => {}
+        // Release the corresponding texture cache entry, if any.
+        if let Some(mut cached) = self.cached_images.remove(&image_key) {
+            cached.drop_from_cache(&mut self.texture_cache);
         }
-
-        self.cached_images.remove(&image_key);
 
         match value {
             Some(image) => if image.data.is_blob() {
@@ -1600,7 +1609,9 @@ impl ResourceCache {
 
     pub fn clear(&mut self, what: ClearCache) {
         if what.contains(ClearCache::IMAGES) {
-            self.cached_images.clear();
+            for (_key, mut cached) in self.cached_images.resources.drain() {
+                cached.drop_from_cache(&mut self.texture_cache);
+            }
         }
         if what.contains(ClearCache::GLYPHS) {
             self.cached_glyphs.clear();
