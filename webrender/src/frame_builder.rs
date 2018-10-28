@@ -13,7 +13,7 @@ use gpu_types::{PrimitiveHeaders, TransformPalette, UvRectKind, ZBufferIdGenerat
 use hit_test::{HitTester, HitTestingRun};
 use internal_types::{FastHashMap, PlaneSplitter};
 use picture::{PictureCompositeMode, PictureSurface, PictureUpdateContext, RasterConfig};
-use prim_store::{PrimitiveIndex, PrimitiveStore, SpaceMapper, PictureIndex};
+use prim_store::{PrimitiveStore, SpaceMapper, PictureIndex, PrimitiveId};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_backend::{FrameResources, FrameId};
 use render_task::{RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree};
@@ -32,7 +32,7 @@ use tiling::{SpecialRenderPasses};
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum ChasePrimitive {
     Nothing,
-    Index(PrimitiveIndex),
+    Id(PrimitiveId),
     LocalRect(LayoutRect),
 }
 
@@ -269,7 +269,6 @@ impl FrameBuilder {
                 true,
                 &mut frame_state,
                 &frame_context,
-                false,
             )
             .unwrap();
 

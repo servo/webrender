@@ -346,13 +346,8 @@ impl PicturePrimitive {
         parent_allows_subpixel_aa: bool,
         frame_state: &mut FrameBuildingState,
         frame_context: &FrameBuildingContext,
-        is_chased: bool,
     ) -> Option<(PictureContext, PictureState, Vec<PrimitiveInstance>)> {
         if !self.is_visible() {
-            if cfg!(debug_assertions) && is_chased {
-                println!("\tculled for carrying an invisible composite filter");
-            }
-
             return None;
         }
 
