@@ -31,10 +31,27 @@ use renderer::{MAX_VERTEX_TEXTURE_WIDTH};
 use resource_cache::{ImageProperties, ImageRequest, ResourceCache};
 use scene::SceneProperties;
 use std::{cmp, fmt, mem, ops, usize};
+#[cfg(debug_assertions)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use util::{ScaleOffset, MatrixHelpers};
 use util::{pack_as_float, project_rect, raster_rect_to_device_pixels};
 use smallvec::SmallVec;
 
+/// Counter for unique primitive IDs for debug tracing.
+#[cfg(debug_assertions)]
+static NEXT_PRIM_ID: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(debug_assertions)]
+static PRIM_CHASE_ID: AtomicUsize = AtomicUsize::new(usize::MAX);
+
+#[cfg(debug_assertions)]
+pub fn register_prim_chase_id(id: PrimitiveId) {
+    PRIM_CHASE_ID.store(id.0, Ordering::SeqCst);
+}
+
+#[cfg(not(debug_assertions))]
+pub fn register_prim_chase_id(_: PrimitiveId) {
+}
 
 const MIN_BRUSH_SPLIT_AREA: f32 = 256.0 * 256.0;
 pub const VECS_PER_SEGMENT: usize = 2;
@@ -1561,6 +1578,11 @@ pub struct Primitive {
     pub details: PrimitiveDetails,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct PrimitiveId(pub usize);
+
 #[derive(Clone, Debug)]
 pub struct PrimitiveInstance {
     /// Index into the prim store containing information about
@@ -1574,6 +1596,9 @@ pub struct PrimitiveInstance {
     /// The current combined local clip for this primitive, from
     /// the primitive local clip above and the current clip chain.
     pub combined_local_clip_rect: LayoutRect,
+
+    #[cfg(debug_assertions)]
+    pub id: PrimitiveId,
 
     /// The last frame ID (of the `RenderTaskTree`) this primitive
     /// was prepared for rendering in.
@@ -1620,6 +1645,8 @@ impl PrimitiveInstance {
             clipped_world_rect: None,
             #[cfg(debug_assertions)]
             prepared_frame_id: FrameId(0),
+            #[cfg(debug_assertions)]
+            id: PrimitiveId(NEXT_PRIM_ID.fetch_add(1, Ordering::Relaxed)),
             clip_task_id: None,
             gpu_location: GpuCacheHandle::new(),
             opacity: PrimitiveOpacity::translucent(),
@@ -1627,14 +1654,21 @@ impl PrimitiveInstance {
             spatial_node_index,
         }
     }
+
+    #[cfg(debug_assertions)]
+    pub fn is_chased(&self) -> bool {
+        PRIM_CHASE_ID.load(Ordering::SeqCst) == self.id.0
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub fn is_chased(&self) -> bool {
+        false
+    }
 }
 
 pub struct PrimitiveStore {
     pub primitives: Vec<Primitive>,
     pub pictures: Vec<PicturePrimitive>,
-
-    /// A primitive index to chase through debugging.
-    pub chase_id: Option<PrimitiveIndex>,
 }
 
 impl PrimitiveStore {
@@ -1642,7 +1676,6 @@ impl PrimitiveStore {
         PrimitiveStore {
             primitives: Vec::new(),
             pictures: Vec::new(),
-            chase_id: None,
         }
     }
 
@@ -1836,7 +1869,6 @@ impl PrimitiveStore {
         frame_state: &mut FrameBuildingState,
         display_list: &BuiltDisplayList,
         plane_split_anchor: usize,
-        is_chased: bool,
     ) -> bool {
         // If we have dependencies, we need to prepare them first, in order
         // to know the actual rect of this primitive.
@@ -1857,10 +1889,15 @@ impl PrimitiveStore {
                         pic_context.allow_subpixel_aa,
                         frame_state,
                         frame_context,
-                        is_chased,
                     ) {
                         Some(info) => Some(info),
-                        None => return false,
+                        None => {
+                            if prim_instance.is_chased() {
+                                println!("\tculled for carrying an invisible composite filter");
+                            }
+
+                            return false;
+                        }
                     }
                 }
                 PrimitiveDetails::Brush(_) |
@@ -1934,7 +1971,7 @@ impl PrimitiveStore {
             if prim.local_rect.size.width <= 0.0 ||
                prim.local_rect.size.height <= 0.0
             {
-                if cfg!(debug_assertions) && is_chased {
+                if prim_instance.is_chased() {
                     println!("\tculled for zero local rectangle");
                 }
                 return false;
@@ -1951,7 +1988,7 @@ impl PrimitiveStore {
             let local_rect = match local_rect {
                 Some(local_rect) => local_rect,
                 None => {
-                    if cfg!(debug_assertions) && is_chased {
+                    if prim_instance.is_chased() {
                         println!("\tculled for being out of the local clip rectangle: {:?}",
                             prim.local_clip_rect);
                     }
@@ -1980,7 +2017,7 @@ impl PrimitiveStore {
             let clip_chain = match clip_chain {
                 Some(clip_chain) => clip_chain,
                 None => {
-                    if cfg!(debug_assertions) && is_chased {
+                    if prim_instance.is_chased() {
                         println!("\tunable to build the clip chain, skipping");
                     }
                     prim_instance.clipped_world_rect = None;
@@ -1988,7 +2025,7 @@ impl PrimitiveStore {
                 }
             };
 
-            if cfg!(debug_assertions) && is_chased {
+            if prim_instance.is_chased() {
                 println!("\teffective clip chain from {:?} {}",
                     clip_chain.clips_range,
                     if pic_context.apply_local_clip_rect { "(applied)" } else { "" },
@@ -2041,11 +2078,10 @@ impl PrimitiveStore {
                 pic_state,
                 frame_context,
                 frame_state,
-                is_chased,
                 &clip_node_collector,
             );
 
-            if cfg!(debug_assertions) && is_chased {
+            if prim_instance.is_chased() {
                 println!("\tconsidered visible and ready with local rect {:?}", local_rect);
             }
 
@@ -2063,7 +2099,6 @@ impl PrimitiveStore {
             frame_state,
             display_list,
             plane_split_anchor,
-            is_chased,
         );
 
         true
@@ -2086,12 +2121,10 @@ impl PrimitiveStore {
         for (plane_split_anchor, prim_instance) in prim_instances.iter_mut().enumerate() {
             prim_instance.clipped_world_rect = None;
 
-            let prim_index = prim_instance.prim_index;
-            let is_chased = Some(prim_index) == self.chase_id;
-
-            if cfg!(debug_assertions) && is_chased {
+            if prim_instance.is_chased() {
+                #[cfg(debug_assertions)]
                 println!("\tpreparing {:?} in {:?}",
-                    prim_instance.prim_index, pic_context.pipeline_id);
+                    prim_instance.id, pic_context.pipeline_id);
             }
 
             // Do some basic checks first, that can early out
@@ -2108,18 +2141,20 @@ impl PrimitiveStore {
 
                 match pic_state.map_local_to_containing_block.visible_face() {
                     VisibleFace::Back => {
-                        if cfg!(debug_assertions) && is_chased {
+                        if prim_instance.is_chased() {
                             println!("\tculled for not having visible back faces, transform {:?}",
                                 pic_state.map_local_to_containing_block);
                         }
                         continue;
                     }
                     VisibleFace::Front => {
-                        if cfg!(debug_assertions) && is_chased {
+                        if prim_instance.is_chased() {
+                            #[cfg(debug_assertions)]
                             println!("\tprim {:?} is not culled for visible face {:?}, transform {:?}",
-                                prim_index,
+                                prim_instance.id,
                                 pic_state.map_local_to_containing_block.visible_face(),
                                 pic_state.map_local_to_containing_block);
+                            #[cfg(debug_assertions)]
                             println!("\tpicture context {:?}", pic_context);
                         }
                     }
@@ -2131,7 +2166,7 @@ impl PrimitiveStore {
                 .spatial_nodes[prim_instance.spatial_node_index.0];
 
             if !spatial_node.invertible {
-                if cfg!(debug_assertions) && is_chased {
+                if prim_instance.is_chased() {
                     println!("\tculled for the scroll node transform being invertible");
                 }
                 continue;
@@ -2164,7 +2199,6 @@ impl PrimitiveStore {
                 frame_state,
                 display_list,
                 plane_split_anchor,
-                is_chased,
             ) {
                 frame_state.profile_counters.visible_primitives.inc();
             }
@@ -2575,7 +2609,6 @@ impl PrimitiveInstance {
         frame_state: &mut FrameBuildingState,
         display_list: &BuiltDisplayList,
         plane_split_anchor: usize,
-        is_chased: bool,
     ) {
         let mut is_tiled = false;
         #[cfg(debug_assertions)]
@@ -2823,7 +2856,7 @@ impl PrimitiveInstance {
                             wavy_line_thickness,
                         );
 
-                        if cfg!(debug_assertions) && is_chased {
+                        if self.is_chased() {
                             println!("\tline decoration opaque={}, sizes={:?}", self.opacity.is_opaque, size);
                         }
 
@@ -3146,6 +3179,7 @@ impl PrimitiveInstance {
         }
 
         // Mark this GPU resource as required for this frame.
+        let is_chased = self.is_chased();
         if let Some(mut request) = frame_state.gpu_cache.request(&mut self.gpu_location) {
             match *prim_details {
                 PrimitiveDetails::TextRun(ref mut text) => {
@@ -3157,7 +3191,7 @@ impl PrimitiveInstance {
                     match brush.segment_desc {
                         Some(ref segment_desc) => {
                             for segment in &segment_desc.segments {
-                                if cfg!(debug_assertions) && is_chased {
+                                if is_chased {
                                     println!("\t\t{:?}", segment);
                                 }
                                 // has to match VECS_PER_SEGMENT
@@ -3191,10 +3225,9 @@ impl PrimitiveInstance {
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
         frame_state: &mut FrameBuildingState,
-        is_chased: bool,
         clip_node_collector: &Option<ClipNodeCollector>,
     ) {
-        if cfg!(debug_assertions) && is_chased {
+        if self.is_chased() {
             println!("\tupdating clip task with pic rect {:?}", clip_chain.pic_clip_rect);
         }
         // Reset clips from previous frames since we may clip differently each frame.
@@ -3214,7 +3247,7 @@ impl PrimitiveInstance {
             frame_state,
             clip_node_collector,
         ) {
-            if cfg!(debug_assertions) && is_chased {
+            if self.is_chased() {
                 println!("\tsegment tasks have been created for clipping");
             }
             return;
@@ -3240,7 +3273,7 @@ impl PrimitiveInstance {
                 );
 
                 let clip_task_id = frame_state.render_tasks.add(clip_task);
-                if cfg!(debug_assertions) && is_chased {
+                if self.is_chased() {
                     println!("\tcreated task {:?} with device rect {:?}",
                         clip_task_id, device_rect);
                 }

@@ -584,7 +584,7 @@ impl AlphaBatchBuilder {
             transform_id,
         };
 
-        if cfg!(debug_assertions) && ctx.prim_store.chase_id == Some(prim_instance.prim_index) {
+        if prim_instance.is_chased() {
             println!("\ttask target {:?}", self.target_rect);
             println!("\t{:?}", prim_header);
         }
@@ -1057,10 +1057,10 @@ impl AlphaBatchBuilder {
                             ctx.resource_cache,
                             gpu_cache,
                             deferred_resolves,
-                            ctx.prim_store.chase_id == Some(prim_instance.prim_index),
+                            prim_instance,
                         ) {
                             let prim_header_index = prim_headers.push(&prim_header, z_id, params.prim_user_data);
-                            if cfg!(debug_assertions) && ctx.prim_store.chase_id == Some(prim_instance.prim_index) {
+                            if prim_instance.is_chased() {
                                 println!("\t{:?} {:?}, task relative bounds {:?}",
                                     params.batch_kind, prim_header_index, bounding_rect);
                             }
@@ -1501,7 +1501,7 @@ impl BrushPrimitive {
         resource_cache: &ResourceCache,
         gpu_cache: &mut GpuCache,
         deferred_resolves: &mut Vec<DeferredResolve>,
-        is_chased: bool,
+        prim_instance: &PrimitiveInstance,
     ) -> Option<BrushBatchParameters> {
         match self.kind {
             BrushKind::Image { request, ref source, .. } => {
@@ -1523,7 +1523,7 @@ impl BrushPrimitive {
                         resource_cache.get_texture_cache_item(&rt_cache_entry.handle)
                     }
                 };
-                if cfg!(debug_assertions) && is_chased {
+                if prim_instance.is_chased() {
                     println!("\tsource {:?}", cache_item);
                 }
 
