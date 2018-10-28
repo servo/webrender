@@ -27,7 +27,7 @@ use picture::{Picture3DContext, PictureCompositeMode, PictureIdGenerator, Pictur
 use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor, PrimitiveInstance};
 use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveOpacity, PrimitiveKey, PrimitiveSceneData};
 use prim_store::{BorderSource, BrushSegment, BrushSegmentVec, PrimitiveContainer, PrimitiveDataHandle, PrimitiveStore};
-use prim_store::{OpacityBinding, ScrollNodeAndClipChain, TextRunPrimitive, PictureIndex};
+use prim_store::{OpacityBinding, ScrollNodeAndClipChain, TextRunPrimitive, PictureIndex, register_prim_chase_id};
 use render_backend::{DocumentView};
 use resource_cache::{FontInstanceMap, ImageRequest};
 use scene::{Scene, ScenePipeline, StackingContextHelpers};
@@ -880,7 +880,7 @@ impl<'a> DisplayListFlattener<'a> {
         prim_instance: PrimitiveInstance,
     ) {
         // Add primitive to the top-most stacking context on the stack.
-        if cfg!(debug_assertions) && self.prim_store.chase_id == Some(prim_instance.prim_index) {
+        if prim_instance.is_chased() {
             println!("\tadded to stacking context at {}", self.sc_stack.len());
         }
         let stacking_context = self.sc_stack.last_mut().unwrap();
@@ -911,10 +911,10 @@ impl<'a> DisplayListFlattener<'a> {
                     clip_and_scroll.spatial_node_index,
                     container,
                 );
-                if cfg!(debug_assertions) && ChasePrimitive::LocalRect(info.rect) == self.config.chase_primitive {
-                    println!("Chasing {:?} by local rect", prim_instance.prim_index);
-                    self.prim_store.chase_id = Some(prim_instance.prim_index);
-                }
+                self.register_chase_primitive(
+                    &info.rect,
+                    &prim_instance,
+                );
                 self.add_primitive_to_hit_testing_list(info, clip_and_scroll);
                 self.add_primitive_to_draw_list(prim_instance);
             }
@@ -1107,10 +1107,6 @@ impl<'a> DisplayListFlattener<'a> {
         // Create a chain of pictures based on presence of filters,
         // mix-blend-mode and/or 3d rendering context containers.
 
-        if cfg!(debug_assertions) && Some(leaf_prim_index) == self.prim_store.chase_id {
-            println!("\tis a leaf primitive for a stacking context");
-        }
-
         let mut current_pic_index = leaf_pic_index;
         let mut cur_instance = PrimitiveInstance::new(
             leaf_prim_index,
@@ -1118,6 +1114,10 @@ impl<'a> DisplayListFlattener<'a> {
             stacking_context.clip_chain_id,
             stacking_context.spatial_node_index,
         );
+
+        if cur_instance.is_chased() {
+            println!("\tis a leaf primitive for a stacking context");
+        }
 
         // If establishing a 3d context, the `cur_instance` represents
         // a picture with all the *trailing* immediate children elements.
@@ -1186,7 +1186,7 @@ impl<'a> DisplayListFlattener<'a> {
                 PrimitiveContainer::Brush(filter_prim),
             );
 
-            if cfg!(debug_assertions) && Some(cur_instance.prim_index) == self.prim_store.chase_id {
+            if cur_instance.is_chased() {
                 println!("\tis a composite picture for a stacking context with {:?}", filter);
             }
 
@@ -1224,7 +1224,7 @@ impl<'a> DisplayListFlattener<'a> {
                 PrimitiveContainer::Brush(blend_prim),
             );
 
-            if cfg!(debug_assertions) && Some(cur_instance.prim_index) == self.prim_store.chase_id {
+            if cur_instance.is_chased() {
                 println!("\tis a mix-blend picture for a stacking context with {:?}", mix_blend_mode);
             }
         }
@@ -1305,9 +1305,9 @@ impl<'a> DisplayListFlattener<'a> {
         viewport_size: &LayoutSize,
         content_size: &LayoutSize,
     ) {
-        if let ChasePrimitive::Index(prim_index) = self.config.chase_primitive {
-            println!("Chasing {:?} by index", prim_index);
-            self.prim_store.chase_id = Some(prim_index);
+        if let ChasePrimitive::Id(id) = self.config.chase_primitive {
+            println!("Chasing {:?} by index", id);
+            register_prim_chase_id(id);
         }
 
         self.push_reference_frame(
@@ -1597,10 +1597,10 @@ impl<'a> DisplayListFlattener<'a> {
                             pending_primitive.clip_and_scroll.spatial_node_index,
                             pending_primitive.container,
                         );
-                        if cfg!(debug_assertions) && ChasePrimitive::LocalRect(pending_primitive.info.rect) == self.config.chase_primitive {
-                            println!("Chasing {:?} by local rect", prim_instance.prim_index);
-                            self.prim_store.chase_id = Some(prim_instance.prim_index);
-                        }
+                        self.register_chase_primitive(
+                            &pending_primitive.info.rect,
+                            &prim_instance,
+                        );
                         self.add_primitive_to_hit_testing_list(&pending_primitive.info, pending_primitive.clip_and_scroll);
                         self.add_primitive_to_draw_list(prim_instance);
                     }
@@ -1610,6 +1610,26 @@ impl<'a> DisplayListFlattener<'a> {
 
         debug_assert!(items.is_empty());
         self.pending_shadow_items = items;
+    }
+
+    #[cfg(debug_assertions)]
+    fn register_chase_primitive(
+        &mut self,
+        rect: &LayoutRect,
+        prim_instance: &PrimitiveInstance,
+    ) {
+        if ChasePrimitive::LocalRect(*rect) == self.config.chase_primitive {
+            println!("Chasing {:?} by local rect", prim_instance.id);
+            register_prim_chase_id(prim_instance.id);
+        }
+    }
+
+    #[cfg(not(debug_assertions))]
+    fn register_chase_primitive(
+        &mut self,
+        _rect: &LayoutRect,
+        _prim_instance: &PrimitiveInstance,
+    ) {
     }
 
     pub fn add_solid_rectangle(
