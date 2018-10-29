@@ -55,7 +55,7 @@ impl Example for App {
                 RasterSpace::Screen,
             );
             // set the scrolling clip
-            let clip_id = builder.define_scroll_frame(
+            let scroll_id = builder.define_scroll_frame(
                 None,
                 (0, 0).by(1000, 1000),
                 scrollbox,
@@ -63,7 +63,7 @@ impl Example for App {
                 None,
                 ScrollSensitivity::ScriptAndInputEvents,
             );
-            builder.push_clip_id(clip_id);
+            builder.push_spatial_id(scroll_id);
 
             // now put some content into it.
             // start with a white background
@@ -86,7 +86,7 @@ impl Example for App {
             // Below the above rectangles, set up a nested scrollbox. It's still in
             // the same stacking context, so note that the rects passed in need to
             // be relative to the stacking context.
-            let nested_clip_id = builder.define_scroll_frame(
+            let nested_scroll_id = builder.define_scroll_frame(
                 None,
                 (0, 100).to(300, 1000),
                 (0, 100).to(200, 300),
@@ -94,7 +94,7 @@ impl Example for App {
                 None,
                 ScrollSensitivity::ScriptAndInputEvents,
             );
-            builder.push_clip_id(nested_clip_id);
+            builder.push_spatial_id(nested_scroll_id);
 
             // give it a giant gray background just to distinguish it and to easily
             // visually identify the nested scrollbox
@@ -120,11 +120,11 @@ impl Example for App {
                 LayoutVector2D::new(0.0, 0.0)
             );
 
-            builder.push_clip_id(sticky_id);
+            builder.push_spatial_id(sticky_id);
             let mut info = LayoutPrimitiveInfo::new((50, 350).by(50, 50));
             info.tag = Some((0, 6));
             builder.push_rect(&info, ColorF::new(0.5, 0.5, 1.0, 1.0));
-            builder.pop_clip_id(); // sticky_id
+            builder.pop_spatial_id(); // sticky_id
 
             // just for good measure add another teal square further down and to
             // the right, which can be scrolled into view by the user
@@ -132,9 +132,9 @@ impl Example for App {
             info.tag = Some((0, 7));
             builder.push_rect(&info, ColorF::new(0.0, 1.0, 1.0, 1.0));
 
-            builder.pop_clip_id(); // nested_clip_id
+            builder.pop_spatial_id(); // nested_scroll_id
 
-            builder.pop_clip_id(); // clip_id
+            builder.pop_spatial_id(); // scroll_id
             builder.pop_stacking_context();
         }
 

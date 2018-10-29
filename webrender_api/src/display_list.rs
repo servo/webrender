@@ -23,7 +23,7 @@ use {LayoutTransform, LayoutVector2D, LineDisplayItem, LineOrientation, LineStyl
 use {PipelineId, PropertyBinding, PushReferenceFrameDisplayListItem};
 use {PushStackingContextDisplayItem, RadialGradient, RadialGradientDisplayItem};
 use {RectangleDisplayItem, ReferenceFrame, ScrollFrameDisplayItem, ScrollSensitivity, Shadow};
-use {SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, StickyOffsetBounds};
+use {SpatialId, SpecificDisplayItem, StackingContext, StickyFrameDisplayItem, StickyOffsetBounds};
 use {TextDisplayItem, TransformStyle, YuvColorSpace, YuvData, YuvImageDisplayItem, ColorDepth};
 
 // We don't want to push a long text-run. If a text-run is too long, split it into several parts.
@@ -218,7 +218,7 @@ impl<'a> BuiltDisplayListIter<'a> {
                 // Dummy data, will be overwritten by `next`
                 item: SpecificDisplayItem::PopStackingContext,
                 clip_and_scroll:
-                    ClipAndScrollInfo::simple(ClipId::root_scroll_node(PipelineId::dummy())),
+                    ClipAndScrollInfo::simple(SpatialId::root_scroll_node(PipelineId::dummy())),
                 info: LayoutPrimitiveInfo::new(LayoutRect::zero()),
             },
             cur_stops: ItemRange::default(),
@@ -872,7 +872,7 @@ impl DisplayListBuilder {
             data: Vec::with_capacity(capacity),
             pipeline_id,
             clip_stack: vec![
-                ClipAndScrollInfo::simple(ClipId::root_scroll_node(pipeline_id)),
+                ClipAndScrollInfo::simple(SpatialId::root_scroll_node(pipeline_id)),
             ],
             next_clip_index: FIRST_CLIP_NODE_INDEX,
             next_spatial_index: FIRST_SPATIAL_NODE_INDEX,
@@ -1253,8 +1253,9 @@ impl DisplayListBuilder {
         info: &LayoutPrimitiveInfo,
         transform: Option<PropertyBinding<LayoutTransform>>,
         perspective: Option<LayoutTransform>,
-    ) -> ClipId {
+    ) -> SpatialId {
         let id = self.generate_spatial_index();
+
         let item = SpecificDisplayItem::PushReferenceFrame(PushReferenceFrameDisplayListItem {
             reference_frame: ReferenceFrame {
                 transform,
@@ -1262,12 +1263,15 @@ impl DisplayListBuilder {
                 id,
             },
         });
+
         self.push_item(item, info);
+        self.clip_stack.push(ClipAndScrollInfo::simple(id));
         id
     }
 
     pub fn pop_reference_frame(&mut self) {
         self.push_new_empty_item(SpecificDisplayItem::PopReferenceFrame);
+        self.clip_stack.pop().unwrap();
     }
 
     pub fn push_stacking_context(
@@ -1309,9 +1313,9 @@ impl DisplayListBuilder {
         ClipId::Clip(self.next_clip_index - 1, self.pipeline_id)
     }
 
-    fn generate_spatial_index(&mut self) -> ClipId {
+    fn generate_spatial_index(&mut self) -> SpatialId {
         self.next_spatial_index += 1;
-        ClipId::Spatial(self.next_spatial_index - 1, self.pipeline_id)
+        SpatialId::new(self.next_spatial_index - 1, self.pipeline_id)
     }
 
     fn generate_clip_chain_id(&mut self) -> ClipChainId {
@@ -1327,7 +1331,7 @@ impl DisplayListBuilder {
         complex_clips: I,
         image_mask: Option<ImageMask>,
         scroll_sensitivity: ScrollSensitivity,
-    ) -> ClipId
+    ) -> SpatialId
     where
         I: IntoIterator<Item = ComplexClipRegion>,
         I::IntoIter: ExactSizeIterator + Clone,
@@ -1340,19 +1344,20 @@ impl DisplayListBuilder {
             clip_rect,
             complex_clips,
             image_mask,
-            scroll_sensitivity)
+            scroll_sensitivity,
+        )
     }
 
     pub fn define_scroll_frame_with_parent<I>(
         &mut self,
-        parent: ClipId,
+        parent: SpatialId,
         external_id: Option<ExternalScrollId>,
         content_rect: LayoutRect,
         clip_rect: LayoutRect,
         complex_clips: I,
         image_mask: Option<ImageMask>,
         scroll_sensitivity: ScrollSensitivity,
-    ) -> ClipId
+    ) -> SpatialId
     where
         I: IntoIterator<Item = ComplexClipRegion>,
         I::IntoIter: ExactSizeIterator + Clone,
@@ -1413,7 +1418,7 @@ impl DisplayListBuilder {
 
     pub fn define_clip_with_parent<I>(
         &mut self,
-        parent: ClipId,
+        parent: SpatialId,
         clip_rect: LayoutRect,
         complex_clips: I,
         image_mask: Option<ImageMask>,
@@ -1443,8 +1448,7 @@ impl DisplayListBuilder {
         vertical_offset_bounds: StickyOffsetBounds,
         horizontal_offset_bounds: StickyOffsetBounds,
         previously_applied_offset: LayoutVector2D,
-
-    ) -> ClipId {
+    ) -> SpatialId {
         let id = self.generate_spatial_index();
         let item = SpecificDisplayItem::StickyFrame(StickyFrameDisplayItem {
             id,
@@ -1459,21 +1463,30 @@ impl DisplayListBuilder {
         id
     }
 
-    pub fn push_clip_id(&mut self, id: ClipId) {
+    pub fn push_spatial_id(&mut self, id: SpatialId) {
         self.clip_stack.push(ClipAndScrollInfo::simple(id));
+    }
+
+    pub fn push_clip_id(&mut self, clip_id: ClipId) {
+        let scroll_id = self.clip_stack.last().unwrap().scroll_node_id;
+        self.clip_stack.push(ClipAndScrollInfo::new(scroll_id, clip_id));
     }
 
     pub fn push_clip_and_scroll_info(&mut self, info: ClipAndScrollInfo) {
         self.clip_stack.push(info);
     }
 
-    pub fn pop_clip_id(&mut self) {
+    pub fn pop_spatial_id(&mut self) {
         self.clip_stack.pop();
         if let Some(save_state) = self.save_state.as_ref() {
             assert!(self.clip_stack.len() >= save_state.clip_stack_len,
                     "Cannot pop clips that were pushed before the DisplayListBuilder save.");
         }
         assert!(!self.clip_stack.is_empty());
+    }
+
+    pub fn pop_clip_id(&mut self) {
+        self.pop_spatial_id();
     }
 
     pub fn push_iframe(
