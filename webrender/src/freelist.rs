@@ -2,11 +2,25 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use std::marker::PhantomData;
+//! A generic backing store for caches.
+//!
+//! `FreeList` is a simple vector-backed data structure where each entry in the
+//! vector contains an Option<T>. It maintains an index-based (rather than
+//! pointer-based) free list to efficiently locate the next unused entry. If all
+//! entries are occupied, insertion appends a new element to the vector.
+//!
+//! It also supports both strong and weak handle semantics. There is exactly one
+//! (non-Clonable) strong handle per occupied entry, which must be passed by
+//! value into `free()` to release an entry. Strong handles can produce an
+//! unlimited number of (Clonable) weak handles, which are used to perform
+//! lookups which may fail of the entry has been freed. A per-entry epoch ensures
+//! that weak handle lookups properly fail even if the entry has been freed and
+//! reused.
+//!
+//! TODO(gw): Add an occupied list head, for fast iteration of the occupied list
+//! to implement retain() style functionality.
 
-// TODO(gw): Add an occupied list head, for fast
-//           iteration of the occupied list to implement
-//           retain() style functionality.
+use std::marker::PhantomData;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]

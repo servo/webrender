@@ -700,8 +700,7 @@ impl TextureCache {
     fn free(&mut self, entry: CacheEntry) -> Option<&TextureRegion> {
         match entry.kind {
             EntryKind::Standalone { .. } => {
-                // This is a standalone texture allocation. Just push it back onto the free
-                // list.
+                // This is a standalone texture allocation. Free it directly.
                 self.pending_updates.push(TextureUpdate {
                     id: entry.texture_id,
                     op: TextureUpdateOp::Free,
@@ -761,13 +760,8 @@ impl TextureCache {
                     height: texture_array.dimensions,
                     format: descriptor.format,
                     filter: texture_array.filter,
-                    // TODO(gw): Creating a render target here is only used
-                    //           for the texture cache debugger display. In
-                    //           the future, we should change the debug
-                    //           display to use a shader that blits the
-                    //           texture, and then we can remove this
-                    //           memory allocation (same for the other
-                    //           standalone texture below).
+                    // This needs to be a render target because some render
+                    // tasks get rendered into the texture cache.
                     render_target: Some(RenderTargetInfo { has_depth: false }),
                     layer_count: texture_array.layer_count as i32,
                 },
