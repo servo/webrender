@@ -40,6 +40,16 @@ they're nestable.
 [notifier]: renderer/struct.Renderer.html#method.set_render_notifier
 */
 
+// Cribbed from the |matches| crate, for simplicity.
+macro_rules! matches {
+    ($expression:expr, $($pattern:tt)+) => {
+        match $expression {
+            $($pattern)+ => true,
+            _ => false
+        }
+    }
+}
+
 #[macro_use]
 extern crate bitflags;
 #[macro_use]

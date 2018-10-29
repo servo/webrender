@@ -39,6 +39,13 @@ enum EntryKind {
     },
 }
 
+impl EntryKind {
+    /// Returns true if this corresponds to a standalone cache entry.
+    fn is_standalone(&self) -> bool {
+        matches!(*self, EntryKind::Standalone)
+    }
+}
+
 #[derive(Debug)]
 pub enum CacheEntryMarker {}
 
@@ -130,26 +137,14 @@ impl CacheEntry {
     }
 }
 
-type WeakCacheEntryHandle = WeakFreeListHandle<CacheEntryMarker>;
 
-// A texture cache handle is a weak reference to a cache entry.
-// If the handle has not been inserted into the cache yet, the
-// value will be None. Even when the value is Some(), the location
-// may not actually be valid if it has been evicted by the cache.
-// In this case, the cache handle needs to re-upload this item
-// to the texture cache (see request() below).
-#[derive(Debug)]
-#[cfg_attr(feature = "capture", derive(Serialize))]
-#[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct TextureCacheHandle {
-    entry: Option<WeakCacheEntryHandle>,
-}
-
-impl TextureCacheHandle {
-    pub fn new() -> Self {
-        TextureCacheHandle { entry: None }
-    }
-}
+/// A texture cache handle is a weak reference to a cache entry.
+///
+/// If the handle has not been inserted into the cache yet, or if the entry was
+/// previously inserted and then evicted, lookup of the handle will fail, and
+/// the cache handle needs to re-upload this item to the texture cache (see
+/// request() below).
+pub type TextureCacheHandle = WeakFreeListHandle<CacheEntryMarker>;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -358,18 +353,13 @@ impl TextureCache {
     // texture cache (either never uploaded, or has been
     // evicted on a previous frame).
     pub fn request(&mut self, handle: &TextureCacheHandle, gpu_cache: &mut GpuCache) -> bool {
-        match handle.entry {
-            Some(ref handle) => {
-                match self.entries.get_opt_mut(handle) {
-                    // If an image is requested that is already in the cache,
-                    // refresh the GPU cache data associated with this item.
-                    Some(entry) => {
-                        entry.last_access = self.frame_id;
-                        entry.update_gpu_cache(gpu_cache);
-                        false
-                    }
-                    None => true,
-                }
+        match self.entries.get_opt_mut(handle) {
+            // If an image is requested that is already in the cache,
+            // refresh the GPU cache data associated with this item.
+            Some(entry) => {
+                entry.last_access = self.frame_id;
+                entry.update_gpu_cache(gpu_cache);
+                false
             }
             None => true,
         }
@@ -379,10 +369,7 @@ impl TextureCache {
     // texture cache (either never uploaded, or has been
     // evicted on a previous frame).
     pub fn needs_upload(&self, handle: &TextureCacheHandle) -> bool {
-        match handle.entry {
-            Some(ref handle) => self.entries.get_opt(handle).is_none(),
-            None => true,
-        }
+        self.entries.get_opt(handle).is_none()
     }
 
     pub fn max_texture_size(&self) -> u32 {
@@ -413,20 +400,12 @@ impl TextureCache {
         // - Never been in the cache
         // - Has been in the cache but was evicted.
         // - Exists in the cache but dimensions / format have changed.
-        let realloc = match handle.entry {
-            Some(ref handle) => {
-                match self.entries.get_opt(handle) {
-                    Some(entry) => {
-                        entry.size != descriptor.size || entry.format != descriptor.format
-                    }
-                    None => {
-                        // Was previously allocated but has been evicted.
-                        true
-                    }
-                }
+        let realloc = match self.entries.get_opt(handle) {
+            Some(entry) => {
+                entry.size != descriptor.size || entry.format != descriptor.format
             }
             None => {
-                // This handle has not been allocated yet.
+                // Not allocated, or was previously allocated but has been evicted.
                 true
             }
         };
@@ -444,8 +423,7 @@ impl TextureCache {
             dirty_rect = None;
         }
 
-        let entry = self.entries
-            .get_opt_mut(handle.entry.as_ref().unwrap())
+        let entry = self.entries.get_opt_mut(handle)
             .expect("BUG: handle must be valid now");
 
         // Install the new eviction notice for this update, if applicable.
@@ -514,9 +492,7 @@ impl TextureCache {
     // Check if a given texture handle has a valid allocation
     // in the texture cache.
     pub fn is_allocated(&self, handle: &TextureCacheHandle) -> bool {
-        handle.entry.as_ref().map_or(false, |handle| {
-            self.entries.get_opt(handle).is_some()
-        })
+        self.entries.get_opt(handle).is_some()
     }
 
     // Retrieve the details of an item in the cache. This is used
@@ -525,30 +501,25 @@ impl TextureCache {
     // This function will assert in debug modes if the caller
     // tries to get a handle that was not requested this frame.
     pub fn get(&self, handle: &TextureCacheHandle) -> CacheItem {
-        match handle.entry {
-            Some(ref handle) => {
-                let entry = self.entries
-                    .get_opt(handle)
-                    .expect("BUG: was dropped from cache or not updated!");
-                debug_assert_eq!(entry.last_access, self.frame_id);
-                let (layer_index, origin) = match entry.kind {
-                    EntryKind::Standalone { .. } => {
-                        (0, DeviceUintPoint::zero())
-                    }
-                    EntryKind::Cache {
-                        layer_index,
-                        origin,
-                        ..
-                    } => (layer_index, origin),
-                };
-                CacheItem {
-                    uv_rect_handle: entry.uv_rect_handle,
-                    texture_id: TextureSource::TextureCache(entry.texture_id),
-                    uv_rect: DeviceUintRect::new(origin, entry.size),
-                    texture_layer: layer_index as i32,
-                }
+        let entry = self.entries
+            .get_opt(handle)
+            .expect("BUG: was dropped from cache or not updated!");
+        debug_assert_eq!(entry.last_access, self.frame_id);
+        let (layer_index, origin) = match entry.kind {
+            EntryKind::Standalone { .. } => {
+                (0, DeviceUintPoint::zero())
             }
-            None => panic!("BUG: handle not requested earlier in frame"),
+            EntryKind::Cache {
+                layer_index,
+                origin,
+                ..
+            } => (layer_index, origin),
+        };
+        CacheItem {
+            uv_rect_handle: entry.uv_rect_handle,
+            texture_id: TextureSource::TextureCache(entry.texture_id),
+            uv_rect: DeviceUintRect::new(origin, entry.size),
+            texture_layer: layer_index as i32,
         }
     }
 
@@ -560,11 +531,6 @@ impl TextureCache {
         &self,
         handle: &TextureCacheHandle,
     ) -> (CacheTextureId, LayerIndex, DeviceUintRect) {
-        let handle = handle
-            .entry
-            .as_ref()
-            .expect("BUG: handle not requested earlier in frame");
-
         let entry = self.entries
             .get_opt(handle)
             .expect("BUG: was dropped from cache or not updated!");
@@ -585,13 +551,11 @@ impl TextureCache {
     }
 
     pub fn mark_unused(&mut self, handle: &TextureCacheHandle) {
-        if let Some(ref handle) = handle.entry {
-            if let Some(entry) = self.entries.get_opt_mut(handle) {
-                // Set last accessed frame to invalid to ensure it gets cleaned up
-                // next time we expire entries.
-                entry.last_access = FrameId::invalid();
-                entry.eviction = Eviction::Auto;
-            }
+        if let Some(entry) = self.entries.get_opt_mut(handle) {
+            // Set last accessed frame to invalid to ensure it gets cleaned up
+            // next time we expire entries.
+            entry.last_access = FrameId::invalid();
+            entry.eviction = Eviction::Auto;
         }
     }
 
@@ -889,50 +853,32 @@ impl TextureCache {
 
             allocated_in_shared_cache = false;
         }
-
         let new_cache_entry = new_cache_entry.expect("BUG: must have allocated by now");
 
-        // We need to update the texture cache handle now, so that it
-        // points to the correct location.
-        let new_entry_handle = match handle.entry {
-            Some(ref existing_entry) => {
-                // If the handle already exists, there's two possibilities:
-                // 1) It points to a valid entry in the freelist.
-                // 2) It points to a stale entry in the freelist (i.e. has been evicted).
-                //
-                // For (1) we want to replace the cache entry with our
-                // newly updated location. We also need to ensure that
-                // the storage (region or standalone) associated with the
-                // previous entry here gets freed.
-                //
-                // For (2) we need to add the data to a new location
-                // in the freelist.
-                //
-                // This is managed with a database style upsert operation.
-                match self.entries.upsert(existing_entry, new_cache_entry) {
-                    UpsertResult::Updated(old_entry) => {
-                        self.free(old_entry);
-                        None
-                    }
-                    UpsertResult::Inserted(new_handle) => Some(new_handle),
+        // If the handle points to a valid cache entry, we want to replace the
+        // cache entry with our newly updated location. We also need to ensure
+        // that the storage (region or standalone) associated with the previous
+        // entry here gets freed.
+        //
+        // If the handle is invalid, we need to insert the data, and append the
+        // result to the corresponding vector.
+        //
+        // This is managed with a database style upsert operation.
+        match self.entries.upsert(handle, new_cache_entry) {
+            UpsertResult::Updated(old_entry) => {
+                assert_eq!(allocated_in_shared_cache, !old_entry.kind.is_standalone(),
+                           "We currently have a bug in this edge case, since we don't \
+                            move strong handles from one list to the other. This gets \
+                            fixed in the next patch.");
+                self.free(old_entry);
+            }
+            UpsertResult::Inserted(new_handle) => {
+                *handle = new_handle.weak();
+                if allocated_in_shared_cache {
+                    self.shared_entry_handles.push(new_handle);
+                } else {
+                    self.standalone_entry_handles.push(new_handle);
                 }
-            }
-            None => {
-                // This handle has never been allocated, so just
-                // insert a new cache entry.
-                Some(self.entries.insert(new_cache_entry))
-            }
-        };
-
-        // If the cache entry is new, update it in the cache handle.
-        if let Some(new_entry_handle) = new_entry_handle {
-            handle.entry = Some(new_entry_handle.weak());
-            // Store the strong handle in the list that we scan for
-            // cache evictions.
-            if allocated_in_shared_cache {
-                self.shared_entry_handles.push(new_entry_handle);
-            } else {
-                self.standalone_entry_handles.push(new_entry_handle);
             }
         }
     }

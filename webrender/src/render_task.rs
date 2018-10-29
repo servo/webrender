@@ -1248,7 +1248,7 @@ impl RenderTaskCache {
                                .entry(key)
                                .or_insert_with(|| {
                                     let entry = RenderTaskCacheEntry {
-                                        handle: TextureCacheHandle::new(),
+                                        handle: TextureCacheHandle::invalid(),
                                         pending_render_task_id: None,
                                         user_data,
                                         is_opaque,
