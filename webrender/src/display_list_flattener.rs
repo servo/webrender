@@ -24,7 +24,7 @@ use hit_test::{HitTestingItem, HitTestingRun};
 use image::simplify_repeated_primitive;
 use internal_types::{FastHashMap, FastHashSet};
 use picture::{Picture3DContext, PictureCompositeMode, PictureIdGenerator, PicturePrimitive, PrimitiveList};
-use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor, PrimitiveInstance};
+use prim_store::{BrushKind, BrushPrimitive, BrushSegmentDescriptor, PrimitiveInstance, PrimitiveDataInterner};
 use prim_store::{EdgeAaSegmentMask, ImageSource, PrimitiveOpacity, PrimitiveKey, PrimitiveSceneData};
 use prim_store::{BorderSource, BrushSegment, BrushSegmentVec, PrimitiveContainer, PrimitiveDataHandle, PrimitiveStore};
 use prim_store::{OpacityBinding, ScrollNodeAndClipChain, TextRunPrimitive, PictureIndex, register_prim_chase_id};
@@ -803,6 +803,12 @@ impl<'a> DisplayListFlattener<'a> {
                     .clip_interner
                     .intern(&item, || {
                         ClipItemSceneData {
+                            // The only type of clip items that exist in the per-primitive
+                            // clip items are box shadows, and they don't contribute a
+                            // local clip rect, so just provide max_rect here. In the future,
+                            // we intend to make box shadows a primitive effect, in which
+                            // case the entire clip_items API on primitives can be removed.
+                            clip_rect: LayoutRect::max_rect(),
                         }
                     });
 
@@ -828,12 +834,25 @@ impl<'a> DisplayListFlattener<'a> {
         spatial_node_index: SpatialNodeIndex,
         container: PrimitiveContainer,
     ) -> PrimitiveInstance {
-        let prim_key = PrimitiveKey::new(info.is_backface_visible);
+        let prim_key = PrimitiveKey::new(
+            info.is_backface_visible,
+            info.rect,
+            info.clip_rect,
+        );
+
+        // Get a tight bounding / culling rect for this primitive
+        // from its local rect intersection with minimal local
+        // clip rect.
+        let culling_rect = info.clip_rect
+            .intersection(&info.rect)
+            .unwrap_or(LayoutRect::zero());
 
         let prim_data_handle = self.resources
             .prim_interner
             .intern(&prim_key, || {
                 PrimitiveSceneData {
+                    culling_rect,
+                    is_backface_visible: info.is_backface_visible,
                 }
             });
 
@@ -966,6 +985,7 @@ impl<'a> DisplayListFlattener<'a> {
                 let extra_instance = sc.cut_flat_item_sequence(
                     &mut self.picture_id_generator,
                     &mut self.prim_store,
+                    &self.resources.prim_interner,
                 );
                 (sc.is_3d(), extra_instance)
             },
@@ -1012,11 +1032,18 @@ impl<'a> DisplayListFlattener<'a> {
         // clip node doesn't affect the stacking context rect.
         let should_isolate = clipping_node.is_some();
 
-        let prim_key = PrimitiveKey::new(is_backface_visible);
+        let prim_key = PrimitiveKey::new(
+            is_backface_visible,
+            LayoutRect::zero(),
+            LayoutRect::max_rect(),
+        );
+
         let primitive_data_handle = self.resources
             .prim_interner
             .intern(&prim_key, || {
                 PrimitiveSceneData {
+                    culling_rect: LayoutRect::zero(),
+                    is_backface_visible,
                 }
             }
         );
@@ -1080,6 +1107,7 @@ impl<'a> DisplayListFlattener<'a> {
         let prim_list = PrimitiveList::new(
             stacking_context.primitives,
             &self.prim_store.primitives,
+            &self.resources.prim_interner,
         );
         let leaf_picture = PicturePrimitive::new_image(
             self.picture_id_generator.next(),
@@ -1128,6 +1156,7 @@ impl<'a> DisplayListFlattener<'a> {
             let prim_list = PrimitiveList::new(
                 prims,
                 &self.prim_store.primitives,
+                &self.resources.prim_interner,
             );
 
             // This is the acttual picture representing our 3D hierarchy root.
@@ -1162,6 +1191,7 @@ impl<'a> DisplayListFlattener<'a> {
             let prim_list = PrimitiveList::new(
                 vec![cur_instance.clone()],
                 &self.prim_store.primitives,
+                &self.resources.prim_interner,
             );
 
             let filter_picture = PicturePrimitive::new_image(
@@ -1200,6 +1230,7 @@ impl<'a> DisplayListFlattener<'a> {
             let prim_list = PrimitiveList::new(
                 vec![cur_instance.clone()],
                 &self.prim_store.primitives,
+                &self.resources.prim_interner,
             );
 
             let blend_picture = PicturePrimitive::new_image(
@@ -1366,6 +1397,7 @@ impl<'a> DisplayListFlattener<'a> {
             .clip_interner
             .intern(&ClipItemKey::rectangle(clip_region.main, ClipMode::Clip), || {
                 ClipItemSceneData {
+                    clip_rect: clip_region.main,
                 }
             });
 
@@ -1384,6 +1416,7 @@ impl<'a> DisplayListFlattener<'a> {
                 .clip_interner
                 .intern(&ClipItemKey::image_mask(image_mask), || {
                     ClipItemSceneData {
+                        clip_rect: image_mask.get_local_clip_rect().unwrap_or(LayoutRect::max_rect()),
                     }
                 });
 
@@ -1403,6 +1436,7 @@ impl<'a> DisplayListFlattener<'a> {
                 .clip_interner
                 .intern(&ClipItemKey::rounded_rect(region.rect, region.radii, region.mode), || {
                     ClipItemSceneData {
+                        clip_rect: region.get_local_clip_rect().unwrap_or(LayoutRect::max_rect()),
                     }
                 });
 
@@ -1538,6 +1572,7 @@ impl<'a> DisplayListFlattener<'a> {
                         let prim_list = PrimitiveList::new(
                             prims,
                             &self.prim_store.primitives,
+                            &self.resources.prim_interner,
                         );
 
                         // Create a picture that the shadow primitives will be added to. If the
@@ -1566,11 +1601,18 @@ impl<'a> DisplayListFlattener<'a> {
                             PrimitiveContainer::Brush(shadow_prim),
                         );
 
-                        let shadow_prim_key = PrimitiveKey::new(true);
+                        let shadow_prim_key = PrimitiveKey::new(
+                            true,
+                            LayoutRect::zero(),
+                            LayoutRect::max_rect(),
+                        );
+
                         let shadow_prim_data_handle = self.resources
                             .prim_interner
                             .intern(&shadow_prim_key, || {
                                 PrimitiveSceneData {
+                                    culling_rect: LayoutRect::zero(),
+                                    is_backface_visible: true,
                                 }
                             }
                         );
@@ -2269,6 +2311,7 @@ impl FlattenedStackingContext {
         &mut self,
         picture_id_generator: &mut PictureIdGenerator,
         prim_store: &mut PrimitiveStore,
+        prim_interner: &PrimitiveDataInterner,
     ) -> Option<PrimitiveInstance> {
         if !self.is_3d() || self.primitives.is_empty() {
             return None
@@ -2284,6 +2327,7 @@ impl FlattenedStackingContext {
         let prim_list = PrimitiveList::new(
             mem::replace(&mut self.primitives, Vec::new()),
             &prim_store.primitives,
+            prim_interner,
         );
 
         let container_picture = PicturePrimitive::new_image(

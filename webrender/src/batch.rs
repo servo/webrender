@@ -480,7 +480,7 @@ impl AlphaBatchBuilder {
         let task_address = render_tasks.get_task_address(task_id);
 
         // Add each run in this picture to the batch.
-        for prim_instance in &pic.prim_instances {
+        for prim_instance in &pic.prim_list.prim_instances {
             self.add_prim_to_batch(
                 prim_instance,
                 ctx,
@@ -598,7 +598,7 @@ impl AlphaBatchBuilder {
                             // Convert all children of the 3D hierarchy root into batches.
                             Picture3DContext::In { root_data: Some(ref list), .. } => {
                                 for child in list {
-                                    let prim_instance = &picture.prim_instances[child.anchor];
+                                    let prim_instance = &picture.prim_list.prim_instances[child.anchor];
                                     let pic_primitive = &ctx.prim_store.primitives[prim_instance.prim_index.0];
 
                                     let clip_task_address = prim_instance
@@ -627,10 +627,13 @@ impl AlphaBatchBuilder {
 						            };
 						            let pic = &ctx.prim_store.pictures[pic_index.0];
 
-                                    let (uv_rect_address, _) = pic
+                                    let surface_index = pic
                                         .raster_config
                                         .as_ref()
-                                        .expect("BUG: no raster config")
+                                        .expect("BUG: 3d primitive was not assigned a surface")
+                                        .surface_index;
+                                    let (uv_rect_address, _) = ctx
+                                        .surfaces[surface_index.0]
                                         .surface
                                         .as_ref()
                                         .expect("BUG: no surface")
@@ -675,9 +678,10 @@ impl AlphaBatchBuilder {
 
                         match picture.raster_config {
                             Some(ref raster_config) => {
-                                let surface = raster_config.surface
-                                                           .as_ref()
-                                                           .expect("bug: surface must be allocated by now");
+                                let surface = ctx.surfaces[raster_config.surface_index.0]
+                                    .surface
+                                    .as_ref()
+                                    .expect("bug: surface must be allocated by now");
                                 match raster_config.composite_mode {
                                     PictureCompositeMode::Filter(filter) => {
                                         assert!(filter.is_visible());

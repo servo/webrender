@@ -6,7 +6,7 @@ use api::{AlphaType, BorderRadius, BuiltDisplayList, ClipMode, ColorF, PictureRe
 use api::{DeviceIntRect, DeviceIntSize, DevicePixelScale, ExtendMode, DeviceRect, PictureToRasterTransform};
 use api::{FilterOp, GlyphInstance, GradientStop, ImageKey, ImageRendering, ItemRange, TileOffset};
 use api::{RasterSpace, LayoutPoint, LayoutRect, LayoutSideOffsets, LayoutSize, LayoutToWorldTransform};
-use api::{LayoutVector2D, PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat};
+use api::{LayoutVector2D, PremultipliedColorF, PropertyBinding, Shadow, YuvColorSpace, YuvFormat, LayoutRectAu};
 use api::{DeviceIntSideOffsets, WorldPixel, BoxShadowClipMode, NormalBorder, WorldRect, LayoutToWorldScale};
 use api::{PicturePixel, RasterPixel, ColorDepth, LineStyle, LineOrientation, LayoutSizeAu, AuHelpers};
 use app_units::Au;
@@ -22,7 +22,8 @@ use gpu_cache::{GpuBlockData, GpuCache, GpuCacheAddress, GpuCacheHandle, GpuData
 use gpu_types::BrushFlags;
 use image::{self, Repetition};
 use intern;
-use picture::{PictureCompositeMode, PicturePrimitive, PictureUpdateContext};
+use picture::{ClusterRange, PictureCompositeMode, PicturePrimitive, PictureUpdateContext};
+use picture::{PrimitiveList, SurfaceInfo};
 #[cfg(debug_assertions)]
 use render_backend::FrameId;
 use render_task::{BlitSource, RenderTask, RenderTaskCacheKey, to_cache_size};
@@ -298,11 +299,8 @@ impl GpuCacheAddress {
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveSceneData {
-    // TODO(gw): We will store the local clip rect of
-    //           the primitive here. This will allow
-    //           fast calculation of the tight local
-    //           bounding rect of a primitive during
-    //           picture traversal.
+    pub culling_rect: LayoutRect,
+    pub is_backface_visible: bool,
 }
 
 #[cfg_attr(feature = "capture", derive(Serialize))]
@@ -310,14 +308,20 @@ pub struct PrimitiveSceneData {
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct PrimitiveKey {
     pub is_backface_visible: bool,
+    pub prim_rect: LayoutRectAu,
+    pub clip_rect: LayoutRectAu,
 }
 
 impl PrimitiveKey {
     pub fn new(
         is_backface_visible: bool,
+        prim_rect: LayoutRect,
+        clip_rect: LayoutRect,
     ) -> Self {
         PrimitiveKey {
             is_backface_visible,
+            prim_rect: prim_rect.to_au(),
+            clip_rect: clip_rect.to_au(),
         }
     }
 }
@@ -326,12 +330,16 @@ impl PrimitiveKey {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct PrimitiveTemplate {
     pub is_backface_visible: bool,
+    pub prim_rect: LayoutRect,
+    pub clip_rect: LayoutRect,
 }
 
 impl From<PrimitiveKey> for PrimitiveTemplate {
     fn from(item: PrimitiveKey) -> Self {
         PrimitiveTemplate {
             is_backface_visible: item.is_backface_visible,
+            prim_rect: LayoutRect::from_au(item.prim_rect),
+            clip_rect: LayoutRect::from_au(item.clip_rect),
         }
     }
 }
@@ -1629,6 +1637,9 @@ pub struct PrimitiveInstance {
 
     /// ID of the spatial node that this primitive is positioned by.
     pub spatial_node_index: SpatialNodeIndex,
+
+    /// A range of clusters that this primitive instance belongs to.
+    pub cluster_range: ClusterRange,
 }
 
 impl PrimitiveInstance {
@@ -1652,6 +1663,7 @@ impl PrimitiveInstance {
             opacity: PrimitiveOpacity::translucent(),
             clip_chain_id,
             spatial_node_index,
+            cluster_range: ClusterRange::empty(),
         }
     }
 
@@ -1696,20 +1708,29 @@ impl PrimitiveStore {
         pic_index: PictureIndex,
         context: &PictureUpdateContext,
         frame_context: &FrameBuildingContext,
+        surfaces: &mut Vec<SurfaceInfo>,
     ) {
         if let Some((child_context, children)) = self.pictures[pic_index.0].pre_update(
             context,
             frame_context,
+            surfaces,
         ) {
             for child_pic_index in &children {
                 self.update_picture(
                     *child_pic_index,
                     &child_context,
                     frame_context,
+                    surfaces,
                 );
             }
 
-            self.pictures[pic_index.0].post_update(children);
+            self.pictures[pic_index.0].post_update(
+                context,
+                &child_context,
+                children,
+                surfaces,
+                frame_context,
+            );
         }
     }
 
@@ -1751,11 +1772,11 @@ impl PrimitiveStore {
 
         // We can only collapse opacity if there is a single primitive, otherwise
         // the opacity needs to be applied to the primitives as a group.
-        if pic.prim_instances.len() != 1 {
+        if pic.prim_list.prim_instances.len() != 1 {
             return None;
         }
 
-        let prim_instance = &pic.prim_instances[0];
+        let prim_instance = &pic.prim_list.prim_instances[0];
         let prim = &self.primitives[prim_instance.prim_index.0];
 
         // For now, we only support opacity collapse on solid rects and images.
@@ -1882,8 +1903,6 @@ impl PrimitiveStore {
 
                     match pic.take_context(
                         pic_index,
-                        prim_context,
-                        pic_context.local_spatial_node_index,
                         pic_context.surface_spatial_node_index,
                         pic_context.raster_spatial_node_index,
                         pic_context.allow_subpixel_aa,
@@ -1908,26 +1927,19 @@ impl PrimitiveStore {
         };
 
         let (is_passthrough, clip_node_collector) = match pic_info {
-            Some((pic_context_for_children, mut pic_state_for_children, mut prim_instances)) => {
+            Some((pic_context_for_children, mut pic_state_for_children, mut prim_list)) => {
                 // Mark whether this picture has a complex coordinate system.
                 let is_passthrough = pic_context_for_children.is_passthrough;
                 pic_state_for_children.has_non_root_coord_system |=
                     prim_context.spatial_node.coordinate_system_id != CoordinateSystemId::root();
 
                 self.prepare_primitives(
-                    &mut prim_instances,
+                    &mut prim_list,
                     &pic_context_for_children,
                     &mut pic_state_for_children,
                     frame_context,
                     frame_state,
                 );
-
-                let pic_rect = if is_passthrough {
-                    pic_state.rect = pic_state.rect.union(&pic_state_for_children.rect);
-                    None
-                } else {
-                    Some(pic_state_for_children.rect)
-                };
 
                 if !pic_state_for_children.is_cacheable {
                     pic_state.is_cacheable = false;
@@ -1937,10 +1949,9 @@ impl PrimitiveStore {
                 let (new_local_rect, clip_node_collector) = self
                     .pictures[pic_context_for_children.pic_index.0]
                     .restore_context(
-                        prim_instances,
+                        prim_list,
                         pic_context_for_children,
                         pic_state_for_children,
-                        pic_rect,
                         frame_state,
                     );
 
@@ -2040,12 +2051,6 @@ impl PrimitiveStore {
                 prim.local_clip_rect
             };
 
-            let pic_rect = match pic_state.map_local_to_pic
-                                          .map(&prim.local_rect) {
-                Some(pic_rect) => pic_rect,
-                None => return false,
-            };
-
             // Check if the clip bounding rect (in pic space) is visible on screen
             // This includes both the prim bounding rect + local prim clip rect!
             let world_rect = match pic_state
@@ -2084,8 +2089,6 @@ impl PrimitiveStore {
             if prim_instance.is_chased() {
                 println!("\tconsidered visible and ready with local rect {:?}", local_rect);
             }
-
-            pic_state.rect = pic_state.rect.union(&pic_rect);
         }
 
         prim_instance.prepare_prim_for_render_inner(
@@ -2106,7 +2109,7 @@ impl PrimitiveStore {
 
     pub fn prepare_primitives(
         &mut self,
-        prim_instances: &mut [PrimitiveInstance],
+        prim_list: &mut PrimitiveList,
         pic_context: &PictureContext,
         pic_state: &mut PictureState,
         frame_context: &FrameBuildingContext,
@@ -2118,7 +2121,7 @@ impl PrimitiveStore {
             .expect("No display list?")
             .display_list;
 
-        for (plane_split_anchor, prim_instance) in prim_instances.iter_mut().enumerate() {
+        for (plane_split_anchor, prim_instance) in prim_list.prim_instances.iter_mut().enumerate() {
             prim_instance.clipped_world_rect = None;
 
             if prim_instance.is_chased() {
@@ -2127,50 +2130,46 @@ impl PrimitiveStore {
                     prim_instance.id, pic_context.pipeline_id);
             }
 
-            // Do some basic checks first, that can early out
-            // without even knowing the local rect.
-            if !frame_state
-                .resources
-                .prim_data_store[prim_instance.prim_data_handle]
-                .is_backface_visible
-            {
-                pic_state.map_local_to_containing_block.set_target_spatial_node(
-                    prim_instance.spatial_node_index,
-                    frame_context.clip_scroll_tree,
-                );
+            // Run through the list of cluster(s) this primitive belongs
+            // to. As soon as we find one visible cluster that this
+            // primitive belongs to, then the primitive itself can be
+            // considered visible.
+            // TODO(gw): Initially, primitive clusters are only used
+            //           to group primitives by backface visibility and
+            //           whether a spatial node is invertible or not.
+            //           In the near future, clusters will also act as
+            //           a simple spatial hash for grouping.
+            // TODO(gw): For now, walk the primitive list and check if
+            //           it is visible in any clusters, as this is a
+            //           simple way to retain correct render order. In
+            //           the future, it might make sense to invert this
+            //           and have the cluster visibility pass produce
+            //           an index buffer / set of primitive instances
+            //           that we sort into render order.
+            let mut in_visible_cluster = false;
+            for ci in prim_instance.cluster_range.first .. prim_instance.cluster_range.last {
+                // Map from the cluster range index to a cluster index
+                let cluster_index = prim_list.prim_cluster_map[ci as usize];
 
-                match pic_state.map_local_to_containing_block.visible_face() {
-                    VisibleFace::Back => {
-                        if prim_instance.is_chased() {
-                            println!("\tculled for not having visible back faces, transform {:?}",
-                                pic_state.map_local_to_containing_block);
-                        }
-                        continue;
-                    }
-                    VisibleFace::Front => {
-                        if prim_instance.is_chased() {
-                            #[cfg(debug_assertions)]
-                            println!("\tprim {:?} is not culled for visible face {:?}, transform {:?}",
-                                prim_instance.id,
-                                pic_state.map_local_to_containing_block.visible_face(),
-                                pic_state.map_local_to_containing_block);
-                            #[cfg(debug_assertions)]
-                            println!("\tpicture context {:?}", pic_context);
-                        }
-                    }
+                // Get the cluster and see if is visible
+                let cluster = &prim_list.clusters[cluster_index.0 as usize];
+                in_visible_cluster |= cluster.is_visible;
+
+                // As soon as a primitive is in a visible cluster, it's considered
+                // visible and we don't need to consult other clusters.
+                if cluster.is_visible {
+                    break;
                 }
+            }
+
+            // If the primitive wasn't in any visible clusters, it can be skipped.
+            if !in_visible_cluster {
+                continue;
             }
 
             let spatial_node = &frame_context
                 .clip_scroll_tree
                 .spatial_nodes[prim_instance.spatial_node_index.0];
-
-            if !spatial_node.invertible {
-                if prim_instance.is_chased() {
-                    println!("\tculled for the scroll node transform being invertible");
-                }
-                continue;
-            }
 
             // TODO(gw): Although constructing these is cheap, they are often
             //           the same for many consecutive primitives, so it may
