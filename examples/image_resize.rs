@@ -26,7 +26,7 @@ impl Example for App {
         builder: &mut DisplayListBuilder,
         txn: &mut Transaction,
         _framebuffer_size: DeviceIntSize,
-        _pipeline_id: PipelineId,
+        pipeline_id: PipelineId,
         _document_id: DocumentId,
     ) {
         let (image_descriptor, image_data) = image_helper::make_checkerboard(32, 32);
@@ -39,9 +39,11 @@ impl Example for App {
 
         let bounds = (0, 0).to(512, 512);
         let info = LayoutPrimitiveInfo::new(bounds);
+        let space_and_clip = SpaceAndClipInfo::root_scroll(pipeline_id);
+
         builder.push_stacking_context(
             &info,
-            None,
+            &space_and_clip,
             TransformStyle::Flat,
             MixBlendMode::Normal,
             &[],
@@ -56,6 +58,7 @@ impl Example for App {
         );
         builder.push_image(
             &info,
+            &space_and_clip,
             image_size,
             LayoutSize::zero(),
             ImageRendering::Auto,
@@ -70,6 +73,7 @@ impl Example for App {
         );
         builder.push_image(
             &info,
+            &space_and_clip,
             image_size,
             LayoutSize::zero(),
             ImageRendering::Pixelated,

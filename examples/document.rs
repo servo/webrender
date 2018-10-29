@@ -90,7 +90,7 @@ impl Example for App {
         base_builder: &mut DisplayListBuilder,
         _txn: &mut Transaction,
         framebuffer_size: DeviceIntSize,
-        _: PipelineId,
+        _pipeline_id: PipelineId,
         _: DocumentId,
     ) {
         if self.documents.is_empty() {
@@ -102,6 +102,7 @@ impl Example for App {
         }
 
         for doc in &self.documents {
+            let space_and_clip = SpaceAndClipInfo::root_scroll(doc.pipeline_id);
             let mut builder = DisplayListBuilder::new(
                 doc.pipeline_id,
                 doc.content_rect.size,
@@ -113,7 +114,7 @@ impl Example for App {
 
             builder.push_stacking_context(
                 &LayoutPrimitiveInfo::new(doc.content_rect),
-                None,
+                &space_and_clip,
                 TransformStyle::Flat,
                 MixBlendMode::Normal,
                 &[],
@@ -121,6 +122,7 @@ impl Example for App {
             );
             builder.push_rect(
                 &LayoutPrimitiveInfo::new(local_rect),
+                &space_and_clip,
                 doc.color,
             );
             builder.pop_stacking_context();

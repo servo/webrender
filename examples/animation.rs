@@ -40,24 +40,29 @@ impl App {
         bounds: LayoutRect,
         color: ColorF,
         builder: &mut DisplayListBuilder,
+        pipeline_id: PipelineId,
         property_key: PropertyBindingKey<LayoutTransform>,
     ) {
         let filters = [
             FilterOp::Opacity(PropertyBinding::Binding(self.opacity_key, self.opacity), self.opacity),
         ];
 
-        let reference_frame_id = builder.push_reference_frame(
+        let spatial_id = builder.push_reference_frame(
             &LayoutRect::new(bounds.origin, LayoutSize::zero()),
+            SpatialId::root_scroll_node(pipeline_id),
             TransformStyle::Flat,
             Some(PropertyBinding::Binding(property_key, LayoutTransform::identity())),
             None,
         );
 
-        builder.push_clip_id(reference_frame_id);
+        let space_and_clip = SpaceAndClipInfo {
+            spatial_id,
+            clip_id: ClipId::root(pipeline_id),
+        };
 
         builder.push_stacking_context(
             &LayoutPrimitiveInfo::new(LayoutRect::zero()),
-            None,
+            &space_and_clip,
             TransformStyle::Flat,
             MixBlendMode::Normal,
             &filters,
@@ -70,20 +75,19 @@ impl App {
             radii: BorderRadius::uniform(30.0),
             mode: ClipMode::Clip,
         };
-        let clip_id = builder.define_clip(clip_bounds, vec![complex_clip], None);
-        builder.push_clip_id(clip_id);
+        let clip_id = builder.define_clip(&space_and_clip, clip_bounds, vec![complex_clip], None);
 
         // Fill it with a white rect
         builder.push_rect(
             &LayoutPrimitiveInfo::new(LayoutRect::new(LayoutPoint::zero(), bounds.size)),
+            &SpaceAndClipInfo {
+                spatial_id,
+                clip_id,
+            },
             color,
         );
 
-        builder.pop_clip_id();
-
         builder.pop_stacking_context();
-
-        builder.pop_clip_id();
         builder.pop_reference_frame();
     }
 }
@@ -98,20 +102,20 @@ impl Example for App {
         builder: &mut DisplayListBuilder,
         _txn: &mut Transaction,
         _framebuffer_size: DeviceIntSize,
-        _pipeline_id: PipelineId,
+        pipeline_id: PipelineId,
         _document_id: DocumentId,
     ) {
         let bounds = (150, 150).to(250, 250);
         let key0 = self.property_key0;
-        self.add_rounded_rect(bounds, ColorF::new(1.0, 0.0, 0.0, 0.5), builder, key0);
+        self.add_rounded_rect(bounds, ColorF::new(1.0, 0.0, 0.0, 0.5), builder, pipeline_id, key0);
 
         let bounds = (400, 400).to(600, 600);
         let key1 = self.property_key1;
-        self.add_rounded_rect(bounds, ColorF::new(0.0, 1.0, 0.0, 0.5), builder, key1);
+        self.add_rounded_rect(bounds, ColorF::new(0.0, 1.0, 0.0, 0.5), builder, pipeline_id, key1);
 
         let bounds = (200, 500).to(350, 580);
         let key2 = self.property_key2;
-        self.add_rounded_rect(bounds, ColorF::new(0.0, 0.0, 1.0, 0.5), builder, key2);
+        self.add_rounded_rect(bounds, ColorF::new(0.0, 0.0, 1.0, 0.5), builder, pipeline_id, key2);
     }
 
     fn on_event(&mut self, win_event: winit::WindowEvent, api: &RenderApi, document_id: DocumentId) -> bool {

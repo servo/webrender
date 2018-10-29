@@ -26,15 +26,16 @@ impl Example for App {
         builder: &mut DisplayListBuilder,
         _txn: &mut Transaction,
         _framebuffer_size: DeviceIntSize,
-        _pipeline_id: PipelineId,
+        pipeline_id: PipelineId,
         _document_id: DocumentId,
     ) {
         let bounds = (0, 0).to(1920, 1080);
         let info = LayoutPrimitiveInfo::new(bounds);
+        let space_and_clip = SpaceAndClipInfo::root_scroll(pipeline_id);
 
         builder.push_stacking_context(
             &info,
-            None,
+            &space_and_clip,
             TransformStyle::Flat,
             MixBlendMode::Normal,
             &[],
@@ -42,7 +43,7 @@ impl Example for App {
         );
 
         for _ in 0 .. self.rect_count {
-            builder.push_rect(&info, ColorF::new(1.0, 1.0, 1.0, 0.05));
+            builder.push_rect(&info, &space_and_clip, ColorF::new(1.0, 1.0, 1.0, 0.05));
         }
 
         builder.pop_stacking_context();
