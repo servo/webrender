@@ -22,27 +22,23 @@ pub const MAX_BLUR_RADIUS: f32 = 300.;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct ClipAndScrollInfo {
-    pub scroll_node_id: ClipId,
+    pub scroll_node_id: SpatialId,
     pub clip_node_id: Option<ClipId>,
 }
 
 impl ClipAndScrollInfo {
-    pub fn simple(node_id: ClipId) -> ClipAndScrollInfo {
+    pub fn simple(scroll_node_id: SpatialId) -> Self {
         ClipAndScrollInfo {
-            scroll_node_id: node_id,
+            scroll_node_id,
             clip_node_id: None,
         }
     }
 
-    pub fn new(scroll_node_id: ClipId, clip_node_id: ClipId) -> ClipAndScrollInfo {
+    pub fn new(scroll_node_id: SpatialId, clip_node_id: ClipId) -> Self {
         ClipAndScrollInfo {
             scroll_node_id,
             clip_node_id: Some(clip_node_id),
         }
-    }
-
-    pub fn clip_node_id(&self) -> ClipId {
-        self.clip_node_id.unwrap_or(self.scroll_node_id)
     }
 }
 
@@ -181,7 +177,7 @@ impl StickyOffsetBounds {
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct StickyFrameDisplayItem {
-    pub id: ClipId,
+    pub id: SpatialId,
 
     /// The margins that should be maintained between the edge of the parent viewport and this
     /// sticky frame. A margin of None indicates that the sticky frame should not stick at all
@@ -217,7 +213,7 @@ pub enum ScrollSensitivity {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ScrollFrameDisplayItem {
     pub clip_id: ClipId,
-    pub scroll_frame_id: ClipId,
+    pub scroll_frame_id: SpatialId,
     pub external_id: Option<ExternalScrollId>,
     pub image_mask: Option<ImageMask>,
     pub scroll_sensitivity: ScrollSensitivity,
@@ -522,7 +518,7 @@ pub struct PushReferenceFrameDisplayListItem {
 pub struct ReferenceFrame {
     pub transform: Option<PropertyBinding<LayoutTransform>>,
     pub perspective: Option<LayoutTransform>,
-    pub id: ClipId,
+    pub id: SpatialId,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -869,45 +865,52 @@ impl ComplexClipRegion {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct ClipChainId(pub u64, pub PipelineId);
 
+/// A reference to a clipping node defining how an item is clipped.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ClipId {
-    Spatial(usize, PipelineId),
     Clip(usize, PipelineId),
     ClipChain(ClipChainId),
 }
 
-const ROOT_REFERENCE_FRAME_CLIP_ID: usize = 0;
-const ROOT_SCROLL_NODE_CLIP_ID: usize = 1;
-
 impl ClipId {
-    pub fn root_scroll_node(pipeline_id: PipelineId) -> ClipId {
-        ClipId::Spatial(ROOT_SCROLL_NODE_CLIP_ID, pipeline_id)
-    }
-
-    pub fn root_reference_frame(pipeline_id: PipelineId) -> ClipId {
-        ClipId::Spatial(ROOT_REFERENCE_FRAME_CLIP_ID, pipeline_id)
-    }
-
     pub fn pipeline_id(&self) -> PipelineId {
         match *self {
-            ClipId::Spatial(_, pipeline_id) |
             ClipId::Clip(_, pipeline_id) |
             ClipId::ClipChain(ClipChainId(_, pipeline_id)) => pipeline_id,
         }
     }
+}
+
+/// A reference to a spatial node defining item positioning.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub struct SpatialId(usize, PipelineId);
+
+const ROOT_REFERENCE_FRAME_CLIP_ID: usize = 0;
+const ROOT_SCROLL_NODE_CLIP_ID: usize = 1;
+
+impl SpatialId {
+    pub fn new(spatial_node_index: usize, pipeline_id: PipelineId) -> Self {
+        SpatialId(spatial_node_index, pipeline_id)
+    }
+
+    pub fn root_scroll_node(pipeline_id: PipelineId) -> Self {
+        SpatialId(ROOT_SCROLL_NODE_CLIP_ID, pipeline_id)
+    }
+
+    pub fn root_reference_frame(pipeline_id: PipelineId) -> Self {
+        SpatialId(ROOT_REFERENCE_FRAME_CLIP_ID, pipeline_id)
+    }
+
+    pub fn pipeline_id(&self) -> PipelineId {
+        self.1
+    }
 
     pub fn is_root_scroll_node(&self) -> bool {
-        match *self {
-            ClipId::Spatial(ROOT_SCROLL_NODE_CLIP_ID, _) => true,
-            _ => false,
-        }
+        self.0 == ROOT_SCROLL_NODE_CLIP_ID
     }
 
     pub fn is_root_reference_frame(&self) -> bool {
-        match *self {
-            ClipId::Spatial(ROOT_REFERENCE_FRAME_CLIP_ID, _) => true,
-            _ => false,
-        }
+        self.0 == ROOT_REFERENCE_FRAME_CLIP_ID
     }
 }
 
