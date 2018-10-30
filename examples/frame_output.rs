@@ -117,7 +117,7 @@ impl App {
             None,
             TransformStyle::Flat,
             MixBlendMode::Normal,
-            Vec::new(),
+            &[],
             RasterSpace::Screen,
         );
 
@@ -160,7 +160,7 @@ impl Example for App {
             None,
             TransformStyle::Flat,
             MixBlendMode::Normal,
-            Vec::new(),
+            &[],
             RasterSpace::Screen,
         );
 

@@ -193,7 +193,7 @@ impl Window {
             None,
             TransformStyle::Flat,
             MixBlendMode::Normal,
-            Vec::new(),
+            &[],
             RasterSpace::Screen,
         );
 

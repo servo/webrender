@@ -42,7 +42,7 @@ impl Example for App {
             None,
             TransformStyle::Flat,
             MixBlendMode::Normal,
-            Vec::new(),
+            &[],
             RasterSpace::Screen,
         );
 
@@ -75,7 +75,7 @@ impl Example for App {
             None,
             TransformStyle::Flat,
             MixBlendMode::Normal,
-            Vec::new(),
+            &[],
             RasterSpace::Screen,
         );
         // red rect under the iframe: if this is visible, things have gone wrong

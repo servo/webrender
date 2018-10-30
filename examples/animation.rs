@@ -43,7 +43,7 @@ impl Example for App {
         // Create a 200x200 stacking context with an animated transform property.
         let bounds = (0, 0).to(200, 200);
 
-        let filters = vec![
+        let filters = [
             FilterOp::Opacity(PropertyBinding::Binding(self.opacity_key, self.opacity), self.opacity),
         ];
 
@@ -62,7 +62,7 @@ impl Example for App {
             None,
             TransformStyle::Flat,
             MixBlendMode::Normal,
-            filters,
+            &filters,
             RasterSpace::Screen,
         );
 
