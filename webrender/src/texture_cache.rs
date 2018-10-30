@@ -5,7 +5,7 @@
 use api::{DeviceUintPoint, DeviceUintRect, DeviceUintSize};
 use api::{ExternalImageType, ImageData, ImageFormat};
 use api::ImageDescriptor;
-use device::TextureFilter;
+use device::{TextureFilter, total_gpu_bytes_allocated};
 use freelist::{FreeList, FreeListHandle, UpsertResult, WeakFreeListHandle};
 use gpu_cache::{GpuCache, GpuCacheHandle};
 use gpu_types::{ImageSource, UvRectKind};
@@ -146,12 +146,21 @@ impl CacheEntry {
 /// request() below).
 pub type TextureCacheHandle = WeakFreeListHandle<CacheEntryMarker>;
 
+/// Describes the eviction policy for a given entry in the texture cache.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum Eviction {
+    /// The entry will be evicted under the normal rules (which differ between
+    /// standalone and shared entries).
     Auto,
+    /// The entry will not be evicted until the policy is explicitly set to a
+    /// different value.
     Manual,
+    /// The entry will be evicted if it was not used in the last frame.
+    ///
+    /// FIXME(bholley): Currently this only applies to the standalone case.
+    Eager,
 }
 
 // An eviction notice is a shared condition useful for detecting
@@ -559,46 +568,63 @@ impl TextureCache {
         }
     }
 
-    // Expire old standalone textures.
+    /// Expires old standalone textures. Called at the end of every frame.
+    ///
+    /// Most of the time, standalone cache entries correspond to images whose
+    /// width or height is greater than the region size in the shared cache, i.e.
+    /// 512 pixels. Cached render tasks also frequently get standalone entries,
+    /// but those use the Eviction::Eager policy (for now). So the tradeoff here
+    /// is largely around reducing texture upload jank while keeping memory usage
+    /// at an acceptable level.
+    ///
+    /// Our eviction scheme is based on the age of the entry, i.e. the difference
+    /// between the current frame index and that of the last frame in
+    /// which the entry was used. It does not directly consider the size of the
+    /// entry, but does consider overall memory usage by WebRender, by making
+    /// eviction increasingly aggressive as overall memory usage increases.
     fn expire_old_standalone_entries(&mut self) {
-        let mut eviction_candidates = Vec::new();
-        let mut retained_entries = Vec::new();
+        // These parameters are based on some discussion and local tuning, but
+        // no hard measurement. There may be room for improvement.
+        //
+        // See discussion at https://mozilla.logbot.info/gfx/20181030#c15541654
+        const MAX_FRAME_AGE_WITHOUT_PRESSURE: f64 = 75.0;
+        const MAX_MEMORY_PRESSURE_BYTES: f64 = (500 * 1024 * 1024) as f64;
 
-        // Build a list of eviction candidates (which are
-        // anything not used this frame).
-        for handle in self.standalone_entry_handles.drain(..) {
-            let entry = self.entries.get(&handle);
-            if entry.eviction == Eviction::Manual || entry.last_access == self.frame_id {
-                retained_entries.push(handle);
-            } else {
-                eviction_candidates.push(handle);
+        // Compute the memory pressure factor in the range of [0, 1.0].
+        let pressure_factor =
+            (total_gpu_bytes_allocated() as f64 / MAX_MEMORY_PRESSURE_BYTES as f64).min(1.0);
+
+        // Use the pressure factor to compute the maximum number of frames that
+        // a standalone texture can go unused before being evicted.
+        let max_frame_age_raw =
+            ((1.0 - pressure_factor) * MAX_FRAME_AGE_WITHOUT_PRESSURE) as usize;
+
+        // We clamp max_frame_age to frame_id - 1 so that entries with FrameId(0)
+        // always get evicted, even early in the lifetime of the Renderer.
+        let max_frame_age = max_frame_age_raw.min(self.frame_id.as_usize() - 1);
+
+        // Compute the oldest FrameId for which we will not evict.
+        let frame_id_threshold = self.frame_id - max_frame_age;
+
+        // Iterate over the entries in reverse order, evicting the ones older than
+        // the frame age threshold. Reverse order avoids iterator invalidation when
+        // removing entries.
+        for i in (0..self.standalone_entry_handles.len()).rev() {
+            let evict = {
+                let entry = self.entries.get(&self.standalone_entry_handles[i]);
+                match entry.eviction {
+                    Eviction::Manual => false,
+                    Eviction::Auto => entry.last_access < frame_id_threshold,
+                    Eviction::Eager => entry.last_access < self.frame_id,
+                }
+            };
+            if evict {
+                let handle = self.standalone_entry_handles.swap_remove(i);
+                let entry = self.entries.free(handle);
+                entry.evict();
+                self.free(entry);
             }
         }
-
-        // Sort by access time so we remove the oldest ones first.
-        eviction_candidates.sort_by_key(|handle| {
-            let entry = self.entries.get(handle);
-            entry.last_access
-        });
-
-        // We only allow an arbitrary number of unused
-        // standalone textures to remain in GPU memory.
-        // TODO(gw): We should make this a better heuristic,
-        //           for example based on total memory size.
-        if eviction_candidates.len() > 32 {
-            let entries_to_keep = eviction_candidates.split_off(32);
-            retained_entries.extend(entries_to_keep);
-        }
-
-        // Free the selected items
-        for handle in eviction_candidates {
-            let entry = self.entries.free(handle);
-            entry.evict();
-            self.free(entry);
-        }
-
-        // Keep a record of the remaining handles for next frame.
-        self.standalone_entry_handles = retained_entries;
     }
 
     // Expire old shared items. Pass in the allocation size
