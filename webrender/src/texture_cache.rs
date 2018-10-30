@@ -792,7 +792,7 @@ impl TextureCache {
             filter,
             &descriptor,
         );
-        let mut allocated_in_shared_cache = true;
+        let mut allocated_standalone = false;
         let mut new_cache_entry = None;
         let frame_id = self.frame_id;
 
@@ -851,7 +851,7 @@ impl TextureCache {
                 uv_rect_kind,
             ));
 
-            allocated_in_shared_cache = false;
+            allocated_standalone = true;
         }
         let new_cache_entry = new_cache_entry.expect("BUG: must have allocated by now");
 
@@ -866,18 +866,26 @@ impl TextureCache {
         // This is managed with a database style upsert operation.
         match self.entries.upsert(handle, new_cache_entry) {
             UpsertResult::Updated(old_entry) => {
-                assert_eq!(allocated_in_shared_cache, !old_entry.kind.is_standalone(),
-                           "We currently have a bug in this edge case, since we don't \
-                            move strong handles from one list to the other. This gets \
-                            fixed in the next patch.");
+                if allocated_standalone != old_entry.kind.is_standalone() {
+                    // Handle the rare case than an update moves an entry from
+                    // shared to standalone or vice versa. This involves a linear
+                    // search, but should be rare enough not to matter.
+                    let (from, to) = if allocated_standalone {
+                        (&mut self.shared_entry_handles, &mut self.standalone_entry_handles)
+                    } else {
+                        (&mut self.standalone_entry_handles, &mut self.shared_entry_handles)
+                    };
+                    let idx = from.iter().position(|h| h.weak() == *handle).unwrap();
+                    to.push(from.remove(idx));
+                }
                 self.free(old_entry);
             }
             UpsertResult::Inserted(new_handle) => {
                 *handle = new_handle.weak();
-                if allocated_in_shared_cache {
-                    self.shared_entry_handles.push(new_handle);
-                } else {
+                if allocated_standalone {
                     self.standalone_entry_handles.push(new_handle);
+                } else {
+                    self.shared_entry_handles.push(new_handle);
                 }
             }
         }
