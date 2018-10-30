@@ -170,7 +170,7 @@ impl<'a> RawtestHarness<'a> {
 
         let image_size = size(1510., 111256.);
 
-        let clip_id = builder.define_clip(rect(40., 41., 200., 201.), vec![], None);
+        let clip_id = builder.define_clip(ClipParent::Inherit, rect(40., 41., 200., 201.), vec![], None);
 
         builder.push_clip_id(clip_id);
         // setup some malicious image size parameters
@@ -242,7 +242,7 @@ impl<'a> RawtestHarness<'a> {
     }
 
     fn test_insufficient_blob_visible_area(&mut self) {
-        println!("\tinsufficient blob visible area.");
+        println!("\tinsufficient blob visible area...");
 
         // This test compares two almost identical display lists containing the a blob
         // image. The only difference is that one of the display lists specifies a visible
@@ -779,6 +779,7 @@ impl<'a> RawtestHarness<'a> {
             let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
 
             let clip = builder.define_clip(
+                ClipParent::Inherit,
                 rect(110., 120., 200., 200.),
                 None::<ComplexClipRegion>,
                 None
@@ -790,6 +791,7 @@ impl<'a> RawtestHarness<'a> {
             if should_try_and_fail {
                 builder.save();
                 let clip = builder.define_clip(
+                    ClipParent::Inherit,
                     rect(80., 80., 90., 90.),
                     None::<ComplexClipRegion>,
                     None
@@ -812,6 +814,7 @@ impl<'a> RawtestHarness<'a> {
             {
                 builder.save();
                 let clip = builder.define_clip(
+                    ClipParent::Inherit,
                     rect(80., 80., 100., 100.),
                     None::<ComplexClipRegion>,
                     None
@@ -1028,7 +1031,12 @@ impl<'a> RawtestHarness<'a> {
 
         // Add a rectangle that is clipped by a rounded rect clip item.
         let rect = LayoutRect::new(LayoutPoint::new(100., 100.), LayoutSize::new(100., 100.));
-        let clip_id = builder.define_clip(rect, vec![make_rounded_complex_clip(&rect, 20.)], None);
+        let clip_id = builder.define_clip(
+            ClipParent::Inherit,
+            rect,
+            vec![make_rounded_complex_clip(&rect, 20.)],
+            None,
+        );
         builder.push_clip_id(clip_id);
         let mut info = LayoutPrimitiveInfo::new(rect);
         info.tag = Some((0, 4));
@@ -1038,12 +1046,14 @@ impl<'a> RawtestHarness<'a> {
 
         // Add a rectangle that is clipped by a ClipChain containing a rounded rect.
         let rect = LayoutRect::new(LayoutPoint::new(200., 100.), LayoutSize::new(100., 100.));
-        let clip_id = builder.define_clip(rect, vec![make_rounded_complex_clip(&rect, 20.)], None);
+        let clip_id = builder.define_clip(
+            ClipParent::Inherit,
+            rect,
+            vec![make_rounded_complex_clip(&rect, 20.)],
+            None,
+        );
         let clip_chain_id = builder.define_clip_chain(None, vec![clip_id]);
-        builder.push_clip_and_scroll_info(ClipAndScrollInfo::new(
-            ClipId::root_scroll_node(self.wrench.root_pipeline_id),
-            ClipId::ClipChain(clip_chain_id),
-        ));
+        builder.push_clip_id(ClipId::ClipChain(clip_chain_id));
         let mut info = LayoutPrimitiveInfo::new(rect);
         info.tag = Some((0, 5));
         builder.push_rect(&info, ColorF::new(1.0, 1.0, 1.0, 1.0));

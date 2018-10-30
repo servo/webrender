@@ -73,15 +73,6 @@ impl NodeIdToIndexMapper {
         debug_assert!(_old_value.is_none());
     }
 
-    pub fn map_to_parent_clip_chain(
-        &mut self,
-        id: ClipId,
-        parent_id: &ClipId,
-    ) {
-        let parent_node = self.clip_node_map[parent_id];
-        self.add_clip_chain(id, parent_node.id, parent_node.count);
-    }
-
     pub fn map_spatial_node(&mut self, id: SpatialId, index: SpatialNodeIndex) {
         let _old_value = self.spatial_node_map.insert(id, index);
         debug_assert!(_old_value.is_none());
@@ -342,8 +333,6 @@ impl<'a> DisplayListFlattener<'a> {
             info.id.pipeline_id(),
         );
         self.id_to_index_mapper.map_spatial_node(info.id, index);
-        //TODO: remove
-        //self.id_to_index_mapper.map_to_parent_clip_chain(info.id, parent_id);
     }
 
     fn flatten_scroll_frame(
@@ -1306,12 +1295,6 @@ impl<'a> DisplayListFlattener<'a> {
         );
         self.id_to_index_mapper.map_spatial_node(reference_frame_id, index);
 
-        /*//TODO: remove
-        match parent_id {
-            Some(ref parent_id) =>
-                self.id_to_index_mapper.map_to_parent_clip_chain(reference_frame_id, parent_id),
-            None => self.id_to_index_mapper.add_clip_chain(reference_frame_id, ClipChainId::NONE, 0),
-        }*/
         index
     }
 
@@ -1465,8 +1448,6 @@ impl<'a> DisplayListFlattener<'a> {
             scroll_sensitivity,
         );
         self.id_to_index_mapper.map_spatial_node(new_node_id, node_index);
-        //TODO: remove
-        //self.id_to_index_mapper.map_to_parent_clip_chain(new_node_id, &parent_id);
         node_index
     }
 

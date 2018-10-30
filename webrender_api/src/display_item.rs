@@ -872,11 +872,24 @@ pub enum ClipId {
     ClipChain(ClipChainId),
 }
 
+const ROOT_CLIP_ID: usize = 0;
+
 impl ClipId {
+    pub fn root(pipeline_id: PipelineId) -> Self {
+        ClipId::Clip(ROOT_CLIP_ID, pipeline_id)
+    }
+
     pub fn pipeline_id(&self) -> PipelineId {
         match *self {
             ClipId::Clip(_, pipeline_id) |
             ClipId::ClipChain(ClipChainId(_, pipeline_id)) => pipeline_id,
+        }
+    }
+
+    pub fn is_root(&self) -> bool {
+        match *self {
+            ClipId::Clip(id, _) => id == ROOT_CLIP_ID,
+            ClipId::ClipChain(_) => false,
         }
     }
 }
@@ -885,32 +898,32 @@ impl ClipId {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct SpatialId(usize, PipelineId);
 
-const ROOT_REFERENCE_FRAME_CLIP_ID: usize = 0;
-const ROOT_SCROLL_NODE_CLIP_ID: usize = 1;
+const ROOT_REFERENCE_FRAME_SPATIAL_ID: usize = 0;
+const ROOT_SCROLL_NODE_SPATIAL_ID: usize = 1;
 
 impl SpatialId {
     pub fn new(spatial_node_index: usize, pipeline_id: PipelineId) -> Self {
         SpatialId(spatial_node_index, pipeline_id)
     }
 
-    pub fn root_scroll_node(pipeline_id: PipelineId) -> Self {
-        SpatialId(ROOT_SCROLL_NODE_CLIP_ID, pipeline_id)
+    pub fn root_reference_frame(pipeline_id: PipelineId) -> Self {
+        SpatialId(ROOT_REFERENCE_FRAME_SPATIAL_ID, pipeline_id)
     }
 
-    pub fn root_reference_frame(pipeline_id: PipelineId) -> Self {
-        SpatialId(ROOT_REFERENCE_FRAME_CLIP_ID, pipeline_id)
+    pub fn root_scroll_node(pipeline_id: PipelineId) -> Self {
+        SpatialId(ROOT_SCROLL_NODE_SPATIAL_ID, pipeline_id)
     }
 
     pub fn pipeline_id(&self) -> PipelineId {
         self.1
     }
 
-    pub fn is_root_scroll_node(&self) -> bool {
-        self.0 == ROOT_SCROLL_NODE_CLIP_ID
+    pub fn is_root_reference_frame(&self) -> bool {
+        self.0 == ROOT_REFERENCE_FRAME_SPATIAL_ID
     }
 
-    pub fn is_root_reference_frame(&self) -> bool {
-        self.0 == ROOT_REFERENCE_FRAME_CLIP_ID
+    pub fn is_root_scroll_node(&self) -> bool {
+        self.0 == ROOT_SCROLL_NODE_SPATIAL_ID
     }
 }
 
