@@ -221,7 +221,7 @@ impl Example for App {
             None,
             api::TransformStyle::Flat,
             api::MixBlendMode::Normal,
-            Vec::new(),
+            &[],
             api::RasterSpace::Screen,
         );
 
