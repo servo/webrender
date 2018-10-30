@@ -12,8 +12,8 @@ use gpu_cache::GpuCache;
 use gpu_types::{PrimitiveHeaders, TransformPalette, UvRectKind, ZBufferIdGenerator};
 use hit_test::{HitTester, HitTestingRun};
 use internal_types::{FastHashMap, PlaneSplitter};
-use picture::{PictureSurface, PictureUpdateContext, SurfaceInfo, SurfaceIndex};
-use prim_store::{PrimitiveStore, SpaceMapper, PictureIndex, PrimitiveId};
+use picture::{PictureSurface, PictureUpdateContext, SurfaceInfo, ROOT_SURFACE_INDEX};
+use prim_store::{PrimitiveStore, SpaceMapper, PictureIndex, PrimitiveDebugId};
 use profiler::{FrameProfileCounters, GpuCacheProfileCounters, TextureCacheProfileCounters};
 use render_backend::{FrameResources, FrameId};
 use render_task::{RenderTask, RenderTaskId, RenderTaskLocation, RenderTaskTree};
@@ -32,7 +32,7 @@ use tiling::{SpecialRenderPasses};
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub enum ChasePrimitive {
     Nothing,
-    Id(PrimitiveId),
+    Id(PrimitiveDebugId),
     LocalRect(LayoutRect),
 }
 
@@ -229,7 +229,7 @@ impl FrameBuilder {
         surfaces.push(root_surface);
 
         let pic_update_context = PictureUpdateContext::new(
-            SurfaceIndex::root(),
+            ROOT_SURFACE_INDEX,
             ROOT_SPATIAL_NODE_INDEX,
         );
 

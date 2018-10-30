@@ -46,12 +46,12 @@ static NEXT_PRIM_ID: AtomicUsize = AtomicUsize::new(0);
 static PRIM_CHASE_ID: AtomicUsize = AtomicUsize::new(usize::MAX);
 
 #[cfg(debug_assertions)]
-pub fn register_prim_chase_id(id: PrimitiveId) {
+pub fn register_prim_chase_id(id: PrimitiveDebugId) {
     PRIM_CHASE_ID.store(id.0, Ordering::SeqCst);
 }
 
 #[cfg(not(debug_assertions))]
-pub fn register_prim_chase_id(_: PrimitiveId) {
+pub fn register_prim_chase_id(_: PrimitiveDebugId) {
 }
 
 const MIN_BRUSH_SPLIT_AREA: f32 = 256.0 * 256.0;
@@ -1561,7 +1561,7 @@ pub struct Primitive {
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct PrimitiveId(pub usize);
+pub struct PrimitiveDebugId(pub usize);
 
 #[derive(Clone, Debug)]
 pub enum PrimitiveInstanceKind {
@@ -1589,7 +1589,7 @@ pub struct PrimitiveInstance {
     pub combined_local_clip_rect: LayoutRect,
 
     #[cfg(debug_assertions)]
-    pub id: PrimitiveId,
+    pub id: PrimitiveDebugId,
 
     /// The last frame ID (of the `RenderTaskTree`) this primitive
     /// was prepared for rendering in.
@@ -1640,13 +1640,13 @@ impl PrimitiveInstance {
             #[cfg(debug_assertions)]
             prepared_frame_id: FrameId(0),
             #[cfg(debug_assertions)]
-            id: PrimitiveId(NEXT_PRIM_ID.fetch_add(1, Ordering::Relaxed)),
+            id: PrimitiveDebugId(NEXT_PRIM_ID.fetch_add(1, Ordering::Relaxed)),
             clip_task_id: None,
             gpu_location: GpuCacheHandle::new(),
             opacity: PrimitiveOpacity::translucent(),
             clip_chain_id,
             spatial_node_index,
-            cluster_range: ClusterRange::empty(),
+            cluster_range: ClusterRange { start: 0, end: 0 },
         }
     }
 
@@ -2180,7 +2180,7 @@ impl PrimitiveStore {
             //           an index buffer / set of primitive instances
             //           that we sort into render order.
             let mut in_visible_cluster = false;
-            for ci in prim_instance.cluster_range.first .. prim_instance.cluster_range.last {
+            for ci in prim_instance.cluster_range.start .. prim_instance.cluster_range.end {
                 // Map from the cluster range index to a cluster index
                 let cluster_index = prim_list.prim_cluster_map[ci as usize];
 

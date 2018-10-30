@@ -21,7 +21,7 @@ use render_task::{ClearMode, RenderTask, RenderTaskCacheEntryHandle};
 use render_task::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId, RenderTaskLocation};
 use scene::{FilterOpHelpers, SceneProperties};
 use smallvec::SmallVec;
-use std::mem;
+use std::{mem, ops};
 use tiling::RenderTargetKind;
 use util::{TransformedRectKind, MatrixHelpers, MaxRect};
 
@@ -61,13 +61,9 @@ impl PictureUpdateContext {
 #[derive(Debug, Copy, Clone)]
 pub struct SurfaceIndex(pub usize);
 
-impl SurfaceIndex {
-    pub fn root() -> Self {
-        SurfaceIndex(0)
-    }
-}
+pub const ROOT_SURFACE_INDEX: SurfaceIndex = SurfaceIndex(0);
 
-/// Information about an offscreen surface that. For now,
+/// Information about an offscreen surface. For now,
 /// it contains information about the size and coordinate
 /// system of the surface. In the future, it will contain
 /// information about the contents of the surface, which
@@ -269,49 +265,35 @@ pub struct OrderedPictureChild {
     pub gpu_address: GpuCacheAddress,
 }
 
-/// Defines the grouping key for a cluster of
-/// primitives in a picture. In future this
-/// will also contain spatial grouping details.
+/// Defines the grouping key for a cluster of primitives in a picture.
+/// In future this will also contain spatial grouping details.
 #[derive(Hash, Eq, PartialEq, Copy, Clone)]
 struct PrimitiveClusterKey {
-    /// Grouping primitives by spatial node
-    /// ensures that we can calculate a local
-    /// bounding volume for the cluster, and
-    /// then transform that by the spatial
-    /// node transform once to get an updated
-    /// bounding volume for the entire cluster.
+    /// Grouping primitives by spatial node ensures that we can calculate a local
+    /// bounding volume for the cluster, and then transform that by the spatial
+    /// node transform once to get an updated bounding volume for the entire cluster.
     spatial_node_index: SpatialNodeIndex,
-    /// We want to separate clusters that have
-    /// different backface visibility properties
-    /// so that we can accept / reject an entire
-    /// cluster at once if the backface is not
+    /// We want to separate clusters that have different backface visibility properties
+    /// so that we can accept / reject an entire cluster at once if the backface is not
     /// visible.
     is_backface_visible: bool,
 }
 
-/// Descriptor for a cluster of primitives. For now,
-/// this is quite basic but will be extended to
-/// handle more spatial clustering of primitives.
+/// Descriptor for a cluster of primitives. For now, this is quite basic but will be
+/// extended to handle more spatial clustering of primitives.
 pub struct PrimitiveCluster {
     /// The positioning node for this cluster.
     spatial_node_index: SpatialNodeIndex,
-    /// Whether this cluster is visible when
-    /// the position node is a backface.
+    /// Whether this cluster is visible when the position node is a backface.
     is_backface_visible: bool,
-    /// The bounding rect of the cluster, in
-    /// the local space of the spatial node. This
-    /// is used to quickly determine the overall
-    /// bounding rect for a picture during the
-    /// first picture traversal, which is needed
-    /// for local scale determination, and render
-    /// task size calculations.
+    /// The bounding rect of the cluster, in the local space of the spatial node.
+    /// This is used to quickly determine the overall bounding rect for a picture
+    /// during the first picture traversal, which is needed for local scale
+    /// determination, and render task size calculations.
     bounding_rect: LayoutRect,
-    /// This flag is set during the first pass
-    /// picture traversal, depending on whether
-    /// the cluster is visible or not. It's read
-    /// during the second pass when primitives
-    /// consult their owning clusters to see if
-    /// the primitive itself is visible.
+    /// This flag is set during the first pass picture traversal, depending on whether
+    /// the cluster is visible or not. It's read during the second pass when primitives
+    /// consult their owning clusters to see if the primitive itself is visible.
     pub is_visible: bool,
 }
 
@@ -332,20 +314,7 @@ impl PrimitiveCluster {
 #[derive(Debug, Copy, Clone)]
 pub struct PrimitiveClusterIndex(pub u32);
 
-#[derive(Debug, Clone)]
-pub struct ClusterRange {
-    pub first: u32,
-    pub last: u32,
-}
-
-impl ClusterRange {
-    pub fn empty() -> Self {
-        ClusterRange {
-            first: 0,
-            last: 0,
-        }
-    }
-}
+pub type ClusterRange = ops::Range<u32>;
 
 /// A list of primitive instances that are added to a picture
 /// This ensures we can keep a list of primitives that
@@ -441,10 +410,10 @@ impl PrimitiveList {
             // However, in the future the clusters will include spatial information. It
             // will often be the case that a primitive may overlap more than one cluster,
             // and belong to several.
-            let first = prim_cluster_map.len() as u32;
+            let start = prim_cluster_map.len() as u32;
             let cluster_range = ClusterRange {
-                first,
-                last: first + 1,
+                start,
+                end: start + 1,
             };
 
             // Store the cluster index in the map, and the range in the instance.

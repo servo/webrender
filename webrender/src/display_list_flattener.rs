@@ -932,7 +932,7 @@ impl<'a> DisplayListFlattener<'a> {
                     clip_and_scroll.spatial_node_index,
                     container,
                 );
-                self.register_chase_primitive(
+                self.register_chase_primitive_by_rect(
                     &info.rect,
                     &prim_instance,
                 );
@@ -1608,7 +1608,7 @@ impl<'a> DisplayListFlattener<'a> {
                             pending_primitive.clip_and_scroll.spatial_node_index,
                             pending_primitive.container,
                         );
-                        self.register_chase_primitive(
+                        self.register_chase_primitive_by_rect(
                             &pending_primitive.info.rect,
                             &prim_instance,
                         );
@@ -1624,7 +1624,7 @@ impl<'a> DisplayListFlattener<'a> {
     }
 
     #[cfg(debug_assertions)]
-    fn register_chase_primitive(
+    fn register_chase_primitive_by_rect(
         &mut self,
         rect: &LayoutRect,
         prim_instance: &PrimitiveInstance,
@@ -1636,7 +1636,7 @@ impl<'a> DisplayListFlattener<'a> {
     }
 
     #[cfg(not(debug_assertions))]
-    fn register_chase_primitive(
+    fn register_chase_primitive_by_rect(
         &mut self,
         _rect: &LayoutRect,
         _prim_instance: &PrimitiveInstance,
