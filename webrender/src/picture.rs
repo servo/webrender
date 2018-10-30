@@ -15,8 +15,8 @@ use frame_builder::{FrameBuildingContext, FrameBuildingState, PictureState, Pict
 use gpu_cache::{GpuCacheAddress, GpuCacheHandle};
 use gpu_types::{TransformPalette, TransformPaletteId, UvRectKind};
 use plane_split::{Clipper, Polygon, Splitter};
-use prim_store::{PictureIndex, PrimitiveInstance, SpaceMapper, PrimitiveDetails, VisibleFace};
-use prim_store::{Primitive, get_raster_rects, BrushKind, BrushPrimitive, PrimitiveDataInterner};
+use prim_store::{PictureIndex, PrimitiveInstance, SpaceMapper, VisibleFace, PrimitiveInstanceKind};
+use prim_store::{get_raster_rects, PrimitiveDataInterner};
 use render_task::{ClearMode, RenderTask, RenderTaskCacheEntryHandle};
 use render_task::{RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskId, RenderTaskLocation};
 use scene::{FilterOpHelpers, SceneProperties};
@@ -385,7 +385,6 @@ impl PrimitiveList {
     /// significantly faster.
     pub fn new(
         mut prim_instances: Vec<PrimitiveInstance>,
-        primitives: &[Primitive],
         prim_interner: &PrimitiveDataInterner,
     ) -> Self {
         let mut pictures = SmallVec::new();
@@ -396,12 +395,10 @@ impl PrimitiveList {
         // Walk the list of primitive instances and extract any that
         // are pictures.
         for prim_instance in &mut prim_instances {
-            let prim = &primitives[prim_instance.prim_index.0];
-
             // Check if this primitive is a picture. In future we should
             // remove this match and embed this info directly in the primitive instance.
-            let is_pic = match prim.details {
-                PrimitiveDetails::Brush(BrushPrimitive { kind: BrushKind::Picture { pic_index }, .. }) => {
+            let is_pic = match prim_instance.kind {
+                PrimitiveInstanceKind::Picture { pic_index } => {
                     pictures.push(pic_index);
                     true
                 }
@@ -509,6 +506,13 @@ pub struct PicturePrimitive {
     /// The spatial node index of this picture when it is
     /// composited into the parent picture.
     spatial_node_index: SpatialNodeIndex,
+
+    /// The local rect of this picture. It is built
+    /// dynamically during the first picture traversal.
+    pub local_rect: LayoutRect,
+
+    /// Local clip rect for this picture.
+    pub local_clip_rect: LayoutRect,
 }
 
 impl PicturePrimitive {
@@ -547,6 +551,7 @@ impl PicturePrimitive {
         requested_raster_space: RasterSpace,
         prim_list: PrimitiveList,
         spatial_node_index: SpatialNodeIndex,
+        local_clip_rect: LayoutRect,
     ) -> Self {
         PicturePrimitive {
             prim_list,
@@ -562,6 +567,8 @@ impl PicturePrimitive {
             id,
             requested_raster_space,
             spatial_node_index,
+            local_rect: LayoutRect::zero(),
+            local_clip_rect,
         }
     }
 
@@ -681,7 +688,7 @@ impl PicturePrimitive {
         context: PictureContext,
         state: PictureState,
         frame_state: &mut FrameBuildingState,
-    ) -> (LayoutRect, Option<ClipNodeCollector>) {
+    ) -> (bool, Option<ClipNodeCollector>) {
         self.prim_list = prim_list;
         self.state = Some((state, context));
 
@@ -689,11 +696,13 @@ impl PicturePrimitive {
             Some(ref raster_config) => {
                 let local_rect = frame_state.surfaces[raster_config.surface_index.0].rect;
                 let local_rect = LayoutRect::from_untyped(&local_rect.to_untyped());
+                let local_rect_changed = local_rect != self.local_rect;
+                self.local_rect = local_rect;
 
-                (local_rect, Some(frame_state.clip_store.pop_surface()))
+                (local_rect_changed, Some(frame_state.clip_store.pop_surface()))
             }
             None => {
-                (LayoutRect::zero(), None)
+                (false, None)
             }
         }
     }

@@ -195,7 +195,7 @@ impl FrameBuilder {
     ) -> Option<RenderTaskId> {
         profile_scope!("cull");
 
-        if self.prim_store.primitives.is_empty() {
+        if self.prim_store.pictures.is_empty() {
             return None
         }
 
