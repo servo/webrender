@@ -55,7 +55,8 @@ impl Example for App {
                 RasterSpace::Screen,
             );
             // set the scrolling clip
-            let scroll_id = builder.define_scroll_frame(
+            let (scroll_id, clip_id) = builder.define_scroll_frame(
+                ClipParent::Inherit,
                 None,
                 (0, 0).by(1000, 1000),
                 scrollbox,
@@ -64,6 +65,7 @@ impl Example for App {
                 ScrollSensitivity::ScriptAndInputEvents,
             );
             builder.push_spatial_id(scroll_id);
+            builder.push_clip_id(clip_id);
 
             // now put some content into it.
             // start with a white background
@@ -86,7 +88,8 @@ impl Example for App {
             // Below the above rectangles, set up a nested scrollbox. It's still in
             // the same stacking context, so note that the rects passed in need to
             // be relative to the stacking context.
-            let nested_scroll_id = builder.define_scroll_frame(
+            let (nested_scroll_id, nested_clip_id) = builder.define_scroll_frame(
+                ClipParent::Inherit,
                 None,
                 (0, 100).to(300, 1000),
                 (0, 100).to(200, 300),
@@ -95,6 +98,7 @@ impl Example for App {
                 ScrollSensitivity::ScriptAndInputEvents,
             );
             builder.push_spatial_id(nested_scroll_id);
+            builder.push_clip_id(nested_clip_id);
 
             // give it a giant gray background just to distinguish it and to easily
             // visually identify the nested scrollbox
@@ -133,8 +137,10 @@ impl Example for App {
             builder.push_rect(&info, ColorF::new(0.0, 1.0, 1.0, 1.0));
 
             builder.pop_spatial_id(); // nested_scroll_id
+            builder.pop_clip_id();
 
             builder.pop_spatial_id(); // scroll_id
+            builder.pop_clip_id();
             builder.pop_stacking_context();
         }
 

@@ -194,7 +194,7 @@ fn write_reference_frame(
         matrix4d_node(parent, "perspective", &perspective);
     }
 
-    usize_node(parent, "id", clip_id_mapper.add_id(reference_frame.id));
+    usize_node(parent, "id", clip_id_mapper.add_spatial_id(reference_frame.id));
 }
 
 fn write_stacking_context(
@@ -217,7 +217,7 @@ fn write_stacking_context(
     str_node(parent, "raster-space", &raster_space);
 
     if let Some(clip_node_id) = sc.clip_node_id {
-        yaml_node(parent, "clip-node", clip_id_mapper.map_id(&clip_node_id));
+        yaml_node(parent, "clip-node", clip_id_mapper.map_clip_id(&clip_node_id));
     }
 
     // mix_blend_mode
@@ -1036,7 +1036,7 @@ impl YamlFrameWriter {
                 }
                 Clip(item) => {
                     str_node(&mut v, "type", "clip");
-                    usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
+                    usize_node(&mut v, "id", clip_id_mapper.add_clip_id(item.id));
 
                     let (complex_clips, complex_clip_count) = base.complex_clip();
                     if let Some(complex) = self.make_complex_clips_node(
@@ -1055,21 +1055,21 @@ impl YamlFrameWriter {
                     str_node(&mut v, "type", "clip-chain");
 
                     let id = ClipId::ClipChain(item.id);
-                    u32_node(&mut v, "id", clip_id_mapper.add_id(id) as u32);
+                    u32_node(&mut v, "id", clip_id_mapper.add_clip_id(id) as u32);
 
                     let clip_ids = display_list.get(base.clip_chain_items()).map(|clip_id| {
-                        clip_id_mapper.map_id(&clip_id)
+                        clip_id_mapper.map_clip_id(&clip_id)
                     }).collect();
                     yaml_node(&mut v, "clips", Yaml::Array(clip_ids));
 
                     if let Some(parent) = item.parent {
                         let parent = ClipId::ClipChain(parent);
-                        yaml_node(&mut v, "parent", clip_id_mapper.map_id(&parent));
+                        yaml_node(&mut v, "parent", clip_id_mapper.map_clip_id(&parent));
                     }
                 }
                 ScrollFrame(item) => {
                     str_node(&mut v, "type", "scroll-frame");
-                    usize_node(&mut v, "id", clip_id_mapper.add_id(item.scroll_frame_id));
+                    usize_node(&mut v, "id", clip_id_mapper.add_spatial_id(item.scroll_frame_id));
                     size_node(&mut v, "content-size", &base.rect().size);
                     rect_node(&mut v, "bounds", &base.clip_rect());
 
@@ -1088,7 +1088,7 @@ impl YamlFrameWriter {
                 }
                 StickyFrame(item) => {
                     str_node(&mut v, "type", "sticky-frame");
-                    usize_node(&mut v, "id", clip_id_mapper.add_id(item.id));
+                    usize_node(&mut v, "id", clip_id_mapper.add_spatial_id(item.id));
                     rect_node(&mut v, "bounds", &base.clip_rect());
 
                     if let Some(margin) = item.margins.top {
@@ -1214,43 +1214,61 @@ impl webrender::ApiRecordingReceiver for YamlFrameWriterReceiver {
 }
 
 /// This structure allows mapping both `Clip` and `ClipExternalId`
-/// `ClipIds` onto one set of numeric ids. This prevents ids
-/// from clashing in the yaml output.
+/// `ClipIds` onto one set of numeric ids. It also handles `SpatialId`
+/// in a separate map. This prevents ids from clashing in the yaml output.
 struct ClipIdMapper {
-    hash_map: HashMap<ClipId, usize>,
+    clip_map: HashMap<ClipId, usize>,
+    spatial_map: HashMap<SpatialId, usize>,
     current_clip_id: usize,
+    current_spatial_id: usize,
 }
 
 impl ClipIdMapper {
-    fn new() -> ClipIdMapper {
+    fn new() -> Self {
         ClipIdMapper {
-            hash_map: HashMap::new(),
-            current_clip_id: 2,
+            clip_map: HashMap::new(),
+            spatial_map: HashMap::new(),
+            current_clip_id: 1, // see FIRST_CLIP_NODE_INDEX
+            current_spatial_id: 2, // see FIRST_SPATIAL_NODE_INDEX
         }
     }
 
-    fn add_id(&mut self, id: ClipId) -> usize {
-        self.hash_map.insert(id, self.current_clip_id);
+    fn add_clip_id(&mut self, id: ClipId) -> usize {
+        self.clip_map.insert(id, self.current_clip_id);
         self.current_clip_id += 1;
         self.current_clip_id - 1
     }
 
-    fn map_id(&self, id: &ClipId) -> Yaml {
+    fn add_spatial_id(&mut self, id: SpatialId) -> usize {
+        self.spatial_map.insert(id, self.current_spatial_id);
+        self.current_spatial_id += 1;
+        self.current_spatial_id - 1
+    }
+
+    fn map_spatial_id(&self, id: &SpatialId) -> Yaml {
         if id.is_root_reference_frame() {
             Yaml::String("root-reference-frame".to_owned())
         } else if id.is_root_scroll_node() {
             Yaml::String("root-scroll-node".to_owned())
         } else {
-            Yaml::Integer(*self.hash_map.get(id).unwrap() as i64)
+            Yaml::Integer(self.spatial_map[id] as i64)
+        }
+    }
+
+    fn map_clip_id(&self, id: &ClipId) -> Yaml {
+        if id.is_root() {
+            Yaml::String("root_clip".to_owned())
+        } else {
+            Yaml::Integer(self.clip_map[id] as i64)
         }
     }
 
     fn map_info(&self, info: &ClipAndScrollInfo) -> Yaml {
-        let scroll_node_yaml = self.map_id(&info.scroll_node_id);
+        let scroll_node_yaml = self.map_spatial_id(&info.scroll_node_id);
         match info.clip_node_id {
             Some(ref clip_node_id) => Yaml::Array(vec![
                 scroll_node_yaml,
-                self.map_id(&clip_node_id)
+                self.map_clip_id(&clip_node_id)
             ]),
             None => scroll_node_yaml,
         }

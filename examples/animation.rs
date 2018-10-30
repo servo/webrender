@@ -69,7 +69,7 @@ impl Example for App {
             radii: BorderRadius::uniform(50.0),
             mode: ClipMode::Clip,
         };
-        let clip_id = builder.define_clip(bounds, vec![complex_clip], None);
+        let clip_id = builder.define_clip(ClipParent::Inherit, bounds, vec![complex_clip], None);
         builder.push_clip_id(clip_id);
 
         // Fill it with a white rect
