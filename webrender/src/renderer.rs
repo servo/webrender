@@ -2655,31 +2655,34 @@ impl Renderer {
                 }
             }
 
+            let mut x = 0.0;
             if self.debug_flags.contains(DebugFlags::NEW_FRAME_INDICATOR) {
                 if let Some(debug_renderer) = self.debug.get_mut(&mut self.device) {
                     self.new_frame_indicator.changed();
                     self.new_frame_indicator.draw(
-                        0.0, 0.0,
+                        x, 0.0,
                         ColorU::new(0, 110, 220, 255),
                         debug_renderer,
                     );
+                    x += 160.0;
                 }
             }
 
             if self.debug_flags.contains(DebugFlags::NEW_SCENE_INDICATOR) {
                 if let Some(debug_renderer) = self.debug.get_mut(&mut self.device) {
                     self.new_scene_indicator.draw(
-                        160.0, 0.0,
+                        x, 0.0,
                         ColorU::new(0, 220, 110, 255),
                         debug_renderer,
                     );
+                    x += 160.0;
                 }
             }
 
             if self.debug_flags.contains(DebugFlags::SLOW_FRAME_INDICATOR) {
                 if let Some(debug_renderer) = self.debug.get_mut(&mut self.device) {
                     self.slow_frame_indicator.draw(
-                        320.0, 0.0,
+                        x, 0.0,
                         ColorU::new(220, 30, 10, 255),
                         debug_renderer,
                     );
