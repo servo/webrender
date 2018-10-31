@@ -146,6 +146,9 @@ void brush_vs(
 #ifdef WR_FEATURE_ALPHA_PASS
     vTileRepeat = repeat.xy;
 
+    float opacity = float(user_data.z) / 65535.0;
+    image_data.color *= opacity;
+
     switch (color_mode) {
         case COLOR_MODE_ALPHA:
         case COLOR_MODE_BITMAP:

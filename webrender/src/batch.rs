@@ -751,7 +751,7 @@ impl AlphaBatchBuilder {
                                         let prim_header_index = prim_headers.push(&prim_header, z_id, [
                                             ShaderColorMode::Image as i32,
                                             RasterizationSpace::Screen as i32,
-                                            0,
+                                            get_shader_opacity(1.0),
                                         ]);
 
                                         let instance = BrushInstance {
@@ -816,7 +816,7 @@ impl AlphaBatchBuilder {
                                         let content_prim_header_index = prim_headers.push(&prim_header, z_id_content, [
                                             ShaderColorMode::Image as i32,
                                             RasterizationSpace::Screen as i32,
-                                            0,
+                                            get_shader_opacity(1.0),
                                         ]);
 
                                         let shadow_rect = picture.local_rect.translate(&offset);
@@ -832,7 +832,7 @@ impl AlphaBatchBuilder {
                                         let shadow_prim_header_index = prim_headers.push(&shadow_prim_header, z_id_shadow, [
                                             ShaderColorMode::Alpha as i32,
                                             RasterizationSpace::Screen as i32,
-                                            0,
+                                            get_shader_opacity(1.0),
                                         ]);
 
                                         let shadow_instance = BrushInstance {
@@ -1003,7 +1003,7 @@ impl AlphaBatchBuilder {
                                 let prim_header_index = prim_headers.push(&prim_header, z_id, [
                                     ShaderColorMode::Image as i32,
                                     RasterizationSpace::Screen as i32,
-                                    0,
+                                    get_shader_opacity(1.0),
                                 ]);
 
                                 let instance = BrushInstance {
@@ -1093,13 +1093,14 @@ impl AlphaBatchBuilder {
                 match prim.details {
                     PrimitiveDetails::Brush(ref brush) => {
                         match brush.kind {
-                            BrushKind::Image { request, ref visible_tiles, .. } if !visible_tiles.is_empty() => {
+                            BrushKind::Image { request, ref opacity_binding, ref visible_tiles, .. } if !visible_tiles.is_empty() => {
                                 for tile in visible_tiles {
                                     if let Some((batch_kind, textures, user_data, uv_rect_address)) = get_image_tile_params(
                                             ctx.resource_cache,
                                             gpu_cache,
                                             deferred_resolves,
                                             request.with_tile(tile.tile_offset),
+                                            get_shader_opacity(opacity_binding.current),
                                     ) {
                                         let prim_cache_address = gpu_cache.get_address(&tile.handle);
                                         let prim_header = PrimitiveHeader {
@@ -1522,6 +1523,7 @@ fn get_image_tile_params(
     gpu_cache: &mut GpuCache,
     deferred_resolves: &mut Vec<DeferredResolve>,
     request: ImageRequest,
+    shader_opacity: i32,
 ) -> Option<(BrushBatchKind, BatchTextures, [i32; 3], GpuCacheAddress)> {
 
     let cache_item = resolve_image(
@@ -1541,7 +1543,7 @@ fn get_image_tile_params(
             [
                 ShaderColorMode::Image as i32,
                 RasterizationSpace::Local as i32,
-                0,
+                shader_opacity,
             ],
             gpu_cache.get_address(&cache_item.uv_rect_handle),
         ))
@@ -1609,7 +1611,7 @@ impl BrushPrimitive {
         prim_instance: &PrimitiveInstance,
     ) -> Option<BrushBatchParameters> {
         match self.kind {
-            BrushKind::Image { request, ref source, .. } => {
+            BrushKind::Image { request, ref source, ref opacity_binding, .. } => {
                 let cache_item = match *source {
                     ImageSource::Default => {
                         resolve_image(
@@ -1643,7 +1645,7 @@ impl BrushPrimitive {
                         [
                             ShaderColorMode::Image as i32,
                             RasterizationSpace::Local as i32,
-                            0,
+                            get_shader_opacity(opacity_binding.current),
                         ],
                         cache_item.uv_rect_handle.as_int(gpu_cache),
                     ))
@@ -1671,7 +1673,7 @@ impl BrushPrimitive {
                             [
                                 ShaderColorMode::Image as i32,
                                 RasterizationSpace::Local as i32,
-                                0,
+                                get_shader_opacity(1.0),
                             ],
                             cache_item.uv_rect_handle.as_int(gpu_cache),
                         ))
@@ -1701,18 +1703,18 @@ impl BrushPrimitive {
                             [
                                 ShaderColorMode::Image as i32,
                                 RasterizationSpace::Local as i32,
-                                0,
+                                get_shader_opacity(1.0),
                             ],
                             segment_data,
                         ))
                     }
                 }
             }
-            BrushKind::Solid { .. } => {
+            BrushKind::Solid { ref opacity_binding, .. } => {
                 Some(BrushBatchParameters::shared(
                     BrushBatchKind::Solid,
                     BatchTextures::no_texture(),
-                    [0; 3],
+                    [get_shader_opacity(opacity_binding.current), 0, 0],
                     0,
                 ))
             }
@@ -1720,7 +1722,7 @@ impl BrushPrimitive {
                 Some(BrushBatchParameters::shared(
                     BrushBatchKind::Solid,
                     BatchTextures::no_texture(),
-                    [0; 3],
+                    [get_shader_opacity(1.0), 0, 0],
                     0,
                 ))
             }
@@ -2142,4 +2144,8 @@ fn get_buffer_kind(texture: TextureSource) -> ImageBufferKind {
         }
         _ => ImageBufferKind::Texture2DArray,
     }
+}
+
+fn get_shader_opacity(opacity: f32) -> i32 {
+    (opacity * 65535.0).round() as i32
 }
