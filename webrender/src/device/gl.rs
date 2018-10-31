@@ -29,10 +29,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, ATOMIC_USIZE_INIT, Ordering};
 use std::thread;
 
+/// Sequence number for frames, as tracked by the device layer.
 #[derive(Debug, Copy, Clone, PartialEq, Ord, Eq, PartialOrd)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct FrameId(usize);
+pub struct GpuFrameId(usize);
 
 /// Tracks the total number of GPU bytes allocated across all WebRender instances.
 ///
@@ -58,17 +59,17 @@ fn record_gpu_free(num_bytes: usize) {
     assert!(old >= num_bytes, "Freeing {} bytes but only {} allocated", num_bytes, old);
 }
 
-impl FrameId {
+impl GpuFrameId {
     pub fn new(value: usize) -> Self {
-        FrameId(value)
+        GpuFrameId(value)
     }
 }
 
-impl Add<usize> for FrameId {
-    type Output = FrameId;
+impl Add<usize> for GpuFrameId {
+    type Output = GpuFrameId;
 
-    fn add(self, other: usize) -> FrameId {
-        FrameId(self.0 + other)
+    fn add(self, other: usize) -> GpuFrameId {
+        GpuFrameId(self.0 + other)
     }
 }
 
@@ -498,7 +499,7 @@ pub struct Texture {
     /// configurations). But that would complicate a lot of logic in this module,
     /// and FBOs are cheap enough to create.
     fbos_with_depth: Vec<FBOId>,
-    last_frame_used: FrameId,
+    last_frame_used: GpuFrameId,
 }
 
 impl Texture {
@@ -523,13 +524,13 @@ impl Texture {
         !self.fbos_with_depth.is_empty()
     }
 
-    pub fn used_in_frame(&self, frame_id: FrameId) -> bool {
+    pub fn used_in_frame(&self, frame_id: GpuFrameId) -> bool {
         self.last_frame_used == frame_id
     }
 
     /// Returns true if this texture was used within `threshold` frames of
     /// the current frame.
-    pub fn used_recently(&self, current_frame_id: FrameId, threshold: usize) -> bool {
+    pub fn used_recently(&self, current_frame_id: GpuFrameId, threshold: usize) -> bool {
         self.last_frame_used + threshold >= current_frame_id
     }
 
@@ -813,7 +814,7 @@ pub struct Device {
 
     // Frame counter. This is used to map between CPU
     // frames and GPU frames.
-    frame_id: FrameId,
+    frame_id: GpuFrameId,
 
     /// Whether glTexStorage* is supported. We prefer this over glTexImage*
     /// because it guarantees that mipmaps won't be generated (which they
@@ -970,7 +971,7 @@ impl Device {
             max_texture_size,
             renderer_name,
             cached_programs,
-            frame_id: FrameId(0),
+            frame_id: GpuFrameId(0),
             extensions,
             supports_texture_storage,
         }
@@ -1055,7 +1056,7 @@ impl Device {
         }
     }
 
-    pub fn begin_frame(&mut self) -> FrameId {
+    pub fn begin_frame(&mut self) -> GpuFrameId {
         debug_assert!(!self.inside_frame);
         self.inside_frame = true;
 
