@@ -85,6 +85,24 @@ impl DocumentView {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct FrameId(pub u32);
 
+impl FrameId {
+    /// Returns an invalid sentinel FrameId, which will always compare less than
+    /// any valid FrameId.
+    ///
+    /// FIXME(bholley): That last part isn't entirely true yet, but will be shortly.
+    pub fn invalid() -> Self {
+        FrameId(0)
+    }
+}
+
+impl ::std::ops::Add<u32> for FrameId {
+    type Output = FrameId;
+
+    fn add(self, other: u32) -> FrameId {
+        FrameId(self.0 + other)
+    }
+}
+
 // A collection of resources that are shared by clips, primitives
 // between display lists.
 #[cfg_attr(feature = "capture", derive(Serialize))]

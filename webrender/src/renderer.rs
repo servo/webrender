@@ -1557,7 +1557,7 @@ pub struct Renderer {
     #[cfg(feature = "debug_renderer")]
     gpu_cache_debug_chunks: Vec<GpuDebugChunk>,
 
-    gpu_cache_frame_id: FrameId,
+    gpu_cache_frame_id: ::render_backend::FrameId,
     gpu_cache_overflow: bool,
 
     pipeline_info: PipelineInfo,
@@ -2022,7 +2022,7 @@ impl Renderer {
             gpu_cache_texture,
             #[cfg(feature = "debug_renderer")]
             gpu_cache_debug_chunks: Vec::new(),
-            gpu_cache_frame_id: FrameId::new(0),
+            gpu_cache_frame_id: ::render_backend::FrameId::invalid(),
             gpu_cache_overflow: false,
             texture_cache_upload_pbo,
             texture_resolver,
@@ -2736,7 +2736,7 @@ impl Renderer {
         let gpu_cache_height = self.gpu_cache_texture.get_height();
         if gpu_cache_height != 0 && GPU_CACHE_RESIZE_TEST {
             self.pending_gpu_cache_updates.push(GpuCacheUpdateList {
-                frame_id: FrameId::new(0),
+                frame_id: ::render_backend::FrameId::invalid(),
                 height: gpu_cache_height,
                 blocks: vec![[1f32; 4].into()],
                 updates: Vec::new(),
@@ -3745,7 +3745,7 @@ impl Renderer {
             .expect("Found external image, but no handler set!");
 
         let mut list = GpuCacheUpdateList {
-            frame_id: FrameId::new(0),
+            frame_id: ::render_backend::FrameId::invalid(),
             height: self.gpu_cache_texture.get_height(),
             blocks: Vec::new(),
             updates: Vec::new(),
@@ -4708,7 +4708,7 @@ struct PlainTexture {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 struct PlainRenderer {
     gpu_cache: PlainTexture,
-    gpu_cache_frame_id: FrameId,
+    gpu_cache_frame_id: ::render_backend::FrameId,
     textures: FastHashMap<CacheTextureId, PlainTexture>,
     external_images: Vec<ExternalCaptureImage>
 }
