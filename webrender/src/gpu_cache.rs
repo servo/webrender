@@ -36,7 +36,7 @@ use std::os::raw::c_void;
 
 
 pub const GPU_CACHE_INITIAL_HEIGHT: u32 = 512;
-const FRAMES_BEFORE_EVICTION: u32 = 10;
+const FRAMES_BEFORE_EVICTION: usize = 10;
 const NEW_ROWS_PER_RESIZE: u32 = 512;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
