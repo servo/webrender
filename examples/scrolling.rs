@@ -56,7 +56,7 @@ impl Example for App {
             );
             // set the scrolling clip
             let (scroll_id, clip_id) = builder.define_scroll_frame(
-                ClipParent::Inherit,
+                ClipParent::FromStack,
                 None,
                 (0, 0).by(1000, 1000),
                 scrollbox,
@@ -89,7 +89,7 @@ impl Example for App {
             // the same stacking context, so note that the rects passed in need to
             // be relative to the stacking context.
             let (nested_scroll_id, nested_clip_id) = builder.define_scroll_frame(
-                ClipParent::Inherit,
+                ClipParent::FromStack,
                 None,
                 (0, 100).to(300, 1000),
                 (0, 100).to(200, 300),

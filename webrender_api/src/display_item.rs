@@ -20,28 +20,6 @@ pub const MAX_BLUR_RADIUS: f32 = 300.;
 // a list of values nearby that this item consumes. The traversal
 // iterator should handle finding these.
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct ClipAndScrollInfo {
-    pub scroll_node_id: SpatialId,
-    pub clip_node_id: Option<ClipId>,
-}
-
-impl ClipAndScrollInfo {
-    pub fn simple(scroll_node_id: SpatialId) -> Self {
-        ClipAndScrollInfo {
-            scroll_node_id,
-            clip_node_id: None,
-        }
-    }
-
-    pub fn new(scroll_node_id: SpatialId, clip_node_id: ClipId) -> Self {
-        ClipAndScrollInfo {
-            scroll_node_id,
-            clip_node_id: Some(clip_node_id),
-        }
-    }
-}
-
 /// A tag that can be used to identify items during hit testing. If the tag
 /// is missing then the item doesn't take part in hit testing at all. This
 /// is composed of two numbers. In Servo, the first is an identifier while the
@@ -56,7 +34,8 @@ pub type ItemTag = (u64, u16);
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 pub struct GenericDisplayItem<T> {
     pub item: T,
-    pub clip_and_scroll: ClipAndScrollInfo,
+    pub spatial_id: SpatialId,
+    pub clip_id: ClipId,
     pub info: LayoutPrimitiveInfo,
 }
 

@@ -438,7 +438,7 @@ impl YamlFrameReader {
                 (clip_id, scroll_id)
             }
             _ => {
-                println!("Unable to parse ClipAndScrollInfo {:?}", item);
+                println!("Unable to parse clip/scroll {:?}", item);
                 (None, None)
             }
         }
@@ -1386,7 +1386,7 @@ impl YamlFrameReader {
                 match item_type {
                     "clip" | "clip-chain" | "scroll-frame" => {},
                     _ => {
-                        let id = dl.define_clip(ClipParent::Inherit, clip_rect, vec![complex_clip], None);
+                        let id = dl.define_clip(ClipParent::FromStack, clip_rect, vec![complex_clip], None);
                         dl.push_clip_id(id);
                         pushed_clip = true;
                     }
@@ -1458,7 +1458,7 @@ impl YamlFrameReader {
         });
 
         let (real_id, clip_id) = dl.define_scroll_frame(
-            ClipParent::Inherit,
+            ClipParent::FromStack,
             external_id,
             content_rect,
             clip_rect,
@@ -1563,7 +1563,7 @@ impl YamlFrameReader {
         let complex_clips = self.to_complex_clip_regions(&yaml["complex"]);
         let image_mask = self.to_image_mask(&yaml["image-mask"], wrench);
 
-        let real_id = dl.define_clip(ClipParent::Inherit, clip_rect, complex_clips, image_mask);
+        let real_id = dl.define_clip(ClipParent::FromStack, clip_rect, complex_clips, image_mask);
         if let Some(numeric_id) = numeric_id {
             self.add_clip_id_mapping(numeric_id as u64, real_id);
         }

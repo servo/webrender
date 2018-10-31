@@ -14,7 +14,7 @@ use std::marker::PhantomData;
 use std::{io, mem, ptr, slice};
 use time::precise_time_ns;
 use {AlphaType, BorderDetails, BorderDisplayItem, BorderRadius, BoxShadowClipMode};
-use {BoxShadowDisplayItem, ClipAndScrollInfo, ClipChainId, ClipChainItem, ClipDisplayItem, ClipId};
+use {BoxShadowDisplayItem, ClipChainId, ClipChainItem, ClipDisplayItem, ClipId};
 use {ColorF, ComplexClipRegion, DisplayItem, ExtendMode, ExternalScrollId, FilterOp};
 use {FontInstanceKey, GlyphInstance, GlyphOptions, RasterSpace, Gradient, GradientBuilder};
 use {GradientDisplayItem, GradientStop, IframeDisplayItem, ImageDisplayItem, ImageKey, ImageMask};
@@ -65,8 +65,11 @@ impl<T> ItemRange<T> {
 
 #[derive(Clone, Debug)]
 pub enum ClipParent {
-    Inherit,
-    Custom(ClipAndScrollInfo),
+    FromStack,
+    Custom {
+        clip_id: ClipId,
+        spatial_id: SpatialId,
+    },
 }
 
 /// A display list.
@@ -223,8 +226,8 @@ impl<'a> BuiltDisplayListIter<'a> {
             cur_item: DisplayItem {
                 // Dummy data, will be overwritten by `next`
                 item: SpecificDisplayItem::PopStackingContext,
-                clip_and_scroll:
-                    ClipAndScrollInfo::simple(SpatialId::root_scroll_node(PipelineId::dummy())),
+                clip_id: ClipId::root(PipelineId::dummy()),
+                spatial_id: SpatialId::root_reference_frame(PipelineId::dummy()),
                 info: LayoutPrimitiveInfo::new(LayoutRect::zero()),
             },
             cur_stops: ItemRange::default(),
@@ -380,8 +383,12 @@ impl<'a, 'b> DisplayItemRef<'a, 'b> {
         &self.iter.cur_item.info.clip_rect
     }
 
-    pub fn clip_and_scroll(&self) -> ClipAndScrollInfo {
-        self.iter.cur_item.clip_and_scroll
+    pub fn clip_id(&self) -> ClipId {
+        self.iter.cur_item.clip_id
+    }
+
+    pub fn spatial_id(&self) -> SpatialId {
+        self.iter.cur_item.spatial_id
     }
 
     pub fn item(&self) -> &SpecificDisplayItem {
@@ -513,7 +520,8 @@ impl Serialize for BuiltDisplayList {
                     SpecificDisplayItem::PushShadow(v) => PushShadow(v),
                     SpecificDisplayItem::PopAllShadows => PopAllShadows,
                 },
-                clip_and_scroll: display_item.clip_and_scroll,
+                clip_id: display_item.clip_id,
+                spatial_id: display_item.spatial_id,
                 info: display_item.info,
             };
             seq.serialize_element(&serial_di)?
@@ -599,7 +607,8 @@ impl<'de> Deserialize<'de> for BuiltDisplayList {
                     PushShadow(specific_item) => SpecificDisplayItem::PushShadow(specific_item),
                     PopAllShadows => SpecificDisplayItem::PopAllShadows,
                 },
-                clip_and_scroll: complete.clip_and_scroll,
+                clip_id: complete.clip_id,
+                spatial_id: complete.spatial_id,
                 info: complete.info,
             };
             serialize_fast(&mut data, &item);
@@ -879,7 +888,9 @@ impl DisplayListBuilder {
         DisplayListBuilder {
             data: Vec::with_capacity(capacity),
             pipeline_id,
-            clip_stack: vec![],
+            clip_stack: vec![
+                ClipId::root(pipeline_id),
+            ],
             spatial_stack: vec![
                 SpatialId::root_scroll_node(pipeline_id),
             ],
@@ -967,14 +978,11 @@ impl DisplayListBuilder {
         index
     }
 
-    fn inherited_clip_and_scroll(&self) -> ClipAndScrollInfo {
-        ClipAndScrollInfo {
-            scroll_node_id: *self.spatial_stack.last().unwrap(),
-            clip_node_id: match self.clip_stack.last() {
-                Some(clip_id) if !clip_id.is_root() => Some(*clip_id),
-                _ => None,
-            },
-        }
+    fn inherited_clip_and_scroll(&self) -> (ClipId, SpatialId) {
+        (
+            *self.clip_stack.last().unwrap(),
+            *self.spatial_stack.last().unwrap(),
+        )
     }
 
     /// Add an item to the display list.
@@ -984,22 +992,24 @@ impl DisplayListBuilder {
     /// result in WebRender panicking or behaving in unexpected ways.
     #[inline]
     pub fn push_item(&mut self, item: SpecificDisplayItem, info: &LayoutPrimitiveInfo) {
-        let clip_and_scroll = self.inherited_clip_and_scroll();
-        self.push_item_with_clip_scroll_info(item, info, clip_and_scroll)
+        let (clip_id, spatial_id) = self.inherited_clip_and_scroll();
+        self.push_item_with_clip_scroll_info(item, info, clip_id, spatial_id)
     }
 
     fn push_item_with_clip_scroll_info(
         &mut self,
         item: SpecificDisplayItem,
         info: &LayoutPrimitiveInfo,
-        clip_and_scroll: ClipAndScrollInfo,
+        clip_id: ClipId,
+        spatial_id: SpatialId,
     ) {
         self.prim_count_estimate += 1;
         serialize_fast(
             &mut self.data,
             &DisplayItem {
                 item,
-                clip_and_scroll,
+                clip_id,
+                spatial_id,
                 info: *info,
             },
         )
@@ -1355,15 +1365,16 @@ impl DisplayListBuilder {
             scroll_sensitivity,
         });
 
-        let parent_clip_scroll_info = match parent {
-            ClipParent::Inherit => self.inherited_clip_and_scroll(),
-            ClipParent::Custom(cs_info) => cs_info,
+        let (parent_clip_id, parent_spatial_id) = match parent {
+            ClipParent::FromStack => self.inherited_clip_and_scroll(),
+            ClipParent::Custom { clip_id, spatial_id } => (clip_id, spatial_id),
         };
 
         self.push_item_with_clip_scroll_info(
             item,
             &LayoutPrimitiveInfo::with_clip_rect(content_rect, clip_rect),
-            parent_clip_scroll_info,
+            parent_clip_id,
+            parent_spatial_id,
         );
         self.push_iter(complex_clips);
 
@@ -1403,12 +1414,17 @@ impl DisplayListBuilder {
         });
 
         let info = LayoutPrimitiveInfo::new(clip_rect);
-        let parent_clip_scroll_info = match parent {
-            ClipParent::Inherit => self.inherited_clip_and_scroll(),
-            ClipParent::Custom(cs_info) => cs_info,
+        let (parent_clip_id, parent_spatial_id) = match parent {
+            ClipParent::FromStack => self.inherited_clip_and_scroll(),
+            ClipParent::Custom { clip_id, spatial_id } => (clip_id, spatial_id),
         };
 
-        self.push_item_with_clip_scroll_info(item, &info, parent_clip_scroll_info);
+        self.push_item_with_clip_scroll_info(
+            item,
+            &info,
+            parent_clip_id,
+            parent_spatial_id,
+        );
         self.push_iter(complex_clips);
         id
     }

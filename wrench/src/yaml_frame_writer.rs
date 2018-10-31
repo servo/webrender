@@ -739,7 +739,8 @@ impl YamlFrameWriter {
                 );
             }
 
-            yaml_node(&mut v, "clip-and-scroll", clip_id_mapper.map_info(&base.clip_and_scroll()));
+            let clip_id = if base.clip_id().is_root() { None } else { Some(base.clip_id()) };
+            yaml_node(&mut v, "clip-and-scroll", clip_id_mapper.map_clip_and_scroll_ids(clip_id, base.spatial_id()));
             bool_node(&mut v, "backface-visible", base.is_backface_visible());
 
             match *base.item() {
@@ -1263,9 +1264,9 @@ impl ClipIdMapper {
         }
     }
 
-    fn map_info(&self, info: &ClipAndScrollInfo) -> Yaml {
-        let scroll_node_yaml = self.map_spatial_id(&info.scroll_node_id);
-        match info.clip_node_id {
+    fn map_clip_and_scroll_ids(&self, clip_id: Option<ClipId>, spatial_id: SpatialId) -> Yaml {
+        let scroll_node_yaml = self.map_spatial_id(&spatial_id);
+        match clip_id {
             Some(ref clip_node_id) => Yaml::Array(vec![
                 scroll_node_yaml,
                 self.map_clip_id(&clip_node_id)

@@ -142,7 +142,7 @@ impl Rectangle {
             api::BorderRadius::uniform(20.),
             api::ClipMode::Clip
         );
-        let clip_id = builder.define_clip(api::ClipParent::Inherit, rect, vec![region], None);
+        let clip_id = builder.define_clip(api::ClipParent::FromStack, rect, vec![region], None);
         builder.push_clip_id(clip_id);
 
         builder.push_rect(&api::PrimitiveInfo::new(rect), self.color);
