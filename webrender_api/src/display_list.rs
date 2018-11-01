@@ -1355,6 +1355,11 @@ impl DisplayListBuilder {
         I: IntoIterator<Item = ComplexClipRegion>,
         I::IntoIter: ExactSizeIterator + Clone,
     {
+        let (parent_clip_id, parent_spatial_id) = match parent {
+            ClipParent::FromStack => self.inherited_clip_and_scroll(),
+            ClipParent::Custom { clip_id, spatial_id } => (clip_id, spatial_id),
+        };
+
         let clip_id = self.generate_clip_index();
         let scroll_frame_id = self.generate_spatial_index();
         let item = SpecificDisplayItem::ScrollFrame(ScrollFrameDisplayItem {
@@ -1364,11 +1369,6 @@ impl DisplayListBuilder {
             image_mask,
             scroll_sensitivity,
         });
-
-        let (parent_clip_id, parent_spatial_id) = match parent {
-            ClipParent::FromStack => self.inherited_clip_and_scroll(),
-            ClipParent::Custom { clip_id, spatial_id } => (clip_id, spatial_id),
-        };
 
         self.push_item_with_clip_scroll_info(
             item,
@@ -1407,17 +1407,17 @@ impl DisplayListBuilder {
         I: IntoIterator<Item = ComplexClipRegion>,
         I::IntoIter: ExactSizeIterator + Clone,
     {
-        let id = self.generate_clip_index();
-        let item = SpecificDisplayItem::Clip(ClipDisplayItem {
-            id,
-            image_mask,
-        });
-
         let info = LayoutPrimitiveInfo::new(clip_rect);
         let (parent_clip_id, parent_spatial_id) = match parent {
             ClipParent::FromStack => self.inherited_clip_and_scroll(),
             ClipParent::Custom { clip_id, spatial_id } => (clip_id, spatial_id),
         };
+
+        let id = self.generate_clip_index();
+        let item = SpecificDisplayItem::Clip(ClipDisplayItem {
+            id,
+            image_mask,
+        });
 
         self.push_item_with_clip_scroll_info(
             item,
@@ -1481,13 +1481,15 @@ impl DisplayListBuilder {
         info: &LayoutPrimitiveInfo,
         pipeline_id: PipelineId,
         ignore_missing_pipeline: bool
-    ) {
+    ) -> ClipId {
+        let id = self.generate_clip_index();
         let item = SpecificDisplayItem::Iframe(IframeDisplayItem {
-            clip_id: self.generate_clip_index(),
+            clip_id: id,
             pipeline_id,
             ignore_missing_pipeline,
         });
         self.push_item(item, info);
+        id
     }
 
     pub fn push_shadow(&mut self, info: &LayoutPrimitiveInfo, shadow: Shadow) {
@@ -1502,7 +1504,6 @@ impl DisplayListBuilder {
         assert!(self.save_state.is_none(), "Finalized DisplayListBuilder with a pending save");
 
         let end_time = precise_time_ns();
-
 
         (
             self.pipeline_id,
