@@ -260,6 +260,23 @@ impl SharedTextures {
     }
 }
 
+/// General-purpose manager for images in GPU memory. This includes images,
+/// rasterized glyphs, rasterized blobs, cached render tasks, etc.
+///
+/// The texture cache is owned and managed by the RenderBackend thread, and
+/// produces a series of commands to manipulate the textures on the Renderer
+/// thread. These commands are executed before any rendering is performed for
+/// a given frame.
+///
+/// Entries in the texture cache are not guaranteed to live past the end of the
+/// frame in which they are requested, and may be evicted. The API supports
+/// querying whether an entry is still available.
+///
+/// The TextureCache is different from the GpuCache in that the former stores
+/// images, whereas the latter stores data and parameters for use in the shaders.
+/// This means that the texture cache can be visualized, which is a good way to
+/// understand how it works. Enabling gfx.webrender.debug.texture-cache shows a
+/// live view of its contents in Firefox.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 pub struct TextureCache {
@@ -711,6 +728,7 @@ impl TextureCache {
 
         // Lazy initialize this texture array if required.
         if texture_array.texture_id.is_none() {
+            assert!(texture_array.regions.is_empty());
             let texture_id = self.next_id;
             self.next_id.0 += 1;
 
@@ -719,10 +737,12 @@ impl TextureCache {
                 height: TEXTURE_REGION_DIMENSIONS,
                 format: descriptor.format,
                 filter: texture_array.filter,
-                layer_count: texture_array.layer_count as i32,
+                layer_count: 1,
             };
             self.pending_updates.push_alloc(texture_id, info);
+
             texture_array.texture_id = Some(texture_id);
+            texture_array.regions.push(TextureRegion::new(0));
         }
 
         // Do the allocation. This can fail and return None
@@ -788,6 +808,7 @@ impl TextureCache {
 
         // If it's allowed in the cache, see if there is a spot for it.
         if allowed_in_shared_cache {
+
             new_cache_entry = self.allocate_from_shared_cache(
                 &descriptor,
                 filter,
@@ -795,10 +816,36 @@ impl TextureCache {
                 uv_rect_kind,
             );
 
-            // If we failed to allocate in the shared cache, run an
-            // eviction cycle, and then try to allocate again.
+            // If we failed to allocate in the shared cache, make some space
+            // and then try to allocate again. If we still have room to grow
+            // the cache, we do that. Otherwise, we evict.
+            //
+            // We should improve this logic to support some degree of eviction
+            // before the cache fills up eintirely.
             if new_cache_entry.is_none() {
-                self.expire_old_shared_entries(&descriptor);
+                let reallocated = {
+                    let texture_array = self.shared_textures.select(descriptor.format, filter);
+                    let num_regions = texture_array.regions.len();
+                    if num_regions < texture_array.max_layer_count {
+                        // We have room to grow.
+                        let info = TextureCacheAllocInfo {
+                            width: TEXTURE_REGION_DIMENSIONS,
+                            height: TEXTURE_REGION_DIMENSIONS,
+                            format: descriptor.format,
+                            filter: texture_array.filter,
+                            layer_count: (num_regions + 1) as i32,
+                        };
+                        self.pending_updates.push_realloc(texture_array.texture_id.unwrap(), info);
+                        texture_array.regions.push(TextureRegion::new(num_regions));
+                        true
+                    } else {
+                        false
+                    }
+                };
+                if !reallocated {
+                    // Out of room. Evict.
+                    self.expire_old_shared_entries(&descriptor);
+                }
 
                 new_cache_entry = self.allocate_from_shared_cache(
                     &descriptor,
@@ -1021,9 +1068,8 @@ impl TextureRegion {
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 struct TextureArray {
     filter: TextureFilter,
-    layer_count: usize,
+    max_layer_count: usize,
     format: ImageFormat,
-    is_allocated: bool,
     regions: Vec<TextureRegion>,
     texture_id: Option<CacheTextureId>,
 }
@@ -1032,20 +1078,18 @@ impl TextureArray {
     fn new(
         format: ImageFormat,
         filter: TextureFilter,
-        layer_count: usize,
+        max_layer_count: usize,
     ) -> Self {
         TextureArray {
             format,
             filter,
-            layer_count,
-            is_allocated: false,
+            max_layer_count,
             regions: Vec::new(),
             texture_id: None,
         }
     }
 
     fn clear(&mut self, updates: &mut TextureUpdateList) {
-        self.is_allocated = false;
         self.regions.clear();
         if let Some(id) = self.texture_id.take() {
             updates.push_free(id);
@@ -1053,10 +1097,11 @@ impl TextureArray {
     }
 
     fn update_profile(&self, counter: &mut ResourceProfileCounter) {
-        if self.is_allocated {
-            let size = self.layer_count as u32 * TEXTURE_REGION_DIMENSIONS *
+        let layer_count = self.regions.len();
+        if layer_count != 0 {
+            let size = layer_count as u32 * TEXTURE_REGION_DIMENSIONS *
                 TEXTURE_REGION_DIMENSIONS * self.format.bytes_per_pixel();
-            counter.set(self.layer_count as usize, size as usize);
+            counter.set(layer_count as usize, size as usize);
         } else {
             counter.set(0, 0);
         }
@@ -1070,15 +1115,6 @@ impl TextureArray {
         frame_id: FrameId,
         uv_rect_kind: UvRectKind,
     ) -> Option<CacheEntry> {
-        // Lazily allocate the regions if not already created.
-        // This means that very rarely used image formats can be
-        // added but won't allocate a cache if never used.
-        if !self.is_allocated {
-            debug_assert!(self.regions.is_empty());
-            self.regions.extend((0..self.layer_count).map(TextureRegion::new));
-            self.is_allocated = true;
-        }
-
         // Quantize the size of the allocation to select a region to
         // allocate from.
         let slab_size = SlabSize::new(size);
