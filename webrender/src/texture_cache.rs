@@ -19,7 +19,7 @@ use std::cmp;
 use std::mem;
 use std::rc::Rc;
 
-// The size of each region (page) in a texture layer.
+/// The size of each region/layer in shared cache texture arrays.
 const TEXTURE_REGION_DIMENSIONS: u32 = 512;
 
 // Items in the texture cache can either be standalone textures,
@@ -33,9 +33,7 @@ enum EntryKind {
         // Origin within the texture layer where this item exists.
         origin: DeviceUintPoint,
         // The layer index of the texture array.
-        layer_index: u16,
-        // The region that this entry belongs to in the layer.
-        region_index: u16,
+        layer_index: usize,
     },
 }
 
@@ -240,38 +238,32 @@ impl TextureCache {
             array_a8_linear: TextureArray::new(
                 ImageFormat::R8,
                 TextureFilter::Linear,
-                1024,
-                1,
+                4,
             ),
             // Used for experimental hdr yuv texture support, but not used in
             // production Firefox.
             array_a16_linear: TextureArray::new(
                 ImageFormat::R16,
                 TextureFilter::Linear,
-                1024,
-                1,
+                4,
             ),
             // The primary cache for images, glyphs, etc.
             array_rgba8_linear: TextureArray::new(
                 ImageFormat::BGRA8,
                 TextureFilter::Linear,
-                2048,
-                4,
+                16 * 4,
             ),
             // Used for image-rendering: crisp. This is mostly favicons, which
             // are small. Some other images use it too, but those tend to be
             // larger than 512x512 and thus don't use the shared cache anyway.
             //
-            // Ideally we'd use 512 as the dimensions here, since we don't really
-            // need more. But once a page gets something of a given size bucket
-            // assigned to it, all further allocations need to be of that size.
-            // So using 1024 gives us 4 buckets instead of 1, which in practice
-            // is probably enough.
+            // Even though most of the buckets will be sparsely-used, we still
+            // need a few to account for different favicon sizes. 4 seems enough
+            // in practice, though we might also be able to get away with 2 or 3.
             array_rgba8_nearest: TextureArray::new(
                 ImageFormat::BGRA8,
                 TextureFilter::Nearest,
-                1024,
-                1,
+                4,
             ),
             next_id: CacheTextureId(1),
             pending_updates: TextureUpdateList::new(),
@@ -478,7 +470,7 @@ impl TextureCache {
     fn get_region_mut(&mut self,
         format: ImageFormat,
         filter: TextureFilter,
-        region_index: u16
+        layer_index: usize,
     ) -> &mut TextureRegion {
         let texture_array = match (format, filter) {
             (ImageFormat::R8, TextureFilter::Linear) => &mut self.array_a8_linear,
@@ -495,7 +487,7 @@ impl TextureCache {
             (ImageFormat::BGRA8, TextureFilter::Trilinear) => unreachable!(),
         };
 
-        &mut texture_array.regions[region_index as usize]
+        &mut texture_array.regions[layer_index]
     }
 
     // Check if a given texture handle has a valid allocation
@@ -699,14 +691,13 @@ impl TextureCache {
             }
             EntryKind::Cache {
                 origin,
-                region_index,
-                ..
+                layer_index,
             } => {
                 // Free the block in the given region.
                 let region = self.get_region_mut(
                     entry.format,
                     entry.filter,
-                    region_index
+                    layer_index,
                 );
                 region.free(origin);
                 Some(region)
@@ -746,8 +737,8 @@ impl TextureCache {
             let update_op = TextureUpdate {
                 id: texture_id,
                 op: TextureUpdateOp::Create {
-                    width: texture_array.dimensions,
-                    height: texture_array.dimensions,
+                    width: TEXTURE_REGION_DIMENSIONS,
+                    height: TEXTURE_REGION_DIMENSIONS,
                     format: descriptor.format,
                     filter: texture_array.filter,
                     // This needs to be a render target because some render
@@ -976,28 +967,25 @@ impl TextureLocation {
     }
 }
 
-// A region is a sub-rect of a texture array layer.
-// All allocations within a region are of the same size.
+/// A region corresponds to a layer in a shared cache texture.
+///
+/// All allocations within a region are of the same size.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 struct TextureRegion {
-    layer_index: i32,
-    region_size: u32,
+    layer_index: usize,
     slab_size: SlabSize,
     free_slots: Vec<TextureLocation>,
     total_slot_count: usize,
-    origin: DeviceUintPoint,
 }
 
 impl TextureRegion {
-    fn new(region_size: u32, layer_index: i32, origin: DeviceUintPoint) -> Self {
+    fn new(layer_index: usize) -> Self {
         TextureRegion {
             layer_index,
-            region_size,
             slab_size: SlabSize::invalid(),
             free_slots: Vec::new(),
             total_slot_count: 0,
-            origin,
         }
     }
 
@@ -1007,8 +995,8 @@ impl TextureRegion {
         debug_assert!(self.free_slots.is_empty());
 
         self.slab_size = slab_size;
-        let slots_per_x_axis = self.region_size / self.slab_size.width;
-        let slots_per_y_axis = self.region_size / self.slab_size.height;
+        let slots_per_x_axis = TEXTURE_REGION_DIMENSIONS / self.slab_size.width;
+        let slots_per_y_axis = TEXTURE_REGION_DIMENSIONS / self.slab_size.height;
 
         // Add each block to a freelist.
         for y in 0 .. slots_per_y_axis {
@@ -1038,16 +1026,16 @@ impl TextureRegion {
 
         self.free_slots.pop().map(|location| {
             DeviceUintPoint::new(
-                self.origin.x + self.slab_size.width * location.0 as u32,
-                self.origin.y + self.slab_size.height * location.1 as u32,
+                self.slab_size.width * location.0 as u32,
+                self.slab_size.height * location.1 as u32,
             )
         })
     }
 
     // Free a block in this region.
     fn free(&mut self, point: DeviceUintPoint) {
-        let x = (point.x - self.origin.x) / self.slab_size.width;
-        let y = (point.y - self.origin.y) / self.slab_size.height;
+        let x = point.x / self.slab_size.width;
+        let y = point.y / self.slab_size.height;
         self.free_slots.push(TextureLocation::new(x, y));
 
         // If this region is completely unused, deinit it
@@ -1059,14 +1047,12 @@ impl TextureRegion {
     }
 }
 
-// A texture array contains a number of texture layers, where
-// each layer contains one or more regions that can act
-// as slab allocators.
+/// A texture array contains a number of texture layers, where each layer
+/// contains a region that can act as a slab allocator.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 struct TextureArray {
     filter: TextureFilter,
-    dimensions: u32,
     layer_count: usize,
     format: ImageFormat,
     is_allocated: bool,
@@ -1078,13 +1064,11 @@ impl TextureArray {
     fn new(
         format: ImageFormat,
         filter: TextureFilter,
-        dimensions: u32,
         layer_count: usize,
     ) -> Self {
         TextureArray {
             format,
             filter,
-            dimensions,
             layer_count,
             is_allocated: false,
             regions: Vec::new(),
@@ -1100,8 +1084,8 @@ impl TextureArray {
 
     fn update_profile(&self, counter: &mut ResourceProfileCounter) {
         if self.is_allocated {
-            let size = self.layer_count as u32 * self.dimensions *
-                self.dimensions * self.format.bytes_per_pixel();
+            let size = self.layer_count as u32 * TEXTURE_REGION_DIMENSIONS *
+                TEXTURE_REGION_DIMENSIONS * self.format.bytes_per_pixel();
             counter.set(self.layer_count as usize, size as usize);
         } else {
             counter.set(0, 0);
@@ -1120,24 +1104,8 @@ impl TextureArray {
         // This means that very rarely used image formats can be
         // added but won't allocate a cache if never used.
         if !self.is_allocated {
-            debug_assert!(self.dimensions % TEXTURE_REGION_DIMENSIONS == 0);
-            let regions_per_axis = self.dimensions / TEXTURE_REGION_DIMENSIONS;
-            for layer_index in 0 .. self.layer_count {
-                for y in 0 .. regions_per_axis {
-                    for x in 0 .. regions_per_axis {
-                        let origin = DeviceUintPoint::new(
-                            x * TEXTURE_REGION_DIMENSIONS,
-                            y * TEXTURE_REGION_DIMENSIONS,
-                        );
-                        let region = TextureRegion::new(
-                            TEXTURE_REGION_DIMENSIONS,
-                            layer_index as i32,
-                            origin
-                        );
-                        self.regions.push(region);
-                    }
-                }
-            }
+            debug_assert!(self.regions.is_empty());
+            self.regions.extend((0..self.layer_count).map(TextureRegion::new));
             self.is_allocated = true;
         }
 
@@ -1164,8 +1132,7 @@ impl TextureArray {
             } else if region.slab_size == slab_size {
                 if let Some(location) = region.alloc() {
                     entry_kind = Some(EntryKind::Cache {
-                        layer_index: region.layer_index as u16,
-                        region_index: i as u16,
+                        layer_index: region.layer_index,
                         origin: location,
                     });
                     break;
@@ -1180,8 +1147,7 @@ impl TextureArray {
                 region.init(slab_size);
                 entry_kind = region.alloc().map(|location| {
                     EntryKind::Cache {
-                        layer_index: region.layer_index as u16,
-                        region_index: empty_region_index as u16,
+                        layer_index: region.layer_index,
                         origin: location,
                     }
                 });
