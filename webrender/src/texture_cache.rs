@@ -10,7 +10,7 @@ use freelist::{FreeList, FreeListHandle, UpsertResult, WeakFreeListHandle};
 use gpu_cache::{GpuCache, GpuCacheHandle};
 use gpu_types::{ImageSource, UvRectKind};
 use internal_types::{CacheTextureId, LayerIndex, TextureUpdateList, TextureUpdateSource};
-use internal_types::{RenderTargetInfo, TextureSource, TextureUpdate, TextureUpdateOp};
+use internal_types::{TextureSource, TextureCacheAllocInfo, TextureCacheUpdate};
 use profiler::{ResourceProfileCounter, TextureCacheProfileCounters};
 use render_backend::FrameId;
 use resource_cache::CacheItem;
@@ -205,8 +205,9 @@ pub struct TextureCache {
     // The next unused virtual texture ID. Monotonically increasing.
     next_id: CacheTextureId,
 
-    // A list of updates that need to be applied to the
-    // texture cache in the rendering thread this frame.
+    // A list of allocations and updates that need to be
+    // applied to the texture cache in the rendering thread
+    // this frame.
     #[cfg_attr(all(feature = "serde", any(feature = "capture", feature = "replay")), serde(skip))]
     pending_updates: TextureUpdateList,
 
@@ -299,33 +300,10 @@ impl TextureCache {
 
         assert!(self.entries.len() == 0);
 
-        if let Some(texture_id) = self.array_a8_linear.clear() {
-            self.pending_updates.push(TextureUpdate {
-                id: texture_id,
-                op: TextureUpdateOp::Free,
-            });
-        }
-
-        if let Some(texture_id) = self.array_a16_linear.clear() {
-            self.pending_updates.push(TextureUpdate {
-                id: texture_id,
-                op: TextureUpdateOp::Free,
-            });
-        }
-
-        if let Some(texture_id) = self.array_rgba8_linear.clear() {
-            self.pending_updates.push(TextureUpdate {
-                id: texture_id,
-                op: TextureUpdateOp::Free,
-            });
-        }
-
-        if let Some(texture_id) = self.array_rgba8_nearest.clear() {
-            self.pending_updates.push(TextureUpdate {
-                id: texture_id,
-                op: TextureUpdateOp::Free,
-            });
-        }
+        self.array_a8_linear.clear(&mut self.pending_updates);
+        self.array_a16_linear.clear(&mut self.pending_updates);
+        self.array_rgba8_linear.clear(&mut self.pending_updates);
+        self.array_rgba8_nearest.clear(&mut self.pending_updates);
     }
 
     pub fn begin_frame(&mut self, frame_id: FrameId) {
@@ -453,7 +431,7 @@ impl TextureCache {
                 } => (layer_index, origin),
             };
 
-            let op = TextureUpdate::new_update(
+            let op = TextureCacheUpdate::new_update(
                 data,
                 &descriptor,
                 origin,
@@ -462,7 +440,7 @@ impl TextureCache {
                 layer_index as i32,
                 dirty_rect,
             );
-            self.pending_updates.push(op);
+            self.pending_updates.push_update(op);
         }
     }
 
@@ -683,10 +661,7 @@ impl TextureCache {
         match entry.kind {
             EntryKind::Standalone { .. } => {
                 // This is a standalone texture allocation. Free it directly.
-                self.pending_updates.push(TextureUpdate {
-                    id: entry.texture_id,
-                    op: TextureUpdateOp::Free,
-                });
+                self.pending_updates.push_free(entry.texture_id);
                 None
             }
             EntryKind::Cache {
@@ -734,21 +709,14 @@ impl TextureCache {
             let texture_id = self.next_id;
             self.next_id.0 += 1;
 
-            let update_op = TextureUpdate {
-                id: texture_id,
-                op: TextureUpdateOp::Create {
-                    width: TEXTURE_REGION_DIMENSIONS,
-                    height: TEXTURE_REGION_DIMENSIONS,
-                    format: descriptor.format,
-                    filter: texture_array.filter,
-                    // This needs to be a render target because some render
-                    // tasks get rendered into the texture cache.
-                    render_target: Some(RenderTargetInfo { has_depth: false }),
-                    layer_count: texture_array.layer_count as i32,
-                },
+            let info = TextureCacheAllocInfo {
+                width: TEXTURE_REGION_DIMENSIONS,
+                height: TEXTURE_REGION_DIMENSIONS,
+                format: descriptor.format,
+                filter: texture_array.filter,
+                layer_count: texture_array.layer_count as i32,
             };
-            self.pending_updates.push(update_op);
-
+            self.pending_updates.push_alloc(texture_id, info);
             texture_array.texture_id = Some(texture_id);
         }
 
@@ -843,20 +811,15 @@ impl TextureCache {
             let texture_id = self.next_id;
             self.next_id.0 += 1;
 
-            // Create an update operation to allocate device storage
-            // of the right size / format.
-            let update_op = TextureUpdate {
-                id: texture_id,
-                op: TextureUpdateOp::Create {
-                    width: descriptor.size.width,
-                    height: descriptor.size.height,
-                    format: descriptor.format,
-                    filter,
-                    render_target: Some(RenderTargetInfo { has_depth: false }),
-                    layer_count: 1,
-                },
+            // Push a command to allocate device storage of the right size / format.
+            let info = TextureCacheAllocInfo {
+                width: descriptor.size.width,
+                height: descriptor.size.height,
+                format: descriptor.format,
+                filter,
+                layer_count: 1,
             };
-            self.pending_updates.push(update_op);
+            self.pending_updates.push_alloc(texture_id, info);
 
             new_cache_entry = Some(CacheEntry::new_standalone(
                 texture_id,
@@ -1076,10 +1039,12 @@ impl TextureArray {
         }
     }
 
-    fn clear(&mut self) -> Option<CacheTextureId> {
+    fn clear(&mut self, updates: &mut TextureUpdateList) {
         self.is_allocated = false;
         self.regions.clear();
-        self.texture_id.take()
+        if let Some(id) = self.texture_id.take() {
+            updates.push_free(id);
+        }
     }
 
     fn update_profile(&self, counter: &mut ResourceProfileCounter) {
@@ -1172,8 +1137,8 @@ impl TextureArray {
     }
 }
 
-impl TextureUpdate {
-    // Constructs a TextureUpdate operation to be passed to the
+impl TextureCacheUpdate {
+    // Constructs a TextureCacheUpdate operation to be passed to the
     // rendering thread in order to do an upload to the right
     // location in the texture cache.
     fn new_update(
@@ -1184,7 +1149,7 @@ impl TextureUpdate {
         texture_id: CacheTextureId,
         layer_index: i32,
         dirty_rect: Option<DeviceUintRect>,
-    ) -> TextureUpdate {
+    ) -> TextureCacheUpdate {
         let source = match data {
             ImageData::Blob(..) => {
                 panic!("The vector image should have been rasterized.");
@@ -1214,7 +1179,8 @@ impl TextureUpdate {
                 let stride = descriptor.compute_stride();
                 let offset = descriptor.offset + dirty.origin.y * stride + dirty.origin.x * descriptor.format.bytes_per_pixel();
 
-                TextureUpdateOp::Update {
+                TextureCacheUpdate {
+                    id: texture_id,
                     rect: DeviceUintRect::new(
                         DeviceUintPoint::new(origin.x + dirty.origin.x, origin.y + dirty.origin.y),
                         DeviceUintSize::new(
@@ -1229,7 +1195,8 @@ impl TextureUpdate {
                 }
             }
             None => {
-                TextureUpdateOp::Update {
+                TextureCacheUpdate {
+                    id: texture_id,
                     rect: DeviceUintRect::new(origin, size),
                     source,
                     stride: descriptor.stride,
@@ -1239,10 +1206,7 @@ impl TextureUpdate {
             }
         };
 
-        TextureUpdate {
-            id: texture_id,
-            op: update_op,
-        }
+        update_op
     }
 }
 
