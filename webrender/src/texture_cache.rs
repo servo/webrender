@@ -189,15 +189,82 @@ impl EvictionNotice {
     }
 }
 
+/// A set of lazily allocated, fixed size, texture arrays for each format the
+/// texture cache supports.
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
-pub struct TextureCache {
-    // A lazily allocated, fixed size, texture array for
-    // each format the texture cache supports.
+struct SharedTextures {
     array_rgba8_nearest: TextureArray,
     array_a8_linear: TextureArray,
     array_a16_linear: TextureArray,
     array_rgba8_linear: TextureArray,
+}
+
+impl SharedTextures {
+    /// Mints a new set of shared textures.
+    fn new() -> Self {
+        Self {
+            // Used primarily for cached shadow masks. There can be lots of
+            // these on some pages like francine, but most pages don't use it
+            // much.
+            array_a8_linear: TextureArray::new(
+                ImageFormat::R8,
+                TextureFilter::Linear,
+                4,
+            ),
+            // Used for experimental hdr yuv texture support, but not used in
+            // production Firefox.
+            array_a16_linear: TextureArray::new(
+                ImageFormat::R16,
+                TextureFilter::Linear,
+                4,
+            ),
+            // The primary cache for images, glyphs, etc.
+            array_rgba8_linear: TextureArray::new(
+                ImageFormat::BGRA8,
+                TextureFilter::Linear,
+                16 * 4,
+            ),
+            // Used for image-rendering: crisp. This is mostly favicons, which
+            // are small. Some other images use it too, but those tend to be
+            // larger than 512x512 and thus don't use the shared cache anyway.
+            //
+            // Even though most of the buckets will be sparsely-used, we still
+            // need a few to account for different favicon sizes. 4 seems enough
+            // in practice, though we might also be able to get away with 2 or 3.
+            array_rgba8_nearest: TextureArray::new(
+                ImageFormat::BGRA8,
+                TextureFilter::Nearest,
+                4,
+            ),
+        }
+    }
+
+    /// Clears each texture in the set, with the given set of pending updates.
+    fn clear(&mut self, updates: &mut TextureUpdateList) {
+        self.array_a8_linear.clear(updates);
+        self.array_a16_linear.clear(updates);
+        self.array_rgba8_linear.clear(updates);
+        self.array_rgba8_nearest.clear(updates);
+    }
+
+    /// Returns a mutable borrow for the shared texture array matching the parameters.
+    fn select(&mut self, format: ImageFormat, filter: TextureFilter) -> &mut TextureArray {
+        match (format, filter) {
+            (ImageFormat::R8, TextureFilter::Linear) => &mut self.array_a8_linear,
+            (ImageFormat::R16, TextureFilter::Linear) => &mut self.array_a16_linear,
+            (ImageFormat::BGRA8, TextureFilter::Linear) => &mut self.array_rgba8_linear,
+            (ImageFormat::BGRA8, TextureFilter::Nearest) => &mut self.array_rgba8_nearest,
+            (_, _) => unreachable!(),
+        }
+    }
+}
+
+#[cfg_attr(feature = "capture", derive(Serialize))]
+#[cfg_attr(feature = "replay", derive(Deserialize))]
+pub struct TextureCache {
+    /// Set of texture arrays in different formats used for the shared cache.
+    shared_textures: SharedTextures,
 
     // Maximum texture size supported by hardware.
     max_texture_size: u32,
@@ -232,40 +299,8 @@ pub struct TextureCache {
 impl TextureCache {
     pub fn new(max_texture_size: u32) -> Self {
         TextureCache {
+            shared_textures: SharedTextures::new(),
             max_texture_size,
-            // Used primarily for cached shadow masks. There can be lots of
-            // these on some pages like francine, but most pages don't use it
-            // much.
-            array_a8_linear: TextureArray::new(
-                ImageFormat::R8,
-                TextureFilter::Linear,
-                4,
-            ),
-            // Used for experimental hdr yuv texture support, but not used in
-            // production Firefox.
-            array_a16_linear: TextureArray::new(
-                ImageFormat::R16,
-                TextureFilter::Linear,
-                4,
-            ),
-            // The primary cache for images, glyphs, etc.
-            array_rgba8_linear: TextureArray::new(
-                ImageFormat::BGRA8,
-                TextureFilter::Linear,
-                16 * 4,
-            ),
-            // Used for image-rendering: crisp. This is mostly favicons, which
-            // are small. Some other images use it too, but those tend to be
-            // larger than 512x512 and thus don't use the shared cache anyway.
-            //
-            // Even though most of the buckets will be sparsely-used, we still
-            // need a few to account for different favicon sizes. 4 seems enough
-            // in practice, though we might also be able to get away with 2 or 3.
-            array_rgba8_nearest: TextureArray::new(
-                ImageFormat::BGRA8,
-                TextureFilter::Nearest,
-                4,
-            ),
             next_id: CacheTextureId(1),
             pending_updates: TextureUpdateList::new(),
             frame_id: FrameId::invalid(),
@@ -300,10 +335,7 @@ impl TextureCache {
 
         assert!(self.entries.len() == 0);
 
-        self.array_a8_linear.clear(&mut self.pending_updates);
-        self.array_a16_linear.clear(&mut self.pending_updates);
-        self.array_rgba8_linear.clear(&mut self.pending_updates);
-        self.array_rgba8_nearest.clear(&mut self.pending_updates);
+        self.shared_textures.clear(&mut self.pending_updates);
     }
 
     pub fn begin_frame(&mut self, frame_id: FrameId) {
@@ -313,13 +345,13 @@ impl TextureCache {
     pub fn end_frame(&mut self, texture_cache_profile: &mut TextureCacheProfileCounters) {
         self.expire_old_standalone_entries();
 
-        self.array_a8_linear
+        self.shared_textures.array_a8_linear
             .update_profile(&mut texture_cache_profile.pages_a8_linear);
-        self.array_a16_linear
+        self.shared_textures.array_a16_linear
             .update_profile(&mut texture_cache_profile.pages_a16_linear);
-        self.array_rgba8_linear
+        self.shared_textures.array_rgba8_linear
             .update_profile(&mut texture_cache_profile.pages_rgba8_linear);
-        self.array_rgba8_nearest
+        self.shared_textures.array_rgba8_nearest
             .update_profile(&mut texture_cache_profile.pages_rgba8_nearest);
     }
 
@@ -450,21 +482,7 @@ impl TextureCache {
         filter: TextureFilter,
         layer_index: usize,
     ) -> &mut TextureRegion {
-        let texture_array = match (format, filter) {
-            (ImageFormat::R8, TextureFilter::Linear) => &mut self.array_a8_linear,
-            (ImageFormat::R16, TextureFilter::Linear) => &mut self.array_a16_linear,
-            (ImageFormat::BGRA8, TextureFilter::Linear) => &mut self.array_rgba8_linear,
-            (ImageFormat::BGRA8, TextureFilter::Nearest) => &mut self.array_rgba8_nearest,
-            (ImageFormat::RGBAF32, _) |
-            (ImageFormat::RG8, _) |
-            (ImageFormat::RGBAI32, _) |
-            (ImageFormat::R8, TextureFilter::Nearest) |
-            (ImageFormat::R8, TextureFilter::Trilinear) |
-            (ImageFormat::R16, TextureFilter::Nearest) |
-            (ImageFormat::R16, TextureFilter::Trilinear) |
-            (ImageFormat::BGRA8, TextureFilter::Trilinear) => unreachable!(),
-        };
-
+        let texture_array = self.shared_textures.select(format, filter);
         &mut texture_array.regions[layer_index]
     }
 
@@ -688,21 +706,8 @@ impl TextureCache {
         user_data: [f32; 3],
         uv_rect_kind: UvRectKind,
     ) -> Option<CacheEntry> {
-        // Work out which cache it goes in, based on format.
-        let texture_array = match (descriptor.format, filter) {
-            (ImageFormat::R8, TextureFilter::Linear) => &mut self.array_a8_linear,
-            (ImageFormat::R16, TextureFilter::Linear) => &mut self.array_a16_linear,
-            (ImageFormat::BGRA8, TextureFilter::Linear) => &mut self.array_rgba8_linear,
-            (ImageFormat::BGRA8, TextureFilter::Nearest) => &mut self.array_rgba8_nearest,
-            (ImageFormat::RGBAF32, _) |
-            (ImageFormat::RGBAI32, _) |
-            (ImageFormat::R8, TextureFilter::Nearest) |
-            (ImageFormat::R8, TextureFilter::Trilinear) |
-            (ImageFormat::R16, TextureFilter::Nearest) |
-            (ImageFormat::R16, TextureFilter::Trilinear) |
-            (ImageFormat::BGRA8, TextureFilter::Trilinear) |
-            (ImageFormat::RG8, _) => unreachable!(),
-        };
+        // Mutably borrow the correct texture.
+        let texture_array = self.shared_textures.select(descriptor.format, filter);
 
         // Lazy initialize this texture array if required.
         if texture_array.texture_id.is_none() {
