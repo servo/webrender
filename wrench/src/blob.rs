@@ -8,8 +8,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use webrender::api::*;
-use webrender::intersect_for_tile;
-use euclid::size2;
 
 // Serialize/deserialize the blob.
 
@@ -38,7 +36,7 @@ fn render_blob(
     color: ColorU,
     descriptor: &BlobImageDescriptor,
     tile: Option<(TileSize, TileOffset)>,
-    dirty_rect: Option<DeviceIntRect>,
+    dirty_rect: &DirtyRect,
 ) -> BlobImageResult {
     // Allocate storage for the result. Right now the resource cache expects the
     // tiles to have have no stride or offset.
@@ -54,19 +52,28 @@ fn render_blob(
         None => true,
     };
 
-    let mut dirty_rect = dirty_rect.unwrap_or(DeviceIntRect::new(
+    let mut local_dirty_rect = dirty_rect.to_subrect_of(&DeviceIntRect::new(
         descriptor.offset.to_i32(),
         descriptor.size,
     ));
 
+    // We want the dirty rect local to the tile rather than the whole image.
     if let Some((tile_size, tile)) = tile {
-        dirty_rect = intersect_for_tile(dirty_rect, size2(tile_size as i32, tile_size as i32),
-                                        tile_size, tile)
-            .expect("empty rects should be culled by webrender");
+        // We can't translate by a negative size so do it manually.
+        //
+        // We check for emptiness here because empty rects may have zeroed out
+        // positions, in which case we will get a benign underflow that nonetheless
+        // causes a panic in debug builds.
+        if !local_dirty_rect.is_empty() {
+            local_dirty_rect.origin -= DeviceIntPoint::new(
+                tile.x * tile_size as i32,
+                tile.y * tile_size as i32,
+            ).to_vector();
+        }
     }
 
-    for y in dirty_rect.min_y() .. dirty_rect.max_y() {
-        for x in dirty_rect.min_x() .. dirty_rect.max_x() {
+    for y in local_dirty_rect.min_y() .. local_dirty_rect.max_y() {
+        for x in local_dirty_rect.min_x() .. local_dirty_rect.max_x() {
             // Apply the tile's offset. This is important: all drawing commands should be
             // translated by this offset to give correct results with tiled blob images.
             let x2 = x + descriptor.offset.x as i32;
@@ -103,7 +110,7 @@ fn render_blob(
 
     Ok(RasterizedBlobImage {
         data: Arc::new(texels),
-        rasterized_rect: dirty_rect,
+        rasterized_rect: local_dirty_rect,
     })
 }
 
@@ -139,7 +146,7 @@ impl BlobImageHandler for CheckerboardRenderer {
             .insert(key, (deserialize_blob(&cmds[..]).unwrap(), tile_size));
     }
 
-    fn update(&mut self, key: ImageKey, cmds: Arc<BlobImageData>, _dirty_rect: Option<DeviceIntRect>) {
+    fn update(&mut self, key: ImageKey, cmds: Arc<BlobImageData>, _dirty_rect: &DirtyRect) {
         // Here, updating is just replacing the current version of the commands with
         // the new one (no incremental updates).
         self.image_cmds.get_mut(&key).unwrap().0 = deserialize_blob(&cmds[..]).unwrap();
@@ -175,7 +182,7 @@ struct Command {
     color: ColorU,
     descriptor: BlobImageDescriptor,
     tile: Option<(TileSize, TileOffset)>,
-    dirty_rect: Option<DeviceIntRect>
+    dirty_rect: DirtyRect,
 }
 
 struct Rasterizer {
@@ -205,7 +212,7 @@ impl AsyncBlobImageRasterizer for Rasterizer {
         ).collect();
 
         requests.iter().map(|cmd| {
-            (cmd.request, render_blob(cmd.color, &cmd.descriptor, cmd.tile, cmd.dirty_rect))
+            (cmd.request, render_blob(cmd.color, &cmd.descriptor, cmd.tile, &cmd.dirty_rect))
         }).collect()
     }
 }

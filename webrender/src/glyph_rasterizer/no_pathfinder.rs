@@ -5,7 +5,7 @@
 //! Module only available when pathfinder is deactivated when webrender is
 //! compiled regularly (i.e. any configuration without feature = "pathfinder")
 
-use api::{ImageData, ImageDescriptor, ImageFormat};
+use api::{ImageData, ImageDescriptor, ImageFormat, DirtyRect};
 use device::TextureFilter;
 use euclid::size2;
 use gpu_types::UvRectKind;
@@ -184,7 +184,7 @@ impl GlyphRasterizer {
                             TextureFilter::Linear,
                             Some(ImageData::Raw(Arc::new(glyph.bytes))),
                             [glyph.left, -glyph.top, glyph.scale],
-                            None,
+                            DirtyRect::AllDirty,
                             gpu_cache,
                             Some(glyph_key_cache.eviction_notice()),
                             UvRectKind::Rect,

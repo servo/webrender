@@ -16,7 +16,7 @@ use {BuiltDisplayList, BuiltDisplayListDescriptor, ColorF, DeviceIntPoint, Devic
 use {DeviceIntSize, ExternalScrollId, FontInstanceKey, FontInstanceOptions};
 use {FontInstancePlatformOptions, FontKey, FontVariation, GlyphDimensions, GlyphIndex, ImageData};
 use {ImageDescriptor, ImageKey, ItemTag, LayoutPoint, LayoutSize, LayoutTransform, LayoutVector2D};
-use {NativeFontHandle, WorldPoint};
+use {NativeFontHandle, WorldPoint, DirtyRect};
 
 pub type TileSize = u16;
 /// Documents are rendered in the ascending order of their associated layer values.
@@ -321,13 +321,13 @@ impl Transaction {
         key: ImageKey,
         descriptor: ImageDescriptor,
         data: ImageData,
-        dirty_rect: Option<DeviceIntRect>,
+        dirty_rect: &DirtyRect,
     ) {
         self.resource_updates.push(ResourceUpdate::UpdateImage(UpdateImage {
             key,
             descriptor,
             data,
-            dirty_rect,
+            dirty_rect: *dirty_rect,
         }));
     }
 
@@ -464,7 +464,7 @@ pub struct UpdateImage {
     pub key: ImageKey,
     pub descriptor: ImageDescriptor,
     pub data: ImageData,
-    pub dirty_rect: Option<DeviceIntRect>,
+    pub dirty_rect: DirtyRect,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
