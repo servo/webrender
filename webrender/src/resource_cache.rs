@@ -196,21 +196,21 @@ pub fn intersect_for_tile(
 
 fn merge_dirty_rect(
     prev_dirty_rect: &Option<DeviceUintRect>,
-    dirty_rect: &Option<DeviceUintRect>,
-    descriptor: &ImageDescriptor,
+    dirty_rect: &DeviceUintRect,
+    dst_size: &DeviceUintSize,
 ) -> Option<DeviceUintRect> {
-    // It is important to never assume an empty dirty rect implies a full reupload here,
-    // although we are able to do so elsewhere. We store the descriptor's full rect instead
+    // It is important to never assume a dirty rect equal to None implies a full reupload here,
+    // although we are able to do so elsewhere. We store the image or tile's full rect instead
     // There are update sequences which could cause us to forget the correct dirty regions
     // regions if we cleared the dirty rect when we received None, e.g.:
     //      1) Update with no dirty rect. We want to reupload everything.
     //      2) Update with dirty rect B. We still want to reupload everything, not just B.
     //      3) Perform the upload some time later.
-    match (dirty_rect, prev_dirty_rect) {
-        (&Some(ref rect), &Some(ref prev_rect)) => Some(rect.union(&prev_rect)),
-        (&Some(ref rect), &None) => Some(*rect),
-        (&None, _) => Some(descriptor.full_rect()),
-    }
+    let full_rect = DeviceUintRect::from(*dst_size);
+    match *prev_dirty_rect {
+        Some(ref prev_rect) => dirty_rect.union(&prev_rect),
+        None => *dirty_rect,
+    }.intersection(&full_rect)
 }
 
 impl<K, V, U> ResourceClassCache<K, V, U>
@@ -754,6 +754,9 @@ impl ResourceCache {
         data: ImageData,
         dirty_rect: Option<DeviceUintRect>,
     ) {
+        let dirty_rect = dirty_rect.unwrap_or_else(|| {
+            descriptor.full_rect()
+        });
         let max_texture_size = self.max_texture_size();
         let image = match self.resources.image_templates.get_mut(image_key) {
             Some(res) => res,
@@ -769,24 +772,25 @@ impl ResourceCache {
         // updated independently.
         match self.cached_images.try_get_mut(&image_key) {
             Some(&mut ImageResult::UntiledAuto(ref mut entry)) => {
-                entry.dirty_rect = merge_dirty_rect(&entry.dirty_rect, &dirty_rect, &descriptor);
+                entry.dirty_rect = merge_dirty_rect(&entry.dirty_rect, &dirty_rect, &descriptor.size);
             }
             Some(&mut ImageResult::Multi(ref mut entries)) => {
+                let tile_size = tiling.unwrap();
                 for (key, entry) in entries.iter_mut() {
-                    let merged_rect = merge_dirty_rect(&entry.dirty_rect, &dirty_rect, &descriptor);
-
-                    entry.dirty_rect = match (key.tile, merged_rect) {
-                        (Some(tile), Some(rect)) => {
-                            let tile_size = image.tiling.unwrap();
-                            let clipped_tile_size = compute_tile_size(&descriptor, tile_size, tile);
-
-                            rect.intersection(&DeviceUintRect::new(
-                                DeviceUintPoint::new(tile.x as u32, tile.y as u32) * tile_size as u32,
-                                clipped_tile_size,
-                            ))
+                    let (local_dirty_rect, local_size) = match key.tile {
+                        Some(tile) => {
+                            let tile_offset = DeviceUintPoint::new(tile.x as u32, tile.y as u32) * tile_size as u32;
+                            let mut tile_dirty_rect = dirty_rect;
+                            tile_dirty_rect.origin -= tile_offset.to_vector();
+                            (tile_dirty_rect, compute_tile_size(&descriptor, tile_size, tile))
                         }
-                        _ => merged_rect,
+                        None => (dirty_rect, descriptor.size),
                     };
+                    entry.dirty_rect = merge_dirty_rect(
+                        &entry.dirty_rect,
+                        &local_dirty_rect,
+                        &local_size
+                    );
                 }
             }
             _ => {}
@@ -1524,22 +1528,11 @@ impl ResourceCache {
                 };
 
                 let mut descriptor = image_template.descriptor.clone();
-                let mut local_dirty_rect;
+                let mut dirty_rect = entry.dirty_rect.take();
 
                 if let Some(tile) = request.tile {
                     let tile_size = image_template.tiling.unwrap();
                     let clipped_tile_size = compute_tile_size(&descriptor, tile_size, tile);
-
-                    local_dirty_rect = if let Some(rect) = entry.dirty_rect.take() {
-                        // We should either have a dirty rect, or we are re-uploading where the dirty
-                        // rect is ignored anyway.
-                        let intersection = intersect_for_tile(rect, clipped_tile_size, tile_size, tile);
-                        debug_assert!(intersection.is_some() ||
-                                      self.texture_cache.needs_upload(&entry.texture_cache_handle));
-                        intersection
-                    } else {
-                        None
-                    };
 
                     // The tiled image could be stored on the CPU as one large image or be
                     // already broken up into tiles. This affects the way we compute the stride
@@ -1555,15 +1548,13 @@ impl ResourceCache {
                     }
 
                     descriptor.size = clipped_tile_size;
-                } else {
-                    local_dirty_rect = entry.dirty_rect.take();
                 }
 
                 // If we are uploading the dirty region of a blob image we might have several
                 // rects to upload so we use each of these rasterized rects rather than the
                 // overall dirty rect of the image.
                 if blob_rasterized_rect.is_some() {
-                    local_dirty_rect = blob_rasterized_rect;
+                    dirty_rect = blob_rasterized_rect;
                 }
 
                 let filter = match request.rendering {
@@ -1606,7 +1597,7 @@ impl ResourceCache {
                     filter,
                     Some(image_data),
                     [0.0; 3],
-                    local_dirty_rect,
+                    dirty_rect,
                     gpu_cache,
                     None,
                     UvRectKind::Rect,
