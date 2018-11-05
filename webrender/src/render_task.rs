@@ -4,7 +4,7 @@
 
 use api::{DeviceIntPoint, DeviceIntRect, DeviceIntSize, DeviceSize, DeviceIntSideOffsets};
 use api::{DevicePixelScale, ImageDescriptor, ImageFormat};
-use api::{LineStyle, LineOrientation, LayoutSize};
+use api::{LineStyle, LineOrientation, LayoutSize, DirtyRect};
 #[cfg(feature = "pathfinder")]
 use api::FontRenderMode;
 use border::{BorderCornerCacheKey, BorderEdgeCacheKey};
@@ -1236,7 +1236,7 @@ impl RenderTaskCache {
                     TextureFilter::Linear,
                     None,
                     entry.user_data.unwrap_or([0.0; 3]),
-                    None,
+                    DirtyRect::AllDirty,
                     gpu_cache,
                     None,
                     render_task.uv_rect_kind(),

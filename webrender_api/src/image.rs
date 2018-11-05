@@ -322,7 +322,7 @@ pub trait BlobImageHandler: Send {
     fn add(&mut self, key: ImageKey, data: Arc<BlobImageData>, tiling: Option<TileSize>);
 
     /// Update an already registered blob image.
-    fn update(&mut self, key: ImageKey, data: Arc<BlobImageData>, dirty_rect: Option<DeviceIntRect>);
+    fn update(&mut self, key: ImageKey, data: Arc<BlobImageData>, dirty_rect: &DirtyRect);
 
     /// Delete an already registered blob image.
     fn delete(&mut self, key: ImageKey);
@@ -365,7 +365,91 @@ pub struct BlobImageParams {
     /// the entire image when only a portion is updated.
     ///
     /// If set to None the entire image is rasterized.
-    pub dirty_rect: Option<DeviceIntRect>,
+    pub dirty_rect: DirtyRect,
+}
+
+/// The possible states of a Dirty rect.
+///
+/// This exists because people kept getting confused with `Option<Rect>`.
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub enum DirtyRect {
+    /// Everything is Dirty, equivalent to SomeDirty(image_bounds)
+    AllDirty,
+    /// Some specific amount is dirty
+    SomeDirty(DeviceIntRect)
+}
+
+impl DirtyRect {
+    /// Creates an empty DirtyRect (indicating nothing is invalid)
+    pub fn empty() -> Self {
+        DirtyRect::SomeDirty(DeviceIntRect::zero())
+    }
+
+    /// Returns whether the dirty rect is empty
+    pub fn is_empty(&self) -> bool {
+        use DirtyRect::*;
+
+        match self {
+            AllDirty => false,
+            SomeDirty(rect) => rect.is_empty(),
+        }
+    }
+
+    /// Replaces self with the empty rect and returns the old value.
+    pub fn replace_with_empty(&mut self) -> Self {
+        ::std::mem::replace(self, DirtyRect::empty())
+    }
+
+    /// Maps over the contents of SomeDirty.
+    pub fn map<F>(self, func: F) -> Self
+        where F: FnOnce(DeviceIntRect) -> DeviceIntRect,
+    {
+        use DirtyRect::*;
+
+        match self {
+            AllDirty        => AllDirty,
+            SomeDirty(rect) => SomeDirty(func(rect)),
+        }
+    }
+
+    /// Unions the dirty rects.
+    pub fn union(&self, other: &DirtyRect) -> DirtyRect {
+        use DirtyRect::*;
+
+        match (*self, *other) {
+            (AllDirty, _) | (_, AllDirty)        => AllDirty,
+            (SomeDirty(rect1), SomeDirty(rect2)) => SomeDirty(rect1.union(&rect2)),
+        }
+    }
+
+    /// Intersects the dirty rects.
+    pub fn intersection(&self, other: &DirtyRect) -> DirtyRect {
+        use DirtyRect::*;
+
+        match (*self, *other) {
+            (AllDirty, rect) | (rect, AllDirty)  => rect,
+            (SomeDirty(rect1), SomeDirty(rect2)) => SomeDirty(rect1.intersection(&rect2)
+                                                                   .unwrap_or(DeviceIntRect::zero()))
+        }
+    }
+
+    /// Converts the dirty rect into a subrect of the given one via intersection.
+    pub fn to_subrect_of(&self, rect: &DeviceIntRect) -> DeviceIntRect {
+        use DirtyRect::*;
+
+        match *self {
+            AllDirty              => *rect,
+            SomeDirty(dirty_rect) => dirty_rect.intersection(rect)
+                                               .unwrap_or(DeviceIntRect::zero()),
+        }
+    }
+}
+
+impl From<DeviceIntRect> for DirtyRect {
+    fn from(rect: DeviceIntRect) -> Self {
+        DirtyRect::SomeDirty(rect)
+    }
 }
 
 /// Backing store for blob image command streams.

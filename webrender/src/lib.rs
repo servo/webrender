@@ -202,4 +202,3 @@ pub use renderer::{RendererStats, SceneBuilderHooks, ThreadListener, ShaderPreca
 pub use renderer::MAX_VERTEX_TEXTURE_WIDTH;
 pub use shade::{Shaders, WrShaders};
 pub use webrender_api as api;
-pub use resource_cache::intersect_for_tile;
