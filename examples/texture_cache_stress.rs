@@ -243,7 +243,7 @@ impl Example for App {
                             image_key,
                             ImageDescriptor::new(size, size, ImageFormat::BGRA8, true, false),
                             ImageData::new(self.image_generator.take()),
-                            None,
+                            &DirtyRect::AllDirty,
                         );
                     },
                     winit::VirtualKeyCode::E => {

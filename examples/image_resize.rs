@@ -105,7 +105,7 @@ impl Example for App {
                     self.image_key,
                     ImageDescriptor::new(64, 64, ImageFormat::BGRA8, true, false),
                     ImageData::new(image_data),
-                    None,
+                    &DirtyRect::AllDirty,
                 );
                 let mut txn = Transaction::new();
                 txn.generate_frame();

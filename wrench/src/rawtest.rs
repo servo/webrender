@@ -414,7 +414,7 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
             ImageDescriptor::new(1510, 1510, ImageFormat::BGRA8, false, false),
             ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
-            Some(rect(10, 10, 100, 100)),
+            &rect(10, 10, 100, 100).into(),
         );
 
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
@@ -627,13 +627,13 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
             ImageDescriptor::new(500, 500, ImageFormat::BGRA8, false, false),
             ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
-            Some(rect(100, 100, 100, 100)),
+            &rect(100, 100, 100, 100).into(),
         );
         txn.update_image(
             blob_img2,
             ImageDescriptor::new(500, 500, ImageFormat::BGRA8, false, false),
             ImageData::new_blob_image(blob::serialize_blob(ColorU::new(59, 50, 150, 255))),
-            Some(rect(100, 100, 100, 100)),
+            &rect(100, 100, 100, 100).into(),
         );
 
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
@@ -648,7 +648,7 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
             ImageDescriptor::new(500, 500, ImageFormat::BGRA8, false, false),
             ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 150, 150, 255))),
-            Some(rect(200, 200, 100, 100)),
+            &rect(200, 200, 100, 100).into(),
         );
 
         let mut builder = DisplayListBuilder::new(self.wrench.root_pipeline_id, layout_size);
@@ -714,7 +714,7 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
             ImageDescriptor::new(500, 500, ImageFormat::BGRA8, false, false),
             ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 50, 150, 255))),
-            Some(rect(100, 100, 100, 100)),
+            &rect(100, 100, 100, 100).into(),
         );
 
         // make a new display list that refers to the first image
@@ -739,7 +739,7 @@ impl<'a> RawtestHarness<'a> {
             blob_img,
             ImageDescriptor::new(500, 500, ImageFormat::BGRA8, false, false),
             ImageData::new_blob_image(blob::serialize_blob(ColorU::new(50, 150, 150, 255))),
-            Some(rect(200, 200, 100, 100)),
+            &rect(200, 200, 100, 100).into(),
         );
 
         // make a new display list that refers to the first image
